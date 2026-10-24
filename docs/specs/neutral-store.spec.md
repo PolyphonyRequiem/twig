@@ -56,7 +56,23 @@ Scope, transport, configuration and identity-map failures are surfaced, not hidd
 | `twig show <id>` | yes | |
 | `twig show --batch` | yes | |
 | `twig show --tree` / `twig workspace --tree` | focused item, parent chain, children and descendants (human and machine formats, including the `--refresh` cached and revised views) | Hierarchy, sibling counts, `totalChildren`, links and sync keep reading the mirror items; only displayed node values are composed. |
+| `twig workspace` / status lists (human live and synced, `json`/`minimal`, `--all` sprint layout, flat/table, orphans) | displayed row values only | **Display, not selection** — see §2.1. |
+| `twig workspace --include-browser` (`json`) | **no — raw by contract** | The origin-bound browser document is observed evidence; local values must not masquerade as it. |
 | `twig show --include-fields` (`exportVersion` 1) | **no — raw by contract** | See §3. |
+
+### 2.1 Display versus selection (workspace/status)
+
+Workspace membership is decided entirely on the mirror: Bench selectors, iteration and
+self-assignee membership, ordering, hierarchy, ceilings, orphan detection, column discovery and
+the emitted ids. Durable values are composed into an id → displayed-item map **after** membership
+and replace only cell values (title, state, assignee, type, paths, fields).
+
+The real tradeoff, pinned by tests: a row locally edited to `Closed`, moved to another iteration or
+reassigned **stays a member** and still sits in its mirror state bucket and footer count (for
+example `[Closed]` under *In Progress*, footer `0/2 done`), and `--all` groups it under its mirror
+assignee while the record shows the local assignee. A mirror non-member edited locally into the
+current iteration is **not** added. `-o ids` is identical with or without the opt-in. Effective
+selection would need a separate decision and is not implemented.
 
 ## 3. Raw stored export stays raw
 
@@ -76,6 +92,6 @@ following are decided:
 
 ## 5. Open acceptance gaps (acceptance criteria unchanged)
 
-1. **ADO does not yet run entirely on the new store.** Only the reads in §2 are overlaid. Writes, the export, workspace and status lists, query and nav/history still read the mirror.
+1. **ADO does not yet run entirely on the new store.** Only the reads in §2 are overlaid. Writes, the export, workspace/status membership (§2.1), query and nav/history still read the mirror.
 2. **A second provider is proven at storage level only.** The GitHub provider still refuses fail-closed until #1167's activation lands.
 3. **Existing workspaces are not migrated.** Migration and cutover are deferred and not authorised.

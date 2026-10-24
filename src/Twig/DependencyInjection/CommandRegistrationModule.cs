@@ -149,6 +149,7 @@ public static class CommandRegistrationModule
         {
             ResolveBrowserBindingAsync = ct => sp.GetRequiredService<IConnectionBindingService>().ResolveAsync(
                 sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(), ct),
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
         });
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<MigrateConfigCommand>();

@@ -21,7 +21,7 @@ namespace Twig.Cli.Tests.Commands;
 /// registration displays durable local values over the disposable mirror, sharing the mirror
 /// projection's single scope resolution. Opted out it shows the mirror and never resolves the provider.
 /// </summary>
-public sealed class ShowDurableFieldOverlayTests : IDisposable
+public sealed partial class ShowDurableFieldOverlayTests : IDisposable
 {
     private const string Scope = "11111111-2222-3333-4444-555555555555";
 
@@ -50,7 +50,8 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         }
     }
 
-    private ServiceProvider Compose(bool optedIn, Spectre.Console.IAnsiConsole? liveConsole = null)
+    private ServiceProvider Compose(bool optedIn, Spectre.Console.IAnsiConsole? liveConsole = null, IIterationService? iterations = null,
+        Action<IServiceCollection>? replace = null)
     {
         var twigDir = Path.Combine(_root, ".twig");
         Directory.CreateDirectory(twigDir);
@@ -75,8 +76,11 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
                 sp.GetRequiredService<Twig.Rendering.IAsyncRenderer>(),
                 isOutputRedirected: () => false));
         }
+        if (iterations is not null)
+            services.AddSingleton(iterations);
         services.AddTwigCommandServices();
         services.AddTwigCommands();
+        replace?.Invoke(services);
         return services.BuildServiceProvider();
     }
 

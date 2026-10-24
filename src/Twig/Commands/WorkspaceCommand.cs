@@ -56,6 +56,12 @@ public sealed class WorkspaceCommand(
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
     internal Func<CancellationToken, Task<ResolvedConnectionBinding>>? ResolveBrowserBindingAsync { get; init; }
 
+    /// <summary>
+    /// Opt-in durable field overlay (#1186). Display-only: composed after Bench membership is
+    /// decided on the mirror, never applied to selection, and never to <c>--include-browser</c>.
+    /// </summary>
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
+
     private enum WorkspaceViewMode
     {
         Auto,
@@ -250,6 +256,7 @@ public sealed class WorkspaceCommand(
             // specified columns appear. The sync path (JSON/--no-live) supplies sprintItems for
             // auto-discovery after all items are loaded.
             var dynamicColumns = await ResolveDynamicColumnsAsync(all ? "sprint" : "workspace", isJsonOutput: false, ct: ct);
+            var display = new DisplayValueComposer(FieldOverlay);
 
             async IAsyncEnumerable<WorkspaceDataChunk> StreamWorkspaceData(
                 [EnumeratorCancellation] CancellationToken ct)
@@ -261,7 +268,7 @@ public sealed class WorkspaceCommand(
                     var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
                     resolveResult.TryGetWorkItem(out contextItem, out _, out _);
                 }
-                yield return new ContextLoaded(contextItem);
+                yield return new ContextLoaded(await display.ItemAsync(contextItem, ct));
 
                 // Stage 2: evaluate the current Bench against the local cache. Query selectors
                 // supply the Sprint origin; pin selectors supply the Manual origin. Membership is
@@ -283,7 +290,9 @@ public sealed class WorkspaceCommand(
                     sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: treeRoots);
                 if (useTreeRendering)
                     sections = await AddSectionHierarchiesAsync(sections, ct);
-                yield return new SprintItemsLoaded(sprintItems, sections);
+                await display.AddItemsAsync(sprintItems, ct);
+                await display.AddSectionsAsync(sections, ct);
+                yield return new SprintItemsLoaded(sprintItems, sections, display.Snapshot());
 
                 // Stage 3: Seeds
                 seeds = await workItemRepo.GetSeedsAsync(ct);
@@ -347,7 +356,9 @@ public sealed class WorkspaceCommand(
                             sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: refreshTreeRoots);
                         if (useTreeRendering)
                             refreshedSections = await AddSectionHierarchiesAsync(refreshedSections, ct);
-                        yield return new SprintItemsLoaded(sprintItems, refreshedSections);
+                        await display.AddItemsAsync(sprintItems, ct);
+                        await display.AddSectionsAsync(refreshedSections, ct);
+                        yield return new SprintItemsLoaded(sprintItems, refreshedSections, display.Snapshot());
                         yield return new SeedsLoaded(seeds);
                         yield return new RefreshCompleted();
                     }
@@ -621,8 +632,17 @@ public sealed class WorkspaceCommand(
             ? await BuildBrowserDocumentAsync(workspace, observedBench!, observedStoredBench!, observedMembership!, browserBinding, typeLevelMap, ct)
             : null;
 
+        // Display-only composition after membership (#1186 A+R). The origin-bound browser
+        // document stays raw observed evidence, so its whole output is left uncomposed.
+        var display = new DisplayValueComposer(browserBinding is null ? FieldOverlay : null);
+        await display.AddWorkspaceAsync(workspace, ct);
+        // Structure (membership, buckets, groups, ordering, ids) stays on the mirror workspace;
+        // only cell values are looked up in this id -> composed-item map.
+        var displayValues = display.Snapshot();
+
         if (fmt is HumanOutputFormatter human)
         {
+            human.DisplayValues = displayValues;
             if (all || sprintLayout)
             {
                 Console.WriteLine(human.FormatSprintView(workspace, ctx.Config.Seed.StaleDays));
@@ -634,7 +654,7 @@ public sealed class WorkspaceCommand(
         }
         else
         {
-            RenderWorkspaceAsTree(workspace, outputFormat, useSprintLayout: all || sprintLayout, ctx.Config.Seed.StaleDays, dynamicColumns, browser);
+            RenderWorkspaceAsTree(workspace, outputFormat, useSprintLayout: all || sprintLayout, ctx.Config.Seed.StaleDays, dynamicColumns, browser, displayValues);
         }
 
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
@@ -674,7 +694,10 @@ public sealed class WorkspaceCommand(
                         Console.WriteLine();
                         Console.WriteLine("Unsaved changes:");
                         foreach (var orphan in orphanItems)
-                            Console.WriteLine($"  #{orphan.Id} {orphan.Type} — {orphan.Title} [{orphan.State}] *");
+                        {
+                            var shown = await display.ItemAsync(orphan, ct) ?? orphan;
+                            Console.WriteLine($"  #{orphan.Id} {shown.Type} — {shown.Title} [{shown.State}] *");
+                        }
                         Console.WriteLine("Run 'twig save' to push these changes.");
                     }
                 }
@@ -1102,11 +1125,12 @@ public sealed class WorkspaceCommand(
         bool useSprintLayout,
         int staleDays,
         IReadOnlyList<ColumnSpec>? dynamicColumns,
-        RenderNode.Document? browser = null)
+        RenderNode.Document? browser = null,
+        IReadOnlyDictionary<int, Domain.Aggregates.WorkItem>? shown = null)
     {
         var doc = useSprintLayout
-            ? BuildSprintViewDocument(workspace, dynamicColumns)
-            : BuildWorkspaceDocument(workspace, staleDays, dynamicColumns);
+            ? BuildSprintViewDocument(workspace, dynamicColumns, shown)
+            : BuildWorkspaceDocument(workspace, staleDays, dynamicColumns, shown);
         if (browser is not null)
             doc = doc with { Fields = doc.Fields.Append(new DocumentField("browser", browser)).ToArray() };
 
@@ -1118,17 +1142,18 @@ public sealed class WorkspaceCommand(
     private static RenderNode.Document BuildWorkspaceDocument(
         Workspace workspace,
         int staleDays,
-        IReadOnlyList<ColumnSpec>? dynamicColumns)
+        IReadOnlyList<ColumnSpec>? dynamicColumns,
+        IReadOnlyDictionary<int, Domain.Aggregates.WorkItem>? shown)
     {
         var fields = new List<DocumentField>();
 
         // context: nested record or null KeyValue
         fields.Add(workspace.ContextItem is not null
-            ? new DocumentField("context", BuildWorkItemRecord(workspace.ContextItem, dynamicColumns))
+            ? new DocumentField("context", BuildWorkItemRecord(workspace.ContextItem, dynamicColumns, shown))
             : new DocumentField("context", new RenderNode.KeyValue("context", new RenderCell(string.Empty, new RenderValue.Null()))));
 
-        fields.Add(new DocumentField("sprintItems", BuildWorkItemSection(workspace.SprintItems, dynamicColumns)));
-        fields.Add(new DocumentField("seeds", BuildWorkItemSection(workspace.Seeds, dynamicColumns)));
+        fields.Add(new DocumentField("sprintItems", BuildWorkItemSection(workspace.SprintItems, dynamicColumns, shown)));
+        fields.Add(new DocumentField("seeds", BuildWorkItemSection(workspace.Seeds, dynamicColumns, null)));
 
         var staleSeeds = workspace.GetStaleSeeds(staleDays);
         fields.Add(new DocumentField("staleSeeds", BuildIdSection(staleSeeds.Select(s => s.Id))));
@@ -1153,16 +1178,18 @@ public sealed class WorkspaceCommand(
 
     private static RenderNode.Document BuildSprintViewDocument(
         Workspace workspace,
-        IReadOnlyList<ColumnSpec>? dynamicColumns)
+        IReadOnlyList<ColumnSpec>? dynamicColumns,
+        IReadOnlyDictionary<int, Domain.Aggregates.WorkItem>? shown)
     {
         var fields = new List<DocumentField>();
 
         fields.Add(workspace.ContextItem is not null
-            ? new DocumentField("context", BuildWorkItemRecord(workspace.ContextItem, dynamicColumns))
+            ? new DocumentField("context", BuildWorkItemRecord(workspace.ContextItem, dynamicColumns, shown))
             : new DocumentField("context", new RenderNode.KeyValue("context", new RenderCell(string.Empty, new RenderValue.Null()))));
 
         // sprintByAssignee: a nested Document where each field is one assignee key
-        // mapping to a Section of work-item records.
+        // mapping to a Section of work-item records. Grouping is structure: it stays keyed on
+        // the mirror assignee even when a durable local value is displayed in the record (#1186).
         var grouped = new Dictionary<string, List<Domain.Aggregates.WorkItem>>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in workspace.SprintItems)
         {
@@ -1177,12 +1204,12 @@ public sealed class WorkspaceCommand(
         var assigneeFields = new List<DocumentField>();
         foreach (var kvp in grouped.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            assigneeFields.Add(new DocumentField(kvp.Key, BuildWorkItemSection(kvp.Value, dynamicColumns)));
+            assigneeFields.Add(new DocumentField(kvp.Key, BuildWorkItemSection(kvp.Value, dynamicColumns, shown)));
         }
         fields.Add(new DocumentField("sprintByAssignee", new RenderNode.Document(null, assigneeFields)));
 
         fields.Add(new DocumentField("totalSprintItems", new RenderNode.KeyValue("totalSprintItems", RenderCell.Integer(workspace.SprintItems.Count))));
-        fields.Add(new DocumentField("seeds", BuildWorkItemSection(workspace.Seeds, dynamicColumns)));
+        fields.Add(new DocumentField("seeds", BuildWorkItemSection(workspace.Seeds, dynamicColumns, null)));
 
         var dirtyCount = workspace.GetDirtyItems().Count;
         fields.Add(new DocumentField("dirtyCount", new RenderNode.KeyValue("dirtyCount", RenderCell.Integer(dirtyCount))));
@@ -1192,31 +1219,38 @@ public sealed class WorkspaceCommand(
 
     private static RenderNode.Section BuildWorkItemSection(
         IReadOnlyList<Domain.Aggregates.WorkItem> items,
-        IReadOnlyList<ColumnSpec>? dynamicColumns)
+        IReadOnlyList<ColumnSpec>? dynamicColumns,
+        IReadOnlyDictionary<int, Domain.Aggregates.WorkItem>? shown)
     {
         var children = new List<RenderNode>(items.Count);
         foreach (var item in items)
-            children.Add(BuildWorkItemRecord(item, dynamicColumns));
+            children.Add(BuildWorkItemRecord(item, dynamicColumns, shown));
         return new RenderNode.Section(null, children);
     }
 
+    /// <summary>
+    /// Identity and structure (id, parentId, isDirty, isSeed) come from the mirror item; value
+    /// cells come from its display-only durable composition in <paramref name="shown"/> (#1186).
+    /// </summary>
     private static RenderNode.Record BuildWorkItemRecord(
         Domain.Aggregates.WorkItem item,
-        IReadOnlyList<ColumnSpec>? dynamicColumns)
+        IReadOnlyList<ColumnSpec>? dynamicColumns,
+        IReadOnlyDictionary<int, Domain.Aggregates.WorkItem>? shown)
     {
+        var cell = shown is not null && shown.TryGetValue(item.Id, out var composed) ? composed : item;
         var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
             ["id"] = RenderCell.Integer(item.Id),
-            ["title"] = RenderCell.String(item.Title ?? string.Empty),
-            ["type"] = RenderCell.String(item.Type.ToString()),
-            ["state"] = RenderCell.String(item.State ?? string.Empty),
-            ["assignedTo"] = RenderCell.String(item.AssignedTo ?? string.Empty),
+            ["title"] = RenderCell.String(cell.Title ?? string.Empty),
+            ["type"] = RenderCell.String(cell.Type.ToString()),
+            ["state"] = RenderCell.String(cell.State ?? string.Empty),
+            ["assignedTo"] = RenderCell.String(cell.AssignedTo ?? string.Empty),
             ["isDirty"] = RenderCell.Boolean(item.IsDirty),
             ["isSeed"] = RenderCell.Boolean(item.IsSeed),
             ["parentId"] = item.ParentId.HasValue
                 ? RenderCell.Integer(item.ParentId.Value)
                 : new RenderCell(string.Empty, new RenderValue.Null()),
-            ["tags"] = RenderCell.String(GetTags(item)),
+            ["tags"] = RenderCell.String(GetTags(cell)),
         };
 
         // Inline dynamic column values when supplied; otherwise flatten populated
@@ -1227,14 +1261,14 @@ public sealed class WorkspaceCommand(
         {
             foreach (var col in dynamicColumns)
             {
-                item.Fields.TryGetValue(col.ReferenceName, out var rawValue);
+                cell.Fields.TryGetValue(col.ReferenceName, out var rawValue);
                 var formatted = FormatterHelpers.FormatFieldValueForJson(rawValue, col.DataType);
                 cells[col.ReferenceName] = RenderCell.String(formatted ?? string.Empty);
             }
         }
         else
         {
-            foreach (var (refName, value) in item.Fields)
+            foreach (var (refName, value) in cell.Fields)
             {
                 if (string.IsNullOrEmpty(value))
                     continue;

@@ -112,8 +112,14 @@ public interface IAsyncRenderer
 /// <summary>Context item was loaded (may be null if no context).</summary>
 public sealed record ContextLoaded(WorkItem? ContextItem);
 
-/// <summary>Sprint items were loaded from the workspace.</summary>
-public sealed record SprintItemsLoaded(IReadOnlyList<WorkItem> Items, WorkspaceSections? Sections = null);
+/// <summary>
+/// Sprint items were loaded from the workspace. <paramref name="DisplayValues"/> (#1186) maps item
+/// id → durable composed item for display cells only; structure always reads <paramref name="Items"/>.
+/// </summary>
+public sealed record SprintItemsLoaded(
+    IReadOnlyList<WorkItem> Items,
+    WorkspaceSections? Sections = null,
+    IReadOnlyDictionary<int, WorkItem>? DisplayValues = null);
 
 /// <summary>Seed items were loaded from the workspace.</summary>
 public sealed record SeedsLoaded(IReadOnlyList<WorkItem> Seeds);

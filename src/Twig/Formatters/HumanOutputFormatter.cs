@@ -49,6 +49,17 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     /// <summary>When true, workspace rendering uses tree-based layout when TreeRoots are available.</summary>
     internal bool UseTreeRendering { get; set; }
 
+    /// <summary>
+    /// Display-only durable values keyed by item id (#1186, decision A+R). Rendering structure
+    /// — membership, buckets, footer counts, grouping, ordering, dimming — always reads the
+    /// mirror item; only row cell text and colors read the composed item through
+    /// <see cref="Shown"/>. Null leaves output byte-identical to legacy.
+    /// </summary>
+    internal IReadOnlyDictionary<int, WorkItem>? DisplayValues { get; set; }
+
+    private WorkItem Shown(WorkItem item) =>
+        DisplayValues is not null && DisplayValues.TryGetValue(item.Id, out var shown) ? shown : item;
+
     /// <summary>Max ancestor levels above working level to display. Nodes beyond this depth are pruned and their children promoted.</summary>
     internal int TreeDepthUp { get; set; } = 2;
 
@@ -438,12 +449,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         // Active context
         if (ws.ContextItem is not null)
         {
+            var context = Shown(ws.ContextItem);
             var dirty = ws.ContextItem.IsDirty ? $" {Yellow}✎{Reset}" : "";
-            sb.AppendLine($"  {Bold}Active:{Reset} #{ws.ContextItem.Id} {ws.ContextItem.Title}{dirty}");
-            var stateColor = GetStateColor(ws.ContextItem.State);
-            var typeColor = GetTypeColor(ws.ContextItem.Type);
-            var badge = GetTypeBadge(ws.ContextItem.Type);
-            sb.AppendLine($"          {typeColor}{badge} {ws.ContextItem.Type}{Reset} · {stateColor}{ws.ContextItem.State}{Reset}");
+            sb.AppendLine($"  {Bold}Active:{Reset} #{ws.ContextItem.Id} {context.Title}{dirty}");
+            var stateColor = GetStateColor(context.State);
+            var typeColor = GetTypeColor(context.Type);
+            var badge = GetTypeBadge(context.Type);
+            sb.AppendLine($"          {typeColor}{badge} {context.Type}{Reset} · {stateColor}{context.State}{Reset}");
         }
         else
         {
@@ -613,12 +625,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                         var isTracked = ws.IsTracked(item.Id);
                         var marker = isActive ? $"{Cyan}●{Reset}" : isTracked ? $"{Yellow}📌{Reset}" : " ";
                         var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
-                        var stateColor = GetStateColor(item.State);
-                        var sprintTypeColor = GetTypeColor(item.Type);
-                        var sprintBadge = GetTypeBadge(item.Type);
+                        var cell = Shown(item);
+                        var stateColor = GetStateColor(cell.State);
+                        var sprintTypeColor = GetTypeColor(cell.Type);
+                        var sprintBadge = GetTypeBadge(cell.Type);
                         wsLines.Add(new AlignedLine(
-                            $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
-                            $"[{stateColor}{item.State}{Reset}]", dirty));
+                            $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {cell.Title}",
+                            $"[{stateColor}{cell.State}{Reset}]", dirty));
                     }
                 }
                 FlushAlignedLines(sb, wsLines);
@@ -672,7 +685,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         if (ws.ContextItem is not null)
         {
             var dirty = ws.ContextItem.IsDirty ? $" {Yellow}✎{Reset}" : "";
-            sb.AppendLine($"  {Bold}Active:{Reset} #{ws.ContextItem.Id} {ws.ContextItem.Title}{dirty}");
+            sb.AppendLine($"  {Bold}Active:{Reset} #{ws.ContextItem.Id} {Shown(ws.ContextItem).Title}{dirty}");
         }
 
         sb.AppendLine();
@@ -747,12 +760,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 var isTracked = ws.IsTracked(item.Id);
                 var marker = isActive ? $"{Cyan}●{Reset}" : isTracked ? $"{Yellow}📌{Reset}" : " ";
                 var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
-                var stateColor = GetStateColor(item.State);
-                var sprintTypeColor = GetTypeColor(item.Type);
-                var sprintBadge = GetTypeBadge(item.Type);
+                var cell = Shown(item);
+                var stateColor = GetStateColor(cell.State);
+                var sprintTypeColor = GetTypeColor(cell.Type);
+                var sprintBadge = GetTypeBadge(cell.Type);
                 lines.Add(new AlignedLine(
-                    $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
-                    $"[{stateColor}{item.State}{Reset}]", dirty));
+                    $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {cell.Title}",
+                    $"[{stateColor}{cell.State}{Reset}]", dirty));
             }
             FlushAlignedLines(sb, lines);
         }
@@ -832,9 +846,10 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     private void CollectHierarchyNodeLine(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string indent, string connector, bool showAssignee = false)
     {
-        var typeColor = GetTypeColor(node.Item.Type);
-        var badge = GetTypeBadge(node.Item.Type);
-        var stateColor = GetStateColor(node.Item.State);
+        var cell = Shown(node.Item);
+        var typeColor = GetTypeColor(cell.Type);
+        var badge = GetTypeBadge(cell.Type);
+        var stateColor = GetStateColor(cell.State);
         var progress = FormatProgressIndicator(node);
 
         if (node.IsSprintItem)
@@ -843,18 +858,18 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             var isTracked = ws.IsTracked(node.Item.Id);
             var marker = isActive ? $"{Cyan}●{Reset} " : isTracked ? $"{Yellow}📌{Reset} " : "";
             var dirty = node.Item.IsDirty ? $" {Yellow}✎{Reset}" : "";
-            var assigneeSuffix = showAssignee ? $" {Dim}@{node.Item.AssignedTo ?? "(unassigned)"}{Reset}" : "";
+            var assigneeSuffix = showAssignee ? $" {Dim}@{cell.AssignedTo ?? "(unassigned)"}{Reset}" : "";
             lines.Add(new AlignedLine(
-                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} #{node.Item.Id} {node.Item.Title}{progress}{assigneeSuffix}",
-                $"[{stateColor}{node.Item.State}{Reset}]", dirty));
+                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} #{node.Item.Id} {cell.Title}{progress}{assigneeSuffix}",
+                $"[{stateColor}{cell.State}{Reset}]", dirty));
         }
         else
         {
             // Parent context node — dimmed title, no active/dirty markers
-            var assigneeSuffix = showAssignee ? $" {Dim}@{node.Item.AssignedTo ?? "(unassigned)"}{Reset}" : "";
+            var assigneeSuffix = showAssignee ? $" {Dim}@{cell.AssignedTo ?? "(unassigned)"}{Reset}" : "";
             lines.Add(new AlignedLine(
-                $"{indent}{connector}{typeColor}{badge}{Reset} {Dim}{node.Item.Title}{Reset}{progress}{assigneeSuffix}",
-                $"[{stateColor}{node.Item.State}{Reset}]", ""));
+                $"{indent}{connector}{typeColor}{badge}{Reset} {Dim}{cell.Title}{Reset}{progress}{assigneeSuffix}",
+                $"[{stateColor}{cell.State}{Reset}]", ""));
         }
     }
 
@@ -1023,16 +1038,18 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         }
 
         var item = node.Item;
-        var title = terminalSafe ? OneRow(item.Title) : item.Title;
-        var state = terminalSafe ? OneRow(item.State) : item.State;
+        // terminalSafe is the origin-bound browser label: it stays raw mirror evidence (decision R).
+        var cell = terminalSafe ? item : Shown(item);
+        var title = terminalSafe ? OneRow(cell.Title) : cell.Title;
+        var state = terminalSafe ? OneRow(cell.State) : cell.State;
         var isAboveWorking = IsAboveWorkingLevel(item);
         var isActive = ws.ContextItem is not null && item.Id == ws.ContextItem.Id;
         var isTracked = explicitPin ?? ws.IsTracked(item.Id);
         var marker = isActive ? $"{Cyan}►{Reset} " : isTracked ? $"{Yellow}📌{Reset} " : "";
-        var stateColor = GetStateColor(item.State);
-        var badge = terminalSafe ? OneRow(GetTypeBadge(item.Type)) : GetTypeBadge(item.Type);
-        var typeColor = GetTypeColor(item.Type);
-        var typePrefix = terminalSafe ? OneRow(item.Type.Value) + " " : string.Empty;
+        var stateColor = GetStateColor(cell.State);
+        var badge = terminalSafe ? OneRow(GetTypeBadge(cell.Type)) : GetTypeBadge(cell.Type);
+        var typeColor = GetTypeColor(cell.Type);
+        var typePrefix = terminalSafe ? OneRow(cell.Type.Value) + " " : string.Empty;
         var identityPrefix = terminalSafe ? $"{typePrefix}#{item.Id} " : string.Empty;
         var progress = FormatProgressIndicator(node);
 

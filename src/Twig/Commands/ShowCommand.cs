@@ -933,7 +933,7 @@ public sealed class ShowCommand(
         {
             var item = await workItemRepo.GetByIdAsync(id, ct);
             if (item is not null)
-                items.Add(item);
+                items.Add(await OverlayAsync(item, ct));
             else if (id > 0)
                 missing.Add(id);
         }

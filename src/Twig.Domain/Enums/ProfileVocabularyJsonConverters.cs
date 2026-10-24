@@ -131,3 +131,38 @@ internal sealed class LinkKindJsonConverter : CanonicalEnumConverter<LinkKind>
 {
     protected override (LinkKind, string)[] Mapping => LinkKindNames.Mapping;
 }
+
+/// <summary>
+/// Canonical <see cref="LinkKind"/> token lookup for persistence boundaries, sharing the
+/// converter's single mapping so a stored kind can never drift from its JSON spelling.
+/// Stored kinds are these tokens, never enum ordinals.
+/// </summary>
+internal static class LinkKindTokens
+{
+    public static string ToToken(LinkKind kind)
+    {
+        foreach (var (value, token) in LinkKindNames.Mapping)
+        {
+            if (value == kind)
+                return token;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(kind), kind, "LinkKind has no canonical token.");
+    }
+
+    /// <summary>Resolves a canonical token. Ordinal — see <see cref="CanonicalEnumConverter{TEnum}"/>.</summary>
+    public static bool TryResolve(string? token, out LinkKind kind)
+    {
+        foreach (var (value, canonical) in LinkKindNames.Mapping)
+        {
+            if (string.Equals(token, canonical, StringComparison.Ordinal))
+            {
+                kind = value;
+                return true;
+            }
+        }
+
+        kind = default;
+        return false;
+    }
+}

@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 13;
+    internal const int DurableSchemaVersion = 14;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -832,6 +832,14 @@ public sealed class SqliteCacheStore : IDisposable
             );
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_local_relationships_target
                 ON local_relationships(target_local_id);
+            """,
+
+        // Epic 1170: additive emulation semantics on #1168's neutral table. Nullable because
+        // rows the neutral layer writes carry no emulation policy; the overlay repository always
+        // writes both as canonical tokens and refuses to read a row it owns without them.
+        [14] = $"""
+            ALTER TABLE {DurableSchema}.local_relationships ADD COLUMN storage TEXT;
+            ALTER TABLE {DurableSchema}.local_relationships ADD COLUMN publication TEXT;
             """,
 
     };

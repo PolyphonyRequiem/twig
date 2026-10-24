@@ -12,16 +12,17 @@ namespace Twig.Infrastructure.GitHub;
 
 /// <summary>
 /// Read-only GitHub issue adapter. Authentication and transport lifetime belong to the caller.
-/// Not registered as the active provider until GitHub workspace binding is implemented.
+/// When <c>expectedRepository</c> is supplied, snapshots of issues in any other repository are refused.
 /// </summary>
 internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
 {
     private readonly HttpClient _http;
     private readonly Uri _endpoint;
     private readonly string _scope;
+    private readonly string? _expectedRepository;
     private IReadOnlyList<CapabilityAvailabilityEvidence> _lastReadEvidence = [];
 
-    public GitHubWorkItemProvider(HttpClient http, Uri? graphQlEndpoint = null)
+    public GitHubWorkItemProvider(HttpClient http, Uri? graphQlEndpoint = null, string? expectedRepository = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         _http = http;
@@ -32,6 +33,7 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
             throw new ArgumentException("An HTTPS GitHub GraphQL endpoint without credentials, query or fragment is required.",
                 nameof(graphQlEndpoint));
         _scope = _endpoint.GetLeftPart(UriPartial.Authority).ToLowerInvariant();
+        _expectedRepository = expectedRepository;
     }
 
     public ProviderCapabilityDescriptor Capabilities => ProviderCapabilityCatalog.GitHub;
@@ -62,11 +64,11 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
 
         try
         {
-            var node = await ReadNodeAsync(identity, """
-                query($id: ID!) { node(id: $id) { __typename id ... on Issue {
-                  number title state body url parent { id } milestone { title }
-                } } }
-                """, null, ct);
+            var node = await ReadNodeAsync(identity, GitHubIssueQueries.Snapshot, null, ct);
+            if (_expectedRepository is not null
+                && !string.Equals(Text(Required(node, "repository"), "nameWithOwner"), _expectedRepository,
+                    StringComparison.OrdinalIgnoreCase))
+                throw new JsonException("GitHub issue is outside the configured repository.");
             var fields = FieldValues.Empty
                 .Set("System.Title", new TextValue(Text(node, "title")))
                 .Set("System.State", new TextValue(Text(node, "state")))
@@ -81,9 +83,9 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
             fields = fields.Set("github.milestone", milestone.ValueKind == JsonValueKind.Null
                 ? (FieldValue)NullValue.Instance : new TextValue(Text(milestone, "title")));
 
-            var labels = await ReadConnectionAsync(identity, "labels", "name", ct);
+            var labels = await ReadConnectionAsync(identity, "labels", ct);
             fields = fields.Set("github.labels", new StringListValue(labels.Select(l => Text(l, "name"))));
-            var assignees = (await ReadConnectionAsync(identity, "assignees", "id login", ct))
+            var assignees = (await ReadConnectionAsync(identity, "assignees", ct))
                 .Select(a => new GitHubIssueAssignee(NativeId(a), Text(a, "login")))
                 .OrderBy(a => a.Id, StringComparer.Ordinal).ToArray();
             fields = fields.Set("github.assignees", new RawValue(
@@ -98,11 +100,11 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
             var parent = Required(node, "parent");
             if (parent.ValueKind != JsonValueKind.Null)
                 AddEdge(relationships, External(parent), identity, LinkKind.ParentChild);
-            foreach (var child in await ReadConnectionAsync(identity, "subIssues", "id", ct))
+            foreach (var child in await ReadConnectionAsync(identity, "subIssues", ct))
                 AddEdge(relationships, identity, External(child), LinkKind.ParentChild);
-            foreach (var blocker in await ReadConnectionAsync(identity, "blockedBy", "id", ct))
+            foreach (var blocker in await ReadConnectionAsync(identity, "blockedBy", ct))
                 AddEdge(relationships, External(blocker), identity, LinkKind.PredecessorSuccessor);
-            foreach (var blocked in await ReadConnectionAsync(identity, "blocking", "id", ct))
+            foreach (var blocked in await ReadConnectionAsync(identity, "blocking", ct))
                 AddEdge(relationships, identity, External(blocked), LinkKind.PredecessorSuccessor);
 
             _lastReadEvidence = [];
@@ -125,6 +127,11 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
         catch (JsonException)
         {
             RecordFailure(CapabilityAvailability.Unknown, "read-incomplete");
+            throw;
+        }
+        catch (GitHubCredentialUnavailableException)
+        {
+            RecordFailure(CapabilityAvailability.Unavailable, "credential-unavailable");
             throw;
         }
     }
@@ -161,13 +168,9 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
     }
 
     private async Task<IReadOnlyList<JsonElement>> ReadConnectionAsync(
-        ExternalWorkItemIdentity identity, string field, string selection, CancellationToken ct)
+        ExternalWorkItemIdentity identity, string field, CancellationToken ct)
     {
-        var query = $$"""
-            query($id: ID!, $after: String) { node(id: $id) { __typename id ... on Issue {
-              {{field}}(first: 100, after: $after) { nodes { {{selection}} } pageInfo { hasNextPage endCursor } }
-            } } }
-            """;
+        var query = GitHubIssueQueries.Connection(field);
         var nodes = new List<JsonElement>();
         var seenCursors = new HashSet<string>(StringComparer.Ordinal);
         string? cursor = null;
@@ -201,7 +204,7 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
         ExternalWorkItemIdentity identity, string query, string? cursor, CancellationToken ct)
     {
         var variables = new Dictionary<string, string?> { ["id"] = identity.NativeId };
-        if (query.Contains("$after", StringComparison.Ordinal))
+        if (GitHubIssueQueries.TryMatch(query, out var paginated) && paginated)
             variables["after"] = cursor;
         using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint);
         request.Headers.UserAgent.ParseAdd("twig-cli");

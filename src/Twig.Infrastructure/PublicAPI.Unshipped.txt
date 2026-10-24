@@ -138,3 +138,14 @@ static Twig.Infrastructure.Config.WorkItemProviderSetting.KnownKinds.get -> Syst
 static Twig.Infrastructure.Config.WorkItemProviderSetting.Normalize(string? value) -> string?
 static Twig.Infrastructure.Config.WorkItemProviderSetting.Resolve(string? stored) -> string!
 static Twig.Infrastructure.Config.WorkItemProviderSetting.RequireAdo(string? stored) -> void
+const Twig.Infrastructure.Config.WorkItemProviderSetting.UnconfiguredReasonCode = "provider-unconfigured" -> string!
+Twig.Infrastructure.Config.GitHubConfig
+Twig.Infrastructure.Config.GitHubConfig.GitHubConfig() -> void
+Twig.Infrastructure.Config.GitHubConfig.Host.get -> string?
+Twig.Infrastructure.Config.GitHubConfig.Host.set -> void
+Twig.Infrastructure.Config.GitHubConfig.Repository.get -> string?
+Twig.Infrastructure.Config.GitHubConfig.Repository.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.GitHub.get -> Twig.Infrastructure.Config.GitHubConfig?
+Twig.Infrastructure.Config.TwigConfiguration.GitHub.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.GitHub.get -> Twig.Infrastructure.Config.GitHubConfig?
+Twig.Infrastructure.Config.TwigRepoConfig.GitHub.set -> void

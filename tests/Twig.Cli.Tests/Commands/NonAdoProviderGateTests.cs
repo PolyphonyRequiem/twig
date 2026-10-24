@@ -9,6 +9,7 @@ using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Process;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
@@ -126,6 +127,23 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// #1169 merge obligation: a GitHub workspace must get a policy decision source rather than
+    /// throwing at composition through the ADO-backed rule provider. ADO keeps its registration.
+    /// </summary>
+    [Fact]
+    public async Task ProcessRuleProvider_UnderGitHub_IsExplicitEmptyWithoutTouchingAdo()
+    {
+        var github = await AttachAsync("github", gitProject: "Project");
+        var ado = await AttachAsync(provider: null, gitProject: "Project", checkout: "ado-checkout");
+
+        github.GetRequiredService<IProcessRuleProvider>().ShouldBeSameAs(EmptyProcessRuleProvider.Instance);
+        Should.Throw<TwigConfigurationException>(() => github.GetRequiredService<AdoIterationService>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        ado.GetRequiredService<IProcessRuleProvider>().ShouldBeOfType<AdoIterationService>();
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
     /// Every concrete ADO network client: a class in the <c>Twig.Infrastructure.Ado</c>
     /// namespaces that takes an <see cref="HttpClient"/>. Discovered reflectively so a new
     /// client is covered by both guards without editing this list.
@@ -209,12 +227,13 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     /// <summary>
     /// Service types (and aliases) backed by an ADO network client. Factory registrations hide
     /// their implementation type, so a type is in scope when an ADO client is assignable to it
-    /// and it is not a provider-neutral seam that has its own gate (<see cref="IWorkItemProvider"/>).
+    /// and it is not a provider-neutral seam that has its own gate (<see cref="IWorkItemProvider"/>,
+    /// and <see cref="IProcessRuleProvider"/>, which resolves to an explicit empty source under GitHub).
     /// </summary>
     private static IReadOnlyList<Type> AdoClientServiceTypes(IServiceCollection services) =>
         services
             .Select(d => d.ServiceType)
-            .Where(t => t != typeof(IWorkItemProvider) && t != typeof(object))
+            .Where(t => t != typeof(IWorkItemProvider) && t != typeof(IProcessRuleProvider) && t != typeof(object))
             .Where(t => AdoClientImplementations.Any(t.IsAssignableFrom))
             .Distinct()
             .ToList();

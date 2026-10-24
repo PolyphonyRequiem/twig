@@ -1,0 +1,64 @@
+{
+  "browser": {
+    "version": 2,
+    "requestedBench": "Release focus",
+    "benchId": "7",
+    "benchName": "Release focus",
+    "origin": {
+      "connectionRef": "fixture-connection",
+      "organization": "fixture.invalid",
+      "project": "Fixture",
+      "team": "",
+      "bindingId": "fixture-binding",
+      "bindingRevision": 3,
+      "identityId": "fixture-identity",
+      "worktreeRoot": "C:\\fixture\\twig",
+      "worktreeFingerprint": "fixture-fingerprint",
+      "attachmentRevision": 1,
+      "selectionSource": "checkout",
+      "selectionRevision": 2
+    },
+    "observation": "raw-mirror",
+    "members": [
+      { "id": 42, "loaded": true, "selected": true, "seed": false, "pending": true, "title": "<script>not executable</script>", "type": "Delivery slice", "state": "Queued", "parentId": 1 },
+      { "id": 43, "loaded": true, "selected": true, "seed": false, "pending": false, "title": "Depth omitted member", "type": "Delivery slice", "state": "Queued", "parentId": 42 },
+      { "id": 44, "loaded": false, "selected": true, "seed": false, "pending": false }
+    ],
+    "completeness": {
+      "knownMemberCount": 3,
+      "loadedMemberCount": 2,
+      "unloadedKnownMemberCount": 1,
+      "sourceMemberCount": null,
+      "unknownMemberCount": null,
+      "sourceComplete": false,
+      "projectionComplete": false,
+      "renderedNodeCount": 2,
+      "omittedLoadedMemberIds": [43],
+      "missingAncestorIds": [],
+      "prunedAncestorIds": [],
+      "depthOmittedIds": [43],
+      "depthDown": 1,
+      "depthUp": 2,
+      "reasons": ["cache-only", "source-total-unknown", "known-members-not-cached", "depth-limit", "hierarchy-working-level-or-depth-omission"]
+    },
+    "configuration": {
+      "version": 1,
+      "settingsDigest": "fixture-settings",
+      "areas": [{"path": "Fixture\\Delivery", "includeChildren": true}],
+      "sprints": [],
+      "automaticEnabled": false,
+      "assigneeSummary": "No automatic ownership rule",
+      "pins": [{"id": 44, "mode": "single", "cached": false}]
+    },
+    "roots": [{
+      "key": "item:1", "id": 1, "title": "Context only", "type": "Container", "state": "Open",
+      "label": "Never parse ANSI label", "isSeed": false, "pins": [], "owningSubtreeIds": [],
+      "membership": "ancestor context",
+      "children": [{
+        "key": "item:42", "id": 42, "title": "<script>not executable</script>", "type": "Delivery slice", "state": "Queued",
+        "label": "Never parse ANSI label", "isSeed": false, "pins": ["single"], "owningSubtreeIds": [],
+        "membership": "pending", "children": []
+      }]
+    }]
+  }
+}

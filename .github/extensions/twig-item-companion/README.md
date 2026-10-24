@@ -82,7 +82,7 @@ This contract is pinned to native prerequisite **#1210**, commit
 binaries. An unsupported invocation or schema is a visible refusal, never an
 ANSI parser, current-Bench fallback, temporary switch or second query backend.
 The UI branch consumes the exported contract; it does not carry that native
-branch's ancestry. Real-binary integration awaits delivery of #1210 to main.
+branch's ancestry. The native contract is now merged; older binaries still refuse.
 
 Re-reading uses the captured stable Bench ID plus native expected Bench, binding
 and identity flags, and checks the complete returned origin against the previous
@@ -107,19 +107,27 @@ summary and restores filter/view/focus on Back or Escape, without `twig set` or
 changing shared current-Bench state. Untrusted text is inserted using
 `textContent`, never HTML or arbitrary links/assets.
 
-**Explicit-Bench detail (authored, UNVALIDATED against a real binary):** selecting a
+**Explicit-Bench detail (real-process consumer validated):** selecting a
 loaded member calls `twig bench detail <id> --bench <captured Bench id> --document
 -o json` with `--expect-bench/--expect-binding/--expect-identity` (native contract at
-twig `06cb33b2`, not yet on main). It is cache-only (never `--sync`), never touches the
+twig `06cb33b2`, subsequently delivered through #484). It is cache-only (never `--sync`), never touches the
 shared current Bench, and the reply's `origin` and `benchId` must equal the origin
 captured by the v2 browser read, or the detail is refused. Non-member and not-cached
 items surface the native error code. The form is Twig's fallback layout
 (`layoutStatus: unavailable`), shown as inert text with membership and completeness
 reasons; `sourceComplete` is never true and no remote child count is claimed.
 
-**Remaining seam:** when the detail call fails or the native command is absent, the UI
-keeps the raw-summary disclosure. **#1198 cannot close until this integration is
-validated against the delivered native binary, or Daniel explicitly accepts the seam.**
+**Failure boundary:** when the detail call fails or the native command is absent, the UI
+keeps the raw-summary disclosure. Real-process evidence at extension head `34add476`
+passed the full opted-in Node suite (40 tests, zero skips) against binary SHA-256
+`b189eea5252c19e0f821bafda53c0b708cad49b5b70b6ffe1a332f0cec4e897e`.
+That binary was built from helper commit `7a79fe935b2bf6fbec5a832aaa6d541dec4071fd`;
+its production source tree equals main `d35c5d9b` (the helper changes are test-only).
+The subsequent reparent to `2a9a1056` preserved the entire tested repository tree.
+This proves explicit member detail, whole-origin continuity, nonmember refusal and
+preservation of current Bench `Other` in the isolated native fixture, not installed
+extension discovery, live credentials, host rendering, or host authorization.
+Work-item completion remains a separate coordinator decision.
 No editor, Save/capture, proposal review/Apply, provider handoff, install/reload or
 host-runtime qualification is included. `tests/bench-detail.test.mjs` uses synthetic
 fixtures over a fake process boundary: composition coverage, not native integration.

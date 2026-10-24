@@ -252,6 +252,7 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     /// </summary>
     [Theory]
     [InlineData(typeof(IProviderWorkItemWriter))]
+    [InlineData(typeof(IProviderRevisionCodec))]
     [InlineData(typeof(StateTransitionWorkflow))]
     [InlineData(typeof(FieldUpdateWorkflow))]
     [InlineData(typeof(NoteWorkflow))]
@@ -328,13 +329,19 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         adoWrites.ShouldBeEmpty($"{command} bypassed the port: {string.Join(", ", adoWrites)}");
     }
 
+    /// <summary>
+    /// #1178 AC (a): under ADO the port is the ADO adapter over the ADO client, not the client
+    /// itself, so the opaque revision precondition is checked before any ADO call. The codec is
+    /// the single ADO codec instance — there is no second decoder.
+    /// </summary>
     [Fact]
-    public async Task MutationPort_UnderAdo_IsTheAdoClient()
+    public async Task MutationPort_UnderAdo_IsTheAdoAdapter()
     {
         var runtime = await AttachAsync(provider: null, gitProject: "Project");
 
-        runtime.GetRequiredService<IProviderWorkItemWriter>()
-            .ShouldBeSameAs(runtime.GetRequiredService<IAdoWorkItemService>());
+        runtime.GetRequiredService<IProviderWorkItemWriter>().ShouldBeOfType<AdoProviderWorkItemWriter>();
+        runtime.GetRequiredService<IProviderRevisionCodec>().ShouldBeSameAs(AdoProviderRevisionCodec.Instance);
+        typeof(IProviderWorkItemWriter).IsAssignableFrom(typeof(IAdoWorkItemService)).ShouldBeFalse();
         _transport.Requests.ShouldBeEmpty();
     }
 
@@ -511,10 +518,12 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     {
         private int _revision = 1;
 
-        public Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default)
+        public Task<ProviderRevisionToken> PatchAsync(
+            int id, IReadOnlyList<FieldChange> changes, ProviderRevisionPrecondition expected, CancellationToken ct = default)
         {
             Record(nameof(PatchAsync));
-            return Task.FromResult(Interlocked.Increment(ref _revision));
+            var next = Interlocked.Increment(ref _revision);
+            return Task.FromResult(new ProviderRevisionToken(next.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
 
         public Task AddCommentAsync(int id, string text, CancellationToken ct = default)

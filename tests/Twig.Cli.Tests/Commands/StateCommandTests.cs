@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
@@ -25,6 +26,7 @@ public class StateCommandTests
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IConsoleInput _consoleInput;
@@ -37,6 +39,7 @@ public class StateCommandTests
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _consoleInput = Substitute.For<IConsoleInput>();
@@ -57,9 +60,9 @@ public class StateCommandTests
 
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new StateCommand(
-            ctx, resolver, _workItemRepo, _adoService,
+            ctx, resolver, _workItemRepo, _writer,
             _consoleInput, _seedMutationProvider,
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider),
             _pendingChangeStore);
     }
 
@@ -385,7 +388,7 @@ public class StateCommandTests
     {
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var propagationService = new ParentStatePropagationService(
-            _workItemRepo, _adoService, _processConfigProvider, protectedCacheWriter);
+            _workItemRepo, _writer, AdoWriterFixture.Codec, _processConfigProvider, protectedCacheWriter);
 
         var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -398,9 +401,9 @@ public class StateCommandTests
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
 
         return new StateCommand(
-            ctx, resolver, _workItemRepo, _adoService,
+            ctx, resolver, _workItemRepo, _writer,
             _consoleInput, _seedMutationProvider,
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService),
             _pendingChangeStore);
     }
 
@@ -502,7 +505,7 @@ public class StateCommandTests
 
     private static WorkItem CreateWorkItem(int id, string title, string state, WorkItemType type)
     {
-        return new WorkItem
+        var item = new WorkItem
         {
             Id = id,
             Type = type,
@@ -511,6 +514,9 @@ public class StateCommandTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+        // Synced at revision 1, as anything read from ADO is; a provider write refuses revision 0 (#1178 Option A).
+        item.MarkSynced(1);
+        return item;
     }
 
     [Fact]
@@ -729,23 +735,23 @@ public class StateCommandTests
         // Direct New → Closed: rejected
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "New"),
-                0, Arg.Any<CancellationToken>())
+                1, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoBadRequestException("TF401320: state transition is not allowed"));
         // New → Active
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
-                0, Arg.Any<CancellationToken>())
-            .Returns(1);
+                1, Arg.Any<CancellationToken>())
+            .Returns(2);
         // Active → Resolved
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),
-                1, Arg.Any<CancellationToken>())
-            .Returns(2);
+                2, Arg.Any<CancellationToken>())
+            .Returns(3);
         // Resolved → Closed
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Resolved"),
-                2, Arg.Any<CancellationToken>())
-            .Returns(3);
+                3, Arg.Any<CancellationToken>())
+            .Returns(4);
 
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
@@ -767,22 +773,22 @@ public class StateCommandTests
         // Direct New → Closed: rejected
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "New"),
-                0, Arg.Any<CancellationToken>())
+                1, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoBadRequestException("TF401320: state transition is not allowed"));
         // New → Active: succeeds
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
-                0, Arg.Any<CancellationToken>())
-            .Returns(1);
+                1, Arg.Any<CancellationToken>())
+            .Returns(2);
         // Active → Resolved: rejected
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),
-                1, Arg.Any<CancellationToken>())
+                2, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoBadRequestException("TF401320: state transition is not allowed"));
         // Active → Closed (final retry): also rejected
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Active"),
-                1, Arg.Any<CancellationToken>())
+                2, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoBadRequestException("TF401320: state transition is not allowed"));
 
         var result = await _cmd.ExecuteAsync("Closed");
@@ -819,8 +825,8 @@ public class StateCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active"),
-                0, Arg.Any<CancellationToken>())
-            .Returns(1);
+                1, Arg.Any<CancellationToken>())
+            .Returns(2);
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
 

@@ -5,6 +5,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
@@ -21,6 +22,7 @@ public class UpdateCommandTests
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
     private readonly IFieldDefinitionStore _fieldDefStore;
@@ -32,6 +34,7 @@ public class UpdateCommandTests
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
@@ -47,8 +50,8 @@ public class UpdateCommandTests
         var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var fieldUpdateWorkflow = new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(
-            _workItemRepo, _adoService, _pendingChangeStore);
-        return new UpdateCommand(resolver, _workItemRepo, _adoService,
+            _workItemRepo, _writer, _pendingChangeStore);
+        return new UpdateCommand(resolver, _workItemRepo, _writer,
             _consoleInput, _fieldDefStore, formatterFactory, _seedMutationProvider, fieldUpdateWorkflow,
             _pendingChangeStore,
             stdinReader: stdinReader, stderr: stderr, stdout: stdout);
@@ -743,7 +746,7 @@ public class UpdateCommandTests
 
     private static WorkItem CreateWorkItem(int id, string title)
     {
-        return new WorkItem
+        var item = new WorkItem
         {
             Id = id,
             Type = WorkItemType.Task,
@@ -752,6 +755,9 @@ public class UpdateCommandTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+        // Synced at revision 1, as anything read from ADO is; a provider write refuses revision 0 (#1178 Option A).
+        item.MarkSynced(1);
+        return item;
     }
 
     private static WorkItem CreateSeedWorkItem(int id, string title)

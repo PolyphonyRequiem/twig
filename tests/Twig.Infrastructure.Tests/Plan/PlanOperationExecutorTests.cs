@@ -9,6 +9,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Plan;
+using Twig.Infrastructure.Tests.Ado;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Plan;
@@ -23,9 +24,11 @@ namespace Twig.Infrastructure.Tests.Plan;
 /// </summary>
 public sealed class PlanOperationExecutorTests
 {
-    // Feature #1178: the fixture is the provider-neutral mutation port, not the ADO client, so every
-    // journal, partial-failure and readback pin here proves proposal apply needs nothing ADO-only.
-    private readonly IProviderWorkItemWriter _ado = Substitute.For<IProviderWorkItemWriter>();
+    // Feature #1178: the executor is handed the provider-neutral mutation port, so every journal,
+    // partial-failure and readback pin here proves proposal apply needs nothing ADO-only. The port is
+    // the real ADO adapter over this client substitute (AC (a)), so the opaque revision precondition
+    // check runs exactly as in production.
+    private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
     private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
     private readonly IFieldDefinitionStore _fieldDefinitions = Substitute.For<IFieldDefinitionStore>();
     private readonly IWorkItemRepository _workItems = Substitute.For<IWorkItemRepository>();
@@ -60,7 +63,8 @@ public sealed class PlanOperationExecutorTests
                 _publishInvocations.Add(seedId);
                 return Task.FromResult(_publishBehaviour(seedId));
             });
-        _executor = new PlanOperationExecutor(_ado, _revisionBound, _fieldDefinitions, publisher);
+        _executor = new PlanOperationExecutor(
+            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions, publisher);
     }
 
     private void StubFieldDefinition(string referenceName, string dataType)
@@ -707,6 +711,56 @@ public sealed class PlanOperationExecutorTests
 
         outcome.Outcome.ShouldBe(PlanExecutionOutcome.Indeterminate);
         outcome.Error.ShouldBe("post-create promotion failed");
+    }
+
+    // ── #1178 AC (a): opaque revision precondition ─────────────────────────
+
+    [Fact]
+    public async Task ExecuteBatch_RevisionZero_IsDeterminatePreTransportRefusal_WithNoAdoCall()
+    {
+        // The plan parser rejects expectedRevision <= 0, so this is the executor-level pin
+        // for a missing precondition reaching the port: refused before transport, never a
+        // conflict, never a refetch, recorded as a determinate Failure.
+        var op = new BatchOperation
+        {
+            Id = "b",
+            WorkItemId = 730,
+            ExpectedRevision = 0,
+            Fields = new Dictionary<string, string?> { ["System.State"] = "Doing" },
+        };
+
+        var outcome = await _executor.ExecuteAsync(op, CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldStartWith("revision-precondition-refused:");
+        outcome.ResultJson.ShouldNotBeNull();
+        using var diagnostics = JsonDocument.Parse(outcome.ResultJson);
+        var diag = diagnostics.RootElement.GetProperty("diagnostics");
+        diag.GetProperty("code").GetString().ShouldBe("revision-precondition-refused");
+        diag.GetProperty("expectedRevision").GetInt32().ShouldBe(0);
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteBatch_WrittenRevisionUndecodable_StaysIndeterminate()
+    {
+        // The patch was SENT; an undecodable written revision is post-transport and must not
+        // be relabelled as a determinate pre-transport refusal.
+        var op = new BatchOperation
+        {
+            Id = "b",
+            WorkItemId = 731,
+            ExpectedRevision = 2,
+            Fields = new Dictionary<string, string?> { ["System.State"] = "Doing" },
+        };
+        _ado.PatchAsync(731, Arg.Any<IReadOnlyList<FieldChange>>(), 2, Arg.Any<CancellationToken>())
+            .Returns(0);
+
+        var outcome = await _executor.ExecuteAsync(op, CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Indeterminate);
+        await _ado.Received(1).PatchAsync(731, Arg.Any<IReadOnlyList<FieldChange>>(), 2, Arg.Any<CancellationToken>());
     }
 
     // ── strict-CAS relation not found ──────────────────────────────────────

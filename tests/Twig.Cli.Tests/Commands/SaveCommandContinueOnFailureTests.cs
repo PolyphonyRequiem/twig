@@ -72,13 +72,19 @@ public sealed class SaveCommandContinueOnFailureTests : SaveCommandTestBase
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
-    private static WorkItem CreateWorkItem(int id, string title) => new()
+    private static WorkItem CreateWorkItem(int id, string title)
     {
-        Id = id,
-        Type = WorkItemType.Task,
-        Title = title,
-        State = "New",
-        IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-        AreaPath = AreaPath.Parse("Project").Value,
-    };
+        var item = new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        // Synced at revision 1, as anything read from ADO is; a provider write refuses revision 0 (#1178 Option A).
+        item.MarkSynced(1);
+        return item;
+    }
 }

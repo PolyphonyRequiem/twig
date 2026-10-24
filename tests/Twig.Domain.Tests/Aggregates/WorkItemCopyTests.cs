@@ -297,7 +297,7 @@ public class WorkItemCopyTests
     [Fact]
     public void WithParentId_RevisionZero_SkipsMarkSynced()
     {
-        var original = new WorkItemBuilder(-1, "Unsynced").AsSeed().Build();
+        var original = new WorkItemBuilder(-1, "Unsynced").AsSeed().WithRevision(0).Build();
         original.Revision.ShouldBe(0);
 
         var copy = original.WithParentId(100);

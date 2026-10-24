@@ -15,7 +15,9 @@ namespace Twig.Domain.Tests.Services.Navigation;
 public class ParentStatePropagationServiceTests
 {
     private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
+    // Feature #1178: the service depends only on the provider-neutral mutation port and a
+    // revision codec. A test-only provider kind proves no ADO encoding is assumed here.
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
@@ -24,7 +26,7 @@ public class ParentStatePropagationServiceTests
     public ParentStatePropagationServiceTests()
     {
         _workItemRepo = Substitute.For<IWorkItemRepository>();
-        _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = Substitute.For<IProviderWorkItemWriter>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
@@ -35,7 +37,7 @@ public class ParentStatePropagationServiceTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
         _service = new ParentStatePropagationService(
-            _workItemRepo, _adoService, _processConfigProvider, _protectedCacheWriter);
+            _workItemRepo, _writer, TestRevisionCodec.Instance, _processConfigProvider, _protectedCacheWriter);
     }
 
     // ── NotApplicable ──────────────────────────────────────────────
@@ -107,7 +109,7 @@ public class ParentStatePropagationServiceTests
         var child = new WorkItemBuilder(1, "Child Task").AsTask().InState("Doing").WithParent(100).Build();
 
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _adoService.FetchAsync(100, Arg.Any<CancellationToken>())
+        _writer.FetchAsync(100, Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("network error"));
 
         var result = await _service.TryPropagateToParentAsync(child, StateCategory.InProgress);
@@ -146,9 +148,9 @@ public class ParentStatePropagationServiceTests
         parent.MarkSynced(5);
 
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
-            .Returns(6);
+        _writer.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _writer.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Expected(5), Arg.Any<CancellationToken>())
+            .Returns(Token(6));
 
         var result = await _service.TryPropagateToParentAsync(child, StateCategory.InProgress);
 
@@ -158,14 +160,14 @@ public class ParentStatePropagationServiceTests
         result.ParentNewState.ShouldBe("Doing");
 
         // Verify ADO patch was called with correct state change
-        await _adoService.Received(1).PatchAsync(
+        await _writer.Received(1).PatchAsync(
             100,
             Arg.Is<IReadOnlyList<FieldChange>>(c =>
                 c.Count == 1 &&
                 c[0].FieldName == "System.State" &&
                 c[0].OldValue == "To Do" &&
                 c[0].NewValue == "Doing"),
-            5,
+            Expected(5),
             Arg.Any<CancellationToken>());
 
         // Verify cache was updated
@@ -183,9 +185,9 @@ public class ParentStatePropagationServiceTests
 
         // Parent not in cache — will be fetched from ADO
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
-            .Returns(4);
+        _writer.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _writer.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Expected(3), Arg.Any<CancellationToken>())
+            .Returns(Token(4));
 
         var result = await _service.TryPropagateToParentAsync(child, StateCategory.InProgress);
 
@@ -205,8 +207,8 @@ public class ParentStatePropagationServiceTests
         parent.MarkSynced(5);
 
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _writer.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _writer.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<ProviderRevisionPrecondition>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("409 Conflict"));
 
         var result = await _service.TryPropagateToParentAsync(child, StateCategory.InProgress);
@@ -242,9 +244,9 @@ public class ParentStatePropagationServiceTests
         parent.MarkSynced(2);
 
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 2, Arg.Any<CancellationToken>())
-            .Returns(3);
+        _writer.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _writer.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Expected(2), Arg.Any<CancellationToken>())
+            .Returns(Token(3));
 
         var result = await _service.TryPropagateToParentAsync(child, StateCategory.InProgress);
 
@@ -252,5 +254,42 @@ public class ParentStatePropagationServiceTests
         result.ParentId.ShouldBe(1);
         result.ParentOldState.ShouldBe("New");
         result.ParentNewState.ShouldBe("Active");
+    }
+
+    // ── Unknown parent revision → Failed, never sent ───────────────
+
+    [Fact]
+    public async Task Failed_WhenParentRevisionUnknown_RefusesBeforePatching()
+    {
+        var child = new WorkItemBuilder(1, "Child Task").AsTask().InState("Doing").WithParent(100).Build();
+        var parent = new WorkItemBuilder(100, "Parent Issue").AsIssue().InState("To Do").WithRevision(0).Build();
+
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _writer.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await _service.TryPropagateToParentAsync(child, StateCategory.InProgress);
+
+        result.Outcome.ShouldBe(ParentPropagationOutcome.Failed);
+        result.Error!.ShouldStartWith("revision-precondition-refused:");
+        await _writer.DidNotReceiveWithAnyArgs().PatchAsync(default, default!, default!, default);
+        await _workItemRepo.DidNotReceiveWithAnyArgs().SaveAsync(default!, default);
+    }
+
+    private static ProviderRevisionPrecondition Expected(int revision) => TestRevisionCodec.Instance.FromCacheRevision(revision);
+
+    private static ProviderRevisionToken Token(int revision) => new(revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    private sealed class TestRevisionCodec : IProviderRevisionCodec
+    {
+        public static readonly TestRevisionCodec Instance = new();
+
+        public string ProviderKind => "test-provider";
+
+        public ProviderRevisionPrecondition FromCacheRevision(int revision) => revision > 0
+            ? new ProviderRevisionPrecondition(ProviderKind, Token(revision))
+            : throw new ProviderRevisionPreconditionRefusedException(ProviderRevisionPreconditionRefusal.Missing, ProviderKind);
+
+        public int ToCacheRevision(ProviderRevisionToken revision)
+            => int.Parse(revision.Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture);
     }
 }

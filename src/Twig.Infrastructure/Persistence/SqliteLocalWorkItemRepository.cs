@@ -88,6 +88,23 @@ internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : IL
         }, ct);
     }
 
+    /// <summary>
+    /// Resolves <paramref name="identity"/> and records <paramref name="observedToken"/> as its latest
+    /// observation in one transaction, for sync paths that see the same item repeatedly.
+    /// </summary>
+    internal Task<ExternalIdentityResolution> ObserveAsync(
+        ExternalWorkItemIdentity identity, ProviderRevisionToken? observedToken, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return InTransactionAsync(async _ =>
+        {
+            var resolution = await ResolveAsync(identity, observedToken, ct);
+            if (!resolution.Created && !await RecordObservedTokenAsync(identity, observedToken, ct))
+                throw new InvalidOperationException("The external identity mapping vanished inside its own transaction.");
+            return resolution;
+        }, ct);
+    }
+
     public async Task<LocalWorkItemId?> FindAsync(ExternalWorkItemIdentity identity, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(identity);

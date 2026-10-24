@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -20,6 +21,7 @@ public sealed class PendingChangeFlusherTests
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
@@ -29,6 +31,7 @@ public sealed class PendingChangeFlusherTests
     {
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
@@ -36,7 +39,7 @@ public sealed class PendingChangeFlusherTests
     }
 
     private PendingChangeFlusher CreateFlusher() =>
-        new(_workItemRepo, _adoService, _pendingChangeStore,
+        new(_workItemRepo, _writer, _pendingChangeStore,
             _consoleInput, _formatterFactory, _stderr);
 
     // ═══════════════════════════════════════════════════════════════
@@ -496,7 +499,7 @@ public sealed class PendingChangeFlusherTests
     {
         // Verify the null-coalescing default doesn't throw
         var flusher = new PendingChangeFlusher(
-            _workItemRepo, _adoService, _pendingChangeStore,
+            _workItemRepo, _writer, _pendingChangeStore,
             _consoleInput, _formatterFactory);
         var result = await flusher.FlushAsync([]);
         result.Failures.ShouldBeEmpty();
@@ -511,15 +514,21 @@ public sealed class PendingChangeFlusherTests
         _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
     }
 
-    private static WorkItem CreateWorkItem(int id, string title) => new()
+    private static WorkItem CreateWorkItem(int id, string title)
     {
-        Id = id,
-        Type = WorkItemType.Task,
-        Title = title,
-        State = "New",
-        IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-        AreaPath = AreaPath.Parse("Project").Value,
-    };
+        var item = new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        // Synced at revision 1, as anything read from ADO is; a provider write refuses revision 0 (#1178 Option A).
+        item.MarkSynced(1);
+        return item;
+    }
 
     /// <summary>
     /// A remote snapshot that has drifted on the field the tests stage an edit for.

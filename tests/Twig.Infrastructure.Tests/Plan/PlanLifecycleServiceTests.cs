@@ -4,9 +4,9 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
@@ -16,6 +16,7 @@ using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Plan;
+using Twig.Infrastructure.Tests.Ado;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Plan;
@@ -32,9 +33,12 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     private readonly SqlitePlanJournalRepository _journal;
     private readonly IPendingChangeReader _pending = Substitute.For<IPendingChangeReader>();
     private readonly IFieldDefinitionStore _fieldDefinitions = Substitute.For<IFieldDefinitionStore>();
-    // Feature #1178: the fixture is the provider-neutral mutation port, not the ADO client, so every
-    // journal, partial-failure and readback pin here proves proposal apply needs nothing ADO-only.
-    private readonly IProviderWorkItemWriter _ado = Substitute.For<IProviderWorkItemWriter>();
+    // Feature #1178: the service is handed the provider-neutral mutation port, so every journal,
+    // partial-failure and readback pin here proves proposal apply needs nothing ADO-only. The port is
+    // the real ADO adapter over this client substitute (AC (a)), so the opaque revision precondition
+    // check runs exactly as in production. Wrapped once in the constructor, before any per-test stub.
+    private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
     private readonly IWorkItemRepository _workItems = Substitute.For<IWorkItemRepository>();
     private readonly ISeedLinkRepository _seedLinks = Substitute.For<ISeedLinkRepository>();
@@ -50,6 +54,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
     public PlanLifecycleServiceTests()
     {
+        _writer = AdoWriterFixture.Wrap(_ado);
         _repoRoot = Path.Combine(Path.GetTempPath(), $"twig-plan-lc-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_repoRoot);
         var twigDir = Path.Combine(_repoRoot, ".twig");
@@ -130,7 +135,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 "fixture-object", "fixture-issuer", "fixture-authority", null));
     }
 
-    private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null)
+    private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null,
+        IProviderWorkItemWriter? writer = null)
     {
         var provider = clock is null
             ? TimeProvider.System
@@ -140,7 +146,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             journal ?? _journal,
             _pending,
             _fieldDefinitions,
-            _ado,
+            writer ?? _writer,
+            AdoWriterFixture.Codec,
             _revisionBound,
             _seedPublish.Orchestrator,
             _workItems,
@@ -577,6 +584,125 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         await _ado.DidNotReceive().PatchAsync(101, Arg.Any<IReadOnlyList<FieldChange>>(),
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
+
+    // ── #1178 AC (a): opaque revision precondition through apply ───────────
+
+    /// <summary>
+    /// Delegates to the real ADO adapter but re-labels one item's precondition with a foreign
+    /// provider kind, so a refusal arises at the real port after an earlier operation landed.
+    /// </summary>
+    private sealed class ForeignPreconditionWriter(IProviderWorkItemWriter inner, int foreignItemId)
+        : IProviderWorkItemWriter
+    {
+        public Task<ProviderRevisionToken> PatchAsync(int id, IReadOnlyList<FieldChange> changes,
+            ProviderRevisionPrecondition expected, CancellationToken ct = default)
+            => inner.PatchAsync(id, changes,
+                id == foreignItemId
+                    ? new ProviderRevisionPrecondition(ProviderCapabilityCatalog.GitHubProviderKind, expected.Expected)
+                    : expected,
+                ct);
+
+        public Task AddCommentAsync(int id, string text, CancellationToken ct = default)
+            => inner.AddCommentAsync(id, text, ct);
+
+        public Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+            => inner.AddLinkAsync(sourceId, targetId, adoLinkType, ct);
+
+        public Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment,
+            CancellationToken ct = default)
+            => inner.AddLinkWithCommentAsync(sourceId, targetId, adoLinkType, comment, ct);
+
+        public Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+            => inner.RemoveLinkAsync(sourceId, targetId, adoLinkType, ct);
+
+        public Task<WorkItem> FetchAsync(int id, CancellationToken ct = default) => inner.FetchAsync(id, ct);
+
+        public Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id,
+            CancellationToken ct = default) => inner.FetchWithLinksAsync(id, ct);
+
+        public Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksAsync(
+            IReadOnlyList<int> ids, CancellationToken ct = default) => inner.FetchBatchWithLinksAsync(ids, ct);
+
+        public Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default)
+            => inner.FetchChildrenAsync(parentId, ct);
+
+        public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default)
+            => inner.QueryByWiqlAsync(wiql, ct);
+
+        public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default)
+            => inner.QueryByWiqlAsync(wiql, top, ct);
+
+        public Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct = default)
+            => inner.FetchBatchAsync(ids, ct);
+    }
+
+    [Fact]
+    public async Task Apply_PreconditionRefusedAfterEarlierWrite_IsDeterminateFailure_AndKeepsTheEarlierWrite()
+    {
+        var file = WritePlan(TwoBatchPlan(a: (100, 3), b: (101, 5)));
+        var svc = BuildService(writer: new ForeignPreconditionWriter(_writer, foreignItemId: 101));
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _ado.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(100, rev: 4, state: "Active"));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        apply.Error.ShouldBeNull();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[1].State.ShouldBe(PlanOperationState.Failed);
+        apply.Operations[1].Error!.ShouldStartWith("revision-precondition-refused:");
+
+        var status = (await svc.StatusAsync(file))!;
+        status.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        var refused = status.Operations[1];
+        refused.State.ShouldBe(PlanOperationState.Failed);
+        refused.Diagnostics.Disposition.ShouldBe("failed");
+        refused.Diagnostics.ExpectedRevision.ShouldBe(5);
+        refused.Diagnostics.ObservedRevision.ShouldBeNull();
+        // The journal row carries the refusal code; the shared diagnostics projection
+        // allowlists known codes and does not surface this one yet, so read the raw row.
+        using (var result = System.Text.Json.JsonDocument.Parse(refused.ResultJson!))
+        {
+            var diag = result.RootElement.GetProperty("diagnostics");
+            diag.GetProperty("code").GetString().ShouldBe("revision-precondition-refused");
+            diag.GetProperty("expectedRevision").GetInt32().ShouldBe(5);
+            result.RootElement.TryGetProperty("rev", out _).ShouldBeFalse();
+            result.RootElement.TryGetProperty("revision", out _).ShouldBeFalse();
+        }
+
+        await _ado.Received(1).PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
+        await _ado.DidNotReceive().PatchAsync(101, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _ado.DidNotReceive().FetchAsync(101, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_DigestAndJournalFormat_AreUnchangedByTheOpaquePort()
+    {
+        // D3: the proposal, digest and journal stay int-shaped in this slice. The digest of a
+        // fixed plan and the acknowledged-revision JSON are pinned as literals.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Active"));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        digest.ShouldBe(PinnedBatchDigest);
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+        var row = (await svc.StatusAsync(file))!.Operations.ShouldHaveSingleItem();
+        row.ResultJson.ShouldBe(PinnedBatchResultJson);
+        row.Diagnostics.ExpectedRevision.ShouldBe(3);
+        row.Diagnostics.ObservedRevision.ShouldBe(4);
+    }
+
+    private const string PinnedBatchDigest = "e7ed689fe4a01035670a9facac30f0a22d65be0f08dfc1c11685f8f9f93d3979";
+    private const string PinnedBatchResultJson =
+        """{"rev":4,"revision":4,"diagnostics":{"code":"verified","expectedRevision":3,"observedRevision":4,"fields":[{"field":"System.State","classification":"exact"}],"missingFields":[]},"fieldEvidence":[{"field":"System.State","expected":"Active","actual":"Active"}]}""";
 
     // ── apply: link / delete happy paths ────────────────────────────────────
 
@@ -1538,7 +1664,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         // internal steps.
         var boundClock = clock;
         svc = new PlanLifecycleService(
-            new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _ado, _revisionBound,
+            new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _writer, AdoWriterFixture.Codec, _revisionBound,
             _seedPublish.Orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap,
             _publishIntent, _config, _paths, boundClock, new StubSteering(() => _steeringMode), new FixtureOrigin(_repoRoot),
             _ruleProvider, Substitute.For<IUnitOfWork>());

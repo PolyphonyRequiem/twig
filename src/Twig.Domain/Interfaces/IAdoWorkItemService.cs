@@ -6,12 +6,14 @@ namespace Twig.Domain.Interfaces;
 /// <summary>
 /// Contract for interacting with the Azure DevOps REST API for work items.
 /// Implemented in Infrastructure (ADO REST client). The read members live on
-/// <see cref="IProviderWorkItemReader"/>, the provider read boundary (Feature #1177); the
-/// patch, comment and link members live on <see cref="IProviderWorkItemWriter"/>, the provider
-/// mutation boundary (Feature #1178). What remains here is ADO-only.
+/// <see cref="IProviderWorkItemReader"/>, the provider read boundary (Feature #1177). The
+/// patch, comment and link members are ADO's native shape; neutral callers reach them through
+/// <see cref="IProviderWorkItemWriter"/>, the provider mutation boundary (Feature #1178), whose
+/// ADO adapter converts the opaque revision precondition to the integer here.
 /// </summary>
-public interface IAdoWorkItemService : IProviderWorkItemWriter
+public interface IAdoWorkItemService : IProviderWorkItemReader
 {
+    Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default);
     Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default);
 
     /// <summary>
@@ -58,6 +60,39 @@ public interface IAdoWorkItemService : IProviderWorkItemWriter
     /// Uses current content and revision/CAS; unavailable confirmation leaves metadata intact.
     /// </summary>
     Task ClearPublishMetadataAsync(int id, ValueObjects.SeedPublishCorrelation correlation, CancellationToken ct = default);
+
+    Task AddCommentAsync(int id, string text, CancellationToken ct = default);
+    Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default);
+
+    /// <summary>
+    /// Adds a link and records <paramref name="comment"/> in the relation's
+    /// <c>attributes.comment</c> field (AB#620).
+    /// </summary>
+    /// <remarks>
+    /// A distinctly NAMED method rather than an overload of <see cref="AddLinkAsync"/>, and the
+    /// reason is mechanical rather than stylistic: <c>AddLinkAsync</c> is shipped public API
+    /// whose last parameter is optional, and the public-API analyzers reject both ways of
+    /// extending it — RS0026 forbids a second overload that also has optional parameters, and
+    /// RS0027 forbids the shipped one keeping its optional parameter while a longer overload
+    /// exists. Widening the shipped signature in place would instead delete a shipped symbol.
+    ///
+    /// <para>
+    /// The comment is the reason for the relationship, which for a symmetric
+    /// <c>System.LinkTypes.Related</c> edge is the valuable half — an unexplained related link
+    /// is an assertion with no argument. ADO carries it on the relation itself, so it must be
+    /// set at creation; a create-then-comment pair would write a work item COMMENT instead,
+    /// which is a different thing in a different place.
+    /// </para>
+    ///
+    /// <para>
+    /// A null or whitespace <paramref name="comment"/> must emit no <c>attributes</c> object at
+    /// all, so this sends byte-identical JSON to <see cref="AddLinkAsync"/> in that case. That
+    /// is what lets callers route every add through here without changing existing requests.
+    /// </para>
+    /// </remarks>
+    Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment, CancellationToken ct = default);
+
+    Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default);
 
     /// <summary>
     /// Adds an artifact link (ArtifactLink for vstfs:// URIs, Hyperlink for http/https URLs)

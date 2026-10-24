@@ -260,12 +260,13 @@ public sealed class ConnectionCapabilitiesCommandTests
     }
 
     // Composed through #1167's real provider factory (NetworkServiceModule), resolved exactly as
-    // CommandRegistrationModule wires the command. An explicitly configured provider without an
-    // adapter must fail closed with its reason code; it must never fall back to ADO's report.
+    // CommandRegistrationModule wires the command. A provider that cannot be resolved (unknown, or
+    // GitHub without explicit github.* scope) must fail closed with its reason code; it must never
+    // fall back to ADO's report.
     [Theory]
-    [InlineData("github", "provider-unavailable:")]
+    [InlineData("github", "provider-unconfigured:")]
     [InlineData("jira", "provider-unknown:")]
-    public async Task ConfiguredProviderWithoutAdapter_FailsClosed_WithReasonCode(string stored, string reason)
+    public async Task UnresolvableProvider_FailsClosed_WithReasonCode(string stored, string reason)
     {
         using var services = BuildWithProvider(stored);
 
@@ -293,10 +294,59 @@ public sealed class ConnectionCapabilitiesCommandTests
         kinds.Values.ShouldAllBe(e => e.GetProperty("implementation").GetString() == "native");
     }
 
-    private static ServiceProvider BuildWithProvider(string? stored)
+    // #1167 activation: with explicit github.* scope the real factory resolves the registered GitHub
+    // adapter, and the report is that adapter's own descriptor, labelled native/unsupported per kind.
+    // Composing and reporting acquire no credential and make no GitHub request.
+    [Fact]
+    public async Task ConfiguredGitHubProvider_ReportsRegisteredAdapterDescriptor_WithoutCredentialOrHttp()
+    {
+        var tokens = new CountingTokenSource();
+        using var transport = new CountingDeniedTransport();
+        using var services = BuildWithProvider("github",
+            new GitHubConfig { Host = "github.com", Repository = "octo/repo" }, tokens, transport);
+
+        var active = services.GetRequiredService<IWorkItemProvider>();
+        active.ShouldBeOfType<GitHubWorkItemProvider>();
+        active.Capabilities.ShouldBeSameAs(ProviderCapabilityCatalog.GitHub);
+
+        var (exit, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand(() => services.GetService<IWorkItemProvider>()).ExecuteAsync("json"));
+
+        exit.ShouldBe(0);
+        var kinds = ByKind(output, out var provider);
+        provider.ShouldBe("github");
+        kinds["parent-child"].GetProperty("implementation").GetString().ShouldBe("native");
+        kinds["predecessor-successor"].GetProperty("implementation").GetString().ShouldBe("native");
+        kinds["related"].GetProperty("implementation").GetString().ShouldBe("unsupported");
+        kinds.Values.ShouldAllBe(e => e.GetProperty("availability").GetString() == "unknown"
+            && e.GetProperty("reason").GetString() == CapabilityReport.NotProbedReason);
+        tokens.Calls.ShouldBe(0);
+        transport.Requests.ShouldBe(0);
+    }
+
+    private sealed class CountingTokenSource : IGitHubTokenSource
+    {
+        public int Calls { get; private set; }
+
+        public ValueTask<string> GetTokenAsync(CancellationToken ct)
+        {
+            Calls++;
+            return ValueTask.FromResult("fixture-github-token");
+        }
+    }
+
+    private static ServiceProvider BuildWithProvider(
+        string? stored,
+        GitHubConfig? gitHub = null,
+        IGitHubTokenSource? tokens = null,
+        HttpMessageHandler? gitHubTransport = null)
     {
         var services = new ServiceCollection();
-        var config = new TwigConfiguration { Organization = "testorg", Project = "testproj", Provider = stored };
+        var config = new TwigConfiguration { Organization = "testorg", Project = "testproj", Provider = stored, GitHub = gitHub };
+        if (tokens is not null)
+            services.AddSingleton(tokens);
+        if (gitHubTransport is not null)
+            services.AddSingleton(new GitHubTransportOverride(() => gitHubTransport));
         services.AddSingleton(config);
         services.AddTwigNetworkServices(config);
         services.AddSingleton(Substitute.For<IAuthenticationProvider>());

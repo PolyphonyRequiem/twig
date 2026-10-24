@@ -292,6 +292,92 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         _transport.Requests.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// #1167 activation, unconfigured: provider=github without explicit github.* scope cannot
+    /// resolve the active provider and says so, rather than falling back to ADO.
+    /// </summary>
+    [Fact]
+    public async Task ActiveProvider_UnderUnconfiguredGitHub_RefusesAsUnconfigured()
+    {
+        var (runtime, tokens, gitHubTransport) = await AttachGitHubAsync(configured: false);
+
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IWorkItemProvider>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnconfiguredReasonCode + ":");
+        tokens.Calls.ShouldBe(0);
+        gitHubTransport.Requests.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// #1167 activation, configured: the active provider is the registered GitHub adapter carrying
+    /// its own descriptor, resolved without a credential or any request. ADO-only paths (write,
+    /// show, plan lifecycle) still refuse with provider-unavailable: activation is read-only and
+    /// does not route them to GitHub.
+    /// </summary>
+    [Fact]
+    public async Task UnderConfiguredGitHub_ActiveProviderIsGitHubAdapter_AndAdoOnlyPathsStillRefuse()
+    {
+        var (runtime, tokens, gitHubTransport) = await AttachGitHubAsync(configured: true);
+
+        var active = runtime.GetRequiredService<IWorkItemProvider>();
+        active.ShouldBeOfType<Twig.Infrastructure.GitHub.GitHubWorkItemProvider>();
+        active.Capabilities.ShouldBeSameAs(Twig.Domain.Capabilities.ProviderCapabilityCatalog.GitHub);
+
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IPlanLifecycleService>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        var commands = new TwigCommands(runtime);
+        (await CaptureAsync(() => commands.Show(42, output: "json")))
+            .ShouldBeOfType<TwigConfigurationException>().Message
+            .ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        (await CaptureAsync(() => commands.Patch(42, json: "{\"System.Title\":\"wrong backend\"}", output: "json")))
+            .ShouldBeOfType<TwigConfigurationException>().Message
+            .ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+
+        tokens.Calls.ShouldBe(0);
+        gitHubTransport.Requests.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    private async Task<(ServiceProvider Runtime, CountingTokenSource Tokens, CountingGitHubTransport Transport)>
+        AttachGitHubAsync(bool configured)
+    {
+        var (config, paths) = await PrepareAsync("github", configured ? "github-configured" : "github-unconfigured");
+        if (configured)
+            config.GitHub = new GitHubConfig { Host = "github.com", Repository = "octo/repo" };
+        _transport.Reset();
+        var tokens = new CountingTokenSource();
+        var gitHubTransport = new CountingGitHubTransport();
+        var services = new ServiceCollection();
+        services.AddSingleton<Twig.Infrastructure.GitHub.IGitHubTokenSource>(tokens);
+        services.AddSingleton(new Twig.Infrastructure.GitHub.GitHubTransportOverride(() => gitHubTransport));
+        Compose(services, config, paths, gitProject: "Project");
+        var runtime = services.BuildServiceProvider();
+        _runtimes.Add(runtime);
+        return (runtime, tokens, gitHubTransport);
+    }
+
+    private sealed class CountingTokenSource : Twig.Infrastructure.GitHub.IGitHubTokenSource
+    {
+        public int Calls { get; private set; }
+
+        public ValueTask<string> GetTokenAsync(CancellationToken ct)
+        {
+            Calls++;
+            return ValueTask.FromResult("fixture-github-token");
+        }
+    }
+
+    private sealed class CountingGitHubTransport : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+        }
+    }
+
     private static async Task<Exception?> CaptureAsync(Func<Task<int>> run)
     {
         try

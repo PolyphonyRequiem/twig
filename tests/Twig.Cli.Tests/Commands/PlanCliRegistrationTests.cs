@@ -23,6 +23,24 @@ namespace Twig.Cli.Tests.Commands;
 public sealed class PlanCliRegistrationTests
 {
     [Fact]
+    public void DraftSetAndShow_AreRegisteredAsNativeCommands()
+    {
+        var set = typeof(TwigCommands).GetMethod("DraftSet",
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+        var show = typeof(TwigCommands).GetMethod("DraftShow",
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+
+        set.ShouldNotBeNull();
+        show.ShouldNotBeNull();
+        set!.CustomAttributes.ShouldContain(attribute =>
+            attribute.AttributeType.Name == "CommandAttribute"
+            && (string)attribute.ConstructorArguments[0].Value! == "draft set");
+        show!.CustomAttributes.ShouldContain(attribute =>
+            attribute.AttributeType.Name == "CommandAttribute"
+            && (string)attribute.ConstructorArguments[0].Value! == "draft show");
+    }
+
+    [Fact]
     public async Task PlanPreview_LegacyPublicSignatureStillForwardsFileFormatAndCancellation()
     {
         var method = typeof(TwigCommands).GetMethod(nameof(TwigCommands.PlanPreview),

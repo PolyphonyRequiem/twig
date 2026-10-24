@@ -3,11 +3,32 @@
 The **plans** group covers the five original `proposal <verb>` commands that
 validate, preview, apply, inspect, and describe a proposal v1 file, plus the
 read-only `proposal latest` selection, explicit `proposal reconcile` settlement,
-and `pending` staged-change dump. A proposal
+and `pending` staged-change dump. The `draft` commands own one recoverable local
+edit draft per qualified work-item identity. A proposal
 is an immutable JSON declaration; state
 lives in a per-workspace **journal** keyed on the proposal's canonical SHA-256
 digest, and every board mutation that flows through this path is auditable by
 that digest.
+
+## Recoverable local drafts
+
+`twig draft set` and `twig draft show` use the native admitted item identity,
+form capability and shared SQLite draft store. Drafts are shared by native
+surfaces through that store, keyed by checkout, connection, binding and item ID;
+the observed revision is retained separately from the stable key. Each edit
+advances a generation, and a changed revision or field is recorded as a conflict
+without dropping the proposed value.
+
+Draft persistence is **local only**. It does not stage pending work, create a
+proposal capture, authorize a digest, or apply changes to ADO. `draft set`
+refuses to mix in pending native work or edit a conflicted baseline. Resolve
+conflicts through a future explicitly authorized native workflow; do not treat
+a saved draft as permission to publish it.
+
+```text
+twig draft set 42 System.Title "Updated title"
+twig draft show 42 -o json
+```
 
 ## Canonical vs. legacy verbs
 
@@ -206,6 +227,8 @@ authorizer and rationale. Its `settled` result is distinct from successful execu
 |[`proposal status`](proposal-status.md)|Show journal state for a proposal file.|none|
 |[`proposal reconcile`](README.md#explicit-reconciliation-and-retirement)|Append an evidence-backed outcome receipt without replay or historical-state rewrites.|local|
 |[`proposal seed`](proposal-seed.md)|Describe a staged seed for proposal authoring.|none|
+|[`draft set`](draft-set.md)|Stage an exact field value in the shared recoverable local draft.|local|
+|[`draft show`](draft-show.md)|Inspect the shared draft and current native conflict state.|local|
 |[`plan validate`](plan-validate.md)|Deprecated alias for `proposal validate`.|none|
 |[`plan preview`](plan-preview.md)|Deprecated alias for `proposal preview`.|local|
 |[`plan apply`](plan-apply.md)|Deprecated alias for `proposal apply`.|ado|

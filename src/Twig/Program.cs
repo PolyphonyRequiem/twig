@@ -1694,6 +1694,28 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             file, confirm, operation, outcome, authorize, rationale,
             replacementDigest, replacementOperation, output, ct);
 
+    /// <summary>Stage one field in the shared recoverable local draft. This does not authorize or apply changes.</summary>
+    /// <param name="id">Native work-item ID in the admitted current checkout.</param>
+    /// <param name="fieldRef">Native field reference exposed as editable by the work-item form.</param>
+    /// <param name="value">Exact proposed string value; quote it to preserve spaces.</param>
+    /// <param name="output">-o, Output format: human, json, minimal. The ids format is not supported.</param>
+    [Command("draft set")]
+    public async Task<int> DraftSet(
+        [Argument] int id, [Argument] string fieldRef, [Argument] string value,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<DraftCommand>().SetAsync(id, fieldRef, value, output, ct);
+
+    /// <summary>Inspect the shared recoverable draft and its current native conflict state.</summary>
+    /// <param name="id">Native work-item ID in the admitted current checkout.</param>
+    /// <param name="output">-o, Output format: human, json, minimal. The ids format is not supported.</param>
+    [Command("draft show")]
+    public async Task<int> DraftShow(
+        [Argument] int id,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<DraftCommand>().ShowAsync(id, output, ct);
+
     /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("pending")]
@@ -1943,6 +1965,9 @@ internal static class GroupedHelp
 
         // Proposal lifecycle (native, formerly "plan"). Legacy `plan <verb>` entries
         // stay registered so the alias resolves in grouped help and SubcommandGuard.
+        "draft",
+        "draft set",
+        "draft show",
         "proposal",
         "proposal validate",
         "proposal latest",

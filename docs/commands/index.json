@@ -752,6 +752,22 @@
     "path": "seeds/seed-view.md"
   },
   {
+    "command": "draft set",
+    "group": "plans",
+    "summary": "Stage an exact field value in the shared recoverable local draft.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "plans/draft-set.md"
+  },
+  {
+    "command": "draft show",
+    "group": "plans",
+    "summary": "Inspect the shared draft and current native conflict state.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "plans/draft-show.md"
+  },
+  {
     "command": "pending",
     "group": "plans",
     "summary": "List raw staged pending changes in exact staging order.",

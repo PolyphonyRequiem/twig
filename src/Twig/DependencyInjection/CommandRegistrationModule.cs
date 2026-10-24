@@ -178,6 +178,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<SprintCommand>();
         services.AddSingleton<PlanCommand>();
         services.AddSingleton<PendingCommand>();
+        services.AddSingleton<DraftCommand>();
     }
 
     private static void AddSelfUpdateCommands(IServiceCollection services)

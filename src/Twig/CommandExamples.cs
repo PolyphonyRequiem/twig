@@ -637,6 +637,16 @@ internal static class CommandExamples
             "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome supersede --replacement-digest <digest2> --replacement-operation <op-id2> --authorize <identity> --rationale \"...\"    Map the exact effect to a Verified replacement.",
             "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --authorize <identity> --rationale \"...\" --output json    Emit the full receipt (origins, authorization, evidence) as JSON.",
         ],
+        ["draft set"] =
+        [
+            "twig draft set 42 System.Title \"Updated title\"    Stage an exact field value in the local recoverable draft.",
+            "twig draft set 42 System.AssignedTo \"Person\" -o json    Stage and emit the updated shared draft as JSON.",
+        ],
+        ["draft show"] =
+        [
+            "twig draft show 42                    Inspect the shared draft and current conflict state.",
+            "twig draft show 42 -o minimal         Emit item, generation, revisions, state, and change count as tab-separated fields.",
+        ],
         ["pending"] =
         [
             "twig pending                           List raw staged pending changes in exact staging order.",

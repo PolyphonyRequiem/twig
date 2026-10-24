@@ -525,14 +525,14 @@ public static class TwigServiceRegistration
         // EPIC-002: Domain orchestration services
         services.AddSingleton<ParentStatePropagationService>(sp => new ParentStatePropagationService(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<ProtectedCacheWriter>()));
 
         // Mutation workflows — extracted orchestration shared by CLI commands and MCP tools.
         services.AddSingleton<StateTransitionWorkflow>(sp => new StateTransitionWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetService<ParentStatePropagationService>(),
@@ -542,13 +542,13 @@ public static class TwigServiceRegistration
 
         services.AddSingleton<FieldUpdateWorkflow>(sp => new FieldUpdateWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetService<IPromptStateWriter>()));
 
         services.AddSingleton<NoteWorkflow>(sp => new NoteWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetService<IPromptStateWriter>()));
 
@@ -566,7 +566,7 @@ public static class TwigServiceRegistration
 
         services.AddSingleton<PatchWorkflow>(sp => new PatchWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetService<IPromptStateWriter>()));
 
@@ -628,7 +628,7 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<IPlanJournalRepository>(),
                 sp.GetRequiredService<IPendingChangeReader>(),
                 sp.GetRequiredService<IFieldDefinitionStore>(),
-                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<IProviderWorkItemWriter>(),
                 sp.GetRequiredService<IRevisionBoundAdoWorkItemService>(),
                 sp.GetRequiredService<SeedPublishOrchestrator>(),
                 sp.GetRequiredService<IWorkItemRepository>(),

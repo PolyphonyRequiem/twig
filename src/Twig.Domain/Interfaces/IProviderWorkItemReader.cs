@@ -12,8 +12,8 @@ namespace Twig.Domain.Interfaces;
 /// <para>
 /// The members are the read half of <see cref="IAdoWorkItemService"/>, hoisted unchanged so
 /// the ADO adapter keeps byte-identical behaviour and every existing fixture stays valid. The
-/// write, publish and comment surface stays on <see cref="IAdoWorkItemService"/>; neutralising
-/// it is Feature #1178's mutation contract, not this boundary.
+/// patch, comment and link surface is <see cref="IProviderWorkItemWriter"/> (Feature #1178);
+/// create, publish, delete and history stay ADO-only on <see cref="IAdoWorkItemService"/>.
 /// </para>
 /// <para>
 /// Reads are keyed by the local integer work-item id the cache uses. A provider whose native

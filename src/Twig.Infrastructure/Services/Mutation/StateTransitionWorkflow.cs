@@ -50,7 +50,7 @@ public sealed class StateTransitionWorkflow
     private const string StateTransitionGateOperationId = "state-transition-gate";
 
     private readonly IWorkItemRepository workItemRepo;
-    private readonly IAdoWorkItemService adoService;
+    private readonly IProviderWorkItemWriter adoService;
     private readonly IPendingChangeStore pendingChangeStore;
     private readonly IProcessConfigurationProvider processConfigProvider;
     private readonly ParentStatePropagationService? parentPropagation;
@@ -61,7 +61,7 @@ public sealed class StateTransitionWorkflow
 
     public StateTransitionWorkflow(
         IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         IPendingChangeStore pendingChangeStore,
         IProcessConfigurationProvider processConfigProvider,
         ParentStatePropagationService? parentPropagation = null,
@@ -86,7 +86,7 @@ public sealed class StateTransitionWorkflow
     /// </param>
     internal StateTransitionWorkflow(
         IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         IPendingChangeStore pendingChangeStore,
         IProcessConfigurationProvider processConfigProvider,
         ParentStatePropagationService? parentPropagation,

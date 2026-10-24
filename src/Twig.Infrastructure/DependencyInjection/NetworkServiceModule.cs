@@ -10,6 +10,8 @@ using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Providers;
 
 namespace Twig.Infrastructure.DependencyInjection;
 
@@ -246,7 +248,19 @@ public static class NetworkServiceModule
         });
 
         if (string.Equals(config.Provider, ProviderCapabilityCatalog.GitHubProviderKind, StringComparison.Ordinal))
+        {
             services.AddSingleton<IWorkItemSnapshotReader>(sp => sp.GetRequiredService<GitHubWorkItemProvider>());
+            services.TryAddSingleton<SqliteLocalWorkItemRepository>(sp =>
+                new SqliteLocalWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>()));
+            services.TryAddSingleton<ILocalWorkItemStore>(sp =>
+                sp.GetRequiredService<SqliteLocalWorkItemRepository>());
+            services.TryAddSingleton<IExternalIdentityMap>(sp =>
+                sp.GetRequiredService<SqliteLocalWorkItemRepository>());
+            services.AddSingleton<IProviderWorkItemReadService>(sp => new ProviderWorkItemReadService(
+                sp.GetRequiredService<IWorkItemSnapshotReader>(),
+                sp.GetRequiredService<IExternalIdentityMap>(),
+                sp.GetRequiredService<ILocalWorkItemStore>()));
+        }
     }
 
     private static GitHubWorkspaceScope GitHubScope(TwigConfiguration cfg)

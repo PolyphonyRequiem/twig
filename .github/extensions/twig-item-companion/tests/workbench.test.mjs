@@ -299,7 +299,7 @@ test("actual extension wiring registers both canvases and routes workbench actio
     const script = source.replace(/^import .*;$/gm, "")
         .replace("const readNativeDetail = createNativeDetailReader();", "const readNativeDetail = async () => { throw new Error('Detail not admitted here'); };");
     await new Script(`(async () => { ${script}\n })()`).runInContext(context);
-    assert.deepEqual(Array.from(declarations, (canvas) => canvas.id), ["twig-item-companion", "twig-workbench"]);
+    assert.deepEqual(Array.from(declarations, (canvas) => canvas.id), ["twig-item-companion", "twig-workbench", "twig-proposal-review"]);
     const workbench = declarations.find((canvas) => canvas.id === "twig-workbench");
     const ctx = { instanceId: "fixture-workbench", input: { bench: "Release focus" } };
     const opened = await workbench.open(ctx);

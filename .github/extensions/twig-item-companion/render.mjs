@@ -1,4 +1,6 @@
-export function renderPage({ token, nonce }) {
+import { workbenchClient, workbenchMarkup } from "./workbench-client.mjs";
+
+export function renderPage({ token, nonce, workbench = false }) {
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -103,8 +105,8 @@ export function renderPage({ token, nonce }) {
 <body>
   <main>
     <header>
-      <h1>Twig item companion</h1>
-      <p class="muted">Read-only semantic detail from the current admitted Twig workspace. This view does not edit, save, apply, or publish work.</p>
+      <h1>${workbench ? "Twig workbench" : "Twig item companion"}</h1>
+      <p class="muted">${workbench ? "Read-only explicitly selected Bench evidence from the native cache." : "Read-only semantic detail from the current admitted Twig workspace."} This view does not edit, save, apply, or publish work.</p>
     </header>
     <div class="row">
       <label for="theme-mode">Theme
@@ -116,7 +118,7 @@ export function renderPage({ token, nonce }) {
       </label>
       <span id="theme-status" class="muted" role="status" aria-live="polite"></span>
     </div>
-    <form id="load-form" class="row">
+    ${workbench ? workbenchMarkup : `<form id="load-form" class="row">
       <label for="work-item-id">Work item ID or local seed ID
         <input id="work-item-id" name="workItemId" type="number" step="1" required aria-describedby="id-help">
       </label>
@@ -125,16 +127,10 @@ export function renderPage({ token, nonce }) {
     </form>
     <p id="id-help" class="muted">The read runs through Twig in this session's workspace; a rejected admission or native read is shown as an error.</p>
     <div id="status" class="notice" role="status" aria-live="polite">Enter an ID to load cached detail.</div>
-    <div id="observation"></div>
+    <div id="observation"></div>`}
   </main>
   <script nonce="${nonce}">
     const token = ${JSON.stringify(token)};
-    const form = document.querySelector("#load-form");
-    const input = document.querySelector("#work-item-id");
-    const loadButton = document.querySelector("#load-button");
-    const refreshButton = document.querySelector("#refresh-button");
-    const status = document.querySelector("#status");
-    const output = document.querySelector("#observation");
     const themeMode = document.querySelector("#theme-mode");
     const themeStatus = document.querySelector("#theme-status");
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -181,6 +177,14 @@ export function renderPage({ token, nonce }) {
       if (className) node.className = className;
       return node;
     }
+
+    ${workbench ? workbenchClient : `
+    const form = document.querySelector("#load-form");
+    const input = document.querySelector("#work-item-id");
+    const loadButton = document.querySelector("#load-button");
+    const refreshButton = document.querySelector("#refresh-button");
+    const status = document.querySelector("#status");
+    const output = document.querySelector("#observation");
 
     function addPair(list, label, value) {
       list.append(text("dt", label));
@@ -367,7 +371,7 @@ export function renderPage({ token, nonce }) {
     }).catch((error) => {
       status.classList.add("error");
       status.textContent = error instanceof Error ? error.message : "Canvas state could not be loaded.";
-    });
+    });`}
   </script>
 </body>
 </html>`;

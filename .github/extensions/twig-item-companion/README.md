@@ -66,3 +66,66 @@ iframe reloads. It is not advertised as a durable user preference: ephemeral
 loopback origins cannot reliably provide cross-instance browser storage. No
 localStorage, native preferences or new endpoint is used. This styling slice
 does not add workbench/proposal-review surfaces or qualify actual host rendering.
+
+## Named-Bench workbench (#1198)
+
+The same provider also declares `twig-workbench`, with `load_bench({ bench })`
+and `refresh_bench({})` actions. The separate workbench panel accepts an existing
+saved name or decimal ID; its reader invokes only:
+
+```text
+twig workspace --bench <name-or-id> --include-browser --browser-version 2 --view tree -o json
+```
+
+This contract is pinned to native prerequisite **#1210**, commit
+`3ff46fa7565b2231a872082cd34d0e1988b86a7e`. It is not available in older Twig
+binaries. An unsupported invocation or schema is a visible refusal, never an
+ANSI parser, current-Bench fallback, temporary switch or second query backend.
+The UI branch consumes the exported contract; it does not carry that native
+branch's ancestry. Real-binary integration awaits delivery of #1210 to main.
+
+Re-reading uses the captured stable Bench ID plus native expected Bench, binding
+and identity flags, and checks the complete returned origin against the previous
+observation, including connection/attachment evidence. Each CLI call has a
+15-second timeout, abort signal, shell disabled and a 4 MiB output bound.
+The server serializes reads; failure retains the previous qualified observation.
+Its state is panel-local read evidence, not a durable draft or user preference.
+
+Members retain native evaluator order, including known uncached IDs. The
+hierarchy retains native nesting and ancestor-context labels; it does not parse
+the native styled label. Filtering is local to loaded row text and retains
+matching hierarchy ancestors. Counts distinguish loaded/known/uncached members
+from rendered hierarchy nodes. Source totals and undiscovered counts remain
+unknown, even when the cache is empty. Native omission IDs, projection limits
+and reasons are shown; no continuation or complete-source claim is invented.
+Saved area/sprint/pin configuration is inert read-only JSON.
+
+All rows are native **raw-mirror** evidence, not composed durable-edit values.
+Seeds are labelled local seeds. Pending markers are not edit permission or proof
+that displayed values include local changes. Selection shows the qualified raw
+summary and restores filter/view/focus on Back or Escape, without `twig set` or
+changing shared current-Bench state. Untrusted text is inserted using
+`textContent`, never HTML or arbitrary links/assets.
+
+**Explicit-Bench detail (authored, UNVALIDATED against a real binary):** selecting a
+loaded member calls `twig bench detail <id> --bench <captured Bench id> --document
+-o json` with `--expect-bench/--expect-binding/--expect-identity` (native contract at
+twig `06cb33b2`, not yet on main). It is cache-only (never `--sync`), never touches the
+shared current Bench, and the reply's `origin` and `benchId` must equal the origin
+captured by the v2 browser read, or the detail is refused. Non-member and not-cached
+items surface the native error code. The form is Twig's fallback layout
+(`layoutStatus: unavailable`), shown as inert text with membership and completeness
+reasons; `sourceComplete` is never true and no remote child count is claimed.
+
+**Remaining seam:** when the detail call fails or the native command is absent, the UI
+keeps the raw-summary disclosure. **#1198 cannot close until this integration is
+validated against the delivered native binary, or Daniel explicitly accepts the seam.**
+No editor, Save/capture, proposal review/Apply, provider handoff, install/reload or
+host-runtime qualification is included. `tests/bench-detail.test.mjs` uses synthetic
+fixtures over a fake process boundary: composition coverage, not native integration.
+
+`tests/fixtures/bench-v2.json` pins the native v2 DTO/projection shape at the
+prerequisite SHA. The workbench harness runs the real rendered client script
+against the real loopback server and production reader, with only the CLI
+process/filesystem boundary faked. Fixture evidence is not real-binary or host
+qualification.

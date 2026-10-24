@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Projections;
 using Twig.Domain.Services;
@@ -15,7 +16,51 @@ namespace Twig.Infrastructure.Persistence;
 internal sealed record DraftCaptureEvidence(int Version, QualifiedWorkItemKey ItemKey,
     PlanOrigin Origin, string? StorageGeneration, string TypeName, int Revision,
     string ProcessFingerprint, string SnapshotFingerprint, FormLayout Layout, IReadOnlyList<ProcessRule>? Rules,
-    Bench Bench, string? NormalizationAccount);
+    [property: JsonConverter(typeof(DraftCaptureBenchJsonConverter))] Bench Bench, string? NormalizationAccount);
+
+internal sealed record DraftCaptureBench([property: JsonRequired] long Id, [property: JsonRequired] string Name,
+    [property: JsonRequired] bool IsDefault, [property: JsonRequired] DraftCaptureSelector[] Selectors);
+internal sealed record DraftCaptureSelector([property: JsonRequired] Twig.Domain.Enums.SelectorKind Kind,
+    [property: JsonRequired] string Payload);
+
+/// <summary>Receipt-local storage uses selector discriminators and opaque payloads, not query-only accessors.</summary>
+internal sealed class DraftCaptureBenchJsonConverter : JsonConverter<Bench>
+{
+    public override Bench Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var stored = JsonSerializer.Deserialize(ref reader, TwigJsonContext.Default.DraftCaptureBench)
+            ?? throw new JsonException("Native inspection Bench is null.");
+        if (stored.Name is null || stored.Selectors is null ||
+            stored.Selectors.Any(selector => selector is null || selector.Payload is null))
+            throw new JsonException("Native inspection Bench identity or selectors are missing.");
+        var selectors = stored.Selectors.Select(selector => new BenchSelector(selector.Kind, selector.Payload)).ToArray();
+        foreach (var selector in selectors)
+        {
+            switch (selector.Kind)
+            {
+                case Twig.Domain.Enums.SelectorKind.Item:
+                case Twig.Domain.Enums.SelectorKind.Subtree:
+                    _ = selector.AsWorkItemId();
+                    break;
+                case Twig.Domain.Enums.SelectorKind.Query:
+                    _ = BenchQueryRule.Parse(selector);
+                    break;
+                default:
+                    throw new JsonException("Native inspection Bench selector kind is unknown.");
+            }
+        }
+        return new Bench
+        {
+            Id = stored.Id, Name = stored.Name, IsDefault = stored.IsDefault,
+            Selectors = selectors,
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, Bench value, JsonSerializerOptions options)
+        => JsonSerializer.Serialize(writer, new DraftCaptureBench(value.Id, value.Name, value.IsDefault,
+            value.Selectors.Select(selector => new DraftCaptureSelector(selector.Kind, selector.Payload)).ToArray()),
+            TwigJsonContext.Default.DraftCaptureBench);
+}
 
 /// <summary>Purpose-specific mirror metadata; only explicit native inspection supplies evidence.</summary>
 internal sealed class SqliteDraftCaptureEvidenceStore(SqliteCacheStore store)

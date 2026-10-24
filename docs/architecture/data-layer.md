@@ -106,6 +106,9 @@ or generic metadata cache is introduced. It also binds the inspected native Benc
 identity and complete stored selector digest. Only an automanaged default self
 query retains its existing local canonical normalization account, bound to the
 native origin identity; custom or pin-only Benches do not duplicate this account.
+Receipt-local Bench JSON stores each selector's discriminator and exact opaque
+payload, never its query-only computed accessors. Source-generated wire records
+preserve every selector; malformed kinds or payloads refuse rather than disappearing.
 
 `draft capture` requires an explicit Bench, qualified native identity, exact Int64
 generation and revision. It does not open a form, refresh metadata, stage pending

@@ -52,6 +52,96 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("item")]
+    [InlineData("subtree")]
+    [InlineData("query-team")]
+    [InlineData("query-display")]
+    [InlineData("query-canonical")]
+    [InlineData("query-configured")]
+    [InlineData("mixed")]
+    public async Task NativeReceiptRoundTripsSelectorDiscriminatorsAndRetainsExactCaptureFence(string shape)
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache, recordEvidence: false);
+        var configured = new BenchQueryRule(null, null, [], []).ToSelector();
+        BenchSelector[] selectors = shape switch
+        {
+            "item" => [BenchSelector.ForItem(42)],
+            "subtree" => [BenchSelector.ForSubtree(42)],
+            "query-team" => [BenchSelector.ForItem(42), BenchSelector.ForCurrentSprint(null)],
+            "query-display" => [BenchSelector.ForItem(42), BenchSelector.ForCurrentSprint("fixture display")],
+            "query-canonical" => [BenchSelector.ForItem(42), BenchSelector.ForCurrentSprintCanonical("fixture-account")],
+            "query-configured" => [BenchSelector.ForItem(42), configured],
+            "mixed" => [BenchSelector.ForItem(42), BenchSelector.ForSubtree(42),
+                BenchSelector.ForCurrentSprint(null), BenchSelector.ForCurrentSprint("fixture display"),
+                BenchSelector.ForCurrentSprintCanonical("fixture-account"), configured],
+            _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+        };
+        var benches = new SqliteBenchRepository(cache);
+        await benches.RemoveSelectorAsync(evidence.Bench.Id, BenchSelector.ForItem(42));
+        foreach (var selector in selectors)
+            await benches.AddSelectorAsync(evidence.Bench.Id, selector);
+        var bench = (await benches.GetAllAsync()).Single();
+        evidence = evidence with { Bench = bench };
+        var source = new SqliteDraftCaptureEvidenceStore(cache);
+        await source.RecordAsync(evidence, snapshot, default);
+        var reloaded = source.Read(Key);
+        reloaded.Bench.Id.ShouldBe(bench.Id);
+        reloaded.Bench.Name.ShouldBe(bench.Name);
+        reloaded.Bench.IsDefault.ShouldBe(bench.IsDefault);
+        reloaded.Bench.Selectors.ToArray().ShouldBe(bench.Selectors.ToArray());
+        var json = JsonSerializer.Serialize(reloaded, TwigJsonContext.Default.DraftCaptureEvidence);
+        json.ShouldNotContain("queryRule");
+        json.ShouldNotContain("queryAssignedTo");
+        var fingerprint = SqliteDraftCaptureEvidenceStore.Fingerprint(evidence);
+        SqliteDraftCaptureEvidenceStore.Fingerprint(reloaded).ShouldBe(fingerprint);
+        var journal = await CaptureAsync(cache, draft, snapshot, reloaded);
+        journal.DraftCapture.ShouldNotBeNull().EvidenceFingerprint.ShouldBe(fingerprint);
+        await benches.AddSelectorAsync(bench.Id, BenchSelector.ForItem(43));
+        var changed = evidence with { Bench = (await benches.GetAllAsync()).Single() };
+        SqliteDraftCaptureEvidenceStore.Fingerprint(changed).ShouldNotBe(fingerprint);
+        (await Should.ThrowAsync<InvalidOperationException>(() =>
+            source.ValidateAsync(draft, snapshot, Origin, fingerprint, default)))
+            .Message.ShouldBe("bench-stale: inspected native Bench identity or selectors changed.");
+    }
+
+    [Fact]
+    public async Task NativeReceiptRefusesCorruptSelectorDiscriminatorAndPayloadWithoutDroppingRules()
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (_, _, evidence) = await SeedAsync(cache);
+        var source = new SqliteDraftCaptureEvidenceStore(cache);
+        void Corrupt(BenchSelector selector) =>
+            ReplaceReceipt(cache, evidence with { Bench = evidence.Bench with { Selectors = [selector] } });
+        Corrupt(new BenchSelector((SelectorKind)999, "42"));
+        Should.Throw<JsonException>(() => source.Read(Key)).Message
+            .ShouldBe("Native inspection Bench selector kind is unknown.");
+        Corrupt(new BenchSelector(SelectorKind.Item, "not-an-id"));
+        Should.Throw<FormatException>(() => source.Read(Key));
+        Corrupt(new BenchSelector(SelectorKind.Subtree, "not-an-id"));
+        Should.Throw<FormatException>(() => source.Read(Key));
+        Corrupt(new BenchSelector(SelectorKind.Query, "unknown-rule"));
+        Should.Throw<InvalidOperationException>(() => source.Read(Key)).Message
+            .ShouldBe("Unknown Bench query rule 'unknown-rule'; no scope was widened.");
+        ReplaceReceipt(cache, evidence);
+        var validJson = JsonSerializer.Serialize(evidence, TwigJsonContext.Default.DraftCaptureEvidence);
+        using var command = cache.GetConnection().CreateCommand();
+        command.CommandText = "UPDATE metadata SET value=@value WHERE key LIKE 'draft-served-evidence:%';";
+        foreach (var invalidJson in new[]
+        {
+            validJson.Replace("\"payload\":\"42\"", "\"payload\":null", StringComparison.Ordinal),
+            validJson.Replace("\"kind\":0,", "", StringComparison.Ordinal),
+        })
+        {
+            invalidJson.ShouldNotBe(validJson);
+            command.Parameters.Clear();
+            command.Parameters.AddWithValue("@value", invalidJson);
+            command.ExecuteNonQuery().ShouldBe(1);
+            Should.Throw<JsonException>(() => source.Read(Key));
+        }
+    }
+
+    [Theory]
     [InlineData("missing")]
     [InlineData("version")]
     [InlineData("corrupt")]
@@ -402,7 +492,8 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
     }
 
     private async Task<(RecoverableWorkItemDraft, WorkItemSnapshot, DraftCaptureEvidence)> SeedAsync(
-        SqliteCacheStore cache, string field = "System.Title", string? original = "baseline", string? proposed = "intent")
+        SqliteCacheStore cache, string field = "System.Title", string? original = "baseline", string? proposed = "intent",
+        bool recordEvidence = true)
     {
         var repository = new SqliteWorkItemRepository(cache, new WorkItemMapper());
         await repository.SaveAsync(new WorkItemMapper().Map(new WorkItemSnapshot
@@ -430,7 +521,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
                 SystemControls = new[] { "System.Title", "System.AssignedTo", "System.State", "Custom.Unsupported" }
                     .Select(name => new LayoutControl(name, name, "FieldControl", false, true, false)).ToArray(),
             }, [], bench, null);
-        await source.RecordAsync(evidence, snapshot, default);
+        if (recordEvidence) await source.RecordAsync(evidence, snapshot, default);
         return (draft, snapshot, evidence);
     }
 

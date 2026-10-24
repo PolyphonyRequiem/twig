@@ -22,6 +22,7 @@ namespace Twig.Infrastructure.Serialization;
 /// </summary>
 [JsonSerializable(typeof(TwigConfiguration))]
 [JsonSerializable(typeof(DraftCaptureEvidence))]
+[JsonSerializable(typeof(DraftCaptureBench))]
 [JsonSerializable(typeof(FormLayout))]
 [JsonSerializable(typeof(BenchReadEnvelope))]
 [JsonSerializable(typeof(BenchReadError))]

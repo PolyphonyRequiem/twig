@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
@@ -27,6 +28,7 @@ public class ConflictUxTests
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
     private readonly IProcessConfigurationProvider _processConfigProvider;
@@ -40,6 +42,7 @@ public class ConflictUxTests
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
@@ -79,9 +82,9 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("l"); // keep local
 
         var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _adoService,
+            _ctx, _resolver, _workItemRepo, _writer,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
@@ -107,9 +110,9 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _adoService,
+            _ctx, _resolver, _workItemRepo, _writer,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
@@ -136,9 +139,9 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("a"); // abort
 
         var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _adoService,
+            _ctx, _resolver, _workItemRepo, _writer,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c");
@@ -165,9 +168,9 @@ public class ConflictUxTests
 
         _consoleInput.ReadLine().Returns("l"); // keep local
 
-        var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService,
+        var cmd = new UpdateCommand(_resolver, _workItemRepo, _writer,
             _consoleInput, _fieldDefStore, _formatterFactory, new SeedMutationProvider(_workItemRepo),
-            new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(_workItemRepo, _adoService, _pendingChangeStore),
+            new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(_workItemRepo, _writer, _pendingChangeStore),
             _pendingChangeStore);
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
@@ -191,9 +194,9 @@ public class ConflictUxTests
 
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
-        var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService,
+        var cmd = new UpdateCommand(_resolver, _workItemRepo, _writer,
             _consoleInput, _fieldDefStore, _formatterFactory, new SeedMutationProvider(_workItemRepo),
-            new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(_workItemRepo, _adoService, _pendingChangeStore),
+            new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(_workItemRepo, _writer, _pendingChangeStore),
             _pendingChangeStore);
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 

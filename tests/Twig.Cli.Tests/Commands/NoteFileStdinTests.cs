@@ -2,6 +2,7 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
@@ -27,13 +28,19 @@ public class NoteFileStdinTests
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IPendingChangeStore _pendingChangeStore = Substitute.For<IPendingChangeStore>();
     private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IEditorLauncher _editorLauncher = Substitute.For<IEditorLauncher>();
+
+    public NoteFileStdinTests()
+    {
+        _writer = AdoWriterFixture.Wrap(_adoService);
+    }
 
     private NoteCommand CreateCommand(TextReader? stdin = null)
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var noteWorkflow = new Twig.Infrastructure.Services.Mutation.NoteWorkflow(
-            _workItemRepo, _adoService, _pendingChangeStore);
+            _workItemRepo, _writer, _pendingChangeStore);
         return new NoteCommand(
             resolver,
             _editorLauncher,

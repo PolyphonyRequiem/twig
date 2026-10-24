@@ -130,6 +130,7 @@ public sealed record PlanOperationDiagnostics
                         var candidateCode = ReadString(diag, "code");
                         code = candidateCode is "verified" or "field-mismatch" or "missing-required-fields"
                             or "revision-not-advanced" or "revision-conflict" or "readback-unavailable"
+                            or "revision-precondition-refused"
                             ? candidateCode : null;
                         expectedRevision = ReadRevision(diag, "expectedRevision");
                         var observedFromDiag = ReadRevision(diag, "observedRevision");
@@ -286,6 +287,8 @@ public sealed record PlanOperationDiagnostics
                 $"server revision did not advance past expected={FormatRevision(expectedRevision)} (observed={FormatRevision(observedRevision)}); matching fields alone do not prove this write; reconcile before any newly reviewed replacement",
             "revision-conflict" =>
                 $"revision conflict: expected={FormatRevision(expectedRevision)} (server={FormatRevision(observedRevision)}); a newly reviewed proposal is required",
+            "revision-precondition-refused" =>
+                "revision precondition refused before transport; nothing was sent",
             "readback-unavailable" =>
                 "readback unavailable — outcome could not be verified",
             _ => $"{disposition} — diagnostic detail unavailable",

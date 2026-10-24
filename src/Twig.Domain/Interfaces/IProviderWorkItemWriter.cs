@@ -10,23 +10,33 @@ namespace Twig.Domain.Interfaces;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The members are the field-patch, comment and link half of <see cref="IAdoWorkItemService"/>,
-/// hoisted unchanged so the ADO adapter keeps byte-identical requests and every existing
-/// fixture stays valid. Create, delete, artifact links, publish-intent recovery and history
-/// stay ADO-only on <see cref="IAdoWorkItemService"/> and fail closed for other providers.
+/// The members are the field-patch, comment and link operations. The ADO adapter
+/// (<c>AdoProviderWorkItemWriter</c>) delegates to <see cref="IAdoWorkItemService"/> and keeps
+/// byte-identical requests. Create, delete, artifact links, publish-intent recovery and
+/// history stay ADO-only on <see cref="IAdoWorkItemService"/> and fail closed for other
+/// providers.
 /// </para>
 /// <para>
-/// 🔴 <b>Compatibility seam, not the final shape.</b> <see cref="PatchAsync"/> still takes
-/// ADO's integer <c>expectedRevision</c> and every member takes the local integer id. A
-/// neutral opaque revision precondition keyed by the neutral store's item identity (#1168)
-/// must replace them <b>before any non-ADO writer is registered</b> (GitHub authoring, #1183).
+/// <see cref="PatchAsync"/> is bound to an opaque <see cref="ProviderRevisionPrecondition"/>
+/// and returns the provider's opaque post-write revision. An implementation must refuse a
+/// missing precondition, one minted by another provider, or a non-canonical token with
+/// <see cref="ProviderRevisionPreconditionRefusedException"/> <b>before any transport
+/// call</b>. Every member still takes the local integer id; the neutral store's item identity
+/// (#1168) replaces it before any non-ADO writer is registered (GitHub authoring, #1183).
 /// Until then only ADO implements this boundary, and composition refuses every other provider
 /// with <c>provider-unavailable</c> before any provider client is constructed.
 /// </para>
 /// </remarks>
 public interface IProviderWorkItemWriter : IProviderWorkItemReader
 {
-    Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default);
+    /// <summary>
+    /// Applies <paramref name="changes"/> if the item is still at <paramref name="expected"/>,
+    /// returning the provider's revision after the write.
+    /// </summary>
+    /// <exception cref="ProviderRevisionPreconditionRefusedException">
+    /// The precondition is missing, foreign or non-canonical. Raised before any transport call.
+    /// </exception>
+    Task<ProviderRevisionToken> PatchAsync(int id, IReadOnlyList<FieldChange> changes, ProviderRevisionPrecondition expected, CancellationToken ct = default);
 
     Task AddCommentAsync(int id, string text, CancellationToken ct = default);
 

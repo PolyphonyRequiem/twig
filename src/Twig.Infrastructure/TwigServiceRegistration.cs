@@ -546,6 +546,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<ParentStatePropagationService>(sp => new ParentStatePropagationService(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IProviderWorkItemWriter>(),
+            sp.GetRequiredService<IProviderRevisionCodec>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<ProtectedCacheWriter>()));
 
@@ -648,6 +649,7 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<IPendingChangeReader>(),
                 sp.GetRequiredService<IFieldDefinitionStore>(),
                 sp.GetRequiredService<IProviderWorkItemWriter>(),
+                sp.GetRequiredService<IProviderRevisionCodec>(),
                 sp.GetRequiredService<IRevisionBoundAdoWorkItemService>(),
                 sp.GetRequiredService<SeedPublishOrchestrator>(),
                 sp.GetRequiredService<IWorkItemRepository>(),

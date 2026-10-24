@@ -52,6 +52,23 @@ internal sealed class AdoMirrorIdentityProjection
         return !item.IsSeed && item.Id > 0;
     }
 
+    public async Task<string?> ResolveResourceScopeAsync(CancellationToken ct = default)
+    {
+        if (_resourceScope is not null)
+            return _resourceScope;
+
+        var provider = (_providerFactory
+            ?? throw new InvalidOperationException("The ADO provider factory was not configured."))();
+        if (provider.Capabilities.ProviderKind != ProviderKind)
+            throw new InvalidOperationException(
+                $"ado-provider-required: durable ADO mirror projection cannot use provider '{provider.Capabilities.ProviderKind}'.");
+
+        var scope = await provider.ResolveResourceScopeAsync(ct).ConfigureAwait(false);
+        if (scope is not null)
+            ValidateScope(scope);
+        return scope;
+    }
+
     public async Task<string?> PrepareAsync(IReadOnlyCollection<WorkItem> items, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -68,21 +85,11 @@ internal sealed class AdoMirrorIdentityProjection
         if (projectable.Length == 0)
             return null;
 
-        if (_resourceScope is not null)
-            return _resourceScope;
-
-        var provider = (_providerFactory
-            ?? throw new InvalidOperationException("The ADO provider factory was not configured."))();
-        if (provider.Capabilities.ProviderKind != ProviderKind)
-            throw new InvalidOperationException(
-                $"ado-provider-required: durable ADO mirror projection cannot use provider '{provider.Capabilities.ProviderKind}'.");
-
-        var scope = await provider.ResolveResourceScopeAsync(ct).ConfigureAwait(false);
+        var scope = await ResolveResourceScopeAsync(ct).ConfigureAwait(false);
         if (scope is null)
             throw new InvalidOperationException(
                 "ado-resource-scope-unavailable: the provider did not resolve a durable ADO resource scope.");
 
-        ValidateScope(scope);
         return scope;
     }
 

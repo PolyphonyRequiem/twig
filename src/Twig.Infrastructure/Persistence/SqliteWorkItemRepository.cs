@@ -35,6 +35,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         _projection = projection;
     }
 
+    internal Func<CancellationToken, Task<string?>>? DurableScope =>
+        _projection?.ResolveResourceScopeAsync;
+
     public IDisposable? AcquireOperation() => _store.AcquireOperation();
 
     // Browser callers lend only the origin from their still-live admitted provider lease.

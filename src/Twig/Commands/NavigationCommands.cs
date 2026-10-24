@@ -24,6 +24,24 @@ public sealed class NavigationCommands(
     INavigationHistoryStore? historyStore = null,
     IPromptStateWriter? promptStateWriter = null)
 {
+    /// <summary>
+    /// Composes candidate labels for display; pattern matching and navigation targets remain
+    /// based on the mirrored work items.
+    /// </summary>
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
+
+    private async Task<IReadOnlyDictionary<int, Domain.Aggregates.WorkItem>> ComposeChildrenAsync(
+        IReadOnlyList<Domain.Aggregates.WorkItem> children, CancellationToken ct)
+    {
+        var shown = FieldOverlay is null
+            ? children
+            : await FieldOverlay.ApplyAsync(children, ct).ConfigureAwait(false);
+        var byId = new Dictionary<int, Domain.Aggregates.WorkItem>(shown.Count);
+        foreach (var child in shown)
+            byId.TryAdd(child.Id, child);
+        return byId;
+    }
+
     /// <summary>Launch the interactive tree navigator.</summary>
     public async Task<int> InteractiveAsync(CancellationToken ct = default)
     {
@@ -169,7 +187,8 @@ public sealed class NavigationCommands(
         // No argument: present all children interactively(or auto-navigate if only one)
         if (string.IsNullOrEmpty(idOrPattern))
         {
-            var candidates = children.Select(c => (c.Id, $"{c.Title} [{c.State}]")).ToList();
+            var shownById = await ComposeChildrenAsync(children, ct).ConfigureAwait(false);
+            var candidates = children.Select(c => (c.Id, $"{shownById[c.Id].Title} [{shownById[c.Id].State}]")).ToList();
             if (candidates.Count == 0)
             {
                 Console.Error.WriteLine(fmt.FormatError("No children to navigate to."));
@@ -199,12 +218,11 @@ public sealed class NavigationCommands(
 
             case MultipleMatches multi:
                 // Enrich candidates with state for display (domain returns raw titles for pattern matching)
+                var shownMatchesById = await ComposeChildrenAsync(children, ct).ConfigureAwait(false);
                 var displayCandidates = multi.Candidates
-                    .Select(c =>
-                    {
-                        var child = children.FirstOrDefault(ch => ch.Id == c.Id);
-                        return child is not null ? (c.Id, $"{c.Title} [{child.State}]") : c;
-                    })
+                    .Select(c => shownMatchesById.TryGetValue(c.Id, out var child)
+                        ? (c.Id, $"{(FieldOverlay is null ? c.Title : child.Title)} [{child.State}]")
+                        : c)
                     .ToList();
                 if (renderer is not null)
                 {

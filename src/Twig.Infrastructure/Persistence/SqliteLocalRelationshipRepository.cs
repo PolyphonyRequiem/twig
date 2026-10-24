@@ -155,8 +155,8 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
     private static LocalRelationship Read(SqliteDataReader reader)
     {
         var kindToken = reader.GetString(2);
-        var storageToken = reader.GetString(3);
-        var publicationToken = reader.GetString(4);
+        var storageToken = reader.IsDBNull(3) ? "<null>" : reader.GetString(3);
+        var publicationToken = reader.IsDBNull(4) ? "<null>" : reader.GetString(4);
         if (!LinkKindTokens.TryResolve(kindToken, out var kind)
             || !CapabilityTokens.TryResolve(CapabilityTokens.Storage, storageToken, out EmulationStorage storage)
             || !CapabilityTokens.TryResolve(CapabilityTokens.Publication, publicationToken, out PublicationState publication))

@@ -153,7 +153,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task DurableMigration_FromPreviousVersion_AddsTableAndKeepsExistingRows()
+    public async Task DurableMigration_FromV12_AppliesNeutralTableThenAdditiveColumns()
     {
         await WithFileStore(async path =>
         {
@@ -163,20 +163,90 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
                 await new SqlitePublishIntentRepository(store).RecordIntentAsync(identity, "Keep me", "Task");
                 var conn = store.GetConnection();
                 Exec(conn, "DROP TABLE pending.local_relationships;");
-                Exec(conn, $"PRAGMA pending.user_version = {SqliteCacheStore.DurableSchemaVersion - 1};");
+                Exec(conn, "PRAGMA pending.user_version = 12;");
             }
 
             using var reopened = new SqliteCacheStore($"Data Source={path}");
             var c = reopened.GetConnection();
             TableExists(c, "pending", "local_relationships").ShouldBeTrue();
-            using (var cmd = c.CreateCommand())
-            {
-                cmd.CommandText = "PRAGMA pending.user_version;";
-                Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
-            }
-
+            Columns(c).ShouldContain("storage");
+            Columns(c).ShouldContain("publication");
+            DurableVersion(c).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
             (await new SqlitePublishIntentRepository(reopened).GetIntentAsync(identity)).ShouldNotBeNull();
         });
+    }
+
+    [Fact]
+    public async Task DurableMigration_FromNeutralV13_AddsColumnsAdditivelyAndKeepsRows()
+    {
+        await WithFileStore(async path =>
+        {
+            using (var store = new SqliteCacheStore($"Data Source={path}"))
+            {
+                var conn = store.GetConnection();
+                Exec(conn, "DROP TABLE pending.local_relationships;");
+                Exec(conn, """
+                    CREATE TABLE pending.local_relationships (
+                        source_id INTEGER NOT NULL, target_id INTEGER NOT NULL, kind TEXT NOT NULL,
+                        revision INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+                        PRIMARY KEY (source_id, target_id, kind));
+                    INSERT INTO pending.local_relationships VALUES (7, 8, 'related', 4, 0, '2026-01-01T00:00:00Z');
+                    PRAGMA pending.user_version = 13;
+                    """);
+            }
+
+            using var reopened = new SqliteCacheStore($"Data Source={path}");
+            var c = reopened.GetConnection();
+            DurableVersion(c).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = """
+                    SELECT revision, storage IS NULL, publication IS NULL
+                    FROM pending.local_relationships WHERE source_id = 7 AND target_id = 8;
+                    """;
+                using var reader = cmd.ExecuteReader();
+                reader.Read().ShouldBeTrue();
+                reader.GetInt64(0).ShouldBe(4);
+                reader.GetBoolean(1).ShouldBeTrue();
+                reader.GetBoolean(2).ShouldBeTrue();
+            }
+
+            var repo = new SqliteLocalRelationshipRepository(reopened);
+            var write = await repo.UpsertAsync(Edge(1, 2), expectedRevision: null);
+            write.Status.ShouldBe(LocalRelationshipWriteStatus.Written);
+            (await repo.GetAsync(1, 2, LinkKind.PredecessorSuccessor)).ShouldBe(write.Current);
+        });
+    }
+
+    [Fact]
+    public async Task Read_RowWithoutEmulationColumns_IsUnreadable()
+    {
+        Exec(_store.GetConnection(), """
+            INSERT INTO pending.local_relationships (source_id, target_id, kind, revision, deleted, updated_at)
+            VALUES (1, 2, 'predecessor-successor', 1, 0, '2026-01-01T00:00:00Z');
+            """);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => _repo.GetAsync(1, 2, LinkKind.PredecessorSuccessor));
+        ex.Message.ShouldStartWith("local-relationship-unreadable:");
+    }
+
+    private static List<string> Columns(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM pragma_table_info('local_relationships', 'pending');";
+        using var reader = cmd.ExecuteReader();
+        var names = new List<string>();
+        while (reader.Read())
+            names.Add(reader.GetString(0));
+        return names;
+    }
+
+    private static int DurableVersion(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA pending.user_version;";
+        return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
     private static async Task WithFileStore(Func<string, Task> body)

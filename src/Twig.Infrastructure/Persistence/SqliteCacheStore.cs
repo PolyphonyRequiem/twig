@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 13;
+    internal const int DurableSchemaVersion = 14;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -792,17 +792,16 @@ public sealed class SqliteCacheStore : IDisposable
                 WHERE publish_identity IS NOT NULL;
             """,
 
-        // Epic 1170: Twig-local relationship overlay. Durable on purpose — the mirror's
-        // work_item_links is replaced per source on refresh and dropped on rebuild, so emulated
-        // edges must never live there. kind/storage/publication hold canonical string tokens,
-        // never enum ordinals. revision is a local CAS counter; deleted rows are tombstones.
+        // Epic 1168 owns v13: the neutral durable local_relationships primitive. This body is a
+        // STAND-IN until #1168's exact DDL (GUIDv7 endpoints, ownership) replaces it verbatim on
+        // rebase. Durable on purpose — the mirror's work_item_links is replaced per source on
+        // refresh and dropped on rebuild. kind is a canonical token; revision is a local CAS
+        // counter; deleted rows are tombstones.
         [13] = $"""
             CREATE TABLE IF NOT EXISTS {DurableSchema}.local_relationships (
                 source_id INTEGER NOT NULL,
                 target_id INTEGER NOT NULL,
                 kind TEXT NOT NULL,
-                storage TEXT NOT NULL,
-                publication TEXT NOT NULL,
                 revision INTEGER NOT NULL,
                 deleted INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL,
@@ -810,6 +809,14 @@ public sealed class SqliteCacheStore : IDisposable
             );
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_local_relationships_target
                 ON local_relationships(target_id);
+            """,
+
+        // Epic 1170: additive emulation semantics on #1168's neutral table. Nullable because
+        // rows the neutral layer writes carry no emulation policy; the overlay repository always
+        // writes both as canonical tokens and refuses to read a row it owns without them.
+        [14] = $"""
+            ALTER TABLE {DurableSchema}.local_relationships ADD COLUMN storage TEXT;
+            ALTER TABLE {DurableSchema}.local_relationships ADD COLUMN publication TEXT;
             """,
 
     };

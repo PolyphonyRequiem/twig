@@ -14,7 +14,7 @@ public static class ConflictRetryHelper
     /// </summary>
     /// <returns>The new revision number after a successful patch.</returns>
     public static async Task<int> PatchWithRetryAsync(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         int itemId,
         IReadOnlyList<FieldChange> changes,
         int expectedRevision,
@@ -28,7 +28,7 @@ public static class ConflictRetryHelper
             ct);
 
     internal static async Task<int> PatchWithRetryAsync(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         WorkItem currentItem,
         Func<WorkItem, IReadOnlyList<FieldChange>> changesFactory,
         int expectedRevision,
@@ -42,7 +42,7 @@ public static class ConflictRetryHelper
             ct);
 
     private static async Task<int> PatchWithRetryCoreAsync(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         int itemId,
         Func<IReadOnlyList<FieldChange>> initialChangesFactory,
         Func<WorkItem, IReadOnlyList<FieldChange>> retryChangesFactory,

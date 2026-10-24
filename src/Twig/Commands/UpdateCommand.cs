@@ -27,7 +27,7 @@ namespace Twig.Commands;
 public sealed class UpdateCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IConsoleInput consoleInput,
     IFieldDefinitionStore fieldDefStore,
     OutputFormatterFactory formatterFactory,

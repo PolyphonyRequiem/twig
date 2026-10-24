@@ -25,7 +25,7 @@ export function validateDraftDocument(doc, expectedKey, cwd) {
     requireShape(record(doc) && doc.draftDocumentVersion === 1, "unsupported or missing draft document version");
     const key = doc.itemKey;
     requireShape(validKey(key) && samePath(key.checkoutRoot, cwd) &&
-        ["connectionId", "bindingId", "workItemId"].every((k) => key[k] === expectedKey[k]), "qualified item identity changed");
+        ["checkoutRoot", "connectionId", "bindingId", "workItemId"].every((k) => key[k] === expectedKey[k]), "qualified item identity changed");
     requireShape(["generation", "baselineRevision", "observedRevision", "currentRevision"].every((k) => integer(doc[k])),
         "missing, negative or unsafe numeric generation/revision");
     requireShape(["empty", "staged"].includes(doc.draftStatus) && states.includes(doc.status) &&
@@ -40,14 +40,15 @@ export function validateDraftDocument(doc, expectedKey, cwd) {
     for (const name of ["changes", "conflicts", "fields"]) requireShape(Array.isArray(doc[name]), `missing ${name}`);
     const changes = new Map();
     for (const change of doc.changes) {
-        requireShape(record(change) && nonempty(change.fieldRef) && !changes.has(change.fieldRef) &&
+        requireShape(record(change) && nonempty(change.fieldRef) && !changes.has(change.fieldRef.toLowerCase()) &&
             value(change.baselineValue) && value(change.proposedValue), "invalid or duplicate field change");
-        changes.set(change.fieldRef, change);
+        changes.set(change.fieldRef.toLowerCase(), change);
     }
     const seen = new Set();
     for (const field of doc.fields) {
-        const change = changes.get(field?.fieldRef);
-        requireShape(record(field) && change && !seen.has(field.fieldRef) &&
+        const fieldKey = typeof field?.fieldRef === "string" ? field.fieldRef.toLowerCase() : undefined;
+        const change = changes.get(fieldKey);
+        requireShape(record(field) && change && !seen.has(fieldKey) &&
             value(field.baselineValue) && value(field.observedValue) && value(field.proposedValue) &&
             field.baselineValue === change.baselineValue && field.proposedValue === change.proposedValue &&
             typeof field.observedValueAvailable === "boolean" && typeof field.nativePersistable === "boolean" &&
@@ -57,20 +58,23 @@ export function validateDraftDocument(doc, expectedKey, cwd) {
             "unavailable observation must not imply a known value");
         requireShape(!field.matchesBaseline || field.observedValueAvailable &&
             field.observedValue === field.baselineValue, "baseline comparison contradicts observation");
-        seen.add(field.fieldRef);
+        seen.add(fieldKey);
     }
     requireShape(seen.size === changes.size && (doc.draftStatus === "empty") === (changes.size === 0),
         "field coverage or draft status mismatch");
     const conflicts = new Set();
     for (const conflict of doc.conflicts) {
-        const change = changes.get(conflict?.fieldRef);
-        requireShape(record(conflict) && change && !conflicts.has(conflict.fieldRef) &&
+        const fieldKey = typeof conflict?.fieldRef === "string" ? conflict.fieldRef.toLowerCase() : undefined;
+        const change = changes.get(fieldKey);
+        requireShape(record(conflict) && change && !conflicts.has(fieldKey) &&
             ["baselineValue", "observedValue", "proposedValue"].every((k) => value(conflict[k])) &&
             conflict.baselineValue === change.baselineValue && conflict.proposedValue === change.proposedValue,
         "invalid conflict evidence");
-        conflicts.add(conflict.fieldRef);
+        conflicts.add(fieldKey);
     }
-    requireShape(!doc.conflicts.length || doc.hasConflicts, "conflicts are not acknowledged");
+    requireShape(doc.observedRevision === doc.currentRevision, "observed and current native revisions disagree");
+    requireShape(doc.hasConflicts === (doc.baselineRevision !== doc.observedRevision || doc.conflicts.length > 0),
+        "conflict flag contradicts revision drift or retained conflicts");
     requireShape(!doc.hasConflicts || doc.status === "conflicted", "conflicted observation is mislabeled");
     requireShape(!doc.localPendingWork || doc.observationCompleteness === "blocked-by-local-work",
         "local work completeness mismatch");

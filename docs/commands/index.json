@@ -960,6 +960,14 @@
     "path": "system/auth-status.md"
   },
   {
+    "command": "connection capabilities",
+    "group": "system",
+    "summary": "Report the active provider's declared relationship capabilities and probe evidence without enabling emulation.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "system/auth-status.md"
+  },
+  {
     "command": "connection migrate",
     "group": "system",
     "summary": "Preview or explicitly apply safe legacy migration with verified principal mapping, actual host/store quiescence and native generation admission; no force or implicit publication.",

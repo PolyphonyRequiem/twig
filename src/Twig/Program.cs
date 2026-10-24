@@ -1505,6 +1505,12 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ConnectionCheck(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionCheckCommand>().ExecuteAsync(output, ct);
 
+    /// <summary>Report how the active provider implements each relationship kind (native, emulated or unsupported), where emulated data is stored, and its runtime availability. Read-only; kinds without probe evidence report unknown/not-probed.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection capabilities")]
+    public async Task<int> ConnectionCapabilities(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionCapabilitiesCommand>().ExecuteAsync(output, ct);
+
     /// <summary>Preview or apply a versioned legacy migration. Activation requires explicit identity mapping, verified principal evidence and actual legacy host/store closure. No force, publish, discard or process-kill path.</summary>
     /// <param name="identity">Explicit registered identity alias, or alias to enroll from the chosen legacy method. Never inferred from global login.</param>
     /// <param name="method">Legacy credential import method: aad or pat. Omit for an already registered identity.</param>
@@ -1905,6 +1911,7 @@ internal static class GroupedHelp
         "connection list",
         "connection status",
         "connection check",
+        "connection capabilities",
         "connection migrate",
         "connection pin",
         "connection unpin",

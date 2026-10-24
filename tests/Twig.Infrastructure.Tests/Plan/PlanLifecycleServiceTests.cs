@@ -4,6 +4,8 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 
@@ -128,7 +130,10 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 "fixture-object", "fixture-issuer", "fixture-authority", null));
     }
 
-    private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null)
+    private PlanLifecycleService BuildService(
+        DateTimeOffset? clock = null,
+        IPlanJournalRepository? journal = null,
+        IWorkItemProvider? workItemProvider = null)
     {
         var provider = clock is null
             ? TimeProvider.System
@@ -152,7 +157,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             new StubSteering(() => _steeringMode),
             new FixtureOrigin(_repoRoot),
             _ruleProvider,
-            Substitute.For<IUnitOfWork>());
+            Substitute.For<IUnitOfWork>(),
+            workItemProvider);
     }
 
     [Fact]
@@ -591,6 +597,104 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             (WorkItem Item, IReadOnlyList<WorkItemLink> Links)>(
                 (BuildWorkItem(1, rev: 3),
                  new[] { new WorkItemLink(1, 9, "System.LinkTypes.Dependency-Forward") })));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+    }
+
+    // ── #1170 / #1169 merge obligation: add-link capability gate ────────────
+    //
+    // The proposal add-link path refuses relationship kinds the active provider does not
+    // route natively BEFORE apply, with the same reason codes `twig link` uses. Only the
+    // descriptor decides; nothing on the wire is attempted.
+
+    private static IWorkItemProvider ProviderWith(ProviderCapabilityDescriptor descriptor)
+    {
+        var provider = Substitute.For<IWorkItemProvider>();
+        provider.Capabilities.Returns(descriptor);
+        return provider;
+    }
+
+    [Fact]
+    public async Task Apply_AddLink_UnsupportedKind_FailsBeforeWire_WithRelationshipUnsupported()
+    {
+        var file = WritePlan(AddLinkPlan(sourceId: 1, otherId: 9, rev: 2, relation: "related"));
+        var svc = BuildService(workItemProvider: ProviderWith(ProviderCapabilityCatalog.GitHub));
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations.ShouldHaveSingleItem();
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error.ShouldNotBeNull();
+        row.Error!.ShouldStartWith(RelationshipRoute.UnsupportedReason + ":");
+        (await _journal.GetAsync(digest))!.Operations[0].State.ShouldBe(PlanOperationState.Failed);
+        await _revisionBound.DidNotReceiveWithAnyArgs().AddLinkAtRevisionAsync(
+            default, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task Apply_AddLink_EmulatedKind_FailsBeforeWire_WithEmulationUnavailable()
+    {
+        var emulatedRelated = new ProviderCapabilityDescriptor(
+            "fixture",
+            [
+                new(LinkKind.ParentChild, CapabilityImplementation.Native, EmulationStorage.None),
+                new(LinkKind.PredecessorSuccessor, CapabilityImplementation.Native, EmulationStorage.None),
+                new(LinkKind.Related, CapabilityImplementation.Emulated, EmulationStorage.LocalOnly),
+            ]);
+        var file = WritePlan(AddLinkPlan(sourceId: 1, otherId: 9, rev: 2, relation: "related"));
+        var svc = BuildService(workItemProvider: ProviderWith(emulatedRelated));
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        var row = apply.Operations.ShouldHaveSingleItem();
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error!.ShouldStartWith(RelationshipRoute.EmulationUnavailableReason + ":");
+        await _revisionBound.DidNotReceiveWithAnyArgs().AddLinkAtRevisionAsync(
+            default, default!, default, default, default);
+    }
+
+    [Theory]
+    [InlineData("github")]
+    [InlineData("ado")]
+    public async Task Apply_AddLink_NativeKind_PassesGate(string providerKind)
+    {
+        ProviderCapabilityCatalog.TryGet(providerKind, out var descriptor).ShouldBeTrue();
+        var file = WritePlan(AddLinkPlan(sourceId: 1, otherId: 9, rev: 2, relation: "successor"));
+        var svc = BuildService(workItemProvider: ProviderWith(descriptor));
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _revisionBound.AddLinkAtRevisionAsync(1, "System.LinkTypes.Dependency-Forward", 9, 2,
+                Arg.Any<CancellationToken>()).Returns(3);
+        _ado.FetchWithLinksAsync(1, Arg.Any<CancellationToken>()).Returns(Task.FromResult<
+            (WorkItem Item, IReadOnlyList<WorkItemLink> Links)>(
+                (BuildWorkItem(1, rev: 3),
+                 new[] { new WorkItemLink(1, 9, "System.LinkTypes.Dependency-Forward") })));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+    }
+
+    [Fact]
+    public async Task Apply_AddLink_AdoRelated_PassesGate()
+    {
+        var file = WritePlan(AddLinkPlan(sourceId: 1, otherId: 9, rev: 2, relation: "related"));
+        var svc = BuildService(workItemProvider: ProviderWith(ProviderCapabilityCatalog.Ado));
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _revisionBound.AddLinkAtRevisionAsync(1, "System.LinkTypes.Related", 9, 2,
+                Arg.Any<CancellationToken>()).Returns(3);
+        _ado.FetchWithLinksAsync(1, Arg.Any<CancellationToken>()).Returns(Task.FromResult<
+            (WorkItem Item, IReadOnlyList<WorkItemLink> Links)>(
+                (BuildWorkItem(1, rev: 3),
+                 new[] { new WorkItemLink(1, 9, "System.LinkTypes.Related") })));
 
         var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
 

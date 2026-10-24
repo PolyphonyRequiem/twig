@@ -493,27 +493,14 @@ internal sealed class LinkCommand(
     /// </summary>
     private int? RefuseUnroutable(IOutputFormatter fmt, LinkKind kind)
     {
-        var descriptor = workItemProvider.Capabilities;
-        var route = RelationshipRouting.Decide(descriptor, kind);
-        var kindToken = LinkKindTokens.ToToken(kind);
-        switch (route.Kind)
-        {
-            case RelationshipRouteKind.Native:
-                return null;
-            case RelationshipRouteKind.Emulated:
-                _stderr.WriteLine(fmt.FormatError(
-                    $"{EmulationUnwiredReason}: provider '{descriptor.ProviderKind}' emulates '{kindToken}' relationships, "
-                    + "but the Twig-local route is not available yet. Nothing was changed."));
-                return 1;
-            default:
-                _stderr.WriteLine(fmt.FormatError(
-                    $"{route.ReasonCode}: provider '{descriptor.ProviderKind}' does not support '{kindToken}' relationships. "
-                    + "Nothing was changed."));
-                return 1;
-        }
+        if (RelationshipRouting.RefusalMessage(workItemProvider.Capabilities, kind) is not { } refusal)
+            return null;
+
+        _stderr.WriteLine(fmt.FormatError(refusal));
+        return 1;
     }
 
-    internal const string EmulationUnwiredReason = "relationship-emulation-unavailable";
+    internal const string EmulationUnwiredReason = RelationshipRoute.EmulationUnavailableReason;
 
     private void RenderLinkResult(string kind, string message, IReadOnlyList<WorkItemLink> links, string outputFormat)
     {

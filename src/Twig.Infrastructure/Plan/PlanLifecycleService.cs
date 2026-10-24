@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.ChangeProposals;
@@ -78,6 +80,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly PlanProcessRuleGate _ruleGate;
     private readonly ChangeProposalReviewModelBuilder _reviewModel;
     private readonly ISessionSteeringModeProvider _steering;
+    private readonly IWorkItemProvider? _workItemProvider;
 
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton; the executor is
@@ -135,9 +138,11 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         ISessionSteeringModeProvider steering,
         IPlanOriginProvider origin,
         IProcessRuleProvider? ruleProvider,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IWorkItemProvider? workItemProvider = null)
     {
         _parser = parser;
+        _workItemProvider = workItemProvider;
         _journal = journal;
         _pendingReader = pendingReader;
         _workItemRepo = workItemRepo;
@@ -762,6 +767,15 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
         if (currentState == PlanOperationState.Confirmed)
         {
+            // #1170: a relationship kind the active provider does not route natively is
+            // refused before any wire attempt, with the same reason codes `twig link` uses.
+            if (RelationshipCapabilityRefusal(opDef) is { } relationshipRefusal)
+            {
+                return StepResult.Terminal(await MarkTerminalAsync(
+                    digest, row.OpId, relationshipRefusal, PlanOperationState.Failed, ct)
+                    .ConfigureAwait(false));
+            }
+
             // Runtime process-gate outcome (AB#673, AB#719, AB#721):
             //   • Refused → terminal Failed BEFORE the wire attempt. The row never claims
             //     Applying and the executor is never called for this op.
@@ -1167,6 +1181,29 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly record struct GateEvaluation(
         PlanProcessRuleGateOutcome Outcome,
         WorkItemSnapshot? Snapshot);
+
+    /// <summary>
+    /// #1170: refusal text for an add-link whose relationship kind the active provider does
+    /// not route natively, or <c>null</c> when it may proceed. Without a provider (test
+    /// composition) nothing is refused, mirroring the process-rule gate. Unknown relations
+    /// pass through to the executor, which already rejects them. Remove-link is not gated.
+    /// </summary>
+    private string? RelationshipCapabilityRefusal(PlanOperationDefinition opDef)
+    {
+        if (_workItemProvider is null || opDef is not AddLinkOperation add)
+            return null;
+
+        LinkKind? kind = add.Relation.ToLowerInvariant() switch
+        {
+            "parent" => LinkKind.ParentChild,
+            "predecessor" or "successor" => LinkKind.PredecessorSuccessor,
+            "related" => LinkKind.Related,
+            _ => null,
+        };
+        return kind is { } k
+            ? RelationshipRouting.RefusalMessage(_workItemProvider.Capabilities, k)
+            : null;
+    }
 
     /// <summary>
     /// Consults the process-rule gate for a <see cref="BatchOperation"/>. Returns

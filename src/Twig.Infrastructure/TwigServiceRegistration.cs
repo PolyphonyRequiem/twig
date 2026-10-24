@@ -644,7 +644,10 @@ public static class TwigServiceRegistration
                 // network module has not registered a rule provider the gate no-ops and the
                 // executor's strict-CAS remains the sole enforcement, as before.
                 sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>(),
-                sp.GetRequiredService<IUnitOfWork>()));
+                sp.GetRequiredService<IUnitOfWork>(),
+                // Relationship capability gate (#1169 obligation, AB#1170): proposal add-link
+                // routes through the active provider's descriptor exactly as `twig link` does.
+                sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>()));
 
         return services;
     }

@@ -19,6 +19,7 @@ internal sealed record RelationshipRoute(RelationshipRouteKind Kind, EmulationSt
 {
     public const string UnsupportedReason = "relationship-unsupported";
     public const string NotARelationshipReason = "relationship-kind-invalid";
+    public const string EmulationUnavailableReason = "relationship-emulation-unavailable";
 }
 
 /// <summary>
@@ -40,6 +41,27 @@ internal static class RelationshipRouting
             CapabilityImplementation.Native => new RelationshipRoute(RelationshipRouteKind.Native, EmulationStorage.None, null),
             CapabilityImplementation.Emulated => new RelationshipRoute(RelationshipRouteKind.Emulated, capability.Storage, null),
             _ => new RelationshipRoute(RelationshipRouteKind.Refused, EmulationStorage.None, RelationshipRoute.UnsupportedReason),
+        };
+    }
+
+    /// <summary>
+    /// The refusal every relationship-mutation surface reports when <paramref name="kind"/> has no
+    /// native route, or <c>null</c> when the provider writes it natively. Emulated kinds are refused
+    /// too until a Twig-local route is wired, so no surface can write the overlay ahead of the rest.
+    /// </summary>
+    public static string? RefusalMessage(ProviderCapabilityDescriptor descriptor, LinkKind kind)
+    {
+        var route = Decide(descriptor, kind);
+        var kindToken = LinkKindTokens.ToToken(kind);
+        return route.Kind switch
+        {
+            RelationshipRouteKind.Native => null,
+            RelationshipRouteKind.Emulated =>
+                $"{RelationshipRoute.EmulationUnavailableReason}: provider '{descriptor.ProviderKind}' emulates '{kindToken}' relationships, "
+                + "but the Twig-local route is not available yet. Nothing was changed.",
+            _ =>
+                $"{route.ReasonCode}: provider '{descriptor.ProviderKind}' does not support '{kindToken}' relationships. "
+                + "Nothing was changed.",
         };
     }
 }

@@ -646,6 +646,7 @@ internal static class CommandExamples
         [
             "twig draft show 42                    Inspect the shared draft and current conflict state.",
             "twig draft show 42 -o minimal         Emit item, generation, revisions, state, and change count as tab-separated fields.",
+            "twig draft show 42 --document -o json    Emit the versioned native observation and eligibility contract.",
         ],
         ["pending"] =
         [

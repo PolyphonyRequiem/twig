@@ -54,6 +54,75 @@ public sealed class DraftCommandTests : IAsyncLifetime
     }
 
     [HostMigrationFact]
+    public async Task Show_DocumentIncludesVersionedNativeDraftReconciliationAndEligibility()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        await runtime.GetRequiredService<IWorkItemRepository>()
+            .SaveAsync(NativeBrowserFixture.Item(42, "Original"));
+        (await Command(runtime, new StringWriter()).SetAsync(42, "System.Title", "Updated title")).ShouldBe(0);
+
+        var output = new StringWriter();
+        (await Command(runtime, output).ShowAsync(42, "json", document: true)).ShouldBe(0);
+        using var json = JsonDocument.Parse(output.ToString());
+        var root = json.RootElement;
+
+        root.GetProperty("draftDocumentVersion").GetInt32().ShouldBe(1);
+        root.GetProperty("baselineRevision").GetInt32().ShouldBe(3);
+        root.GetProperty("observedRevision").GetInt32().ShouldBe(3);
+        root.GetProperty("currentRevision").GetInt32().ShouldBe(3);
+        root.GetProperty("generation").GetInt64().ShouldBe(1);
+        root.GetProperty("status").GetString().ShouldBe("current");
+        root.GetProperty("draftStatus").GetString().ShouldBe("staged");
+        root.GetProperty("reconciliationState").GetString().ShouldBe("current");
+        root.GetProperty("freshness").GetString().ShouldBe("cached");
+        root.GetProperty("observationCompleteness").GetString().ShouldBe("complete-for-draft-effects");
+        var eligibility = root.GetProperty("eligibility");
+        eligibility.GetProperty("fieldsPersistable").GetBoolean().ShouldBeTrue();
+        eligibility.GetProperty("rules").GetString().ShouldBe("not-applicable");
+        eligibility.GetProperty("authorized").GetBoolean().ShouldBeFalse();
+        eligibility.GetProperty("inspectionOnly").GetBoolean().ShouldBeTrue();
+        var field = root.GetProperty("fields")[0];
+        field.GetProperty("fieldRef").GetString().ShouldBe("System.Title");
+        field.GetProperty("baselineValue").GetString().ShouldBe("Original");
+        field.GetProperty("observedValue").GetString().ShouldBe("Original");
+        field.GetProperty("observedValueAvailable").GetBoolean().ShouldBeTrue();
+        field.GetProperty("proposedValue").GetString().ShouldBe("Updated title");
+        field.GetProperty("nativePersistable").GetBoolean().ShouldBeTrue();
+        field.GetProperty("nativeCapabilitySource").GetString().ShouldBe("native-edit-sink");
+        field.GetProperty("eligibilityReason").ValueKind.ShouldBe(JsonValueKind.Null);
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
+    public async Task Show_DocumentBlocksDraftEffectsAbsentFromTheNativeForm()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        await runtime.GetRequiredService<IWorkItemRepository>()
+            .SaveAsync(NativeBrowserFixture.Item(42, "Original"));
+        var store = runtime.GetRequiredService<IRecoverableWorkItemDraftStore>();
+        var key = await KeyAsync(runtime, 42);
+        var draft = RecoverableWorkItemDraft.Create(key, 3)
+            .SetField("Custom.NotCarried", "before", "intent");
+        (await store.TrySaveAsync(draft, null)).ShouldBeTrue();
+
+        var output = new StringWriter();
+        (await Command(runtime, output).ShowAsync(42, "json", document: true)).ShouldBe(0);
+        using var json = JsonDocument.Parse(output.ToString());
+        var root = json.RootElement;
+        root.GetProperty("status").GetString().ShouldBe("field-unavailable");
+        root.GetProperty("reconciliationState").GetString().ShouldBe("field-unavailable");
+        root.GetProperty("observationCompleteness").GetString().ShouldBe("incomplete-for-draft-effects");
+        root.GetProperty("fields")[0].GetProperty("observedValueAvailable").GetBoolean().ShouldBeFalse();
+        root.GetProperty("fields")[0].GetProperty("nativePersistable").GetBoolean().ShouldBeFalse();
+        var reason = root.GetProperty("fields")[0].GetProperty("eligibilityReason").GetString();
+        reason.ShouldNotBeNull();
+        reason!.ShouldContain("absent from the native form");
+        root.GetProperty("fields")[0].GetProperty("proposedValue").GetString().ShouldBe("intent");
+        (await store.GetAsync(key))!.Changes[0].ProposedValue.ShouldBe("intent");
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
     public async Task RevisionDriftIsRecordedAndRefusesFurtherEditsWithoutDroppingIntent()
     {
         var runtime = await _fixture.CreateRuntimeAsync();

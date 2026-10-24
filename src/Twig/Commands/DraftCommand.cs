@@ -123,6 +123,7 @@ internal sealed class DraftCommand(
     internal async Task<int> ShowAsync(
         int id,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
+        bool document = false,
         CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
@@ -130,6 +131,9 @@ internal sealed class DraftCommand(
         try
         {
             var format = ValidateFormat(outputFormat);
+            if (document && format is not ("json" or "json-full" or "json-compact"))
+                throw new ArgumentException("--document requires JSON output (-o json).");
+
             var opened = await OpenAsync(id, ct);
             var session = opened.Session;
             var draft = await drafts.GetAsync(opened.Document.ItemKey, ct)
@@ -144,7 +148,8 @@ internal sealed class DraftCommand(
                 draft = observed;
             }
 
-            RenderDraft(draft, session.Revision, "draft show", format, session.HasLocalChanges);
+            RenderDraft(draft, session.Revision, "draft show", format, session.HasLocalChanges,
+                session, document);
             return exitCode = 0;
         }
         catch (DraftCommandException ex)
@@ -284,7 +289,7 @@ internal sealed class DraftCommand(
     }
 
     private void RenderDraft(RecoverableWorkItemDraft draft, int currentRevision, string kind, string format,
-        bool hasLocalChanges = false)
+        bool hasLocalChanges = false, BrowserEditingSession? session = null, bool document = false)
     {
         var state = draft.HasConflicts
             ? "conflicted"
@@ -345,8 +350,15 @@ internal sealed class DraftCommand(
                 new RenderValue.Array(conflicts)),
         };
 
+        if (document)
+        {
+            if (session is null)
+                throw new InvalidOperationException("A draft document requires the native editing session.");
+            AddDocumentFields(fields, draft, session);
+        }
+
         var nodes = format is "json" or "json-full" or "json-compact"
-            ? new RenderNode[] { new RenderNode.Record(kind, fields) }
+            ? new RenderNode[] { new RenderNode.Record(document ? "draftDocument" : kind, fields) }
             : [
                 new RenderNode.Text($"Draft for work item #{draft.ItemKey.WorkItemId}: {state}"),
                 new RenderNode.KeyValue("Generation", RenderCell.Integer(draft.Generation)),
@@ -362,6 +374,119 @@ internal sealed class DraftCommand(
                 new RenderNode.Text("This draft is local and does not authorize or perform an apply."),
             ];
         renderers.GetRenderer(format, stdout ?? Console.Out).Render(new RenderTree.RenderTree(nodes));
+    }
+
+    private static void AddDocumentFields(
+        IDictionary<string, RenderCell> fields,
+        RecoverableWorkItemDraft draft,
+        BrowserEditingSession session)
+    {
+        var observedValues = draft.Changes.Select(change =>
+        {
+            string? observedValue = null;
+            var available = !session.HasLocalChanges
+                && session.CurrentValues.TryGetValue(change.FieldRef, out observedValue);
+            var persistable = session.Capability.CanEdit(change.FieldRef);
+            var eligibilityReason = !available && session.HasLocalChanges
+                ? "Current value is obscured by unrelated local pending work."
+                : !available
+                    ? "Field is absent from the native form or its value is not carried by Twig."
+                    : !persistable
+                        ? "Field is not persistable by the native edit capability."
+                        : null;
+            return new
+            {
+                Change = change,
+                ObservedValue = observedValue,
+                ObservedValueAvailable = available,
+                Persistable = persistable,
+                EligibilityReason = eligibilityReason,
+            };
+        }).ToArray();
+
+        var fieldsPersistable = observedValues.All(value => value.Persistable);
+        var rules = EvaluateRules(draft, session);
+        var reconciliationState = draft.HasConflicts
+            ? "conflicted"
+            : session.HasLocalChanges
+                ? "blocked-local-work"
+                : observedValues.Any(value => !value.ObservedValueAvailable)
+                    ? "field-unavailable"
+                    : !fieldsPersistable
+                        ? "capability-refused"
+                        : rules.Status switch
+                        {
+                            "rejected" => "rules-refused",
+                            "unknown" => "rules-unknown",
+                            _ => "current",
+                        };
+        var observationCompleteness = session.HasLocalChanges
+            ? "blocked-by-local-work"
+            : observedValues.Any(value => !value.ObservedValueAvailable)
+                ? "incomplete-for-draft-effects"
+                : "complete-for-draft-effects";
+
+        var exportedFields = observedValues.Select(value => new RenderCell(
+            value.Change.FieldRef,
+            new RenderValue.Object(new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["fieldRef"] = RenderCell.String(value.Change.FieldRef),
+                ["baselineValue"] = NullableCell(value.Change.BaselineValue),
+                ["observedValue"] = NullableCell(value.ObservedValue),
+                ["observedValueAvailable"] = RenderCell.Boolean(value.ObservedValueAvailable),
+                ["proposedValue"] = NullableCell(value.Change.ProposedValue),
+                ["nativePersistable"] = RenderCell.Boolean(value.Persistable),
+                ["nativeCapabilitySource"] = RenderCell.String("native-edit-sink"),
+                ["eligibilityReason"] = value.EligibilityReason is null
+                    ? new RenderCell(string.Empty, new RenderValue.Null())
+                    : RenderCell.String(value.EligibilityReason),
+                ["matchesBaseline"] = RenderCell.Boolean(
+                    value.ObservedValueAvailable
+                    && string.Equals(value.Change.BaselineValue, value.ObservedValue, StringComparison.Ordinal)),
+            }))).ToArray();
+
+        fields["draftDocumentVersion"] = RenderCell.Integer(1);
+        fields["draftStatus"] = fields["status"];
+        fields["status"] = RenderCell.String(reconciliationState);
+        fields["reconciliationState"] = RenderCell.String(reconciliationState);
+        fields["freshness"] = RenderCell.String("cached");
+        fields["observationCompleteness"] = RenderCell.String(observationCompleteness);
+        fields["localPendingWork"] = RenderCell.Boolean(session.HasLocalChanges);
+        fields["fields"] = new(string.Join("; ", observedValues.Select(value => value.Change.FieldRef)),
+            new RenderValue.Array(exportedFields));
+        fields["eligibility"] = new("Native draft eligibility; it does not authorize an apply.",
+            new RenderValue.Object(new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["fieldsPersistable"] = RenderCell.Boolean(fieldsPersistable),
+                ["rules"] = RenderCell.String(rules.Status),
+                ["rulesReason"] = rules.Reason is null ? new RenderCell(string.Empty, new RenderValue.Null())
+                    : RenderCell.String(rules.Reason),
+                ["serverIsFinalAuthority"] = RenderCell.Boolean(true),
+                ["authorized"] = RenderCell.Boolean(false),
+                ["inspectionOnly"] = RenderCell.Boolean(true),
+            }));
+    }
+
+    private static (string Status, string? Reason) EvaluateRules(
+        RecoverableWorkItemDraft draft,
+        BrowserEditingSession session)
+    {
+        var state = draft.Changes.FirstOrDefault(change =>
+            string.Equals(change.FieldRef, "System.State", StringComparison.OrdinalIgnoreCase));
+        if (state is null)
+            return ("not-applicable", null);
+        if (!session.ProcessRulesAvailable)
+            return ("unknown", "Native process rules are unavailable for this editing session.");
+
+        try
+        {
+            ValidateDraft(draft, session.Capability);
+            return ("accepted", null);
+        }
+        catch (DraftCommandException ex)
+        {
+            return ("rejected", ex.Message);
+        }
     }
 
     private void WriteError(string outputFormat, string message)

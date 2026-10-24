@@ -116,7 +116,7 @@ and updates.
 | [Seeds](seeds/README.md) | [`twig seed validate`](seeds/seed-validate.md) | Validate seeds against publish rules. | stable | `none` |
 | [Seeds](seeds/README.md) | [`twig seed view`](seeds/seed-view.md) | Show the seed dashboard grouped by parent. | stable | `none` |
 | [Plans and Proposals](plans/README.md) | [`twig draft set`](plans/draft-set.md) | Stage an exact field value in the shared recoverable local draft. | stable | `local` |
-| [Plans and Proposals](plans/README.md) | [`twig draft show`](plans/draft-show.md) | Inspect the shared draft and current native conflict state. | stable | `local` |
+| [Plans and Proposals](plans/README.md) | [`twig draft show`](plans/draft-show.md) | Inspect the shared draft and current native conflict state; optionally emit a versioned JSON document. | stable | `local` |
 | [Plans and Proposals](plans/README.md) | [`twig pending`](plans/pending.md) | List raw staged pending changes in exact staging order. | stable | `none` |
 | [Plans and Proposals](plans/README.md) | [`twig plan apply`](plans/plan-apply.md) | Deprecated alias for `proposal apply`. | stable | `ado` |
 | [Plans and Proposals](plans/README.md) | [`twig plan preview`](plans/plan-preview.md) | Deprecated alias for `proposal preview`. | stable | `local` |

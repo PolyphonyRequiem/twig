@@ -762,7 +762,7 @@
   {
     "command": "draft show",
     "group": "plans",
-    "summary": "Inspect the shared draft and current native conflict state.",
+    "summary": "Inspect the shared draft and current native conflict state; optionally emit a versioned JSON document.",
     "stability": "stable",
     "mutates": "local",
     "path": "plans/draft-show.md"

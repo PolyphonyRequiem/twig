@@ -33,7 +33,8 @@ internal sealed class BrowserEditingModule(BrowserOperationModule operations, IW
         catch (InvalidOperationException) { configuration = null; }
         var sink = new PendingChangeStoreSink(pendingChanges).BoundTo(id, snapshot.Revision);
         var session = new BrowserEditingSession(capture, snapshot, notes, pending, document,
-            new EditCapability(sink, item.Type, item.IsSeed, configuration));
+            new EditCapability(sink, item.Type, item.IsSeed, configuration),
+            processRulesAvailable: configuration?.TypeConfigs.ContainsKey(item.Type) == true);
         if (!await MatchesBaselineAsync(session, token))
             throw new BrowserReadException(BrowserReadFailureKind.Unavailable, "Local work changed while the editor opened. Reopen it; nothing was staged.");
         return session;
@@ -126,7 +127,8 @@ internal sealed class BrowserEditingSession
     private readonly Dictionary<string, string> _canonical = new(StringComparer.OrdinalIgnoreCase);
 
     internal BrowserEditingSession(BrowserCapture capture, WorkItemSnapshot baseline, PendingNote[] notes,
-        PendingChangeRecord[] pending, WorkItemDetailDocument document, EditCapability capability)
+        PendingChangeRecord[] pending, WorkItemDetailDocument document, EditCapability capability,
+        bool processRulesAvailable)
     {
         Capture = capture;
         _baseline = baseline;
@@ -135,6 +137,7 @@ internal sealed class BrowserEditingSession
         Snapshot = baseline;
         Document = document;
         Capability = capability;
+        ProcessRulesAvailable = processRulesAvailable;
         foreach (var control in document.SystemControls.Concat(document.Pages.Where(page => page.CarriesFieldControls)
                      .SelectMany(page => page.AllGroups).SelectMany(group => group.Controls)))
         {
@@ -155,6 +158,7 @@ internal sealed class BrowserEditingSession
     internal int Revision => _baseline.Revision;
     internal WorkItemDetailDocument Document { get; }
     internal EditCapability Capability { get; }
+    internal bool ProcessRulesAvailable { get; }
     internal WorkItemSnapshot Snapshot { get; }
     internal IReadOnlyDictionary<string, string?> CurrentValues { get; }
     internal bool HasLocalChanges => _baseline.IsDirty || _notes.Length > 0 || _pending.Length > 0;

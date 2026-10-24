@@ -1709,12 +1709,14 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Inspect the shared recoverable draft and its current native conflict state.</summary>
     /// <param name="id">Native work-item ID in the admitted current checkout.</param>
     /// <param name="output">-o, Output format: human, json, minimal. The ids format is not supported.</param>
+    /// <param name="document">Emit the versioned native draft inspection envelope; requires JSON output.</param>
     [Command("draft show")]
     public async Task<int> DraftShow(
         [Argument] int id,
         string output = OutputFormatterFactory.DefaultFormat,
+        bool document = false,
         CancellationToken ct = default)
-        => await services.GetRequiredService<DraftCommand>().ShowAsync(id, output, ct);
+        => await services.GetRequiredService<DraftCommand>().ShowAsync(id, output, document, ct);
 
     /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

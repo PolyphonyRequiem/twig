@@ -28,7 +28,12 @@ a saved draft as permission to publish it.
 ```text
 twig draft set 42 System.Title "Updated title"
 twig draft show 42 -o json
+twig draft show 42 --document -o json
 ```
+
+The opt-in versioned document form includes current cached native observations
+and edit/rules eligibility for staged effects. It remains an inspection only:
+it does not capture a proposal, authorize, or apply changes.
 
 ## Canonical vs. legacy verbs
 

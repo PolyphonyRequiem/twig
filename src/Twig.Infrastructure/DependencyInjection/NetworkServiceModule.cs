@@ -85,6 +85,8 @@ public static class NetworkServiceModule
                 sp.GetService<IFieldDefinitionStore>(),
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
+        services.AddSingleton<IWorkItemProvider>(sp =>
+            (IWorkItemProvider)sp.GetRequiredService<IAdoWorkItemService>());
 
         // IRevisionBoundAdoWorkItemService and IAdoAssignedIdentityReader alias the
         // same AdoRestClient instance so interface-segregated consumers (plan

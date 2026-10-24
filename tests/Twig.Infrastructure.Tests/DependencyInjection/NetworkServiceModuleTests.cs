@@ -52,6 +52,27 @@ public sealed class NetworkServiceModuleTests
         client1.ShouldBeSameAs(client2);
     }
 
+    /// <summary>
+    /// AB#1169: <c>PlanProcessRuleGate</c> treats an absent rule provider as "no process-rule
+    /// support configured" and permits. The networked composition must therefore always
+    /// supply a provider; otherwise required-field gates would silently stop evaluating.
+    /// </summary>
+    [Fact]
+    public void ProcessRuleProvider_IsRegistered_SoTheRequiredFieldGateNeverSilentlyPermits()
+    {
+        var services = new ServiceCollection();
+        var config = new TwigConfiguration
+        {
+            Organization = "testorg",
+            Project = "testproj",
+        };
+        services.AddSingleton(config);
+        services.AddTwigNetworkServices(config);
+
+        services.Count(d => d.ServiceType == typeof(Twig.Domain.Interfaces.IProcessRuleProvider))
+            .ShouldBe(1);
+    }
+
     [Fact]
     public void SocketsHandler_AutomaticDecompression_IsGZipAndBrotli()
     {

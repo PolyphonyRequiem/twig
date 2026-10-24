@@ -165,4 +165,11 @@ cannot be evaluated. A null provider (no process-rule support configured) still 
 * **#1171** audits historical policy/process work and journal reconciliation. #1169 does not
   re-close, re-scope or reassign #726, #674, #727 or #850.
 * **#729** owns authorizer authenticity. Nothing here claims to prove who authorized.
+* **#1167 / #1170** declare relationship capabilities only (`ProviderCapabilityDescriptor`
+  covers parent-child, predecessor-successor and related links). They define no process-rule
+  seam, and no GitHub work-item adapter exists yet, so the evaluator's provider-neutral input
+  stays `IProcessRuleProvider` (work-item type → `ProcessRule` list), implemented today by ADO
+  only. A provider with no process rules must register a provider that returns an empty rule
+  set; a networked composition that registers none is guarded by
+  `NetworkServiceModuleTests.ProcessRuleProvider_IsRegistered_SoTheRequiredFieldGateNeverSilentlyPermits`.
 * Host skills keep every **Host** row above; Twig reports mechanical facts they can rely on.

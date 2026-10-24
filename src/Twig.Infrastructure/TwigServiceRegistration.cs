@@ -121,7 +121,11 @@ public static class TwigServiceRegistration
             return SqliteCacheStore.OpenWorkspace(paths, sp.GetRequiredService<IConnectionBindingService>().RegistryPath);
         });
 
-        services.AddSingleton<IWorkItemRepository>(sp => new SqliteWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper()));
+        // Epic #1168: durable identity projection is opt-in and also needs the ADO resource scope,
+        // which the ADO adapter (Epic #1167) does not supply yet, so it stays refused until then.
+        services.AddSingleton<IWorkItemRepository>(sp => SqliteWorkItemRepository.CreateMirror(
+            sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper(),
+            NeutralStoreOptIn.IsEnabledFromEnvironment(), adoResourceScope: null));
         services.AddSingleton<IContextStore>(sp => new SqliteContextStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<INavigationHistoryStore>(sp => new SqliteNavigationHistoryStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPendingChangeStore>(sp => new SqlitePendingChangeStore(sp.GetRequiredService<SqliteCacheStore>()));

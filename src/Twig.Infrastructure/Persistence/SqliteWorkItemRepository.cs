@@ -35,6 +35,24 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         _projection = projection;
     }
 
+    /// <summary>
+    /// Builds the workspace mirror repository, projecting saves onto durable identities only when the
+    /// experimental neutral store is opted in (<see cref="NeutralStoreOptIn"/>) <b>and</b> the ADO
+    /// resource scope is known. A missing scope refuses the projection rather than inventing one;
+    /// mirror saves then behave exactly as before.
+    /// </summary>
+    internal static SqliteWorkItemRepository CreateMirror(
+        SqliteCacheStore store, WorkItemMapper mapper, bool neutralStoreOptedIn, string? adoResourceScope)
+    {
+        if (!neutralStoreOptedIn || string.IsNullOrWhiteSpace(adoResourceScope))
+            return new SqliteWorkItemRepository(store, mapper);
+
+        var projection = new AdoMirrorIdentityProjection(new SqliteLocalWorkItemRepository(store), adoResourceScope);
+        return new SqliteWorkItemRepository(store, mapper, projection);
+    }
+
+    internal bool ProjectsDurableIdentities => _projection is not null;
+
     public IDisposable? AcquireOperation() => _store.AcquireOperation();
 
     // Browser callers lend only the origin from their still-live admitted provider lease.

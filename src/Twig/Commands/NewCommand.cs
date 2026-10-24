@@ -280,8 +280,8 @@ public sealed class NewCommand(
         // Values are resolved by FIELD TYPE (auto), deliberately NOT by the global
         // --format. --format describes how to treat --description; applying it to
         // every --field would wrap plain values in <p>...</p> — verified against live
-        // ADO, where --format markdown --field Custom.WayfinderExecutionMode=AFK sent
-        // "<p>AFK</p>" and the picklist silently stored nothing. HTML-typed fields
+        // ADO, where --format markdown --field <picklist field>=<value> sent
+        // "<p><value></p>" and the picklist silently stored nothing. HTML-typed fields
         // still convert, matching `twig patch`/`twig batch --set`.
         if (fieldValues.Count > 0)
         {

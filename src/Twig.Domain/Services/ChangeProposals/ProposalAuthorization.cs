@@ -5,7 +5,7 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// fixes for the journal's <c>authorization_mode</c> column.
 /// <para>
 /// <b>This is an audit fact, not a session property.</b> It is deliberately NOT the same
-/// vocabulary as <c>Custom.WayfinderExecutionMode</c> (<c>HITL</c>/<c>AFK</c>), which describes
+/// vocabulary as any session-steering mode (e.g. <c>HITL</c>/<c>AFK</c>), which describes
 /// how a session is being steered. The two are kept distinct because conflating them makes an
 /// audit trail unreconstructable: a session's steering mode can change, be resolved late, or be
 /// unknown, while "a human signed this" and "a model signed this" are facts about one apply that

@@ -1620,10 +1620,10 @@ public sealed class PlanOperationExecutorTests
     [Fact]
     public void TerminalContractFieldsAreNeverServerGenerated()
     {
-        // Spec #753 user story 7: "System.State=Done and Custom.TerminalOutcome=completed
-        // remain an atomic, strict terminal contract."
+        // Spec #753: a transition and the values the process requires with it remain an
+        // atomic, strict terminal contract.
         //
-        // That contract holds because neither field is server-generated, so a batch whose
+        // That contract holds because the state field is not server-generated, so a batch whose
         // transition did not land fails strict comparison before normalization is ever
         // considered. This test is the guard on that reasoning: adding a lifecycle field to
         // the generated set would silently let a close be warning-verified without the
@@ -1635,6 +1635,28 @@ public sealed class PlanOperationExecutorTests
                 "excusable as server-generated normalization.");
         }
     }
+
+    [Fact]
+    public void ServerGeneratedFieldsArePlatformOwnedOnly()
+    {
+        // Values a process requires alongside a transition are process-defined fields. They
+        // are protected without naming any of them: only platform-owned fields may ever be
+        // classified as server-generated.
+        foreach (var field in ServerGeneratedFieldPolicy.ServerGeneratedFields)
+        {
+            ServerGeneratedFieldPolicy.IsPlatformOwned(field).ShouldBeTrue(
+                $"{field} is not platform-owned and must never be excusable as " +
+                "server-generated normalization.");
+        }
+    }
+
+    [Theory]
+    [InlineData("System.ChangedDate", true)]
+    [InlineData("Microsoft.VSTS.Common.ClosedDate", true)]
+    [InlineData("Custom.AnyProcessField", false)]
+    [InlineData("Contoso.ProcessField", false)]
+    public void IsPlatformOwned_DistinguishesPlatformFromProcessDefinedFields(string field, bool expected)
+        => ServerGeneratedFieldPolicy.IsPlatformOwned(field).ShouldBe(expected);
 
     [Fact]
     public void OnlyExplainedDifferencesRemain_RejectsANormalizationTheBatchNeverRequested()

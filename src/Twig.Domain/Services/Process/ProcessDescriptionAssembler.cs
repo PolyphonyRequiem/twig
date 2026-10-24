@@ -972,7 +972,7 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// 🔴 <b>This is where the two requiredness sources are merged (AB#236).</b> The per-type
     /// fields route reports UNCONDITIONAL requiredness only. A field made mandatory by a rule
     /// — <i>when State = Done → makeRequired</i> — reads as not-required there. Verified live:
-    /// <c>Custom.WayfinderAnswer</c> is <c>required: null</c> on the fields route while the
+    /// a rule-required custom field is <c>required: null</c> on the fields route while the
     /// rules route carries a <c>makeRequired</c> action for it. A document built from the
     /// fields source alone is wrong about exactly the fields a caller most needs, and wrong
     /// in the silent direction.

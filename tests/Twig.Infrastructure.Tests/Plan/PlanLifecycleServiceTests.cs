@@ -929,6 +929,31 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         await _revisionBound.Received(1).DeleteAtRevisionAsync(42, 3, Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public void Diagnostics_RevisionPreconditionRefusalRetainsSafeNoWriteClassification()
+    {
+        var operation = new PlanJournalOperation
+        {
+            Ordinal = 0,
+            OpId = "op",
+            Kind = PlanOperationKind.Batch,
+            State = PlanOperationState.Failed,
+            RequestJson = """{"expectedRevision":3}""",
+            ResultJson = """{"diagnostics":{"code":"revision-precondition-refused","expectedRevision":3,"observedRevision":null,"failureDetail":"ForeignProvider"}}""",
+            Error = "revision refusal included opaque-secret-token",
+        };
+
+        var diagnostics = operation.Diagnostics;
+
+        diagnostics.Disposition.ShouldBe("failed");
+        diagnostics.Code.ShouldBe("revision-precondition-refused");
+        diagnostics.ExpectedRevision.ShouldBe(3);
+        diagnostics.ObservedRevision.ShouldBeNull();
+        diagnostics.Summary.ShouldBe("revision precondition refused before transport; nothing was sent");
+        diagnostics.Summary.ShouldNotContain("opaque-secret-token");
+        diagnostics.Summary.ShouldNotContain("ForeignProvider");
+    }
+
     [Theory]
     [InlineData("\"legacy acknowledgment\"")]
     [InlineData("opaque legacy acknowledgment")]

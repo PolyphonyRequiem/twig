@@ -417,7 +417,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
 
         apply.Failed.ShouldBeTrue();
-        apply.Error!.ShouldContain("No preview journal");
+        var error = apply.Error ?? throw new InvalidOperationException("Expected the apply to report an error.");
+        error.ShouldContain("No preview journal");
     }
 
     [Fact]

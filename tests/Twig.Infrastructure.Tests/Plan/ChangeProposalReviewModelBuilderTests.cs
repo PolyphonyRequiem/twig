@@ -556,10 +556,16 @@ public sealed class ChangeProposalReviewModelBuilderTests
         providerItems.ShouldContain(item =>
             item.GetProperty("item").GetProperty("externalIdentity").GetProperty("nativeId").GetString() == "issue:9"
             && item.GetProperty("role").GetString() == "peer");
-        providerItems.ShouldAllBe(item =>
-            !item.GetProperty("item").TryGetProperty("title", out _)
-            && !item.GetProperty("item").TryGetProperty("type", out _)
-            && !item.GetProperty("item").TryGetProperty("state", out _));
+        foreach (var providerItem in providerItems)
+        {
+            var item = providerItem.GetProperty("item");
+            item.TryGetProperty("title", out var title).ShouldBeFalse();
+            item.TryGetProperty("type", out var type).ShouldBeFalse();
+            item.TryGetProperty("state", out var state).ShouldBeFalse();
+            title.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+            type.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+            state.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+        }
     }
 
     [Fact]

@@ -5,13 +5,7 @@ namespace Twig.Domain.Enums;
 /// </summary>
 public static class LinkKindNames
 {
-    internal static readonly (LinkKind Value, string Token)[] Mapping =
-    [
-        (LinkKind.ParentChild, "parent-child"),
-        (LinkKind.PredecessorSuccessor, "predecessor-successor"),
-        (LinkKind.Related, "related"),
-        (LinkKind.Artifact, "artifact"),
-    ];
+    internal static (LinkKind Value, string Token)[] Mapping => LinkKindJsonConverter.Tokens;
 
     /// <summary>Gets the canonical string name used by JSON and persisted boundaries.</summary>
     public static string ToStableName(LinkKind kind)

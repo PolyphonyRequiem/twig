@@ -129,5 +129,48 @@ internal static class RoleTokens
 /// </summary>
 internal sealed class LinkKindJsonConverter : CanonicalEnumConverter<LinkKind>
 {
-    protected override (LinkKind, string)[] Mapping => LinkKindNames.Mapping;
+    internal static readonly (LinkKind, string)[] Tokens =
+    [
+        (LinkKind.ParentChild, "parent-child"),
+        (LinkKind.PredecessorSuccessor, "predecessor-successor"),
+        (LinkKind.Related, "related"),
+        (LinkKind.Artifact, "artifact"),
+    ];
+
+    protected override (LinkKind, string)[] Mapping => Tokens;
+}
+
+/// <summary>
+/// Canonical <see cref="LinkKind"/> token lookup for persistence boundaries, sharing the
+/// converter's single mapping so a stored kind can never drift from its JSON spelling.
+/// Stored kinds are these tokens, never enum ordinals.
+/// </summary>
+internal static class LinkKindTokens
+{
+    public static string ToToken(LinkKind kind)
+    {
+        foreach (var (value, token) in LinkKindJsonConverter.Tokens)
+        {
+            if (value == kind)
+                return token;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(kind), kind, "LinkKind has no canonical token.");
+    }
+
+    /// <summary>Resolves a canonical token. Ordinal — see <see cref="CanonicalEnumConverter{TEnum}"/>.</summary>
+    public static bool TryResolve(string? token, out LinkKind kind)
+    {
+        foreach (var (value, canonical) in LinkKindJsonConverter.Tokens)
+        {
+            if (string.Equals(token, canonical, StringComparison.Ordinal))
+            {
+                kind = value;
+                return true;
+            }
+        }
+
+        kind = default;
+        return false;
+    }
 }

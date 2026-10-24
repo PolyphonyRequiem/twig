@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 12;
+    internal const int DurableSchemaVersion = 13;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -790,6 +790,26 @@ public sealed class SqliteCacheStore : IDisposable
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_receipts_publish
                 ON proposal_receipts(publish_identity, publish_intent_recorded_at)
                 WHERE publish_identity IS NOT NULL;
+            """,
+
+        // Epic 1170: Twig-local relationship overlay. Durable on purpose — the mirror's
+        // work_item_links is replaced per source on refresh and dropped on rebuild, so emulated
+        // edges must never live there. kind/storage/publication hold canonical string tokens,
+        // never enum ordinals. revision is a local CAS counter; deleted rows are tombstones.
+        [13] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.local_relationships (
+                source_id INTEGER NOT NULL,
+                target_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                storage TEXT NOT NULL,
+                publication TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                deleted INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (source_id, target_id, kind)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_local_relationships_target
+                ON local_relationships(target_id);
             """,
 
     };

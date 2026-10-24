@@ -426,7 +426,12 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
             lock (_calls) _calls.Add(call);
         }
 
-        private static WorkItem Item(int id) => new WorkItemBuilder(id, "Boundary fixture").AsTask().Build();
+        private static WorkItem Item(int id)
+        {
+            var item = new WorkItemBuilder(id, "Boundary fixture").AsTask().Build();
+            item.MarkSynced(1);
+            return item;
+        }
 
         public Task<WorkItem> FetchAsync(int id, CancellationToken ct = default)
         {

@@ -18,7 +18,7 @@ internal sealed class BrowserReadModule(CommandContext ctx, BrowserOperationModu
     IWorkItemRepository repository, IFieldDefinitionStore fieldDefinitions,
     IWorkItemLinkRepository links, IPendingChangeStore pendingChanges, StatusFieldConfigReader statusFields,
     SyncCoordinatorFactory syncCoordinators, IProcessConfigurationProvider processConfiguration, SpectreTheme theme,
-    IFormLayoutProvider? formLayouts = null, BenchEvaluator? benchEvaluator = null)
+    BenchEvaluator benchEvaluator, IFormLayoutProvider? formLayouts = null)
 {
     internal async Task<BrowserDetailResult> ReadDetailAsync(BrowserDetailRequest request, CancellationToken ct = default)
     {
@@ -32,7 +32,6 @@ internal sealed class BrowserReadModule(CommandContext ctx, BrowserOperationModu
             if (string.IsNullOrWhiteSpace(explicitTarget)) return Failure(BrowserReadFailureKind.Usage, "bench-read-usage: --bench requires a saved Bench name or id.");
             if (request.Sync) return Failure(BrowserReadFailureKind.Usage, "bench-read-usage: --bench reads the cache only; --sync does not apply.");
             if (request.Captured is not null) return Failure(BrowserReadFailureKind.Usage, "bench-read-usage: an explicit Bench and a captured Bench cannot be combined.");
-            if (benchEvaluator is null) return Failure(BrowserReadFailureKind.Unavailable, "bench-read-unavailable: native Bench evaluation is required.");
         }
         Func<BrowserCapture, CancellationToken, Task<BrowserDetailObservation>> read = async (capture, token) =>
         {
@@ -40,7 +39,7 @@ internal sealed class BrowserReadModule(CommandContext ctx, BrowserOperationModu
             if (explicitTarget is not null)
             {
                 var effective = await operations.ResolveExplicitEffectiveAsync(capture, token);
-                var evaluated = await benchEvaluator!.EvaluateAsync(effective, ct: token);
+                var evaluated = await benchEvaluator.EvaluateAsync(effective, ct: token);
                 if (!evaluated.AllIds.Contains(request.Id))
                     throw new InvalidOperationException($"bench-item-not-member: #{request.Id} is not a member of Bench '{capture.BenchName}'; nothing was read or refreshed.");
                 benchMembership = new(evaluated.SelectedIds.Contains(request.Id), evaluated.SeedIds.Contains(request.Id),

@@ -174,7 +174,7 @@ opaque identities are never coerced to integer ADO IDs.
 
 Details and Back only switch the same detached, frozen observation; neither
 acquires another preview. Brief retains every operation, effect, precondition,
-issue, blocker, policy decision and pending-change record. Long field-set bodies
+issue, blocker, policy decision and pending-change record. Long `System.Description` field-set bodies (case-insensitive native classification)
 are explicitly deferred to Details, which includes the complete envelope and
 exact retained values. Text, links and markup remain inert `textContent`.
 Authorization choices remain evidence in that envelope, never actionable controls.

@@ -118,6 +118,31 @@ test("malformed, unsupported and structurally truncated envelopes refuse instead
     }
 });
 
+test("published targets, link peers and deletion IDs reject zero, negative and overflow values", () => {
+    for (const invalid of [0, -42, 2147483648, -2147483648, 1.5]) {
+        for (const ordinal of [0, 1, 2, 4]) {
+            const value = fixture();
+            value.reviewModel.operations[ordinal].target.workItemId = invalid;
+            if (ordinal === 4) value.reviewModel.operations[ordinal].consequences[0].otherId = invalid;
+            assert.throws(() => capture(value), /unavailable/, `target ${ordinal}: ${invalid}`);
+        }
+        for (const ordinal of [1, 2, 4]) {
+            const value = fixture();
+            value.reviewModel.operations[ordinal].consequences[0].otherId = invalid;
+            assert.throws(() => capture(value), /unavailable/, `peer ${ordinal}: ${invalid}`);
+        }
+    }
+    const context = fixture();
+    context.reviewModel.contextItems = [{ ...context.reviewModel.affectedItems[0], id: -42, role: "context" }];
+    assert.equal(capture(context).envelope.reviewModel.contextItems[0].id, -42);
+});
+
+test("canonical native digests must be lowercase even when every reported copy agrees", () => {
+    const value = fixture();
+    value.digest = value.reviewModel.digest = hash.toUpperCase();
+    assert.throws(() => capture(value, { ...expected, digest: hash.toUpperCase() }), /unavailable/);
+});
+
 function dom() {
     const doc = { createElement: (tag) => new Element(tag) };
     class Element {
@@ -132,6 +157,29 @@ function dom() {
 }
 const flatten = (e) => [e.textContent, ...e.children.map(flatten)].join("\n");
 const all = (e) => [e, ...e.children.flatMap(all)];
+
+test("brief preserves long titles and custom scalar values but defers only description bodies", () => {
+    const root = dom();
+    const value = fixture();
+    const effects = value.reviewModel.operations[0].consequences;
+    const title = "Long-title-" + "t".repeat(300);
+    const scalar = "Custom-scalar-" + "c".repeat(300);
+    effects.push(
+        { kind: "field-set", field: "System.Title", to: title, relation: null, otherId: null },
+        { kind: "field-set", field: "Custom.Scalar", fieldType: "String", to: scalar, relation: null, otherId: null },
+    );
+    effects[0].field = "system.DESCRIPTION";
+    mountRetainedReview(root, JSON.stringify(value), expected);
+    const brief = flatten(root);
+    assert.ok(brief.includes(title));
+    assert.ok(brief.includes(scalar));
+    assert.doesNotMatch(brief, /<script>untrusted\(\)<\/script>/);
+    assert.match(brief, /Exact requested value retained/);
+    all(root).find((e) => e.tag === "button" && e.textContent === "Details").listeners.click();
+    assert.ok(flatten(root).includes(effects[0].to));
+    all(root).find((e) => e.tag === "button" && e.textContent === "Back").listeners.click();
+    assert.equal(flatten(root), brief);
+});
 
 test("brief/details/back stay on one frozen capture and inert content; only view controls exist", () => {
     const root = dom();

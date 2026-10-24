@@ -9,8 +9,9 @@ const text = (v) => typeof v === "string";
 const nonempty = (v) => text(v) && v.trim().length > 0;
 const nullableText = (v) => v === null || text(v);
 const id = (v) => Number.isInteger(v) && v !== 0 && Math.abs(v) <= 2147483647;
+const publishedId = (v) => id(v) && v > 0;
 const nullableId = (v) => v === null || id(v);
-const digest = (v) => text(v) && /^[a-fA-F0-9]{64}$/.test(v);
+const digest = (v) => text(v) && /^[a-f0-9]{64}$/.test(v);
 const workspace = (v) => record(v) && nonempty(v.organization) && nonempty(v.project);
 const sameWorkspace = (a, b) => workspace(a) && workspace(b) &&
     a.organization === b.organization && a.project === b.project;
@@ -37,9 +38,9 @@ function consequence(c, kind) {
         requireShape(nonempty(c.field) && (c.kind === "field-set" ? text(c.to) : c.to === null), "invalid field effect");
     }
     if (c.kind === "link-add" || c.kind === "link-remove") {
-        requireShape(nonempty(c.relation) && id(c.otherId), "missing link endpoint");
+        requireShape(nonempty(c.relation) && publishedId(c.otherId), "missing link endpoint");
     }
-    if (c.kind === "work-item-delete") requireShape(id(c.otherId), "missing deletion identity");
+    if (c.kind === "work-item-delete") requireShape(publishedId(c.otherId), "missing deletion identity");
     if (c.before != null) {
         requireShape(record(c.before) && ["unknown", "absent", "value"].includes(c.before.state) &&
             nullableText(c.before.value) && nonempty(c.before.source) &&
@@ -92,7 +93,7 @@ export function retainProposalReview(rawJson, expected) {
         requireShape(op.target.providerWorkItem == null, "provider targets require a supported native consumer contract");
         requireShape(op.kind === "publish-seed"
             ? op.target.workItemId === null && nonempty(op.target.stagedIdentity)
-            : id(op.target.workItemId) && op.target.stagedIdentity === null, "invalid operation target");
+            : publishedId(op.target.workItemId) && op.target.stagedIdentity === null, "invalid operation target");
         if (op.kind !== "batch") requireShape(op.consequences.length === 1, "unexpected effect count");
         if (op.kind === "delete") requireShape(op.consequences[0].otherId === op.target.workItemId, "deletion identity mismatch");
         for (const pre of op.preconditions) {
@@ -179,7 +180,7 @@ export function mountRetainedReview(root, rawJson, expected) {
             section.append(node("h2", `${op.ordinal + 1}. ${op.kind}: ${op.summary}`),
                 node("pre", JSON.stringify(op.target, null, 2)));
             for (const c of op.consequences) {
-                const long = c.kind === "field-set" && c.to.length > 240;
+                const long = c.kind === "field-set" && c.field.toLowerCase() === "system.description" && c.to.length > 240;
                 section.append(node("pre", JSON.stringify(!full && long
                     ? { ...c, to: "[Exact requested value retained; select Details]", textChange: c.textChange ?? null }
                     : c, null, 2)));

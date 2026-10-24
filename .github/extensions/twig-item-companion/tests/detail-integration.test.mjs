@@ -105,6 +105,8 @@ class Element {
     textContent = "";
     disabled = false;
     classList = { add() {}, remove() {} };
+    dataset = {};
+    getAttribute() { return null; }
     append(...nodes) { this.children.push(...nodes); }
     replaceChildren(...nodes) { this.children = nodes; }
     addEventListener() {}
@@ -114,6 +116,8 @@ class Element {
 function rendered(payload) {
     const nodes = new Map();
     const document = {
+        documentElement: new Element(),
+        body: new Element(),
         createElement: () => new Element(),
         querySelector: (selector) => {
             if (!nodes.has(selector)) nodes.set(selector, new Element());
@@ -122,6 +126,8 @@ function rendered(payload) {
     };
     const context = createContext({
         document,
+        window: { matchMedia: () => ({ matches: false, addEventListener() {} }) },
+        MutationObserver: class { observe() {} },
         fetch: async () => ({ ok: true, json: async () => ({ busy: false }) }),
         payload,
     });

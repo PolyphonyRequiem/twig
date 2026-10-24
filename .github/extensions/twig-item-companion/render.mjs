@@ -8,49 +8,79 @@ export function renderPage({ token, nonce }) {
   <style nonce="${nonce}">
     :root {
       font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-      color: var(--text-color-default, #1f2328);
-      background: var(--background-color-default, #ffffff);
       font-size: var(--text-body-medium, 14px);
       line-height: var(--leading-body-medium, 20px);
     }
-    :root[data-color-mode="dark"] { color-scheme: dark; }
-    :root[data-color-mode="light"] { color-scheme: light; }
+    body {
+      --twig-background: #ffffff;
+      --twig-text: #1f2328;
+      --twig-muted: #59636e;
+      --twig-border: #818b98;
+      --twig-focus: #0969da;
+      --twig-error: #b62324;
+    }
+    body[data-twig-palette="host"] {
+      --twig-background: var(--background-color-default, #ffffff);
+      --twig-text: var(--text-color-default, #1f2328);
+      --twig-muted: var(--text-color-muted, #59636e);
+      --twig-border: var(--border-color-default, #818b98);
+      --twig-focus: var(--color-focus-outline, #0969da);
+      --twig-error: var(--true-color-red, #b62324);
+    }
+    body[data-twig-palette="dark"] {
+      --twig-background: #0d1117;
+      --twig-text: #f0f6fc;
+      --twig-muted: #b1bac4;
+      --twig-border: #8b949e;
+      --twig-focus: #58a6ff;
+      --twig-error: #ff7b72;
+    }
+    body[data-twig-palette="host"][data-twig-color-mode="dark"] {
+      --twig-background: var(--background-color-default, #0d1117);
+      --twig-text: var(--text-color-default, #f0f6fc);
+      --twig-muted: var(--text-color-muted, #b1bac4);
+      --twig-border: var(--border-color-default, #8b949e);
+      --twig-focus: var(--color-focus-outline, #58a6ff);
+      --twig-error: var(--true-color-red, #ff7b72);
+    }
+    body[data-twig-color-mode="dark"] { color-scheme: dark; }
+    body[data-twig-color-mode="light"] { color-scheme: light; }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 16px; }
+    body { margin: 0; padding: 16px; color: var(--twig-text); background: var(--twig-background); }
     main { max-width: 900px; margin: 0 auto; }
     h1, h2, h3, p { margin-top: 0; }
     h1 { font-size: var(--text-title-medium, 20px); line-height: var(--leading-title-medium, 26px); }
     h2 { font-size: var(--text-title-small, 16px); line-height: var(--leading-title-small, 22px); }
     h3 { font-size: var(--text-body-large, 16px); }
-    .muted { color: var(--text-color-muted, #656d76); }
+    .muted { color: var(--twig-muted); }
     .row { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-bottom: 16px; }
     label { display: grid; gap: 4px; flex: 1 1 220px; }
-    input, button {
+    input, button, select {
       min-height: 36px;
-      border: 1px solid var(--border-color-default, #d1d9e0);
+      border: 1px solid var(--twig-border);
       border-radius: 6px;
       padding: 6px 10px;
       color: inherit;
-      background: var(--background-color-default, #ffffff);
+      background: var(--twig-background);
       font: inherit;
     }
     button { cursor: pointer; font-weight: var(--font-weight-semibold, 600); }
-    button:focus-visible, input:focus-visible {
-      outline: 2px solid var(--color-focus-outline, #0969da);
+    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--twig-focus);
       outline-offset: 2px;
     }
     button:disabled { cursor: not-allowed; opacity: .6; }
     section, details {
-      border: 1px solid var(--border-color-default, #d1d9e0);
+      border: 1px solid var(--twig-border);
       border-radius: 8px;
       padding: 12px;
       margin: 12px 0;
       min-width: 0;
     }
     details > summary { cursor: pointer; font-weight: var(--font-weight-semibold, 600); }
-    .notice { border-left: 3px solid var(--true-color-blue, #0969da); padding: 8px 12px; }
-    .error { border-left-color: var(--true-color-red, #cf222e); }
-    .group { margin: 10px 0; padding-left: 12px; border-left: 1px solid var(--border-color-default, #d1d9e0); }
+    .notice { border-left: 3px solid var(--twig-focus); padding: 8px 12px; }
+    .error { border-left-color: var(--twig-error); }
+    .group { margin: 10px 0; padding-left: 12px; border-left: 1px solid var(--twig-border); }
     .field { margin: 10px 0; }
     .field-name { font-weight: var(--font-weight-semibold, 600); overflow-wrap: anywhere; }
     pre {
@@ -61,7 +91,7 @@ export function renderPage({ token, nonce }) {
       margin: 4px 0 0;
     }
     dl { display: grid; grid-template-columns: minmax(100px, 180px) minmax(0, 1fr); gap: 6px 12px; }
-    dt { color: var(--text-color-muted, #656d76); }
+    dt { color: var(--twig-muted); }
     dd { margin: 0; overflow-wrap: anywhere; }
     @media (max-width: 520px) {
       body { padding: 12px; }
@@ -76,6 +106,16 @@ export function renderPage({ token, nonce }) {
       <h1>Twig item companion</h1>
       <p class="muted">Read-only semantic detail from the current admitted Twig workspace. This view does not edit, save, apply, or publish work.</p>
     </header>
+    <div class="row">
+      <label for="theme-mode">Theme
+        <select id="theme-mode" aria-describedby="theme-status">
+          <option value="auto">Auto</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <span id="theme-status" class="muted" role="status" aria-live="polite"></span>
+    </div>
     <form id="load-form" class="row">
       <label for="work-item-id">Work item ID or local seed ID
         <input id="work-item-id" name="workItemId" type="number" step="1" required aria-describedby="id-help">
@@ -95,6 +135,31 @@ export function renderPage({ token, nonce }) {
     const refreshButton = document.querySelector("#refresh-button");
     const status = document.querySelector("#status");
     const output = document.querySelector("#observation");
+    const themeMode = document.querySelector("#theme-mode");
+    const themeStatus = document.querySelector("#theme-status");
+    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+    themeMode.value = "auto";
+
+    function updateTheme() {
+      const mode = themeMode.value;
+      const hostMode = [document.documentElement, document.body]
+        .map((node) => node.getAttribute("data-color-mode"))
+        .find((value) => value === "dark" || value === "light");
+      const resolved = mode === "auto" ? hostMode || (systemTheme.matches ? "dark" : "light") : mode;
+      document.body.dataset.twigTheme = mode;
+      document.body.dataset.twigColorMode = resolved;
+      document.body.dataset.twigPalette = mode === "auto" && hostMode ? "host" : resolved;
+      const source = mode === "auto" ? (hostMode ? "host" : "system") : "this view";
+      themeStatus.textContent = (resolved === "dark" ? "Dark" : "Light") + " - " + source;
+    }
+
+    themeMode.addEventListener("change", updateTheme);
+    systemTheme.addEventListener("change", updateTheme);
+    const themeObserver = new MutationObserver(updateTheme);
+    for (const node of [document.documentElement, document.body]) {
+      themeObserver.observe(node, { attributes: true, attributeFilter: ["data-color-mode"] });
+    }
+    updateTheme();
 
     async function request(path, options = {}) {
       const response = await fetch(path, {

@@ -50,3 +50,19 @@ loopback API, and the client rendering script in a minimal DOM harness. It check
 qualification, r17-to-r18 identity continuity, inert full values, layout/field
 provenance and unavailable authority. These offline checks do not qualify
 extension discovery, installation, reload, host placement or live authentication.
+
+## Theme
+
+The labelled Theme selector offers Auto, Light and Dark without changing host
+attributes, Twig defaults or item state. Auto follows the documented host
+`data-color-mode` on root/body; if neither declares Light/Dark, it follows the
+system color-scheme preference and reacts to changes. Auto uses host semantic
+tokens with appropriate light/dark fallbacks. Explicit modes use a local palette
+even if the host changes mode. Keyboard focus covers the selector and disclosure
+summaries as well as buttons/inputs.
+
+The override belongs to the current document only and resets to Auto when the
+iframe reloads. It is not advertised as a durable user preference: ephemeral
+loopback origins cannot reliably provide cross-instance browser storage. No
+localStorage, native preferences or new endpoint is used. This styling slice
+does not add workbench/proposal-review surfaces or qualify actual host rendering.

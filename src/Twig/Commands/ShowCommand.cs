@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Text;
-using System.Text.Json;
 using Spectre.Console.Rendering;
 using Twig.Domain.Common;
 using Twig.Domain.Enums;
@@ -13,7 +11,6 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.Serialization;
 using Twig.Rendering;
 using Twig.RenderTree;
 
@@ -27,7 +24,6 @@ namespace Twig.Commands;
 /// Unlike <see cref="SetCommand"/>, this command does not change active context or record
 /// navigation history. Reads are cache-only by default (wayfinder 0004 §3);
 /// pass <c>--refresh</c> to fetch the item and its links, including on a cache miss.
-/// <c>--local-id</c> is a separate JSON-only authoritative read through the active provider.
 /// </summary>
 public sealed class ShowCommand(
     CommandContext ctx,
@@ -44,8 +40,7 @@ public sealed class ShowCommand(
     TwigPaths? twigPaths = null,
     IAdoGitService? adoGitService = null,
     TreeRenderingService? treeRenderingService = null,
-    RendererFactory? rendererFactory = null,
-    IProviderWorkItemReadService? providerWorkItemReadService = null)
+    RendererFactory? rendererFactory = null)
 {
     private readonly IContextStore? _contextStore = contextStore;
     private readonly ActiveItemResolver? _activeItemResolver = activeItemResolver;
@@ -53,17 +48,9 @@ public sealed class ShowCommand(
     private readonly WorkingSetService? _workingSetService = workingSetService;
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
-    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false, string? fields = null, string? sections = null, string? localId = null)
+    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false, string? fields = null, string? sections = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        int exitCode;
-        if (localId is not null)
-        {
-            exitCode = await ExecuteLocalIdAsync(id, outputFormat, tree, refresh, fields, sections, localId, ct);
-            TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp);
-            return exitCode;
-        }
-
         var request = ShowProjection.Request.Parse(fields, sections);
         if (request.IsActive && (tree || OutputFormats.Normalize(outputFormat) is not ("json" or "json-full" or "json-compact")))
         {
@@ -86,111 +73,6 @@ public sealed class ShowCommand(
             TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp,
                 new Dictionary<string, string> { ["tree"] = "true" });
             return exitCode;
-        }
-
-        async Task<int> ExecuteLocalIdAsync(
-            int? id,
-            string outputFormat,
-            bool tree,
-            bool refresh,
-            string? fields,
-            string? sections,
-            string localIdText,
-            CancellationToken ct)
-        {
-            if (id.HasValue || tree || refresh || fields is not null || sections is not null
-                || OutputFormats.Normalize(outputFormat) is not ("json" or "json-full" or "json-compact"))
-            {
-                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
-                    "--local-id requires JSON output and cannot be combined with an integer ID, --tree, --refresh, --fields, or --sections.");
-                return 2;
-            }
-
-            if (!LocalWorkItemId.TryParse(localIdText, out var localId))
-            {
-                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
-                    "--local-id must be a canonical lowercase GUIDv7 identity.");
-                return 2;
-            }
-
-            if (providerWorkItemReadService is null)
-            {
-                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
-                    "Canonical provider work-item reads are not available in this composition.");
-                return 1;
-            }
-
-            ProviderWorkItemReadResult? result;
-            try
-            {
-                result = await providerWorkItemReadService.ReadByLocalIdAsync(localId, ct);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
-                    $"Could not read local work item {localId}: {ex.Message}");
-                return 1;
-            }
-
-            if (result is null)
-            {
-                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
-                    $"Local work item {localId} was not found or has no identity in the active provider scope.");
-                return 1;
-            }
-
-            WriteCanonicalRead(result, OutputFormats.Normalize(outputFormat) != "json-compact");
-            return 0;
-        }
-
-        void WriteCanonicalRead(ProviderWorkItemReadResult result, bool indented)
-        {
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = indented }))
-            {
-                writer.WriteStartObject();
-                writer.WriteString("localId", result.Local.Id.ToString());
-                writer.WriteNumber("localRevision", result.Local.Revision);
-                writer.WriteBoolean("localDeleted", result.Local.IsDeleted);
-                writer.WritePropertyName("providerIdentity");
-                WriteIdentity(writer, result.Identity);
-                if (result.RevisionToken is null)
-                    writer.WriteNull("providerRevision");
-                else
-                    writer.WriteString("providerRevision", result.RevisionToken.Value);
-                writer.WritePropertyName("providerFields");
-                JsonSerializer.Serialize(writer, result.ProviderFields, TwigJsonContext.Default.FieldValues);
-                writer.WritePropertyName("fields");
-                JsonSerializer.Serialize(writer, result.Fields, TwigJsonContext.Default.FieldValues);
-                writer.WriteStartArray("relationships");
-                foreach (var relationship in result.Relationships)
-                {
-                    writer.WriteStartObject();
-                    writer.WriteString("kind", LinkKindNames.ToStableName(relationship.Kind));
-                    writer.WritePropertyName("source");
-                    WriteIdentity(writer, relationship.Source);
-                    writer.WritePropertyName("target");
-                    WriteIdentity(writer, relationship.Target);
-                    writer.WriteEndObject();
-                }
-                writer.WriteEndArray();
-                writer.WriteEndObject();
-            }
-
-            Console.Out.WriteLine(Encoding.UTF8.GetString(stream.ToArray()));
-        }
-
-        void WriteIdentity(Utf8JsonWriter writer, ExternalWorkItemIdentity identity)
-        {
-            writer.WriteStartObject();
-            writer.WriteString("providerKind", identity.ProviderKind);
-            writer.WriteString("resourceScope", identity.ResourceScope);
-            writer.WriteString("nativeId", identity.NativeId);
-            writer.WriteEndObject();
         }
 
         exitCode = await ExecuteCoreAsync(id, outputFormat, refresh, request, ct);

@@ -13,10 +13,20 @@ pending changes, and (when available) git context. Reads the local cache
 by default and never changes which item is active. Pass `--refresh` to
 sync from ADO before rendering.
 
+`--local-id <guid>` is a separate GitHub provider snapshot read by Twig's canonical
+local identity (the other provider compositions currently report it unavailable).
+It requires `-o json` (including the `json-full` and
+`json-compact` aliases) and cannot be combined with an integer ID, `--tree`,
+`--refresh`, `--fields`, or `--sections`. The output keeps the local revision,
+nullable provider revision token, provider identity, provider fields, and
+locally overlaid fields distinct. A missing provider token is reported as
+`null`; it is not inferred from the local revision.
+
 ## Synopsis
 
 ```
 twig show [<id>] [--tree] [--refresh] [--output <format>]
+twig show --local-id <guid> --output json
 ```
 
 ## Arguments
@@ -31,11 +41,12 @@ twig show [<id>] [--tree] [--refresh] [--output <format>]
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-| `-o`, `--output` | `human` \| `json` \| `minimal` | `human` | Output format. |
+| `-o`, `--output` | `human` \| `json` \| `json-full` \| `json-compact` \| `minimal` | `human` | Output format. |
 | `--tree` | bool | `false` | Render the parent chain + children as a tree instead of the detail card. |
 | `--refresh` | bool | `false` | Sync the item and its links from ADO before rendering. |
 | `--fields` | string | none | Comma-separated field reference names; opt into compact JSON. |
 | `--sections` | string | none | Comma-separated `links`, `children`, `parent`; opt into compact JSON. |
+| `--local-id` | GUID | none | Read by canonical local identity through the GitHub provider snapshot service; JSON-only and exclusive with other show options. |
 
 ## Behavior
 
@@ -45,12 +56,12 @@ twig show [<id>] [--tree] [--refresh] [--output <format>]
   suggests `twig show <id> --refresh`, not a context-changing `set`.
 - **No ID.** The active work item comes from `IContextStore`. Missing
   context prints a branch‑detection hint and exits `1`
-  (`src/Twig/Commands/ShowCommand.cs:110-146`).
+  (`ShowCommand.ExecuteCoreAsync`).
 - **Cache‑only by default (wayfinder 0004 §3).** Without `--refresh` no
   ADO call is made. The read reports staleness through
   `SyncCoordinatorFactory.ReadOnly.ReadItemAsync`: a `Stale` result adds
   a `StaleHint` on stderr for human formats, and unverified links add an
-  `UnverifiedLinksHint` (`src/Twig/Commands/ShowCommand.cs:148-180`).
+  `UnverifiedLinksHint` (`ShowCommand.ExecuteCoreAsync`).
 - **`--refresh`.** Fetches the item and its links, materializes immediate
   link targets, and refreshes its parent when present. It never flushes
   pending writes or changes active selection, navigation history or Bench.
@@ -60,8 +71,7 @@ twig show [<id>] [--tree] [--refresh] [--output <format>]
 - **Enrichment.** After the item is resolved the command loads children,
   parent, links (with `linksVerifiedAt`), field definitions, status
   fields, child progress, pending changes, and git context — all
-  best‑effort, all from cache
-  (`src/Twig/Commands/ShowCommand.cs:157-194`).
+  best‑effort, all from cache (`ShowCommand.ExecuteCoreAsync`).
 - **Machine formats** (`json`, `minimal`) sync synchronously when
   `--refresh` is set and then emit a single complete output. Failed or
   incomplete refresh exits `1` with a format-aware error on stderr rather
@@ -71,7 +81,13 @@ twig show [<id>] [--tree] [--refresh] [--output <format>]
   and then revise it; an uncached item is fetched before its first render.
 - **`--tree`** hands off to `TreeRenderingService.RenderTreeAsync`,
   which produces the parent chain + child forest and honors the same
-  `--refresh` semantics (`src/Twig/Commands/ShowCommand.cs:56-71`).
+  `--refresh` semantics (`ShowCommand.ExecuteAsync`).
+- **`--local-id`.** Reads through the active provider snapshot service and
+  currently supports the GitHub composition, emitting one complete JSON object.
+  This route is separate from the integer-ID cache path and does not claim
+  revision-bound authority. Provider fields and
+  locally overlaid fields are returned separately; the provider revision token
+  is nullable and is never synthesized from the local revision.
 
 ### Selected JSON reads
 

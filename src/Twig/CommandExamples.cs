@@ -39,6 +39,7 @@ internal static class CommandExamples
             "twig show 1234 --output json  Show work item #1234 as JSON",
             "twig show 1234 -o json --fields System.Title,System.State  Read selected fields with provenance",
             "twig show --local-id 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b -o json  Read by canonical local identity",
+            "twig show --local-id 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b -o json-compact  Same JSON shape via alias",
             "twig show --tree           Show work item tree hierarchy for the active item",
             "twig show 1234 --tree      Show tree hierarchy rooted at #1234",
             "twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep",

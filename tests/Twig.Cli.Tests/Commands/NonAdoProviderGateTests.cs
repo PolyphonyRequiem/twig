@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
 using Shouldly;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
@@ -13,11 +14,13 @@ using Twig.Domain.Services;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Process;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.ValueObjects.Fields;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
+using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
 using Twig.TestKit;
 using Xunit;
@@ -201,6 +204,71 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
             $"{command} must refuse before ADO HTTP; observed: {string.Join(", ", _transport.Requests)}");
     }
 
+    [Fact]
+    public async Task ShowLocalId_UnderGitHub_UsesCanonicalReaderAndLocalStoreWithoutConstructingAdo()
+    {
+        var githubToken = new FixtureGitHubTokenSource();
+        using var githubTransport = new FixtureGitHubSnapshotHandler();
+        var adoConstructions = 0;
+        var authConstructions = 0;
+        var httpConstructions = 0;
+        var runtime = await AttachAsync(
+            "github",
+            gitProject: "Project",
+            overrides: services =>
+            {
+                services.AddSingleton<IGitHubTokenSource>(githubToken);
+                services.AddSingleton(new GitHubTransportOverride(() => githubTransport));
+                services.AddSingleton(Substitute.For<ITelemetryClient>());
+                services.AddSingleton<IAdoWorkItemService>(_ =>
+                {
+                    Interlocked.Increment(ref adoConstructions);
+                    throw new InvalidOperationException("ADO work-item client must not be constructed");
+                });
+                services.AddSingleton<IAuthenticationProvider>(_ =>
+                {
+                    Interlocked.Increment(ref authConstructions);
+                    throw new InvalidOperationException("ADO authentication must not be constructed");
+                });
+                services.AddSingleton<HttpClient>(_ =>
+                {
+                    Interlocked.Increment(ref httpConstructions);
+                    throw new InvalidOperationException("ADO HTTP client must not be constructed");
+                });
+            },
+            githubConfig: new GitHubConfig { Host = "github.com", Repository = "owner/repository" });
+        var commands = new TwigCommands(runtime);
+        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_canonical");
+        var identityMap = runtime.GetRequiredService<IExternalIdentityMap>();
+        var resolution = await identityMap.ResolveAsync(identity, observedToken: null);
+        var localStore = runtime.GetRequiredService<ILocalWorkItemStore>();
+        var initial = await localStore.GetAsync(resolution.Id);
+        initial.ShouldNotBeNull();
+        var localFields = FieldValues.Empty.Set("System.Title", new TextValue("Local overlay"));
+        var updated = (await localStore.UpdateAsync(resolution.Id, initial.Revision, localFields))
+            .Value.ShouldBeOfType<LocalWriteApplied>().Record;
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => commands.Show(output: "json", localId: resolution.Id.ToString()));
+
+        exitCode.ShouldBe(0);
+        using var document = JsonDocument.Parse(output);
+        var result = document.RootElement;
+        result.GetProperty("localId").GetString().ShouldBe(resolution.Id.ToString());
+        result.GetProperty("localRevision").GetInt64().ShouldBe(updated.Revision);
+        result.GetProperty("providerRevision").ValueKind.ShouldBe(JsonValueKind.Null);
+        result.GetProperty("providerFields").GetProperty("System.Title").GetProperty("value").GetString()
+            .ShouldBe("Provider snapshot");
+        result.GetProperty("fields").GetProperty("System.Title").GetProperty("value").GetString()
+            .ShouldBe("Local overlay");
+        githubToken.Calls.ShouldBeGreaterThan(0);
+        githubTransport.RequestCount.ShouldBeGreaterThan(0);
+        adoConstructions.ShouldBe(0);
+        authConstructions.ShouldBe(0);
+        httpConstructions.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
     /// <summary>
     /// Feature #1177: under a non-ADO provider both read boundaries refuse at resolution and the
     /// ADO client is never constructed — the alias does not fall through to ADO.
@@ -360,9 +428,13 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     }
 
     private async Task<ServiceProvider> AttachAsync(
-        string? provider, string? gitProject = null, string checkout = "checkout", Action<IServiceCollection>? overrides = null)
+        string? provider,
+        string? gitProject = null,
+        string checkout = "checkout",
+        Action<IServiceCollection>? overrides = null,
+        GitHubConfig? githubConfig = null)
     {
-        var (config, paths) = await PrepareAsync(provider, checkout);
+        var (config, paths) = await PrepareAsync(provider, checkout, githubConfig);
         _transport.Reset();
         var services = new ServiceCollection();
         Compose(services, config, paths, gitProject);
@@ -372,12 +444,19 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         return runtime;
     }
 
-    private async Task<(TwigConfiguration Config, TwigPaths Paths)> PrepareAsync(string? provider, string checkout)
+    private async Task<(TwigConfiguration Config, TwigPaths Paths)> PrepareAsync(
+        string? provider, string checkout, GitHubConfig? githubConfig = null)
     {
         var root = Path.Combine(_temp, checkout);
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
-        var config = new TwigConfiguration { Organization = "fixture", Project = "Project", Provider = provider };
+        var config = new TwigConfiguration
+        {
+            Organization = "fixture",
+            Project = "Project",
+            Provider = provider,
+            GitHub = githubConfig,
+        };
         config.Display.Hints = false;
         var defaults = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), config, root);
         var paths = new TwigPaths(defaults.TwigDir, defaults.ConfigPath, defaults.DbPath, root, Path.Combine(Home, "display.json"));
@@ -409,6 +488,54 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         services.AddTwigRenderingServices();
         services.AddTwigCommandServices();
         services.AddTwigCommands();
+    }
+
+    private sealed class FixtureGitHubTokenSource : IGitHubTokenSource
+    {
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public ValueTask<string> GetTokenAsync(CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _calls);
+            return ValueTask.FromResult("fixture-token");
+        }
+    }
+
+    private sealed class FixtureGitHubSnapshotHandler : HttpMessageHandler
+    {
+        private int _requestCount;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _requestCount);
+            request.Method.ShouldBe(HttpMethod.Post);
+            request.RequestUri!.AbsoluteUri.ShouldBe("https://api.github.com/graphql");
+            var body = await request.Content!.ReadAsStringAsync(ct);
+            using var document = JsonDocument.Parse(body);
+            var query = document.RootElement.GetProperty("query").GetString()!;
+            var connection = new[] { "labels", "assignees", "subIssues", "blockedBy", "blocking" }
+                .FirstOrDefault(field => query.Contains(field + "(", StringComparison.Ordinal));
+            var response = connection is null ? Snapshot : EmptyConnection(connection);
+            return new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        private static string EmptyConnection(string field) =>
+            $$"""{"data":{"node":{"__typename":"Issue","id":"I_canonical","{{field}}":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}""";
+
+        private const string Snapshot = """
+            {"data":{"node":{"__typename":"Issue","id":"I_canonical","number":42,
+            "title":"Provider snapshot","state":"OPEN","body":"**provider body**",
+            "url":"https://github.com/owner/repository/issues/42","parent":null,"milestone":null,
+            "repository":{"nameWithOwner":"owner/repository"}}}}
+            """;
     }
 
     /// <summary>A provider read boundary that answers from fixtures and records each call.</summary>

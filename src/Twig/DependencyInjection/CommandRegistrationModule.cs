@@ -66,8 +66,11 @@ public static class CommandRegistrationModule
             twigPaths: sp.GetService<TwigPaths>(),
             adoGitService: sp.GetService<IAdoGitService>(),
             treeRenderingService: sp.GetService<TreeRenderingService>(),
-            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-            providerWorkItemReadService: sp.GetService<IProviderWorkItemReadService>()));
+            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
+        services.AddSingleton<ShowLocalIdCommand>(sp => new ShowLocalIdCommand(
+            sp.GetService<IProviderWorkItemReadService>(),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+            sp.GetService<ITelemetryClient>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeRenderingService>();
         services.AddSingleton<Twig.Commands.SetTree.WorkingSetTreeCommand>(sp =>

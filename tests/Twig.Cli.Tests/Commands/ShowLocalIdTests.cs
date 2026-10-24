@@ -4,31 +4,17 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.ValueObjects.Fields;
-using Twig.Formatters;
-using Twig.Hints;
-using Twig.Infrastructure.Config;
 using Twig.Rendering;
-using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public sealed class ShowLocalIdTests : IDisposable
+public sealed class ShowLocalIdTests
 {
-    private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "twig-show-local-id-" + Guid.NewGuid().ToString("N"));
     private readonly StringWriter _stderr = new();
     private readonly IProviderWorkItemReadService _reader = Substitute.For<IProviderWorkItemReadService>();
-
-    public ShowLocalIdTests() => Directory.CreateDirectory(_tempDir);
-
-    public void Dispose()
-    {
-        _stderr.Dispose();
-        try { Directory.Delete(_tempDir, recursive: true); } catch (IOException) { }
-    }
 
     [Fact]
     public async Task LocalIdRead_EmitsProviderAndComposedFieldsWithoutIntegerAlias()
@@ -55,9 +41,8 @@ public sealed class ShowLocalIdTests : IDisposable
                 LinkKind.ParentChild)]);
         _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>()).Returns(result);
 
-        var command = CreateCommand();
         var (exitCode, output) = await StdoutCapture.RunAsync(
-            () => command.ExecuteAsync(outputFormat: "json", localId: localId.ToString()));
+            () => CreateCommand().ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
 
         exitCode.ShouldBe(0);
         using var document = JsonDocument.Parse(output);
@@ -80,46 +65,151 @@ public sealed class ShowLocalIdTests : IDisposable
     }
 
     [Fact]
+    public async Task JsonAliases_KeepIdenticalShapeAndIndentation()
+    {
+        var localId = LocalWorkItemId.New();
+        _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>())
+            .Returns(CreateResult(localId, new ProviderRevisionToken("provider-token-9")));
+        var command = CreateCommand();
+
+        var outputs = new List<string>();
+        foreach (var format in new[] { "json", "json-full", "json-compact" })
+        {
+            var (exitCode, output) = await StdoutCapture.RunAsync(
+                () => command.ExecuteAsync(outputFormat: format, localIdText: localId.ToString()));
+            exitCode.ShouldBe(0);
+            outputs.Add(output);
+        }
+
+        outputs.Distinct(StringComparer.Ordinal).Count().ShouldBe(1);
+        outputs[0].ShouldContain(Environment.NewLine + "  \"localId\"");
+        using var document = JsonDocument.Parse(outputs[0]);
+        document.RootElement.GetProperty("providerRevision").GetString().ShouldBe("provider-token-9");
+    }
+
+    [Theory]
+    [InlineData("integer")]
+    [InlineData("tree")]
+    [InlineData("refresh")]
+    [InlineData("fields")]
+    [InlineData("sections")]
+    [InlineData("human")]
+    [InlineData("minimal")]
+    [InlineData("ids")]
+    public async Task LocalIdRead_RejectsIncompatibleOptionsBeforeReading(string conflict)
+    {
+        var localId = LocalWorkItemId.New();
+        var command = CreateCommand();
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(() => conflict switch
+        {
+            "integer" => command.ExecuteAsync(id: 42, outputFormat: "json", localIdText: localId.ToString()),
+            "tree" => command.ExecuteAsync(tree: true, outputFormat: "json", localIdText: localId.ToString()),
+            "refresh" => command.ExecuteAsync(refresh: true, outputFormat: "json", localIdText: localId.ToString()),
+            "fields" => command.ExecuteAsync(outputFormat: "json", fields: "System.Title", localIdText: localId.ToString()),
+            "sections" => command.ExecuteAsync(outputFormat: "json", sections: "links", localIdText: localId.ToString()),
+            _ => command.ExecuteAsync(outputFormat: conflict, localIdText: localId.ToString()),
+        });
+
+        exitCode.ShouldBe(2);
+        output.ShouldBeEmpty();
+        _stderr.ToString().ShouldNotBeEmpty();
+        await _reader.DidNotReceive().ReadByLocalIdAsync(Arg.Any<LocalWorkItemId>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task LocalIdRead_RejectsNonCanonicalGuidBeforeCallingReader()
     {
         var command = CreateCommand();
 
         var (exitCode, output) = await StdoutCapture.RunAsync(
-            () => command.ExecuteAsync(outputFormat: "json", localId: Guid.NewGuid().ToString("D").ToUpperInvariant()));
+            () => command.ExecuteAsync(outputFormat: "json", localIdText: Guid.NewGuid().ToString("D").ToUpperInvariant()));
 
         exitCode.ShouldBe(2);
         output.ShouldBeEmpty();
-        _stderr.ToString().ShouldContain("canonical lowercase GUIDv7");
+        JsonDocument.Parse(_stderr.ToString()).RootElement.GetProperty("error").GetString()
+            .ShouldContain("canonical lowercase GUIDv7");
         await _reader.DidNotReceive().ReadByLocalIdAsync(Arg.Any<LocalWorkItemId>(), Arg.Any<CancellationToken>());
     }
 
-    private ShowCommand CreateCommand()
+    [Fact]
+    public async Task LocalIdRead_ReportsNullResultAsFormatAwareError()
     {
-        var workItems = Substitute.For<IWorkItemRepository>();
-        var pending = Substitute.For<IPendingChangeStore>();
-        var sync = new SyncCoordinatorFactory(
-            workItems,
-            Substitute.For<IAdoWorkItemService>(),
-            new ProtectedCacheWriter(workItems, pending),
-            pending,
-            null,
-            30,
-            30);
-        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
-        var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
-        var context = new CommandContext(
-            pipelineFactory,
-            formatterFactory,
-            new HintEngine(new DisplayConfig { Hints = false }),
-            new TwigConfiguration(),
-            Stderr: _stderr);
-        var paths = new TwigPaths(_tempDir, Path.Combine(_tempDir, "config"), Path.Combine(_tempDir, "twig.db"));
-        return new ShowCommand(
-            context,
-            workItems,
-            Substitute.For<IWorkItemLinkRepository>(),
-            sync,
-            new StatusFieldConfigReader(paths),
-            providerWorkItemReadService: _reader);
+        var localId = LocalWorkItemId.New();
+        _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<ProviderWorkItemReadResult?>(null));
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand().ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
+
+        exitCode.ShouldBe(1);
+        output.ShouldBeEmpty();
+        JsonDocument.Parse(_stderr.ToString()).RootElement.GetProperty("error").GetString()
+            .ShouldContain("not found or has no identity");
+    }
+
+    [Fact]
+    public async Task LocalIdRead_ReportsProviderFailureAsFormatAwareError()
+    {
+        var localId = LocalWorkItemId.New();
+        _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<ProviderWorkItemReadResult?>(
+                new InvalidOperationException("provider snapshot failed")));
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand().ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
+
+        exitCode.ShouldBe(1);
+        output.ShouldBeEmpty();
+        JsonDocument.Parse(_stderr.ToString()).RootElement.GetProperty("error").GetString()
+            .ShouldContain("provider snapshot failed");
+    }
+
+    [Fact]
+    public async Task LocalIdRead_PropagatesCancellation()
+    {
+        var localId = LocalWorkItemId.New();
+        using var source = new CancellationTokenSource();
+        source.Cancel();
+        _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromCanceled<ProviderWorkItemReadResult?>(source.Token));
+
+        await Should.ThrowAsync<OperationCanceledException>(() =>
+            CreateCommand().ExecuteAsync(outputFormat: "json", ct: source.Token, localIdText: localId.ToString()));
+        await _reader.Received(1).ReadByLocalIdAsync(localId, source.Token);
+    }
+
+    [Fact]
+    public async Task LocalIdRead_ReportsUnavailableProviderReadService()
+    {
+        var localId = LocalWorkItemId.New();
+        var command = new ShowLocalIdCommand(null, new RendererFactory(), stderrWriter: _stderr);
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => command.ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
+
+        exitCode.ShouldBe(1);
+        output.ShouldBeEmpty();
+        JsonDocument.Parse(_stderr.ToString()).RootElement.GetProperty("error").GetString()
+            .ShouldContain("not available in this composition");
+    }
+
+    private ShowLocalIdCommand CreateCommand() =>
+        new(_reader, new RendererFactory(), stderrWriter: _stderr);
+
+    private static ProviderWorkItemReadResult CreateResult(
+        LocalWorkItemId localId,
+        ProviderRevisionToken? revisionToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var identity = new ExternalWorkItemIdentity("fixture", "scope-7", "opaque/42");
+        var fields = FieldValues.Empty.Set("System.Title", new TextValue("Provider title"));
+        return new ProviderWorkItemReadResult(
+            identity,
+            new LocalWorkItemRecord(localId, 8, FieldValues.Empty, now, now, DeletedAt: null),
+            revisionToken,
+            fields,
+            fields,
+            []);
     }
 }

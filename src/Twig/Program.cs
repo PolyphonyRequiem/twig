@@ -492,16 +492,27 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
-    /// <summary>Display a work item without changing context. Integer IDs are cache-only by default; --local-id reads through the active provider.</summary>
+    /// <summary>Display a work item without changing context. Integer IDs are cache-only by default; --local-id reads a GitHub provider snapshot when configured.</summary>
     /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
     /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
-    /// <param name="localId">Canonical GUIDv7 identity for an authoritative provider read; requires JSON output.</param>
+    /// <param name="localId">Canonical lowercase GUIDv7 identity for a GitHub provider snapshot read; currently unavailable for other providers, requires JSON output, and excludes the other show options.</param>
     public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null, string? localId = null)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct, fields: fields, sections: sections, localId: localId);
+    {
+        if (localId is not null)
+        {
+            // Resolve only the provider snapshot route; the cache-first command has process,
+            // synchronization, tree, and git dependencies that this route does not need.
+            return await services.GetRequiredService<ShowLocalIdCommand>().ExecuteAsync(
+                id, output, tree, refresh, ct, fields, sections, localId);
+        }
+
+        return await services.GetRequiredService<ShowCommand>().ExecuteAsync(
+            id, output, tree, refresh, ct, fields: fields, sections: sections);
+    }
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are disclosed and exit nonzero.</summary>
     /// <param name="batchArg">Comma-separated work item IDs, positionally: twig show-batch 1234,5678,9012.</param>

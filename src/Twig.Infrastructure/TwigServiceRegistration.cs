@@ -534,7 +534,8 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetService<ParentStatePropagationService>(),
             sp.GetService<IPromptStateWriter>(),
-            sp.GetService<IProcessRuleProvider>()));
+            sp.GetService<IProcessRuleProvider>(),
+            sp.GetService<IRevisionBoundAdoWorkItemService>()));
 
         services.AddSingleton<FieldUpdateWorkflow>(sp => new FieldUpdateWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),

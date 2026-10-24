@@ -1,6 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Plan;
@@ -55,6 +56,8 @@ public sealed class StateTransitionWorkflow
     private readonly ParentStatePropagationService? parentPropagation;
     private readonly IPromptStateWriter? promptStateWriter;
     private readonly IProcessRuleProvider? processRuleProvider;
+    private readonly IRevisionBoundAdoWorkItemService? revisionBound;
+    private readonly WorkItemMapper snapshotMapper = new();
 
     public StateTransitionWorkflow(
         IWorkItemRepository workItemRepo,
@@ -70,10 +73,17 @@ public sealed class StateTransitionWorkflow
             processConfigProvider,
             parentPropagation,
             promptStateWriter,
-            processRuleProvider: null)
+            processRuleProvider: null,
+            revisionBound: null)
     {
     }
 
+    /// <param name="revisionBound">
+    /// Source of the authoritative expected-revision snapshot the process gate evaluates
+    /// (AB#1209). Required whenever <paramref name="processRuleProvider"/> is supplied: the
+    /// caller's <see cref="WorkItem"/> is a cache projection that drops read-only fields, so
+    /// gating on it would report populated fields as missing.
+    /// </param>
     internal StateTransitionWorkflow(
         IWorkItemRepository workItemRepo,
         IAdoWorkItemService adoService,
@@ -81,8 +91,15 @@ public sealed class StateTransitionWorkflow
         IProcessConfigurationProvider processConfigProvider,
         ParentStatePropagationService? parentPropagation,
         IPromptStateWriter? promptStateWriter,
-        IProcessRuleProvider? processRuleProvider)
+        IProcessRuleProvider? processRuleProvider,
+        IRevisionBoundAdoWorkItemService? revisionBound)
     {
+        if (processRuleProvider is not null && revisionBound is null)
+            throw new ArgumentNullException(
+                nameof(revisionBound),
+                "The process-rule gate requires an authoritative revision source.");
+
+        this.revisionBound = revisionBound;
         this.workItemRepo = workItemRepo;
         this.adoService = adoService;
         this.pendingChangeStore = pendingChangeStore;
@@ -159,6 +176,20 @@ public sealed class StateTransitionWorkflow
             // be told so, and under bypassRules could walk straight past the gate instead.
             // Reuses the plan surface's evaluator so the AB#803 supplied-requirement semantics
             // have exactly one implementation.
+            //
+            // AB#1209: evaluate against the authoritative snapshot at the exact revision being
+            // written over — never the caller's item, whose cache projection drops read-only
+            // fields (System.AreaId, System.IterationId, ...) and so reports populated fields
+            // as missing. No fallback: if the snapshot cannot be read, the gate cannot be
+            // evaluated and nothing is written.
+            var snapshot = await revisionBound!.FetchAtRevisionAsync(item.Id, expectedRevision, ct);
+            if (snapshot.Id != item.Id || snapshot.Revision != expectedRevision)
+            {
+                throw new InvalidOperationException(
+                    $"Authoritative snapshot for #{item.Id} rev {expectedRevision} came back as " +
+                    $"#{snapshot.Id} rev {snapshot.Revision}; refusing to gate on a different revision.");
+            }
+
             var gate = new PlanProcessRuleGate(processRuleProvider);
             var gateOutcome = await gate.EvaluateAsync(
                 new BatchOperation
@@ -171,7 +202,7 @@ public sealed class StateTransitionWorkflow
                         [SystemStateField] = newState,
                     },
                 },
-                item,
+                snapshotMapper.Map(snapshot),
                 ct);
 
             if (gateOutcome.IsRefused)

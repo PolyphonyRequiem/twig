@@ -396,11 +396,12 @@ public sealed class StateTransitionWorkflowTests
             .InState("Doing")
             .Build();
         var adoService = Substitute.For<IAdoWorkItemService>();
+        var writer = AdoWriterFixture.Wrap(adoService);
         var processConfig = Substitute.For<IProcessConfigurationProvider>();
         processConfig.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
         var workflow = new StateTransitionWorkflow(
             Substitute.For<IWorkItemRepository>(),
-            adoService,
+            writer,
             Substitute.For<IPendingChangeStore>(),
             processConfig,
             parentPropagation: null,

@@ -1,31 +1,23 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createNativeDetailReader } from "../native-detail.mjs";
+
+const fixture = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8"));
 
 async function makeWorkspace() {
     return mkdtemp(path.join(os.tmpdir(), "twig-canvas-test-"));
 }
 
 function detail(workspacePath, workItemId = 42) {
-    return JSON.stringify({
-        version: 2,
-        itemKey: {
-            checkoutRoot: workspacePath,
-            connectionId: "connection-1",
-            bindingId: "binding-1",
-            workItemId,
-        },
-        benchId: "bench-1",
-        identityId: "identity-1",
-        item: { revision: 5 },
-        document: {},
-        editing: "unavailable",
-        relatedItemsCoverage: "not-exported",
-        iconAssetAuthority: "unavailable",
-    });
+    const value = structuredClone(fixture);
+    value.itemKey = { checkoutRoot: workspacePath, connectionId: "connection-1", bindingId: "binding-1", workItemId };
+    value.benchId = "bench-1";
+    value.identityId = "identity-1";
+    value.item.id = value.document.workItemId = workItemId;
+    return JSON.stringify(value);
 }
 
 test("runs only the supported detail command in the canonical workspace", async () => {

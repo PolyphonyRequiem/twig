@@ -165,6 +165,9 @@ export function renderPage({ token, nonce }) {
         details.open = page.visible === true;
         const summary = text("summary", page.label + " · " + page.pageType + (page.visible ? "" : " · not visible"));
         details.append(summary);
+        if (!page.carriesFieldControls && page.pageType.toLowerCase() !== "custom") {
+          details.append(text("p", page.label + " content was not exported; layout structure only.", "muted"));
+        }
         if (page.isContribution) details.append(text("p", "Contribution page.", "muted"));
         for (const part of page.sections || []) {
           const column = document.createElement("div");
@@ -192,6 +195,7 @@ export function renderPage({ token, nonce }) {
       const header = document.createElement("section");
       header.append(text("h2", "#" + value.itemKey.workItemId + " " + (item.title || "Untitled item")));
       const facts = document.createElement("dl");
+      addPair(facts, "Checkout (stable item key)", value.itemKey.checkoutRoot);
       addPair(facts, "Revision", item.revision);
       addPair(facts, "Bench", value.benchName + " (" + value.benchId + ")");
       addPair(facts, "Connection", value.itemKey.connectionId);
@@ -205,8 +209,10 @@ export function renderPage({ token, nonce }) {
       if (value.lockedTypeReferenceName) addPair(facts, "Locked type", value.lockedTypeReferenceName);
       if (value.linksVerifiedAt) addPair(facts, "Links verified", value.linksVerifiedAt);
       addPair(facts, "Editing", value.editing);
+      addPair(facts, "Edit authority", "Unavailable. Layout flags are not editing permission.");
       addPair(facts, "Related-item coverage", value.relatedItemsCoverage);
       addPair(facts, "Icon asset authority", value.iconAssetAuthority);
+      addPair(facts, "Appearance source", value.appearanceSource);
       header.append(facts);
       output.append(header);
       output.append(renderDocument(value.document));

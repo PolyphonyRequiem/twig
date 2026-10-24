@@ -6,6 +6,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
@@ -139,6 +140,20 @@ public static class NetworkServiceModule
         {
             RequireAdoBoundary(sp, "provider mutation boundary");
             return AdoProviderRevisionCodec.Instance;
+        });
+        // Feature #1178 AC (b): the remaining proposal operation kinds — add/remove-link,
+        // delete and publish-seed — dispatch through these ports. Same ordering: a non-ADO
+        // workspace refuses here, before any ADO client or the seed orchestrator exists.
+        services.AddSingleton<IProviderRevisionBoundWriter>(sp =>
+        {
+            RequireAdoBoundary(sp, "provider mutation boundary");
+            return new AdoProviderRevisionBoundWriter(sp.GetRequiredService<IRevisionBoundAdoWorkItemService>());
+        });
+        // The orchestrator is resolved only when a seed is actually published.
+        services.AddSingleton<IProviderSeedPublisher>(sp =>
+        {
+            RequireAdoBoundary(sp, "provider mutation boundary");
+            return new AdoProviderSeedPublisher(() => sp.GetRequiredService<SeedPublishOrchestrator>());
         });
         // Authoritative revision-bound pre-operation reads (#1169 / #1178), keyed by neutral
         // identity and opaque revision token rather than ADO integers.

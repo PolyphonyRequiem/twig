@@ -92,7 +92,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IProviderWorkItemWriter adoService,
         IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
-        SeedPublishOrchestrator seedPublish,
+        IProviderRevisionBoundWriter relationWriter,
+        IProviderSeedPublisher seedPublish,
         IWorkItemRepository workItemRepo,
         ISeedLinkRepository seedLinkRepo,
         IStagedIdentityRegistry stagedRegistry,
@@ -105,7 +106,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IPlanOriginProvider origin,
         IUnitOfWork unitOfWork)
         : this(
-            parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionCodec, revisionBound, seedPublish,
+            parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionCodec, revisionBound, relationWriter, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
             config, paths, clock, steering, origin, ruleProvider: null, unitOfWork)
     {
@@ -125,7 +126,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IProviderWorkItemWriter adoService,
         IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
-        SeedPublishOrchestrator seedPublish,
+        IProviderRevisionBoundWriter relationWriter,
+        IProviderSeedPublisher seedPublish,
         IWorkItemRepository workItemRepo,
         ISeedLinkRepository seedLinkRepo,
         IStagedIdentityRegistry stagedRegistry,
@@ -154,7 +156,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _paths = paths;
         _clock = clock;
         _executor = new PlanOperationExecutor(
-            adoService, revisionCodec, revisionBound, fieldDefinitionStore, seedPublish,
+            adoService, revisionCodec, relationWriter, fieldDefinitionStore, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent, pendingReader, unitOfWork);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore);

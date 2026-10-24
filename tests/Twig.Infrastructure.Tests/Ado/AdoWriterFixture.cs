@@ -34,4 +34,16 @@ internal static class AdoWriterFixture
 
     /// <summary>The single ADO revision codec.</summary>
     public static IProviderRevisionCodec Codec => AdoProviderRevisionCodec.Instance;
+
+    /// <summary>
+    /// Puts the production ADO relation/delete adapter (<see cref="AdoProviderRevisionBoundWriter"/>)
+    /// in front of a revision-bound client substitute, so link, unlink and delete tests run the real
+    /// relation mapping and opaque-precondition decode (#1178 AC (b)).
+    /// </summary>
+    public static IProviderRevisionBoundWriter WrapRevisionBound(IRevisionBoundAdoWorkItemService ado)
+        => new AdoProviderRevisionBoundWriter(ado);
+
+    /// <summary>The production ADO seed-publish port over an orchestrator (#1178 AC (b)).</summary>
+    public static IProviderSeedPublisher WrapSeedPublisher(Twig.Domain.Services.Seed.SeedPublishOrchestrator orchestrator)
+        => new AdoProviderSeedPublisher(() => orchestrator);
 }

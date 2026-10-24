@@ -64,7 +64,7 @@ public sealed class PlanOperationExecutorTests
                 return Task.FromResult(_publishBehaviour(seedId));
             });
         _executor = new PlanOperationExecutor(
-            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions, publisher);
+            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, AdoWriterFixture.WrapRevisionBound(_revisionBound), _fieldDefinitions, publisher);
     }
 
     private void StubFieldDefinition(string referenceName, string dataType)
@@ -645,6 +645,188 @@ public sealed class PlanOperationExecutorTests
 
         outcome.Outcome.ShouldBe(PlanExecutionOutcome.Indeterminate);
         await _ado.Received(1).PatchAsync(731, Arg.Any<IReadOnlyList<FieldChange>>(), 2, Arg.Any<CancellationToken>());
+    }
+
+    // ── #1178 AC (b): relation and delete dispatch through the provider port ──
+
+    public static TheoryData<string> RevisionBoundKinds => new() { "add", "remove", "delete" };
+
+    private static PlanOperationDefinition RevisionBoundOp(string kind, int expectedRevision, string relation = "related") => kind switch
+    {
+        "add" => new AddLinkOperation { Id = "o", WorkItemId = 740, OtherId = 741, ExpectedRevision = expectedRevision, Relation = relation },
+        "remove" => new RemoveLinkOperation { Id = "o", WorkItemId = 740, OtherId = 741, ExpectedRevision = expectedRevision, Relation = relation },
+        _ => new DeleteOperation { Id = "o", WorkItemId = 740, ExpectedRevision = expectedRevision },
+    };
+
+    [Theory]
+    [MemberData(nameof(RevisionBoundKinds))]
+    public async Task ExecuteRevisionBound_RevisionZero_IsDeterminatePreTransportRefusal_WithNoAdoCall(string kind)
+    {
+        // Before AC (b) a link or delete handed its int revision straight to the ADO client,
+        // so revision 0 reached the wire. Through the port it is refused before transport,
+        // exactly like batch: a determinate Failure with the refusal diagnostics.
+        var outcome = await _executor.ExecuteAsync(RevisionBoundOp(kind, expectedRevision: 0), CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldStartWith("revision-precondition-refused:");
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("revision-precondition-refused");
+        DiagnosticsOf(outcome.ResultJson).GetProperty("expectedRevision").GetInt32().ShouldBe(0);
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("remove")]
+    public async Task ExecuteLink_UnsupportedRelation_IsRefusedBeforeThePrecondition_WithUnchangedWording(string kind)
+    {
+        // Check order: the unsupported relation wins over a bad precondition, and keeps the
+        // exact pre-port wording with no diagnostics payload.
+        var outcome = await _executor.ExecuteAsync(
+            RevisionBoundOp(kind, expectedRevision: 0, relation: "bogus"), CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+        outcome.Error.ShouldBe("Unsupported relation 'bogus'.");
+        outcome.ResultJson.ShouldBeNull();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("remove")]
+    public async Task ExecuteLink_AdoLinkTypeName_IsAnUnsupportedRelation(string kind)
+    {
+        // The proposal vocabulary is the closed neutral set; an ADO reference name is not in it.
+        var outcome = await _executor.ExecuteAsync(
+            RevisionBoundOp(kind, expectedRevision: 3, relation: "System.LinkTypes.Related"), CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+        outcome.Error.ShouldBe("Unsupported relation 'System.LinkTypes.Related'.");
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("add", "PARENT")]
+    [InlineData("remove", "Successor")]
+    public async Task ExecuteLink_DispatchesThroughThePort_WithTheNeutralRelationAndOpaquePrecondition(string kind, string relationText)
+    {
+        var port = Substitute.For<IProviderRevisionBoundWriter>();
+        port.AddRelationshipAsync(default, default!, default, default!, default)
+            .ReturnsForAnyArgs(new ProviderRevisionToken("12"));
+        port.RemoveRelationshipAsync(default, default!, default, default!, default)
+            .ReturnsForAnyArgs(new ProviderRevisionToken("12"));
+        var executor = new PlanOperationExecutor(
+            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, port, _fieldDefinitions, NoPublishSeedPublisher());
+
+        var outcome = await executor.ExecuteAsync(
+            RevisionBoundOp(kind, expectedRevision: 11, relation: relationText), CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Applied);
+        outcome.NewRevision.ShouldBe(12);
+        outcome.ResultJson.ShouldBe("{\"rev\":12}");
+        var call = port.ReceivedCalls().ShouldHaveSingleItem();
+        call.GetMethodInfo().Name.ShouldBe(kind == "add" ? "AddRelationshipAsync" : "RemoveRelationshipAsync");
+        var args = call.GetArguments();
+        args[0].ShouldBe(740);
+        args[1].ShouldBeSameAs(kind == "add" ? ProposalRelation.Parent : ProposalRelation.Successor);
+        args[2].ShouldBe(741);
+        args[3].ShouldBe(AdoWriterFixture.Codec.FromCacheRevision(11));
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteDelete_DispatchesThroughThePort_WithTheOpaquePrecondition()
+    {
+        var port = Substitute.For<IProviderRevisionBoundWriter>();
+        var executor = new PlanOperationExecutor(
+            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, port, _fieldDefinitions, NoPublishSeedPublisher());
+
+        var outcome = await executor.ExecuteAsync(RevisionBoundOp("delete", expectedRevision: 6), CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Applied);
+        outcome.ResultJson.ShouldBe("{\"deleted\":740}");
+        await port.Received(1).DeleteAsync(740, AdoWriterFixture.Codec.FromCacheRevision(6), Arg.Any<CancellationToken>());
+        port.ReceivedCalls().Count().ShouldBe(1);
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [MemberData(nameof(RevisionBoundKinds))]
+    public async Task ExecuteRevisionBound_ConflictThroughThePort_IsRevisionConflict(string kind)
+    {
+        // 412 stays determinate through the real adapter: same outcome code and observed revision.
+        var conflict = new AdoConflictException(9);
+        _revisionBound.AddLinkAtRevisionAsync(default, default!, default, default, default).ThrowsAsyncForAnyArgs(conflict);
+        _revisionBound.RemoveLinkAtRevisionAsync(default, default!, default, default, default).ThrowsAsyncForAnyArgs(conflict);
+        _revisionBound.DeleteAtRevisionAsync(default, default, default).ThrowsAsyncForAnyArgs(conflict);
+
+        var outcome = await _executor.ExecuteAsync(RevisionBoundOp(kind, expectedRevision: 4), CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("revision-conflict");
+        DiagnosticsOf(outcome.ResultJson).GetProperty("expectedRevision").GetInt32().ShouldBe(4);
+        DiagnosticsOf(outcome.ResultJson).GetProperty("observedRevision").GetInt32().ShouldBe(9);
+        _revisionBound.ReceivedCalls().Count().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ExecuteDelete_NotFoundThroughThePort_IsDeterministicFailure()
+    {
+        _revisionBound.DeleteAtRevisionAsync(740, 5, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoNotFoundException(740));
+
+        var outcome = await _executor.ExecuteAsync(RevisionBoundOp("delete", expectedRevision: 5), CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task ExecutePublishSeed_ProductionComposition_DispatchesThroughTheSeedPort_AndStaysIndeterminateOnFailure()
+    {
+        var seedPort = Substitute.For<IProviderSeedPublisher>();
+        seedPort.PublishAsync(default, default).ThrowsAsyncForAnyArgs(new AdoBadRequestException("post-create promotion failed"));
+        var executor = new PlanOperationExecutor(
+            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, AdoWriterFixture.WrapRevisionBound(_revisionBound),
+            _fieldDefinitions, seedPort, _workItems, _seedLinks, _stagedRegistry, _publishIdMap, _publishIntent,
+            Substitute.For<IPendingChangeReader>(), Substitute.For<IUnitOfWork>());
+        var op = await StagePublishableSeedAsync(-78, "01947f00-0000-7000-8000-000000000778");
+
+        // Constructing the executor must not touch the seed port: it is resolved per publish.
+        seedPort.ReceivedCalls().ShouldBeEmpty();
+
+        var outcome = await executor.ExecuteAsync(op, CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Indeterminate);
+        outcome.Error.ShouldBe("post-create promotion failed");
+        await seedPort.Received(1).PublishAsync(-78, Arg.Any<CancellationToken>());
+    }
+
+    private PlanSeedPublisher NoPublishSeedPublisher() => new(
+        _ado, _workItems, _seedLinks, _stagedRegistry, _publishIdMap, _publishIntent,
+        (_, _) => throw new InvalidOperationException("seed publish must not run for this operation"));
+
+    private async Task<PublishSeedOperation> StagePublishableSeedAsync(int aliasValue, string guid)
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse(guid));
+        var alias = MakeAlias(aliasValue);
+        var seed = new WorkItem
+        {
+            Id = alias.Value,
+            Title = "seed",
+            Type = WorkItemType.Parse("Task").Value,
+            IsSeed = true,
+            StagedIdentity = identity,
+        };
+        seed.MarkSynced(1);
+        _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
+        _workItems.GetByIdAsync(alias.Value, Arg.Any<CancellationToken>()).Returns(seed);
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>()).Returns((PublishIntent?)null);
+        var fingerprint = await SeedFingerprintCalculator.ComputeAsync(
+            seed, [], _stagedRegistry, _publishIdMap, CancellationToken.None);
+        return new PublishSeedOperation { Id = "S", StagedIdentity = identity, ExpectedFingerprint = fingerprint };
     }
 
     // ── strict-CAS relation not found ──────────────────────────────────────

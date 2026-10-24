@@ -1558,3 +1558,19 @@ static Twig.Domain.ValueObjects.ProviderRevisionPrecondition.operator ==(Twig.Do
 override Twig.Domain.ValueObjects.ProviderRevisionPrecondition.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.ProviderRevisionPrecondition.GetHashCode() -> int
 override Twig.Domain.ValueObjects.ProviderRevisionPrecondition.ToString() -> string!
+Twig.Domain.Interfaces.IProviderRevisionBoundWriter
+Twig.Domain.Interfaces.IProviderRevisionBoundWriter.AddRelationshipAsync(int sourceId, Twig.Domain.ValueObjects.ProposalRelation! relation, int targetId, Twig.Domain.ValueObjects.ProviderRevisionPrecondition! expected, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.ProviderRevisionToken!>!
+Twig.Domain.Interfaces.IProviderRevisionBoundWriter.DeleteAsync(int id, Twig.Domain.ValueObjects.ProviderRevisionPrecondition! expected, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IProviderRevisionBoundWriter.RemoveRelationshipAsync(int sourceId, Twig.Domain.ValueObjects.ProposalRelation! relation, int targetId, Twig.Domain.ValueObjects.ProviderRevisionPrecondition! expected, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.ProviderRevisionToken!>!
+Twig.Domain.Interfaces.IProviderSeedPublisher
+Twig.Domain.Interfaces.IProviderSeedPublisher.PublishAsync(int seedId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedPublishResult!>!
+Twig.Domain.ValueObjects.ProposalRelation
+Twig.Domain.ValueObjects.ProposalRelation.Name.get -> string!
+override Twig.Domain.ValueObjects.ProposalRelation.ToString() -> string!
+static Twig.Domain.ValueObjects.ProposalRelation.All.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ProposalRelation!>!
+static Twig.Domain.ValueObjects.ProposalRelation.Child.get -> Twig.Domain.ValueObjects.ProposalRelation!
+static Twig.Domain.ValueObjects.ProposalRelation.Parent.get -> Twig.Domain.ValueObjects.ProposalRelation!
+static Twig.Domain.ValueObjects.ProposalRelation.Predecessor.get -> Twig.Domain.ValueObjects.ProposalRelation!
+static Twig.Domain.ValueObjects.ProposalRelation.Related.get -> Twig.Domain.ValueObjects.ProposalRelation!
+static Twig.Domain.ValueObjects.ProposalRelation.Successor.get -> Twig.Domain.ValueObjects.ProposalRelation!
+static Twig.Domain.ValueObjects.ProposalRelation.TryParse(string? value, out Twig.Domain.ValueObjects.ProposalRelation? relation) -> bool

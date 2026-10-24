@@ -149,7 +149,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             writer ?? _writer,
             AdoWriterFixture.Codec,
             _revisionBound,
-            _seedPublish.Orchestrator,
+            AdoWriterFixture.WrapRevisionBound(_revisionBound),
+            AdoWriterFixture.WrapSeedPublisher(_seedPublish.Orchestrator),
             _workItems,
             _seedLinks,
             _stagedRegistry,
@@ -1636,7 +1637,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var boundClock = clock;
         svc = new PlanLifecycleService(
             new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _writer, AdoWriterFixture.Codec, _revisionBound,
-            _seedPublish.Orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap,
+            AdoWriterFixture.WrapRevisionBound(_revisionBound), AdoWriterFixture.WrapSeedPublisher(_seedPublish.Orchestrator), _workItems, _seedLinks, _stagedRegistry, _publishIdMap,
             _publishIntent, _config, _paths, boundClock, new StubSteering(() => _steeringMode), new FixtureOrigin(_repoRoot),
             Substitute.For<IUnitOfWork>());
 

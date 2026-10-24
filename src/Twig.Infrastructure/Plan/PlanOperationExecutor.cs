@@ -5,7 +5,6 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Plan;
-using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.Services.Sync;
 using Twig.Infrastructure.Ado.Exceptions;
@@ -32,7 +31,7 @@ internal sealed class PlanOperationExecutor
 {
     private readonly IProviderWorkItemWriter _adoService;
     private readonly IProviderRevisionCodec _revisionCodec;
-    private readonly IRevisionBoundAdoWorkItemService _revisionBound;
+    private readonly IProviderRevisionBoundWriter _relationWriter;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly PlanSeedPublisher _seedPublisher;
     private readonly IWorkItemRepository? _workItemRepo;
@@ -42,13 +41,14 @@ internal sealed class PlanOperationExecutor
     /// <summary>
     /// Production constructor: builds the seed publisher inline over the shared
     /// collaborators so callers keep passing the domain interfaces they already own.
+    /// Every operation kind dispatches through a provider port (Feature #1178 AC (b)).
     /// </summary>
     internal PlanOperationExecutor(
         IProviderWorkItemWriter adoService,
         IProviderRevisionCodec revisionCodec,
-        IRevisionBoundAdoWorkItemService revisionBound,
+        IProviderRevisionBoundWriter relationWriter,
         IFieldDefinitionStore fieldDefinitionStore,
-        SeedPublishOrchestrator seedPublish,
+        IProviderSeedPublisher seedPublish,
         IWorkItemRepository workItemRepo,
         ISeedLinkRepository seedLinkRepo,
         IStagedIdentityRegistry stagedRegistry,
@@ -59,7 +59,7 @@ internal sealed class PlanOperationExecutor
         : this(
             adoService,
             revisionCodec,
-            revisionBound,
+            relationWriter,
             fieldDefinitionStore,
             new PlanSeedPublisher(
                 adoService,
@@ -68,7 +68,7 @@ internal sealed class PlanOperationExecutor
                 stagedRegistry,
                 publishIdMap,
                 publishIntent,
-                (seedId, ct) => seedPublish.PublishAsync(seedId, force: false, dryRun: false, ct)))
+                (seedId, ct) => seedPublish.PublishAsync(seedId, ct)))
     {
         _workItemRepo = workItemRepo;
         _pendingReader = pendingReader;
@@ -83,13 +83,13 @@ internal sealed class PlanOperationExecutor
     internal PlanOperationExecutor(
         IProviderWorkItemWriter adoService,
         IProviderRevisionCodec revisionCodec,
-        IRevisionBoundAdoWorkItemService revisionBound,
+        IProviderRevisionBoundWriter relationWriter,
         IFieldDefinitionStore fieldDefinitionStore,
         PlanSeedPublisher seedPublisher)
     {
         _adoService = adoService;
         _revisionCodec = revisionCodec;
-        _revisionBound = revisionBound;
+        _relationWriter = relationWriter;
         _fieldDefinitionStore = fieldDefinitionStore;
         _seedPublisher = seedPublisher;
     }
@@ -191,28 +191,34 @@ internal sealed class PlanOperationExecutor
 
     private async Task<PlanExecutionResult> ExecuteAddLinkAsync(AddLinkOperation add, CancellationToken ct)
     {
-        if (!LinkTypeMapper.TryResolve(add.Relation, out var adoRelation))
+        // The relation is checked before the precondition, so an unsupported relation keeps
+        // its own refusal regardless of the revision it names.
+        if (!ProposalRelation.TryParse(add.Relation, out var relation))
             return PlanExecutionResult.Failure($"Unsupported relation '{add.Relation}'.");
 
-        var newRev = await _revisionBound.AddLinkAtRevisionAsync(
-            add.WorkItemId, adoRelation, add.OtherId, add.ExpectedRevision, ct).ConfigureAwait(false);
+        var expected = _revisionCodec.FromCacheRevision(add.ExpectedRevision);
+        var written = await _relationWriter.AddRelationshipAsync(
+            add.WorkItemId, relation, add.OtherId, expected, ct).ConfigureAwait(false);
+        var newRev = _revisionCodec.ToCacheRevision(written);
         return PlanExecutionResult.Success(SerializeRevision(newRev), newRev);
     }
 
     private async Task<PlanExecutionResult> ExecuteRemoveLinkAsync(RemoveLinkOperation remove, CancellationToken ct)
     {
-        if (!LinkTypeMapper.TryResolve(remove.Relation, out var adoRelation))
+        if (!ProposalRelation.TryParse(remove.Relation, out var relation))
             return PlanExecutionResult.Failure($"Unsupported relation '{remove.Relation}'.");
 
-        var newRev = await _revisionBound.RemoveLinkAtRevisionAsync(
-            remove.WorkItemId, adoRelation, remove.OtherId, remove.ExpectedRevision, ct).ConfigureAwait(false);
+        var expected = _revisionCodec.FromCacheRevision(remove.ExpectedRevision);
+        var written = await _relationWriter.RemoveRelationshipAsync(
+            remove.WorkItemId, relation, remove.OtherId, expected, ct).ConfigureAwait(false);
+        var newRev = _revisionCodec.ToCacheRevision(written);
         return PlanExecutionResult.Success(SerializeRevision(newRev), newRev);
     }
 
     private async Task<PlanExecutionResult> ExecuteDeleteAsync(DeleteOperation delete, CancellationToken ct)
     {
-        await _revisionBound.DeleteAtRevisionAsync(delete.WorkItemId, delete.ExpectedRevision, ct)
-            .ConfigureAwait(false);
+        var expected = _revisionCodec.FromCacheRevision(delete.ExpectedRevision);
+        await _relationWriter.DeleteAsync(delete.WorkItemId, expected, ct).ConfigureAwait(false);
         return PlanExecutionResult.Success(SerializeDeleted(delete.WorkItemId));
     }
 

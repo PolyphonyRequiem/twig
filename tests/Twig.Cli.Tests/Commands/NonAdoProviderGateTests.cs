@@ -12,6 +12,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
@@ -232,6 +233,8 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     [Theory]
     [InlineData(typeof(IProviderWorkItemWriter))]
     [InlineData(typeof(IProviderRevisionCodec))]
+    [InlineData(typeof(IProviderRevisionBoundWriter))]
+    [InlineData(typeof(IProviderSeedPublisher))]
     [InlineData(typeof(StateTransitionWorkflow))]
     [InlineData(typeof(FieldUpdateWorkflow))]
     [InlineData(typeof(NoteWorkflow))]
@@ -321,6 +324,48 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         runtime.GetRequiredService<IProviderWorkItemWriter>().ShouldBeOfType<AdoProviderWorkItemWriter>();
         runtime.GetRequiredService<IProviderRevisionCodec>().ShouldBeSameAs(AdoProviderRevisionCodec.Instance);
         typeof(IProviderWorkItemWriter).IsAssignableFrom(typeof(IAdoWorkItemService)).ShouldBeFalse();
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// #1178 AC (b): under ADO the relation/delete and seed-publish ports are the ADO adapters.
+    /// Resolving the seed port must not build the seed orchestrator — it is resolved per publish.
+    /// </summary>
+    [Fact]
+    public async Task ProposalPorts_UnderAdo_AreTheAdoAdapters_AndSeedPublishIsLazy()
+    {
+        var orchestratorConstructions = 0;
+        var runtime = await AttachAsync(provider: null, gitProject: "Project", overrides: s =>
+            s.AddSingleton<SeedPublishOrchestrator>(_ =>
+            {
+                Interlocked.Increment(ref orchestratorConstructions);
+                throw new InvalidOperationException("seed orchestrator must not be constructed at resolution");
+            }));
+
+        runtime.GetRequiredService<IProviderRevisionBoundWriter>().ShouldBeOfType<AdoProviderRevisionBoundWriter>();
+        runtime.GetRequiredService<IProviderSeedPublisher>().ShouldBeOfType<AdoProviderSeedPublisher>();
+        orchestratorConstructions.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// #1178 AC (b): proposal apply no longer takes the ADO seed orchestrator directly, so composing
+    /// the lifecycle under ADO builds no orchestrator and sends nothing. Uses only types that
+    /// predate the port, so it runs unchanged against the pre-port composition.
+    /// </summary>
+    [Fact]
+    public async Task PlanLifecycle_UnderAdo_ComposesWithoutConstructingTheSeedOrchestrator()
+    {
+        var orchestratorConstructions = 0;
+        var runtime = await AttachAsync(provider: null, gitProject: "Project", overrides: s =>
+            s.AddSingleton<SeedPublishOrchestrator>(_ =>
+            {
+                Interlocked.Increment(ref orchestratorConstructions);
+                throw new InvalidOperationException("seed orchestrator must not be constructed at resolution");
+            }));
+
+        runtime.GetRequiredService<IPlanLifecycleService>().ShouldNotBeNull();
+        orchestratorConstructions.ShouldBe(0);
         _transport.Requests.ShouldBeEmpty();
     }
 

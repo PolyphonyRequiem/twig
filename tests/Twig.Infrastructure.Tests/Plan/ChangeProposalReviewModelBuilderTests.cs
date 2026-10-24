@@ -674,6 +674,45 @@ public sealed class ChangeProposalReviewModelBuilderTests
             .ShouldBe(stripped);
     }
 
+    // Defends the digest claim: the advisory sits outside canonical effects, so the canonical plan
+    // bytes, the digest and every non-advisory review byte are identical whichever descriptor is
+    // configured (including none).
+    [Fact]
+    public async Task Advisory_LeavesCanonicalPlanBytesDigestAndNonAdvisoryReviewBytesUnchanged()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var github).ShouldBeTrue();
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("ado", out var ado).ShouldBeTrue();
+        var plan = AddLink("predecessor");
+
+        // The digest is derived from the canonical plan bytes, not a supplied constant.
+        static string DeriveDigest(string planJson)
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(planJson);
+            return PlanCanonicalizer.Canonicalize(doc.RootElement).Digest;
+        }
+
+        var canonical = PlanDocumentWriter.Write(plan);
+        var digestBefore = DeriveDigest(canonical);
+        digestBefore.Length.ShouldBe(64);
+
+        var models = new List<ChangeProposalReviewModel>();
+        foreach (var descriptor in new Twig.Domain.Capabilities.ProviderCapabilityDescriptor?[] { null, ado, github })
+        {
+            var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
+            models.Add(await builder.BuildAsync(plan, digestBefore, [], [], canApply: true));
+            PlanDocumentWriter.Write(plan).ShouldBe(canonical);
+            DeriveDigest(PlanDocumentWriter.Write(plan)).ShouldBe(digestBefore);
+        }
+
+        models.ShouldAllBe(m => m.Digest == digestBefore);
+        var legacy = models.Select(m => ChangeProposalReviewModelJson.Serialize(m with
+        {
+            Operations = [.. m.Operations.Select(o => o with { Capability = null })],
+        })).Distinct().ToList();
+        legacy.Count.ShouldBe(1);
+        legacy[0].ShouldNotContain("\"capability\"");
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────
 
     private static PlanDefinition Document(params PlanOperationDefinition[] operations) => new()

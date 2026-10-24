@@ -1,0 +1,222 @@
+using System.Reflection;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
+using Shouldly;
+using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Interfaces;
+using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Ado.Exceptions;
+using Xunit;
+
+namespace Twig.Infrastructure.Tests.Ado;
+
+/// <summary>
+/// Feature #1178 AC (a): the provider mutation port carries an opaque revision precondition,
+/// and the ADO adapter refuses a missing, foreign or non-canonical one before any transport
+/// call while passing a canonical one through to ADO unchanged.
+/// </summary>
+public sealed class AdoProviderWorkItemWriterTests
+{
+    private static readonly IReadOnlyList<FieldChange> Changes =
+        [new FieldChange("System.State", OldValue: null, NewValue: "Doing")];
+
+    private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
+    private readonly AdoProviderWorkItemWriter _writer;
+
+    public AdoProviderWorkItemWriterTests() => _writer = new AdoProviderWorkItemWriter(_ado);
+
+    private static ProviderRevisionPrecondition Ado(string token)
+        => new(ProviderCapabilityCatalog.AdoProviderKind, new ProviderRevisionToken(token));
+
+    // ── refusals: nothing reaches ADO ───────────────────────────────────────
+
+    [Fact]
+    public async Task Patch_NullPrecondition_IsRefusedAsMissing_WithNoAdoCall()
+    {
+        var ex = await Should.ThrowAsync<ProviderRevisionPreconditionRefusedException>(
+            () => _writer.PatchAsync(42, Changes, null!, CancellationToken.None));
+
+        ex.Reason.ShouldBe(ProviderRevisionPreconditionRefusal.Missing);
+        ex.Message.ShouldStartWith("revision-precondition-refused:");
+        ex.Message.ShouldEndWith("nothing was sent.");
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(ProviderCapabilityCatalog.GitHubProviderKind)]
+    [InlineData("ADO")]
+    [InlineData("Ado")]
+    [InlineData("ado ")]
+    public async Task Patch_ForeignProviderKind_IsRefused_WithNoAdoCall(string kind)
+    {
+        var foreign = new ProviderRevisionPrecondition(kind, new ProviderRevisionToken("7"));
+
+        var ex = await Should.ThrowAsync<ProviderRevisionPreconditionRefusedException>(
+            () => _writer.PatchAsync(42, Changes, foreign, CancellationToken.None));
+
+        ex.Reason.ShouldBe(ProviderRevisionPreconditionRefusal.ForeignProvider);
+        ex.AdapterKind.ShouldBe(ProviderCapabilityCatalog.AdoProviderKind);
+        ex.Message.ShouldStartWith("revision-precondition-refused:");
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("05")]
+    [InlineData("-1")]
+    [InlineData("+5")]
+    [InlineData(" 5")]
+    [InlineData("5 ")]
+    [InlineData("1,000")]
+    [InlineData("1e3")]
+    [InlineData("abc")]
+    [InlineData("W/\"etag\"")]
+    [InlineData("99999999999")]
+    public async Task Patch_NonCanonicalToken_IsRefusedAsMalformed_WithNoAdoCall_AndNoEcho(string token)
+    {
+        var ex = await Should.ThrowAsync<ProviderRevisionPreconditionRefusedException>(
+            () => _writer.PatchAsync(42, Changes, Ado(token), CancellationToken.None));
+
+        ex.Reason.ShouldBe(ProviderRevisionPreconditionRefusal.MalformedToken);
+        ex.Message.ShouldStartWith("revision-precondition-refused:");
+        ex.Message.ShouldNotContain(token.Trim());
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    // ── canonical pass-through ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Patch_CanonicalToken_ReachesAdoUnchanged_AndEncodesTheWrittenRevision()
+    {
+        _ado.PatchAsync(42, Changes, 7, Arg.Any<CancellationToken>()).Returns(8);
+        using var cts = new CancellationTokenSource();
+
+        var written = await _writer.PatchAsync(42, Changes, Ado("7"), cts.Token);
+
+        written.ShouldBe(new ProviderRevisionToken("8"));
+        var call = _ado.ReceivedCalls().ShouldHaveSingleItem();
+        call.GetMethodInfo().Name.ShouldBe(nameof(IAdoWorkItemService.PatchAsync));
+        var args = call.GetArguments();
+        args[0].ShouldBe(42);
+        args[1].ShouldBeSameAs(Changes);
+        args[2].ShouldBe(7);
+        args[3].ShouldBe(cts.Token);
+    }
+
+    [Fact]
+    public async Task Patch_AdoConflict_PropagatesUnchanged()
+    {
+        _ado.PatchAsync(42, Changes, 7, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(9, "conflict"));
+
+        var ex = await Should.ThrowAsync<AdoConflictException>(
+            () => _writer.PatchAsync(42, Changes, Ado("7"), CancellationToken.None));
+
+        ex.ServerRevision.ShouldBe(9);
+    }
+
+    [Fact]
+    public async Task Patch_AdoReturnsNoRevision_IsPostTransportFormatError_NotARefusal()
+    {
+        // The write was sent, so this must not look like a determinate pre-transport refusal.
+        _ado.PatchAsync(42, Changes, 7, Arg.Any<CancellationToken>()).Returns(0);
+
+        var ex = await Should.ThrowAsync<FormatException>(
+            () => _writer.PatchAsync(42, Changes, Ado("7"), CancellationToken.None));
+
+        ex.ShouldNotBeOfType<ProviderRevisionPreconditionRefusedException>();
+        _ado.ReceivedCalls().ShouldHaveSingleItem();
+    }
+
+    // ── codec ───────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public void Codec_FromCacheRevision_NotPositive_IsRefusedAsMissing(int revision)
+    {
+        var ex = Should.Throw<ProviderRevisionPreconditionRefusedException>(
+            () => AdoProviderRevisionCodec.Instance.FromCacheRevision(revision));
+
+        ex.Reason.ShouldBe(ProviderRevisionPreconditionRefusal.Missing);
+    }
+
+    [Theory]
+    [InlineData(1, "1")]
+    [InlineData(7, "7")]
+    [InlineData(int.MaxValue, "2147483647")]
+    public void Codec_CanonicalRevision_RoundTrips(int revision, string token)
+    {
+        var codec = AdoProviderRevisionCodec.Instance;
+
+        var precondition = codec.FromCacheRevision(revision);
+
+        precondition.ProviderKind.ShouldBe(ProviderCapabilityCatalog.AdoProviderKind);
+        precondition.Expected.Value.ShouldBe(token);
+        codec.ToCacheRevision(precondition.Expected).ShouldBe(revision);
+        codec.DecodePrecondition(precondition).ShouldBe(revision);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("07")]
+    [InlineData("abc")]
+    public void Codec_ToCacheRevision_NonCanonical_IsFormatError(string token)
+        => Should.Throw<FormatException>(
+            () => AdoProviderRevisionCodec.Instance.ToCacheRevision(new ProviderRevisionToken(token)));
+
+    // ── conflict-retry over the port: revision 0 never reaches ADO ──────────
+
+    [Fact]
+    public async Task ConflictRetry_OverThePort_RevisionZero_IsRefused_WithNoPatchFetchOrRetry()
+    {
+        var ex = await Should.ThrowAsync<ProviderRevisionPreconditionRefusedException>(
+            () => ConflictRetryHelper.PatchWithRetryAsync(
+                (IProviderWorkItemWriter)_writer, 42, Changes, 0, CancellationToken.None));
+
+        ex.Reason.ShouldBe(ProviderRevisionPreconditionRefusal.Missing);
+        await _ado.DidNotReceiveWithAnyArgs().PatchAsync(default, default!, default, default);
+        await _ado.DidNotReceiveWithAnyArgs().FetchAsync(default, default);
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ConflictRetry_OverThePort_CanonicalRevision_PassesThroughAndRetriesOnce()
+    {
+        _ado.PatchAsync(42, Changes, 3, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(4, "conflict"));
+        var fresh = new WorkItem { Id = 42, Title = "T" };
+        fresh.MarkSynced(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fresh);
+        _ado.PatchAsync(42, Changes, 4, Arg.Any<CancellationToken>()).Returns(5);
+
+        var newRevision = await ConflictRetryHelper.PatchWithRetryAsync(
+            (IProviderWorkItemWriter)_writer, 42, Changes, 3, CancellationToken.None);
+
+        newRevision.ShouldBe(5);
+        await _ado.Received(1).PatchAsync(42, Changes, 3, Arg.Any<CancellationToken>());
+        await _ado.Received(1).PatchAsync(42, Changes, 4, Arg.Any<CancellationToken>());
+    }
+
+    // ── port shape ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Port_CarriesNoIntegerRevision_AndReturnsAnOpaqueToken()
+    {
+        var methods = typeof(IProviderWorkItemWriter).GetMethods(BindingFlags.Public | BindingFlags.Instance);
+        methods.SelectMany(m => m.GetParameters())
+            .Where(p => p.Name!.Contains("revision", StringComparison.OrdinalIgnoreCase))
+            .ShouldAllBe(p => p.ParameterType == typeof(ProviderRevisionPrecondition));
+
+        var patch = typeof(IProviderWorkItemWriter).GetMethod(nameof(IProviderWorkItemWriter.PatchAsync))!;
+        patch.ReturnType.ShouldBe(typeof(Task<ProviderRevisionToken>));
+        patch.GetParameters()[2].ParameterType.ShouldBe(typeof(ProviderRevisionPrecondition));
+    }
+
+    [Fact]
+    public void AdoClient_IsNotItselfThePort()
+        => typeof(IProviderWorkItemWriter).IsAssignableFrom(typeof(IAdoWorkItemService)).ShouldBeFalse();
+}

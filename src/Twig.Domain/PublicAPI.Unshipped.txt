@@ -37,6 +37,7 @@ Twig.Domain.Enums.Role.Feature = 2 -> Twig.Domain.Enums.Role
 Twig.Domain.Enums.Role.Initiative = 0 -> Twig.Domain.Enums.Role
 Twig.Domain.Enums.Role.Investigation = 1 -> Twig.Domain.Enums.Role
 Twig.Domain.Enums.Role.Task = 4 -> Twig.Domain.Enums.Role
+Twig.Domain.Interfaces.IAdoWorkItemService.AddLinkWithCommentAsync(int sourceId, int targetId, string! adoLinkType, string? comment, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IAdoWorkItemService.ClearPublishMetadataAsync(int id, Twig.Domain.ValueObjects.SeedPublishCorrelation! correlation, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IAttachmentStatusProjection
 Twig.Domain.Interfaces.IAttachmentStatusProjection.ReadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
@@ -1693,6 +1694,32 @@ Twig.Domain.Interfaces.IProviderWorkItemWriter
 Twig.Domain.Interfaces.IProviderWorkItemWriter.AddCommentAsync(int id, string! text, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IProviderWorkItemWriter.AddLinkAsync(int sourceId, int targetId, string! adoLinkType, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IProviderWorkItemWriter.AddLinkWithCommentAsync(int sourceId, int targetId, string! adoLinkType, string? comment, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Domain.Interfaces.IProviderWorkItemWriter.PatchAsync(int id, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! changes, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+Twig.Domain.Interfaces.IProviderWorkItemWriter.PatchAsync(int id, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! changes, Twig.Domain.ValueObjects.ProviderRevisionPrecondition! expected, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.ProviderRevisionToken!>!
 Twig.Domain.Interfaces.IProviderWorkItemWriter.RemoveLinkAsync(int sourceId, int targetId, string! adoLinkType, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Domain.Services.Navigation.ParentStatePropagationService.ParentStatePropagationService(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IProviderWorkItemWriter! adoService, Twig.Domain.Interfaces.IProcessConfigurationProvider! processConfigProvider, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter) -> void
+Twig.Domain.Services.Navigation.ParentStatePropagationService.ParentStatePropagationService(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IProviderWorkItemWriter! adoService, Twig.Domain.Interfaces.IProviderRevisionCodec! revisionCodec, Twig.Domain.Interfaces.IProcessConfigurationProvider! processConfigProvider, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter) -> void
+Twig.Domain.Interfaces.IProviderRevisionCodec
+Twig.Domain.Interfaces.IProviderRevisionCodec.FromCacheRevision(int revision) -> Twig.Domain.ValueObjects.ProviderRevisionPrecondition!
+Twig.Domain.Interfaces.IProviderRevisionCodec.ProviderKind.get -> string!
+Twig.Domain.Interfaces.IProviderRevisionCodec.ToCacheRevision(Twig.Domain.ValueObjects.ProviderRevisionToken! revision) -> int
+Twig.Domain.ValueObjects.ProviderRevisionPrecondition
+Twig.Domain.ValueObjects.ProviderRevisionPrecondition.Expected.get -> Twig.Domain.ValueObjects.ProviderRevisionToken!
+Twig.Domain.ValueObjects.ProviderRevisionPrecondition.ProviderKind.get -> string!
+Twig.Domain.ValueObjects.ProviderRevisionPrecondition.ProviderRevisionPrecondition(string! providerKind, Twig.Domain.ValueObjects.ProviderRevisionToken! expected) -> void
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal.ForeignProvider = 1 -> Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal.MalformedToken = 2 -> Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal.Missing = 0 -> Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusedException
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusedException.AdapterKind.get -> string!
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusedException.ProviderRevisionPreconditionRefusedException() -> void
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusedException.ProviderRevisionPreconditionRefusedException(string! message) -> void
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusedException.ProviderRevisionPreconditionRefusedException(string! message, System.Exception! innerException) -> void
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusedException.ProviderRevisionPreconditionRefusedException(Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal reason, string! adapterKind) -> void
+Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusedException.Reason.get -> Twig.Domain.ValueObjects.ProviderRevisionPreconditionRefusal
+Twig.Domain.ValueObjects.ProviderRevisionPrecondition.<Clone>$() -> Twig.Domain.ValueObjects.ProviderRevisionPrecondition!
+Twig.Domain.ValueObjects.ProviderRevisionPrecondition.Equals(Twig.Domain.ValueObjects.ProviderRevisionPrecondition? other) -> bool
+static Twig.Domain.ValueObjects.ProviderRevisionPrecondition.operator !=(Twig.Domain.ValueObjects.ProviderRevisionPrecondition? left, Twig.Domain.ValueObjects.ProviderRevisionPrecondition? right) -> bool
+static Twig.Domain.ValueObjects.ProviderRevisionPrecondition.operator ==(Twig.Domain.ValueObjects.ProviderRevisionPrecondition? left, Twig.Domain.ValueObjects.ProviderRevisionPrecondition? right) -> bool
+override Twig.Domain.ValueObjects.ProviderRevisionPrecondition.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.ProviderRevisionPrecondition.GetHashCode() -> int
+override Twig.Domain.ValueObjects.ProviderRevisionPrecondition.ToString() -> string!

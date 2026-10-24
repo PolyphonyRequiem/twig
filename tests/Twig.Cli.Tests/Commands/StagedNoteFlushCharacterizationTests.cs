@@ -1,6 +1,7 @@
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
@@ -25,13 +26,17 @@ public sealed class StagedNoteFlushCharacterizationTests
 {
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
+    private readonly IProviderWorkItemWriter _writer;
+
+    public StagedNoteFlushCharacterizationTests() => _writer = AdoWriterFixture.Wrap(_adoService);
+
     private readonly IPendingChangeStore _pendingChangeStore = Substitute.For<IPendingChangeStore>();
     private readonly IConsoleInput _consoleInput = Substitute.For<IConsoleInput>();
     private readonly OutputFormatterFactory _formatterFactory = new(new HumanOutputFormatter());
     private readonly StringWriter _stderr = new();
 
     private PendingChangeFlusher CreateFlusher() =>
-        new(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory, _stderr);
+        new(_workItemRepo, _writer, _pendingChangeStore, _consoleInput, _formatterFactory, _stderr);
 
     private void StageNote(int id, string text)
     {

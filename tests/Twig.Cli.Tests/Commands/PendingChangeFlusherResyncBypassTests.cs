@@ -1,5 +1,6 @@
 using NSubstitute;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
@@ -42,6 +43,10 @@ public sealed class PendingChangeFlusherResyncBypassTests
 {
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
+    private readonly IProviderWorkItemWriter _writer;
+
+    public PendingChangeFlusherResyncBypassTests() => _writer = AdoWriterFixture.Wrap(_adoService);
+
     private readonly IPendingChangeStore _pendingChangeStore = Substitute.For<IPendingChangeStore>();
     private readonly IConsoleInput _consoleInput = Substitute.For<IConsoleInput>();
     private readonly OutputFormatterFactory _formatterFactory =
@@ -49,7 +54,7 @@ public sealed class PendingChangeFlusherResyncBypassTests
     private readonly StringWriter _stderr = new();
 
     private PendingChangeFlusher CreateFlusher() =>
-        new(_workItemRepo, _adoService, _pendingChangeStore,
+        new(_workItemRepo, _writer, _pendingChangeStore,
             _consoleInput, _formatterFactory, _stderr);
 
     private static WorkItem CreateWorkItem(int id, string title) => new()

@@ -271,7 +271,7 @@ public sealed class WorkItemCopierCopyTests
     [Fact]
     public void Copy_RevisionZero_SkipsMarkSynced()
     {
-        var source = new WorkItemBuilder(-1, "Unsynced").AsSeed().Build();
+        var source = new WorkItemBuilder(-1, "Unsynced").AsSeed().WithRevision(0).Build();
         source.Revision.ShouldBe(0);
 
         var copy = WorkItemCopier.Copy(source);

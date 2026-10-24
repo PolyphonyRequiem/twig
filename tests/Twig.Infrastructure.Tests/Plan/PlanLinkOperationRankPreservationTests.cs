@@ -5,6 +5,7 @@ using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Plan;
+using Twig.Infrastructure.Tests.Ado;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Plan;
@@ -58,7 +59,8 @@ public sealed class PlanLinkOperationRankPreservationTests
             Substitute.For<IPublishIntentRepository>(),
             (_, _) => Task.FromResult(new SeedPublishResult { Status = SeedPublishStatus.Error }));
 
-        _executor = new PlanOperationExecutor(_ado, _revisionBound, _fieldDefinitions, publisher);
+        _executor = new PlanOperationExecutor(
+            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions, publisher);
     }
 
     public static TheoryData<string> Relations() => new()

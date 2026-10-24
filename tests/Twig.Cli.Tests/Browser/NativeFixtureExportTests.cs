@@ -29,9 +29,9 @@ public sealed class NativeFixtureExportTests
         if (string.IsNullOrWhiteSpace(root)) return;
         var exeDir = Required("TWIG_NATIVE_EXE_DIR");
         var sha = Required("TWIG_NATIVE_SHA");
-        var exe = Directory.EnumerateFiles(exeDir, "twig*").FirstOrDefault(f =>
-            Path.GetFileNameWithoutExtension(f).Equals("twig", StringComparison.OrdinalIgnoreCase)
-            && !f.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)).ShouldNotBeNull($"no twig executable in {exeDir}");
+        var exeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
+        var exe = Path.Combine(exeDir, exeName);
+        File.Exists(exe).ShouldBeTrue($"{exeName} not found in {exeDir}");
         root = Path.GetFullPath(root);
         (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any()).ShouldBeFalse("export root must be empty");
 
@@ -51,22 +51,31 @@ public sealed class NativeFixtureExportTests
             benchId = named.Id.ToString();
             currentId = (await benches.GetCurrentAsync())!.Id.ToString();
             currentId.ShouldNotBe(benchId);
-            var manifest = new Dictionary<string, object>
+            var manifestJson = new System.IO.MemoryStream();
+            using (var w = new Utf8JsonWriter(manifestJson, new JsonWriterOptions { Indented = true }))
             {
-                ["nativeSha"] = sha,
-                ["binary"] = new Dictionary<string, string> { ["file"] = exe, ["sha256"] = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(exe))).ToLowerInvariant() },
-                ["workspacePath"] = fixture.Paths.StartDir,
-                ["home"] = fixture.Home,
-                ["bench"] = BenchName,
-                ["benchId"] = benchId,
-                ["currentBenchIdAtExport"] = currentId,
-                ["memberId"] = MemberId,
-                ["nonMemberId"] = NonMemberId,
-                ["currentBenchProbeArgs"] = new[] { "bench", "list", "-o", "json" },
-                ["env"] = new Dictionary<string, string> { ["TWIG_USER_HOME"] = fixture.Home },
-            };
-            await File.WriteAllTextAsync(Path.Combine(root, "manifest.json"),
-                JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+                w.WriteStartObject();
+                w.WriteString("nativeSha", sha);
+                w.WriteStartObject("binary");
+                w.WriteString("file", exe);
+                w.WriteString("sha256", Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(exe))).ToLowerInvariant());
+                w.WriteEndObject();
+                w.WriteString("workspacePath", fixture.Paths.StartDir);
+                w.WriteString("home", fixture.Home);
+                w.WriteString("bench", BenchName);
+                w.WriteString("benchId", benchId);
+                w.WriteString("currentBenchIdAtExport", currentId);
+                w.WriteNumber("memberId", MemberId);
+                w.WriteNumber("nonMemberId", NonMemberId);
+                w.WriteStartArray("currentBenchProbeArgs");
+                foreach (var arg in new[] { "bench", "list", "-o", "json" }) w.WriteStringValue(arg);
+                w.WriteEndArray();
+                w.WriteStartObject("env");
+                w.WriteString("TWIG_USER_HOME", fixture.Home);
+                w.WriteEndObject();
+                w.WriteEndObject();
+            }
+            await File.WriteAllBytesAsync(Path.Combine(root, "manifest.json"), manifestJson.ToArray());
         }
         SqliteConnection.ClearAllPools();
     }

@@ -35,7 +35,17 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
     internal const string ActorPat = "browser-actor-v1";
     internal const string RenewedPat = "browser-actor-v2";
     internal const string SiblingPat = "browser-sibling-v1";
-    private readonly string _temp = CanonicalTempRoot.Create("twig-browser-read-");
+    private readonly string _temp;
+    private readonly bool _persist;
+
+    // A persistRoot keeps the sealed home/checkout on disk for an out-of-process consumer.
+    internal NativeBrowserFixture(string? persistRoot = null)
+    {
+        _persist = persistRoot is not null;
+        _temp = persistRoot is null ? CanonicalTempRoot.Create("twig-browser-read-") : Path.GetFullPath(persistRoot);
+        Directory.CreateDirectory(_temp);
+    }
+
     private readonly List<ServiceProvider> _runtimes = [];
     private HttpClient _http = null!;
     private ConnectionMigrationService _migration = null!;
@@ -163,7 +173,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         Bindings?.Dispose();
         _http?.Dispose();
         SqliteConnection.ClearAllPools();
-        if (Directory.Exists(_temp)) Directory.Delete(_temp, recursive: true);
+        if (!_persist && Directory.Exists(_temp)) Directory.Delete(_temp, recursive: true);
         return ValueTask.CompletedTask;
     }
 

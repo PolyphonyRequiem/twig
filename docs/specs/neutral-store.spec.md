@@ -57,7 +57,10 @@ Scope, transport, configuration and identity-map failures are surfaced, not hidd
 | `twig show --batch` | yes | |
 | `twig show --tree` / `twig workspace --tree` | focused item, parent chain, children and descendants (human and machine formats, including the `--refresh` cached and revised views) | Hierarchy, sibling counts, `totalChildren`, links and sync keep reading the mirror items; only displayed node values are composed. |
 | `twig workspace` / status lists (human live and synced, `json`/`minimal`, `--all` sprint layout, flat/table, orphans) | displayed row values only | **Display, not selection** — see §2.1. |
-| `twig workspace --include-browser` (`json`) | **no — raw by contract** | The origin-bound browser document is observed evidence; local values must not masquerade as it. |
+| `twig workspace --include-browser` (`json`, legacy v1) | **no — raw by contract** | The origin-bound browser document is observed evidence; local values must not masquerade as it. Explicit-Bench v2 is a separate read contract introduced by #1210; see `docs/commands/workspace/workspace.md`. |
+| `twig query` (human, `json`, `minimal`) | displayed cell values only | **Display, not selection.** The WIQL selection, order, count, truncation, `-o ids` and the cache save all keep using the fetched items. |
+| `twig back` / `twig fore` / `twig history` | displayed target line and history row labels | History entries, cursor, the navigation target and the id-only `json`/`minimal` history output are unchanged. Id-only history does not decode durable field values; malformed local fields still surface on value-bearing output. |
+| `twig down` disambiguation | candidate labels only | Pattern matching and the selected target stay on the mirror: a pattern matching only a local title does not match. `up`/`next`/`prev`, the follow-on `set` output and the interactive navigator are not composed. |
 | `twig show --include-fields` (`exportVersion` 1) | **no — raw by contract** | See §3. |
 
 ### 2.1 Display versus selection (workspace/status)
@@ -92,6 +95,6 @@ following are decided:
 
 ## 5. Open acceptance gaps (acceptance criteria unchanged)
 
-1. **ADO does not yet run entirely on the new store.** Only the reads in §2 are overlaid. Writes, the export, workspace/status membership (§2.1), query and nav/history still read the mirror.
-2. **A second provider is proven at storage level only.** The GitHub provider still refuses fail-closed until #1167's activation lands.
+1. **ADO does not yet run entirely on the new store.** Only the reads in §2 are overlaid. Writes, the export, selection/membership for workspace/status (§2.1), query and `down` matching, the `set` output after navigation, and the interactive navigator still read the mirror.
+2. **A second provider is proven at storage level only.** #1167's GitHub activation is integrated, but GitHub persistence belongs to #1181; activation alone does not prove an end-to-end second-provider store path.
 3. **Existing workspaces are not migrated.** Migration and cutover are deferred and not authorised.

@@ -38,6 +38,13 @@ public sealed partial class QueryCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
+    /// <summary>
+    /// Composes the result cells from the durable store when the neutral store is opted in.
+    /// Display only: the WIQL selection, order, count, truncation and <c>ids</c> output stay on
+    /// the fetched items, and the composed copies are never saved.
+    /// </summary>
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
+
     /// <summary>Execute the query command.</summary>
     public async Task<int> ExecuteAsync(
         string? searchText = null,
@@ -171,7 +178,7 @@ public sealed partial class QueryCommand(
         }
         else
         {
-            RenderQueryResults(result, outputFormat);
+            RenderQueryResults(result, await ComposeCellsAsync(items, ct), outputFormat);
         }
 
         // 9. Emit hints (FR-19: suppressed for json/minimal by HintEngine)
@@ -182,7 +189,18 @@ public sealed partial class QueryCommand(
         return (0, items.Count);
     }
 
-    private void RenderQueryResults(QueryResult result, string outputFormat)
+    private async Task<IReadOnlyList<WorkItem>> ComposeCellsAsync(IReadOnlyList<WorkItem> items, CancellationToken ct)
+    {
+        if (FieldOverlay is null)
+            return items;
+
+        var composed = new WorkItem[items.Count];
+        for (var i = 0; i < items.Count; i++)
+            composed[i] = await FieldOverlay.ApplyAsync(items[i], ct);
+        return composed;
+    }
+
+    private void RenderQueryResults(QueryResult result, IReadOnlyList<WorkItem> cells, string outputFormat)
     {
         var columns = new List<RenderColumn>
         {
@@ -194,8 +212,8 @@ public sealed partial class QueryCommand(
             new("areaPath", "Area"),
             new("iterationPath", "Iteration"),
         };
-        var rows = new List<RenderRow>(result.Items.Count);
-        foreach (var item in result.Items)
+        var rows = new List<RenderRow>(cells.Count);
+        foreach (var item in cells)
         {
             rows.Add(new RenderRow("queryItem", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
             {

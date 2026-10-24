@@ -22,6 +22,15 @@ public sealed class NavigationHistoryCommands(
     RenderingPipelineFactory? pipelineFactory = null,
     IPromptStateWriter? promptStateWriter = null)
 {
+    /// <summary>
+    /// Composes the displayed titles and states from the durable store when the neutral store is
+    /// opted in. Display only: entries, ids, cursor and selection stay on the mirror and history.
+    /// </summary>
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
+
+    private async Task<Domain.Aggregates.WorkItem?> ComposeAsync(Domain.Aggregates.WorkItem? item, CancellationToken ct) =>
+        item is null || FieldOverlay is null ? item : await FieldOverlay.ApplyAsync(item, ct);
+
     /// <summary>Navigate backward in the navigation history.</summary>
     public async Task<int> BackAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -40,7 +49,7 @@ public sealed class NavigationHistoryCommands(
         // DD-04: Set context directly (bypass SetCommand to avoid recording history)
         await contextStore.SetActiveWorkItemIdAsync(resolvedId, ct);
 
-        var item = await workItemRepo.GetByIdAsync(resolvedId, ct);
+        var item = await ComposeAsync(await workItemRepo.GetByIdAsync(resolvedId, ct), ct);
         Console.WriteLine(FormatNavTarget(item, resolvedId));
 
         if (promptStateWriter is not null)
@@ -72,7 +81,7 @@ public sealed class NavigationHistoryCommands(
         // DD-04: Set context directly (bypass SetCommand to avoid recording history)
         await contextStore.SetActiveWorkItemIdAsync(resolvedId, ct);
 
-        var item = await workItemRepo.GetByIdAsync(resolvedId, ct);
+        var item = await ComposeAsync(await workItemRepo.GetByIdAsync(resolvedId, ct), ct);
         Console.WriteLine(FormatNavTarget(item, resolvedId));
 
         if (promptStateWriter is not null)
@@ -109,10 +118,13 @@ public sealed class NavigationHistoryCommands(
         var items = await workItemRepo.GetByIdsAsync(distinctIds, ct);
         var itemMap = items.ToDictionary(i => i.Id);
 
+        var composeLabels = !string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase);
         var enriched = new List<(NavigationHistoryEntry Entry, int ResolvedId, string? TypeName, string? Title, string? State)>(entries.Count);
         foreach (var (entry, resolvedId) in resolvedIds)
         {
-            itemMap.TryGetValue(resolvedId, out var item);
+            itemMap.TryGetValue(resolvedId, out var mirrored);
+            var item = composeLabels ? await ComposeAsync(mirrored, ct) : mirrored;
             enriched.Add((entry, resolvedId, item?.Type.ToString(), item?.Title, item?.State));
         }
 
@@ -176,7 +188,7 @@ public sealed class NavigationHistoryCommands(
                 await contextStore.SetActiveWorkItemIdAsync(selectedId, ct);
                 await historyStore.RecordVisitAsync(selectedId, ct);
 
-                var selectedItem = await workItemRepo.GetByIdAsync(selectedId, ct);
+                var selectedItem = await ComposeAsync(await workItemRepo.GetByIdAsync(selectedId, ct), ct);
                 Console.WriteLine(FormatNavTarget(selectedItem, selectedId));
 
                 if (promptStateWriter is not null)

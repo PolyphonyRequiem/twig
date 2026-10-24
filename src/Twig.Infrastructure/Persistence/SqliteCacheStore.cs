@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 12;
+    internal const int DurableSchemaVersion = 13;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -790,6 +790,49 @@ public sealed class SqliteCacheStore : IDisposable
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_receipts_publish
                 ON proposal_receipts(publish_identity, publish_intent_recorded_at)
                 WHERE publish_identity IS NOT NULL;
+            """,
+
+        // Epic #1168 — provider-neutral durable records. local_work_items holds Twig-owned
+        // identity (GUIDv7 text), an integer local CAS revision and locally held field values
+        // (FieldValuesJsonConverter form); deleted_at is a terminal tombstone, and no history is
+        // kept. external_identities maps a provider key (kind, scope, opaque native id) to a
+        // local id and records the last observed opaque provider token. local_relationships
+        // holds locally owned edges only, keyed by stable LinkKindNames tokens; remote edges stay
+        // in the disposable mirror. Additive only: no existing row is read or rewritten.
+        [13] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.local_work_items (
+                local_id TEXT PRIMARY KEY,
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                fields_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.external_identities (
+                provider_kind TEXT NOT NULL,
+                resource_scope TEXT NOT NULL,
+                native_id TEXT NOT NULL,
+                local_id TEXT NOT NULL,
+                provider_token TEXT,
+                observed_at TEXT NOT NULL,
+                PRIMARY KEY (provider_kind, resource_scope, native_id)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_external_identities_local
+                ON external_identities(local_id);
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.local_relationships (
+                source_local_id TEXT NOT NULL,
+                target_local_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT,
+                PRIMARY KEY (source_local_id, target_local_id, kind)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_local_relationships_target
+                ON local_relationships(target_local_id);
             """,
 
     };

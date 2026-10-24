@@ -9,7 +9,7 @@ namespace Twig.Commands;
 /// Delegates push to <see cref="IPendingChangeFlusher"/> and pull to <see cref="RefreshCommand"/>.
 /// </summary>
 public sealed class SyncCommand(
-    IPendingChangeFlusher pendingChangeFlusher,
+    Func<IPendingChangeFlusher> pendingChangeFlusherFactory,
     RefreshCommand refreshCommand,
     OutputFormatterFactory formatterFactory,
     TextWriter? stderr = null,
@@ -35,7 +35,7 @@ public sealed class SyncCommand(
         if (!pullOnly)
         {
             // ── Phase 1: Push ──────────────────────────────────────────
-            flushResult = await pendingChangeFlusher.FlushAllAsync(outputFormat, ct);
+            flushResult = await pendingChangeFlusherFactory().FlushAllAsync(outputFormat, ct);
 
             if (flushResult.Failures.Count > 0)
             {

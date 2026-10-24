@@ -265,6 +265,13 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
             .ShouldBe("Provider snapshot");
         result.GetProperty("fields").GetProperty("System.Title").GetProperty("value").GetString()
             .ShouldBe("Local overlay");
+        var edge = result.GetProperty("relationships").EnumerateArray().ShouldHaveSingleItem();
+        edge.GetProperty("kind").GetString().ShouldBe("parent-child");
+        edge.GetProperty("source").GetProperty("providerKind").GetString().ShouldBe("github");
+        edge.GetProperty("source").GetProperty("resourceScope").GetString().ShouldBe("https://api.github.com");
+        edge.GetProperty("source").GetProperty("nativeId").GetString().ShouldBe("I_parent");
+        edge.GetProperty("target").GetProperty("nativeId").GetString().ShouldBe("I_canonical");
+        edge.GetProperty("origin").GetString().ShouldBe("provider-native");
         githubToken.Calls.ShouldBeGreaterThan(0);
         githubTransport.RequestCount.ShouldBeGreaterThan(0);
         adoConstructions.ShouldBe(0);
@@ -633,7 +640,7 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         private const string Snapshot = """
             {"data":{"node":{"__typename":"Issue","id":"I_canonical","number":42,
             "title":"Provider snapshot","state":"OPEN","body":"**provider body**",
-            "url":"https://github.com/owner/repository/issues/42","parent":null,"milestone":null,
+            "url":"https://github.com/owner/repository/issues/42","parent":{"id":"I_parent"},"milestone":null,
             "repository":{"nameWithOwner":"owner/repository"}}}}
             """;
     }

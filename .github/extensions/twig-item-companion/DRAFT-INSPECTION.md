@@ -1,4 +1,4 @@
-# Native draft inspection - source-only explicit companion integration
+# Native draft inspection - JavaScript-qualified explicit companion integration
 
 This bounded foundation consumes the flat `draftDocumentVersion: 1` document
 originally authored in native `e735705db8290944ca304e69ed9b56111e3f5283`,
@@ -68,11 +68,30 @@ exit 0 at `28e3d2cde06852e8aa485c7c531bd47139ebe9f3`. The executable and
 test file blobs were preserved exactly when restacked at `3018b7da`.
 Those tests use fictional flat JSON, fake `execFile` and a minimal DOM; they
 prove the JavaScript consumer boundary, not native execution or G2 integration.
-The extraction and integration change executable source, so that historical
-qualification does not qualify this candidate. New fake-process/server/DOM/SDK
-tests are authored in `tests/draft-canvas-integration.test.mjs` but have NOT run.
-No syntax, JavaScript, native or build commands were run for this source-only
-packet. Native G2 integration remains withheld pending its own gates and lease.
+The extraction and integration changed executable source, so the historical
+10-test qualification alone did not qualify this integration. At
+`8425593d22acba181a4ca0cc46890708f5c78766`, seven bounded syntax checks passed,
+followed by the exact eight-file fake-boundary set: 55 executed, 55 passed,
+zero failed, cancelled or skipped; native Node and wrapper exits were all 0.
+That set includes the original 10 draft tests, 11 new
+`tests/draft-canvas-integration.test.mjs` cases and 34 existing server, detail,
+renderer, workbench, theme and explicit-Bench regressions. No real native
+integration test was included.
+
+Preserved earlier attempts remain part of the evidence: an incorrect runner
+path caused Python launcher exit 2 before Node started (not a product/test
+failure). The subsequent `fa638d3d` run passed seven syntax checks but executed
+55 tests with 54 passed and one failed, zero skipped, Node/wrapper exit 1.
+The failure exposed a fake SDK `CanvasError` constructor that lost the message.
+The test-only correction at `8425593d` models both code and message and asserts
+both; production code remained unchanged. Separate persistent logs retain the
+launcher failure, failed test run and successful corrected run.
+
+This ledger-only update does not change the qualified executable/test blobs.
+JavaScript evidence covers fake process boundaries, local loopback HTTP, DOM
+rendering and mocked SDK routing, not actual native G2 execution, installed
+extension registration or host behavior. Native G2 integration remains
+separately gated; no native, build, install, reload or host UI commands were run.
 
 Registration signatures are grounded in the installed SDK's `canvas.d.ts`,
 `extension.d.ts` and `generated/rpc.d.ts` (runtime

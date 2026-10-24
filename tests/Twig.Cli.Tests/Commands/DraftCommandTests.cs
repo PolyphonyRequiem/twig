@@ -156,6 +156,62 @@ public sealed class DraftCommandTests : IAsyncLifetime
     }
 
     [HostMigrationFact]
+    public async Task UnavailableFieldPreservesPriorConflictAndGenerationWithoutInventingResolution()
+    {
+        var runtime = await SeedAsync("Custom.NotCarried", "baseline", "intent");
+        var store = runtime.GetRequiredService<IRecoverableWorkItemDraftStore>();
+        var key = await KeyAsync(runtime);
+        var staged = await store.GetAsync(key);
+        staged.ShouldNotBeNull();
+        var conflict = new DraftFieldConflict("Custom.NotCarried", "baseline", "previously observed", "intent");
+        var conflicted = staged.Observe(3, [conflict]);
+        (await store.TrySaveAsync(conflicted, staged.Generation)).ShouldBeTrue();
+        var output = new StringWriter();
+
+        (await Command(runtime, output).ShowAsync(42, "json", document: true)).ShouldBe(0);
+
+        using var json = JsonDocument.Parse(output.ToString());
+        var root = json.RootElement;
+        root.GetProperty("status").GetString().ShouldBe("conflicted");
+        root.GetProperty("generation").GetInt64().ShouldBe(conflicted.Generation);
+        root.GetProperty("fields")[0].GetProperty("observedValueAvailable").GetBoolean().ShouldBeFalse();
+        root.GetProperty("conflicts")[0].GetProperty("observedValue").GetString().ShouldBe("previously observed");
+        var retained = await store.GetAsync(key);
+        retained.ShouldNotBeNull();
+        retained.Generation.ShouldBe(conflicted.Generation);
+        retained.Conflicts.ShouldBe([conflict]);
+        retained.Changes.ShouldBe(conflicted.Changes);
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
+    public async Task CanceledInspectionPropagatesCancellationWithoutOutputOrMetadataChanges()
+    {
+        var runtime = await SeedAsync();
+        var key = await KeyAsync(runtime);
+        var store = runtime.GetRequiredService<IRecoverableWorkItemDraftStore>();
+        var before = await store.GetAsync(key);
+        before.ShouldNotBeNull();
+        var output = new StringWriter();
+        var error = new StringWriter();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            Command(runtime, output, error).ShowAsync(42, "json", document: true, ct: cancellation.Token));
+
+        exception.CancellationToken.ShouldBe(cancellation.Token);
+        output.ToString().ShouldBeEmpty();
+        error.ToString().ShouldBeEmpty();
+        var after = await store.GetAsync(key);
+        after.ShouldNotBeNull();
+        after.Generation.ShouldBe(before.Generation);
+        after.Changes.ShouldBe(before.Changes);
+        after.Conflicts.ShouldBe(before.Conflicts);
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
     public async Task MissingProcessMetadataReportsUnknownRatherThanInventingStateEligibility()
     {
         var runtime = await SeedAsync("System.State", "To Do", "Doing");

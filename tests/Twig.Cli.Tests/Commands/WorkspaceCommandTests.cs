@@ -116,6 +116,62 @@ public class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task BrowserV1_AndDefaultEmptyOutputRemainByteIdenticalToThePreV2Contract()
+    {
+        const string workspace = """
+            {
+              "context": null,
+              "sprintItems": [],
+              "seeds": [],
+              "staleSeeds": [],
+              "sections": [],
+              "excludedItemIds": [],
+              "dirtyCount": 0
+            }
+            """;
+        var (defaultExit, defaultOutput) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("json"));
+        defaultExit.ShouldBe(0);
+        defaultOutput.ShouldBe(workspace.ReplaceLineEndings(Environment.NewLine) + Environment.NewLine);
+
+        var bench = new Bench { Id = 7, Name = "Empty" };
+        var command = CreateBrowserCommand(bench, Substitute.For<IPendingChangeStore>());
+        var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json",
+            view: "tree", includeBrowser: true));
+        exit.ShouldBe(0);
+        var expected = $$"""
+            {
+              "context": null,
+              "sprintItems": [],
+              "seeds": [],
+              "staleSeeds": [],
+              "sections": [],
+              "excludedItemIds": [],
+              "dirtyCount": 0,
+              "browser": {
+                "version": 1,
+                "benchId": "7",
+                "benchName": "Empty",
+                "bindingId": "binding-1",
+                "identityId": "identity-1",
+                "worktreeRoot": "C:/checkout",
+                "effectiveTeam": "Team",
+                "configuration": {
+                  "version": 1,
+                  "settingsDigest": "{{BenchQueryRule.SettingsDigest(bench.Selectors)}}",
+                  "areas": [],
+                  "sprints": [],
+                  "automaticEnabled": false,
+                  "assigneeSummary": "No automatic ownership rule",
+                  "pins": []
+                },
+                "roots": []
+              }
+            }
+            """;
+        output.ShouldBe(expected.ReplaceLineEndings(Environment.NewLine) + Environment.NewLine);
+    }
+
+    [Fact]
     public async Task Browser_ContainsRealAncestorsMergedAcrossOriginsAndHonestPinProvenance()
     {
         var ancestor = new WorkItem

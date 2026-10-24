@@ -34,7 +34,7 @@ namespace Twig.Commands;
 /// <see cref="HumanOutputFormatter.FormatSprintView"/> so the rich human-format
 /// rendering (active markers, dirty/stale glyphs, tree layout) stays intact.
 /// </remarks>
-public sealed class WorkspaceCommand(
+public sealed partial class WorkspaceCommand(
     CommandContext ctx,
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
@@ -126,8 +126,32 @@ public sealed class WorkspaceCommand(
             : (uniqueName, null);
     }
 
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null)
     {
+        if (bench is not null || browserVersion is not null || expectBench is not null)
+        {
+            var start = System.Diagnostics.Stopwatch.GetTimestamp();
+            var exit = 2;
+            if (!includeBrowser || browserVersion != 2 || string.IsNullOrWhiteSpace(bench)
+                || NormalizeOutputFormat(outputFormat) != "json" || view != "tree"
+                || all || sprintLayout || tree || flat || refresh)
+            {
+                Console.Error.WriteLine(FormatBenchReadError(outputFormat,
+                    "bench-read-usage: --bench and --expect-bench require --include-browser --browser-version 2 --view tree -o json; refresh and alternate layouts are not supported."));
+            }
+            else
+                exit = await ExecuteExplicitBrowserAsync(bench, expectBench, expectBinding, expectIdentity, ct);
+            try
+            {
+                TelemetryHelper.TrackCommand(ctx.TelemetryClient, "workspace", NormalizeOutputFormat(outputFormat), exit, start);
+            }
+            catch (Exception)
+            {
+                System.Diagnostics.Trace.TraceWarning("Optional command telemetry was unavailable.");
+            }
+            return exit;
+        }
+
         if (!TryResolveWorkspaceViewMode(view, all, sprintLayout, tree, flat, out var viewMode, out var viewError))
         {
             Console.Error.WriteLine(viewError);
@@ -1016,7 +1040,7 @@ public sealed class WorkspaceCommand(
 
     private async Task<RenderNode.Document> BuildBrowserDocumentAsync(
         Workspace workspace, Bench bench, Bench storedBench, BenchMembership membership, ResolvedConnectionBinding binding,
-        IReadOnlyDictionary<string, int>? typeLevelMap, CancellationToken ct)
+        IReadOnlyDictionary<string, int>? typeLevelMap, CancellationToken ct, HashSet<int>? depthOmittedIds = null)
     {
         // One native hierarchy for every visible member: shared ancestors are merged across
         // selector origins and assignees, while unpublished and owed work cannot disappear.
@@ -1070,6 +1094,8 @@ public sealed class WorkspaceCommand(
                     : membership.DirtyItemIds.Contains(item.Id) ? "pending"
                     : treePins.Contains(item.Id) || owners is { Count: > 0 } ? "subtree"
                     : memberIds.Contains(item.Id) ? "bench member" : "ancestor context";
+                if (depthOmittedIds is not null && depth >= ctx.Config.Display.TreeDepthDown)
+                    CollectOmitted(node.Children, depthOmittedIds);
                 var children = depth < ctx.Config.Display.TreeDepthDown ? Project(node.Children, depth + 1) : [];
                 var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
                 {
@@ -1099,6 +1125,7 @@ public sealed class WorkspaceCommand(
             && (item.IsSeed || membership.DirtyItemIds.Contains(item.Id)))
             .Select(item => new SprintHierarchyNode(item, memberIds.Contains(item.Id)));
         projectedRoots.AddRange(Project(omittedGuarded, 0));
+        depthOmittedIds?.ExceptWith(emitted);
 
         return new RenderNode.Document(null,
         [
@@ -1113,6 +1140,15 @@ public sealed class WorkspaceCommand(
                 await BenchConfigurationProjection.BuildAsync(bench, storedBench, workItemRepo, ct))),
             new("roots", new RenderNode.KeyValue("roots", new RenderCell(string.Empty, new RenderValue.Array(projectedRoots)))),
         ]);
+    }
+
+    private static void CollectOmitted(IEnumerable<SprintHierarchyNode> nodes, HashSet<int> ids)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsVirtualGroup) ids.Add(node.Item.Id);
+            CollectOmitted(node.Children, ids);
+        }
     }
     // ── RenderTree projection for machine output formats (json/minimal/ids) ────────
     // The human path keeps using HumanOutputFormatter to preserve rich-format behavior

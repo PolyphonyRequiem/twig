@@ -223,6 +223,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<AreaCommand>();
         services.AddSingleton<SprintCommand>();
         services.AddSingleton<PlanCommand>();
+        services.AddSingleton<PolicyCommand>();
         services.AddSingleton<PendingCommand>();
     }
 

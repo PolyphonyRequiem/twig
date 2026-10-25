@@ -65,6 +65,7 @@ public interface IRevisionBoundAdoWorkItemService
     /// A missing relation at the expected revision is a semantic error, not a silent no-op:
     /// the caller's planned state is invalid and the operation MUST throw.
     /// </remarks>
+    /// <remarks>Removes every matching occurrence in one fenced revision hop, so native readback can prove absence.</remarks>
     Task<int> RemoveLinkAtRevisionAsync(
         int sourceId,
         string relationType,

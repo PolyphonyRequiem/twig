@@ -245,6 +245,29 @@ public sealed class AdoRestClientRemoveLinkTests
     // ── Strict CAS: RemoveLinkAtRevisionAsync ──────────────────────
 
     [Fact]
+    public async Task RemoveLinkAtRevisionAsync_RemovesEveryMatchingOccurrenceInDescendingIndexOrder()
+    {
+        var handler = new RemoveLinkTrackingHandler(
+            [
+                ("System.LinkTypes.Dependency-Forward", 200),
+                ("System.LinkTypes.Related", 300),
+                ("System.LinkTypes.Dependency-Forward", 200),
+            ], rev: 5);
+        var client = CreateClient(handler);
+
+        await client.RemoveLinkAtRevisionAsync(100, "System.LinkTypes.Dependency-Forward", 200, 5);
+
+        using var document = JsonDocument.Parse(handler.LastPatchBody!);
+        var ops = document.RootElement;
+        ops.GetArrayLength().ShouldBe(3);
+        ops[0].GetProperty("op").GetString().ShouldBe("test");
+        ops[1].GetProperty("path").GetString().ShouldBe("/relations/2");
+        ops[2].GetProperty("path").GetString().ShouldBe("/relations/0");
+        handler.PatchRequestCount.ShouldBe(1);
+        handler.LastPatchIfMatch.ShouldBe("5");
+    }
+
+    [Fact]
     public async Task RemoveLinkAtRevisionAsync_PatchSendsIfMatchWithExpectedRevision()
     {
         var handler = new RemoveLinkTrackingHandler(

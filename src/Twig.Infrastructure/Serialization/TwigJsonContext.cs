@@ -3,6 +3,7 @@ using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.Services.Policy;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
@@ -21,6 +22,8 @@ namespace Twig.Infrastructure.Serialization;
 /// Add <c>[JsonSerializable]</c> attributes here for every DTO type as they are introduced.
 /// </summary>
 [JsonSerializable(typeof(TwigConfiguration))]
+[JsonSerializable(typeof(PolicyAssessment))]
+[JsonSerializable(typeof(PolicyRepairResult))]
 [JsonSerializable(typeof(BenchReadEnvelope))]
 [JsonSerializable(typeof(BenchReadError))]
 [JsonSerializable(typeof(TwigRepoConfig))]

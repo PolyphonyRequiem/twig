@@ -152,6 +152,19 @@ public sealed class DeclaredPolicyEvaluatorTests
     }
 
     [Fact]
+    public async Task ParentType_UnchangedTypeWithExistingViolation_WarnsRatherThanBlockingRepair()
+    {
+        Cache(1, WorkItemType.Task, parent: 2);
+        Cache(2, WorkItemType.Epic);
+
+        var d = (await Evaluate(Policy(TaskUnderIssue),
+            Plan(Batch("b", 1, ("System.WorkItemType", "Task"))))).ShouldHaveSingleItem();
+
+        d.Outcome.ShouldBe(PolicyOutcome.Warn);
+        d.Reason.ShouldContain("Pre-existing");
+    }
+
+    [Fact]
     public async Task Labels_NewLabelOnDisallowedType_Refuses()
     {
         Cache(1, WorkItemType.Task);

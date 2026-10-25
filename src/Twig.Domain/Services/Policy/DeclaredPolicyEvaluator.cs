@@ -83,8 +83,12 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             }
             else if (!rule.AllowedParentTypes.Contains(parentType, Names))
             {
-                findings.Add(Decide(rule, Violation(rule),
-                    $"{rule.ChildType} #{edge.ChildId} may not be parented under {parentType} #{edge.ParentId}; allowed parent types: {string.Join(", ", rule.AllowedParentTypes)}.",
+                var existing = state.PreParent(edge.ChildId) == edge.ParentId
+                    && Names.Equals(state.PreType(edge.ChildId), childType)
+                    && Names.Equals(state.PreType(edge.ParentId), parentType);
+                findings.Add(Decide(rule, existing ? PolicyOutcome.Warn : Violation(rule),
+                    (existing ? "Pre-existing, not worsened by this proposal: " : "")
+                    + $"{rule.ChildType} #{edge.ChildId} may not be parented under {parentType} #{edge.ParentId}; allowed parent types: {string.Join(", ", rule.AllowedParentTypes)}.",
                     edge.ChildId, edge.OpId));
             }
         }
@@ -368,6 +372,8 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             id < 0 ? _seeds.GetValueOrDefault(id) : _cached.GetValueOrDefault(id);
 
         public string? PreType(int id) => Find(id)?.Type.Value is { Length: > 0 } t ? t : null;
+
+        public int? PreParent(int id) => Find(id)?.ParentId;
 
         public IReadOnlyList<string> PreTags(int id, string field) =>
             Find(id) is { } item && item.Fields.TryGetValue(field, out var v) ? SplitTags(v) : [];

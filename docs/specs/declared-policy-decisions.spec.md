@@ -76,6 +76,85 @@ reference documents, not dependencies required to configure or use Twig.
 
 ## Engine contract
 
+### Current-state assessment and reconciliation
+
+Native proposal enforcement remains mandatory. Separately, `policy assess` examines existing
+published items, rather than interpreting an empty proposal as evidence of compliance.
+
+```sh
+twig policy assess --ids 42,43 -o json
+twig policy reconcile --ids 42,43 --evidence <evidenceDigest> --finding f1 --strategy reparent --parent 43 -o json
+twig policy reconcile --ids 42 --evidence <evidenceDigest> --finding f1 --strategy remove-labels -o json --proposal-only > repair.json
+twig proposal preview --file repair.json -o json
+# Review the proposal's digest; authorize and apply through the ordinary proposal lifecycle.
+# After apply: refresh the affected items and their links, then assess the same scope again.
+```
+
+Both commands support `human`, `json`, and `minimal`; JSON aliases are accepted. Assessment
+exits 0 only for complete compliant observations, 1 for noncompliance or unavailable evidence,
+and 2 for invalid usage. Reconciliation exits 0 when a proposal was rendered, **not** when
+compliance was achieved. `--proposal-only` requires JSON and emits only the native version-1
+proposal for deliberate redirection; refusal emits no proposal bytes. Do not overwrite an
+existing draft with shell redirection. Without that flag JSON includes `before`, `projected`,
+`proposal`, and the ordinary proposal digest. Human output includes alternatives and native
+proposal JSON. Commands do not refresh, apply, authorize, or journal anything automatically.
+MCP integration remains withdrawn.
+
+The assessment names its exact `scope`, `freshness: cached`, item revisions, sync timestamps,
+and link verification timestamps. It is **not a live or whole-board compliance claim**.
+Scope is 1–200 explicit positive IDs. Parent/label rules assess those IDs, with supporting
+parent observations. Dependency integrity examines their connected dependency component
+(both incoming and outgoing relations), capped by the rule's `maxNodes`, a hard 1,000-item
+ceiling, and 4,000 physical relations. A limit, missing item/type/sync observation, local
+modification, absent label field, or unverified link set preserves an `EvidenceUnavailable`
+finding. An explicitly observed empty/null field or verified empty link set is different
+from missing evidence. Missing/empty policy declarations cannot certify compliance.
+
+Findings carry a typed `code`, rule/item identity and structured `evidence`: parent/type,
+labels/field, cycle edges, counts or missing IDs. Strategy generation consumes those facts,
+**never parses `Reason` prose**. Warning enforcement does not turn a current violation into
+compliance. Definite violations remain visible alongside unavailable evidence.
+
+The fixed strategies are intentionally bounded, not a DSL:
+
+* `parent-type`: explicitly detach the disallowed parent, or choose `reparent` with a
+  caller-supplied allowed parent. Include that parent and its ancestry in the assessed
+  scope. Hierarchy cycles and incomplete ancestry refuse. No parent target is guessed.
+* `label-applicability`: remove the declared prefix's labels while retaining unrelated
+  labels; for exclusivity, explicitly select which observed label to retain. No label
+  priority is inferred. At most 32 alternatives are shown with `strategiesTruncated`
+  when there are more; evidence is not truncated by this presentation limit.
+* `dependency-integrity`: remove an explicitly selected self-link, duplicated dependency
+  (all occurrences, not an inferred choice to retain one), or witnessed cycle edge.
+  Mirrored predecessor/successor observations are one
+  logical edge, not duplicates. A cycle witness is not an exhaustive enumeration of
+  every cycle, and removing one edge may leave others. No preferred edge is selected.
+  The cache stores distinct relations, so it cannot certify physical multiplicity at the
+  server. Duplicate findings are emitted when supplied evidence preserves duplicates;
+  ordinary cache assessments certify only the observed logical graph. Native strict
+  `remove-link` removes all matching occurrences in one revision-fenced PATCH, consistent
+  with its existing absence readback contract.
+
+Every selection requires the assessment's `evidenceDigest` and its finding/strategy IDs.
+Reconciliation reacquires the policy and cached facts, rejects stale choices, projects the
+chosen operations over that observation, and reassesses **all declared rules**. It refuses
+unknown effects, no improvement, or a new/worsened violation; unrelated pre-existing findings
+remain visible and do not prevent an improving repair. It checks the observation again before
+emitting. The digest includes policy data and observed evidence; it is distinct from the
+proposal digest that binds confirmation and authorization.
+
+Repairs use the existing `batch` and `remove-link`/`add-link` operations with expected
+revisions. Reparenting removes the old edge then adds the explicitly chosen new edge at the
+next revision; this is a two-operation proposal, **not an atomic reparent**. A partial failure
+requires the ordinary journal recovery path. Proposal preview/apply retain native declared
+policy, process, pending-change, origin, confirmation, authorization and journal gates.
+A successful write/readback proves the authored effect, not policy compliance: only a new
+assessment after refresh can establish observed compliance for the named scope.
+
+This module does not merge local/remote fields (`ThreeWayMerge`), calculate process-dependent
+safe clears (`DependentFieldReconciler`), or settle failed/indeterminate operation outcomes
+(`proposal reconcile`). Those meanings of reconciliation remain separate.
+
 ### Decision
 
 Every evaluated rule produces zero or more `PolicyDecision` records:

@@ -595,24 +595,25 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
                 dto.Rev,
                 $"Work item #{sourceId} is at revision {dto.Rev}; expected {expectedRevision} for strict remove-link.");
 
-        var relationIndex = dto.Relations?.FindIndex(r =>
-            string.Equals(r.Rel, relationType, StringComparison.OrdinalIgnoreCase) &&
-            r.Url is not null &&
-            r.Url.EndsWith($"/{targetId}", StringComparison.OrdinalIgnoreCase)) ?? -1;
+        var relationIndices = dto.Relations?
+            .Select((relation, index) => (relation, index))
+            .Where(entry => string.Equals(entry.relation.Rel, relationType, StringComparison.OrdinalIgnoreCase)
+                && entry.relation.Url is not null
+                && entry.relation.Url.EndsWith($"/{targetId}", StringComparison.OrdinalIgnoreCase))
+            .Select(entry => entry.index).OrderDescending().ToArray() ?? [];
 
-        if (relationIndex < 0)
+        if (relationIndices.Length == 0)
             throw new AdoRelationNotFoundException(sourceId, relationType, targetId, expectedRevision);
 
         var patchUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = new List<AdoPatchOperation>
         {
             AdoResponseMapper.CreateRevisionTest(expectedRevision),
-            new()
-            {
-                Op = "remove",
-                Path = $"/relations/{relationIndex}",
-            },
         };
+        // The native remove-link effect and readback mean absence of this relation.
+        // Descending indices remove duplicate occurrences without shifting later targets.
+        foreach (var index in relationIndices)
+            patchDoc.Add(new() { Op = "remove", Path = $"/relations/{index}" });
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 

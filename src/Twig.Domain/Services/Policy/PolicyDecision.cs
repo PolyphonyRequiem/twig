@@ -1,3 +1,5 @@
+using Twig.Domain.ValueObjects;
+
 namespace Twig.Domain.Services.Policy;
 
 /// <summary>Outcome of evaluating one declared rule against a proposal.</summary>
@@ -33,6 +35,9 @@ public sealed record PolicyDecision
 
     /// <summary>The affected work item (negative for a seed), when the decision names one.</summary>
     public int? WorkItemId { get; init; }
+
+    /// <summary>The provider-qualified item for a version 2 observation, when applicable.</summary>
+    public ExternalWorkItemIdentity? ProviderIdentity { get; init; }
 
     /// <summary>The proposal operation that introduced the change, when one did.</summary>
     public string? OpId { get; init; }

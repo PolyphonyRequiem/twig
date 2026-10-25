@@ -9,7 +9,7 @@ internal static class GitHubIssueQueries
 {
     public const string Snapshot = """
         query($id: ID!) { node(id: $id) { __typename id ... on Issue {
-          number title state body url parent { id } milestone { title } repository { nameWithOwner }
+          number title state body url issueType { name } parent { id } milestone { title } repository { nameWithOwner }
         } } }
         """;
 

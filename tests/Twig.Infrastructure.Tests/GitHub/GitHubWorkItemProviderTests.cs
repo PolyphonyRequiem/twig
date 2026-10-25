@@ -28,10 +28,13 @@ public sealed class GitHubWorkItemProviderTests
         snapshot.RevisionToken.ShouldBeNull();
         snapshot.Fields["System.Title"].Value.ShouldBe(new TextValue("Issue title"));
         snapshot.Fields["System.State"].Value.ShouldBe(new TextValue("OPEN"));
+        snapshot.Fields["System.WorkItemType"].Value.ShouldBe(new TextValue("Bug"));
         snapshot.Fields["System.Description"].Value.ShouldBe(new RichTextValue("**body**", RichTextFormat.Markdown));
         snapshot.Fields["System.AssignedTo"].Value.ShouldBe(new IdentityValue("U_one", "someone"));
         snapshot.Fields["github.number"].Value.ShouldBe(new IntegerValue(42));
         snapshot.Fields["github.labels"].Value.ShouldBe(new StringListValue(["bug"]));
+        snapshot.Fields["System.Tags"].Value.ShouldBe(new StringListValue(["bug"]));
+        snapshot.RelationshipsComplete.ShouldBeTrue();
         snapshot.Fields["github.milestone"].Value.ShouldBe(NullValue.Instance);
         (await provider.ResolveResourceScopeAsync()).ShouldBe(Identity.ResourceScope);
         transport.Requests.ShouldNotBeEmpty();
@@ -176,6 +179,7 @@ public sealed class GitHubWorkItemProviderTests
         var provider = new GitHubWorkItemProvider(http);
         var snapshot = await provider.FetchSnapshotAsync(Identity);
         snapshot.Relationships.ShouldBeEmpty();
+        snapshot.RelationshipsComplete.ShouldBeTrue();
         snapshot.Fields["System.AssignedTo"].Value.ShouldBe(NullValue.Instance);
         snapshot.Fields["System.Description"].Value.ShouldBe(NullValue.Instance);
         snapshot.Fields["github.labels"].Value.ShouldBe(new StringListValue([]));
@@ -348,7 +352,8 @@ public sealed class GitHubWorkItemProviderTests
         public const string DefaultMetadata = """
             {"data":{"node":{"__typename":"Issue","id":"I_caseSensitive","number":42,
             "title":"Issue title","state":"OPEN","body":"**body**","url":"https://github.com/new/repo/issues/42",
-            "parent":{"id":"I_parent"},"milestone":null,"repository":{"nameWithOwner":"new/repo"}}}}
+            "issueType":{"name":"Bug"},"parent":{"id":"I_parent"},"milestone":null,
+            "repository":{"nameWithOwner":"new/repo"}}}}
             """;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)

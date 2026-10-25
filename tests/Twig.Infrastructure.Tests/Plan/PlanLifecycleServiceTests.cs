@@ -12,6 +12,7 @@ using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.ValueObjects.Fields;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
@@ -137,7 +138,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null,
-        IProviderWorkItemWriter? writer = null, IPlanOriginProvider? origin = null)
+        IProviderWorkItemWriter? writer = null, IPlanOriginProvider? origin = null,
+        IWorkItemSnapshotReader? providerSnapshots = null)
     {
         var provider = clock is null
             ? TimeProvider.System
@@ -162,7 +164,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             new StubSteering(() => { _steeringResolutions++; return _steeringMode; }),
             origin ?? new FixtureOrigin(_repoRoot),
             _ruleProvider,
-            Substitute.For<IUnitOfWork>());
+            Substitute.For<IUnitOfWork>(),
+            providerSnapshots: providerSnapshots);
     }
 
     [Fact]
@@ -310,6 +313,40 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         reviewedTarget!.ExternalIdentity.ProviderKind.ShouldBe("github");
         reviewedTarget.LocalId.IsEmpty.ShouldBeFalse();
         journal.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Preview_V2ShowsProviderPolicyDecisionAndKeepsApplyBlocked()
+    {
+        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_policy");
+        var reader = Substitute.For<IWorkItemSnapshotReader>();
+        reader.FetchSnapshotAsync(identity, Arg.Any<CancellationToken>())
+            .Returns(new ProviderWorkItemSnapshot(
+                identity,
+                RevisionToken: null,
+                FieldValues.Empty
+                    .Set("System.WorkItemType", new TextValue("Task"))
+                    .Set("System.Tags", new StringListValue(["bug"])),
+                Relationships: [],
+                RelationshipsComplete: true));
+        await File.WriteAllTextAsync(_paths.PolicyPath, """
+            { "version": 1, "rules": [
+              { "id": "priority", "kind": "label-applicability",
+                "prefix": "priority:", "allowedTypes": ["Issue"] }
+            ] }
+            """);
+        var source = WritePlan(ProviderBatchPlanSource(identity));
+
+        var result = await BuildService(providerSnapshots: reader).PreviewAsync(source);
+
+        result.CanApply.ShouldBeFalse();
+        result.Issues.ShouldContain(issue => issue.Code == PlanValidationCodes.UnsupportedApplyVersion);
+        var decision = result.ReviewModel!.PolicyDecisions.ShouldHaveSingleItem();
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Refuse);
+        decision.Reason.ShouldContain("I_policy");
+        decision.Reason.ShouldContain("not exact-revision apply authority");
+        result.ReviewModel.Blockers.ShouldContain(blocker => blocker.Kind == "policy");
+        await reader.Received(1).FetchSnapshotAsync(identity, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -3685,6 +3722,31 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             ],
         });
     }
+
+    private static string ProviderBatchPlanSource(ExternalWorkItemIdentity identity) =>
+        PlanDocumentWriter.Write(new PlanDefinition
+        {
+            Version = 2,
+            Workspace = new PlanWorkspace { Organization = "acme", Project = "cache" },
+            Operations =
+            [
+                new ProviderMutationOperation
+                {
+                    Id = "provider-label",
+                    OperationKind = PlanOperationKind.Batch,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = new ProviderWorkItemReference
+                        {
+                            LocalId = LocalWorkItemId.New(),
+                            ExternalIdentity = identity,
+                        },
+                        ExpectedProviderRevision = new ProviderRevisionToken("opaque-revision"),
+                    },
+                    Fields = new Dictionary<string, string?> { ["System.Tags"] = "priority:high" },
+                },
+            ],
+        });
 
     private static string BatchWithFields(
         int workItemId,

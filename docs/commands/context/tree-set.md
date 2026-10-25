@@ -59,6 +59,15 @@ twig tree-set --items <ids> [--annotate <json>] [--depth <n>]
 - **Cache‑only.** `WorkingSetTreeBuilder` reads from
   `IWorkItemRepository`; there is no ADO fetch. Populate the cache
   first with `twig sync` or `twig show <id>`.
+- **Effective display, raw structure.** After the forest is built, durable
+  local field overrides are composed for every cached member, ancestor,
+  and depth-expanded child. Titles, states, and type cells show those
+  effective values; ancestry, membership, ordering, annotations, and missing
+  placeholders still come from the raw cache and caller input. This includes
+  JSON, which is a display projection, not a raw export. Rendering writes
+  neither the mirror nor the durable record and does not resolve an unknown
+  resource scope, acquire credentials, or contact ADO. With no overrides or
+  no already-known scope, display remains the cached mirror.
 - The requested `--icons` value is applied via a shallow copy of
   `DisplayConfig` so an override does not leak into other in‑process
   commands (`src/Twig/Commands/SetTree/WorkingSetTreeCommand.cs:118-128`).

@@ -1,17 +1,17 @@
 ---
 command: proposal validate
 group: plans
-summary: Validate a proposal v1 file without touching ADO.
+summary: Validate proposal v1 and v2 files without touching providers.
 stability: stable
 mutates: none
 ---
 
 # `twig proposal validate`
 
-Read-only check that a proposal v1 JSON file parses, canonicalizes, and
-reports a stable SHA-256 digest. `validate` never talks to Azure DevOps and
-never touches the journal — it is the first step on the change-proposal
-path and the one you can run freely while authoring a proposal.
+Read-only check that a version 1 or 2 proposal JSON file parses, canonicalizes,
+and reports a stable SHA-256 digest. Version 1 retains its existing ADO
+execution contract; version 2 is provider-identity-aware but review-only.
+`validate` never talks to a provider and never touches the journal.
 
 ## Synopsis
 
@@ -31,7 +31,7 @@ twig proposal validate --file <path> [-o human|json|minimal]
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
+|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
 
 ## Behavior
@@ -49,6 +49,8 @@ Behaviors worth naming:
   error (`src/Twig/Commands/PlanCommand.cs:193-207`).
 - **Digest is stable.** The digest returned here is byte-identical to the one
   `proposal preview` reports and the one `proposal apply --confirm` requires.
+  Version 2 has its own canonical digest and cannot be applied by the current
+  lifecycle; validation does not imply execution support.
 
 ### Authoring from installed help
 

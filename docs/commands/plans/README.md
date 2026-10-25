@@ -1,7 +1,8 @@
 # Plans — proposal lifecycle and pending changes
 
 The **plans** group covers the five original `proposal <verb>` commands that
-validate, preview, apply, inspect, and describe a proposal v1 file, plus the
+validate, preview, apply, inspect, and describe proposal files (v1 and v2 where
+supported; seed publication remains v1-only), plus the
 read-only `proposal latest` selection, explicit `proposal reconcile` settlement,
 and `pending` staged-change dump. A proposal
 is an immutable JSON declaration; state
@@ -88,8 +89,10 @@ twig proposal validate --file proposal.json -o json
 `PlanDocumentParser` owns the strict input contract: only `version`, `workspace`
 and `operations` are root properties; operations are ordered and nonempty.
 Unknown/duplicate properties, unsupported versions/kinds and invalid values are
-rejected. `batch`, `add-link`, `remove-link`, `publish-seed` and `delete` are
-the five supported operation kinds. Notes, artifacts, branch links, composite
+rejected. Version 1 supports `batch`, `add-link`, `remove-link`, `publish-seed`
+and `delete`. Version 2 supports provider-bound `batch`, `add-link`,
+`remove-link` and `delete`; `publish-seed` remains version 1 only. Notes,
+artifacts, branch links, composite
 reparent operations and model-authored lifecycle state do not belong in this file.
 
 ### Validation is not publication permission
@@ -179,7 +182,10 @@ Unknown/in-flight outcomes, active leases, missing evidence and mismatches stay 
 the historical `state` is never rewritten as `Verified`. Unknown legacy origin
 cannot silently adopt the current actor. A fresh proposal requires fresh operation
 identities and current preview/authorization. Plan JSON v1 still has only its five
-existing operation kinds; reconciliation is a separate native action.
+existing operation kinds. Version 2 uses provider-qualified identities and opaque
+provider revision tokens for batch/link/delete proposals, but remains review-only:
+preview does not journal it and apply refuses it before authorization or provider
+access. Reconciliation is a separate native action.
 
 The MCP equivalent is `twig_proposal_reconcile`, including batch dispatch. It requires
 `confirmed: true`, separate confirmed/authorization digests, an operation, outcome,
@@ -199,10 +205,11 @@ authorizer and rationale. Its `settled` result is distinct from successful execu
 
 |Command|Summary|Mutates|
 |---|---|---|
-|[`proposal validate`](proposal-validate.md)|Validate a proposal v1 file; no ADO calls.|none|
-|[`proposal preview`](proposal-preview.md)|Import journal, snapshot pending, report digest and `canApply`, with optional native presentation and digest guard.|local|
+|[`draft show`](draft-show.md)|Inspect an existing recoverable native draft; observation/conflict metadata may be CAS-written, intent is retained.|local|
+|[`proposal validate`](proposal-validate.md)|Validate proposal v1/v2 and report its digest; no provider calls.|none|
+|[`proposal preview`](proposal-preview.md)|Review v1/v2; v1 imports journal, while v2 is blocked without journal access.|local (v1)|
 |[`proposal latest`](README.md#latest-unresolved-proposal)|Select the latest unresolved workspace preview without mutation.|none|
-|[`proposal apply`](proposal-apply.md)|Apply a proposal after digest confirmation and authorization.|ado|
+|[`proposal apply`](proposal-apply.md)|Apply v1 after digest confirmation and authorization; refuse v2 before journal or provider access.|ado (v1)|
 |[`proposal status`](proposal-status.md)|Show journal state for a proposal file.|none|
 |[`proposal reconcile`](README.md#explicit-reconciliation-and-retirement)|Append an evidence-backed outcome receipt without replay or historical-state rewrites.|local|
 |[`proposal seed`](proposal-seed.md)|Describe a staged seed for proposal authoring.|none|

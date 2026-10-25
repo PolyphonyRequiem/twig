@@ -111,6 +111,27 @@ public sealed class CurrentBenchResolver
         return stored;
     }
 
+    internal async Task<(Bench Effective, Bench Stored)> ResolveExplicitAsync(
+        string target, string? expectedId, string? cachedPrincipal, CancellationToken ct)
+    {
+        var benches = await _benchRepository.GetAllAsync(ct);
+        var matches = benches.Where(bench =>
+            string.Equals(bench.Name, target, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(bench.Id.ToString(CultureInfo.InvariantCulture), target, StringComparison.Ordinal)).ToArray();
+        if (matches.Length == 0)
+            throw new InvalidOperationException("bench-target-missing: the explicitly requested Bench does not exist.");
+        if (matches.Length != 1)
+            throw new InvalidOperationException("bench-target-ambiguous: the requested Bench matches multiple identities.");
+        var stored = matches[0];
+        if (expectedId is not null && expectedId != stored.Id.ToString(CultureInfo.InvariantCulture))
+            throw new InvalidOperationException("bench-target-changed: the requested Bench no longer has the expected identity.");
+        if (!stored.IsDefault) return (stored, stored);
+        // Explicit browser reads cannot discover identity over HTTP, even for the default Bench.
+        if (string.IsNullOrWhiteSpace(cachedPrincipal))
+            throw new InvalidOperationException("bench-bound-principal-unavailable: the registered identity has no cached canonical account. Repair the native identity before reading the default Bench.");
+        return (NormalizeDefaultSelfSprint(stored, [BenchSelector.ForCurrentSprintCanonical(cachedPrincipal)]), stored);
+    }
+
     internal async Task<(Bench Effective, Bench Stored)> ResolveCapturedAsync(CancellationToken ct = default, string? expectBench = null)
         => await ReadCapturedAsync(await ResolveStoredAsync(ct, expectBench), ct);
 
@@ -125,7 +146,7 @@ public sealed class CurrentBenchResolver
     /// canonical form, preserving every non-sprint selector exactly. Pins (item / subtree) and any
     /// unrelated query rule survive — only the automanaged sprint rule is re-sourced.
     /// </summary>
-    private static Bench NormalizeDefaultSelfSprint(Bench current, IReadOnlyCollection<BenchSelector> freshSelectors)
+    internal static Bench NormalizeDefaultSelfSprint(Bench current, IReadOnlyCollection<BenchSelector> freshSelectors)
     {
         var uniqueName = freshSelectors.Single(s => s.Kind == SelectorKind.Query).QueryAssignedToUniqueName!;
         var combined = new List<BenchSelector>(current.Selectors.Count);

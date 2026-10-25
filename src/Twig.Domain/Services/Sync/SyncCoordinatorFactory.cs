@@ -12,7 +12,7 @@ public sealed class SyncCoordinatorFactory
 {
     public SyncCoordinatorFactory(
         IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemReader adoService,
         ProtectedCacheWriter protectedCacheWriter,
         IPendingChangeStore pendingChangeStore,
         IWorkItemLinkRepository? linkRepo,

@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 12;
+    internal const int DurableSchemaVersion = 16;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -735,9 +735,8 @@ public sealed class SqliteCacheStore : IDisposable
         // both: the proposal alone cannot show what the reviewer saw, and the review model alone
         // is not what the apply was bound to.
         //
-        // `authorization_mode` holds the closed set `human|model`. It is NOT the HITL/AFK
-        // vocabulary of `Custom.WayfinderExecutionMode`, which describes a session rather than
-        // an apply.
+        // `authorization_mode` holds the closed set `human|model`. It is NOT any process field's
+        // session-steering vocabulary, which describes a session rather than an apply.
         [9] = $"""
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorization_mode TEXT;
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorizer_identity TEXT;
@@ -790,6 +789,74 @@ public sealed class SqliteCacheStore : IDisposable
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_receipts_publish
                 ON proposal_receipts(publish_identity, publish_intent_recorded_at)
                 WHERE publish_identity IS NOT NULL;
+            """,
+
+        // Epic #1168 — provider-neutral durable records. local_work_items holds Twig-owned
+        // identity (GUIDv7 text), an integer local CAS revision and locally held field values
+        // (FieldValuesJsonConverter form); deleted_at is a terminal tombstone, and no history is
+        // kept. external_identities maps a provider key (kind, scope, opaque native id) to a
+        // local id and records the last observed opaque provider token. local_relationships
+        // holds locally owned edges only, keyed by stable LinkKindNames tokens; remote edges stay
+        // in the disposable mirror. Additive only: no existing row is read or rewritten.
+        [13] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.local_work_items (
+                local_id TEXT PRIMARY KEY,
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                fields_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.external_identities (
+                provider_kind TEXT NOT NULL,
+                resource_scope TEXT NOT NULL,
+                native_id TEXT NOT NULL,
+                local_id TEXT NOT NULL,
+                provider_token TEXT,
+                observed_at TEXT NOT NULL,
+                PRIMARY KEY (provider_kind, resource_scope, native_id)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_external_identities_local
+                ON external_identities(local_id);
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.local_relationships (
+                source_local_id TEXT NOT NULL,
+                target_local_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT,
+                PRIMARY KEY (source_local_id, target_local_id, kind)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_local_relationships_target
+                ON local_relationships(target_local_id);
+            """,
+
+        // Epic 1170: additive emulation semantics on #1168's neutral table. Nullable because
+        // rows the neutral layer writes carry no emulation policy; the overlay repository always
+        // writes both as canonical tokens and refuses to read a row it owns without them.
+        [14] = $"""
+            ALTER TABLE {DurableSchema}.local_relationships ADD COLUMN storage TEXT;
+            ALTER TABLE {DurableSchema}.local_relationships ADD COLUMN publication TEXT;
+            """,
+
+        [15] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.recoverable_work_item_drafts (
+                checkout_root TEXT NOT NULL,
+                connection_id TEXT NOT NULL,
+                binding_id TEXT NOT NULL,
+                work_item_id INTEGER NOT NULL,
+                generation INTEGER NOT NULL CHECK (generation >= 0),
+                draft_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (checkout_root, connection_id, binding_id, work_item_id)
+            );
+            """,
+
+        [16] = $"""
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN draft_capture_json TEXT;
             """,
 
     };

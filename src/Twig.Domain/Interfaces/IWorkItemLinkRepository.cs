@@ -24,6 +24,16 @@ public interface IWorkItemLinkRepository
     Task<IReadOnlyList<WorkItemLink>> GetLinksForSetAsync(IReadOnlyList<int> workItemIds, CancellationToken ct = default);
 
     /// <summary>
+    /// Returns distinct cached sources of predecessor/successor observations targeting the
+    /// named items, ordered by source ID and capped at <paramref name="limit"/>.
+    /// Request one more than the traversal bound to detect truncation. These are discovery
+    /// IDs, not verified edges: read each source's full observation and verification stamp.
+    /// No inverse rows or global absence guarantee are synthesized.
+    /// </summary>
+    Task<IReadOnlyList<int>> GetIncomingDependencySourcesAsync(
+        IReadOnlyList<int> workItemIds, int limit, CancellationToken ct = default);
+
+    /// <summary>
     /// Returns when <paramref name="workItemId"/>'s edge set was last read from ADO and written
     /// to the cache, or <c>null</c> when it never has been (AB#831).
     /// </summary>

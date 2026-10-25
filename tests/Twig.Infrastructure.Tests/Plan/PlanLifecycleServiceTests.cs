@@ -4,18 +4,20 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.ValueObjects.Fields;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Plan;
+using Twig.Infrastructure.Tests.Ado;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Plan;
@@ -32,7 +34,12 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     private readonly SqlitePlanJournalRepository _journal;
     private readonly IPendingChangeReader _pending = Substitute.For<IPendingChangeReader>();
     private readonly IFieldDefinitionStore _fieldDefinitions = Substitute.For<IFieldDefinitionStore>();
+    // Feature #1178: the service is handed the provider-neutral mutation port, so every journal,
+    // partial-failure and readback pin here proves proposal apply needs nothing ADO-only. The port is
+    // the real ADO adapter over this client substitute (AC (a)), so the opaque revision precondition
+    // check runs exactly as in production. Wrapped once in the constructor, before any per-test stub.
     private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
     private readonly IWorkItemRepository _workItems = Substitute.For<IWorkItemRepository>();
     private readonly ISeedLinkRepository _seedLinks = Substitute.For<ISeedLinkRepository>();
@@ -48,6 +55,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
     public PlanLifecycleServiceTests()
     {
+        _writer = AdoWriterFixture.Wrap(_ado);
         _repoRoot = Path.Combine(Path.GetTempPath(), $"twig-plan-lc-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_repoRoot);
         var twigDir = Path.Combine(_repoRoot, ".twig");
@@ -76,7 +84,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                     {
                         Id = id,
                         Revision = ci.ArgAt<int>(1),
-                        TypeName = string.Empty,
+                        TypeName = "FixtureType",
                         Title = string.Empty,
                         State = string.Empty,
                         Fields = new Dictionary<string, string?>(),
@@ -102,6 +110,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     /// fail-closed production answer; AFK tests set it explicitly.
     /// </summary>
     private SessionSteeringMode _steeringMode = SessionSteeringMode.HumanSteered;
+    private int _steeringResolutions;
 
     private sealed class StubSteering(Func<SessionSteeringMode> read) : ISessionSteeringModeProvider
     {
@@ -128,7 +137,9 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 "fixture-object", "fixture-issuer", "fixture-authority", null));
     }
 
-    private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null)
+    private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null,
+        IProviderWorkItemWriter? writer = null, IPlanOriginProvider? origin = null,
+        IWorkItemSnapshotReader? providerSnapshots = null)
     {
         var provider = clock is null
             ? TimeProvider.System
@@ -138,7 +149,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             journal ?? _journal,
             _pending,
             _fieldDefinitions,
-            _ado,
+            writer ?? _writer,
+            AdoWriterFixture.Codec,
             _revisionBound,
             _seedPublish.Orchestrator,
             _workItems,
@@ -149,10 +161,11 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             _config,
             _paths,
             provider,
-            new StubSteering(() => _steeringMode),
-            new FixtureOrigin(_repoRoot),
+            new StubSteering(() => { _steeringResolutions++; return _steeringMode; }),
+            origin ?? new FixtureOrigin(_repoRoot),
             _ruleProvider,
-            Substitute.For<IUnitOfWork>());
+            Substitute.For<IUnitOfWork>(),
+            providerSnapshots: providerSnapshots);
     }
 
     [Fact]
@@ -282,6 +295,74 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_V2ShowsIdentityAndBlockerWithoutJournalImport()
+    {
+        var file = WritePlan(ProviderPlanSource());
+        var journal = Substitute.For<IPlanJournalRepository>();
+        var result = await BuildService(journal: journal).PreviewAsync(file);
+
+        result.Digest.ShouldNotBeNullOrWhiteSpace();
+        result.CanApply.ShouldBeFalse();
+        result.Issues.ShouldContain(issue => issue.Code == PlanValidationCodes.UnsupportedApplyVersion);
+        result.ReviewModel.ShouldNotBeNull();
+        result.ReviewModel!.AuthorizationChoices.ShouldBe(["revise", "decline"]);
+        result.ReviewModel.Blockers.ShouldContain(blocker =>
+            blocker.Kind == "issue" && blocker.Detail.Contains(PlanValidationCodes.UnsupportedApplyVersion));
+        var reviewedTarget = result.ReviewModel.Operations.Single().Target.ProviderWorkItem;
+        reviewedTarget.ShouldNotBeNull();
+        reviewedTarget!.ExternalIdentity.ProviderKind.ShouldBe("github");
+        reviewedTarget.LocalId.IsEmpty.ShouldBeFalse();
+        journal.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Preview_V2ShowsProviderPolicyDecisionAndKeepsApplyBlocked()
+    {
+        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_policy");
+        var reader = Substitute.For<IWorkItemSnapshotReader>();
+        reader.FetchSnapshotAsync(identity, Arg.Any<CancellationToken>())
+            .Returns(new ProviderWorkItemSnapshot(
+                identity,
+                RevisionToken: null,
+                FieldValues.Empty
+                    .Set("System.WorkItemType", new TextValue("Task"))
+                    .Set("System.Tags", new StringListValue(["bug"])),
+                Relationships: [],
+                RelationshipsComplete: true));
+        await File.WriteAllTextAsync(_paths.PolicyPath, """
+            { "version": 1, "rules": [
+              { "id": "priority", "kind": "label-applicability",
+                "prefix": "priority:", "allowedTypes": ["Issue"] }
+            ] }
+            """);
+        var source = WritePlan(ProviderBatchPlanSource(identity));
+
+        var result = await BuildService(providerSnapshots: reader).PreviewAsync(source);
+
+        result.CanApply.ShouldBeFalse();
+        result.Issues.ShouldContain(issue => issue.Code == PlanValidationCodes.UnsupportedApplyVersion);
+        var decision = result.ReviewModel!.PolicyDecisions.ShouldHaveSingleItem();
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Refuse);
+        decision.Reason.ShouldContain("I_policy");
+        decision.Reason.ShouldContain("not exact-revision apply authority");
+        result.ReviewModel.Blockers.ShouldContain(blocker => blocker.Kind == "policy");
+        await reader.Received(1).FetchSnapshotAsync(identity, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Preview_V1PreservesCanonicalRequestJsonInTheJournal()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Doing"));
+
+        var preview = await BuildService().PreviewAsync(file);
+
+        preview.CanApply.ShouldBeTrue();
+        var journal = (await _journal.GetAsync(preview.Digest!))!;
+        journal.Operations.ShouldHaveSingleItem().RequestJson.ShouldBe(
+            "{\"expectedRevision\":3,\"fields\":{\"System.State\":\"Doing\"},\"id\":\"op\",\"kind\":\"batch\",\"workItemId\":42}");
+    }
+
+    [Fact]
     public async Task Preview_ExpectedDigestMismatchRefusesBeforeJournalImportOrPendingSnapshot()
     {
         var file = WritePlan(ValidPlanSource());
@@ -374,7 +455,27 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
 
         apply.Failed.ShouldBeTrue();
-        apply.Error!.ShouldContain("No preview journal");
+        var error = apply.Error ?? throw new InvalidOperationException("Expected the apply to report an error.");
+        error.ShouldContain("No preview journal");
+    }
+
+    [Fact]
+    public async Task Apply_V2RefusesBeforeConfirmationAuthorizationJournalPendingOrProviderAccess()
+    {
+        var file = WritePlan(ProviderPlanSource());
+        var journal = Substitute.For<IPlanJournalRepository>();
+        var service = BuildService(journal: journal);
+
+        var result = await service.ApplyAsync(file, "unconfirmed-digest", authorization: null);
+
+        result.Failed.ShouldBeTrue();
+        var error = result.Error ?? throw new InvalidOperationException("Expected the apply to report an error.");
+        error.ShouldContain("cannot be applied");
+        error.ShouldContain("No confirmation");
+        journal.ReceivedCalls().ShouldBeEmpty();
+        await _pending.DidNotReceive().GetAllChangesAsync(Arg.Any<CancellationToken>());
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
     }
 
     // ── apply: happy path (batch) ──────────────────────────────────────────
@@ -414,6 +515,97 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Active"));
         return (file, digest, svc);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Apply_DraftCapturedJournal_RefusesBeforeAuthorityOrConfirmation(bool supplyAuthorization)
+    {
+        var repository = new SqliteWorkItemRepository(_store, _mapper);
+        await repository.SaveAsync(_mapper.Map(new WorkItemSnapshot
+        {
+            Id = 42, Revision = 3, Title = "baseline", TypeName = "FixtureType", State = "FixtureState",
+            Fields = new Dictionary<string, string?> { ["Fixture.Field"] = "old" },
+        }));
+        var snapshot = (await repository.GetSnapshotByIdAsync(42))!;
+        var draft = RecoverableWorkItemDraft.Create(
+            new QualifiedWorkItemKey(_repoRoot, "fixture-connection", "fixture-binding", 42), 3)
+            .SetField("Fixture.Field", "old", "intent");
+        (await new SqliteRecoverableWorkItemDraftStore(_store).TrySaveAsync(draft, null)).ShouldBeTrue();
+        var journal = await new SqliteDraftProposalCaptureStore(_store).CaptureAsync(
+            draft, snapshot, await new FixtureOrigin(_repoRoot).GetOriginAsync(),
+            new PlanWorkspace { Organization = "acme", Project = "cache" }, _repoRoot);
+        await File.WriteAllTextAsync(journal.SourcePath, journal.CanonicalJson);
+        journal.DraftCapture.ShouldNotBeNull();
+
+        var result = await BuildService().ApplyAsync(journal.SourcePath, journal.Digest,
+            supplyAuthorization ? Authorize(journal.Digest) : null);
+
+        result.Failed.ShouldBeTrue();
+        result.Error!.ShouldContain("Draft-captured proposals are local inspection only");
+        _steeringResolutions.ShouldBe(0);
+        var retained = (await _journal.GetAsync(journal.Digest))!;
+        retained.State.ShouldBe(PlanOperationState.Planned);
+        retained.ConfirmedAt.ShouldBeNull();
+        retained.AuthorizationMode.ShouldBeNull();
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+        _ruleProvider.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Status_DraftCapturedJournal_WithUnavailableOrigin_RetainsIntentWithoutAuthority()
+    {
+        var repository = new SqliteWorkItemRepository(_store, _mapper);
+        await repository.SaveAsync(_mapper.Map(new WorkItemSnapshot
+        {
+            Id = 42, Revision = 3, Title = "baseline", TypeName = "FixtureType", State = "FixtureState",
+            Fields = new Dictionary<string, string?> { ["Fixture.Field"] = "old" },
+        }));
+        var snapshot = (await repository.GetSnapshotByIdAsync(42))!;
+        var draft = RecoverableWorkItemDraft.Create(
+            new QualifiedWorkItemKey(_repoRoot, "fixture-connection", "fixture-binding", 42), 3)
+            .SetField("Fixture.Field", "old", "intent");
+        var drafts = new SqliteRecoverableWorkItemDraftStore(_store);
+        (await drafts.TrySaveAsync(draft, null)).ShouldBeTrue();
+        var journal = await new SqliteDraftProposalCaptureStore(_store).CaptureAsync(
+            draft, snapshot, await new FixtureOrigin(_repoRoot).GetOriginAsync(),
+            new PlanWorkspace { Organization = "acme", Project = "cache" }, _repoRoot);
+        await File.WriteAllTextAsync(journal.SourcePath, journal.CanonicalJson);
+        using var retainedRow = _store.GetConnection().CreateCommand();
+        retainedRow.CommandText = """
+            SELECT json_array(digest,canonical_json,origin_json,draft_capture_json,state,confirmed_at,
+                authorization_mode,last_previewed_at,error) FROM pending.proposal_journals WHERE digest=@digest;
+            """;
+        retainedRow.Parameters.AddWithValue("@digest", journal.Digest);
+        var before = (string)retainedRow.ExecuteScalar()!;
+        var origin = Substitute.For<IPlanOriginProvider>();
+        origin.GetOriginAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Current principal is unavailable."));
+
+        var result = (await BuildService(origin: origin).StatusAsync(journal.SourcePath)).ShouldNotBeNull();
+
+        result.Found.ShouldBeTrue();
+        result.Digest.ShouldBe(journal.Digest);
+        var issue = result.Issues.ShouldHaveSingleItem();
+        issue.Code.ShouldBe("draft-capture-stale");
+        issue.Path.ShouldBe(string.Empty);
+        issue.Message.ShouldBe("Native capture origin is unavailable or changed: Current principal is unavailable.");
+        await origin.Received(1).GetOriginAsync(Arg.Any<CancellationToken>());
+        ((string)retainedRow.ExecuteScalar()!).ShouldBe(before);
+        (await File.ReadAllTextAsync(journal.SourcePath)).ShouldBe(journal.CanonicalJson);
+        JsonSerializer.Serialize(await drafts.GetAsync(draft.ItemKey),
+            Twig.Infrastructure.Serialization.TwigJsonContext.Default.RecoverableWorkItemDraft)
+            .ShouldBe(JsonSerializer.Serialize(draft,
+                Twig.Infrastructure.Serialization.TwigJsonContext.Default.RecoverableWorkItemDraft));
+        journal.State.ShouldBe(PlanOperationState.Planned);
+        journal.ConfirmedAt.ShouldBeNull();
+        journal.AuthorizationMode.ShouldBeNull();
+        _steeringResolutions.ShouldBe(0);
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+        _ruleProvider.ReceivedCalls().ShouldBeEmpty();
     }
 
     // Defends against: an apply proceeding with nobody on record as having released it.
@@ -576,6 +768,125 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    // ── #1178 AC (a): opaque revision precondition through apply ───────────
+
+    /// <summary>
+    /// Delegates to the real ADO adapter but re-labels one item's precondition with a foreign
+    /// provider kind, so a refusal arises at the real port after an earlier operation landed.
+    /// </summary>
+    private sealed class ForeignPreconditionWriter(IProviderWorkItemWriter inner, int foreignItemId)
+        : IProviderWorkItemWriter
+    {
+        public Task<ProviderRevisionToken> PatchAsync(int id, IReadOnlyList<FieldChange> changes,
+            ProviderRevisionPrecondition expected, CancellationToken ct = default)
+            => inner.PatchAsync(id, changes,
+                id == foreignItemId
+                    ? new ProviderRevisionPrecondition(ProviderCapabilityCatalog.GitHubProviderKind, expected.Expected)
+                    : expected,
+                ct);
+
+        public Task AddCommentAsync(int id, string text, CancellationToken ct = default)
+            => inner.AddCommentAsync(id, text, ct);
+
+        public Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+            => inner.AddLinkAsync(sourceId, targetId, adoLinkType, ct);
+
+        public Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment,
+            CancellationToken ct = default)
+            => inner.AddLinkWithCommentAsync(sourceId, targetId, adoLinkType, comment, ct);
+
+        public Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+            => inner.RemoveLinkAsync(sourceId, targetId, adoLinkType, ct);
+
+        public Task<WorkItem> FetchAsync(int id, CancellationToken ct = default) => inner.FetchAsync(id, ct);
+
+        public Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id,
+            CancellationToken ct = default) => inner.FetchWithLinksAsync(id, ct);
+
+        public Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksAsync(
+            IReadOnlyList<int> ids, CancellationToken ct = default) => inner.FetchBatchWithLinksAsync(ids, ct);
+
+        public Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default)
+            => inner.FetchChildrenAsync(parentId, ct);
+
+        public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default)
+            => inner.QueryByWiqlAsync(wiql, ct);
+
+        public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default)
+            => inner.QueryByWiqlAsync(wiql, top, ct);
+
+        public Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct = default)
+            => inner.FetchBatchAsync(ids, ct);
+    }
+
+    [Fact]
+    public async Task Apply_PreconditionRefusedAfterEarlierWrite_IsDeterminateFailure_AndKeepsTheEarlierWrite()
+    {
+        var file = WritePlan(TwoBatchPlan(a: (100, 3), b: (101, 5)));
+        var svc = BuildService(writer: new ForeignPreconditionWriter(_writer, foreignItemId: 101));
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _ado.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(100, rev: 4, state: "Active"));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        apply.Error.ShouldBeNull();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[1].State.ShouldBe(PlanOperationState.Failed);
+        apply.Operations[1].Error!.ShouldStartWith("revision-precondition-refused:");
+
+        var status = (await svc.StatusAsync(file))!;
+        status.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        var refused = status.Operations[1];
+        refused.State.ShouldBe(PlanOperationState.Failed);
+        refused.Diagnostics.Disposition.ShouldBe("failed");
+        refused.Diagnostics.ExpectedRevision.ShouldBe(5);
+        refused.Diagnostics.ObservedRevision.ShouldBeNull();
+        // The journal row carries the refusal code; the shared diagnostics projection
+        // allowlists known codes and does not surface this one yet, so read the raw row.
+        using (var result = System.Text.Json.JsonDocument.Parse(refused.ResultJson!))
+        {
+            var diag = result.RootElement.GetProperty("diagnostics");
+            diag.GetProperty("code").GetString().ShouldBe("revision-precondition-refused");
+            diag.GetProperty("expectedRevision").GetInt32().ShouldBe(5);
+            result.RootElement.TryGetProperty("rev", out _).ShouldBeFalse();
+            result.RootElement.TryGetProperty("revision", out _).ShouldBeFalse();
+        }
+
+        await _ado.Received(1).PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
+        await _ado.DidNotReceive().PatchAsync(101, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _ado.DidNotReceive().FetchAsync(101, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_DigestAndJournalFormat_AreUnchangedByTheOpaquePort()
+    {
+        // D3: the proposal, digest and journal stay int-shaped in this slice. The digest of a
+        // fixed plan and the acknowledged-revision JSON are pinned as literals.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Active"));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        digest.ShouldBe(PinnedBatchDigest);
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+        var row = (await svc.StatusAsync(file))!.Operations.ShouldHaveSingleItem();
+        row.ResultJson.ShouldBe(PinnedBatchResultJson);
+        row.Diagnostics.ExpectedRevision.ShouldBe(3);
+        row.Diagnostics.ObservedRevision.ShouldBe(4);
+    }
+
+    private const string PinnedBatchDigest = "e7ed689fe4a01035670a9facac30f0a22d65be0f08dfc1c11685f8f9f93d3979";
+    private const string PinnedBatchResultJson =
+        """{"rev":4,"revision":4,"diagnostics":{"code":"verified","expectedRevision":3,"observedRevision":4,"fields":[{"field":"System.State","classification":"exact"}],"missingFields":[]},"fieldEvidence":[{"field":"System.State","expected":"Active","actual":"Active"}]}""";
+
     // ── apply: link / delete happy paths ────────────────────────────────────
 
     [Fact]
@@ -705,6 +1016,41 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("System.Description")]
+    [InlineData("Custom.FalsificationCriteria")]
+    public async Task Apply_EntityBearingHtmlRoundTrip_JournalStateIsIdenticalAcrossHtmlFields(string field)
+    {
+        // AB#851: System.Description verified while Custom.FalsificationCriteria + State went
+        // Indeterminate for a write that landed. Equivalent writes must journal identically.
+        _fieldDefinitions
+            .GetByReferenceNameAsync(field, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(new FieldDefinition(field, field, "html", IsReadOnly: false)));
+        var file = WritePlan(BatchWithFields(42, 3,
+        [
+            ("System.State", "Done"),
+            (field, PlanOperationExecutorTests.Ab851Staged),
+        ]));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        var refreshed = BuildWorkItem(42, rev: 4, state: "Done");
+        refreshed.UpdateField(field, PlanOperationExecutorTests.Ab851AdoStored);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        var persisted = (await _journal.GetAsync(digest))!.Operations[0];
+        persisted.State.ShouldBe(PlanOperationState.Verified);
+        persisted.Error.ShouldBeNull();
+        persisted.Warning.ShouldNotBeNull();
+        persisted.Diagnostics.Code.ShouldBe("verified");
+        persisted.Diagnostics.Fields.ShouldContain(f => f.Field == field && f.Classification == "canonicalized-html");
+        persisted.Diagnostics.Fields.ShouldContain(f => f.Field == "System.State" && f.Classification == "exact");
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Apply_RecoveryFromApplied_PreservesAcknowledgmentWithTerminalDiagnostics(bool readbackFails)
@@ -764,6 +1110,31 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         row.Diagnostics.ExpectedRevision.ShouldBe(3);
         row.Diagnostics.ObservedRevision.ShouldBeNull();
         await _revisionBound.Received(1).DeleteAtRevisionAsync(42, 3, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void Diagnostics_RevisionPreconditionRefusalRetainsSafeNoWriteClassification()
+    {
+        var operation = new PlanJournalOperation
+        {
+            Ordinal = 0,
+            OpId = "op",
+            Kind = PlanOperationKind.Batch,
+            State = PlanOperationState.Failed,
+            RequestJson = """{"expectedRevision":3}""",
+            ResultJson = """{"diagnostics":{"code":"revision-precondition-refused","expectedRevision":3,"observedRevision":null,"failureDetail":"ForeignProvider"}}""",
+            Error = "revision refusal included opaque-secret-token",
+        };
+
+        var diagnostics = operation.Diagnostics;
+
+        diagnostics.Disposition.ShouldBe("failed");
+        diagnostics.Code.ShouldBe("revision-precondition-refused");
+        diagnostics.ExpectedRevision.ShouldBe(3);
+        diagnostics.ObservedRevision.ShouldBeNull();
+        diagnostics.Summary.ShouldBe("revision precondition refused before transport; nothing was sent");
+        diagnostics.Summary.ShouldNotContain("opaque-secret-token");
+        diagnostics.Summary.ShouldNotContain("ForeignProvider");
     }
 
     [Theory]
@@ -1501,10 +1872,10 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         // internal steps.
         var boundClock = clock;
         svc = new PlanLifecycleService(
-            new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _ado, _revisionBound,
+            new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _writer, AdoWriterFixture.Codec, _revisionBound,
             _seedPublish.Orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap,
             _publishIntent, _config, _paths, boundClock, new StubSteering(() => _steeringMode), new FixtureOrigin(_repoRoot),
-            Substitute.For<IUnitOfWork>());
+            _ruleProvider, Substitute.For<IUnitOfWork>());
 
         var digest = (await svc.PreviewAsync(file)).Digest!;
 
@@ -2829,6 +3200,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var file = WritePlan(plan);
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
+        _revisionBound.ClearReceivedCalls();
 
         // Fresh authoritative snapshot for op-1: no Custom.Gated yet.
         _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
@@ -2952,10 +3324,12 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             """;
         var file = WritePlan(plan);
         var svc = BuildService();
-        var digest = (await svc.PreviewAsync(file)).Digest!;
 
         _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
             AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing"));
+        _revisionBound.FetchAtRevisionAsync(42, 4, Arg.Any<CancellationToken>()).Returns<WorkItemSnapshot>(_ =>
+            throw new InvalidOperationException(
+                "Preview must project the add-link operation instead of fetching the future revision."));
         _revisionBound.FetchAtRevisionAsync(42, 5, Arg.Any<CancellationToken>()).Returns<WorkItemSnapshot>(_ =>
             throw new InvalidOperationException(
                 "AB#721 regression: post-link batch refetched instead of consuming the advanced carry."));
@@ -2969,6 +3343,15 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 ],
                 [new RuleAction("makeRequired", "Custom.Gated", null)],
                 IsDisabled: false)]));
+
+        var preview = await svc.PreviewAsync(file);
+        preview.CanApply.ShouldBeTrue();
+        preview.ReviewModel.ShouldNotBeNull().PolicyDecisions.ShouldBeEmpty();
+        await _revisionBound.Received(1).FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>());
+        await _revisionBound.DidNotReceive().FetchAtRevisionAsync(42, 4, Arg.Any<CancellationToken>());
+        await _revisionBound.DidNotReceive().FetchAtRevisionAsync(42, 5, Arg.Any<CancellationToken>());
+        var digest = preview.Digest!;
+        _revisionBound.ClearReceivedCalls();
 
         _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
             .Returns(4);
@@ -3015,6 +3398,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var file = WritePlan(plan);
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
+        _revisionBound.ClearReceivedCalls();
 
         _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
             AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing", ("Custom.Gated", "signed-42")));
@@ -3312,6 +3696,58 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         }
         """;
 
+    private static string ProviderPlanSource()
+    {
+        var item = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:7"),
+        };
+        return PlanDocumentWriter.Write(new PlanDefinition
+        {
+            Version = 2,
+            Workspace = new PlanWorkspace { Organization = "acme", Project = "cache" },
+            Operations =
+            [
+                new ProviderMutationOperation
+                {
+                    Id = "provider-delete",
+                    OperationKind = PlanOperationKind.Delete,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = item,
+                        ExpectedProviderRevision = new ProviderRevisionToken("opaque-revision"),
+                    },
+                },
+            ],
+        });
+    }
+
+    private static string ProviderBatchPlanSource(ExternalWorkItemIdentity identity) =>
+        PlanDocumentWriter.Write(new PlanDefinition
+        {
+            Version = 2,
+            Workspace = new PlanWorkspace { Organization = "acme", Project = "cache" },
+            Operations =
+            [
+                new ProviderMutationOperation
+                {
+                    Id = "provider-label",
+                    OperationKind = PlanOperationKind.Batch,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = new ProviderWorkItemReference
+                        {
+                            LocalId = LocalWorkItemId.New(),
+                            ExternalIdentity = identity,
+                        },
+                        ExpectedProviderRevision = new ProviderRevisionToken("opaque-revision"),
+                    },
+                    Fields = new Dictionary<string, string?> { ["System.Tags"] = "priority:high" },
+                },
+            ],
+        });
+
     private static string BatchWithFields(
         int workItemId,
         int expectedRev,
@@ -3461,6 +3897,97 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         result.ReviewModel.ShouldNotBeNull();
         result.ReviewModel!.AuthorizationChoices.ShouldNotContain("apply");
         result.ReviewModel.Blockers.ShouldContain(b => b.Kind == "pending" && b.WorkItemId == 42);
+    }
+
+    [Fact]
+    public async Task Preview_AndApply_BlockWhenDeclaredPolicyCannotLoad()
+    {
+        File.WriteAllText(_paths.PolicyPath, "{ not json");
+        var file = WritePlan(ValidPlanSource());
+        var svc = BuildService();
+
+        var preview = await svc.PreviewAsync(file);
+
+        preview.CanApply.ShouldBeFalse();
+        var decision = preview.ReviewModel.ShouldNotBeNull().PolicyDecisions.ShouldHaveSingleItem();
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Unavailable);
+        decision.IsBlocking.ShouldBeTrue();
+        decision.RuleId.ShouldBe(Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.PolicyLoad);
+        preview.ReviewModel.Blockers.ShouldContain(b => b.Kind == "policy" && b.Detail.Contains("not valid JSON"));
+        preview.ReviewModel.AuthorizationChoices.ShouldNotContain("apply");
+
+        var apply = await svc.ApplyAsync(file, preview.Digest!, authorization: null);
+
+        apply.Error.ShouldNotBeNull();
+        apply.Error.ShouldContain("Declared policy refuses this proposal");
+        apply.Error.ShouldContain("policy-load");
+        apply.Error.ShouldContain("not valid JSON");
+        var journal = await _journal.GetAsync(preview.Digest!);
+        journal.ShouldNotBeNull();
+        journal!.State.ShouldBe(PlanOperationState.Planned);
+    }
+
+    [Fact]
+    public async Task Preview_ProjectsProcessRequiredFieldRefusalAsPolicyDecision()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Custom.Gated", null)], IsDisabled: false),
+            ]));
+
+        var preview = await svc.PreviewAsync(file);
+
+        preview.CanApply.ShouldBeFalse();
+        var model = preview.ReviewModel.ShouldNotBeNull();
+        var decision = model.PolicyDecisions.ShouldHaveSingleItem();
+        decision.RuleId.ShouldBe("process-rule-gate");
+        decision.Kind.ShouldBe("process-required-fields");
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Refuse);
+        decision.WorkItemId.ShouldBe(42);
+        decision.OpId.ShouldBe("op");
+        decision.Reason.ShouldContain("Custom.Gated");
+        model.Blockers.ShouldContain(b => b.Kind == "policy" && b.Detail.Contains("Custom.Gated"));
+        model.AuthorizationChoices.ShouldNotContain("apply");
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        var operation = apply.Operations.ShouldHaveSingleItem();
+        operation.State.ShouldBe(PlanOperationState.Failed);
+        operation.Error.ShouldNotBeNull();
+        operation.Error.ShouldContain("Custom.Gated");
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(),
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+        (await _journal.GetAsync(digest))!.State.ShouldBe(PlanOperationState.Failed);
+    }
+
+    [Fact]
+    public async Task Preview_ProjectsProcessRuleLoadFailureAsUnavailablePolicyDecision()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        await svc.PreviewAsync(file);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
+            .ThrowsAsyncForAnyArgs(new HttpRequestException("offline"));
+
+        var preview = await svc.PreviewAsync(file);
+
+        preview.CanApply.ShouldBeFalse();
+        var decision = preview.ReviewModel.ShouldNotBeNull().PolicyDecisions.ShouldHaveSingleItem();
+        decision.RuleId.ShouldBe("process-rule-gate");
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Unavailable);
+        decision.IsBlocking.ShouldBeTrue();
+        decision.Reason.ShouldContain("could not be loaded");
+        decision.Reason.ShouldContain("offline");
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
@@ -17,6 +18,7 @@ public sealed class PatchCommandTelemetryTests : IDisposable
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
     private readonly IFieldDefinitionStore _fieldDefStore;
@@ -30,6 +32,7 @@ public sealed class PatchCommandTelemetryTests : IDisposable
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _telemetryClient = Substitute.For<ITelemetryClient>();
@@ -47,10 +50,10 @@ public sealed class PatchCommandTelemetryTests : IDisposable
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var workflow = new Twig.Infrastructure.Services.Mutation.PatchWorkflow(
-            _workItemRepo, _adoService, _pendingChangeStore);
+            _workItemRepo, _writer, _pendingChangeStore);
         return new PatchCommand(
             resolver,
-            _adoService,
+            _writer,
             _consoleInput,
             _workItemRepo,
             _fieldDefStore,
@@ -211,10 +214,10 @@ public sealed class PatchCommandTelemetryTests : IDisposable
         // Re-create without telemetry client
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var workflow2 = new Twig.Infrastructure.Services.Mutation.PatchWorkflow(
-            _workItemRepo, _adoService, _pendingChangeStore);
+            _workItemRepo, _writer, _pendingChangeStore);
         cmd = new PatchCommand(
             resolver,
-            _adoService,
+            _writer,
             _consoleInput,
             _workItemRepo,
             _fieldDefStore,

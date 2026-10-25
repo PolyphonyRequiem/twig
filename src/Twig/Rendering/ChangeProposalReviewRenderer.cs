@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
 using Twig.Domain.Services.ChangeProposals;
+using Twig.Domain.Services.Policy;
+using Twig.Domain.Services.Plan;
 using Twig.RenderTree;
 
 namespace Twig.Rendering;
@@ -34,6 +36,8 @@ public static class ChangeProposalReviewRenderer
             lines.Add(Text($"rationale: {model.Rationale}"));
 
         var items = model.ContextItems.Concat(model.AffectedItems).GroupBy(i => i.Id).ToDictionary(g => g.Key, g => g.Last());
+        var providerAffectedItems = model.ProviderAffectedItems ?? [];
+        var providerRoles = providerAffectedItems.ToDictionary(item => item.Item, item => item.Role);
         // One derived width across all siblings. The render provider additionally bounds it by terminal width.
         var labelWidth = model.Operations.SelectMany(o => o.Consequences)
             .Where(c => c.Field is not null).Select(c => Spectre.Console.Rendering.Segment.CellCount([new Spectre.Console.Rendering.Segment(Safe(c.FieldLabel ?? c.Field!))])).DefaultIfEmpty(1).Max();
@@ -50,6 +54,9 @@ public static class ChangeProposalReviewRenderer
                         DescribeField(con, full))], labelWidth));
                 else body.Add(Text(DescribeConsequence(con)));
             }
+            if (op.Capability is { } capability)
+                body.Add(Text($"declared capability: {capability.Declared} ({capability.Relationship}); " +
+                    $"not yet observed, availability {capability.Availability} ({capability.Reason})"));
             foreach (var warning in ObservationWarnings(op))
                 body.Add(new RenderNode.Text(warning, Severity.Warning));
         }
@@ -60,7 +67,10 @@ public static class ChangeProposalReviewRenderer
         {
             var item = group.Target.WorkItemId is { } id ? items.GetValueOrDefault(id) : null;
             var parentId = item?.ParentId ?? group.Target.Seed?.ParentId;
-            var branch = new RenderTreeBranch(Identity(group.Target, item), []) { Body = group.Body };
+            var role = group.Target.ProviderWorkItem is { } providerItem
+                ? providerRoles.GetValueOrDefault(providerItem) ?? "target"
+                : null;
+            var branch = new RenderTreeBranch(Identity(group.Target, item, role), []) { Body = group.Body };
             if (parentId is { } parent && parent != group.Target.WorkItemId && items.TryGetValue(parent, out var context))
             {
                 if (roots.Count > 0 && AttachToTail(roots[^1], parent, branch) is { } attached)
@@ -73,6 +83,15 @@ public static class ChangeProposalReviewRenderer
         var represented = groups.Where(g => g.Target.WorkItemId is not null).Select(g => g.Target.WorkItemId!.Value).ToHashSet();
         foreach (var peer in model.AffectedItems.Where(i => !represented.Contains(i.Id)))
             roots.Add(new RenderTreeBranch(Identity(new ReviewTarget { WorkItemId = peer.Id }, peer), []));
+        var representedProviderItems = groups
+            .Where(group => group.Target.ProviderWorkItem is not null)
+            .Select(group => group.Target.ProviderWorkItem!)
+            .ToHashSet();
+        foreach (var affected in providerAffectedItems.Where(item => !representedProviderItems.Contains(item.Item)))
+            roots.Add(new RenderTreeBranch(
+                Identity(new ReviewTarget { ProviderWorkItem = affected.Item }, null, affected.Role), []));
+        if (providerAffectedItems.Count > 0)
+            lines.Add(Text($"affected items ({model.AffectedItems.Count + providerAffectedItems.Count}):"));
         var shown = new HashSet<int>();
         void Remember(RenderTreeBranch branch)
         {
@@ -89,6 +108,19 @@ public static class ChangeProposalReviewRenderer
             lines.Add(Text($"blockers ({model.Blockers.Count}):"));
             foreach (var blocker in model.Blockers)
                 lines.Add(new RenderNode.Text(DescribeBlocker(blocker), Severity.Warning));
+        }
+
+        if (model.PolicyDecisions.Count > 0)
+        {
+            lines.Add(Text($"policy decisions ({model.PolicyDecisions.Count}):"));
+            foreach (var decision in model.PolicyDecisions)
+            {
+                var target = decision.WorkItemId is { } id ? $" for #{id}" : string.Empty;
+                var operation = decision.OpId is { } opId ? $" (operation {opId})" : string.Empty;
+                lines.Add(new RenderNode.Text(
+                    $"[{decision.OutcomeName}] {Safe(decision.RuleId)}{target}{operation}: {Safe(decision.Reason)}",
+                    DecisionSeverity(decision.Outcome)));
+            }
         }
 
         lines.Add(Text("Legend: → = field change; (clear) = remove field; absent = known null; unknown = unavailable baseline; \"\" = empty string. Context and peers are not mutation targets."));
@@ -131,6 +163,14 @@ public static class ChangeProposalReviewRenderer
             : $"{prefix}{target}: {Safe(blocker.Detail)}";
     }
 
+    private static Severity DecisionSeverity(PolicyOutcome outcome) => outcome switch
+    {
+        PolicyOutcome.Permit => Severity.Success,
+        PolicyOutcome.Warn => Severity.Warning,
+        PolicyOutcome.Refuse or PolicyOutcome.Unavailable => Severity.Error,
+        _ => Severity.Error,
+    };
+
     // Only the last-descendant chain can accept another child without moving an earlier op.
     private static RenderTreeBranch? AttachToTail(RenderTreeBranch root, int parent, RenderTreeBranch child)
     {
@@ -140,9 +180,16 @@ public static class ChangeProposalReviewRenderer
     }
 
     private static int? RowId(RenderTreeBranch branch) => branch.Row.Cells.TryGetValue("id", out var c) && c.Value is RenderValue.Integer n ? (int)n.Value : null;
-    private static bool SameTarget(ReviewTarget a, ReviewTarget b) => a.WorkItemId == b.WorkItemId && a.StagedIdentity == b.StagedIdentity;
-    private static string TargetName(ReviewTarget target) => target.WorkItemId is { } id ? $"#{id}" : $"seed {target.StagedIdentity ?? "(unknown)"}";
-    private static RenderRow Identity(ReviewTarget target, ReviewAffectedItem? item)
+    private static bool SameTarget(ReviewTarget a, ReviewTarget b) =>
+        a.WorkItemId == b.WorkItemId
+        && a.StagedIdentity == b.StagedIdentity
+        && a.ProviderWorkItem == b.ProviderWorkItem;
+
+    private static string TargetName(ReviewTarget target) => target.ProviderWorkItem is { } providerItem
+        ? ProviderIdentityLabel(providerItem)
+        : target.WorkItemId is { } id ? $"#{id}" : $"seed {target.StagedIdentity ?? "(unknown)"}";
+
+    private static RenderRow Identity(ReviewTarget target, ReviewAffectedItem? item, string? roleOverride = null)
     {
         var seed = target.Seed;
         var cells = new Dictionary<string, RenderCell>
@@ -151,9 +198,16 @@ public static class ChangeProposalReviewRenderer
             ["type"] = RenderCell.String(Safe(item?.Type ?? seed?.Type ?? "(uncached)")),
             ["title"] = RenderCell.String(Safe(item?.Title ?? seed?.Title ?? "(uncached)")),
             ["state"] = RenderCell.String(Safe(item?.State ?? seed?.State ?? "(uncached)")),
-            ["role"] = RenderCell.String(item?.Role ?? "staged draft"),
+            ["role"] = RenderCell.String(roleOverride ?? item?.Role ?? "staged draft"),
         };
         if (target.WorkItemId is { } id) cells["id"] = new RenderCell("", new RenderValue.Integer(id));
+        if (target.ProviderWorkItem is { } providerItem)
+        {
+            cells["localId"] = RenderCell.String(providerItem.LocalId.ToString());
+            cells["provider"] = RenderCell.String(Safe(providerItem.ExternalIdentity.ProviderKind));
+            cells["resourceScope"] = RenderCell.String(Safe(providerItem.ExternalIdentity.ResourceScope));
+            cells["nativeId"] = RenderCell.String(Safe(providerItem.ExternalIdentity.NativeId));
+        }
         if (item?.Url is { } url) cells["url"] = RenderCell.String(Safe(url));
         if (seed is not null) cells["alias"] = RenderCell.String($"local alias {seed.DisplayAlias}");
         if ((item?.ParentId ?? seed?.ParentId) is { } parent) cells["parent"] = RenderCell.String($"cached parent #{parent}");
@@ -189,12 +243,21 @@ public static class ChangeProposalReviewRenderer
     private static string Quote(string value) => $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     private static string DescribeConsequence(ReviewConsequence c) => c.Kind switch
     {
-        "link-add" => $"add {c.Relation} link to #{c.OtherId}",
-        "link-remove" => $"remove {c.Relation} link to #{c.OtherId}",
+        "link-add" => $"add {c.Relation} link to {DescribeOther(c)}",
+        "link-remove" => $"remove {c.Relation} link to {DescribeOther(c)}",
         "seed-publish" => "publish staged draft (new published identity assigned only when applied)",
-        "work-item-delete" => $"delete work item #{c.OtherId}",
+        "work-item-delete" => $"delete work item {DescribeOther(c)}",
         _ => $"change {c.Field ?? "item"} {c.To ?? string.Empty} {c.Relation} {c.OtherId}".Trim(),
     };
+
+    private static string DescribeOther(ReviewConsequence consequence) =>
+        consequence.OtherProviderWorkItem is { } providerItem
+            ? ProviderIdentityLabel(providerItem)
+            : $"#{consequence.OtherId}";
+
+    private static string ProviderIdentityLabel(ProviderWorkItemReference item) =>
+        $"{item.ExternalIdentity.ProviderKind}:{item.ExternalIdentity.ResourceScope}:{item.ExternalIdentity.NativeId} "
+        + $"(local {item.LocalId})";
     private static RenderNode.Text Text(string text) => new(Safe(text));
     // Preserve printable exact values and line breaks; neutralize terminal controls and bidi spoofing.
     internal static string Safe(string text)

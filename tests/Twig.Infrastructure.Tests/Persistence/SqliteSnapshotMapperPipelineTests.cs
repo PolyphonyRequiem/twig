@@ -183,8 +183,7 @@ public sealed class SqliteSnapshotMapperPipelineTests : IDisposable
     [Fact]
     public async Task RoundTrip_RevisionZero_PreservedCorrectly()
     {
-        var item = new WorkItemBuilder(10, "Rev Zero").Build();
-        // Don't call MarkSynced — revision stays 0
+        var item = new WorkItemBuilder(10, "Rev Zero").WithRevision(0).Build();
         await _repo.SaveAsync(item);
 
         var loaded = await _repo.GetByIdAsync(10);

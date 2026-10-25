@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.ValueObjects;
 using Twig.Rendering;
 using Twig.RenderTree;
@@ -78,6 +79,36 @@ public sealed class ChangeProposalReviewRendererTests
         new RendererFactory().GetRenderer("human", output).Render(new RenderTree.RenderTree(lines));
         return output.ToString();
     }
+
+    // A declared capability is shown as declared and not observed, in both densities, and never as an origin.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Render_ShowsDeclaredCapabilityAdvisory_NotObservedOrigin(bool full)
+    {
+        var model = Model();
+        model = model with
+        {
+            Operations = [.. model.Operations.Select(o => o.Kind == "add-link"
+                ? o with { Capability = new ReviewCapabilityAdvisory { Relationship = "predecessor-successor", Declared = "native", Availability = "unknown", Reason = "not-probed" } }
+                : o)],
+        };
+
+        var output = new StringWriter();
+        new RendererFactory().GetRenderer("human", output)
+            .Render(new RenderTree.RenderTree(ChangeProposalReviewRenderer.Render(model, full)));
+        var text = output.ToString();
+
+        text.ShouldContain("declared capability: native");
+        text.ShouldContain("not yet observed");
+        text.ShouldContain("not-probed");
+        text.ShouldNotContain("provider-native");
+        text.ShouldNotContain("origin");
+    }
+
+    [Fact]
+    public void Render_WithoutAdvisory_EmitsNoCapabilityLine() =>
+        RenderText(Model()).ShouldNotContain("declared capability");
 
     // The human projection keeps material effects, warnings and blockers, but no approval controls.
     // Digest, workspace and wire-level operation bookkeeping remain machine data.
@@ -167,6 +198,95 @@ public sealed class ChangeProposalReviewRendererTests
 
         var text = RenderText(blocked);
         text.ShouldContain("Pending local change for #740: 1 pending change staged");
+        text.ShouldNotContain("authorization choices");
+    }
+
+    [Fact]
+    public void Render_ShowsEveryPolicyDecisionAndItsReason()
+    {
+        var text = RenderText(Model() with
+        {
+            PolicyDecisions =
+            [
+                new PolicyDecision { RuleId = "parent-rule", Kind = "parent-type", Outcome = PolicyOutcome.Permit, Reason = "Parent type is allowed.", WorkItemId = 729, OpId = "op-link" },
+                new PolicyDecision { RuleId = "label-rule", Kind = "label-applicability", Outcome = PolicyOutcome.Warn, Reason = "Existing label violation is not worsened.", WorkItemId = 742, OpId = "op-batch" },
+                new PolicyDecision { RuleId = "dependency-rule", Kind = "dependency-integrity", Outcome = PolicyOutcome.Refuse, Reason = "The proposed edge creates a cycle.", WorkItemId = 729, OpId = "op-link" },
+                new PolicyDecision { RuleId = "policy-load", Kind = "policy-load", Outcome = PolicyOutcome.Unavailable, Reason = "Policy file could not be loaded." },
+            ],
+        });
+
+        text.ShouldContain("policy decisions (4):");
+        text.ShouldContain("[permit] parent-rule for #729 (operation op-link): Parent type is allowed.");
+        text.ShouldContain("[warn] label-rule for #742 (operation op-batch): Existing label violation is not worsened.");
+        text.ShouldContain("[refuse] dependency-rule for #729 (operation op-link): The proposed edge creates a cycle.");
+        text.ShouldContain("[unavailable] policy-load: Policy file could not be loaded.");
+    }
+
+    [Fact]
+    public void Render_ShowsProviderBoundTargetAndPeerWhileV2ApplyIsBlocked()
+    {
+        var target = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:7"),
+        };
+        var peer = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:8"),
+        };
+        var model = Model() with
+        {
+            AffectedItems = [],
+            ProviderAffectedItems =
+            [
+                new ReviewProviderAffectedItem { Item = target, Role = "target" },
+                new ReviewProviderAffectedItem { Item = peer, Role = "peer" },
+            ],
+            Operations =
+            [
+                new ReviewOperation
+                {
+                    Ordinal = 0,
+                    OpId = "provider-link",
+                    Kind = "add-link",
+                    Target = new ReviewTarget { ProviderWorkItem = target },
+                    Summary = "Add related link",
+                    Preconditions = [new ReviewPrecondition { Kind = "expectedProviderRevision", Value = "etag:opaque" }],
+                    Consequences =
+                    [
+                        new ReviewConsequence
+                        {
+                            Kind = "link-add",
+                            Relation = "related",
+                            OtherProviderWorkItem = peer,
+                        },
+                    ],
+                },
+            ],
+            AuthorizationChoices = ["revise", "decline"],
+            Blockers =
+            [
+                new ReviewBlocker
+                {
+                    Kind = "issue",
+                    Detail = "plan.unsupported_apply_version: Provider-bound operations are review-only.",
+                },
+            ],
+        };
+
+        var text = RenderText(model);
+
+        text.ShouldContain(target.LocalId.ToString());
+        text.ShouldContain("github:repo:acme/widgets:issue:7");
+        text.ShouldContain(peer.LocalId.ToString());
+        text.ShouldContain("github:repo:acme/widgets:issue:8");
+        text.ShouldContain("affected items (2):");
+        text.ShouldContain("target");
+        text.ShouldContain("peer");
+        text.ShouldContain("add related link to github:repo:acme/widgets:issue:8");
+        text.ShouldContain("plan.unsupported_apply_version");
+        text.ShouldNotContain("expectedProviderRevision");
         text.ShouldNotContain("authorization choices");
     }
 

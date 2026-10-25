@@ -160,24 +160,33 @@ internal static class ServerGeneratedFieldPolicy
     }
 
     /// <summary>
-    /// The lifecycle/terminal-contract fields whose equality this policy must NEVER be able
-    /// to excuse. Spec #753 user story 7: "System.State=Done and Custom.TerminalOutcome=
-    /// completed remain an atomic, strict terminal contract."
+    /// The lifecycle field whose equality this policy must NEVER be able to excuse (spec #753):
+    /// a transition and the values the process requires with it remain an atomic, strict
+    /// contract.
     /// <para>
-    /// Keeping the coupling honest is a STATIC property, not a runtime branch: because none
-    /// of these is server-generated, a batch whose transition did not land fails strict
+    /// Keeping the coupling honest is a STATIC property, not a runtime branch: because the
+    /// state field is not server-generated, a batch whose transition did not land fails strict
     /// comparison in the executor's field loop long before any normalization is considered.
-    /// The danger is not a missing runtime check — it is a future edit quietly adding a
-    /// lifecycle-adjacent field to <see cref="ServerGeneratedFields"/>. This set exists so
-    /// that edit breaks a test instead.
+    /// Values a process requires alongside a transition are process-defined fields, which
+    /// <see cref="IsPlatformOwned"/> keeps out of <see cref="ServerGeneratedFields"/>
+    /// structurally — so no process-specific field name is named here.
     /// </para>
     /// </summary>
     internal static readonly IReadOnlySet<string> TerminalContractFields =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "System.State",
-            "Custom.TerminalOutcome",
         };
+
+    /// <summary>
+    /// True when <paramref name="referenceName"/> lives in a platform-owned namespace
+    /// (<c>System.*</c> or <c>Microsoft.VSTS.*</c>). Only platform fields can be stamped by ADO's
+    /// revision machinery; a process-defined field is always caller-authored and must never be
+    /// excusable as server-generated normalization.
+    /// </summary>
+    internal static bool IsPlatformOwned(string referenceName)
+        => referenceName.StartsWith("System.", StringComparison.OrdinalIgnoreCase)
+            || referenceName.StartsWith("Microsoft.VSTS.", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>

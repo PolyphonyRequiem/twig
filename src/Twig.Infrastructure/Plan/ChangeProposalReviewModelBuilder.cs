@@ -1,7 +1,10 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
 
@@ -16,11 +19,11 @@ namespace Twig.Infrastructure.Plan;
 /// <see cref="ChangeProposalReviewModel"/> for the full rule.
 /// </para>
 /// <para>
-/// <b>Enrichment reads the local cache only.</b> Preview is a non-mutating, offline path
-/// today; issuing a network refresh per affected item would add latency and a new failure
-/// mode to a path whose entire job is to describe a document. An item the cache does not know
-/// is emitted with a null type/title/state rather than omitted — dropping it would hide an
-/// affected item from the reviewer, which is the one outcome the model exists to prevent.
+/// <b>Enrichment reads the local cache only.</b> This builder makes no network requests and
+/// does not write the proposal journal. The surrounding lifecycle preview may import or update
+/// journal state before building this projection. An item the cache does not know is emitted
+/// with a null type/title/state rather than omitted — dropping it would hide an affected item
+/// from the reviewer, which is the one outcome the model exists to prevent.
 /// </para>
 /// </summary>
 public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workItems)
@@ -29,6 +32,44 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         ?? throw new ArgumentNullException(nameof(workItems));
 
     private IFieldDefinitionStore? _fields;
+
+    /// <summary>
+    /// Statically configured provider descriptor used for the add-link advisory. Null means the
+    /// provider is not known, which is reported as declared <c>unknown</c>, never omitted.
+    /// </summary>
+    internal ProviderCapabilityDescriptor? CapabilityDescriptor { get; init; }
+
+    private static ReviewCapabilityAdvisory AdvisoryFor(ProviderCapabilityDescriptor? descriptor, string relation)
+    {
+        const string Unknown = "unknown";
+        var kind = relation switch
+        {
+            "parent" => (LinkKind?)LinkKind.ParentChild,
+            "predecessor" or "successor" => LinkKind.PredecessorSuccessor,
+            "related" => LinkKind.Related,
+            _ => null,
+        };
+
+        var declared = Unknown;
+        var relationship = Unknown;
+        if (descriptor is not null && kind is { } k)
+        {
+            relationship = LinkKindTokens.ToToken(k);
+            declared = CapabilityTokens.ToToken(CapabilityTokens.Implementation, descriptor.For(k).Implementation);
+        }
+        else if (kind is { } known)
+        {
+            relationship = LinkKindTokens.ToToken(known);
+        }
+
+        return new ReviewCapabilityAdvisory
+        {
+            Relationship = relationship,
+            Declared = declared,
+            Availability = CapabilityTokens.ToToken(CapabilityTokens.Availability, CapabilityAvailability.Unknown),
+            Reason = CapabilityReport.NotProbedReason,
+        };
+    }
 
     /// <summary>Enrich with locally cached field labels and types.</summary>
     public ChangeProposalReviewModelBuilder(IWorkItemRepository workItems, IFieldDefinitionStore fields) : this(workItems)
@@ -55,24 +96,48 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         bool canApply,
         string? rationale = null,
         ChangeRecipeReference? recipe = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyList<PolicyDecision>? policyDecisions = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        policyDecisions ??= [];
+        if (policyDecisions.Any(static d => d.IsBlocking))
+            canApply = false;
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
 
         var operations = new List<ReviewOperation>(definition.Operations.Count);
         var roles = new Dictionary<int, string>();
+        var providerRoles = new Dictionary<ProviderWorkItemReference, string>();
 
         for (var ordinal = 0; ordinal < definition.Operations.Count; ordinal++)
         {
             var op = definition.Operations[ordinal];
-            operations.Add(ProjectOperation(ordinal, op, roles));
+            var projected = ProjectOperation(ordinal, op, roles, providerRoles);
+            var advisoryRelation = op switch
+            {
+                AddLinkOperation addLink => addLink.Relation,
+                ProviderMutationOperation { OperationKind: PlanOperationKind.AddLink } provider => provider.Relation ?? string.Empty,
+                _ => null,
+            };
+            operations.Add(advisoryRelation is null
+                ? projected
+                : projected with { Capability = AdvisoryFor(CapabilityDescriptor, advisoryRelation) });
         }
 
         var known = roles.Count == 0 ? [] : await _workItems.GetByIdsAsync(roles.Keys, ct).ConfigureAwait(false);
         var byId = known.ToDictionary(i => i.Id);
         var affected = roles.OrderBy(p => p.Key).Select(p => Item(p.Key, p.Value, byId.GetValueOrDefault(p.Key), definition.Workspace)).ToArray();
-        var fieldDefinitions = _fields is null ? [] : await _fields.GetAllAsync(ct).ConfigureAwait(false);
+        var providerAffected = providerRoles
+            .OrderBy(pair => pair.Key.LocalId.ToString(), StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.ExternalIdentity.ProviderKind, StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.ExternalIdentity.ResourceScope, StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.ExternalIdentity.NativeId, StringComparer.Ordinal)
+            .Select(pair => new ReviewProviderAffectedItem { Item = pair.Key, Role = pair.Value })
+            .ToArray();
+        var hasLegacyBatch = definition.Operations.Any(static operation => operation is BatchOperation);
+        var fieldDefinitions = _fields is null || !hasLegacyBatch
+            ? []
+            : await _fields.GetAllAsync(ct).ConfigureAwait(false);
         var labels = fieldDefinitions.ToDictionary(f => f.ReferenceName, StringComparer.OrdinalIgnoreCase);
         var seeds = definition.Operations.Any(o => o is PublishSeedOperation)
             ? await _workItems.GetSeedsAsync(ct).ConfigureAwait(false) : [];
@@ -140,17 +205,20 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             Rationale = rationale,
             Recipe = recipe,
             AffectedItems = affected,
+            ProviderAffectedItems = providerAffected.Length == 0 ? null : providerAffected,
             ContextItems = context,
             Operations = operations,
             AuthorizationChoices = canApply ? ApplicableChoices : BlockedChoices,
-            Blockers = ProjectBlockers(issues, pendingChanges),
+            Blockers = ProjectBlockers(issues, pendingChanges, policyDecisions),
+            PolicyDecisions = policyDecisions,
         };
     }
 
     private static ReviewOperation ProjectOperation(
         int ordinal,
         PlanOperationDefinition op,
-        Dictionary<int, string> roles)
+        Dictionary<int, string> roles,
+        Dictionary<ProviderWorkItemReference, string> providerRoles)
     {
         switch (op)
         {
@@ -271,6 +339,78 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                     ],
                 };
 
+            case ProviderMutationOperation provider:
+                {
+                    var item = provider.Target.Item;
+                    MarkProviderTarget(providerRoles, item);
+                    if (provider.Other is { } other)
+                        MarkProviderPeer(providerRoles, other);
+                    var identity = ProviderIdentityLabel(item);
+                    var consequences = provider.OperationKind switch
+                    {
+                        PlanOperationKind.Batch => provider.Fields!.Select(pair => new ReviewConsequence
+                        {
+                            Kind = pair.Value is null ? "field-clear" : "field-set",
+                            Field = pair.Key,
+                            To = pair.Value,
+                        }).ToArray(),
+                        PlanOperationKind.AddLink =>
+                        [
+                            new ReviewConsequence
+                            {
+                                Kind = "link-add",
+                                Relation = provider.Relation,
+                                OtherProviderWorkItem = provider.Other,
+                            },
+                        ],
+                        PlanOperationKind.RemoveLink =>
+                        [
+                            new ReviewConsequence
+                            {
+                                Kind = "link-remove",
+                                Relation = provider.Relation,
+                                OtherProviderWorkItem = provider.Other,
+                            },
+                        ],
+                        PlanOperationKind.Delete =>
+                        [
+                            new ReviewConsequence
+                            {
+                                Kind = "work-item-delete",
+                                OtherProviderWorkItem = item,
+                            },
+                        ],
+                        _ => throw new NotSupportedException(
+                            $"Provider mutation kind '{provider.OperationKind}' has no review projection."),
+                    };
+                    var summary = provider.OperationKind switch
+                    {
+                        PlanOperationKind.Batch => $"Set {Plural(provider.Fields!.Count, "field")} on {identity}",
+                        PlanOperationKind.AddLink => $"Add {provider.Relation} link {identity} -> {ProviderIdentityLabel(provider.Other!)}",
+                        PlanOperationKind.RemoveLink => $"Remove {provider.Relation} link {identity} -> {ProviderIdentityLabel(provider.Other!)}",
+                        PlanOperationKind.Delete => $"Delete {identity}",
+                        _ => throw new NotSupportedException(
+                            $"Provider mutation kind '{provider.OperationKind}' has no review projection."),
+                    };
+                    return new ReviewOperation
+                    {
+                        Ordinal = ordinal,
+                        OpId = provider.Id,
+                        Kind = PlanDocumentWriter.WireKind(provider.Kind),
+                        Target = new ReviewTarget { ProviderWorkItem = item },
+                        Summary = summary,
+                        Preconditions =
+                        [
+                            new ReviewPrecondition
+                            {
+                                Kind = "expectedProviderRevision",
+                                Value = provider.Target.ExpectedProviderRevision.Value,
+                            },
+                        ],
+                        Consequences = consequences,
+                    };
+                }
+
             default:
                 throw new NotSupportedException(
                     $"Plan operation kind '{op.Kind}' has no review projection. Every kind must be " +
@@ -284,6 +424,10 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         Value = expectedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
     };
 
+    private static string ProviderIdentityLabel(ProviderWorkItemReference item) =>
+        $"{item.ExternalIdentity.ProviderKind}:{item.ExternalIdentity.ResourceScope}:{item.ExternalIdentity.NativeId} "
+        + $"(local {item.LocalId})";
+
     // "target" always wins over "peer": an item an operation acts on directly is not demoted
     // because a later operation happens to link to it.
     private static void MarkTarget(Dictionary<int, string> roles, int id) => roles[id] = "target";
@@ -292,6 +436,18 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
     {
         if (!roles.ContainsKey(id))
             roles[id] = "peer";
+    }
+
+    private static void MarkProviderTarget(
+        Dictionary<ProviderWorkItemReference, string> roles,
+        ProviderWorkItemReference item) => roles[item] = "target";
+
+    private static void MarkProviderPeer(
+        Dictionary<ProviderWorkItemReference, string> roles,
+        ProviderWorkItemReference item)
+    {
+        if (!roles.ContainsKey(item))
+            roles[item] = "peer";
     }
 
     private static ReviewAffectedItem Item(int id, string role, WorkItem? item, PlanWorkspace workspace) => new()
@@ -338,9 +494,10 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
 
     private static IReadOnlyList<ReviewBlocker> ProjectBlockers(
         IReadOnlyList<PlanValidationIssue> issues,
-        IReadOnlyList<PendingChangeDetail> pendingChanges)
+        IReadOnlyList<PendingChangeDetail> pendingChanges,
+        IReadOnlyList<PolicyDecision> policyDecisions)
     {
-        if (issues.Count == 0 && pendingChanges.Count == 0)
+        if (issues.Count == 0 && pendingChanges.Count == 0 && !policyDecisions.Any(static d => d.IsBlocking))
             return [];
 
         var blockers = new List<ReviewBlocker>(issues.Count + pendingChanges.Count);
@@ -365,6 +522,16 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                 Detail = pending.Field is { Length: > 0 } field
                     ? $"staged {pending.Kind} on {field}"
                     : $"staged {pending.Kind}",
+            });
+        }
+
+        foreach (var decision in policyDecisions.Where(static d => d.IsBlocking))
+        {
+            blockers.Add(new ReviewBlocker
+            {
+                Kind = "policy",
+                WorkItemId = decision.WorkItemId,
+                Detail = $"[{decision.RuleId}] {decision.OutcomeName}: {decision.Reason}",
             });
         }
 

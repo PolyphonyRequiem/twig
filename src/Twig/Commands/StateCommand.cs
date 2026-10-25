@@ -31,7 +31,7 @@ public sealed class StateCommand(
     CommandContext ctx,
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IConsoleInput consoleInput,
     SeedMutationProvider seedMutationProvider,
     StateTransitionWorkflow stateTransitionWorkflow,
@@ -154,6 +154,12 @@ public sealed class StateCommand(
                     + "Stage them in the same operation as the transition — a change-proposal "
                     + "'batch' op setting System.State plus the fields above — then apply it with "
                     + "'twig proposal apply --confirm <digest> --authorize <identity>'.");
+                return 1;
+
+            case StateTransitionOutcome.ProcessRulesUnavailable x:
+                _stderr.WriteLine(fmt.FormatError(
+                    $"#{x.ItemId} was not moved to '{x.ToState}': {x.Reason}"));
+                _stderr.WriteLine("Nothing was written. Retry once the process configuration can be loaded.");
                 return 1;
 
             case StateTransitionOutcome.ChainFailed x:

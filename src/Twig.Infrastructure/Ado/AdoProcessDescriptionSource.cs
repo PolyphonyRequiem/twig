@@ -580,7 +580,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
     /// <remarks>
     /// 🔴 The second source of requiredness (AB#236). The per-type fields route reports
     /// UNCONDITIONAL requiredness only; a field made mandatory by a <c>makeRequired</c> rule
-    /// reads there as not-required. Verified live: <c>Custom.WayfinderAnswer</c> is
+    /// reads there as not-required. Verified live: a rule-required custom field is
     /// <c>required: null</c> on the fields route while this route carries a
     /// <c>makeRequired</c> action for it.
     /// <para>

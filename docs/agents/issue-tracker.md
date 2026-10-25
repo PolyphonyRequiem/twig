@@ -55,7 +55,8 @@ substitute for the binary's own help.
   them.** `twig state` writes `System.State` alone, so for any type whose process makes a
   field required in the Done state it now refuses rather than emit a PATCH ADO would reject.
   Close by staging **one** change-proposal `batch` op that sets `System.State` together with
-  that type's close-gate fields (and `Custom.TerminalOutcome` where the type carries it),
+  every field the type's process requires in that state — read them from
+  `twig process description <type-ref> -o json` rather than assuming a list — then
   applying it with `twig proposal apply --confirm <digest> --authorize <identity>`, then
   re-reading with `twig show <id> --refresh`. `twig state` remains correct for un-gated
   moves such as `To do` → `Doing`.

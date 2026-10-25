@@ -501,7 +501,7 @@ This leaves 5 levels of headroom. Rules:
 2. Prove Basic/twig end-to-end with Polyphony routing
 3. DU preview adoption is Phase 5 (future, after routing is stable)
 4. Existing hardcoded workflow remains as fallback until new workflow is validated
-5. Cloudvault onboarding is Phase 6 (after twig validation)
+5. Reference-service onboarding is Phase 6 (after twig validation)
 
 ### C5: Polyphony v1 Scope (Minimal)
 v1 owns ONLY:
@@ -535,7 +535,7 @@ These are promoted into Polyphony in later phases once routing is proven.
 #### 0.2 — Define twig repo's .conductor/ configuration
 - Create `process-config.yaml` for Basic process (Epic/Issue/Task)
 - Include explicit transition mappings (C2)
-- Create `work-item-types/` definitions (adapted from cloudvault registry patterns)
+- Create `work-item-types/` definitions (adapted from reference registry patterns)
 - Create `work-item-types/templates/` description templates
 - Create `profile.yaml` (tech stack for twig itself)
 
@@ -632,7 +632,7 @@ These are promoted into Polyphony in later phases once routing is proven.
 - A/B comparison: old workflow vs new workflow on same work item
 
 #### 4.4 — Cross-process validation
-- Verify workflow works for cloudvault (CMMI: Scenario → Deliverable → Task)
+- Verify workflow works for SampleService (CMMI: Scenario → Deliverable → Task)
 - Verify workflow handles composite types (Scenario → Scenario → Deliverable)
 
 ### Phase 5: Future — DU Preview Adoption (post-validation)
@@ -648,10 +648,10 @@ These are promoted into Polyphony in later phases once routing is proven.
 
 ### Phase 6: Future — Cross-Repo Onboarding
 
-#### 6.1 — Cloudvault onboarding
-- Create `.conductor/` config for cloudvault (CMMI process)
-- Validate Polyphony routing against cloudvault hierarchy
-- Replace cloudvault's prototype workflows with generic versions
+#### 6.1 — Reference-service onboarding
+- Create `.conductor/` config for SampleService (CMMI process)
+- Validate Polyphony routing against the reference hierarchy
+- Replace the reference service's prototype workflows with generic versions
 
 #### 6.2 — Config inheritance/templating
 - Base profiles per process template (Basic, Agile, Scrum, CMMI)
@@ -667,7 +667,7 @@ The existing hardcoded workflow is preserved as a fallback:
 1. **Parallel deployment:** New generic workflow registers as `twig-sdlc-v2-full@twig`
 2. **Feature flag:** Process config presence (`.conductor/process-config.yaml`) determines
    which workflow to invoke. If config exists → v2. If not → legacy.
-3. **Gradual cutover:** Prove on twig repo first. Then cloudvault. Then deprecate legacy.
+3. **Gradual cutover:** Prove on twig repo first. Then SampleService. Then deprecate legacy.
 4. **Rollback:** If v2 fails, invoke legacy with `twig-sdlc-full@twig` — no changes needed.
 
 ---

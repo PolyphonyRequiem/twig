@@ -42,6 +42,110 @@ missing, all tables are dropped and re-created from the DDL string. The
 
 ### Database Tables
 
+#### Recoverable native drafts (durable storage)
+
+`pending.recoverable_work_item_drafts` lives in the sibling durable `pending.db`,
+not the disposable mirror. Durable migration 15 adds this table without replacing
+migrations 1-14 or rebuilding existing seed, pending-change, or proposal-journal
+records. Durable migrations and the schema-version stamp run transactionally.
+
+`IRecoverableWorkItemDraftStore` owns one draft per canonical native checkout,
+connection, binding, and integer work-item identity. Callers obtain that identity
+through native admission; constructing a key is not admission. Revision and panel
+identity are not key components. The baseline and observed revisions are native
+ADO item revisions, distinct from provider-owned opaque revision tokens and the
+provider-neutral local-record CAS counter. Field-change and conflict records
+retain string-or-null values, including the distinction between null and empty.
+
+The store uses the existing cache operation gate for reads and transactional
+generation compare-and-swap for writes. A stale generation refuses without
+retrying. Observation/conflict reconciliation may advance draft generation, but
+must retain baseline and proposed intent. This is **local metadata CAS**, not a
+strict zero-local-write inspection contract. No draft operation flushes unrelated
+pending edits or authorizes remote mutation.
+
+The admitted `draft show` envelope independently acquires native observation and
+advisory edit capability; a provider reader result alone is not a draft or authority.
+
+#### Exact local draft captures
+
+Durable migration 16 adds nullable `draft_capture_json` to the **existing**
+`proposal_journals` table. Generic journals remain unbound; migration and later
+capture attempts never backfill them. The internal capture store uses the existing
+Domain friend-assembly seam, not a new public DTO or friendship declaration.
+
+Capture owns one non-deferred SQLite transaction (`BEGIN IMMEDIATE`) on the shared
+cache connection. It rereads the exact qualified draft, generation, baseline,
+conflicts, effects and cached native snapshot, refuses pending edits without
+flushing them, and imports the canonical proposal plus immutable capture binding
+in that same ambient transaction. Busy/locked errors, stale observations and
+pre-commit cancellation refuse without retry or draft mutation. The cache
+operation lease alone is not the cross-process writer fence.
+
+The native operation ID hashes a versioned capture identity containing the draft,
+generation, native revisions, authority origin and workspace. Thus identical
+effects at different generations produce different IDs and ordinary v1 digests,
+without changing v1 parsing or canonicalization. The generation binding is the
+separate immutable capture fact, **not a new promise about generic v1 digests**.
+Exact replay returns the existing row without importing again or refreshing its
+preview timestamp; mismatched binding, source, bytes or origin refuses.
+
+Explicit `draft show <id> --document -o json` inspection may acquire metadata and
+record genuine native **Served** layout evidence in the existing disposable mirror
+`metadata` table. It invalidates only the admitted qualified item's previous receipt
+before acquisition; errors or fallback never leave older evidence usable. Explicit
+inspection bypasses both document and production-provider session caches for the
+requested type, fetching one process identity/roster for its layout and rules.
+Ordinary browsing keeps its cached behavior. A served empty form remains empty.
+The receipt retains `FormLayout`, actual process rules
+(explicit empty differs from unavailable), native origin/storage generation, exact
+snapshot identity, and a canonical fingerprint of current local process/schema
+inputs. This is **local observed schema identity**, not a server revision, current
+remote metadata guarantee, field permission or Apply authority. No schema migration
+or generic metadata cache is introduced. It also binds the inspected native Bench
+identity and complete stored selector digest. Only an automanaged default self
+query retains its existing local canonical normalization account, bound to the
+native origin identity; custom or pin-only Benches do not duplicate this account.
+Receipt-local Bench JSON stores each selector's discriminator and exact opaque
+payload, never its query-only computed accessors. Source-generated wire records
+preserve every selector; malformed kinds or payloads refuse rather than disappearing.
+
+`draft capture` requires an explicit Bench, qualified native identity, exact Int64
+generation and revision. It does not open a form, refresh metadata, stage pending
+work or invoke generic Preview. Under the same `BEGIN IMMEDIATE` as capture, it
+rereads the draft, snapshot, receipt, exact saved Bench and fresh process inputs.
+Existing native default normalization, local iteration calendar and Bench evaluator
+must still include the item; another Bench cannot reuse the inspection even when
+both select the item. Each original value
+must match the native carried-control inventory exactly, including null versus
+empty; native sink capability, known process transitions and retained required-field
+gates must accept the effects. Missing/corrupt/changed evidence blocks before any
+metadata fetch. Reinspect explicitly to acquire new evidence; capture never retries
+or rebases intent.
+
+Capture performs no work-item or work-metadata HTTP and creates no remote mutation
+or authorization. Native current-principal admission remains mandatory: a cold
+composition may attest its credential through identity-system HTTP before retaining
+the local capture. An already-attested composition with unchanged credential material
+performs no additional HTTP. Earlier blanket "no HTTP" shorthand does not exempt
+cold compositions from principal attestation or permit sharing another runtime's proof.
+
+Capture binding v2 includes the observed evidence fingerprint in native operation
+identity, outside ordinary v1 proposal syntax. Existing capture binding v1 still
+deserializes and reports missing evidence; it is never backfilled. Generic unbound
+proposals keep their existing behavior. Preview and Status inspect retained captures
+locally before generic import or process fetch, reporting structured current/stale
+issues with no authority. Generic Apply continues to refuse every capture-bound row
+before authorization or confirmation; native Save consumption is not enabled.
+
+Capture commits with `export-incomplete` recorded in the existing journal error
+column before filesystem work. Canonical UTF-8 bytes are written to a unique
+temporary file and moved without overwriting the digest-derived export path, then
+read back exactly. A different existing file refuses. Failure or cancellation after
+commit reports the retained digest and path, not success; `--recover <digest>`
+validates the exact retained capture and retries only export without another import,
+authorization, preview timestamp refresh or mutation of draft intent.
+
 | Table | Purpose |
 |-------|---------|
 | `metadata` | Key-value store (schema version, process config data) |

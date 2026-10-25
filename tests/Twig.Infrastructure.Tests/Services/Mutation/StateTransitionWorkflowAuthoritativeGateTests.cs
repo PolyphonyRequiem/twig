@@ -120,7 +120,7 @@ public sealed class StateTransitionWorkflowAuthoritativeGateTests
         processConfig.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
         var workflow = new StateTransitionWorkflow(
             Substitute.For<IWorkItemRepository>(),
-            adoService,
+            AdoWriterFixture.Wrap(adoService),
             Substitute.For<IPendingChangeStore>(),
             processConfig,
             parentPropagation: null,
@@ -138,7 +138,7 @@ public sealed class StateTransitionWorkflowAuthoritativeGateTests
     {
         Should.Throw<ArgumentNullException>(() => new StateTransitionWorkflow(
             Substitute.For<IWorkItemRepository>(),
-            Substitute.For<IAdoWorkItemService>(),
+            AdoWriterFixture.Wrap(Substitute.For<IAdoWorkItemService>()),
             Substitute.For<IPendingChangeStore>(),
             Substitute.For<IProcessConfigurationProvider>(),
             parentPropagation: null,
@@ -174,7 +174,7 @@ public sealed class StateTransitionWorkflowAuthoritativeGateTests
         // surface and the revision-bound surface.
         var workflow = new StateTransitionWorkflow(
             Substitute.For<IWorkItemRepository>(),
-            client,
+            new AdoProviderWorkItemWriter(client),
             pending,
             processConfig,
             parentPropagation: null,

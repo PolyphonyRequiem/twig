@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Twig.Domain.Services.ChangeProposals;
+using Twig.Domain.Services.Plan;
 
 namespace Twig.Infrastructure.Plan;
 
@@ -20,9 +21,10 @@ namespace Twig.Infrastructure.Plan;
 /// reflection and no per-call allocation beyond the buffer.
 /// </para>
 /// <para>
-/// Every material entry is emitted in full — affected items, operations, preconditions,
-/// consequences, authorization choices and blockers are never summarised or truncated. Dropping
-/// one would make the reviewer authorize a mutation they were never shown.
+/// Every material entry is emitted in full — legacy and provider-qualified affected items,
+/// operations, preconditions, consequences, authorization choices and blockers are never
+/// summarised or truncated. Dropping one would make the reviewer authorize a mutation they
+/// were never shown.
 /// </para>
 /// </summary>
 public static class ChangeProposalReviewModelJson
@@ -65,6 +67,8 @@ public static class ChangeProposalReviewModelJson
         }
 
         WriteItems(writer, "affectedItems", model.AffectedItems);
+        if (model.ProviderAffectedItems is { } providerAffectedItems)
+            WriteProviderItems(writer, "providerAffectedItems", providerAffectedItems);
         WriteItems(writer, "contextItems", model.ContextItems);
 
         writer.WriteStartArray("operations");
@@ -81,6 +85,8 @@ public static class ChangeProposalReviewModelJson
             else
                 writer.WriteNull("workItemId");
             WriteNullableString(writer, "stagedIdentity", op.Target.StagedIdentity);
+            if (op.Target.ProviderWorkItem is { } providerItem)
+                WriteProviderReference(writer, "providerWorkItem", providerItem);
             if (op.Target.Seed is { } seed)
             {
                 writer.WriteStartObject("seed");
@@ -141,9 +147,21 @@ public static class ChangeProposalReviewModelJson
                     writer.WriteNumber("otherId", otherId);
                 else
                     writer.WriteNull("otherId");
+                if (con.OtherProviderWorkItem is { } otherProviderItem)
+                    WriteProviderReference(writer, "otherProviderWorkItem", otherProviderItem);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
+
+            if (op.Capability is { } capability)
+            {
+                writer.WriteStartObject("capability");
+                writer.WriteString("relationship", capability.Relationship);
+                writer.WriteString("declared", capability.Declared);
+                writer.WriteString("availability", capability.Availability);
+                writer.WriteString("reason", capability.Reason);
+                writer.WriteEndObject();
+            }
 
             writer.WriteEndObject();
         }
@@ -164,6 +182,33 @@ public static class ChangeProposalReviewModelJson
             else
                 writer.WriteNull("workItemId");
             writer.WriteString("detail", blocker.Detail);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.WriteStartArray("policyDecisions");
+        foreach (var decision in model.PolicyDecisions)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("ruleId", decision.RuleId);
+            writer.WriteString("kind", decision.Kind);
+            writer.WriteString("outcome", decision.OutcomeName);
+            writer.WriteBoolean("blocking", decision.IsBlocking);
+            writer.WriteString("reason", decision.Reason);
+            WriteNullableInt(writer, "workItemId", decision.WorkItemId);
+            if (decision.ProviderIdentity is { } identity)
+            {
+                writer.WriteStartObject("providerIdentity");
+                writer.WriteString("providerKind", identity.ProviderKind);
+                writer.WriteString("resourceScope", identity.ResourceScope);
+                writer.WriteString("nativeId", identity.NativeId);
+                writer.WriteEndObject();
+            }
+            else
+            {
+                writer.WriteNull("providerIdentity");
+            }
+            WriteNullableString(writer, "opId", decision.OpId);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -205,6 +250,35 @@ public static class ChangeProposalReviewModelJson
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
+    }
+
+    private static void WriteProviderItems(
+        Utf8JsonWriter writer,
+        string name,
+        IReadOnlyList<ReviewProviderAffectedItem> items)
+    {
+        writer.WriteStartArray(name);
+        foreach (var item in items)
+        {
+            writer.WriteStartObject();
+            WriteProviderReference(writer, "item", item.Item);
+            writer.WriteString("role", item.Role);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteProviderReference(
+        Utf8JsonWriter writer, string name, ProviderWorkItemReference reference)
+    {
+        writer.WriteStartObject(name);
+        writer.WriteString("localId", reference.LocalId.ToString());
+        writer.WriteStartObject("externalIdentity");
+        writer.WriteString("providerKind", reference.ExternalIdentity.ProviderKind);
+        writer.WriteString("resourceScope", reference.ExternalIdentity.ResourceScope);
+        writer.WriteString("nativeId", reference.ExternalIdentity.NativeId);
+        writer.WriteEndObject();
+        writer.WriteEndObject();
     }
 
     private static void WriteNullableInt(Utf8JsonWriter writer, string name, int? value)

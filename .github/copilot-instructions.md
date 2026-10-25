@@ -91,8 +91,8 @@ When committing code that implements plan work:
 - Include `AB#<id>` in the commit message (the Issue ID from the mapping file)
 - After committing, close the ADO item through the plan path described in
   *Work Item Lifecycle Protocol* below. `twig state Done` is **not** the close mechanism
-- When all epics complete, also close the plan-level Epic — its `Custom.ClosingStatement`
-  gate must be written in the same operation as the transition
+- When all epics complete, also close the plan-level Epic — any close-gate fields its
+  process declares must be written in the same operation as the transition
 - If no mapping exists for the current work, commit normally without AB# reference
 
 ### PR Grouping Strategy
@@ -132,14 +132,13 @@ Add a `twig note` at each meaningful checkpoint — not just at completion:
 
 ### Completing a task
 
-🔴 **`twig state Done` cannot close a tracked work item.** Two independent reasons, both
-verified against this project's live process:
+🔴 **`twig state Done` cannot close a tracked work item.** Two independent reasons:
 
-1. **It writes the wrong thing.** `twig state` stages `System.State` and nothing else. Every
-   routable type but one declares at least one *close-gate* field that the process makes
-   required in the Done state and that no process rule supplies a value for (table below).
-   A bare state push leaves those fields empty, so ADO's rule engine rejects it — and under
-   `bypassRules` it would be worse, closing the item with its gate fields silently empty.
+1. **It writes the wrong thing.** `twig state` stages `System.State` and nothing else. A
+   process may declare *close-gate* fields — fields it makes required in the Done-category
+   state with no process rule supplying a value. A bare state push leaves those fields empty,
+   so ADO's rule engine rejects it — and under `bypassRules` it would be worse, closing the
+   item with its gate fields silently empty.
 2. **It writes the wrong way.** `twig state` PATCHes ADO directly. Board mutations on
    published items belong in the change-proposal journal, where they get a confirmed digest,
    an authorization bound to it, and an audit row. A direct push leaves no journal row.
@@ -148,10 +147,9 @@ Close through the plan path instead. When a task's work is verified (code works,
 
 1. `twig note --text "Done: <summary of changes>"` — final note
 2. Stage **one** `batch` operation carrying the Done transition *and* its gate fields
-   together: `System.State` set to the Done-category state, plus every close-gate field for
-   the type, plus `Custom.TerminalOutcome` where the type carries it. One operation, one
-   revision hop, one journal entry — the fields must ride *with* the transition, never before
-   or after it
+   together: `System.State` set to the Done-category state, plus every close-gate field the
+   connected process declares for the type. One operation, one revision hop, one journal
+   entry — the fields must ride *with* the transition, never before or after it
 3. Apply it with `twig proposal apply --confirm <digest> --authorize <identity>` (`twig plan
    apply` is a retained deprecated alias). Agents with the workflow skills invoke
    `/ado-publish` for this step, or `/closeout` for the whole close
@@ -161,36 +159,20 @@ Close through the plan path instead. When a task's work is verified (code works,
 `twig state` is still the right command for a transition that crosses no gate — `To do` →
 `Doing` when you pick work up, or reopening a closed item.
 
-#### Close gates by type
+#### Discovering close gates
 
-Measured from `twig process description -o json`. These are the fields the process makes
-required in the Done state with **no** paired rule supplying them, so a caller must provide
-each one:
+Twig ships no close-gate table: the connected process is the only source of truth. Before
+staging a close, read the type's description:
 
-| Type | Close-gate fields | Carries `Custom.TerminalOutcome` |
-|------|-------------------|----------------------------------|
-| Bug | `Custom.FalsificationCriteria`, `Custom.VerificationMode` | yes |
-| Feature | `Custom.FalsificationCriteria`, `Custom.VerificationMode` | yes |
-| Spec | `Custom.FalsificationCriteria` | — |
-| Idea | `Custom.ClosingStatement` | — |
-| Decision | `Custom.ClosingStatement`, plus `Custom.SupersededBy` when `Custom.DecisionStanding` is `Replaced` | — |
-| Epic | `Custom.ClosingStatement` | — |
-| Map | `Custom.ClosingStatement` | — |
-| Grilling | `Custom.WayfinderAnswer`, `Custom.MaturityNote` | — |
-| Prototype | `Custom.WayfinderAnswer`, `Custom.MaturityNote` | — |
-| Research | `Custom.WayfinderAnswer`, `Custom.MaturityNote` | — |
-| Wayfinder Task | `Custom.MaturityNote` | yes |
-| Task | none — gate-exempt by design | yes |
+```bash
+twig process description <type-ref> -o json
+```
 
-`Task` is the only gate-exempt type, and even it is not closable with `twig state Done`:
-`Custom.TerminalOutcome` is caller-owned, supplied by no rule, and must be set in the same
-operation as the transition. Its allowed values are `completed`, `canceled`, `failed`, and
-`rejected`.
-
-Never hardcode this table into code — the runtime source of truth is
-`twig process description <ref> -o json`, and the codebase stays process-agnostic. It is
-reproduced here so an agent knows what to stage. `twig state` now refuses a transition whose
-gate fields are unsatisfied instead of emitting a PATCH that ADO would reject.
+The close-gate fields are those required in the Done-category state with **no** paired rule
+supplying a value; stage each one, using only the allowed values the description lists. A
+type may declare none. Never hardcode gate fields or values in code or guidance — the
+codebase stays process-agnostic. `twig state` refuses a transition whose declared gate
+fields are unsatisfied instead of emitting a PATCH that ADO would reject.
 
 **Never mark a todo completed while its work item is still open.** The board is the source of
 truth, not the todo list. A todo may be checked off only after the item's Done transition has
@@ -203,8 +185,7 @@ say so explicitly. Quietly checking it off is exactly what leaves the board stal
 After all tasks are complete and committed:
 1. `git push`
 2. Close the parent the same way — a staged `batch` op carrying its gate fields, applied
-   through the plan path. Parents are usually container types (`Epic`, `Map`, `Feature`),
-   so expect a `Custom.ClosingStatement` or `Custom.FalsificationCriteria` you must write
+   through the plan path, writing whatever close-gate fields its process declares
 3. Then summarize — output should come last, not before operational close-out
 
 ### Why this ordering matters

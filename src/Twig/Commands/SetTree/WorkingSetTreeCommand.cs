@@ -1,6 +1,8 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
 using Twig.Rendering;
 
 namespace Twig.Commands.SetTree;
@@ -30,6 +32,8 @@ internal sealed class WorkingSetTreeCommand(
     RendererFactory rendererFactory,
     TwigConfiguration config)
 {
+    internal DurableFieldOverlay? FieldOverlay { get; init; }
+
     internal async Task<int> ExecuteAsync(
         string? items,
         string? annotate,
@@ -114,6 +118,7 @@ internal sealed class WorkingSetTreeCommand(
 
         var builder = new WorkingSetTreeBuilder(workItemRepo);
         var forest = await builder.BuildAsync(idResult.Ids, annotations, rootsOnly, depth, ct);
+        forest = await ApplyFieldOverlayAsync(forest, ct);
 
         // SpectreTheme reads only Icons and TypeColors off DisplayConfig, so a
         // per-invocation icon override is a shallow copy rather than mutating the
@@ -144,5 +149,47 @@ internal sealed class WorkingSetTreeCommand(
         }
 
         return 0;
+    }
+
+    private async Task<WorkingSetForest> ApplyFieldOverlayAsync(WorkingSetForest forest, CancellationToken ct)
+    {
+        if (FieldOverlay is null)
+            return forest;
+
+        // Build topology from the mirror first; only the resulting display items are composed.
+        var items = new List<WorkItem>();
+        var seen = new HashSet<WorkItem>(ReferenceEqualityComparer.Instance);
+        void Collect(WorkingSetNode node)
+        {
+            if (node.Item is { } item && seen.Add(item))
+                items.Add(item);
+            foreach (var child in node.Children)
+                Collect(child);
+        }
+        foreach (var root in forest.Roots)
+            Collect(root);
+
+        var effective = await FieldOverlay.ApplyAsync(items, ct);
+        var replacements = new Dictionary<WorkItem, WorkItem>(ReferenceEqualityComparer.Instance);
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (!ReferenceEquals(items[i], effective[i]))
+                replacements.Add(items[i], effective[i]);
+        }
+        if (replacements.Count == 0)
+            return forest;
+
+        WorkingSetNode Replace(WorkingSetNode node)
+        {
+            var item = node.Item is { } raw && replacements.TryGetValue(raw, out var composed)
+                ? composed : node.Item;
+            var children = node.Children.Select(Replace).ToList();
+            return ReferenceEquals(item, node.Item)
+                && !children.Where((child, index) => !ReferenceEquals(child, node.Children[index])).Any()
+                ? node
+                : node with { Item = item, Children = children };
+        }
+
+        return forest with { Roots = forest.Roots.Select(Replace).ToList() };
     }
 }

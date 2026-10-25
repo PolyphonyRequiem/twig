@@ -1406,13 +1406,20 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 // Roll the durable schema back to its pre-[8] shape so we can seed rows
                 // via the OLD table names, then let a reopen run migration [8] for real.
                 // The [9] audit columns are dropped too: a genuine v7 database never had
-                // them, and leaving them would make the reopen's ADD COLUMN collide.
+                // them, and leaving them would make the reopen's ADD COLUMN collide. The same
+                // holds for the [13] neutral tables: dropping them removes [14]'s columns too.
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
+                        DROP TABLE pending.local_relationships;
+                        DROP TABLE pending.local_work_items;
+                        DROP TABLE pending.external_identities;
                         DROP TABLE pending.proposal_receipts;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;
+                        DROP TABLE pending.recoverable_work_item_drafts;
                         ALTER TABLE pending.proposal_journals DROP COLUMN origin_json;
                         DROP INDEX pending.idx_proposal_journals_latest_unresolved;
+                        DROP INDEX pending.idx_proposal_journals_source_path_previewed_at_digest;
                         ALTER TABLE pending.proposal_journals DROP COLUMN last_previewed_at;
                         ALTER TABLE pending.proposal_journals RENAME TO plan_journals;
                         ALTER TABLE pending.proposal_operations RENAME TO plan_operations;
@@ -1431,6 +1438,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                         """;
 
                     rollback.ExecuteNonQuery();
+                    DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(conn, 7);
                 }
 
                 // Seed a Confirmed header row.
@@ -1604,12 +1612,20 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
             {
                 var conn = store.GetConnection();
+                // A genuine v8 database never had the [13] neutral tables either; dropping them
+                // removes [14]'s columns, so the reopen replays [13] and [14] as a real upgrade.
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
+                        DROP TABLE pending.local_relationships;
+                        DROP TABLE pending.local_work_items;
+                        DROP TABLE pending.external_identities;
                         DROP TABLE pending.proposal_receipts;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;
+                        DROP TABLE pending.recoverable_work_item_drafts;
                         ALTER TABLE pending.proposal_journals DROP COLUMN origin_json;
                         DROP INDEX pending.idx_proposal_journals_latest_unresolved;
+                        DROP INDEX pending.idx_proposal_journals_source_path_previewed_at_digest;
                         ALTER TABLE pending.proposal_journals DROP COLUMN last_previewed_at;
                         ALTER TABLE pending.proposal_journals DROP COLUMN authorization_mode;
                         ALTER TABLE pending.proposal_journals DROP COLUMN authorizer_identity;
@@ -1619,6 +1635,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                         PRAGMA pending.user_version = 8;
                         """;
                     rollback.ExecuteNonQuery();
+                    DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(conn, 8);
                 }
 
                 using (var header = conn.CreateCommand())

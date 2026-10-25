@@ -4,6 +4,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Plan;
 using Xunit;
@@ -362,6 +363,42 @@ public sealed class ChangeProposalReviewModelBuilderTests
         pendingBlocker.Detail.ShouldContain("System.State");
     }
 
+    [Fact]
+    public async Task Model_PreservesPolicyDecisionsAndProjectsBlockingReasonsToReview()
+    {
+        var decisions = new PolicyDecision[]
+        {
+            new() { RuleId = "label", Kind = "label-applicability", Outcome = PolicyOutcome.Warn, Reason = "Existing violation is not worsened.", WorkItemId = 742, OpId = "op-1" },
+            new() { RuleId = "parent", Kind = "parent-type", Outcome = PolicyOutcome.Refuse, Reason = "The parent type is not allowed.", WorkItemId = 729, OpId = "op-2", ProviderIdentity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_729") },
+        };
+
+        var model = await Builder().BuildAsync(
+            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true, policyDecisions: decisions);
+
+        model.PolicyDecisions.ShouldBe(decisions);
+        model.AuthorizationChoices.ShouldNotContain("apply");
+        var blocker = model.Blockers.ShouldHaveSingleItem();
+        blocker.Kind.ShouldBe("policy");
+        blocker.WorkItemId.ShouldBe(729);
+        blocker.Detail.ShouldContain("[parent]");
+        blocker.Detail.ShouldContain("refuse");
+        blocker.Detail.ShouldContain("The parent type is not allowed.");
+
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var policyDecisions = json.RootElement.GetProperty("policyDecisions");
+        policyDecisions.GetArrayLength().ShouldBe(2);
+        policyDecisions[0].GetProperty("outcome").GetString().ShouldBe("warn");
+        policyDecisions[0].GetProperty("blocking").GetBoolean().ShouldBeFalse();
+        policyDecisions[0].GetProperty("reason").GetString().ShouldBe("Existing violation is not worsened.");
+        policyDecisions[1].GetProperty("outcome").GetString().ShouldBe("refuse");
+        policyDecisions[1].GetProperty("blocking").GetBoolean().ShouldBeTrue();
+        policyDecisions[1].GetProperty("workItemId").GetInt32().ShouldBe(729);
+        policyDecisions[1].GetProperty("providerIdentity").GetProperty("providerKind").GetString().ShouldBe("github");
+        policyDecisions[1].GetProperty("providerIdentity").GetProperty("resourceScope").GetString().ShouldBe("https://api.github.com");
+        policyDecisions[1].GetProperty("providerIdentity").GetProperty("nativeId").GetString().ShouldBe("I_729");
+        policyDecisions[1].GetProperty("opId").GetString().ShouldBe("op-2");
+    }
+
     // ── model identity ────────────────────────────────────────────────────
 
     [Fact]
@@ -377,6 +414,161 @@ public sealed class ChangeProposalReviewModelBuilderTests
         model.Model.ShouldBe("twig.change-proposal.review");
         model.ModelVersion.ShouldBe(1);
         model.Workspace.Organization.ShouldBe("acme");
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        json.RootElement.TryGetProperty("providerAffectedItems", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Model_ProjectsV2ProviderIdentityAndOpaquePreconditionWithoutAdoAlias()
+    {
+        var source = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:7"),
+        };
+        var peer = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:8"),
+        };
+        var definition = new PlanDefinition
+        {
+            Version = 2,
+            Workspace = Workspace,
+            Operations =
+            [
+                new ProviderMutationOperation
+                {
+                    Id = "edit",
+                    OperationKind = PlanOperationKind.Batch,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = source,
+                        ExpectedProviderRevision = new ProviderRevisionToken("etag:\"opaque\""),
+                    },
+                    Fields = new Dictionary<string, string?> { ["System.Title"] = "Updated" },
+                },
+                new ProviderMutationOperation
+                {
+                    Id = "link",
+                    OperationKind = PlanOperationKind.AddLink,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = source,
+                        ExpectedProviderRevision = new ProviderRevisionToken("opaque:next"),
+                    },
+                    Relation = "related",
+                    Other = peer,
+                },
+            ],
+        };
+
+        var model = await Builder().BuildAsync(definition, "digest-v2", [], [], canApply: false);
+
+        model.AuthorizationChoices.ShouldBe(["revise", "decline"]);
+        model.Operations.Select(operation => operation.Target.ProviderWorkItem)
+            .ShouldBe(new ProviderWorkItemReference?[] { source, source });
+        model.Operations[0].Preconditions.Single().ShouldBe(new ReviewPrecondition
+        {
+            Kind = "expectedProviderRevision",
+            Value = "etag:\"opaque\"",
+        });
+        model.Operations[0].Consequences.Single().Field.ShouldBe("System.Title");
+        model.Operations[1].Consequences.Single().OtherProviderWorkItem.ShouldBe(peer);
+        model.Operations.Select(operation => operation.Summary).ShouldAllBe(summary =>
+            summary.Contains(source.ExternalIdentity.NativeId) && summary.Contains(source.LocalId.ToString()));
+        _workItems.ReceivedCalls().ShouldBeEmpty();
+
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var target = json.RootElement.GetProperty("operations")[0].GetProperty("target").GetProperty("providerWorkItem");
+        target.GetProperty("localId").GetString().ShouldBe(source.LocalId.ToString());
+        target.GetProperty("externalIdentity").GetProperty("nativeId").GetString().ShouldBe("issue:7");
+        json.RootElement.GetProperty("operations")[0].GetProperty("preconditions")[0]
+            .GetProperty("value").GetString().ShouldBe("etag:\"opaque\"");
+        json.RootElement.GetProperty("operations")[1].GetProperty("consequences")[0]
+            .GetProperty("otherProviderWorkItem").GetProperty("externalIdentity")
+            .GetProperty("nativeId").GetString().ShouldBe("issue:8");
+    }
+
+    [Fact]
+    public async Task Model_ListsV2TargetsAndPeersByCanonicalIdentityWithTargetRolePrecedence()
+    {
+        static ProviderWorkItemReference Reference(string nativeId) => new()
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", nativeId),
+        };
+
+        var shared = Reference("issue:7");
+        var source = Reference("issue:8");
+        var peer = Reference("issue:9");
+        ProviderMutationOperation Batch(string id, ProviderWorkItemReference item) => new()
+        {
+            Id = id,
+            OperationKind = PlanOperationKind.Batch,
+            Target = new ProviderWorkItemMutationTarget
+            {
+                Item = item,
+                ExpectedProviderRevision = new ProviderRevisionToken($"revision:{id}"),
+            },
+            Fields = new Dictionary<string, string?> { ["System.Title"] = id },
+        };
+        ProviderMutationOperation Link(string id, ProviderWorkItemReference target, ProviderWorkItemReference other) => new()
+        {
+            Id = id,
+            OperationKind = PlanOperationKind.AddLink,
+            Target = new ProviderWorkItemMutationTarget
+            {
+                Item = target,
+                ExpectedProviderRevision = new ProviderRevisionToken($"revision:{id}"),
+            },
+            Relation = "related",
+            Other = other,
+        };
+        var definition = new PlanDefinition
+        {
+            Version = 2,
+            Workspace = Workspace,
+            Operations =
+            [
+                Link("link-shared", source, shared),
+                Batch("batch", shared),
+                Link("link-peer", source, peer),
+            ],
+        };
+
+        var model = await Builder().BuildAsync(definition, "digest-v2", [], [], canApply: false);
+
+        var affected = model.ProviderAffectedItems!;
+        affected.Count.ShouldBe(3);
+        affected.Select(item => item.Item).ToHashSet().SetEquals([shared, source, peer]).ShouldBeTrue();
+        affected.Single(item => item.Item == shared).Role.ShouldBe("target");
+        affected.Single(item => item.Item == source).Role.ShouldBe("target");
+        affected.Single(item => item.Item == peer).Role.ShouldBe("peer");
+        model.AffectedItems.ShouldBeEmpty();
+        _workItems.ReceivedCalls().ShouldBeEmpty();
+
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var providerItems = json.RootElement.GetProperty("providerAffectedItems").EnumerateArray().ToArray();
+        providerItems.Length.ShouldBe(3);
+        providerItems.ShouldContain(item =>
+            item.GetProperty("item").GetProperty("localId").GetString() == shared.LocalId.ToString()
+            && item.GetProperty("item").GetProperty("externalIdentity").GetProperty("providerKind").GetString() == "github"
+            && item.GetProperty("item").GetProperty("externalIdentity").GetProperty("resourceScope").GetString() == "repo:acme/widgets"
+            && item.GetProperty("role").GetString() == "target");
+        providerItems.ShouldContain(item =>
+            item.GetProperty("item").GetProperty("externalIdentity").GetProperty("nativeId").GetString() == "issue:9"
+            && item.GetProperty("role").GetString() == "peer");
+        foreach (var providerItem in providerItems)
+        {
+            var item = providerItem.GetProperty("item");
+            item.TryGetProperty("title", out var title).ShouldBeFalse();
+            item.TryGetProperty("type", out var type).ShouldBeFalse();
+            item.TryGetProperty("state", out var state).ShouldBeFalse();
+            title.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+            type.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+            state.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+        }
     }
 
     [Fact]
@@ -393,6 +585,235 @@ public sealed class ChangeProposalReviewModelBuilderTests
         rendered.Recipe.ShouldNotBeNull();
         rendered.Recipe!.RecipeId.ShouldBe("twig.test.recipe");
         rendered.Recipe.Version.ShouldBe(2);
+    }
+
+    // ── declared capability advisory (AB#1191) ────────────────────────────
+
+    private static PlanDefinition AddLink(string relation) => Document(new AddLinkOperation
+    {
+        Id = "op-1",
+        WorkItemId = 742,
+        ExpectedRevision = 4,
+        Relation = relation,
+        OtherId = 740,
+    });
+
+    private static async Task<ReviewOperation> BuildAddLinkAsync(
+        IWorkItemRepository workItems, string relation, Twig.Domain.Capabilities.ProviderCapabilityDescriptor? descriptor)
+    {
+        var builder = new ChangeProposalReviewModelBuilder(workItems) { CapabilityDescriptor = descriptor };
+        var model = await builder.BuildAsync(AddLink(relation), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        return model.Operations.Single();
+    }
+
+    [Theory]
+    [InlineData("github", "parent", "parent-child", "native")]
+    [InlineData("github", "predecessor", "predecessor-successor", "native")]
+    [InlineData("github", "related", "related", "unsupported")]
+    [InlineData("ado", "related", "related", "native")]
+    public async Task AddLink_CarriesDeclaredNotObservedAdvisory(string provider, string relation, string kind, string declared)
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(provider, out var descriptor).ShouldBeTrue();
+
+        var op = await BuildAddLinkAsync(_workItems, relation, descriptor);
+
+        op.Capability.ShouldNotBeNull();
+        op.Capability!.Relationship.ShouldBe(kind);
+        op.Capability.Declared.ShouldBe(declared);
+        op.Capability.Availability.ShouldBe("unknown");
+        op.Capability.Reason.ShouldBe("not-probed");
+    }
+
+    [Fact]
+    public async Task AddLink_WithoutDescriptor_StillEmitsDeclaredUnknown()
+    {
+        var op = await BuildAddLinkAsync(_workItems, "parent", descriptor: null);
+
+        op.Capability.ShouldNotBeNull();
+        op.Capability!.Declared.ShouldBe("unknown");
+        op.Capability.Availability.ShouldBe("unknown");
+    }
+
+    [Fact]
+    public async Task AddLink_WithUnknownRelation_IsDeclaredUnknown()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+
+        var op = await BuildAddLinkAsync(_workItems, "mystery", descriptor);
+
+        op.Capability!.Relationship.ShouldBe("unknown");
+        op.Capability.Declared.ShouldBe("unknown");
+    }
+
+    private static ProviderWorkItemReference GitHubRef(string issue) => new()
+    {
+        LocalId = LocalWorkItemId.New(),
+        ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", issue),
+    };
+
+    private static PlanDefinition ProviderOp(PlanOperationKind kind, string? relation) => new()
+    {
+        Version = 2,
+        Workspace = Workspace,
+        Operations =
+        [
+            new ProviderMutationOperation
+            {
+                Id = "op-1",
+                OperationKind = kind,
+                Target = new ProviderWorkItemMutationTarget
+                {
+                    Item = GitHubRef("issue:7"),
+                    ExpectedProviderRevision = new ProviderRevisionToken("opaque:next"),
+                },
+                Relation = relation,
+                Other = kind == PlanOperationKind.AddLink ? GitHubRef("issue:8") : null,
+                Fields = kind == PlanOperationKind.Batch ? new Dictionary<string, string?> { ["System.Title"] = "T" } : null,
+            },
+        ],
+    };
+
+    [Theory]
+    [InlineData("parent", "parent-child", "native")]
+    [InlineData("predecessor", "predecessor-successor", "native")]
+    [InlineData("related", "related", "unsupported")]
+    [InlineData("mystery", "unknown", "unknown")]
+    [InlineData(null, "unknown", "unknown")]
+    [InlineData("", "unknown", "unknown")]
+    public async Task ProviderAddLink_CarriesDeclaredNotObservedAdvisory(string? relation, string kind, string declared)
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+        var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
+
+        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.AddLink, relation), "d".PadLeft(64, 'a'), [], [], canApply: true);
+
+        var capability = model.Operations.Single().Capability;
+        capability.ShouldNotBeNull();
+        capability!.Relationship.ShouldBe(kind);
+        capability.Declared.ShouldBe(declared);
+        capability.Availability.ShouldBe("unknown");
+        capability.Reason.ShouldBe("not-probed");
+    }
+
+    [Fact]
+    public async Task ProviderAddLink_WithoutDescriptor_IsDeclaredUnknown()
+    {
+        var builder = new ChangeProposalReviewModelBuilder(_workItems);
+
+        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.AddLink, "parent"), "d".PadLeft(64, 'a'), [], [], canApply: true);
+
+        model.Operations.Single().Capability!.Declared.ShouldBe("unknown");
+    }
+
+    [Fact]
+    public async Task ProviderNonLinkOperation_CarriesNoAdvisory()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+        var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
+
+        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.Batch, null), "d".PadLeft(64, 'a'), [], [], canApply: true);
+
+        model.Operations.Single().Capability.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ProviderAddLink_AdvisoryLeavesCanonicalBytesAndLegacyReviewBytesUnchanged()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+        var plan = ProviderOp(PlanOperationKind.AddLink, "parent");
+        static string DeriveDigest(string planJson)
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(planJson);
+            return PlanCanonicalizer.Canonicalize(doc.RootElement).Digest;
+        }
+
+        var canonicalBefore = PlanDocumentWriter.Write(plan);
+        var digestBefore = DeriveDigest(canonicalBefore);
+        digestBefore.Length.ShouldBe(64);
+
+        var withAdvisory = await new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor }
+            .BuildAsync(plan, digestBefore, [], [], canApply: true);
+
+        PlanDocumentWriter.Write(plan).ShouldBe(canonicalBefore);
+        DeriveDigest(PlanDocumentWriter.Write(plan)).ShouldBe(digestBefore);
+        withAdvisory.Digest.ShouldBe(digestBefore);
+        var stripped = ChangeProposalReviewModelJson.Serialize(withAdvisory with
+        {
+            Operations = [.. withAdvisory.Operations.Select(o => o with { Capability = null })],
+        });
+        stripped.ShouldNotContain("\"capability\"");
+        ChangeProposalReviewModelJson.Serialize(withAdvisory).ShouldContain("\"capability\"");
+    }
+
+    [Fact]
+    public async Task NonAddLinkOperations_CarryNoAdvisory()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+        var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
+
+        var model = await builder.BuildAsync(AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true);
+
+        model.Operations.Where(o => o.Kind != "add-link").ShouldAllBe(o => o.Capability == null);
+    }
+
+    [Fact]
+    public async Task Advisory_JsonNamesDeclaredOnly_AndLegacyShapeIsUnchangedWithoutIt()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+        var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
+        var model = await builder.BuildAsync(AddLink("parent"), "d".PadLeft(64, 'a'), [], [], canApply: true);
+
+        var json = ChangeProposalReviewModelJson.Serialize(model);
+        var stripped = ChangeProposalReviewModelJson.Serialize(model with
+        {
+            Operations = [.. model.Operations.Select(o => o with { Capability = null })],
+        });
+
+        json.ShouldContain("\"capability\":{\"relationship\":\"parent-child\",\"declared\":\"native\",\"availability\":\"unknown\",\"reason\":\"not-probed\"}");
+        json.ShouldNotContain("provider-native");
+        json.ShouldNotContain("origin");
+        stripped.ShouldNotContain("\"capability\"");
+        json.Replace(",\"capability\":{\"relationship\":\"parent-child\",\"declared\":\"native\",\"availability\":\"unknown\",\"reason\":\"not-probed\"}", "")
+            .ShouldBe(stripped);
+    }
+
+    // Defends the digest claim: the advisory sits outside canonical effects, so the canonical plan
+    // bytes, the digest and every non-advisory review byte are identical whichever descriptor is
+    // configured (including none).
+    [Fact]
+    public async Task Advisory_LeavesCanonicalPlanBytesDigestAndNonAdvisoryReviewBytesUnchanged()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var github).ShouldBeTrue();
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("ado", out var ado).ShouldBeTrue();
+        var plan = AddLink("predecessor");
+
+        // The digest is derived from the canonical plan bytes, not a supplied constant.
+        static string DeriveDigest(string planJson)
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(planJson);
+            return PlanCanonicalizer.Canonicalize(doc.RootElement).Digest;
+        }
+
+        var canonical = PlanDocumentWriter.Write(plan);
+        var digestBefore = DeriveDigest(canonical);
+        digestBefore.Length.ShouldBe(64);
+
+        var models = new List<ChangeProposalReviewModel>();
+        foreach (var descriptor in new Twig.Domain.Capabilities.ProviderCapabilityDescriptor?[] { null, ado, github })
+        {
+            var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
+            models.Add(await builder.BuildAsync(plan, digestBefore, [], [], canApply: true));
+            PlanDocumentWriter.Write(plan).ShouldBe(canonical);
+            DeriveDigest(PlanDocumentWriter.Write(plan)).ShouldBe(digestBefore);
+        }
+
+        models.ShouldAllBe(m => m.Digest == digestBefore);
+        var legacy = models.Select(m => ChangeProposalReviewModelJson.Serialize(m with
+        {
+            Operations = [.. m.Operations.Select(o => o with { Capability = null })],
+        })).Distinct().ToList();
+        legacy.Count.ShouldBe(1);
+        legacy[0].ShouldNotContain("\"capability\"");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

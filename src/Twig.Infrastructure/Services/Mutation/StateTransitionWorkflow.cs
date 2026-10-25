@@ -50,7 +50,7 @@ public sealed class StateTransitionWorkflow
     private const string StateTransitionGateOperationId = "state-transition-gate";
 
     private readonly IWorkItemRepository workItemRepo;
-    private readonly IAdoWorkItemService adoService;
+    private readonly IProviderWorkItemWriter adoService;
     private readonly IPendingChangeStore pendingChangeStore;
     private readonly IProcessConfigurationProvider processConfigProvider;
     private readonly ParentStatePropagationService? parentPropagation;
@@ -59,9 +59,14 @@ public sealed class StateTransitionWorkflow
     private readonly IRevisionBoundAdoWorkItemService? revisionBound;
     private readonly WorkItemMapper snapshotMapper = new();
 
+    /// <summary>
+    /// Public overload without a process-rule provider. Transitions built through it return
+    /// <see cref="StateTransitionOutcome.ProcessRulesUnavailable"/> before any write, because an
+    /// absent rule source cannot vouch for close gates (AB#1169).
+    /// </summary>
     public StateTransitionWorkflow(
         IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         IPendingChangeStore pendingChangeStore,
         IProcessConfigurationProvider processConfigProvider,
         ParentStatePropagationService? parentPropagation = null,
@@ -86,7 +91,7 @@ public sealed class StateTransitionWorkflow
     /// </param>
     internal StateTransitionWorkflow(
         IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         IPendingChangeStore pendingChangeStore,
         IProcessConfigurationProvider processConfigProvider,
         ParentStatePropagationService? parentPropagation,
@@ -167,21 +172,22 @@ public sealed class StateTransitionWorkflow
             return new StateTransitionOutcome.TransitionNotAllowed(item.State, newState);
 
         Func<WorkItem, string, IReadOnlyList<FieldChange>>? dependentFieldPlanner = null;
+        // Refuse a transition the process itself will not accept, BEFORE touching the wire.
+        // `twig state` writes System.State and nothing else, so a caller-owned gate field
+        // (an authored `when State = X -> makeRequired Y` with no paired supplier) can never
+        // be satisfied through this command; emitting the PATCH would spend a round trip to
+        // be told so, and under bypassRules could walk straight past the gate instead.
+        // Reuses the plan surface's evaluator so the AB#803 supplied-requirement semantics
+        // have exactly one implementation. A missing provider is not a permit: the gate
+        // reports it as unavailable, so no PATCH is emitted without a rule source (AB#1169).
+        //
+        // AB#1209: when rules are available, evaluate against the authoritative snapshot at
+        // the exact revision being written over — never the caller's item, whose cache
+        // projection drops read-only fields and can report populated fields as missing.
+        // No fallback: if the snapshot cannot be read, the gate cannot be evaluated.
+        WorkItem gateSource = item;
         if (processRuleProvider is not null)
         {
-            // Refuse a transition the process itself will not accept, BEFORE touching the wire.
-            // `twig state` writes System.State and nothing else, so a caller-owned gate field
-            // (an authored `when State = X -> makeRequired Y` with no paired supplier) can never
-            // be satisfied through this command; emitting the PATCH would spend a round trip to
-            // be told so, and under bypassRules could walk straight past the gate instead.
-            // Reuses the plan surface's evaluator so the AB#803 supplied-requirement semantics
-            // have exactly one implementation.
-            //
-            // AB#1209: evaluate against the authoritative snapshot at the exact revision being
-            // written over — never the caller's item, whose cache projection drops read-only
-            // fields (System.AreaId, System.IterationId, ...) and so reports populated fields
-            // as missing. No fallback: if the snapshot cannot be read, the gate cannot be
-            // evaluated and nothing is written.
             var snapshot = await revisionBound!.FetchAtRevisionAsync(item.Id, expectedRevision, ct);
             if (snapshot.Id != item.Id || snapshot.Revision != expectedRevision)
             {
@@ -190,38 +196,48 @@ public sealed class StateTransitionWorkflow
                     $"#{snapshot.Id} rev {snapshot.Revision}; refusing to gate on a different revision.");
             }
 
-            var gate = new PlanProcessRuleGate(processRuleProvider);
-            var gateOutcome = await gate.EvaluateAsync(
-                new BatchOperation
-                {
-                    Id = StateTransitionGateOperationId,
-                    WorkItemId = item.Id,
-                    ExpectedRevision = expectedRevision,
-                    Fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        [SystemStateField] = newState,
-                    },
-                },
-                snapshotMapper.Map(snapshot),
-                ct);
-
-            if (gateOutcome.IsRefused)
-            {
-                return new StateTransitionOutcome.RequiredFieldsMissing(
-                    item.Id,
-                    item.Type.Value,
-                    newState,
-                    gateOutcome.Fields ?? []);
-            }
-
-            var rules = await processRuleProvider.GetRulesAsync(item.Type.Value, ct);
-            dependentFieldPlanner = (currentItem, targetState) =>
-                DependentFieldReconciler.GetSafeClears(
-                    rules,
-                    currentItem.State,
-                    targetState,
-                    currentItem.Fields);
+            gateSource = snapshotMapper.Map(snapshot);
         }
+
+        var gate = new PlanProcessRuleGate(processRuleProvider);
+        var gateOutcome = await gate.EvaluateAsync(
+            new BatchOperation
+            {
+                Id = StateTransitionGateOperationId,
+                WorkItemId = item.Id,
+                ExpectedRevision = expectedRevision,
+                Fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [SystemStateField] = newState,
+                },
+            },
+            gateSource,
+            ct);
+
+        if (gateOutcome.IsRefused)
+        {
+            return new StateTransitionOutcome.RequiredFieldsMissing(
+                item.Id,
+                item.Type.Value,
+                newState,
+                gateOutcome.Fields ?? []);
+        }
+
+        if (gateOutcome.IsRefreshRequired)
+        {
+            return new StateTransitionOutcome.ProcessRulesUnavailable(
+                item.Id,
+                newState,
+                gateOutcome.Message ?? "Process rules could not be loaded.");
+        }
+
+        var rules = await processRuleProvider!.GetRulesAsync(item.Type.Value, ct);
+        dependentFieldPlanner = (currentItem, targetState) =>
+            DependentFieldReconciler.GetSafeClears(
+                rules,
+                currentItem.State,
+                targetState,
+                currentItem.Fields);
 
         var execution = await StateTransitionExecutor.ExecuteAsync(
             adoService,

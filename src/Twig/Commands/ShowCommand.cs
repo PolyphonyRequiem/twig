@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Spectre.Console.Rendering;
 using Twig.Domain.Common;
+using Twig.Domain.Enums;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
@@ -46,6 +47,22 @@ public sealed class ShowCommand(
     private readonly IPendingChangeStore? _pendingChangeStore = pendingChangeStore;
     private readonly WorkingSetService? _workingSetService = workingSetService;
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
+    /// <summary>
+    /// Durable local composition of displayed items (Epic #1168); a pass-through unless the
+    /// neutral store projects and the scope is already known. Display only: composed copies are
+    /// never saved, and the raw <c>--include-fields</c> export deliberately bypasses it.
+    /// </summary>
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
+
+    private Task<Domain.Aggregates.WorkItem> OverlayAsync(Domain.Aggregates.WorkItem item, CancellationToken ct) =>
+        FieldOverlay is null ? Task.FromResult(item) : FieldOverlay.ApplyAsync(item, ct);
+
+    private async Task<Domain.Aggregates.WorkItem?> OverlayOptionalAsync(Domain.Aggregates.WorkItem? item, CancellationToken ct) =>
+        item is null ? null : await OverlayAsync(item, ct);
+
+    private Task<IReadOnlyList<Domain.Aggregates.WorkItem>> OverlayAsync(IReadOnlyList<Domain.Aggregates.WorkItem> items, CancellationToken ct) =>
+        FieldOverlay is null ? Task.FromResult(items) : FieldOverlay.ApplyAsync(items, ct);
 
     public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false, string? fields = null, string? sections = null)
     {
@@ -193,6 +210,8 @@ public sealed class ShowCommand(
             resolvedId = item.Id;
         }
 
+        item = await OverlayAsync(item, ct);
+
         // AB#880 opt-in projection: bypass full-detail enrichment when the
         // caller asked for a slice; omit both flags to get the full read back.
         if (request.IsActive)
@@ -208,9 +227,10 @@ public sealed class ShowCommand(
         }
 
         // Enrichment — all cache-only, best-effort
-        var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
+        var rawChildren = await workItemRepo.GetChildrenAsync(item.Id, ct);
+        var children = await OverlayAsync(rawChildren, ct);
         Domain.Aggregates.WorkItem? parent = item.ParentId.HasValue
-            ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
+            ? await OverlayOptionalAsync(await workItemRepo.GetByIdAsync(item.ParentId.Value, ct), ct)
             : null;
 
         // AB#831: the edges and the answer to "were these edges ever fetched?" are read
@@ -238,7 +258,7 @@ public sealed class ShowCommand(
 
         var statusFieldEntries = await statusFieldReader.ReadAsync(ct);
 
-        var childProgress = processConfigProvider.ComputeChildProgress(children);
+        var childProgress = processConfigProvider.ComputeChildProgress(rawChildren);
 
         var gitContext = await BuildGitContextAsync(ct);
 
@@ -322,10 +342,11 @@ public sealed class ShowCommand(
                 var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
                 if (freshItem is not null)
                 {
-                    item = freshItem;
-                    children = await workItemRepo.GetChildrenAsync(item.Id, ct);
+                    item = await OverlayAsync(freshItem, ct);
+                    rawChildren = await workItemRepo.GetChildrenAsync(item.Id, ct);
+                    children = await OverlayAsync(rawChildren, ct);
                     parent = item.ParentId.HasValue
-                        ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
+                        ? await OverlayOptionalAsync(await workItemRepo.GetByIdAsync(item.ParentId.Value, ct), ct)
                         : null;
 
                     try
@@ -335,7 +356,7 @@ public sealed class ShowCommand(
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-                    childProgress = processConfigProvider.ComputeChildProgress(children);
+                    childProgress = processConfigProvider.ComputeChildProgress(rawChildren);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -392,12 +413,14 @@ public sealed class ShowCommand(
                         performSync: () => RefreshItemAndLinksAsync(ct),
                         buildRevisedView: async _ =>
                         {
-                            var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
-                            if (freshItem is null) return null;
+                            var rawFreshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
+                            if (rawFreshItem is null) return null;
+                            var freshItem = await OverlayAsync(rawFreshItem, ct);
 
-                            var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, ct);
+                            var rawFreshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, ct);
+                            var freshChildren = await OverlayAsync(rawFreshChildren, ct);
                             var freshParent = freshItem.ParentId.HasValue
-                                ? await workItemRepo.GetByIdAsync(freshItem.ParentId.Value, ct)
+                                ? await OverlayOptionalAsync(await workItemRepo.GetByIdAsync(freshItem.ParentId.Value, ct), ct)
                                 : null;
 
                             IReadOnlyList<WorkItemLink> freshLinks = [];
@@ -408,7 +431,7 @@ public sealed class ShowCommand(
                                 getPendingChanges: getPendingChanges,
                                 fieldDefinitions: fieldDefs,
                                 statusFieldEntries: statusFieldEntries,
-                                childProgress: processConfigProvider.ComputeChildProgress(freshChildren),
+                                childProgress: processConfigProvider.ComputeChildProgress(rawFreshChildren),
                                 links: freshLinks,
                                 parent: freshParent,
                                 children: freshChildren,
@@ -900,7 +923,7 @@ public sealed class ShowCommand(
     private async Task<int> ExecuteBatchCoreAsync(string batch, string outputFormat, ShowProjection.Request request, CancellationToken ct)
     {
         var ids = ParseBatchIds(batch);
-        var items = new List<Domain.Aggregates.WorkItem>();
+        var rawItems = new List<Domain.Aggregates.WorkItem>();
         // Track requested-but-missing ids in caller order. Non-positive segments
         // (parse failures, negative-id staged seeds) are excluded so a caller who
         // passes `10, garbage, 20` is not told #0 is missing — the input parser
@@ -911,10 +934,11 @@ public sealed class ShowCommand(
         {
             var item = await workItemRepo.GetByIdAsync(id, ct);
             if (item is not null)
-                items.Add(item);
+                rawItems.Add(item);
             else if (id > 0)
                 missing.Add(id);
         }
+        IReadOnlyList<Domain.Aggregates.WorkItem> items = await OverlayAsync(rawItems, ct);
 
         // ADO #154: links belong to the SET, so they are read for every item found —
         // one plural repository call, not one call per id. Best-effort: a link-store
@@ -1011,10 +1035,10 @@ public sealed class ShowCommand(
 
             Domain.Aggregates.WorkItem? parent = null;
             if (needParent && item.ParentId.HasValue)
-                parent = await workItemRepo.GetByIdAsync(item.ParentId.Value, ct);
+                parent = await OverlayOptionalAsync(await workItemRepo.GetByIdAsync(item.ParentId.Value, ct), ct);
 
             IReadOnlyList<Domain.Aggregates.WorkItem> children = needChildren
-                ? await workItemRepo.GetChildrenAsync(item.Id, ct)
+                ? await OverlayAsync(await workItemRepo.GetChildrenAsync(item.Id, ct), ct)
                 : Array.Empty<Domain.Aggregates.WorkItem>();
 
             itemDocs.Add(ShowProjection.BuildItem(
@@ -1086,7 +1110,7 @@ public sealed class ShowCommand(
             }
             var refreshed = await workItemRepo.GetByIdAsync(resolvedId, ct);
             if (refreshed is not null)
-                item = refreshed;
+                item = await OverlayAsync(refreshed, ct);
         }
 
         bool needLinks = false, needParent = false, needChildren = false;
@@ -1111,10 +1135,10 @@ public sealed class ShowCommand(
 
         Domain.Aggregates.WorkItem? parent = null;
         if (needParent && item.ParentId.HasValue)
-            parent = await workItemRepo.GetByIdAsync(item.ParentId.Value, ct);
+            parent = await OverlayOptionalAsync(await workItemRepo.GetByIdAsync(item.ParentId.Value, ct), ct);
 
         IReadOnlyList<Domain.Aggregates.WorkItem> children = needChildren
-            ? await workItemRepo.GetChildrenAsync(item.Id, ct)
+            ? await OverlayAsync(await workItemRepo.GetChildrenAsync(item.Id, ct), ct)
             : Array.Empty<Domain.Aggregates.WorkItem>();
         var projectedDefinitions = await ReadProjectionFieldDefinitionsAsync(request, ct);
 

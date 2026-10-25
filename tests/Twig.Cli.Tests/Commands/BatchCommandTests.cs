@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Enums;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
@@ -23,6 +24,7 @@ public class BatchCommandTests
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IFieldDefinitionStore _fieldDefStore;
@@ -36,6 +38,7 @@ public class BatchCommandTests
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _consoleInput = Substitute.For<IConsoleInput>();
@@ -59,7 +62,7 @@ public class BatchCommandTests
 
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new BatchCommand(
-            ctx, resolver, _workItemRepo, _adoService,
+            ctx, resolver, _workItemRepo, _writer,
             _pendingChangeStore, _processConfigProvider, _fieldDefStore, _consoleInput,
             stdout: _stdout);
     }
@@ -864,7 +867,7 @@ public class BatchCommandTests
 
     private static WorkItem CreateWorkItem(int id, string title, string state, WorkItemType type)
     {
-        return new WorkItem
+        var item = new WorkItem
         {
             Id = id,
             Type = type,
@@ -873,5 +876,8 @@ public class BatchCommandTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+        // Synced at revision 1, as anything read from ADO is; a provider write refuses revision 0 (#1178 Option A).
+        item.MarkSynced(1);
+        return item;
     }
 }

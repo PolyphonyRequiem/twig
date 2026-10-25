@@ -30,7 +30,8 @@ namespace Twig.Infrastructure.Plan;
 /// </remarks>
 internal sealed class PlanOperationExecutor
 {
-    private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _adoService;
+    private readonly IProviderRevisionCodec _revisionCodec;
     private readonly IRevisionBoundAdoWorkItemService _revisionBound;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly PlanSeedPublisher _seedPublisher;
@@ -43,7 +44,8 @@ internal sealed class PlanOperationExecutor
     /// collaborators so callers keep passing the domain interfaces they already own.
     /// </summary>
     internal PlanOperationExecutor(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
+        IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
         IFieldDefinitionStore fieldDefinitionStore,
         SeedPublishOrchestrator seedPublish,
@@ -56,6 +58,7 @@ internal sealed class PlanOperationExecutor
         IUnitOfWork unitOfWork)
         : this(
             adoService,
+            revisionCodec,
             revisionBound,
             fieldDefinitionStore,
             new PlanSeedPublisher(
@@ -78,12 +81,14 @@ internal sealed class PlanOperationExecutor
     /// graph. Callers outside the test project should prefer the production constructor.
     /// </summary>
     internal PlanOperationExecutor(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
+        IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
         IFieldDefinitionStore fieldDefinitionStore,
         PlanSeedPublisher seedPublisher)
     {
         _adoService = adoService;
+        _revisionCodec = revisionCodec;
         _revisionBound = revisionBound;
         _fieldDefinitionStore = fieldDefinitionStore;
         _seedPublisher = seedPublisher;
@@ -108,6 +113,19 @@ internal sealed class PlanOperationExecutor
                 PublishSeedOperation seed => await ExecutePublishSeedAsync(seed, ct).ConfigureAwait(false),
                 _ => PlanExecutionResult.Failure($"Unsupported operation kind: {operation.Kind}"),
             };
+        }
+        catch (ProviderRevisionPreconditionRefusedException ex) when (operation is not PublishSeedOperation)
+        {
+            // The provider boundary refused the revision precondition (missing, foreign or
+            // non-canonical) BEFORE any transport call, so nothing was sent and readback has
+            // nothing to settle. Only pre-transport refusals use this type: a post-write
+            // revision that cannot be decoded is a FormatException and stays Indeterminate.
+            // Publish-seed is multi-step, so a refusal there may follow an earlier request in
+            // the same attempt; it stays Indeterminate for readback to settle.
+            return PlanExecutionResult.Failure(
+                ex.Message,
+                SerializeDiagnostics("revision-precondition-refused", ExpectedRevision(operation), observedRevision: null,
+                    failureDetail: ex.Reason.ToString()));
         }
         catch (AdoConflictException ex)
         {
@@ -162,8 +180,12 @@ internal sealed class PlanOperationExecutor
         foreach (var kv in batch.Fields)
             changes.Add(new FieldChange(kv.Key, OldValue: null, NewValue: kv.Value));
 
-        var newRev = await _adoService.PatchAsync(batch.WorkItemId, changes, batch.ExpectedRevision, ct)
+        // The precondition is built and validated before the write is issued; a refusal here
+        // means nothing reached the wire.
+        var expected = _revisionCodec.FromCacheRevision(batch.ExpectedRevision);
+        var written = await _adoService.PatchAsync(batch.WorkItemId, changes, expected, ct)
             .ConfigureAwait(false);
+        var newRev = _revisionCodec.ToCacheRevision(written);
         return PlanExecutionResult.Success(SerializeRevision(newRev), newRev);
     }
 

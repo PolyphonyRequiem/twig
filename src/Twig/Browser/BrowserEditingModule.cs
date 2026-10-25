@@ -16,6 +16,15 @@ internal sealed class BrowserEditingModule(BrowserOperationModule operations, IW
 {
     private readonly WorkItemMapper _mapper = new();
 
+    internal async Task<(string TypeName, IReadOnlyList<ProcessRule>? Rules)> InspectAsync(
+        int id, IProcessRuleProvider? rules, CancellationToken ct)
+    {
+        var item = await repository.GetByIdAsync(id, ct)
+            ?? throw new InvalidOperationException("The native inspection item is not cached.");
+        var type = item.Type.ToString();
+        return (type, await documents.InspectAsync(type, rules, ct));
+    }
+
     internal Task<BrowserOperationResult<BrowserEditingSession>> OpenAsync(int id, BrowserCapture captured,
         CancellationToken ct = default) => operations.ExecuteAsync(captured, async (capture, token) =>
     {
@@ -33,7 +42,9 @@ internal sealed class BrowserEditingModule(BrowserOperationModule operations, IW
         catch (InvalidOperationException) { configuration = null; }
         var sink = new PendingChangeStoreSink(pendingChanges).BoundTo(id, snapshot.Revision);
         var session = new BrowserEditingSession(capture, snapshot, notes, pending, document,
-            new EditCapability(sink, item.Type, item.IsSeed, configuration));
+            new EditCapability(sink, item.Type, item.IsSeed, configuration),
+            processRulesAvailable: configuration?.TypeConfigs.ContainsKey(item.Type) == true,
+            servedLayout: documents.ServedLayout(item.Type.ToString()));
         if (!await MatchesBaselineAsync(session, token))
             throw new BrowserReadException(BrowserReadFailureKind.Unavailable, "Local work changed while the editor opened. Reopen it; nothing was staged.");
         return session;
@@ -108,7 +119,7 @@ internal sealed class BrowserEditingModule(BrowserOperationModule operations, IW
         };
     }
 
-    private async Task<bool> MatchesBaselineAsync(BrowserEditingSession session, CancellationToken ct)
+    internal async Task<bool> MatchesBaselineAsync(BrowserEditingSession session, CancellationToken ct)
     {
         var current = await repository.GetByIdAsync(session.WorkItemId, ct);
         if (current is null || !session.Matches(Snapshot(current), current.PendingNotes)) return false;
@@ -126,7 +137,8 @@ internal sealed class BrowserEditingSession
     private readonly Dictionary<string, string> _canonical = new(StringComparer.OrdinalIgnoreCase);
 
     internal BrowserEditingSession(BrowserCapture capture, WorkItemSnapshot baseline, PendingNote[] notes,
-        PendingChangeRecord[] pending, WorkItemDetailDocument document, EditCapability capability)
+        PendingChangeRecord[] pending, WorkItemDetailDocument document, EditCapability capability,
+        bool processRulesAvailable, FormLayout? servedLayout = null)
     {
         Capture = capture;
         _baseline = baseline;
@@ -135,11 +147,11 @@ internal sealed class BrowserEditingSession
         Snapshot = baseline;
         Document = document;
         Capability = capability;
-        foreach (var control in document.SystemControls.Concat(document.Pages.Where(page => page.CarriesFieldControls)
-                     .SelectMany(page => page.AllGroups).SelectMany(group => group.Controls)))
+        ProcessRulesAvailable = processRulesAvailable;
+        ServedLayout = servedLayout;
+        foreach (var control in WorkItemDetailProjector.CarriedControls(document))
         {
-            if (control.IsContribution || control.Value is null || control.Value.State == DetailFieldState.NotCarriedByTwig) continue;
-            _values.TryAdd(control.Id, control.Value.Full);
+            _values.TryAdd(control.Id, control.Value!.Full);
             _canonical.TryAdd(control.Id, control.Id);
         }
         foreach (var change in pending)
@@ -155,6 +167,8 @@ internal sealed class BrowserEditingSession
     internal int Revision => _baseline.Revision;
     internal WorkItemDetailDocument Document { get; }
     internal EditCapability Capability { get; }
+    internal bool ProcessRulesAvailable { get; }
+    internal FormLayout? ServedLayout { get; }
     internal WorkItemSnapshot Snapshot { get; }
     internal IReadOnlyDictionary<string, string?> CurrentValues { get; }
     internal bool HasLocalChanges => _baseline.IsDirty || _notes.Length > 0 || _pending.Length > 0;

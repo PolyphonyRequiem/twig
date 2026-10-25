@@ -9,7 +9,7 @@ namespace Twig.Domain.ValueObjects;
 /// 🔴 <b>A bare boolean cannot tell the truth here, and the lie is silent.</b> The per-type
 /// fields route reports <b>unconditional</b> requiredness only. A field made mandatory by a
 /// rule — <i>when State = Done → makeRequired</i> — reads as not-required there. Verified
-/// live: <c>Custom.WayfinderAnswer</c> is <c>required: null</c> on the fields route while
+/// live: a rule-required custom field is <c>required: null</c> on the fields route while
 /// the rules route carries a <c>makeRequired</c> action for it. A whole-process survey found
 /// 59 unconditionally-required fields while every conditionally-required one was invisible.
 /// </para>

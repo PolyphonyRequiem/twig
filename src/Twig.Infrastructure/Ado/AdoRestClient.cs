@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -18,7 +19,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader
+internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider
 {
     private const string JsonPatchMediaType = "application/json-patch+json";
 
@@ -30,6 +31,28 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     private readonly IFieldDefinitionStore? _fieldDefStore;
     private readonly AdoConcurrencyThrottle? _throttle;
     private IReadOnlyDictionary<string, FieldDefinition>? _fieldDefLookup;
+    private string? _resourceScope;
+
+    public ProviderCapabilityDescriptor Capabilities => ProviderCapabilityCatalog.Ado;
+
+    public async Task<string?> ResolveResourceScopeAsync(CancellationToken ct = default)
+    {
+        if (_resourceScope is not null)
+            return _resourceScope;
+
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        var url = $"{_orgUrl}/_apis/connectionData?api-version={AdoApiVersions.ConnectionData}";
+        using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct).ConfigureAwait(false);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var data = await JsonSerializer.DeserializeAsync(
+            stream, TwigJsonContext.Default.AdoConnectionDataResponse, ct).ConfigureAwait(false);
+
+        if (!Guid.TryParse(data?.InstanceId, out var instanceId) || instanceId == Guid.Empty)
+            return null;
+
+        _resourceScope = instanceId.ToString("D").ToLowerInvariant();
+        return _resourceScope;
+    }
 
     public AdoRestClient(
         HttpClient httpClient,
@@ -572,24 +595,25 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
                 dto.Rev,
                 $"Work item #{sourceId} is at revision {dto.Rev}; expected {expectedRevision} for strict remove-link.");
 
-        var relationIndex = dto.Relations?.FindIndex(r =>
-            string.Equals(r.Rel, relationType, StringComparison.OrdinalIgnoreCase) &&
-            r.Url is not null &&
-            r.Url.EndsWith($"/{targetId}", StringComparison.OrdinalIgnoreCase)) ?? -1;
+        var relationIndices = dto.Relations?
+            .Select((relation, index) => (relation, index))
+            .Where(entry => string.Equals(entry.relation.Rel, relationType, StringComparison.OrdinalIgnoreCase)
+                && entry.relation.Url is not null
+                && entry.relation.Url.EndsWith($"/{targetId}", StringComparison.OrdinalIgnoreCase))
+            .Select(entry => entry.index).OrderDescending().ToArray() ?? [];
 
-        if (relationIndex < 0)
+        if (relationIndices.Length == 0)
             throw new AdoRelationNotFoundException(sourceId, relationType, targetId, expectedRevision);
 
         var patchUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = new List<AdoPatchOperation>
         {
             AdoResponseMapper.CreateRevisionTest(expectedRevision),
-            new()
-            {
-                Op = "remove",
-                Path = $"/relations/{relationIndex}",
-            },
         };
+        // The native remove-link effect and readback mean absence of this relation.
+        // Descending indices remove duplicate occurrences without shifting later targets.
+        foreach (var index in relationIndices)
+            patchDoc.Add(new() { Op = "remove", Path = $"/relations/{index}" });
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 

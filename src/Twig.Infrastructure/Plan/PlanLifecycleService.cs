@@ -7,9 +7,11 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Policy;
 
 
 namespace Twig.Infrastructure.Plan;
@@ -61,14 +63,15 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly PlanDocumentParser _parser;
     private readonly IPlanJournalRepository _journal;
     private readonly IPendingChangeReader _pendingReader;
-    private readonly PlanOperationExecutor _executor;
+    private readonly PlanOperationExecutor? _executor;
     private readonly IWorkItemRepository _workItemRepo;
-    private readonly ISeedLinkRepository _seedLinkRepo;
-    private readonly IStagedIdentityRegistry _stagedRegistry;
-    private readonly IPublishIdMapRepository _publishIdMap;
-    private readonly IRevisionBoundAdoWorkItemService _revisionBound;
-    private readonly IPublishIntentRepository _publishIntent;
-    private readonly IPlanOriginProvider _origin;
+    private readonly ISeedLinkRepository? _seedLinkRepo;
+    private readonly IStagedIdentityRegistry? _stagedRegistry;
+    private readonly IPublishIdMapRepository? _publishIdMap;
+    private readonly IRevisionBoundAdoWorkItemService? _revisionBound;
+    private readonly IPublishIntentRepository? _publishIntent;
+    private readonly IPlanOriginProvider? _origin;
+    private readonly bool _previewOnly;
 
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
@@ -78,6 +81,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly PlanProcessRuleGate _ruleGate;
     private readonly ChangeProposalReviewModelBuilder _reviewModel;
     private readonly ISessionSteeringModeProvider _steering;
+    private readonly DeclaredPolicyLoader _policyLoader;
+    private readonly DeclaredPolicyEvaluator _policyEvaluator;
 
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton; the executor is
@@ -89,7 +94,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IPlanJournalRepository journal,
         IPendingChangeReader pendingReader,
         IFieldDefinitionStore fieldDefinitionStore,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
+        IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
         SeedPublishOrchestrator seedPublish,
         IWorkItemRepository workItemRepo,
@@ -104,7 +110,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IPlanOriginProvider origin,
         IUnitOfWork unitOfWork)
         : this(
-            parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionBound, seedPublish,
+            parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionCodec, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
             config, paths, clock, steering, origin, ruleProvider: null, unitOfWork)
     {
@@ -114,14 +120,16 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     /// Composition-root overload that additionally accepts the process-rule provider used
     /// to evaluate enabled <c>makeRequired</c> gates before a batch PATCH — see
     /// <see cref="IProcessRuleProvider"/> is a Domain-internal type; the public constructor
-    /// delegates in with a null provider, which the gate treats as permit-all.
+    /// delegates in with a null provider, which the gate treats as unavailable (AB#1169), so
+    /// proposals built through it preview and apply as blocked until a provider is supplied.
     /// </summary>
     internal PlanLifecycleService(
         PlanDocumentParser parser,
         IPlanJournalRepository journal,
         IPendingChangeReader pendingReader,
         IFieldDefinitionStore fieldDefinitionStore,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
+        IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
         SeedPublishOrchestrator seedPublish,
         IWorkItemRepository workItemRepo,
@@ -135,7 +143,9 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         ISessionSteeringModeProvider steering,
         IPlanOriginProvider origin,
         IProcessRuleProvider? ruleProvider,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IWorkItemLinkRepository? linkRepo = null,
+        IWorkItemSnapshotReader? providerSnapshots = null)
     {
         _parser = parser;
         _journal = journal;
@@ -152,11 +162,46 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _paths = paths;
         _clock = clock;
         _executor = new PlanOperationExecutor(
-            adoService, revisionBound, fieldDefinitionStore, seedPublish,
+            adoService, revisionCodec, revisionBound, fieldDefinitionStore, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent, pendingReader, unitOfWork);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
-        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore);
+        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore)
+        {
+            CapabilityDescriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(
+                config.ResolveWorkItemProviderKind(), out var capabilityDescriptor) ? capabilityDescriptor : null,
+        };
         _steering = steering;
+        _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
+        _policyEvaluator = new DeclaredPolicyEvaluator(workItemRepo, linkRepo, providerSnapshots);
+    }
+
+    /// <summary>Composition for provider-native review without any ADO mutation or CAS boundary.</summary>
+    internal PlanLifecycleService(
+        PlanDocumentParser parser,
+        IPlanJournalRepository journal,
+        IPendingChangeReader pendingReader,
+        IWorkItemRepository workItemRepo,
+        TwigConfiguration config,
+        TwigPaths paths,
+        IWorkItemSnapshotReader providerSnapshots)
+    {
+        _parser = parser;
+        _journal = journal;
+        _pendingReader = pendingReader;
+        _workItemRepo = workItemRepo;
+        _config = config;
+        _paths = paths;
+        _clock = TimeProvider.System;
+        _ruleGate = new PlanProcessRuleGate(rules: null);
+        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo)
+        {
+            CapabilityDescriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(
+                config.ResolveWorkItemProviderKind(), out var capabilityDescriptor) ? capabilityDescriptor : null,
+        };
+        _steering = new UnresolvedSessionSteeringModeProvider();
+        _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
+        _policyEvaluator = new DeclaredPolicyEvaluator(workItemRepo, links: null, providerSnapshots);
+        _previewOnly = true;
     }
 
     /// <inheritdoc />
@@ -260,6 +305,54 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
         var pending = await _pendingReader.GetAllChangesAsync(ct).ConfigureAwait(false);
 
+        if (parsed.Plan.Version == 2)
+        {
+            var providerPolicyDecisions = await EvaluateDeclaredPolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
+            var blocker = new PlanValidationIssue
+            {
+                Code = PlanValidationCodes.UnsupportedApplyVersion,
+                Path = "/version",
+                Message = "Plan version 2 is valid and reviewable, but provider-identity operations remain non-applicable until exact-revision authority is available.",
+            };
+            PlanValidationIssue[] blockedIssues = [.. parsed.Issues, blocker];
+            return new PlanPreviewResult
+            {
+                Digest = parsed.Digest,
+                Operations = parsed.Plan.Operations,
+                Issues = blockedIssues,
+                Workspace = parsed.Plan.Workspace,
+                PendingChanges = pending,
+                CanApply = false,
+                ReviewModel = await _reviewModel.BuildAsync(
+                    parsed.Plan, parsed.Digest, blockedIssues, pending, canApply: false, ct: ct,
+                    policyDecisions: providerPolicyDecisions)
+                    .ConfigureAwait(false),
+            };
+        }
+
+        if (_previewOnly)
+        {
+            var issue = new PlanValidationIssue
+            {
+                Code = PlanValidationCodes.UnsupportedApplyVersion,
+                Path = "/version",
+                Message = "This provider composition supports review-only provider-qualified version 2 proposals; legacy ADO-id proposals are not previewed here.",
+            };
+            var blockedIssues = new[] { issue };
+            return new PlanPreviewResult
+            {
+                Digest = parsed.Digest,
+                Operations = parsed.Plan.Operations,
+                Issues = blockedIssues,
+                Workspace = parsed.Plan.Workspace,
+                PendingChanges = pending,
+                CanApply = false,
+                ReviewModel = await _reviewModel.BuildAsync(
+                    parsed.Plan, parsed.Digest, blockedIssues, pending, canApply: false, ct: ct)
+                    .ConfigureAwait(false),
+            };
+        }
+
         // AB#832: refuse before the journal is touched. Importing here would register a SECOND
         // transaction against a path that already carries one — the precise state that makes a
         // later `plan status` on this path resolve someone else's work as if it were this
@@ -279,6 +372,15 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 CanApply = false,
             };
 
+        var capturedJournal = await _journal.GetAsync(parsed.Digest, ct).ConfigureAwait(false);
+        if (capturedJournal?.DraftCapture is not null)
+            return new PlanPreviewResult
+            {
+                Digest = parsed.Digest, Operations = parsed.Plan.Operations, Workspace = parsed.Plan.Workspace,
+                PendingChanges = pending, CanApply = false,
+                Issues = [await CaptureIssueAsync(capturedJournal, containment.AbsolutePath!, ct).ConfigureAwait(false)],
+            };
+
         // Idempotent import — a matching digest returns the existing journal, a mismatched
         // one throws (the ledger refuses to co-sign a doctored file). We hoist that as a
         // preview-level issue rather than an unhandled exception.
@@ -286,7 +388,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         PlanOrigin previewOrigin;
         try
         {
-            previewOrigin = await _origin.GetOriginAsync(ct).ConfigureAwait(false);
+            previewOrigin = await _origin!.GetOriginAsync(ct).ConfigureAwait(false);
             journal = await _journal.ImportAsync(
                 parsed.Plan,
                 parsed.CanonicalJson,
@@ -330,6 +432,10 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                     : null;
         var previewIssues = originError is null ? parsed.Issues
             : [.. parsed.Issues, new PlanValidationIssue { Code = "native-settlement", Path = string.Empty, Message = originError }];
+        var policyDecisions = journal.State == PlanOperationState.Planned
+            ? await EvaluatePolicyAsync(parsed.Plan, ct).ConfigureAwait(false)
+            : [];
+        var previewCanApply = pending.Count == 0 && originError is null && !policyDecisions.Any(static d => d.IsBlocking);
 
         return new PlanPreviewResult
         {
@@ -338,12 +444,151 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             Issues = previewIssues,
             Workspace = parsed.Plan.Workspace,
             PendingChanges = pending,
-            CanApply = pending.Count == 0 && originError is null,
+            CanApply = previewCanApply,
             ReviewModel = await _reviewModel.BuildAsync(
-                parsed.Plan, journal.Digest, previewIssues, pending, pending.Count == 0 && originError is null, ct: ct)
+                parsed.Plan, journal.Digest, previewIssues, pending, previewCanApply, ct: ct,
+                policyDecisions: policyDecisions)
                 .ConfigureAwait(false),
         };
     }
+
+    /// <summary>
+    /// Evaluates repository-declared rules and runtime process-rule gates against the
+    /// proposal. No policy file means no repository-policy decisions; a policy or process
+    /// precondition that cannot be evaluated yields a blocking <c>unavailable</c> decision.
+    /// </summary>
+    private async Task<IReadOnlyList<PolicyDecision>> EvaluatePolicyAsync(PlanDefinition plan, CancellationToken ct)
+    {
+        var decisions = new List<PolicyDecision>(
+            await EvaluateDeclaredPolicyAsync(plan, ct).ConfigureAwait(false));
+        decisions.AddRange(await EvaluateProcessRuleDecisionsAsync(plan, ct).ConfigureAwait(false));
+        return decisions;
+    }
+
+    private async Task<IReadOnlyList<PolicyDecision>> EvaluateDeclaredPolicyAsync(
+        PlanDefinition plan, CancellationToken ct)
+    {
+        var decisions = new List<PolicyDecision>();
+        var loaded = await _policyLoader.LoadAsync(ct).ConfigureAwait(false);
+        if (loaded.Failure is { } failure)
+            decisions.Add(failure);
+        else if (loaded.Policy is { } policy)
+            decisions.AddRange(await _policyEvaluator.EvaluateAsync(policy, plan, ct).ConfigureAwait(false));
+        return decisions;
+    }
+
+    private async Task<IReadOnlyList<PolicyDecision>> EvaluateProcessRuleDecisionsAsync(
+        PlanDefinition plan, CancellationToken ct)
+    {
+        var decisions = new List<PolicyDecision>();
+        var carry = new Dictionary<int, WorkItemSnapshot>();
+        var carryFailures = new Dictionary<int, string>();
+        for (var index = 0; index < plan.Operations.Count; index++)
+        {
+            switch (plan.Operations[index])
+            {
+                case BatchOperation batch:
+                    if (carryFailures.TryGetValue(batch.WorkItemId, out var carryFailure))
+                    {
+                        decisions.Add(ProcessRuleDecision(
+                            batch, PolicyOutcome.Unavailable, carryFailure));
+                        continue;
+                    }
+
+                    var evaluation = await EvaluateProcessRuleGateAsync(batch, carry, ct).ConfigureAwait(false);
+                    if (!evaluation.Outcome.IsOk)
+                    {
+                        var fields = evaluation.Outcome.Fields;
+                        var reason = evaluation.Outcome.Message
+                            ?? "Process required-field rules could not be evaluated.";
+                        if (fields is { Count: > 0 })
+                            reason += $" Required fields: {string.Join(", ", fields)}.";
+
+                        decisions.Add(ProcessRuleDecision(
+                            batch,
+                            evaluation.Outcome.IsRefused ? PolicyOutcome.Refuse : PolicyOutcome.Unavailable,
+                            reason));
+                        continue;
+                    }
+
+                    if (evaluation.Snapshot is { } snapshot)
+                    {
+                        carry[batch.WorkItemId] = _workItemMapper.ProjectFields(
+                            snapshot, batch.Fields, batch.ExpectedRevision + 1);
+                        carryFailures.Remove(batch.WorkItemId);
+                    }
+                    break;
+
+                case AddLinkOperation add when HasLaterBatch(plan, index, add.WorkItemId):
+                    await ProjectLinkAsync(
+                        add.WorkItemId, add.ExpectedRevision, add.Relation, add.OtherId, added: true)
+                        .ConfigureAwait(false);
+                    break;
+
+                case RemoveLinkOperation remove when HasLaterBatch(plan, index, remove.WorkItemId):
+                    await ProjectLinkAsync(
+                        remove.WorkItemId, remove.ExpectedRevision, remove.Relation, remove.OtherId, added: false)
+                        .ConfigureAwait(false);
+                    break;
+            }
+        }
+
+        return decisions;
+
+        async Task ProjectLinkAsync(
+            int workItemId,
+            int expectedRevision,
+            string relation,
+            int otherId,
+            bool added)
+        {
+            WorkItemSnapshot source;
+            if (TryGetCarriedPreOp(carry, workItemId, expectedRevision, out var carried))
+            {
+                source = carried;
+            }
+            else
+            {
+                try
+                {
+                    source = await _revisionBound!.FetchAtRevisionAsync(
+                        workItemId, expectedRevision, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    carryFailures[workItemId] =
+                        $"Unable to load authoritative snapshot for work item {workItemId} at revision "
+                        + $"{expectedRevision}: {ex.Message}";
+                    return;
+                }
+            }
+
+            carry[workItemId] = ProjectPostLinkSnapshot(
+                source, relation, otherId, expectedRevision + 1, added);
+            carryFailures.Remove(workItemId);
+        }
+    }
+
+    private static bool HasLaterBatch(PlanDefinition plan, int operationIndex, int workItemId) =>
+        plan.Operations.Skip(operationIndex + 1)
+            .OfType<BatchOperation>()
+            .Any(batch => batch.WorkItemId == workItemId);
+
+    private static PolicyDecision ProcessRuleDecision(
+        BatchOperation batch, PolicyOutcome outcome, string reason) =>
+        new()
+        {
+            RuleId = "process-rule-gate",
+            Kind = "process-required-fields",
+            Outcome = outcome,
+            Reason = reason,
+            WorkItemId = batch.WorkItemId,
+            OpId = batch.Id,
+        };
 
     /// <inheritdoc />
     public async Task<PlanApplyResult> ApplyAsync(
@@ -365,6 +610,16 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             return TopLevelApplyFailure(
                 confirmedDigest,
                 parsed.Issues.Count > 0 ? parsed.Issues[0].Message : "Plan is invalid.");
+
+        if (_previewOnly || _executor is null)
+            return TopLevelApplyFailure(
+                confirmedDigest,
+                "This provider composition is review-only. No confirmation, authorization, journal mutation, or provider operation was attempted.");
+
+        if (parsed.Plan.Version == 2)
+            return TopLevelApplyFailure(
+                confirmedDigest,
+                "Plan version 2 is reviewable but cannot be applied by this lifecycle. No confirmation, authorization, journal mutation, or provider operation was attempted.");
 
         if (!string.Equals(parsed.Digest, confirmedDigest, StringComparison.Ordinal))
             return TopLevelApplyFailure(
@@ -394,11 +649,30 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 confirmedDigest,
                 "No preview journal exists for this plan. Run `twig plan preview` first.");
 
+        if (journal.DraftCapture is not null)
+            return TopLevelApplyFailure(confirmedDigest,
+                "Draft-captured proposals are local inspection only; native Save consumption is not enabled.");
+
         if (journal.Operations.Any(static row => row.OutcomeReceipt is not null))
             return TopLevelApplyFailure(confirmedDigest, "Proposal contains an explicit native outcome receipt; settled intents cannot be applied or resumed.");
         var originError = await ValidateOriginAsync(journal.Origin, ct).ConfigureAwait(false);
         if (originError is not null)
             return TopLevelApplyFailure(confirmedDigest, originError);
+
+        // Declared policy gate (AB#1169). Judged only before the first confirmation: once a
+        // journal has advanced, the cache already reflects the proposal's own effects, and
+        // re-judging them on resume would refuse the proposal for edges it created itself.
+        IReadOnlyList<PolicyDecision> policyDecisions = [];
+        if (journal.State == PlanOperationState.Planned)
+        {
+            policyDecisions = await EvaluateDeclaredPolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
+            var blocking = policyDecisions.Where(static d => d.IsBlocking).ToArray();
+            if (blocking.Length > 0)
+                return TopLevelApplyFailure(
+                    confirmedDigest,
+                    "Declared policy refuses this proposal: "
+                    + string.Join("; ", blocking.Select(static d => $"[{d.RuleId}] {d.OutcomeName}: {d.Reason}")));
+        }
 
         // Authorization gate. Last of the top-level refusals and first thing after the journal
         // is in hand: it must run before any Planned→Confirmed transition, because confirming a
@@ -415,7 +689,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         // separate invocations, so the surviving artifact must come from this process, and the
         // digest it embeds is the digest just verified against the file.
         var authorizedModel = await _reviewModel.BuildAsync(
-            parsed.Plan, parsed.Digest, parsed.Issues, pending, canApply: true, ct: ct)
+            parsed.Plan, parsed.Digest, parsed.Issues, pending, canApply: true, ct: ct,
+            policyDecisions: policyDecisions)
             .ConfigureAwait(false);
         await _journal.RecordAuthorizationAsync(
             parsed.Digest,
@@ -573,6 +848,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
         return new PlanStatusResult
         {
+            Issues = journal.DraftCapture is null ? [] : [await CaptureIssueAsync(journal, containment.AbsolutePath!, ct).ConfigureAwait(false)],
             Found = true,
             Digest = journal.Digest,
             State = journal.State,
@@ -581,6 +857,29 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             Origin = journal.Origin,
             Replacement = replacement,
         };
+    }
+
+    private async Task<PlanValidationIssue> CaptureIssueAsync(PlanJournal journal, string sourcePath, CancellationToken ct)
+    {
+        if (_journal is not Persistence.SqlitePlanJournalRepository native)
+            return new() { Code = "draft-capture-missing-evidence", Path = string.Empty,
+                Message = "The native local capture observation store is unavailable." };
+        if (!native.SourcePathComparer.Equals(journal.SourcePath, sourcePath))
+            return new() { Code = "draft-capture-stale", Path = string.Empty,
+                Message = "The file is not at the retained native capture source path." };
+        if (_origin is not { } origin)
+            return new() { Code = "draft-capture-stale", Path = string.Empty,
+                Message = "Native capture origin is unavailable in this provider composition." };
+        try
+        {
+            return await native.CaptureIssueAsync(journal,
+                await origin.GetOriginAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new() { Code = "draft-capture-stale", Path = string.Empty,
+                Message = "Native capture origin is unavailable or changed: " + ex.Message };
+        }
     }
 
     /// <summary>
@@ -650,6 +949,9 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     /// <inheritdoc />
     public async Task<PlanSeedDescriptor?> DescribeSeedAsync(int seedId, CancellationToken ct = default)
     {
+        if (_stagedRegistry is null || _publishIdMap is null || _seedLinkRepo is null)
+            return null;
+
         // Descriptor is for STAGED seeds only. A positive id belongs to a published item —
         // there is no drift for a plan to defend against.
         if (seedId >= 0)
@@ -799,7 +1101,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 return await ResumeFromObservedRowAsync(digest, row.OpId, opDef, carry, ct).ConfigureAwait(false);
             }
 
-            var applyResult = await _executor.ExecuteAsync(opDef, ct).ConfigureAwait(false);
+            var applyResult = await _executor!.ExecuteAsync(opDef, ct).ConfigureAwait(false);
 
             // Applied / MappedPublish: atomic Applying → Applied+result. Failed: terminal
             // Failed. Indeterminate: readback while still Applying — a proven effect still
@@ -918,7 +1220,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
-        var outcome = await _executor.ReadbackAsync(opDef, default, ct).ConfigureAwait(false);
+        var outcome = await _executor!.ReadbackAsync(opDef, default, ct).ConfigureAwait(false);
         if (outcome.Ok)
         {
             // Atomic Applying → Applied with the readback's canonical result. The readback
@@ -1010,7 +1312,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
-        var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
+        var outcome = await _executor!.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
         if (outcome.Ok)
         {
             // The executor could not classify, so its ResultJson is null; the readback that
@@ -1048,7 +1350,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
-        var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
+        var outcome = await _executor!.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
         outcome = outcome with { ResultJson = ComposeReadbackEvidence(applyResult.ResultJson, outcome.ResultJson) };
         if (outcome.Ok)
         {
@@ -1204,7 +1506,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         WorkItemSnapshot snapshot;
         try
         {
-            snapshot = await _revisionBound.FetchAtRevisionAsync(batch.WorkItemId, batch.ExpectedRevision, ct)
+            snapshot = await _revisionBound!.FetchAtRevisionAsync(batch.WorkItemId, batch.ExpectedRevision, ct)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)

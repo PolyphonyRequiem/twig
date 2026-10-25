@@ -2,8 +2,10 @@ using System.Text.Json;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
@@ -33,6 +35,7 @@ public class PromptStateIntegrationTests : IDisposable
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IProcessTypeStore _processTypeStore;
@@ -54,6 +57,7 @@ public class PromptStateIntegrationTests : IDisposable
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
@@ -90,6 +94,9 @@ public class PromptStateIntegrationTests : IDisposable
             State = state,
             ParentId = parentId,
         };
+        // Synced at revision 1, as anything read from ADO is; a provider write refuses revision 0 (#1178 Option A).
+        // MarkSynced clears the dirty flag, so it must run before SetDirty.
+        wi.MarkSynced(1);
         if (isDirty)
             wi.SetDirty();
         return wi;
@@ -150,9 +157,9 @@ public class PromptStateIntegrationTests : IDisposable
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var cmd = new StateCommand(
             new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
-            resolver, _workItemRepo, _adoService,
+            resolver, _workItemRepo, _writer,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, promptStateWriter: writer),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: writer, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("Resolved");
@@ -240,7 +247,7 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var editResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var cmd = new EditCommand(editResolver, _workItemRepo, _pendingChangeStore,
-            _adoService, _consoleInput, editorLauncher, _formatterFactory, _hintEngine, writer);
+            _writer, _consoleInput, editorLauncher, _formatterFactory, _hintEngine, writer);
 
         var result = await cmd.ExecuteAsync();
 
@@ -264,7 +271,7 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var noteResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var noteWorkflow = new Twig.Infrastructure.Services.Mutation.NoteWorkflow(
-            _workItemRepo, _adoService, _pendingChangeStore, writer);
+            _workItemRepo, _writer, _pendingChangeStore, writer);
         var cmd = new NoteCommand(noteResolver, editorLauncher, _formatterFactory, _hintEngine, noteWorkflow);
 
         var result = await cmd.ExecuteAsync("A test note");
@@ -290,8 +297,8 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var updateResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var fieldUpdateWorkflow = new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(
-            _workItemRepo, _adoService, _pendingChangeStore, writer);
-        var cmd = new UpdateCommand(updateResolver, _workItemRepo, _adoService,
+            _workItemRepo, _writer, _pendingChangeStore, writer);
+        var cmd = new UpdateCommand(updateResolver, _workItemRepo, _writer,
             _consoleInput, _fieldDefinitionStore, _formatterFactory,
             new SeedMutationProvider(_workItemRepo), fieldUpdateWorkflow, _pendingChangeStore,
             promptStateWriter: writer);

@@ -19,6 +19,13 @@ Two coordinate systems live in this group:
 Bare `nav` launches an interactive tree navigator when the process is attached
 to a TTY.
 
+Human navigation labels may overlay durable local fields when the ADO mirror
+projection already has a resolved scope. This display-only overlay never
+resolves scope or performs authentication/network work; without a cached scope,
+navigation falls back to mirror labels. Pattern matching, selected targets, and
+history IDs remain unchanged. It does not edit fields or change the default
+storage mode.
+
 ## Commands
 
 |Command|Summary|Mutates|

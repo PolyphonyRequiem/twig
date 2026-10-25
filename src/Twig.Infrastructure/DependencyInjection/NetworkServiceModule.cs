@@ -1,12 +1,17 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Process;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.GitHub;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Providers;
 
 namespace Twig.Infrastructure.DependencyInjection;
 
@@ -73,9 +78,12 @@ public static class NetworkServiceModule
         // Process-wide ADO concurrency limiter — shared across all ADO HTTP call sites.
         services.TryAddSingleton<AdoConcurrencyThrottle>();
 
+        // Epic #1167: every ADO client below is built through AdoConfiguration, which refuses
+        // unless the workspace provider resolves to ADO. Aliases resolve through these
+        // factories, so they inherit the gate.
         services.AddSingleton<IAdoWorkItemService>(sp =>
         {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
+            var cfg = AdoConfiguration(sp);
             return new AdoRestClient(
                 sp.GetRequiredService<HttpClient>(),
                 sp.GetRequiredService<IAuthenticationProvider>(),
@@ -85,6 +93,18 @@ public static class NetworkServiceModule
                 sp.GetService<IFieldDefinitionStore>(),
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
+        // Epic #1167: the active provider follows the explicit workspace `provider` setting
+        // (absent => ado). GitHub resolves only from explicit github.* scope plus the gh CLI
+        // credential; anything missing fails closed rather than silently falling back to ADO.
+        services.AddSingleton<IWorkItemProvider>(sp =>
+        {
+            var kind = sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind();
+            if (kind == ProviderCapabilityCatalog.GitHubProviderKind)
+                return sp.GetRequiredService<GitHubWorkItemProvider>();
+            AdoConfiguration(sp);
+            return (IWorkItemProvider)sp.GetRequiredService<IAdoWorkItemService>();
+        });
+        AddGitHubReadOnlyProvider(services, config);
 
         // IRevisionBoundAdoWorkItemService and IAdoAssignedIdentityReader alias the
         // same AdoRestClient instance so interface-segregated consumers (plan
@@ -95,6 +115,43 @@ public static class NetworkServiceModule
         services.AddSingleton<IAdoAssignedIdentityReader>(sp =>
             (IAdoAssignedIdentityReader)sp.GetRequiredService<IAdoWorkItemService>());
 
+        // Feature #1177: the provider read boundary that show, query, refresh and sync resolve.
+        // The provider switch runs BEFORE any ADO factory, so a non-ADO workspace refuses here
+        // without constructing an ADO client. Under ADO it is the same AdoRestClient instance.
+        services.AddSingleton<IProviderWorkItemReader>(sp =>
+        {
+            RequireAdoBoundary(sp, "provider read boundary for these reads");
+            return sp.GetRequiredService<IAdoWorkItemService>();
+        });
+        // Feature #1178: the provider mutation boundary that update, state, note, link, patch,
+        // edit, batch, the pending-change flusher and proposal apply resolve. Same ordering
+        // as the read boundary: a non-ADO workspace refuses here, before any ADO client exists.
+        // GitHub stays read-only — no non-ADO writer is registered until #1183.
+        // The ADO adapter owns the opaque-revision precondition check, so a foreign or
+        // non-canonical token is refused before any ADO call (#1178 AC (a)).
+        services.AddSingleton<IProviderWorkItemWriter>(sp =>
+        {
+            RequireAdoBoundary(sp, "provider mutation boundary");
+            return new AdoProviderWorkItemWriter(sp.GetRequiredService<IAdoWorkItemService>());
+        });
+        // Converts the cache's ADO int revision to and from the opaque token. It only exists
+        // at the ADO compatibility boundary; a non-ADO workspace refuses here with the port's
+        // exact wording, before any ADO client exists (#1178 AC (a)).
+        services.AddSingleton<IProviderRevisionCodec>(sp =>
+        {
+            RequireAdoBoundary(sp, "provider mutation boundary");
+            return AdoProviderRevisionCodec.Instance;
+        });
+        // Authoritative revision-bound pre-operation reads (#1169 / #1178), keyed by neutral
+        // identity and opaque revision token rather than ADO integers.
+        services.AddSingleton<IAuthoritativeWorkItemReader>(sp =>
+        {
+            RequireAdoBoundary(sp, "authoritative revision-bound read");
+            return new AdoAuthoritativeWorkItemReader(
+                sp.GetRequiredService<IRevisionBoundAdoWorkItemService>(),
+                sp.GetRequiredService<IWorkItemProvider>());
+        });
+
         // IAdoGitService — conditional registration; only requires git project.
         // Repository is optional — when null, GetRepositoryIdAsync returns null
         // but GetRepositoryIdByNameAsync still works for --repo flag support.
@@ -103,19 +160,22 @@ public static class NetworkServiceModule
             var capturedGitProject = resolvedGitProject;
             var capturedRepository = resolvedRepository;
             services.AddSingleton<IAdoGitService>(sp =>
-                new AdoGitClient(
+            {
+                var cfg = AdoConfiguration(sp);
+                return new AdoGitClient(
                     sp.GetRequiredService<HttpClient>(),
                     sp.GetRequiredService<IAuthenticationProvider>(),
-                    sp.GetRequiredService<TwigConfiguration>().Organization,
+                    cfg.Organization,
                     capturedGitProject,
                     capturedRepository,
-                    sp.GetRequiredService<TwigConfiguration>().Project,
-                    throttle: sp.GetRequiredService<AdoConcurrencyThrottle>()));
+                    cfg.Project,
+                    throttle: sp.GetRequiredService<AdoConcurrencyThrottle>());
+            });
         }
 
         services.AddSingleton(sp =>
         {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
+            var cfg = AdoConfiguration(sp);
             var team = TwigConfiguration.ResolveTeam(cfg.Project, cfg.Team);
             return new AdoIterationService(
                 sp.GetRequiredService<HttpClient>(),
@@ -126,7 +186,12 @@ public static class NetworkServiceModule
                 throttle: sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
         services.AddSingleton<IIterationService>(sp => sp.GetRequiredService<AdoIterationService>());
-        services.AddSingleton<IProcessRuleProvider>(sp => sp.GetRequiredService<AdoIterationService>());
+        // AB#1169 obligation: a GitHub workspace has no process rules, so it registers the
+        // explicit empty source rather than reaching ADO. ADO keeps AdoIterationService.
+        services.AddSingleton<IProcessRuleProvider>(sp =>
+            sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind() == ProviderCapabilityCatalog.GitHubProviderKind
+                ? EmptyProcessRuleProvider.Instance
+                : sp.GetRequiredService<AdoIterationService>());
         services.AddSingleton<IFormLayoutProvider>(sp => sp.GetRequiredService<AdoIterationService>());
         services.AddSingleton<IProcessTypeFieldProvider>(sp => sp.GetRequiredService<AdoIterationService>());
 
@@ -137,7 +202,7 @@ public static class NetworkServiceModule
         // silently break the no-caching ruling.
         services.AddSingleton<IProcessDescriptionSource>(sp =>
         {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
+            var cfg = AdoConfiguration(sp);
             return new AdoProcessDescriptionSource(
                 sp.GetRequiredService<HttpClient>(),
                 sp.GetRequiredService<IAuthenticationProvider>(),
@@ -154,6 +219,81 @@ public static class NetworkServiceModule
         // trap wayfinder 0016 already recorded for the mutation providers.
 
         return services;
+    }
+
+    private static TwigConfiguration AdoConfiguration(IServiceProvider sp)
+    {
+        var cfg = sp.GetRequiredService<TwigConfiguration>();
+        WorkItemProviderSetting.RequireAdo(cfg.Provider);
+        return cfg;
+    }
+
+    /// <summary>
+    /// Provider switch for boundaries only ADO implements so far. Resolves the kind from the
+    /// setting alone (unknown tokens still fail <c>provider-unknown</c>) and refuses any other
+    /// provider before an ADO factory or <see cref="AdoConfiguration"/> is touched.
+    /// </summary>
+    private static void RequireAdoBoundary(IServiceProvider sp, string surface)
+    {
+        var kind = sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind();
+        if (kind == ProviderCapabilityCatalog.AdoProviderKind)
+            return;
+        throw new TwigConfigurationException(
+            $"{WorkItemProviderSetting.UnavailableReasonCode}: workspace provider '{kind}' has no {surface} yet.",
+            new NotSupportedException(WorkItemProviderSetting.UnavailableReasonCode));
+    }
+
+    /// <summary>
+    /// Epic #1167 read-only GitHub activation. Every piece resolves lazily from the live
+    /// configuration, so nothing (process, credential, network) is touched until a GitHub read
+    /// is actually requested. The snapshot reader is registered only for an explicit
+    /// <c>provider=github</c> workspace.
+    /// </summary>
+    private static void AddGitHubReadOnlyProvider(IServiceCollection services, TwigConfiguration config)
+    {
+        services.TryAddSingleton<IBoundedProcessRunner, BoundedProcessRunner>();
+        services.TryAddSingleton(sp => GitHubScope(sp.GetRequiredService<TwigConfiguration>()));
+        services.TryAddSingleton<IGitHubTokenSource>(sp => new GhCliTokenSource(
+            sp.GetRequiredService<IBoundedProcessRunner>(),
+            sp.GetRequiredService<GitHubWorkspaceScope>().Host));
+        services.TryAddSingleton(sp =>
+        {
+            var scope = sp.GetRequiredService<GitHubWorkspaceScope>();
+            var http = GitHubReadOnlyAuthHandler.CreateClient(
+                sp.GetRequiredService<IGitHubTokenSource>(),
+                scope.GraphQlEndpoint,
+                sp.GetService<GitHubTransportOverride>()?.CreateHandler());
+            return new GitHubWorkItemProvider(http, scope.GraphQlEndpoint, scope.Repository);
+        });
+
+        if (string.Equals(config.Provider, ProviderCapabilityCatalog.GitHubProviderKind, StringComparison.Ordinal))
+        {
+            services.AddSingleton<IWorkItemSnapshotReader>(sp => sp.GetRequiredService<GitHubWorkItemProvider>());
+            services.TryAddSingleton<SqliteLocalWorkItemRepository>(sp =>
+                new SqliteLocalWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>()));
+            services.TryAddSingleton<ILocalWorkItemStore>(sp =>
+                sp.GetRequiredService<SqliteLocalWorkItemRepository>());
+            services.TryAddSingleton<IExternalIdentityMap>(sp =>
+                sp.GetRequiredService<SqliteLocalWorkItemRepository>());
+            services.AddSingleton<IProviderWorkItemReadService>(sp => new ProviderWorkItemReadService(
+                sp.GetRequiredService<IWorkItemSnapshotReader>(),
+                sp.GetRequiredService<IExternalIdentityMap>(),
+                sp.GetRequiredService<ILocalWorkItemStore>()));
+        }
+    }
+
+    private static GitHubWorkspaceScope GitHubScope(TwigConfiguration cfg)
+    {
+        if (cfg.ResolveWorkItemProviderKind() != ProviderCapabilityCatalog.GitHubProviderKind)
+            throw new TwigConfigurationException(
+                $"{WorkItemProviderSetting.UnavailableReasonCode}: the GitHub adapter is available only when provider=github.",
+                new NotSupportedException(WorkItemProviderSetting.UnavailableReasonCode));
+        if (!GitHubWorkspaceScope.TryCreate(cfg.GitHub, out var scope, out var problem))
+            throw new TwigConfigurationException(
+                $"{WorkItemProviderSetting.UnconfiguredReasonCode}: {problem}. " +
+                "Run `twig config github.host <host>` and `twig config github.repository <owner/name>`.",
+                new InvalidDataException(WorkItemProviderSetting.UnconfiguredReasonCode));
+        return scope!;
     }
 
     internal static HttpClient CreateHttpClient()

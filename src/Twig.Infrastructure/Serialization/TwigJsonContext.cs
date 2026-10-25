@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.Services.Policy;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
@@ -20,6 +22,13 @@ namespace Twig.Infrastructure.Serialization;
 /// Add <c>[JsonSerializable]</c> attributes here for every DTO type as they are introduced.
 /// </summary>
 [JsonSerializable(typeof(TwigConfiguration))]
+[JsonSerializable(typeof(DraftCaptureEvidence))]
+[JsonSerializable(typeof(DraftCaptureBench))]
+[JsonSerializable(typeof(FormLayout))]
+[JsonSerializable(typeof(PolicyAssessment))]
+[JsonSerializable(typeof(PolicyRepairResult))]
+[JsonSerializable(typeof(BenchReadEnvelope))]
+[JsonSerializable(typeof(BenchReadError))]
 [JsonSerializable(typeof(TwigRepoConfig))]
 [JsonSerializable(typeof(TwigUserConfig))]
 [JsonSerializable(typeof(AuthConfig))]
@@ -30,6 +39,9 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DisplayColumnsConfig))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(GitHubIssueGraphQlRequest))]
+[JsonSerializable(typeof(GitHubIssueGraphQlResponse))]
+[JsonSerializable(typeof(GitHubIssueAssignee[]))]
 // ADO REST DTOs (EPIC-006)
 [JsonSerializable(typeof(AdoProjectWithCapabilitiesResponse))]
 [JsonSerializable(typeof(AdoWorkItemResponse))]
@@ -110,6 +122,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<AreaPathEntry>))]
 [JsonSerializable(typeof(UserConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(GitHubConfig))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 // Dynamic process configuration DTOs (EPIC-2/4)
 [JsonSerializable(typeof(AdoProcessConfigurationResponse))]
@@ -196,6 +209,20 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(FingerprintDto))]
 [JsonSerializable(typeof(Role))]
 [JsonSerializable(typeof(LinkKind))]
+[JsonSerializable(typeof(ProviderCapabilityDescriptor))]
+[JsonSerializable(typeof(RelationshipCapability))]
+[JsonSerializable(typeof(CapabilityAvailabilityEvidence))]
+[JsonSerializable(typeof(CapabilityReportEntry))]
+[JsonSerializable(typeof(CapabilityReport))]
+[JsonSerializable(typeof(CapabilityImplementation))]
+[JsonSerializable(typeof(CapabilityAvailability))]
+[JsonSerializable(typeof(EmulationStorage))]
+[JsonSerializable(typeof(RelationshipOrigin))]
+[JsonSerializable(typeof(PublicationState))]
+// Provider-neutral work-item identities, tokens, and relationships.
+[JsonSerializable(typeof(ExternalWorkItemIdentity))]
+[JsonSerializable(typeof(ProviderRevisionToken))]
+[JsonSerializable(typeof(ProviderWorkItemRelationship))]
 // Worktree attachment storage documents (AB#736 §4.2, consumed by AB#738)
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.LayoutMarkerDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintDocument))]
@@ -218,8 +245,15 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportTerminalDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAdapterTargetDocument))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.DraftProposalCapture))]
+[JsonSerializable(typeof(Twig.Domain.ValueObjects.WorkItemSnapshot))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
+[JsonSerializable(typeof(Twig.Domain.ValueObjects.QualifiedWorkItemKey))]
+[JsonSerializable(typeof(Twig.Domain.ValueObjects.RecoverableWorkItemDraft))]
+// Epic #1168 provider-neutral field values (canonical hand-written converter on the type)
+[JsonSerializable(typeof(Twig.Domain.ValueObjects.Fields.FieldValues))]
+[JsonSerializable(typeof(CanvasDetailExport))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],
@@ -236,6 +270,7 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(DefaultsConfig))]
 [JsonSerializable(typeof(SeedConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(GitHubConfig))]
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(AreasConfig))]
 [JsonSerializable(typeof(AreaPathEntry))]

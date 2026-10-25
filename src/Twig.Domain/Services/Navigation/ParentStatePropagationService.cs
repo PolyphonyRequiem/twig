@@ -43,7 +43,8 @@ public sealed record ParentPropagationResult
 /// </summary>
 public sealed class ParentStatePropagationService(
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
+    IProviderRevisionCodec revisionCodec,
     IProcessConfigurationProvider processConfigProvider,
     ProtectedCacheWriter protectedCacheWriter)
 {
@@ -84,7 +85,7 @@ public sealed class ParentStatePropagationService(
                 }
             }
 
-            // Defensive: FetchAsync is non-nullable per IAdoWorkItemService contract, so this path
+            // Defensive: FetchAsync is non-nullable per IProviderWorkItemWriter contract, so this path
             // is unreachable in production. Retained to satisfy the nullable checker.
             System.Diagnostics.Debug.Assert(parent is not null, "IAdoWorkItemService.FetchAsync returned null despite non-nullable contract");
             if (parent is null)
@@ -130,7 +131,9 @@ public sealed class ParentStatePropagationService(
             // Cache hit: refresh from ADO for current revision before patching.
             // Cache miss: parent was just fetched above — revision is already current.
             var revisionSource = parentFromAdo ? parent : await adoService.FetchAsync(parent.Id, ct);
-            var newRevision = await adoService.PatchAsync(parent.Id, changes, revisionSource.Revision, ct);
+            var expected = revisionCodec.FromCacheRevision(revisionSource.Revision);
+            var newRevision = revisionCodec.ToCacheRevision(
+                await adoService.PatchAsync(parent.Id, changes, expected, ct));
 
             parent.ChangeState(newState);
             parent.MarkSynced(newRevision);

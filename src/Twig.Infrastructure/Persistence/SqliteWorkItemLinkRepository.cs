@@ -76,6 +76,35 @@ public sealed class SqliteWorkItemLinkRepository : IWorkItemLinkRepository
     }
 
     /// <inheritdoc />
+    public Task<IReadOnlyList<int>> GetIncomingDependencySourcesAsync(
+        IReadOnlyList<int> workItemIds, int limit, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(workItemIds);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        var distinctIds = Distinct(workItemIds);
+        if (distinctIds.Count == 0)
+            return Task.FromResult<IReadOnlyList<int>>(Array.Empty<int>());
+
+        using var bindingOperation = _store.AcquireOperation();
+        using var cmd = _store.GetConnection().CreateCommand();
+        var placeholders = BindIdList(cmd, distinctIds);
+        cmd.CommandText = $"""
+            SELECT DISTINCT source_id FROM work_item_links
+            WHERE target_id IN ({string.Join(", ", placeholders)})
+                AND link_type COLLATE NOCASE IN (@predecessor, @successor)
+            ORDER BY source_id LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("@predecessor", LinkTypes.Predecessor);
+        cmd.Parameters.AddWithValue("@successor", LinkTypes.Successor);
+        cmd.Parameters.AddWithValue("@limit", limit);
+        var sources = new List<int>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            sources.Add(reader.GetInt32(0));
+        return Task.FromResult<IReadOnlyList<int>>(sources);
+    }
+
+    /// <inheritdoc />
     public Task<DateTimeOffset?> GetLinksVerifiedAtAsync(int workItemId, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();

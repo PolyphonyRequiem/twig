@@ -22,6 +22,15 @@ namespace Twig.Domain.Projections;
 /// </remarks>
 public static class WorkItemDetailProjector
 {
+    internal static IEnumerable<DetailControl> CarriedControls(WorkItemDetailDocument document)
+        => document.SystemControls.Concat(document.Pages.Where(page => page.CarriesFieldControls)
+            .SelectMany(page => page.AllGroups).SelectMany(group => group.Controls))
+            .Where(control => !control.IsContribution && control.Value is not null
+                && control.Value.State != DetailFieldState.NotCarriedByTwig);
+
+    internal static bool TryGetRawValue(WorkItemSnapshot snapshot, string field, out string? value)
+        => TryResolveCoreField(field, snapshot, out value) || snapshot.Fields.TryGetValue(field, out value);
+
     /// <summary>
     /// Length at or below which a value is carried without a separate short form.
     /// </summary>

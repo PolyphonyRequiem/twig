@@ -66,17 +66,63 @@ public static class CommandRegistrationModule
             twigPaths: sp.GetService<TwigPaths>(),
             adoGitService: sp.GetService<IAdoGitService>(),
             treeRenderingService: sp.GetService<TreeRenderingService>(),
-            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
+            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>())
+        {
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+        });
+        services.AddSingleton<ShowLocalIdCommand>(sp => new ShowLocalIdCommand(
+            sp.GetService<IProviderWorkItemReadService>(),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+            sp.GetService<ITelemetryClient>(),
+            sp.GetService<TextWriter>(),
+            sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>()));
         services.AddSingleton<StateCommand>();
-        services.AddSingleton<TreeRenderingService>();
+        services.AddSingleton<TreeRenderingService>(sp => new TreeRenderingService(
+            sp.GetRequiredService<CommandContext>(),
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<ActiveItemResolver>(),
+            sp.GetRequiredService<WorkingSetService>(),
+            sp.GetRequiredService<SyncCoordinatorFactory>(),
+            sp.GetRequiredService<IProcessTypeStore>(),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>())
+        {
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+        });
         services.AddSingleton<Twig.Commands.SetTree.WorkingSetTreeCommand>(sp =>
             new Twig.Commands.SetTree.WorkingSetTreeCommand(
                 sp.GetRequiredService<CommandContext>(),
                 sp.GetRequiredService<IWorkItemRepository>(),
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-                sp.GetRequiredService<TwigConfiguration>()));
-        services.AddSingleton<NavigationCommands>();
-        services.AddSingleton<NavigationHistoryCommands>();
+                sp.GetRequiredService<TwigConfiguration>())
+            {
+                FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+            });
+        services.AddSingleton<NavigationCommands>(sp => new NavigationCommands(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<ISeedLinkRepository>(),
+            sp.GetRequiredService<IWorkItemLinkRepository>(),
+            sp.GetRequiredService<SetCommand>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<ActiveItemResolver>(),
+            sp.GetService<Twig.Rendering.RenderingPipelineFactory>(),
+            sp.GetService<INavigationHistoryStore>(),
+            sp.GetService<IPromptStateWriter>())
+        {
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+        });
+        services.AddSingleton<NavigationHistoryCommands>(sp => new NavigationHistoryCommands(
+            sp.GetRequiredService<INavigationHistoryStore>(),
+            sp.GetRequiredService<IPublishIdMapRepository>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetService<Twig.Rendering.RenderingPipelineFactory>(),
+            sp.GetService<IPromptStateWriter>())
+        {
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+        });
         services.AddSingleton<NewCommand>();
         services.AddSingleton<SeedNewCommand>();
         services.AddSingleton<SeedEditCommand>();
@@ -117,6 +163,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<BrowserHostCommand>();
         services.AddSingleton<BrowserReadModule>();
         services.AddSingleton<BenchDetailCommand>();
+        services.AddSingleton<DraftCommand>();
         services.AddSingleton<BenchAreaCandidatesCommand>();
         // 'twig save' is deprecated but still dispatches to SaveCommand
         // (Program.cs Save handler); without this it throws at runtime.
@@ -134,6 +181,7 @@ public static class CommandRegistrationModule
         {
             ResolveBrowserBindingAsync = ct => sp.GetRequiredService<IConnectionBindingService>().ResolveAsync(
                 sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(), ct),
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
         });
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<MigrateConfigCommand>();
@@ -146,11 +194,27 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConnectionListCommand>();
         services.AddSingleton<ConnectionStatusCommand>();
         services.AddSingleton<ConnectionCheckCommand>();
+        services.AddSingleton(sp => new ConnectionCapabilitiesCommand(
+            () => sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetService<Twig.Rendering.RendererFactory>(),
+            sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>()));
         services.AddSingleton<ConnectionMigrateCommand>();
         services.AddSingleton<ConnectionPinCommand>();
         services.AddSingleton<ConnectionWritesCommand>();
         services.AddSingleton<ConnectionDefaultCommand>();
-        services.AddSingleton<QueryCommand>();
+        services.AddSingleton<QueryCommand>(sp => new QueryCommand(
+            sp.GetRequiredService<IProviderWorkItemReader>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<Twig.Hints.HintEngine>(),
+            sp.GetService<Twig.Rendering.RendererFactory>(),
+            sp.GetService<ITelemetryClient>(),
+            sp.GetService<TextWriter>())
+        {
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+        });
         services.AddSingleton<HistoryCommand>();
         services.AddSingleton<ProcessCommand>();
         services.AddSingleton<ProcessLayoutCommand>();
@@ -177,6 +241,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<AreaCommand>();
         services.AddSingleton<SprintCommand>();
         services.AddSingleton<PlanCommand>();
+        services.AddSingleton<PolicyCommand>();
         services.AddSingleton<PendingCommand>();
     }
 

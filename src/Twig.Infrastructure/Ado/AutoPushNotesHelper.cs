@@ -43,10 +43,24 @@ namespace Twig.Infrastructure.Ado;
 /// </remarks>
 public static class AutoPushNotesHelper
 {
-    public static async Task PushAndClearAsync(
+    /// <summary>ADO-only form, used by callers that hold the ADO client directly.</summary>
+    public static Task PushAndClearAsync(
         int workItemId,
         IPendingChangeStore pendingChangeStore,
-        IAdoWorkItemService adoService)
+        IAdoWorkItemService adoService) =>
+        PushAndClearCoreAsync(workItemId, pendingChangeStore, (id, text) => adoService.AddCommentAsync(id, text));
+
+    /// <summary>Provider mutation boundary form (Feature #1178).</summary>
+    public static Task PushAndClearAsync(
+        int workItemId,
+        IPendingChangeStore pendingChangeStore,
+        IProviderWorkItemWriter adoService) =>
+        PushAndClearCoreAsync(workItemId, pendingChangeStore, (id, text) => adoService.AddCommentAsync(id, text));
+
+    private static async Task PushAndClearCoreAsync(
+        int workItemId,
+        IPendingChangeStore pendingChangeStore,
+        Func<int, string, Task> addComment)
     {
         var pendingChanges = await pendingChangeStore.GetChangesAsync(workItemId);
         var hasNotes = false;
@@ -56,7 +70,7 @@ public static class AutoPushNotesHelper
             if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase)
                 && change.NewValue is not null)
             {
-                await adoService.AddCommentAsync(workItemId, change.NewValue);
+                await addComment(workItemId, change.NewValue);
                 hasNotes = true;
             }
         }

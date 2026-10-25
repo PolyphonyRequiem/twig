@@ -1,6 +1,7 @@
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
@@ -21,13 +22,17 @@ public sealed class PendingChangeFlusherStagedCountTests
 {
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
+    private readonly IProviderWorkItemWriter _writer;
+
+    public PendingChangeFlusherStagedCountTests() => _writer = AdoWriterFixture.Wrap(_adoService);
+
     private readonly IPendingChangeStore _pendingChangeStore = Substitute.For<IPendingChangeStore>();
     private readonly IConsoleInput _consoleInput = Substitute.For<IConsoleInput>();
     private readonly OutputFormatterFactory _formatterFactory = new(new HumanOutputFormatter());
     private readonly StringWriter _stderr = new();
 
     private PendingChangeFlusher CreateFlusher() =>
-        new(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory, _stderr);
+        new(_workItemRepo, _writer, _pendingChangeStore, _consoleInput, _formatterFactory, _stderr);
 
     [Fact]
     public async Task NothingPending_StagedCountsAreZero()
@@ -121,13 +126,19 @@ public sealed class PendingChangeFlusherStagedCountTests
         result.NotesPushed.ShouldBe(2);
     }
 
-    private static WorkItem CreateWorkItem(int id) => new()
+    private static WorkItem CreateWorkItem(int id)
     {
-        Id = id,
-        Type = WorkItemType.Task,
-        Title = "Title",
-        State = "New",
-        IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-        AreaPath = AreaPath.Parse("Project").Value,
-    };
+        var item = new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = "Title",
+            State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        // Synced at revision 1, as anything read from ADO is; a provider write refuses revision 0 (#1178 Option A).
+        item.MarkSynced(1);
+        return item;
+    }
 }

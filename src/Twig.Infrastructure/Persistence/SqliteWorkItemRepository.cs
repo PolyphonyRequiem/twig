@@ -16,12 +16,28 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 {
     private readonly SqliteCacheStore _store;
     private readonly WorkItemMapper _mapper;
+    private readonly AdoMirrorIdentityProjection? _projection;
 
     public SqliteWorkItemRepository(SqliteCacheStore store, WorkItemMapper mapper)
     {
         _store = store;
         _mapper = mapper;
     }
+
+    /// <summary>
+    /// Also projects each saved item onto its durable local identity, in the same transaction as
+    /// the mirror write (Epic #1168).
+    /// </summary>
+    internal SqliteWorkItemRepository(SqliteCacheStore store, WorkItemMapper mapper, AdoMirrorIdentityProjection projection)
+        : this(store, mapper)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        _projection = projection;
+    }
+
+    internal bool HasDurableIdentityProjection => _projection is not null;
+
+    internal string? DurableScope => _projection?.KnownResourceScope;
 
     public IDisposable? AcquireOperation() => _store.AcquireOperation();
 
@@ -51,6 +67,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
 
@@ -249,6 +266,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task SaveAsync(WorkItem workItem, CancellationToken ct = default)
     {
+        if (_projection is not null)
+            return SaveProjectedAsync([workItem], ct);
+
         using var bindingOperation = _store.AcquireOperation();
         SaveWorkItem(_store.GetConnection(), workItem, _store.ActiveTransaction);
         return Task.CompletedTask;
@@ -256,6 +276,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task SaveBatchAsync(IEnumerable<WorkItem> workItems, CancellationToken ct = default)
     {
+        if (_projection is not null)
+            return SaveProjectedAsync(workItems, ct);
+
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
@@ -273,6 +296,72 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             throw;
         }
         return Task.CompletedTask;
+    }
+
+    private async Task SaveProjectedAsync(IEnumerable<WorkItem> workItems, CancellationToken ct)
+    {
+        using var bindingOperation = _store.AcquireOperation();
+        var items = workItems.ToArray();
+        var resourceScope = await _projection!.PrepareAsync(items, ct).ConfigureAwait(false);
+        var conn = _store.GetConnection();
+        var ambient = _store.ActiveTransaction;
+        using var owned = ambient is null ? conn.BeginTransaction() : null;
+        var tx = ambient ?? owned!;
+        var savepoint = $"ado_mirror_projection_{Guid.NewGuid():N}";
+        var savepointCreated = false;
+        var savepointReleased = false;
+        _store.ActiveTransaction = tx;
+        try
+        {
+            tx.Save(savepoint);
+            savepointCreated = true;
+            foreach (var item in items)
+            {
+                SaveWorkItem(conn, item, tx);
+                if (_projection.ShouldProject(item))
+                {
+                    await _projection.ProjectAsync(
+                        item,
+                        resourceScope ?? throw new InvalidOperationException("The ADO projection scope was not prepared."),
+                        ct).ConfigureAwait(false);
+                }
+            }
+            tx.Release(savepoint);
+            savepointReleased = true;
+            owned?.Commit();
+        }
+        catch (Exception operationError)
+        {
+            if (!savepointCreated)
+                throw;
+
+            try
+            {
+                if (savepointReleased)
+                {
+                    if (owned is not null)
+                        tx.Rollback();
+                }
+                else
+                {
+                    tx.Rollback(savepoint);
+                    tx.Release(savepoint);
+                }
+            }
+            catch (Exception rollbackError)
+            {
+                throw new InvalidOperationException(
+                    "ADO mirror projection failed and its SQLite savepoint could not be rolled back.",
+                    new AggregateException(operationError, rollbackError));
+            }
+
+            throw;
+        }
+        finally
+        {
+            if (owned is not null)
+                _store.ActiveTransaction = null;
+        }
     }
 
     public Task DeleteByIdAsync(int id, CancellationToken ct = default)

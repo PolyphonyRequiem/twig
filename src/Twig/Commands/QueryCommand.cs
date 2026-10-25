@@ -26,7 +26,7 @@ namespace Twig.Commands;
 /// the "no items found" info message, and hints.
 /// </remarks>
 public sealed partial class QueryCommand(
-    IAdoWorkItemService adoService,
+    IProviderWorkItemReader adoService,
     IWorkItemRepository workItemRepo,
     TwigConfiguration config,
     OutputFormatterFactory formatterFactory,
@@ -37,6 +37,11 @@ public sealed partial class QueryCommand(
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
+    /// <summary>
+    /// Composes rendered cells from durable local fields without changing selection or ID output.
+    /// </summary>
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
 
     /// <summary>Execute the query command.</summary>
     public async Task<int> ExecuteAsync(
@@ -171,7 +176,10 @@ public sealed partial class QueryCommand(
         }
         else
         {
-            RenderQueryResults(result, outputFormat);
+            var cells = FieldOverlay is null
+                ? items
+                : await FieldOverlay.ApplyAsync(items, ct).ConfigureAwait(false);
+            RenderQueryResults(result, cells, outputFormat);
         }
 
         // 9. Emit hints (FR-19: suppressed for json/minimal by HintEngine)
@@ -182,7 +190,7 @@ public sealed partial class QueryCommand(
         return (0, items.Count);
     }
 
-    private void RenderQueryResults(QueryResult result, string outputFormat)
+    private void RenderQueryResults(QueryResult result, IReadOnlyList<WorkItem> cells, string outputFormat)
     {
         var columns = new List<RenderColumn>
         {
@@ -194,8 +202,8 @@ public sealed partial class QueryCommand(
             new("areaPath", "Area"),
             new("iterationPath", "Iteration"),
         };
-        var rows = new List<RenderRow>(result.Items.Count);
-        foreach (var item in result.Items)
+        var rows = new List<RenderRow>(cells.Count);
+        foreach (var item in cells)
         {
             rows.Add(new RenderRow("queryItem", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
             {

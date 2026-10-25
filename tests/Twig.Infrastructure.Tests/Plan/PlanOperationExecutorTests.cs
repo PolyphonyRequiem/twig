@@ -9,6 +9,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Plan;
+using Twig.Infrastructure.Tests.Ado;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Plan;
@@ -23,6 +24,10 @@ namespace Twig.Infrastructure.Tests.Plan;
 /// </summary>
 public sealed class PlanOperationExecutorTests
 {
+    // Feature #1178: the executor is handed the provider-neutral mutation port, so every journal,
+    // partial-failure and readback pin here proves proposal apply needs nothing ADO-only. The port is
+    // the real ADO adapter over this client substitute (AC (a)), so the opaque revision precondition
+    // check runs exactly as in production.
     private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
     private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
     private readonly IFieldDefinitionStore _fieldDefinitions = Substitute.For<IFieldDefinitionStore>();
@@ -58,7 +63,8 @@ public sealed class PlanOperationExecutorTests
                 _publishInvocations.Add(seedId);
                 return Task.FromResult(_publishBehaviour(seedId));
             });
-        _executor = new PlanOperationExecutor(_ado, _revisionBound, _fieldDefinitions, publisher);
+        _executor = new PlanOperationExecutor(
+            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions, publisher);
     }
 
     private void StubFieldDefinition(string referenceName, string dataType)
@@ -227,6 +233,122 @@ public sealed class PlanOperationExecutorTests
 
         outcome.Ok.ShouldBeFalse();
         outcome.Error!.ShouldContain("System.Description");
+    }
+
+    // ── AB#851: entity decoding + inter-element whitespace insertion ─────────
+
+    /// <summary>
+    /// The AB#851 shape: ADO stores an HTML field with entities decoded AND whitespace
+    /// inserted between block elements. Observed live on a Bug close
+    /// (<c>Custom.FalsificationCriteria</c> + <c>System.State</c>): the write landed but the
+    /// readback reported Indeterminate. Built-in and custom HTML fields must reach the same
+    /// verdict for the same write.
+    /// </summary>
+    internal const string Ab851Staged =
+        "<h2>Falsification</h2><p>Fails if <code>apply</code> reports &quot;Indeterminate&quot; &amp; the write landed.</p>"
+        + "<ul><li>Entity: &#39;quoted&#39;</li><li>Second</li></ul><blockquote><p>Quoted</p></blockquote><p>Done.</p>";
+
+    internal const string Ab851AdoStored =
+        "<h2>Falsification</h2>\n<p>Fails if <code>apply</code> reports \"Indeterminate\" &amp; the write landed.</p>\n"
+        + "<ul>\n<li>Entity: 'quoted'</li>\n<li>Second</li>\n</ul>\n<blockquote>\n<p>Quoted</p>\n</blockquote>\n<p>Done.</p>";
+
+    [Theory]
+    [InlineData("System.Description")]
+    [InlineData("Custom.FalsificationCriteria")]
+    public async Task ReadbackBatch_EntityBearingHtmlRoundTripThroughAdoNormalization_Verifies(string field)
+    {
+        StubFieldDefinition(field, "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.State"] = "Done",
+                [field] = Ab851Staged,
+            },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.ChangeState("Done");
+        wi.UpdateField(field, Ab851AdoStored);
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue(outcome.Error);
+        outcome.Warning.ShouldNotBeNull();
+        outcome.Warning.ShouldContain(field);
+        outcome.Warning.ShouldContain("canonicalized HTML");
+    }
+
+    [Theory]
+    [InlineData("System.Description")]
+    [InlineData("Custom.FalsificationCriteria")]
+    public async Task ReadbackBatch_EntityBearingHtmlWithChangedText_RemainsNonVerified(string field)
+    {
+        StubFieldDefinition(field, "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { [field] = Ab851Staged },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField(field, Ab851AdoStored.Replace("Second", "Other", StringComparison.Ordinal));
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Error!.ShouldContain(field);
+        outcome.Warning.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("<p>A</p><p>B</p>", "<p>A</p>\n<p>B</p>", true)]
+    [InlineData("<div><p>A</p></div>", "<div>\n<p>A</p>\n</div>\n", true)]
+    [InlineData("<ol><li><p>A</p></li></ol>", "<ol>\n<li>\n<p>A</p>\n</li>\n</ol>", true)]
+    [InlineData("<span>a</span><span>b</span>", "<span>a</span>\n<span>b</span>", false)]
+    [InlineData("<p>A</p><span>b</span>", "<p>A</p> <span>b</span>", false)]
+    [InlineData("<p>a<strong>b</strong></p>", "<p>a\n<strong>b</strong></p>", false)]
+    [InlineData("<p>A</p><p>B</p>", "<p>A</p>\u00a0<p>B</p>", false)]
+    [InlineData("<p>A</p><p>B</p>", "<p>A</p>&#10;<p>B</p>", false)]
+    [InlineData("<pre>a</pre><pre>b</pre>", "<pre>a</pre>\n<pre>b</pre>", false)]
+    [InlineData("<p class='x'>A</p><p>B</p>", "<p class='x'>A</p>\n<p>B</p>", false)]
+    [InlineData("<p>A</p><p class='x'>B</p>", "<p>A</p>\n<p class='x'>B</p>", false)]
+    [InlineData("<div><p class='x'>A</p><p>B</p></div>", "<div><p class='x'>A</p>\n<p>B</p></div>", false)]
+    [InlineData("<div><p>A</p><p class='x'>B</p></div>", "<div><p>A</p>\n<p class='x'>B</p></div>", false)]
+    [InlineData("<div><p>A</p><p style='white-space:pre'>B</p></div>",
+        "<div><p>A</p>\n<p style='white-space:pre'>B</p></div>", false)]
+    [InlineData("<p style='margin:0'>A</p><p>B</p>", "<p style='margin:0'>A</p>\n<p>B</p>", false)]
+    [InlineData("<p>A</p><p style='margin:0'>B</p>", "<p>A</p>\n<p style='margin:0'>B</p>", false)]
+    [InlineData("<div class='x'><p>A</p></div>", "<div class='x'>\n<p>A</p></div>", false)]
+    [InlineData("<div><div class='x'><p>A</p><p>B</p></div></div>",
+        "<div><div class='x'><p>A</p>\n<p>B</p></div></div>", false)]
+    [InlineData("<p title='t'>A</p><p>B</p>", "<p title='t'>A</p>\n<p>B</p>", true)]
+    [InlineData("<!-- c --><p>A</p><p>B</p>", "<!-- c --><p>A</p>\n<p>B</p>", false)]
+    [InlineData("<p>A</p><p>B</p>", "<p>A</p>\n<p>C</p>", false)]
+    public async Task ReadbackBatch_HtmlInterBlockWhitespace_OnlyBetweenBlockBoundaries(
+        string expected, string actual, bool equivalent)
+    {
+        StubFieldDefinition("Custom.FalsificationCriteria", "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["Custom.FalsificationCriteria"] = expected },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("Custom.FalsificationCriteria", actual);
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBe(equivalent);
+        if (equivalent)
+            outcome.Warning.ShouldNotBeNull();
+        else
+            outcome.Warning.ShouldBeNull();
     }
 
     [Theory]
@@ -591,6 +713,56 @@ public sealed class PlanOperationExecutorTests
         outcome.Error.ShouldBe("post-create promotion failed");
     }
 
+    // ── #1178 AC (a): opaque revision precondition ─────────────────────────
+
+    [Fact]
+    public async Task ExecuteBatch_RevisionZero_IsDeterminatePreTransportRefusal_WithNoAdoCall()
+    {
+        // The plan parser rejects expectedRevision <= 0, so this is the executor-level pin
+        // for a missing precondition reaching the port: refused before transport, never a
+        // conflict, never a refetch, recorded as a determinate Failure.
+        var op = new BatchOperation
+        {
+            Id = "b",
+            WorkItemId = 730,
+            ExpectedRevision = 0,
+            Fields = new Dictionary<string, string?> { ["System.State"] = "Doing" },
+        };
+
+        var outcome = await _executor.ExecuteAsync(op, CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldStartWith("revision-precondition-refused:");
+        outcome.ResultJson.ShouldNotBeNull();
+        using var diagnostics = JsonDocument.Parse(outcome.ResultJson);
+        var diag = diagnostics.RootElement.GetProperty("diagnostics");
+        diag.GetProperty("code").GetString().ShouldBe("revision-precondition-refused");
+        diag.GetProperty("expectedRevision").GetInt32().ShouldBe(0);
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteBatch_WrittenRevisionUndecodable_StaysIndeterminate()
+    {
+        // The patch was SENT; an undecodable written revision is post-transport and must not
+        // be relabelled as a determinate pre-transport refusal.
+        var op = new BatchOperation
+        {
+            Id = "b",
+            WorkItemId = 731,
+            ExpectedRevision = 2,
+            Fields = new Dictionary<string, string?> { ["System.State"] = "Doing" },
+        };
+        _ado.PatchAsync(731, Arg.Any<IReadOnlyList<FieldChange>>(), 2, Arg.Any<CancellationToken>())
+            .Returns(0);
+
+        var outcome = await _executor.ExecuteAsync(op, CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Indeterminate);
+        await _ado.Received(1).PatchAsync(731, Arg.Any<IReadOnlyList<FieldChange>>(), 2, Arg.Any<CancellationToken>());
+    }
+
     // ── strict-CAS relation not found ──────────────────────────────────────
 
     [Fact]
@@ -817,10 +989,12 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         _publishInvocations.ShouldBe(new[] { alias.Value });
-        // No wire-level create was issued through this test's ADO surface — the recovery
-        // path never bypasses the orchestrator into a fresh CreateAsync.
-        await _ado.DidNotReceive().CreateAsync(
-            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+        // No wire-level write was issued through the executor's mutation port — the recovery
+        // path never bypasses the orchestrator. (#1178: the port carries no CreateAsync, so a
+        // fresh create is unreachable by type; pin that only reads crossed the port.)
+        _ado.ReceivedCalls()
+            .Select(c => c.GetMethodInfo().Name)
+            .ShouldAllBe(name => name.StartsWith("Fetch", StringComparison.Ordinal));
         outcome.Ok.ShouldBeTrue();
         outcome.Deterministic.ShouldBeTrue();
     }
@@ -1620,10 +1794,10 @@ public sealed class PlanOperationExecutorTests
     [Fact]
     public void TerminalContractFieldsAreNeverServerGenerated()
     {
-        // Spec #753 user story 7: "System.State=Done and Custom.TerminalOutcome=completed
-        // remain an atomic, strict terminal contract."
+        // Spec #753: a transition and the values the process requires with it remain an
+        // atomic, strict terminal contract.
         //
-        // That contract holds because neither field is server-generated, so a batch whose
+        // That contract holds because the state field is not server-generated, so a batch whose
         // transition did not land fails strict comparison before normalization is ever
         // considered. This test is the guard on that reasoning: adding a lifecycle field to
         // the generated set would silently let a close be warning-verified without the
@@ -1635,6 +1809,28 @@ public sealed class PlanOperationExecutorTests
                 "excusable as server-generated normalization.");
         }
     }
+
+    [Fact]
+    public void ServerGeneratedFieldsArePlatformOwnedOnly()
+    {
+        // Values a process requires alongside a transition are process-defined fields. They
+        // are protected without naming any of them: only platform-owned fields may ever be
+        // classified as server-generated.
+        foreach (var field in ServerGeneratedFieldPolicy.ServerGeneratedFields)
+        {
+            ServerGeneratedFieldPolicy.IsPlatformOwned(field).ShouldBeTrue(
+                $"{field} is not platform-owned and must never be excusable as " +
+                "server-generated normalization.");
+        }
+    }
+
+    [Theory]
+    [InlineData("System.ChangedDate", true)]
+    [InlineData("Microsoft.VSTS.Common.ClosedDate", true)]
+    [InlineData("Custom.AnyProcessField", false)]
+    [InlineData("Contoso.ProcessField", false)]
+    public void IsPlatformOwned_DistinguishesPlatformFromProcessDefinedFields(string field, bool expected)
+        => ServerGeneratedFieldPolicy.IsPlatformOwned(field).ShouldBe(expected);
 
     [Fact]
     public void OnlyExplainedDifferencesRemain_RejectsANormalizationTheBatchNeverRequested()

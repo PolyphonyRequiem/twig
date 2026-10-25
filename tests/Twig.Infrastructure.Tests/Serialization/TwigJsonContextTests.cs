@@ -1,6 +1,9 @@
 using System.Text.Json;
 using Shouldly;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
+using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Serialization;
 using Xunit;
 
@@ -22,6 +25,62 @@ public class TwigJsonContextTests
     public void DescendantVerificationResult_IsRegisteredInTwigJsonContext()
     {
         TwigJsonContext.Default.DescendantVerificationResult.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void ProviderNeutralTypes_AreRegisteredInTwigJsonContext()
+    {
+        TwigJsonContext.Default.ExternalWorkItemIdentity.ShouldNotBeNull();
+        TwigJsonContext.Default.ProviderRevisionToken.ShouldNotBeNull();
+        TwigJsonContext.Default.ProviderWorkItemRelationship.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void CapabilityTypes_AreRegisteredInTwigJsonContext()
+    {
+        TwigJsonContext.Default.ProviderCapabilityDescriptor.ShouldNotBeNull();
+        TwigJsonContext.Default.CapabilityAvailabilityEvidence.ShouldNotBeNull();
+        TwigJsonContext.Default.CapabilityReport.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void CapabilityReport_RoundTripsWithStableStringTokens()
+    {
+        var report = CapabilityReport.Create(ProviderCapabilityCatalog.GitHub);
+
+        var json = JsonSerializer.Serialize(report, TwigJsonContext.Default.CapabilityReport);
+        json.ShouldContain("\"providerKind\":\"github\"");
+        json.ShouldContain("\"implementation\":\"unsupported\"");
+        json.ShouldContain("\"availability\":\"unknown\"");
+        json.ShouldContain("\"reasonCode\":\"not-probed\"");
+
+        var deserialized = JsonSerializer.Deserialize(json, TwigJsonContext.Default.CapabilityReport);
+        deserialized.ShouldNotBeNull();
+        deserialized.ProviderKind.ShouldBe(report.ProviderKind);
+        deserialized.Relationships.Count.ShouldBe(report.Relationships.Count);
+        foreach (var expected in report.Relationships)
+        {
+            deserialized.Relationships.Single(entry => entry.Kind == expected.Kind)
+                .ShouldBe(expected);
+        }
+    }
+
+    [Fact]
+    public void ProviderWorkItemRelationship_RoundTripsWithCanonicalLinkKindName()
+    {
+        var relationship = new ProviderWorkItemRelationship(
+            new ExternalWorkItemIdentity("github", "https://api.github.com", "I_kwDOExample"),
+            new ExternalWorkItemIdentity("github", "https://api.github.com", "I_kwDOAnother"),
+            LinkKind.PredecessorSuccessor);
+
+        var json = JsonSerializer.Serialize(relationship, TwigJsonContext.Default.ProviderWorkItemRelationship);
+        json.ShouldContain("\"kind\":\"predecessor-successor\"");
+
+        var deserialized = JsonSerializer.Deserialize(
+            json,
+            TwigJsonContext.Default.ProviderWorkItemRelationship);
+
+        deserialized.ShouldBe(relationship);
     }
 
     [Fact]
@@ -98,5 +157,20 @@ public class TwigJsonContextTests
 
         deserialized.ShouldNotBeNull();
         deserialized.Incomplete[0].ParentId.ShouldBeNull();
+    }
+
+    [Fact]
+    public void FieldValues_AndCanvasDetailExport_AreRegisteredAndFieldValuesRoundTrip()
+    {
+        TwigJsonContext.Default.CanvasDetailExport.ShouldNotBeNull();
+        var values = Twig.Domain.ValueObjects.Fields.FieldValues.Empty
+            .Set("a", new Twig.Domain.ValueObjects.Fields.TextValue("x"));
+
+        var json = JsonSerializer.Serialize(values, TwigJsonContext.Default.FieldValues);
+        var back = JsonSerializer.Deserialize(json, TwigJsonContext.Default.FieldValues);
+
+        json.ShouldContain("\"a\"");
+        back.ShouldNotBeNull();
+        JsonSerializer.Serialize(back, TwigJsonContext.Default.FieldValues).ShouldBe(json);
     }
 }

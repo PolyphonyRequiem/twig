@@ -39,9 +39,12 @@ namespace Twig.Domain.Services.Plan;
 /// availability and returns a retryable precondition upstream when it cannot obtain one.
 /// </para>
 /// <para>
-/// 🔴 <b>Rule-load errors do not become policy decisions.</b> If the provider cannot load
-/// rules, this evaluator returns permit-all; a policy refusal on a load failure would
-/// deny valid batches for a transient reason.
+/// 🔴 <b>Rule-load errors are unavailable, never a permit (AB#1169, D3).</b> If the provider
+/// cannot load rules, this evaluator returns <see cref="PlanProcessRuleGateOutcome.RequiresRefresh(string)"/>:
+/// a retryable precondition, not a terminal refusal, so a transient outage holds the batch
+/// rather than either denying it permanently or letting an unchecked close gate through.
+/// A <c>null</c> provider (no rule source in the object graph) is likewise unavailable: a
+/// provider with genuinely no rules registers <see cref="EmptyProcessRuleProvider"/>.
 /// </para>
 /// <para>
 /// 🔴 <b>Old vs new views.</b> Generic rule verbs read from two views of the item, not one:
@@ -100,9 +103,9 @@ internal readonly record struct PlanProcessRuleGateOutcome(
 /// terminal — the plan row moves to Failed with the rule-refusal message.
 /// <c>NeedsRefresh</c> is a retryable precondition — the plan row MUST remain Confirmed
 /// and the caller returns a top-level busy refusal so the same digest re-applies once the
-/// upstream input is available again. The gate itself never produces
-/// <c>NeedsRefresh</c>; only the lifecycle does, when the authoritative snapshot required
-/// to evaluate a <see cref="BatchOperation"/> cannot be loaded.
+/// upstream input is available again. The gate produces <c>NeedsRefresh</c> when the
+/// process rule set cannot be loaded; the lifecycle produces it when the authoritative
+/// snapshot required to evaluate a <see cref="BatchOperation"/> cannot be loaded.
 /// </summary>
 internal enum PlanProcessRuleGateOutcomeKind
 {
@@ -117,9 +120,10 @@ internal sealed class PlanProcessRuleGate
 
     /// <summary>
     /// Constructs a gate over the given rule provider. A <c>null</c> provider produces a
-    /// gate that always permits — the same shape a DI graph missing the network layer
-    /// would produce, and the state <see cref="PlanLifecycleService"/> should still be
-    /// usable in.
+    /// gate that never permits: every evaluation returns
+    /// <see cref="PlanProcessRuleGateOutcome.RequiresRefresh(string)"/>, because an absent
+    /// rule source cannot vouch for close gates (AB#1169). Compositions whose provider has
+    /// no rules pass <see cref="EmptyProcessRuleProvider.Instance"/>.
     /// </summary>
     public PlanProcessRuleGate(IProcessRuleProvider? rules) => _rules = rules;
 
@@ -139,10 +143,15 @@ internal sealed class PlanProcessRuleGate
         WorkItem source,
         CancellationToken ct = default)
     {
-        if (_rules is null) return PlanProcessRuleGateOutcome.Ok;
+        if (_rules is null)
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                "No process-rule provider is registered, so required-field gates cannot be evaluated. "
+                + "Run with a configured work-item provider; providers without process rules must register an empty rule provider.");
 
         var typeName = source.Type.Value;
-        if (string.IsNullOrEmpty(typeName)) return PlanProcessRuleGateOutcome.Ok;
+        if (string.IsNullOrWhiteSpace(typeName))
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                $"Process rules cannot be evaluated because the type of work item {source.Id} is unknown; refresh the item and retry.");
 
         IReadOnlyList<ProcessRule> rules;
         try
@@ -153,22 +162,36 @@ internal sealed class PlanProcessRuleGate
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
-            // Rule-load failure is not a policy decision; see class remarks.
-            return PlanProcessRuleGateOutcome.Ok;
+            // AB#1169 / D3: an unreadable rule set is not a permit. The batch is held as a
+            // retryable precondition so the same digest re-applies once rules load again.
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                $"Process rules for type '{typeName}' could not be loaded ({ex.Message}); "
+                + "required-field gates cannot be evaluated. Retry once the process configuration is reachable.");
         }
-        if (rules is null || rules.Count == 0) return PlanProcessRuleGateOutcome.Ok;
+        if (rules is null)
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                $"Process rules for type '{typeName}' returned no rule set; required-field gates cannot be evaluated.");
+        return EvaluateObserved(batch, source, rules);
+    }
+
+    // Pure evaluation also supports explicitly retained native observations. That caller
+    // reports local advisory evidence, never the authoritative apply-time guarantee.
+    internal static PlanProcessRuleGateOutcome EvaluateObserved(
+        BatchOperation batch, WorkItem source, IReadOnlyList<ProcessRule> rules)
+    {
+        if (rules.Count == 0) return PlanProcessRuleGateOutcome.Ok;
 
         // Cheap short-circuit: with no enabled makeRequired candidate in the rule set,
         // no refusal path exists — skip the pre/post overlay build entirely.
         if (!HasEnabledMakeRequiredCandidate(rules))
             return PlanProcessRuleGateOutcome.Ok;
 
-        // Authoritative-input invariant: PlanLifecycleService only hands us a source
+        // Authoritative-input invariant of EvaluateAsync: PlanLifecycleService hands it a source
         // projected from an at-revision server snapshot equal to batch.ExpectedRevision
-        // (either freshly fetched or carried forward from a prior verified operation on
-        // the same work item — AB#721). No cached-projection drift path exists here.
+        // (freshly fetched or carried from a prior verified operation — AB#721).
+        // A retained-observation caller instead reports only local advisory evidence.
 
         var fromState = source.State ?? string.Empty;
         var toState = fromState;

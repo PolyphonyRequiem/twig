@@ -33,6 +33,88 @@ registers the core domain services (config, paths, SQLite persistence,
 repositories, process configuration, prompt state, telemetry) plus the
 network services (auth, HTTP, ADO REST clients, iteration service).
 
+## Experimental GitHub snapshot transport
+
+The internal `GitHubWorkItemProvider` implements `IWorkItemSnapshotReader` using
+GraphQL **queries only**. It is registered as `IWorkItemProvider` and
+`IWorkItemSnapshotReader` only when the workspace explicitly sets
+`provider=github`; an absent setting still means ADO and an unknown provider
+still fails closed. The show/query/refresh/sync CLI paths resolve the
+`IProviderWorkItemReader` boundary, but its current adapter supports ADO only:
+under `provider=github` those paths fail closed before constructing an ADO
+client. They do not yet dispatch through the GitHub snapshot transport. Writes,
+write readiness, device sign-in, alias resolution and GitHub persistence are not
+part of this increment.
+
+### Activation (`provider=github`)
+
+- **Scope** comes only from explicit Repo-scoped config — `twig config github.host
+  <host>` and `twig config github.repository <owner/name>` — never from the git
+  remote. Missing or malformed scope fails closed with `provider-unconfigured:`.
+  The GraphQL endpoint is `https://api.github.com/graphql` for `github.com`,
+  otherwise `https://<host>/api/graphql`. Snapshots for issues outside the
+  configured repository are refused.
+- **Credential** comes only from the GitHub CLI: `gh auth token --hostname
+  <host>`, run as an argument array with no shell, a 10 s timeout and bounded
+  output. The token is held in memory for the process only — never persisted,
+  logged or sent to telemetry. If `gh` is missing, not logged in, times out or
+  returns no usable token, the read fails closed with
+  `GitHubCredentialUnavailableException` ("Run `gh auth login --hostname <host>`")
+  and there is no fallback source.
+- **Read-only is enforced by Twig, not by the token.** The token's real scope is
+  whatever the user granted `gh`. `GitHubReadOnlyAuthHandler` admits only a POST
+  to the exact configured HTTPS GraphQL endpoint whose body is exactly one of the
+  adapter's fixed read documents (`GitHubIssueQueries`) with the expected
+  `id`/`after` variables. Any other verb, destination, document, mutation or
+  envelope is refused before the token is requested or the network is touched.
+  Automatic redirects are disabled and any 3xx response is refused, so the bearer
+  token never follows a response to another origin.
+- **Process rules**: under `provider=github`, `IProcessRuleProvider` is the
+  explicit `EmptyProcessRuleProvider`; ADO keeps `AdoIterationService`.
+- ADO-only services still refuse under `provider=github` with
+  `provider-unavailable:`.
+
+`FetchSnapshotAsync` accepts a qualified identity: provider `github`, the
+lowercase HTTPS API origin without a trailing slash (for example
+`https://api.github.com`), and the case-preserved issue node ID. Issue numbers,
+repository names and user logins are not item identities. A custom GraphQL
+endpoint may use `/graphql` or `/api/graphql`; its authority supplies the scope.
+No local ID or revision is minted, and the read-only revision token is null.
+The durable #1168 identity map resolves provider identities to `LocalWorkItemId`;
+it does not map them to the legacy integer IDs used by the current mirror and
+`IProviderWorkItemReader`. A real CLI adapter therefore still needs an explicit,
+lossless projection between those models. GitHub also has no implementation of
+the non-null revision-bound `IAuthoritativeWorkItemReader` contract: do not
+substitute a synthetic revision or nullable fallback where an authoritative
+revision is required. That projection and revision contract are prerequisites
+for GitHub CLI read dispatch, not behavior this snapshot transport claims.
+
+Snapshots contain typed `FieldValues`, not the integer-ID ADO mirror shape:
+`System.Title`/`System.State` preserve native text, `System.Description` carries
+Markdown or an explicit null, and `System.AssignedTo` carries one user's node ID
+and login, or null for no assignees. With multiple assignees that scalar is
+absent; `github.assignees` always preserves the full list as source-generated
+JSON sorted by node ID (`RawValue`, data type `github.assignees.v1`).
+`github.labels`, `github.number`, `github.url` and `github.milestone` preserve
+labels, display number, URL and milestone title respectively. These field keys
+are a non-persisted snapshot agreement, not a GitHub storage schema.
+
+All label, assignee, sub-issue and dependency connections are paginated.
+Relationships use qualified endpoints, parent-to-child and blocking-to-blocked
+direction, and deduplicate canonical edges. They are provider observations;
+provenance is derived from the active capability descriptor. Mentions never
+become Related edges. Reads never touch durable Twig-local relationships.
+
+HTTP failures, GraphQL errors (including partial data), invalid identities and
+incomplete pagination fail explicitly instead of returning empty observations.
+`ProbeCapabilitiesAsync` performs no requests: it exposes the latest failed
+read's evidence (`read-denied`, `read-failed` or `read-incomplete`), without
+changing static Native/Unsupported declarations. Before a read, and after a
+successful read, availability remains unprobed; a read cannot establish write
+permission or write readiness. CLI read-command dispatch through this snapshot
+reader is not included. Multi-request reads do not promise an atomic remote
+snapshot.
+
 ## License
 
 MIT.

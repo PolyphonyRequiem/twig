@@ -38,6 +38,8 @@ internal static class CommandExamples
             "twig show 1234             Show work item #1234",
             "twig show 1234 --output json  Show work item #1234 as JSON",
             "twig show 1234 -o json --fields System.Title,System.State  Read selected fields with provenance",
+            "twig show --local-id 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b -o json  Read by canonical local identity",
+            "twig show --local-id 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b -o json-compact  Same JSON shape via alias",
             "twig show --tree           Show work item tree hierarchy for the active item",
             "twig show 1234 --tree      Show tree hierarchy rooted at #1234",
             "twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep",
@@ -309,6 +311,8 @@ internal static class CommandExamples
             "twig workspace --view table   Show the current Bench as a table",
             "twig workspace --view tree    Explicitly show the current Bench as a hierarchy",
             "twig workspace --view tree -o json --include-browser  Read semantic nodes and captured Bench/connection identity",
+            "twig workspace --bench Focused --include-browser --browser-version 2 --view tree -o json  Cache-only explicit Bench read; no refresh/alternate layouts",
+            "twig workspace --bench 7 --expect-bench 7 --include-browser --browser-version 2 --view tree -o json  Refuse a changed target; --expect-* requires browser mode",
             "twig workspace --tree         Show the full backlog hierarchy",
             "twig workspace --all --tree  Show all team items as a tree hierarchy",
         ],
@@ -382,11 +386,23 @@ internal static class CommandExamples
             "twig bench configuration              Read current Bench pins, areas, sprints and ownership",
             "twig bench configuration -o json      Capture raw settings digest for guarded edits",
         ],
+        ["draft show"] =
+        [
+            "twig draft show 42                        Inspect an existing native recoverable draft",
+            "twig draft show 42 --document -o json     Export semantic inspection; may write local observation metadata, never applies",
+        ],
+        ["draft capture"] =
+        [
+            "twig draft capture 42 --bench Sprint --checkout-root <root> --connection-id <connection> --binding-id <binding> --identity-id <identity> --generation 1 --revision 3 -o json     Capture previously inspected native intent locally",
+            "twig draft capture 42 --bench Sprint --checkout-root <root> --connection-id <connection> --binding-id <binding> --identity-id <identity> --generation 1 --revision 3 --recover <digest> -o json     Recover only the retained exact export",
+        ],
         ["bench detail"] =
         [
             "twig bench detail 42                  Read full cached detail without changing the active item",
             "twig bench detail 42 --width 100 --expect-bench 7 -o json  Render detail for a captured Bench",
             "twig bench detail 42 --sync           Pull only this item and its links; never publish local edits",
+            "twig bench detail 42 --document -o json  Read semantic fields and form metadata; no edit authority",
+            "twig bench detail 42 --bench Sprint --document -o json --expect-bench 7  Cache-only explicit Bench read; usage error without --document/-o json or with --sync",
         ],
         ["bench browser"] =
         [
@@ -534,6 +550,11 @@ internal static class CommandExamples
             "twig connection check                 Inspect every native unfinished-work/claim blocker without changing identity",
             "twig connection check --output json   Emit exact blocker identities and observed selection revisions",
         ],
+        ["connection capabilities"] =
+        [
+            "twig connection capabilities                 Show how the active provider implements each relationship kind",
+            "twig connection capabilities --output json   Emit implementation, storage and availability per kind for agents",
+        ],
         ["connection migrate"] =
         [
             "twig connection migrate --identity work --method aad --output json  Preview explicit legacy AAD import and host/store blockers",
@@ -600,6 +621,16 @@ internal static class CommandExamples
         [
             "twig proposal validate --file proposal.json    Validate a proposal v1 file. No ADO calls.",
             "twig proposal validate --file proposal.json --output json    Validate and emit issues/digest as JSON.",
+        ],
+        ["policy assess"] =
+        [
+            "twig policy assess --ids 42,43    Assess cached current compliance, not proposal enforcement.",
+            "twig policy assess --ids 42,43 -o json    Emit typed findings, evidence digest and explicit alternatives.",
+        ],
+        ["policy reconcile"] =
+        [
+            "twig policy reconcile --ids 42,43 --evidence <digest> --finding f1 --strategy reparent --parent 43    Project an explicitly selected repair.",
+            "twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy remove-labels -o json --proposal-only > repair.json    Author a native proposal; preview and authorize separately.",
         ],
         ["proposal preview"] =
         [

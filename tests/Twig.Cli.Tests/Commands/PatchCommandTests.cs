@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
@@ -19,6 +20,7 @@ public sealed class PatchCommandTests : IDisposable
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
     private readonly IFieldDefinitionStore _fieldDefStore;
@@ -31,6 +33,7 @@ public sealed class PatchCommandTests : IDisposable
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
@@ -47,10 +50,10 @@ public sealed class PatchCommandTests : IDisposable
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var workflow = new Twig.Infrastructure.Services.Mutation.PatchWorkflow(
-            _workItemRepo, _adoService, _pendingChangeStore, promptStateWriter);
+            _workItemRepo, _writer, _pendingChangeStore, promptStateWriter);
         return new PatchCommand(
             resolver,
-            _adoService,
+            _writer,
             _consoleInput,
             _workItemRepo,
             _fieldDefStore,

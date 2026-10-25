@@ -492,15 +492,27 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
-    /// <summary>Display a work item without changing context. Cache-only by default; use --refresh to sync first.</summary>
+    /// <summary>Display a work item without changing context. Integer IDs are cache-only by default; --local-id reads a GitHub provider snapshot when configured.</summary>
     /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
     /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
-    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct, fields: fields, sections: sections);
+    /// <param name="localId">Canonical lowercase GUIDv7 identity for a GitHub provider snapshot read; currently unavailable for other providers, requires JSON output, and excludes the other show options.</param>
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null, string? localId = null)
+    {
+        if (localId is not null)
+        {
+            // Resolve only the provider snapshot route; the cache-first command has process,
+            // synchronization, tree, and git dependencies that this route does not need.
+            return await services.GetRequiredService<ShowLocalIdCommand>().ExecuteAsync(
+                id, output, tree, refresh, ct, fields, sections, localId);
+        }
+
+        return await services.GetRequiredService<ShowCommand>().ExecuteAsync(
+            id, output, tree, refresh, ct, fields: fields, sections: sections);
+    }
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are disclosed and exit nonzero.</summary>
     /// <param name="batchArg">Comma-separated work item IDs, positionally: twig show-batch 1234,5678,9012.</param>
@@ -1045,8 +1057,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
     /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
     /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity);
+    /// <param name="bench">Explicit saved Bench name or stable ID; requires --include-browser --browser-version 2 --view tree -o json. No refresh or alternate layouts.</param>
+    /// <param name="browserVersion">Semantic contract version: unset preserves v1; 2 requires --include-browser and --bench. Other values are refused.</param>
+    /// <param name="expectBench">Optional expected explicit Bench ID; only valid with --bench and --browser-version 2. Never selects the current Bench.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1059,8 +1074,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
     /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
     /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity);
+    /// <param name="bench">Explicit saved Bench name or stable ID; requires --include-browser --browser-version 2 --view tree -o json. No refresh or alternate layouts.</param>
+    /// <param name="browserVersion">Semantic contract version: unset preserves v1; 2 requires --include-browser and --bench. Other values are refused.</param>
+    /// <param name="expectBench">Optional expected explicit Bench ID; only valid with --bench and --browser-version 2. Never selects the current Bench.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
@@ -1170,9 +1188,40 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     /// <param name="sync">Explicitly pull this positive item and its links before rendering (default false); never flush pending edits or fetch related targets.</param>
+    /// <param name="document">Export semantic JSON version 2 instead of ANSI (default false, requires -o json); may read server form metadata (never with --bench), but does not refresh the item or authorize edits.</param>
+    /// <param name="bench">Explicit saved Bench name or decimal id for a cache-only document read; requires --document and -o json, is a usage error with --sync or other modes, never falls back to or switches the current Bench, and refuses non-member items.</param>
     [Command("bench detail")]
-    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct);
+    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, string? bench = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct, document: document, bench: bench);
+
+    /// <summary>Inspect an existing native recoverable draft without changing intent or applying it.</summary>
+    /// <param name="id">Native integer work-item ID or negative seed alias; no default or active-item selection.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    /// <param name="document">Export semantic draft document version 1 (default false, requires -o json); may CAS local observation/conflict metadata, never creates a draft or mutation authority.</param>
+    /// <param name="ct">Cancellation token.</param>
+    [Command("draft show")]
+    public async Task<int> DraftShow([Argument] int id, string output = OutputFormatterFactory.DefaultFormat,
+        bool document = false, CancellationToken ct = default)
+        => await services.GetRequiredService<DraftCommand>().ShowAsync(id, output, document, ct);
+
+    /// <summary>Capture exact recoverable intent locally and export canonical proposal bytes; never authorize or apply.</summary>
+    /// <param name="id">Published native work-item ID (required).</param>
+    /// <param name="bench">Explicit saved Bench name or ID (required); never selects or switches the current Bench.</param>
+    /// <param name="checkoutRoot">Exact native qualified checkout root from inspection (required).</param>
+    /// <param name="connectionId">Exact native connection reference from inspection (required).</param>
+    /// <param name="bindingId">Exact native binding ID from inspection (required).</param>
+    /// <param name="identityId">Exact admitted native authentication identity ID (required).</param>
+    /// <param name="generation">Exact Int64 draft generation from inspection (required; no rounding).</param>
+    /// <param name="revision">Exact native baseline and observed revision (required).</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    /// <param name="recover">Retained capture digest for export recovery (default null); never imports or adopts changed intent.</param>
+    /// <param name="ct">Cancellation token.</param>
+    [Command("draft capture")]
+    public async Task<int> DraftCapture([Argument] int id, string bench, string checkoutRoot,
+        string connectionId, string bindingId, string identityId, long generation, int revision,
+        string output = OutputFormatterFactory.DefaultFormat, string? recover = null, CancellationToken ct = default)
+        => await services.GetRequiredService<DraftCommand>().CaptureAsync(id, bench, checkoutRoot,
+           connectionId, bindingId, identityId, generation, revision, output, recover, ct);
 
     /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
     /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
@@ -1497,6 +1546,12 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ConnectionCheck(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionCheckCommand>().ExecuteAsync(output, ct);
 
+    /// <summary>Report how the active provider implements each relationship kind (native, emulated or unsupported), where emulated data is stored, and its runtime availability. Read-only; kinds without probe evidence report unknown/not-probed.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection capabilities")]
+    public async Task<int> ConnectionCapabilities(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionCapabilitiesCommand>().ExecuteAsync(output, ct);
+
     /// <summary>Preview or apply a versioned legacy migration. Activation requires explicit identity mapping, verified principal evidence and actual legacy host/store closure. No force, publish, discard or process-kill path.</summary>
     /// <param name="identity">Explicit registered identity alias, or alias to enroll from the chosen legacy method. Never inferred from global login.</param>
     /// <param name="method">Legacy credential import method: aad or pat. Omit for an already registered identity.</param>
@@ -1612,6 +1667,26 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     }
 
     // ── Proposal lifecycle (native, formerly "plan") ──────────────────
+
+    /// <summary>Assess cached current compliance and explicit repair alternatives. Never mutates ADO.</summary>
+    /// <param name="ids">Required comma-separated positive published item IDs (1 to 200); no implicit active item or board-wide claim.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    [Command("policy assess")]
+    public async Task<int> PolicyAssess(string ids, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PolicyCommand>().AssessAsync(ids, output, ct);
+
+    /// <summary>Render one explicitly selected policy repair as a native proposal. No authorization or apply.</summary>
+    /// <param name="ids">Required comma-separated assessed positive IDs; include a desired parent and its ancestors.</param>
+    /// <param name="evidence">Required evidence digest from policy assess; changed facts/policy refuse.</param>
+    /// <param name="finding">Required finding ID from the same assessment.</param>
+    /// <param name="strategy">Required strategy ID from that finding; no default material choice.</param>
+    /// <param name="parent">Explicit replacement parent ID, only for reparent; default none.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    /// <param name="proposalOnly">With JSON output, emit only native proposal JSON for redirection to a new file; default false.</param>
+    [Command("policy reconcile")]
+    public async Task<int> PolicyReconcile(string ids, string evidence, string finding, string strategy,
+        int? parent = null, string output = OutputFormatterFactory.DefaultFormat, bool proposalOnly = false, CancellationToken ct = default)
+        => await services.GetRequiredService<PolicyCommand>().ReconcileAsync(ids, evidence, finding, strategy, parent, output, proposalOnly, ct);
 
     /// <summary>Validate a proposal v1 file. No ADO mutation. Canonical verb is <c>proposal validate</c>; <c>plan validate</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
@@ -1818,6 +1893,8 @@ internal static class GroupedHelp
         "bench switch",
         "bench delete",
         "bench detail",
+        "draft show",
+        "draft capture",
         "bench browser",
         "bench configuration",
         "bench configuration area candidates",
@@ -1897,6 +1974,7 @@ internal static class GroupedHelp
         "connection list",
         "connection status",
         "connection check",
+        "connection capabilities",
         "connection migrate",
         "connection pin",
         "connection unpin",
@@ -1943,6 +2021,9 @@ internal static class GroupedHelp
         // Proposal lifecycle (native, formerly "plan"). Legacy `plan <verb>` entries
         // stay registered so the alias resolves in grouped help and SubcommandGuard.
         "proposal",
+        "policy",
+        "policy assess",
+        "policy reconcile",
         "proposal validate",
         "proposal latest",
         "proposal preview",
@@ -1960,6 +2041,7 @@ internal static class GroupedHelp
 
         // Group prefixes for compound commands without standalone handlers
         "link",
+        "draft",
         // ADO #148-150. `bench` has no bare handler — every verb is `bench <verb>` — but the
         // dispatcher only ever inspects args[0], so without this entry the whole group is
         // unreachable and `twig bench list` answers "Unknown command: 'bench'".

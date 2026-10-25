@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
@@ -121,10 +122,30 @@ public static class TwigServiceRegistration
             return SqliteCacheStore.OpenWorkspace(paths, sp.GetRequiredService<IConnectionBindingService>().RegistryPath);
         });
 
-        services.AddSingleton<IWorkItemRepository>(sp => new SqliteWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper()));
+        services.AddSingleton<SqliteLocalWorkItemRepository>(sp =>
+            new SqliteLocalWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<ILocalWorkItemStore>(sp => sp.GetRequiredService<SqliteLocalWorkItemRepository>());
+        services.AddSingleton<IExternalIdentityMap>(sp => sp.GetRequiredService<SqliteLocalWorkItemRepository>());
+        services.AddSingleton<IWorkItemRepository>(sp =>
+        {
+            var store = sp.GetRequiredService<SqliteCacheStore>();
+            var mapper = new WorkItemMapper();
+            if (sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind()
+                != ProviderCapabilityCatalog.AdoProviderKind)
+            {
+                return new SqliteWorkItemRepository(store, mapper);
+            }
+
+            var projection = new AdoMirrorIdentityProjection(
+                sp.GetRequiredService<SqliteLocalWorkItemRepository>(),
+                () => sp.GetRequiredService<IWorkItemProvider>());
+            return new SqliteWorkItemRepository(store, mapper, projection);
+        });
         services.AddSingleton<IContextStore>(sp => new SqliteContextStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<INavigationHistoryStore>(sp => new SqliteNavigationHistoryStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPendingChangeStore>(sp => new SqlitePendingChangeStore(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<IRecoverableWorkItemDraftStore>(sp =>
+            new SqliteRecoverableWorkItemDraftStore(sp.GetRequiredService<SqliteCacheStore>()));
         // IPendingChangeReader aliases the same SqlitePendingChangeStore instance so
         // read-only consumers (plan preview, MCP status) resolve without the mutating
         // surface. Cast is safe: SqlitePendingChangeStore implements both.
@@ -140,13 +161,21 @@ public static class TwigServiceRegistration
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
         services.AddReferenceProfileSeam();
         services.AddSingleton<IFieldDefinitionStore>(sp => new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton(sp => DurableFieldOverlay.Create(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<SqliteCacheStore>(),
+            sp.GetRequiredService<IFieldDefinitionStore>()));
         services.AddSingleton(sp => new DetailDocumentSource(sp.GetService<IFormLayoutProvider>()));
         services.AddSingleton<IWorkItemLinkRepository>(sp => new SqliteWorkItemLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<ILocalRelationshipRepository>(sp => new SqliteLocalRelationshipRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton(sp => new LocalRelationshipService(sp.GetRequiredService<ILocalRelationshipRepository>()));
         services.AddSingleton<IStagedIdentityRegistry>(sp => new SqliteStagedIdentityRegistry(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>(), sp.GetRequiredService<IStagedIdentityRegistry>()));
         services.AddSingleton<IPublishIntentRepository>(sp => new SqlitePublishIntentRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPlanJournalRepository>(sp => new SqlitePlanJournalRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<IDraftProposalCaptureStore>(sp =>
+            new SqliteDraftProposalCaptureStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ITrackingRepository>(sp => new FileTrackingRepository(sp.GetRequiredService<TwigPaths>()));
         // ITrackingService is registered in AddConnectionDomainServices, AFTER the Bench pin
         // reader/writer it now depends on (ADO #146).
@@ -402,7 +431,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<ActiveItemResolver>(sp => new ActiveItemResolver(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>()));
+            sp.GetRequiredService<IProviderWorkItemReader>()));
 
         services.AddSingleton<ProtectedCacheWriter>(sp => new ProtectedCacheWriter(
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -415,7 +444,7 @@ public static class TwigServiceRegistration
             var display = sp.GetRequiredService<TwigConfiguration>().Display;
             return new SyncCoordinatorFactory(
                 sp.GetRequiredService<IWorkItemRepository>(),
-                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<IProviderWorkItemReader>(),
                 sp.GetRequiredService<ProtectedCacheWriter>(),
                 sp.GetRequiredService<IPendingChangeStore>(),
                 sp.GetRequiredService<IWorkItemLinkRepository>(),
@@ -522,14 +551,15 @@ public static class TwigServiceRegistration
         // EPIC-002: Domain orchestration services
         services.AddSingleton<ParentStatePropagationService>(sp => new ParentStatePropagationService(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
+            sp.GetRequiredService<IProviderRevisionCodec>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<ProtectedCacheWriter>()));
 
         // Mutation workflows — extracted orchestration shared by CLI commands and MCP tools.
         services.AddSingleton<StateTransitionWorkflow>(sp => new StateTransitionWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetService<ParentStatePropagationService>(),
@@ -539,13 +569,13 @@ public static class TwigServiceRegistration
 
         services.AddSingleton<FieldUpdateWorkflow>(sp => new FieldUpdateWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetService<IPromptStateWriter>()));
 
         services.AddSingleton<NoteWorkflow>(sp => new NoteWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetService<IPromptStateWriter>()));
 
@@ -563,14 +593,14 @@ public static class TwigServiceRegistration
 
         services.AddSingleton<PatchWorkflow>(sp => new PatchWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetService<IPromptStateWriter>()));
 
         services.AddSingleton<RefreshOrchestrator>(sp => new RefreshOrchestrator(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemReader>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetRequiredService<WorkingSetService>(),
@@ -583,7 +613,7 @@ public static class TwigServiceRegistration
         // Context change extension — additively hydrates parent chain + downstream graph
         services.AddSingleton<ContextChangeService>(sp => new ContextChangeService(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemReader>(),
             sp.GetRequiredService<SyncCoordinator>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetService<IWorkItemLinkRepository>()));
@@ -594,13 +624,15 @@ public static class TwigServiceRegistration
         // Cache-first / ADO-fallback work item reads, shared by every surface.
         services.AddSingleton<WorkItemFetcher>(sp => new WorkItemFetcher(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>()));
+            sp.GetRequiredService<IProviderWorkItemReader>()));
 
         // Shared Change Proposal lifecycle service (twig proposal native, wayfinder 0016;
         // `twig plan` remains a deprecated alias). CLI + MCP + future TUI all route through
         // this ONE service so validation, preview, apply, status and seed-descriptor
         // semantics cannot drift between surfaces.
         services.AddSingleton<Twig.Infrastructure.Plan.PlanDocumentParser>();
+        services.AddSingleton(sp => new Twig.Domain.Services.Policy.PolicyReconciliationService(
+            sp.GetRequiredService<IWorkItemRepository>(), sp.GetService<IWorkItemLinkRepository>()));
 
         // Change Recipe rendering seam. Shares the parser deliberately: a rendered proposal's
         // digest is produced by the same canonicalization path the apply gate later checks,
@@ -620,12 +652,28 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IAuthenticationProvider>()));
         services.AddSingleton<Twig.Domain.Interfaces.IPlanLifecycleService>(sp =>
-            new Twig.Infrastructure.Plan.PlanLifecycleService(
+        {
+            var configuration = sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>();
+            if (configuration.ResolveWorkItemProviderKind()
+                == Twig.Domain.Capabilities.ProviderCapabilityCatalog.GitHubProviderKind)
+            {
+                return new Twig.Infrastructure.Plan.PlanLifecycleService(
+                    sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
+                    sp.GetRequiredService<IPlanJournalRepository>(),
+                    sp.GetRequiredService<IPendingChangeReader>(),
+                    sp.GetRequiredService<IWorkItemRepository>(),
+                    configuration,
+                    sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
+                    sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemSnapshotReader>());
+            }
+
+            return new Twig.Infrastructure.Plan.PlanLifecycleService(
                 sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
                 sp.GetRequiredService<IPlanJournalRepository>(),
                 sp.GetRequiredService<IPendingChangeReader>(),
                 sp.GetRequiredService<IFieldDefinitionStore>(),
-                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<IProviderWorkItemWriter>(),
+                sp.GetRequiredService<IProviderRevisionCodec>(),
                 sp.GetRequiredService<IRevisionBoundAdoWorkItemService>(),
                 sp.GetRequiredService<SeedPublishOrchestrator>(),
                 sp.GetRequiredService<IWorkItemRepository>(),
@@ -638,11 +686,15 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetRequiredService<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider>(),
                 sp.GetRequiredService<IPlanOriginProvider>(),
-                // Runtime process-rule gate (AB#673). Optional in the object graph — if the
-                // network module has not registered a rule provider the gate no-ops and the
-                // executor's strict-CAS remains the sole enforcement, as before.
+                // Runtime process-rule gate (AB#673). Resolved optionally so the graph still
+                // builds without the network module, but an absent provider is NOT a permit:
+                // the gate reports process rules unavailable and blocks the write (AB#1169).
                 sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>(),
-                sp.GetRequiredService<IUnitOfWork>()));
+                sp.GetRequiredService<IUnitOfWork>(),
+                // Declared repository policy (AB#1169): twig.policy.json at the repo root,
+                // judged against cached links for dependency integrity.
+                sp.GetService<IWorkItemLinkRepository>());
+        });
 
         return services;
     }

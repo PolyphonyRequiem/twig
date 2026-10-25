@@ -27,7 +27,7 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
     }
 
     private SyncCommand CreateSyncCommand(TextWriter? stderr = null) =>
-        new(_flusher, CreateRefreshCommand(stderr), _formatterFactory, stderr);
+        new(() => _flusher, CreateRefreshCommand(stderr), _formatterFactory, stderr);
 
     private static async Task<string> CaptureStdoutAsync(Func<Task> action)
     {

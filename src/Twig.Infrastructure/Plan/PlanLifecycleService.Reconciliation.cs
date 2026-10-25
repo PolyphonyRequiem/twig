@@ -14,6 +14,9 @@ public sealed partial class PlanLifecycleService
         ProposalAuthorization? authorization, string? replacementDigest = null,
         string? replacementOpId = null, CancellationToken ct = default)
     {
+        if (_previewOnly || _origin is null || _executor is null || _publishIntent is null)
+            return RefuseSettlement("This provider composition is review-only; native outcome reconciliation is unavailable.");
+
         var parsed = await ValidateAsync(file, ct).ConfigureAwait(false);
         if (!parsed.IsValid || parsed.Plan is null || parsed.Digest != confirmedDigest)
             return RefuseSettlement("Original immutable proposal and confirmed digest do not match.");
@@ -38,7 +41,7 @@ public sealed partial class PlanLifecycleService
             return RefuseSettlement("In-flight and already Verified operations cannot be settled by a new receipt.");
 
         PlanOrigin current;
-        try { current = await _origin.GetOriginAsync(ct).ConfigureAwait(false); }
+        try { current = await _origin!.GetOriginAsync(ct).ConfigureAwait(false); }
         catch (InvalidOperationException ex) { return RefuseSettlement(ex.Message); }
         if (journal.Origin is { } origin &&
             (origin.WorktreeFingerprint != current.WorktreeFingerprint || origin.ConnectionRef != current.ConnectionRef))
@@ -77,7 +80,7 @@ public sealed partial class PlanLifecycleService
             }
             var acknowledged = replacementRow?.ResultJson ?? row.ResultJson;
             PlanReadbackOutcome outcome;
-            try { outcome = await _executor.ReadbackForReceiptAsync(operation, acknowledged, ct).ConfigureAwait(false); }
+            try { outcome = await _executor!.ReadbackForReceiptAsync(operation, acknowledged, ct).ConfigureAwait(false); }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 return RefuseSettlement("Authoritative receipt readback is unavailable; the original outcome remains unknown. " + ex.Message);
@@ -88,7 +91,7 @@ public sealed partial class PlanLifecycleService
                 return RefuseSettlement("Readback lacks an attributable outcome revision. Matching newer state alone does not settle an unknown attempt.");
             if (operation is PublishSeedOperation seed)
             {
-                intent = await _publishIntent.GetIntentAsync(seed.StagedIdentity, ct).ConfigureAwait(false);
+                intent = await _publishIntent!.GetIntentAsync(seed.StagedIdentity, ct).ConfigureAwait(false);
                 if (intent is null)
                     return RefuseSettlement("No original durable publish intent can be bound to this seed outcome.");
             }
@@ -115,7 +118,7 @@ public sealed partial class PlanLifecycleService
             return "Proposal origin is unknown. Refusing to adopt the current actor; explicitly retire or author a fresh immutable proposal.";
         try
         {
-            var current = await _origin.GetOriginAsync(ct).ConfigureAwait(false);
+            var current = await _origin!.GetOriginAsync(ct).ConfigureAwait(false);
             return current == expected ? null
                 : "Proposal origin attachment, binding, principal or selection revision changed. Refusing saved authorization/apply/resume; reconnect and author a fresh proposal.";
         }

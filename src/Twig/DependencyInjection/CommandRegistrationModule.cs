@@ -83,7 +83,10 @@ public static class CommandRegistrationModule
                 sp.GetRequiredService<CommandContext>(),
                 sp.GetRequiredService<IWorkItemRepository>(),
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-                sp.GetRequiredService<TwigConfiguration>()));
+                sp.GetRequiredService<TwigConfiguration>())
+            {
+                FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+            });
         services.AddSingleton<NavigationCommands>(sp => new NavigationCommands(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),

@@ -1,12 +1,14 @@
 // Synthetic frozen-v1 contract tests. No native process, HTTP route or host activation.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { spawn as nativeSpawn } from "node:child_process";
 import { mkdtemp, readFile, rm, rmdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { serializeStageRequest, validateEditingContext, validateEditingResult } from "../editing-document.mjs";
+import { serializeStageRequest, serializeRetainRequest, validateEditingContext, validateEditingResult,
+    validateRetainResult } from "../editing-document.mjs";
 import { createNativeEditingAdapter, NativeEditingTransportError } from "../native-editing.mjs";
 
 const form = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8")).document;
@@ -44,6 +46,25 @@ function request() {
             { fieldRef: "System.AssignedTo", proposedValue: null },
         ],
     };
+}
+function retainRequest() {
+    const { changes, ...value } = request();
+    return value;
+}
+function retainedResult() {
+    const requested = retainRequest();
+    const operationId = `draft-${"b".repeat(64)}`;
+    const canonicalJson = `{"operations":[{"expectedRevision":17,"fields":{"Custom.Clear":null,"Custom.Empty":""},"id":"${operationId}","kind":"batch","workItemId":42}],"version":1,"workspace":{"organization":"fixture","project":"fixture"}}`;
+    return { version: 1, status: "retained", committed: true, capture: {
+        nativeContext: requested.nativeContext, generation: requested.generation,
+        baselineRevision: "17", observedRevision: "17", currentRevision: "17",
+        digest: createHash("sha256").update(canonicalJson).digest("hex"), operationId, canonicalJson,
+        effects: [
+            { fieldRef: "Custom.Clear", baselineValue: "previous", proposedValue: null },
+            { fieldRef: "Custom.Empty", baselineValue: null, proposedValue: "" },
+        ],
+        originCoverage: "editing-context-and-native-origin-digest", authorized: false, canApply: false,
+    } };
 }
 const workspacePath = "C:\\fixture\\twig";
 function harness(response = result(), exit = 0, options = {}) {
@@ -105,6 +126,139 @@ test("OPEN uses explicit Bench and native identity guards without invoking read-
     assert.equal(calls[0].writes.length, 0);
     assert.equal(value.document.nativeContext.externalIdentity.resourceScope, "native-resource");
     assert.equal(value.status, "opened");
+});
+
+test("RETAIN sends only captured context and unchanged lossless counters with owned stdin EOF", async () => {
+    const { adapter, calls } = harness(retainedResult());
+    const input = retainRequest();
+    const pending = adapter.retain({ request: input, workspacePath });
+    input.nativeContext.identityId = "later mutation";
+    const value = await pending;
+    assert.deepEqual(calls[0].args, ["draft", "retain", "--stdin", "-o", "json"]);
+    assert.deepEqual(JSON.parse(calls[0].writes[0].value), retainRequest());
+    assert.equal(calls[0].eof, true);
+    assert.equal(calls[0].options.shell, false);
+    assert.equal(calls[0].options.maxBuffer, 4 * 1024 * 1024);
+    assert.equal(value.capture.generation, retainRequest().generation);
+    assert.equal(value.capture.effects[0].proposedValue, null);
+    assert.equal(value.capture.effects[1].proposedValue, "");
+    assert.ok(Object.isFrozen(value.capture.effects[0]));
+    assert.equal(calls.length, 1);
+});
+
+test("RETAIN requests reject effect, authority, path and lossy counter input before process launch", async () => {
+    for (const patch of [{ changes: [] }, { digest: "a".repeat(64) }, { authorizer: "person" },
+        { file: "proposal.json" }, { generation: 9007199254740992 }, { baselineRevision: "01" }]) {
+        const { adapter, calls } = harness(retainedResult());
+        await assert.rejects(adapter.retain({ request: { ...retainRequest(), ...patch }, workspacePath }));
+        assert.equal(calls.length, 0);
+    }
+    const { adapter, calls } = harness(retainedResult());
+    await assert.rejects(adapter.retain({ request: retainRequest(), workspacePath: "C:\\another" }), /checkout differs/);
+    assert.equal(calls.length, 0);
+    const large = retainRequest();
+    large.nativeContext.benchName = "x".repeat(262144);
+    assert.throws(() => serializeRetainRequest(large), /UTF-8 limit/);
+});
+
+test("RETAIN validates context, counters, effective nullable effects and canonical byte hash without authority", () => {
+    for (const mutate of [
+        (v) => { v.capture.nativeContext.identityId = "another"; },
+        (v) => { v.capture.nativeContext.itemKey.bindingId = "another"; },
+        (v) => { v.capture.generation = "9007199254740994"; },
+        (v) => { v.capture.baselineRevision = "18"; },
+        (v) => { v.capture.observedRevision = "18"; },
+        (v) => { v.capture.currentRevision = "18"; },
+        (v) => { v.capture.digest = "a".repeat(64); },
+        (v) => { v.capture.canonicalJson += "\n"; },
+        (v) => { v.capture.operationId = "draft-invalid"; },
+        (v) => { v.capture.effects = []; },
+        (v) => { v.capture.effects.push({ ...v.capture.effects[0], fieldRef: "custom.CLEAR" }); },
+        (v) => { v.capture.effects[0].proposedValue = "previous"; },
+        (v) => { delete v.capture.effects[0].baselineValue; },
+        (v) => { v.capture.effects[0].proposedValue = 0; },
+        (v) => { v.capture.authorized = true; },
+        (v) => { v.capture.canApply = true; },
+        (v) => { v.capture.originCoverage = "full-origin"; },
+        (v) => { v.capture.fullOrigin = {}; },
+        (v) => { v.capture.authorizer = "person"; },
+        (v) => { v.capture.unexpected = true; },
+        (v) => { v.document = document(); },
+        (v) => { v.committed = false; },
+        (v) => { v.status = "staged"; },
+    ]) {
+        const value = retainedResult();
+        mutate(value);
+        assert.throws(() => validateRetainResult(value, { exitCode: 0, expectedRequest: retainRequest() }), /unavailable/);
+    }
+});
+
+test("RETAIN pure validation bounds canonical and aggregate effects before hash or deep clone", () => {
+    for (const oversizedEffects of [false, true]) {
+        const value = retainedResult();
+        if (oversizedEffects) {
+            value.capture.effects = Array.from({ length: 129 }, (_, index) => ({
+                fieldRef: `Custom.Field${index}`, baselineValue: null, proposedValue: "x".repeat(32768),
+            }));
+        } else {
+            value.capture.canonicalJson = "x".repeat(4 * 1024 * 1024);
+        }
+        value.capture.digest = "invalid-before-hashing";
+        assert.throws(() => validateRetainResult(value, { exitCode: 0, expectedRequest: retainRequest() }),
+            /adapter 4MiB UTF-8 envelope limit/);
+    }
+});
+
+test("RETAIN opaque hash validation does not claim canonical semantic equivalence or require sorted effects", () => {
+    const value = retainedResult();
+    value.capture.effects.reverse();
+    value.capture.canonicalJson = '{"opaqueNativeClaim":900719925474099312345}';
+    value.capture.digest = createHash("sha256").update(value.capture.canonicalJson).digest("hex");
+    const validated = validateRetainResult(value, { exitCode: 0, expectedRequest: retainRequest() });
+    assert.deepEqual(validated, value);
+    assert.notEqual(value.capture.operationId.slice(6), value.capture.digest);
+    value.capture.effects = Array.from({ length: 129 }, (_, index) => ({
+        fieldRef: `Custom.Field${index}`, baselineValue: null, proposedValue: "",
+    }));
+    assert.deepEqual(validateRetainResult(value, { exitCode: 0, expectedRequest: retainRequest() }), value);
+});
+
+test("RETAIN structured refusal and committed-indeterminate preserve exact evidence without retry", async () => {
+    for (const [code, exit] of [["draft-empty", 1], ["canceled", 1], ["usage", 2], ["invalid-json", 2],
+        ["input-too-large", 2]]) {
+        const value = { version: 1, status: "refused", committed: false,
+            error: { code, message: "Native refusal", recovery: "Do not retry" } };
+        const { adapter, calls } = harness(value, exit);
+        assert.deepEqual(await adapter.retain({ request: retainRequest(), workspacePath }), value);
+        assert.equal(calls.length, 1);
+    }
+    for (const includeCapture of [true, false]) {
+        const value = { version: 1, status: "indeterminate", committed: true,
+            error: { code: "post-commit-fence", message: "Changed origin", recovery: "Inspect; no retry" } };
+        if (includeCapture) value.capture = retainedResult().capture;
+        const { adapter, calls } = harness(value, 1);
+        assert.deepEqual(await adapter.retain({ request: retainRequest(), workspacePath }), value);
+        assert.equal(calls.length, 1);
+    }
+    assert.throws(() => validateRetainResult({ version: 1, status: "indeterminate", committed: true,
+        error: { code: "draft-empty", message: "Not a postcommit result", recovery: "Inspect" } },
+    { exitCode: 1, expectedRequest: retainRequest() }), /unavailable/);
+});
+
+test("RETAIN malformed output, contradictory exit and stdin failure remain unknown", async () => {
+    for (const [exit, options] of [[0, { raw: "" }], [0, { raw: "null" }], [0, { raw: "{" }],
+        [1, {}], [0, { stdinError: true }], [1, { error: { killed: true } }]]) {
+        const { adapter, calls } = harness(retainedResult(), exit, options);
+        await assert.rejects(adapter.retain({ request: retainRequest(), workspacePath }),
+            (error) => error instanceof NativeEditingTransportError && error.outcome === "unknown");
+        assert.equal(calls.length, 1);
+    }
+});
+
+test("OPEN and STAGE do not accept a RETAIN capture envelope", () => {
+    for (const action of ["open", "stage"]) {
+        assert.throws(() => validateEditingResult(retainedResult(), { action, exitCode: 0 }), /unavailable/);
+    }
 });
 
 test("nonzero native refusals preserve structured errors rather than rejecting their valid stdout", async () => {
@@ -311,6 +465,38 @@ test("early abort callback does not settle ownership until child close and tree 
     assert.equal(settled, false, "tree cleanup must finish as well as child close");
     finishStop();
     await rejected;
+});
+
+test("RETAIN cancellation holds shared OPEN/STAGE ownership until close and cleanup settle", async () => {
+    let child, callback, finishStop;
+    const adapter = createNativeEditingAdapter({
+        realpath: async (value) => value,
+        stopTree: () => new Promise((resolve) => { finishStop = resolve; }),
+        launch(exe, args, options, done) {
+            callback = done;
+            child = new EventEmitter();
+            child.pid = 123;
+            child.stdin = new EventEmitter();
+            child.stdin.end = () => {};
+            return child;
+        },
+    });
+    const controller = new AbortController();
+    let settled = false;
+    const running = adapter.retain({ request: retainRequest(), workspacePath, signal: controller.signal });
+    const rejection = assert.rejects(running, NativeEditingTransportError).then(() => { settled = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    controller.abort();
+    callback(Object.assign(new Error("early abort"), { code: "ABORT_ERR" }), "");
+    await new Promise((resolve) => setImmediate(resolve));
+    await assert.rejects(adapter.stage({ request: request(), workspacePath }), /ownership/);
+    await assert.rejects(adapter.retain({ request: retainRequest(), workspacePath }), /ownership/);
+    assert.equal(settled, false);
+    child.emit("close", null, "SIGTERM");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false);
+    finishStop();
+    await rejection;
 });
 
 test("stdin error requests owned-tree termination and still waits for close", async () => {

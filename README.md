@@ -361,6 +361,13 @@ never builds or runs test hosts. Use narrowly scoped regression checks for the
 proposed changeset when needed. Routine CI and pre-push use this smoke; complete
 platform validation runs on release candidates before signing or publication.
 
+For a smoke deadline investigation, add `--trace <new-file.jsonl>` to preserve flushed
+worker/child boundaries outside captured output. Trace rows contain only fixed phase/event
+labels, process-relative elapsed seconds and exit codes, never command arguments, environment
+or work-item payloads. CI uploads these boundaries even on failure. This is diagnostic
+evidence, not a larger timeout or a correction for a latency failure. The deterministic
+harness regression is `python tools/test-verify-build.py`.
+
 ## Next Topics
 
 - **[Architecture Overview](docs/architecture/overview.md)** — how twig is built: layered design, project structure, key constraints

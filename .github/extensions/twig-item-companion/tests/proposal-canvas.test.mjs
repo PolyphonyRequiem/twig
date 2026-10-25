@@ -76,6 +76,12 @@ test("one native preview pins physical file/cwd and expected digest then retains
     assert.equal(value.expected.captureId, value.expected.expectedCaptureId);
     assert.match(value.acquisition.originCoverage, /full native origin is not exported/);
     assert.match(value.acquisition.localEffects, /last-preview ordering/);
+    const explicitEmpty = fixture();
+    explicitEmpty.reviewModel.providerAffectedItems = [];
+    const emptyCalls = [];
+    const empty = await reader(emptyCalls, () => JSON.stringify(explicitEmpty))({ input: input(), workspacePath });
+    assert.equal(emptyCalls.length, 1);
+    assert.deepEqual(empty.retained.envelope, explicitEmpty);
 });
 
 test("bad input and physical path escape refuse without launching a child", async () => {
@@ -91,11 +97,11 @@ test("bad input and physical path escape refuse without launching a child", asyn
     assert.equal(calls.length, 0);
 });
 
-test("native failure, malformed JSON, v2/material extensions and contradictory identity refuse once without retry", async () => {
+test("native failure, malformed JSON, unknown model/malformed provider evidence and contradictory identity refuse once without retry", async () => {
     const values = [
         new Error("child exit 1"), '{"digest":', "x".repeat(4 * 1024 * 1024 + 1),
         { ...fixture(), reviewModel: { ...fixture().reviewModel, modelVersion: 2 } },
-        { ...fixture(), reviewModel: { ...fixture().reviewModel, providerAffectedItems: [] } },
+        { ...fixture(), reviewModel: { ...fixture().reviewModel, providerAffectedItems: {} } },
         { ...fixture(), digest: "b".repeat(64) },
         { ...fixture(), reviewModel: { ...fixture().reviewModel, workspace: { ...workspace, project: "different" } } },
     ];

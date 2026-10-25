@@ -18,8 +18,9 @@ namespace Twig.Domain.Services.Policy;
 /// proposal and not worsened by it is reported as <see cref="PolicyOutcome.Warn"/> (D4).
 /// </para>
 /// <para>
-/// Known limits of this slice: a type change on a <em>parent</em> does not re-judge its
-/// existing children, and staged seed links are not part of the dependency graph.
+/// Native cached repositories do not certify a complete child set for a retyped parent.
+/// Such a change is unavailable when its final type is disallowed; explicitly named child
+/// edges are still evaluated. Staged seed links are not part of the dependency graph.
 /// </para>
 /// </remarks>
 public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItemLinkRepository? links)
@@ -666,7 +667,28 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
     {
         var findings = new List<PolicyDecision>();
         var judged = 0;
-        foreach (var edge in state.ParentEdges())
+        var retypedParents = state.RetypedParents().ToList();
+        foreach (var parent in retypedParents)
+        {
+            var parentType = state.PostType(parent.ParentId);
+            if (parentType is null)
+            {
+                findings.Add(Decide(rule, PolicyOutcome.Unavailable,
+                    $"Cannot determine the final type of retyped parent #{parent.ParentId}; "
+                    + "complete native child relationship facts are unavailable.",
+                    parent.ParentId, parent.OpId));
+            }
+            else if (!rule.AllowedParentTypes.Contains(parentType, Names))
+            {
+                findings.Add(Decide(rule, PolicyOutcome.Unavailable,
+                    $"Complete native child relationship facts for retyped parent #{parent.ParentId} "
+                    + $"are unavailable; cannot certify whether {rule.ChildType} children remain under "
+                    + $"the disallowed type {parentType}.",
+                    parent.ParentId, parent.OpId));
+            }
+        }
+
+        foreach (var edge in state.ParentEdges(retypedParents))
         {
             var childType = state.PostType(edge.ChildId);
             if (childType is null)
@@ -684,9 +706,12 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             var parentType = state.PostType(edge.ParentId);
             if (parentType is null)
             {
-                findings.Add(Decide(rule, PolicyOutcome.Unavailable,
-                    $"Cannot determine the type of parent #{edge.ParentId} of {rule.ChildType} #{edge.ChildId}; refresh it with 'twig show {edge.ParentId} --refresh'.",
-                    edge.ChildId, edge.OpId));
+                if (!retypedParents.Any(parent => parent.ParentId == edge.ParentId))
+                {
+                    findings.Add(Decide(rule, PolicyOutcome.Unavailable,
+                        $"Cannot determine the type of parent #{edge.ParentId} of {rule.ChildType} #{edge.ChildId}; refresh it with 'twig show {edge.ParentId} --refresh'.",
+                        edge.ChildId, edge.OpId));
+                }
             }
             else if (!rule.AllowedParentTypes.Contains(parentType, Names))
             {
@@ -902,6 +927,8 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
 
     private readonly record struct ParentEdge(int ChildId, int ParentId, string OpId);
 
+    private readonly record struct ParentRetype(int ParentId, string OpId);
+
     private readonly record struct LabelTarget(int Id, string OpId, bool IsNewSeed);
 
     /// <summary>Cached pre-change items plus the proposal's overlays.</summary>
@@ -1029,36 +1056,93 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             return touched ? SplitTags(overlay) : PreTags(id, field);
         }
 
-        public IEnumerable<ParentEdge> ParentEdges()
+        public IEnumerable<ParentRetype> RetypedParents()
+        {
+            var deletedItems = _plan.Operations.OfType<DeleteOperation>()
+                .Select(d => d.WorkItemId)
+                .ToHashSet();
+            foreach (var batch in _plan.Operations.OfType<BatchOperation>()
+                .Where(b => b.Fields.Keys.Any(k => Names.Equals(k, TypeField)))
+                .Where(b => !deletedItems.Contains(b.WorkItemId))
+                .GroupBy(b => b.WorkItemId)
+                .Select(group => group.Last()))
+            {
+                var previousType = PreType(batch.WorkItemId);
+                var finalType = PostType(batch.WorkItemId);
+                if (previousType is null || finalType is null || !Names.Equals(previousType, finalType))
+                    yield return new ParentRetype(batch.WorkItemId, batch.Id);
+            }
+        }
+
+        public IEnumerable<ParentEdge> ParentEdges(IReadOnlyList<ParentRetype> retypedParents)
         {
             var removedParents = _plan.Operations.OfType<RemoveLinkOperation>()
                 .Where(r => Names.Equals(r.Relation, ParentRelation))
-                .Select(r => r.WorkItemId)
+                .Select(r => (ChildId: r.WorkItemId, ParentId: r.OtherId))
                 .ToHashSet();
+            var deletedItems = _plan.Operations.OfType<DeleteOperation>()
+                .Select(d => d.WorkItemId)
+                .ToHashSet();
+            var yielded = new HashSet<(int ChildId, int ParentId)>();
 
             foreach (var op in _plan.Operations)
             {
-                if (op is AddLinkOperation add && Names.Equals(add.Relation, ParentRelation))
+                if (op is AddLinkOperation add && Names.Equals(add.Relation, ParentRelation)
+                    && yielded.Add((add.WorkItemId, add.OtherId)))
+                {
                     yield return new ParentEdge(add.WorkItemId, add.OtherId, add.Id);
+                }
             }
 
             foreach (var (seedId, opId) in _publishedSeedOps)
             {
-                if (_seeds[seedId].ParentId is { } parent)
+                if (_seeds[seedId].ParentId is { } parent && yielded.Add((seedId, parent)))
+                {
                     yield return new ParentEdge(seedId, parent, opId);
+                }
+            }
+
+            // Native repository reads expose cached items, not a complete child-set snapshot.
+            // Re-evaluate only proposal-named children; EvaluateParentType separately reports
+            // unavailable for a disallowed parent type because other children may be uncached.
+            foreach (var retypedParent in retypedParents)
+            {
+                foreach (var childId in _plan.Operations
+                    .Select(TargetItemId)
+                    .Where(id => id > 0)
+                    .Distinct())
+                {
+                    if (!removedParents.Contains((childId, retypedParent.ParentId))
+                        && !deletedItems.Contains(childId)
+                        && _cached.GetValueOrDefault(childId)?.ParentId == retypedParent.ParentId
+                        && yielded.Add((childId, retypedParent.ParentId)))
+                    {
+                        yield return new ParentEdge(childId, retypedParent.ParentId, retypedParent.OpId);
+                    }
+                }
             }
 
             // A type change re-judges the item's existing parent edge: it may newly fall under a rule.
             foreach (var batch in _plan.Operations.OfType<BatchOperation>())
             {
                 if (batch.Fields.Keys.Any(k => Names.Equals(k, TypeField))
-                    && !removedParents.Contains(batch.WorkItemId)
+                    && !deletedItems.Contains(batch.WorkItemId)
                     && _cached.GetValueOrDefault(batch.WorkItemId)?.ParentId is { } parent)
                 {
-                    yield return new ParentEdge(batch.WorkItemId, parent, batch.Id);
+                    if (!removedParents.Contains((batch.WorkItemId, parent))
+                        && yielded.Add((batch.WorkItemId, parent)))
+                        yield return new ParentEdge(batch.WorkItemId, parent, batch.Id);
                 }
             }
         }
+
+        private static int TargetItemId(PlanOperationDefinition operation) => operation switch
+        {
+            BatchOperation batch => batch.WorkItemId,
+            AddLinkOperation add => add.WorkItemId,
+            RemoveLinkOperation remove => remove.WorkItemId,
+            _ => 0,
+        };
 
         public IEnumerable<LabelTarget> LabelTargets(string field)
         {

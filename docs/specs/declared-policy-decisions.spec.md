@@ -121,6 +121,17 @@ dependency's presence, assessment preserves definite findings but reports
 A verified empty set is source-local evidence, not a global absence certificate. Uncached
 relations and changes made after the recorded observations remain outside this cached claim.
 
+For native ADO proposals, the cached repository has no complete direct-child-set certificate
+for a retyped parent. The evaluator rechecks existing child edges only for children explicitly
+named in the proposal; if the parent's final type is disallowed (or unknown), it also reports
+blocking `unavailable` rather than treating the cached children as exhaustive. A final parent
+type allowed by the rule needs no child enumeration. Provider-v2 retypes use the separate
+provider snapshot contract and require `RelationshipsComplete`.
+This intentionally reports `unavailable` even when the local cache appears to show a leaf.
+For an explicitly observed edge, D4 remains conservative: it is a warning only when the edge
+and both pre/post types are unchanged; a parent type change is not downgraded merely because
+both the old and new types are disallowed.
+
 Findings carry a typed `code`, rule/item identity and structured `evidence`: parent/type,
 labels/field, cycle edges, counts or missing IDs. Strategy generation consumes those facts,
 **never parses `Reason` prose**. Warning enforcement does not turn a current violation into

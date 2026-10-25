@@ -13,6 +13,7 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Plan;
 using Twig.Infrastructure;
 using Xunit;
 

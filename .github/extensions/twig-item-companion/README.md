@@ -5,7 +5,7 @@ one item through `twig bench detail <id> --document -o json` from the current
 session workspace and displays the native version-2 detail document. It does not
 read Twig's SQLite files or call an ADO/GitHub API directly.
 
-The canvas intentionally does not edit, save, authorize, apply, post discussion,
+The item companion intentionally does not edit, save, authorize, apply, post discussion,
 upload/download attachments, or infer relationship coverage. The CLI remains the
 authority for workspace admission and detail reads. Twig must be available as
 `twig` on the extension process's `PATH`.
@@ -17,12 +17,48 @@ No dependencies are bundled. The Copilot runtime supplies
 node --test .github/extensions/twig-item-companion/tests/*.test.mjs
 ```
 
-## Unwired native editing adapter (source only)
+## Explicit workbench editing bridge (source only, not host-qualified)
 
-`native-editing.mjs` and `editing-document.mjs` are isolated adapter source for the
-separate frozen native editing v1 contract. They are not imported by the extension,
-canvas server or rendered client. No new host action or HTTP endpoint is available.
-Native qualification and explicit integration approval remain prerequisites.
+The workbench source now imports `native-editing.mjs` and `editing-document.mjs`
+through `editing-bridge.mjs`, with explicit browser OPEN/STAGE buttons in
+`editing-client.mjs`. This integration delta passed ten module syntax checks,
+59 focused cases and 126 cases across all fourteen offline extension test files
+(zero skips/cancellations). The optional installed-native integration file was
+not run. The panel-close regression failed against an HTTP-only-close mutant
+and passed after exact source restoration. The initial focused run passed 57/59;
+two deferred-detail fixtures lacked the qualified key/identity now needed by the
+bridge and were corrected without weakening production validation or assertions.
+The integration has not been activated in the installed host. A pushed native implementation does not
+establish that the installed `twig` supports these commands. Unknown subcommands
+or missing native envelopes surface unavailable/unknown outcomes, not readiness.
+
+The bridge owns a cryptographically random capture handle and native context and
+counters in the server. Browser STAGE requests carry only the handle and ordered
+nullable field intent, never context/counter authority. Existing loopback
+host/token/origin/content-type guards remain. Only `/api/editing` admits up to
+256KiB JSON (the native serialized request still has its own 256KiB bound); other
+routes retain 4KiB. Editing rejects duplicate keys, excess depth, unexpected keys
+and malformed intent before invoking the adapter.
+
+Only visible, non-contribution, non-read-only `FieldControl` values carried in
+full or explicitly empty, with native `editable: true`, receive plain text/null
+inputs. HTML, other control types and unsupported contributions remain explicitly
+read-only. This is a transport capability limit, not inferred field rules.
+
+Selection, Bench reads and identity-qualified target changes revoke the capture.
+Unsent input remains in memory per checkout/connection/binding/item/Bench/identity,
+never transfers to another target and is not automatically staged on a read.
+A reopened different observed revision marks retained input stale and disables
+staging until the human reviews/discards it and enters reconciled intent. Native
+drift/conflicts also disable staging. Exact successful acknowledgement advances
+the capture without clearing newer input typed while awaiting it; effect list
+sorting or removal of baseline-equal edits is not treated as failed acknowledgement.
+Refusal, transport unknown and indeterminate outcomes retain unsent input and
+require explicit reopen. Disconnect/close aborts owned work; the busy latch stays
+held until adapter closure, and unknown outcomes are retained in server state.
+Panel close also awaits bridge idle after disconnect, rather than mistaking
+closed HTTP connections for completed native cleanup.
+No Save, apply, authorization or publication route is added.
 
 OPEN is explicit and may acquire metadata and persist local evidence/draft
 observations; it is not a read-only/cache-only detail fallback. STAGE sends one
@@ -64,7 +100,11 @@ related offline consumers passed 83/83, with no skips/cancellations, and both
 adapter modules passed syntax checks. The initial focused run failed one
 acknowledgement-guard fixture because its drift flag was contradictory; that
 fixture was corrected to reach the intended guard before the passing rerun.
-No runtime success envelope from native Twig has yet been cross-checked.
+Actual native OPEN/STAGE production DTO serialization (fake HTTP plus real SQLite
+HostFact, not installed CLI/live ADO) has passed a separate adapter cross-check:
+exact qualified fixture key/Bench/identity/context, request roundtrip, revisions
+and generation acknowledgement, including null/empty/order preservation. This
+does not qualify the new HTTP/UI bridge or installed host.
 
 ## Read-only v2 boundary
 

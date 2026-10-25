@@ -2,6 +2,7 @@ import { workbenchClient, workbenchMarkup, workbenchStyles } from "./workbench-c
 import { validateDraftDocument } from "./draft-document.mjs";
 import { renderDraftInspection } from "./draft-inspection.mjs";
 import { reviewMarkup, reviewClient } from "./review-page.mjs";
+import { createEditingClient } from "./editing-client.mjs";
 
 export function renderPage({ token, nonce, workbench = false, review = false }) {
     return `<!doctype html>
@@ -110,7 +111,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
   <main>
     <header>
       <h1>${review ? "Twig proposal review" : workbench ? "Twig workbench" : "Twig item companion"}</h1>
-      <p class="muted">${review ? "Retained native proposal evidence. Explicit acquisition may write the local journal." : workbench ? "Read-only explicitly selected Bench evidence from the native cache." : "Read-only semantic detail from the current admitted Twig workspace."} This view does not edit, save, apply, or publish work.</p>
+      <p class="muted">${review ? "Retained native proposal evidence. Explicit acquisition may write the local journal." : workbench ? "Cached named Bench evidence. Explicit native OPEN/STAGE can update local drafts only; no Save, apply or publication." : "Read-only semantic detail from the current admitted Twig workspace."}${workbench ? "" : " This view does not edit, save, apply, or publish work."}</p>
     </header>
     <div class="row">
       <label for="theme-mode">Theme
@@ -193,7 +194,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
       loadModule: () => import("/review-module.mjs?token=" + encodeURIComponent(token))
     }).catch((error) => {
       document.querySelector("#review-status").textContent = "Review unavailable: " + error.message;
-    });` : workbench ? workbenchClient : `
+    });` : workbench ? `const editingClient = (${createEditingClient.toString()})({ document, request, text });\n${workbenchClient}` : `
     const form = document.querySelector("#load-form");
     const input = document.querySelector("#work-item-id");
     const loadButton = document.querySelector("#load-button");

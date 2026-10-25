@@ -93,10 +93,11 @@ function dom(html, url) {
 }
 function flatten(node) { return [node.textContent, ...node.children.flatMap(flatten)].join("\n"); }
 function descendants(node) { return [node, ...node.children.flatMap(descendants)]; }
-async function open(payload = fixture, fail, detailPayload) {
+async function open(payload = fixture, fail, detailPayload, nativeEditing) {
     const calls = [];
     const server = await createCanvasServer({
         workspacePath, workbench: true, readNativeBench: reader(payload, calls, fail),
+        nativeEditing,
         readNativeBenchDetail: detailPayload && createNativeBenchDetailReader({
             realpath: async (path) => path,
             execFile(exe, args, options, callback) {
@@ -506,6 +507,86 @@ test("failed item detail is a visible alert outside collapsed source evidence", 
     } finally { await ui.server.close(); }
 });
 
+test("rendered workbench VM crosses actual HTTP OPEN/STAGE routes only on explicit buttons", async () => {
+    const detail = structuredClone(detailFixture);
+    Object.assign(detail, {
+        benchName: fixture.browser.benchName, observation: "raw-mirror",
+        origin: { ...fixture.browser.origin }, layoutStatus: "unavailable", layoutSource: "twig-fallback",
+        membership: { selected: true, seed: false, pending: true },
+        completeness: { sourceComplete: false, sourceChildCount: null, cachedChildCount: 0,
+            parentCached: null, linksVerified: false, reasons: ["source-unknown", "cache-only"] },
+    });
+    detail.document.processId = "twig.fallback";
+    const nativeCalls = [];
+    let nativeDocument = {
+        nativeContext: {
+            itemKey: detail.itemKey, externalIdentity: { providerKind: "ado", resourceScope: "fixture-resource", nativeId: "42" },
+            benchId: detail.benchId, benchName: detail.benchName, benchContentsDigest: "digest",
+            identityId: detail.identityId, bindingRevision: "1", selectionSource: "checkout",
+            selectionRevision: "1", attachmentRevision: "1", storageGeneration: null,
+            originDigest: "origin", evidenceDigest: "evidence",
+        },
+        generation: "9007199254740993", baselineRevision: "17", observedRevision: "17", currentRevision: "17",
+        hasConflicts: false, changes: [], conflicts: [],
+        systemControls: detail.document.systemControls, pages: detail.document.pages,
+        fields: [{ fieldRef: "System.Title", editable: true }], authorized: false, serverFinalAuthority: true,
+    };
+    const adapter = {
+        async open(input) {
+            nativeCalls.push({ action: "open", input });
+            return { version: 1, status: "opened", committed: true, document: structuredClone(nativeDocument) };
+        },
+        async stage(input) {
+            nativeCalls.push({ action: "stage", input });
+            nativeDocument = { ...nativeDocument,
+                generation: (BigInt(input.request.generation) + BigInt(input.request.changes.length)).toString(),
+                changes: input.request.changes.map(change => ({ ...change, baselineValue: "Read-only fixture" })) };
+            return { version: 1, status: "staged", committed: true, document: structuredClone(nativeDocument) };
+        },
+    };
+    const ui = await open(fixture, undefined, detail, adapter);
+    const find = label => descendants(ui.nodes.get("#bench-selection")).find(node => node.textContent === label);
+    try {
+        await load(ui);
+        row42(ui).listeners.click();
+        await ui.settled();
+        assert.equal(nativeCalls.length, 0, "initial render, Bench read and automatic cache detail never OPEN/STAGE");
+        find("Open native draft").listeners.click();
+        await ui.settled();
+        assert.deepEqual(nativeCalls.map(call => call.action), ["open"]);
+        assert.deepEqual(nativeCalls[0].input.expectedKey, detail.itemKey);
+        const editor = descendants(ui.nodes.get("#bench-selection")).find(node => node.listeners.input && !node.listeners.change);
+        assert.ok(editor, "real rendered client exposes the admitted text input");
+        editor.value = "Explicit draft text";
+        editor.listeners.input();
+        find("Stage local changes").listeners.click();
+        await ui.settled();
+        assert.deepEqual(nativeCalls.map(call => call.action), ["open", "stage"]);
+        assert.deepEqual(nativeCalls[1].input.request.nativeContext, nativeDocument.nativeContext);
+        assert.equal(nativeCalls[1].input.request.generation, "9007199254740993");
+        assert.deepEqual(nativeCalls[1].input.request.changes,
+            [{ fieldRef: "System.Title", proposedValue: "Explicit draft text" }]);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /staged: local draft only/);
+        const emptyEditor = descendants(ui.nodes.get("#bench-selection")).find(node => node.listeners.input && !node.listeners.change);
+        emptyEditor.value = "";
+        emptyEditor.listeners.input();
+        find("Stage local changes").listeners.click();
+        await ui.settled();
+        assert.equal(nativeCalls[2].input.request.changes[0].proposedValue, "");
+        assert.equal(nativeCalls[2].input.request.generation, "9007199254740994");
+        const clear = descendants(ui.nodes.get("#bench-selection")).find(node => node.type === "checkbox");
+        clear.checked = true;
+        clear.listeners.change();
+        find("Stage local changes").listeners.click();
+        await ui.settled();
+        assert.equal(nativeCalls[3].input.request.changes[0].proposedValue, null);
+        assert.equal(nativeCalls[3].input.request.generation, "9007199254740995");
+        find("Back to Bench").listeners.click();
+        await ui.settled();
+        assert.equal(nativeCalls.length, 4, "navigation revokes capture without native mutation");
+    } finally { await ui.server.close(); }
+});
+
 test("workbench styling is scoped and follows the common rules without changing other canvases", () => {
     const workbench = renderPage({ token: "fixture", nonce: "nonce", workbench: true });
     assert.ok(workbench.indexOf(".twig-workbench section") > workbench.indexOf("section, details"));
@@ -528,6 +609,10 @@ test("actual extension wiring registers both canvases and routes workbench actio
         createNativeDetailReader: () => { throw new Error("Detail should not be read by a workbench action"); },
         createNativeBenchReader: () => reader(fixture, calls),
         createNativeBenchDetailReader: () => async () => { throw new Error("Bench detail should not be read by a workbench action"); },
+        createNativeEditingAdapter: () => ({
+            open: async () => { throw new Error("Browsing must not OPEN a draft"); },
+            stage: async () => { throw new Error("Browsing must not STAGE intent"); },
+        }),
     });
     // Only SDK/import boundaries are replaced; the production declaration and callbacks run unchanged.
     const script = source.replace(/^import .*;$/gm, "")
@@ -566,6 +651,7 @@ function deferredDetail(calls) {
         calls.push(request);
         gates.push((label) => resolve({
             benchName: fixture.browser.benchName, benchId: fixture.browser.benchId,
+            itemKey: structuredClone(detailFixture.itemKey), identityId: detailFixture.identityId,
             membership: { selected: true, seed: false, pending: false },
             completeness: { sourceComplete: false, sourceChildCount: null, cachedChildCount: 0, parentCached: null, linksVerified: false, reasons: ["source-unknown"] },
             document: { systemControls: [{ id: "x", label, visible: true, value: { state: 0, full: label } }], pages: [] },

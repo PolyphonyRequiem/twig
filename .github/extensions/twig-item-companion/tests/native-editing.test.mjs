@@ -370,11 +370,20 @@ test("failed owned-tree cleanup poisons the adapter instead of admitting a repla
     assert.equal(calls, 1);
 });
 
-test("adapter modules are not imported into an extension, HTTP server or rendered client", async () => {
-    for (const name of ["extension.mjs", "canvas-server.mjs", "render.mjs", "workbench-client.mjs"]) {
+test("editing wiring remains explicit with no native autorun, Save, apply or publication", async () => {
+    const extension = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
+    assert.match(extension, /nativeEditing: createNativeEditingAdapter\(\)/);
+    const bridge = await readFile(new URL("../editing-bridge.mjs", import.meta.url), "utf8");
+    assert.match(bridge, /adapter\.open\(/);
+    assert.match(bridge, /adapter\.stage\(/);
+    for (const name of ["extension.mjs", "canvas-server.mjs", "render.mjs", "workbench-client.mjs", "editing-client.mjs", "editing-bridge.mjs"]) {
         const source = await readFile(new URL("../" + name, import.meta.url), "utf8");
-        assert.doesNotMatch(source, /native-editing\.mjs|editing-document\.mjs|draft stage|draft open/);
+        assert.doesNotMatch(source, /adapter\.(?:save|apply|publish)\s*\(|action:\s*["'](?:save|apply|publish)["']/);
     }
+    const client = await readFile(new URL("../editing-client.mjs", import.meta.url), "utf8");
+    assert.match(client, /open\.addEventListener\("click", \(\) => void perform\("open"\)\)/);
+    assert.match(client, /stage\.addEventListener\("click", \(\) => void perform\("stage"\)\)/);
+    assert.doesNotMatch(client, /innerHTML|setInterval|setTimeout/);
 });
 
 test("either output stream error requests termination and yields an unknown outcome", async () => {

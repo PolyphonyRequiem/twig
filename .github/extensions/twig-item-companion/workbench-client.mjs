@@ -8,7 +8,7 @@ export const workbenchMarkup = `
       <button id="bench-refresh" type="button" disabled>Re-read cache</button>
     </form>
     <details class="bench-disclosure"><summary>Read scope</summary>
-      <p id="bench-help" class="muted">Explicit saved target; never switches the current Bench or active item. No sync, editing or apply.</p>
+      <p id="bench-help" class="muted">Browsing never switches the current Bench or active item. Local draft OPEN/STAGE require explicit buttons; no Save, apply or publication.</p>
     </details>
     <div id="bench-status" class="notice" role="status" aria-live="polite">Enter a saved Bench name or ID.</div>
     <div id="bench-content" hidden>
@@ -118,6 +118,11 @@ export const workbenchClient = `
       return "#" + row.id + " " + (row.loaded === false ? "Not cached" : row.type + " - " + row.title + " - " + row.state);
     }
     function showSelection(row) {
+      const revoked = editingClient.leave();
+      revoked.catch((error) => {
+        benchStatus.textContent = "Editing capture revocation failed: " + error.message;
+        benchStatus.classList.add("error");
+      });
       generation++;
       selectedId = row.id;
       detailOpen = true;
@@ -153,7 +158,13 @@ export const workbenchClient = `
       source.append(text("summary", "Item source and read limits"), facts, detailNote);
       benchSelection.append(source);
       benchSelection.focus();
-      if (member && member.loaded) requestDetail({ gen: generation, obs: observation, id: row.id, note: detailNote, seam });
+      if (member && member.loaded) {
+        const job = { gen: generation, obs: observation, id: row.id, note: detailNote, seam };
+        void revoked.then(() => { if (!stale(job)) requestDetail(job); }, (error) => {
+          detailNote.textContent = "Editing capture revocation failed; detail was not loaded: " + error.message;
+          benchSelection.append(detailNote);
+        });
+      }
     }
     function renderNativeValue(value) {
       if (!value) return "No field value was carried.";
@@ -237,6 +248,7 @@ export const workbenchClient = `
         }
         note.textContent = "Native explicit-Bench detail loaded. Displayed as inert text; no edit, save or apply authority.";
         benchSelection.append(box);
+        editingClient.mount(benchSelection, detail);
       } catch (error) {
         if (stale(job)) return;
         note.textContent = seam + " Explicit-Bench detail failed: " + (error instanceof Error ? error.message : "unavailable") + ".";
@@ -252,6 +264,10 @@ export const workbenchClient = `
       }
     }
     function returnToBench() {
+      void editingClient.leave().catch((error) => {
+        benchStatus.textContent = "Editing capture revocation failed: " + error.message;
+        benchStatus.classList.add("error");
+      });
       generation++;
       if (benchLayout.value === "split") treeScroll = benchBrowse.scrollTop;
       detailOpen = false;
@@ -384,6 +400,7 @@ export const workbenchClient = `
       benchStatus.classList.remove("error");
       benchStatus.textContent = "Reading native cache; no sync or current-Bench change.";
       try {
+        await editingClient.leave();
         const result = await request("/api/bench", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action, bench }),

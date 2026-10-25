@@ -3,11 +3,21 @@ import { createServer } from "node:http";
 import { renderPage } from "./render.mjs";
 import { captureBench } from "./native-bench.mjs";
 import { validateDraftDocument } from "./draft-document.mjs";
+import { createEditingBridge } from "./editing-bridge.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, workbench = false }) {
+export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, nativeEditing, workbench = false }) {
     const token = randomBytes(32).toString("base64url");
+    const editing = createEditingBridge({ adapter: nativeEditing, workspacePath });
+    let editingTarget = null;
+    let selectionGeneration = 0;
+    let closing = null;
+    function invalidateEditing() {
+        selectionGeneration++;
+        editingTarget = null;
+        editing.invalidate();
+    }
     const state = {
         observation: null,
         benchObservation: null,
@@ -106,6 +116,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     };
 
     const loadBench = async (bench, expected) => {
+        if (editing.busy) throw new HttpError(409, "A native editing operation is already in progress.");
+        invalidateEditing();
         if (!workbench || !readNativeBench) throw new Error("Native workbench browsing is unavailable.");
         if (state.closed) throw new Error("This Twig workbench is closed.");
         if (state.busy) throw new HttpError(409, "A Twig read is already in progress.");
@@ -134,6 +146,9 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     };
 
     const loadBenchDetail = async (workItemId) => {
+        if (editing.busy) throw new HttpError(409, "A native editing operation is already in progress.");
+        invalidateEditing();
+        const targetGeneration = selectionGeneration;
         if (!workbench || !readNativeBenchDetail) throw new Error("Native explicit-Bench detail is unavailable.");
         if (state.closed) throw new Error("This Twig workbench is closed.");
         if (!state.benchObservation) throw new Error("Load a saved Bench before reading item detail.");
@@ -146,6 +161,11 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 workItemId, workspacePath, expected: captureBench(state.benchObservation), signal: controller.signal,
             });
             if (state.closed || controller.signal.aborted) throw new Error("This Twig workbench is closed.");
+            if (targetGeneration !== selectionGeneration) throw new Error("Detail selection was superseded.");
+            editingTarget = {
+                workItemId: detail.itemKey.workItemId, bench: detail.benchId,
+                expectedKey: structuredClone(detail.itemKey), identityId: detail.identityId,
+            };
             return detail;
         } finally {
             state.controller = null;
@@ -215,11 +235,13 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 ...(!workbench ? { draftDocument: state.draftDocument, draftError: state.draftError } : {}),
                 error: state.error,
                 busy: state.busy,
+                ...(workbench ? { editingOutcome: editing.outcome, editingBusy: editing.busy } : {}),
             });
             return;
         }
 
-        if (request.method !== "POST" || request.url !== (workbench ? "/api/bench" : "/api/detail")) {
+        const editingRoute = workbench && request.url === "/api/editing";
+        if (request.method !== "POST" || (!editingRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
             sendJson(response, 404, { error: "Unknown Twig companion route." });
             return;
         }
@@ -229,7 +251,35 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             return;
         }
 
-        const body = await readJsonBody(request);
+        // Only the editing intent route admits the native 256KiB request-sized payload.
+        const body = await readJsonBody(request, editingRoute ? 262144 : MAX_REQUEST_BYTES, editingRoute);
+        if (editingRoute) {
+            if (body.action === "invalidate" && Object.keys(body).length === 1) {
+                invalidateEditing();
+                sendJson(response, 200, { invalidated: true });
+                return;
+            }
+            if (state.busy || state.closed || !editingTarget) throw new HttpError(409, "Load current qualified Bench detail before explicit editing.");
+            const disconnected = () => {
+                if (!response.writableEnded) editing.invalidate();
+            };
+            request.once("aborted", disconnected);
+            response.once("close", disconnected);
+            try {
+                if (body.action === "open" && Object.keys(body).length === 1) {
+                    sendJson(response, 200, { editing: await editing.open(editingTarget) });
+                } else if (body.action === "stage" && Object.keys(body).sort().join(",") === "action,captureHandle,changes") {
+                    const { captureHandle, changes } = body;
+                    sendJson(response, 200, { editing: await editing.stage({ captureHandle, changes }) });
+                } else {
+                    sendJson(response, 400, { error: "Expected explicit OPEN or STAGE with only a capture handle and ordered intent." });
+                }
+            } finally {
+                request.removeListener("aborted", disconnected);
+                response.removeListener("close", disconnected);
+            }
+            return;
+        }
         if (workbench) {
             if (body.action === "load" && typeof body.bench === "string" && body.bench.trim() && body.bench.length <= 512) {
                 sendJson(response, 200, { benchObservation: await loadBench(body.bench) });
@@ -263,11 +313,13 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         loadBenchDetail,
         inspectDraft,
         close: async () => {
-            if (state.closed) return;
+            if (closing) return closing;
             state.closed = true;
+            invalidateEditing();
             clearDraft();
             state.controller?.abort();
-            await closeServer(server);
+            closing = Promise.all([closeServer(server), editing.awaitIdle()]).then(() => undefined);
+            return closing;
         },
     };
 }
@@ -276,12 +328,12 @@ function isWorkItemId(value) {
     return Number.isInteger(value) && value !== 0 && Math.abs(value) <= 2_147_483_647;
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, limit = MAX_REQUEST_BYTES, strict = false) {
     const chunks = [];
     let length = 0;
     for await (const chunk of request) {
         length += chunk.length;
-        if (length > MAX_REQUEST_BYTES) {
+        if (length > limit) {
             request.resume();
             throw new HttpError(413, "Request body exceeds the Twig companion limit.");
         }
@@ -290,7 +342,9 @@ async function readJsonBody(request) {
 
     let value;
     try {
-        value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        const source = new TextDecoder("utf-8", { fatal: strict }).decode(Buffer.concat(chunks));
+        value = JSON.parse(source);
+        if (strict) rejectDuplicateKeys(source);
     } catch (error) {
         throw new HttpError(400, "Request body must be valid JSON.", { cause: error });
     }
@@ -298,6 +352,25 @@ async function readJsonBody(request) {
         throw new HttpError(400, "Request body must be a JSON object.");
     }
     return value;
+}
+
+function rejectDuplicateKeys(source) {
+    // JSON.parse establishes grammar first; this pass retains duplicate property evidence.
+    const tokens = source.match(/"(?:[^"\\]|\\.)*"|[{}[\]:,]/g) || [];
+    const stack = [];
+    for (let index = 0; index < tokens.length; index++) {
+        const token = tokens[index];
+        if (token === "{" || token === "[") {
+            stack.push(token === "{" ? new Set() : null);
+            if (stack.length > 32) throw new Error("Editing JSON exceeds the depth limit.");
+        } else if (token === "}" || token === "]") stack.pop();
+        else if (token.startsWith('"') && tokens[index + 1] === ":") {
+            const key = JSON.parse(token);
+            const object = stack[stack.length - 1];
+            if (object.has(key)) throw new Error("Duplicate editing JSON key.");
+            object.add(key);
+        }
+    }
 }
 
 function hasValidToken(request, token) {

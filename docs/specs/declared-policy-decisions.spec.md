@@ -253,9 +253,13 @@ Evaluation is over the **whole proposal's post-change state**, not operation ord
 `parent`, or a seed published with a parent). If the child's type is `childType` and the
 parent's type is not in `allowedParentTypes`, refuse. Existing edges are not re-judged (D4),
 except that an ADO v1 `batch` changing an item's type re-judges that item's existing parent edge,
-because the change can bring it under a rule. For v2, GitHub issue type comes from observed
-provider metadata; an absent or unreadable type is `unavailable`, never a hardcoded generic
-`Issue`. Known limit: retyping a *parent* does not re-judge its children.
+because the change can bring it under a rule. Retyping a parent re-evaluates child edges whose
+children are explicitly named in the proposal. The native cache cannot certify a complete child
+set: if the parent's final type is disallowed or unknown, the evaluator reports blocking
+`unavailable` rather than assuming unlisted children do not exist. Provider-v2 retypes require
+a complete relationship snapshot before existing child edges can be re-evaluated. For v2,
+GitHub issue type comes from observed provider metadata; an absent or unreadable type is
+`unavailable`, never a hardcoded generic `Issue`.
 
 **`dependency-integrity`** — evaluates each new predecessor/successor edge. Self-dependency and
 duplicate edges (already cached or repeated in the proposal) refuse. A cycle is found by a

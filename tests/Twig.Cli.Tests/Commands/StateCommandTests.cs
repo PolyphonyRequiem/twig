@@ -7,6 +7,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -63,7 +64,7 @@ public class StateCommandTests
         _cmd = new StateCommand(
             ctx, resolver, _workItemRepo, _writer,
             _consoleInput, _seedMutationProvider,
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
             _pendingChangeStore);
     }
 
@@ -385,6 +386,21 @@ public class StateCommandTests
         _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
     }
 
+    private IRevisionBoundAdoWorkItemService CreateRevisionBoundSource()
+    {
+        var source = Substitute.For<IRevisionBoundAdoWorkItemService>();
+        source.FetchAtRevisionAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var id = call.ArgAt<int>(0);
+                var revision = call.ArgAt<int>(1);
+                var item = await _workItemRepo.GetByIdAsync(id, call.ArgAt<CancellationToken>(2))
+                    ?? throw new InvalidOperationException($"No cached fixture item for #{id}.");
+                return new WorkItemMapper().ToSnapshot(item) with { Revision = revision };
+            });
+        return source;
+    }
+
     private StateCommand CreateCommandWithPropagation()
     {
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
@@ -404,7 +420,7 @@ public class StateCommandTests
         return new StateCommand(
             ctx, resolver, _workItemRepo, _writer,
             _consoleInput, _seedMutationProvider,
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
             _pendingChangeStore);
     }
 
@@ -745,18 +761,18 @@ public class StateCommandTests
         // New → Active
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
-                0, Arg.Any<CancellationToken>())
-            .Returns(_ => { Landed("Active"); return 1; });
+                1, Arg.Any<CancellationToken>())
+            .Returns(_ => { Landed("Active"); return 2; });
         // Active → Resolved
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),
-                1, Arg.Any<CancellationToken>())
-            .Returns(_ => { Landed("Resolved"); return 2; });
+                2, Arg.Any<CancellationToken>())
+            .Returns(_ => { Landed("Resolved"); return 3; });
         // Resolved → Closed
         _adoService.PatchAsync(1,
             Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Resolved"),
-            2, Arg.Any<CancellationToken>())
-        .Returns(_ => { Landed("Closed"); return 3; });
+            3, Arg.Any<CancellationToken>())
+        .Returns(_ => { Landed("Closed"); return 4; });
 
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
@@ -785,8 +801,8 @@ public class StateCommandTests
         // New → Active: succeeds
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
-                0, Arg.Any<CancellationToken>())
-            .Returns(_ => { Landed("Active"); return 1; });
+                1, Arg.Any<CancellationToken>())
+            .Returns(_ => { Landed("Active"); return 2; });
         // Active → Resolved: rejected
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),

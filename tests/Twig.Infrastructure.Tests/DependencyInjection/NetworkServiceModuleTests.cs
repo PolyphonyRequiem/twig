@@ -207,6 +207,27 @@ public sealed class NetworkServiceModuleTests
                         },
                         Fields = new Dictionary<string, string?> { ["System.Tags"] = "priority:high" },
                     },
+                    new ProviderMutationOperation
+                    {
+                        Id = "provider-link",
+                        OperationKind = PlanOperationKind.AddLink,
+                        Target = new ProviderWorkItemMutationTarget
+                        {
+                            Item = new ProviderWorkItemReference
+                            {
+                                LocalId = LocalWorkItemId.New(),
+                                ExternalIdentity = identity,
+                            },
+                            ExpectedProviderRevision = new ProviderRevisionToken("opaque-link-token"),
+                        },
+                        Other = new ProviderWorkItemReference
+                        {
+                            LocalId = LocalWorkItemId.New(),
+                            ExternalIdentity = new ExternalWorkItemIdentity(
+                                "github", "https://api.github.com", "I_parent"),
+                        },
+                        Relation = "related",
+                    },
                 ],
             }));
 
@@ -221,6 +242,13 @@ public sealed class NetworkServiceModuleTests
             decision.ProviderIdentity.ShouldBe(identity);
             decision.Reason.ShouldContain("Observed at preview");
             decision.Reason.ShouldContain("not exact-revision apply authority");
+            var capability = preview.ReviewModel.Operations.Single(operation => operation.OpId == "provider-link")
+                .Capability;
+            capability.ShouldNotBeNull();
+            capability!.Relationship.ShouldBe("related");
+            capability.Declared.ShouldBe("unsupported");
+            capability.Availability.ShouldBe("unknown");
+            capability.Reason.ShouldBe("not-probed");
             transport.Requests.ShouldNotBeEmpty();
             transport.Requests.ShouldAllBe(request => request.Method == HttpMethod.Post
                 && request.Uri == "https://api.github.com/graphql");

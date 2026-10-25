@@ -193,7 +193,11 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _paths = paths;
         _clock = TimeProvider.System;
         _ruleGate = new PlanProcessRuleGate(rules: null);
-        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo);
+        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo)
+        {
+            CapabilityDescriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(
+                config.ResolveWorkItemProviderKind(), out var capabilityDescriptor) ? capabilityDescriptor : null,
+        };
         _steering = new UnresolvedSessionSteeringModeProvider();
         _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
         _policyEvaluator = new DeclaredPolicyEvaluator(workItemRepo, links: null, providerSnapshots);

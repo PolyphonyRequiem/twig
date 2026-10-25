@@ -11,7 +11,7 @@ using Xunit;
 namespace Twig.Domain.Tests.Services.Policy;
 
 /// <summary>
-/// Declared CloudVault work-management rules (AB#1169). Type and label names below are test
+/// Declared work-management rules (AB#1169). Type and label names below are test
 /// data supplied by a policy file; the evaluator itself names none.
 /// </summary>
 public sealed class DeclaredPolicyEvaluatorTests

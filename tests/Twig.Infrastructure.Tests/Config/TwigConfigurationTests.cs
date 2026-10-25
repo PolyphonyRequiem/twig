@@ -538,8 +538,8 @@ public class TwigConfigurationTests : IDisposable
     public void SetValue_GitProject_SetsValue()
     {
         var config = new TwigConfiguration();
-        config.SetValue("git.project", "CloudVault").ShouldBeTrue();
-        config.Git.Project.ShouldBe("CloudVault");
+        config.SetValue("git.project", "SampleService").ShouldBeTrue();
+        config.Git.Project.ShouldBe("SampleService");
     }
 
     [Fact]
@@ -558,10 +558,10 @@ public class TwigConfigurationTests : IDisposable
         var config = new TwigConfiguration
         {
             Project = "BacklogProject",
-            Git = new GitConfig { Project = "CloudVault" },
+            Git = new GitConfig { Project = "SampleService" },
         };
 
-        config.GetGitProject().ShouldBe("CloudVault");
+        config.GetGitProject().ShouldBe("SampleService");
     }
 
     [Fact]
@@ -1607,8 +1607,8 @@ public class TwigConfigurationTests : IDisposable
             {
                 AreaPathEntries =
                 [
-                    new AreaPathEntry { Path = @"OS\CloudVault", IncludeChildren = true },
-                    new AreaPathEntry { Path = @"OS\CloudVault\Exact", IncludeChildren = false },
+                    new AreaPathEntry { Path = @"OS\SampleTeam", IncludeChildren = true },
+                    new AreaPathEntry { Path = @"OS\SampleTeam\Exact", IncludeChildren = false },
                 ],
             },
         };

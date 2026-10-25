@@ -1,4 +1,4 @@
-# Declared Policy Decisions — CloudVault Inventory and Engine Contract
+# Declared Policy Decisions — Reference Inventory and Engine Contract
 
 > **Status:** Implemented (first slice), AB#1169.
 > **Domain:** Declared, repository-owned work-management policy evaluated natively in the
@@ -15,7 +15,7 @@
 
 ## Problem
 
-CloudVault teams drive work through policy-governed skills (create, update, review,
+Teams can drive work through policy-governed skills (create, update, review,
 closeout, publication). Before this work Twig enforced two narrow mechanical gates — required
 close-gate fields (`PlanProcessRuleGate`) and digest/mode/authorizer presence
 (`ProposalAuthorizationGate`) — and everything else lived in agent prose. A rule written only
@@ -32,14 +32,14 @@ host judgment, with rationale.
 | Id | Ruling |
 |---|---|
 | D1 | Twig enforces declared **mechanical** rules natively. Judgment calls (fit, meaning, sufficiency, readiness) stay with reviewers or the host skill. |
-| D2 | Rules live in a **repository-owned** policy file, `twig.policy.json` at the repository root, loaded at runtime. Twig code names no CloudVault type, label or field. |
+| D2 | Rules live in a **repository-owned** policy file, `twig.policy.json` at the repository root, loaded at runtime. Twig code hardcodes no team's type, label or field. |
 | D3 | A violated rule **refuses**. When a rule cannot be evaluated the outcome is **`unavailable`**, which also blocks — never a silent permit. |
 | D4 | Pre-existing violations are **reported, not blocked**. A proposal is refused only when it **adds or worsens** a violation. |
 | D5 | Follow-up decomposition of #1169 is published as Issues and Tasks through the proposal path, each write separately approved and authorized. |
 
 ## Not a DSL
 
-CloudVault's enforcement map forbids a policy DSL, and so does this design. The file selects
+This design does not introduce a policy DSL. The file selects
 from a **fixed set of rule kinds** implemented in Twig and supplies their data (type names,
 label prefixes, limits). There are no expressions, conditions, or user-defined code. A new
 kind of rule is a Twig code change with tests, reviewed like any other.
@@ -49,7 +49,11 @@ kind of rule is a Twig code change with tests, reviewed like any other.
 Category key: **Native** — enforced by Twig; **Existing** — already enforced before #1169;
 **Host** — judgment, stays with the reviewer/host skill; **Out** — owned elsewhere.
 
-| # | CloudVault decision | Source | Category | Mechanism / rationale |
+The inventory below uses an anonymized reference service, SampleService. Its conventions
+are examples, not built-in policy or authority over Twig's design. Source names identify
+reference documents, not dependencies required to configure or use Twig.
+
+| # | Reference decision | Reference document | Category | Mechanism / rationale |
 |---|---|---|---|---|
 | 1 | A Task's parent must be a User Story or Bug (type constraint on parent links) | `relationships.md` *Type constraints* | Native | `parent-type` rule kind |
 | 2 | No self-dependency, duplicate dependency, or dependency cycle within scope | `relationships.md` *Validate within scope* | Native | `dependency-integrity` rule kind |

@@ -259,7 +259,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
     {
         var organization = InitAdoServer.GetUnusedBaseUrl();
         const string project = "TestProject";
-        const string team = "CloudVault";
+        const string team = "SampleTeam";
         var twigDir = Path.Combine(_repoRoot, ".twig");
         var contextPaths = TwigPaths.ForContext(twigDir, organization, project, _repoRoot);
         var manifestBytes = CreateManifestBytes(organization, project, team);
@@ -290,7 +290,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
     {
         var organization = InitAdoServer.GetUnusedBaseUrl();
         const string project = "TestProject";
-        const string team = "CloudVault";
+        const string team = "SampleTeam";
         var twigDir = Path.Combine(_repoRoot, ".twig");
         var manifestBytes = CreateManifestBytes(organization, project, team);
         var suppliedOrg = conflictingCoordinate == "organization"
@@ -323,7 +323,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
     {
         var organization = InitAdoServer.GetUnusedBaseUrl();
         const string project = "TestProject";
-        const string team = "CloudVault";
+        const string team = "SampleTeam";
         var twigDir = Path.Combine(_repoRoot, ".twig");
         var manifestBytes = CreateManifestBytes(organization, project, team);
         var manifestPath = await WriteTrackedManifestAsync(manifestBytes);
@@ -455,11 +455,11 @@ public sealed class InitCommandProductionCliTests : IDisposable
               },
               "defaults": {
                 "areaPaths": [
-                  "TestProject\\CloudVault"
+                  "TestProject\\SampleTeam"
                 ],
                 "areaPathEntries": [
                   {
-                    "path": "TestProject\\CloudVault",
+                    "path": "TestProject\\SampleTeam",
                     "includeChildren": true
                   }
                 ],

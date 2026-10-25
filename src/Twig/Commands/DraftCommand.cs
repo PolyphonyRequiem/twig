@@ -190,7 +190,8 @@ internal sealed class DraftCommand(CommandContext ctx, BrowserReadModule browser
                     return retained;
                 }
                 // Read cached evidence before anything that could request metadata. This
-                // command never calls editor Open, a provider, or generic proposal Preview.
+                // command never calls editor Open, a work-metadata provider, or generic
+                // proposal Preview. Native identity admission above may attest a cold provider.
                 var snapshot = await new SqliteWorkItemRepository(local, new Domain.Services.WorkItemMapper())
                     .GetSnapshotByIdAsync(id, token)
                     ?? throw new InvalidOperationException("The native work item is not cached.");

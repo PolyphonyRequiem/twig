@@ -123,6 +123,13 @@ gates must accept the effects. Missing/corrupt/changed evidence blocks before an
 metadata fetch. Reinspect explicitly to acquire new evidence; capture never retries
 or rebases intent.
 
+Capture performs no work-item or work-metadata HTTP and creates no remote mutation
+or authorization. Native current-principal admission remains mandatory: a cold
+composition may attest its credential through identity-system HTTP before retaining
+the local capture. An already-attested composition with unchanged credential material
+performs no additional HTTP. Earlier blanket "no HTTP" shorthand does not exempt
+cold compositions from principal attestation or permit sharing another runtime's proof.
+
 Capture binding v2 includes the observed evidence fingerprint in native operation
 identity, outside ordinary v1 proposal syntax. Existing capture binding v1 still
 deserializes and reports missing evidence; it is never backfilled. Generic unbound

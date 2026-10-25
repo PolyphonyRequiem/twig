@@ -25,13 +25,13 @@ public sealed class DraftCaptureCommandTests : IAsyncLifetime
     public async Task DisposeAsync() => await _fixture.DisposeAsync();
 
     [HostMigrationFact]
-    public async Task ExplicitInspectionThenNewCompositionCaptureExportsWithZeroHttpAndNoAuthority()
+    public async Task ExplicitInspectionThenColdCompositionCaptureAttestsPrincipalWithoutWorkHttpOrAuthority()
     {
         var (runtime, key, draft, capture) = await SeedAsync();
         var inspection = new StringWriter();
         (await Command(runtime, inspection).ShowAsync(42, "json", document: true)).ShouldBe(0);
         var fresh = await _fixture.CreateRuntimeAsync();
-        var http = _fixture.Transport.HttpAttempts;
+        var beforeCapture = _fixture.Transport.SnapshotHttp();
         var metadata = _fixture.Transport.MetadataAttempts;
         _fixture.Transport.RejectMetadata = true;
         _layout.Refuse = _rules.Refuse = true;
@@ -46,7 +46,14 @@ public sealed class DraftCaptureCommandTests : IAsyncLifetime
         journal.AuthorizationMode.ShouldBeNull();
         journal.ConfirmedAt.ShouldBeNull();
         journal.State.ShouldBe(PlanOperationState.Planned);
-        _fixture.Transport.HttpAttempts.ShouldBe(http);
+        var afterCapture = _fixture.Transport.SnapshotHttp();
+        beforeCapture.ClassifiedTotal.ShouldBe(beforeCapture.Total);
+        afterCapture.ClassifiedTotal.ShouldBe(afterCapture.Total);
+        afterCapture.ShouldBe(beforeCapture with
+        {
+            Total = beforeCapture.Total + 1,
+            Principal = beforeCapture.Principal + 1,
+        });
         _fixture.Transport.MetadataAttempts.ShouldBe(metadata);
         _fixture.Transport.Mutations.ShouldBe(0);
         _layout.Attempts.ShouldBe(1);
@@ -62,8 +69,37 @@ public sealed class DraftCaptureCommandTests : IAsyncLifetime
         var after = (await fresh.GetRequiredService<IPlanJournalRepository>().GetAsync(digest))!;
         after.LastPreviewedAt.ShouldBe(journal.LastPreviewedAt);
         after.AuthorizationMode.ShouldBeNull();
-        _fixture.Transport.HttpAttempts.ShouldBe(http);
+        _fixture.Transport.SnapshotHttp().ShouldBe(afterCapture);
         _fixture.Transport.MetadataAttempts.ShouldBe(metadata);
+    }
+
+    [HostMigrationFact]
+    public async Task AlreadyAttestedCompositionCaptureUsesZeroHttpAndCreatesNoAuthority()
+    {
+        var (runtime, key, draft, capture) = await SeedAsync();
+        (await Command(runtime, new StringWriter()).ShowAsync(42, "json", document: true)).ShouldBe(0);
+        var before = _fixture.Transport.SnapshotHttp();
+        before.Principal.ShouldBeGreaterThan(0);
+        before.ClassifiedTotal.ShouldBe(before.Total);
+        _fixture.Transport.RejectMetadata = true;
+        _layout.Refuse = _rules.Refuse = true;
+        var output = new StringWriter();
+        (await CaptureAsync(runtime, key, draft, capture, output)).ShouldBe(0);
+        var after = _fixture.Transport.SnapshotHttp();
+        after.ClassifiedTotal.ShouldBe(after.Total);
+        after.ShouldBe(before);
+        _fixture.Transport.Mutations.ShouldBe(0);
+        _layout.Attempts.ShouldBe(1);
+        _rules.Attempts.ShouldBe(1);
+        using var document = JsonDocument.Parse(output.ToString());
+        var digest = document.RootElement.GetProperty("digest").GetString()!;
+        var journal = (await runtime.GetRequiredService<IPlanJournalRepository>().GetAsync(digest))!;
+        (await File.ReadAllTextAsync(journal.SourcePath)).ShouldBe(journal.CanonicalJson);
+        journal.DraftCapture!.Version.ShouldBe(2);
+        journal.Error.ShouldBeNull();
+        journal.AuthorizationMode.ShouldBeNull();
+        journal.ConfirmedAt.ShouldBeNull();
+        journal.State.ShouldBe(PlanOperationState.Planned);
     }
 
     [HostMigrationFact]

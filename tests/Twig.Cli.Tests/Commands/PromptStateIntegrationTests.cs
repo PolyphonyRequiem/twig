@@ -102,6 +102,21 @@ public class PromptStateIntegrationTests : IDisposable
         return wi;
     }
 
+    private IRevisionBoundAdoWorkItemService CreateRevisionBoundSource()
+    {
+        var source = Substitute.For<IRevisionBoundAdoWorkItemService>();
+        source.FetchAtRevisionAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var id = call.ArgAt<int>(0);
+                var revision = call.ArgAt<int>(1);
+                var item = await _workItemRepo.GetByIdAsync(id, call.ArgAt<CancellationToken>(2))
+                    ?? throw new InvalidOperationException($"No cached fixture item for #{id}.");
+                return new WorkItemMapper().ToSnapshot(item) with { Revision = revision };
+            });
+        return source;
+    }
+
     private JsonElement ReadPromptJson()
     {
         var json = File.ReadAllText(PromptJsonPath);
@@ -159,7 +174,7 @@ public class PromptStateIntegrationTests : IDisposable
             new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
             resolver, _workItemRepo, _writer,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: writer, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: writer, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("Resolved");

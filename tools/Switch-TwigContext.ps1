@@ -7,12 +7,12 @@
 #
 # Usage:
 #   .\tools\Switch-TwigContext.ps1 -Org dangreen-msft -Project Twig
-#   .\tools\Switch-TwigContext.ps1 -Org microsoft -Project OS -Team CloudVault
+#   .\tools\Switch-TwigContext.ps1 -Org example-org -Project SampleProject -Team SampleTeam
 #
 # Save/Restore:
 #   . .\tools\Switch-TwigContext.ps1  # dot-source to import functions
 #   Save-TwigConfig                   # backup current config
-#   .\tools\Switch-TwigContext.ps1 -Org microsoft -Project OS
+#   .\tools\Switch-TwigContext.ps1 -Org example-org -Project SampleProject
 #   Restore-TwigConfig                # restore original config
 # ============================================================================
 

@@ -29,6 +29,23 @@ add it here first.
 | **ProcessConfiguration** | Immutable aggregate encoding ADO process rules (states, allowed child types, transitions). | `src/Twig.Domain/Aggregates/ProcessConfiguration.cs:42` |
 | **TypeConfig** | Per-work-item-type slice of a `ProcessConfiguration`. | `src/Twig.Domain/Aggregates/ProcessConfiguration.cs:11` |
 
+### Declared policy
+
+**Policy assessment**: An evidence-backed statement of current compliance with declared
+mechanical rules for an explicitly named scope. Incomplete evidence is unavailable, not
+compliant. _Avoid_: proposal permission, whole-board certification.
+
+**Policy finding**: A current violation or a gap in the evidence needed to decide compliance.
+A warning-only rule can still have a violation.
+
+**Policy repair strategy**: An explicit alternative for improving a finding. Choosing an
+alternative does not authorize its effects or prove that compliance has been achieved.
+_Avoid_: automatic fix, policy bypass.
+
+**Policy reconciliation**: Assessing noncompliance and choosing concrete paths toward
+compliance. It is distinct from local/remote merge reconciliation, dependent field clears,
+and settlement of uncertain proposal outcomes.
+
 ## 2. Staged / local-only state
 
 Everything here exists **only in the local SQLite cache** until pushed.

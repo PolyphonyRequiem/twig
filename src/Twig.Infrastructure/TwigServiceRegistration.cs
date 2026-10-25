@@ -630,6 +630,8 @@ public static class TwigServiceRegistration
         // this ONE service so validation, preview, apply, status and seed-descriptor
         // semantics cannot drift between surfaces.
         services.AddSingleton<Twig.Infrastructure.Plan.PlanDocumentParser>();
+        services.AddSingleton(sp => new Twig.Domain.Services.Policy.PolicyReconciliationService(
+            sp.GetRequiredService<IWorkItemRepository>(), sp.GetService<IWorkItemLinkRepository>()));
 
         // Change Recipe rendering seam. Shares the parser deliberately: a rendered proposal's
         // digest is produced by the same canonicalization path the apply gate later checks,

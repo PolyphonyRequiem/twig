@@ -61,7 +61,15 @@ jobs:
       - run: dotnet build --no-restore
 
       - name: Fundamental build validation (15-second offline smoke)
-        run: python tools/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --timeout 15
+        run: python tools/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --timeout 15 --trace artifacts/smoke/boundaries.jsonl
+
+      - name: Preserve smoke boundaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-smoke-${{ matrix.rid }}
+          path: artifacts/smoke/
+          if-no-files-found: warn
 
       # if:failure() so a captured stall is preserved. The trace is the ONLY artifact
       # that can name the stalling assembly and whether any test was in flight — vstest

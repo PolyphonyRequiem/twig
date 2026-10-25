@@ -19,12 +19,22 @@ import tempfile
 REPO = Path(__file__).resolve().parents[1]
 
 
-def attach_offline_fixture(command, workspace, home, env):
+def attach_offline_fixture(command, workspace, home, env, trace=None):
     """Use fictional bound metadata/token in private stores; all HTTP is blocked."""
-    subprocess.run(['git', 'init', '--quiet', str(workspace)], check=True)
+    def run(label, argv, **kwargs):
+        if trace is not None:
+            trace.write(label, 'start')
+        result = subprocess.run(argv, **kwargs)
+        if trace is not None:
+            trace.write(label, 'end', result.returncode)
+        return result
+    run('git-init', ['git', 'init', '--quiet', str(workspace)], check=True)
     def git_path(flag):
-        value = subprocess.check_output(['git', '-C', str(workspace), 'rev-parse',
-                                         '--path-format=absolute', flag], text=True).strip()
+        label = {'--git-common-dir': 'git-common', '--absolute-git-dir': 'git-dir',
+                 '--show-toplevel': 'git-root'}[flag]
+        value = run(label, ['git', '-C', str(workspace), 'rev-parse',
+                           '--path-format=absolute', flag],
+                    check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
         return str(Path(value).resolve())
     fingerprint = {'gitCommonDir': git_path('--git-common-dir'),
                    'worktreeGitDir': git_path('--absolute-git-dir'),
@@ -37,8 +47,8 @@ def attach_offline_fixture(command, workspace, home, env):
     for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
         env[key] = 'http://127.0.0.1:1'
     env['NO_PROXY'] = env['no_proxy'] = ''
-    subprocess.run(command + ['auth', 'identities', '-o', 'json'], cwd=workspace,
-                   env=env, check=True, capture_output=True, text=True, timeout=45)
+    run('fixture-identities', command + ['auth', 'identities', '-o', 'json'], cwd=workspace,
+        env=env, check=True, capture_output=True, text=True, timeout=45)
     stamp = '2026-01-01T00:00:00+00:00'
     tenant, actor = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
     issuer = f'https://sts.windows.net/{tenant}/'

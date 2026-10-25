@@ -3,6 +3,7 @@ using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.Services.Policy;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
@@ -24,6 +25,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DraftCaptureEvidence))]
 [JsonSerializable(typeof(DraftCaptureBench))]
 [JsonSerializable(typeof(FormLayout))]
+[JsonSerializable(typeof(PolicyAssessment))]
+[JsonSerializable(typeof(PolicyRepairResult))]
 [JsonSerializable(typeof(BenchReadEnvelope))]
 [JsonSerializable(typeof(BenchReadError))]
 [JsonSerializable(typeof(TwigRepoConfig))]

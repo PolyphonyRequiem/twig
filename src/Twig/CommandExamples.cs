@@ -622,6 +622,16 @@ internal static class CommandExamples
             "twig proposal validate --file proposal.json    Validate a proposal v1 file. No ADO calls.",
             "twig proposal validate --file proposal.json --output json    Validate and emit issues/digest as JSON.",
         ],
+        ["policy assess"] =
+        [
+            "twig policy assess --ids 42,43    Assess cached current compliance, not proposal enforcement.",
+            "twig policy assess --ids 42,43 -o json    Emit typed findings, evidence digest and explicit alternatives.",
+        ],
+        ["policy reconcile"] =
+        [
+            "twig policy reconcile --ids 42,43 --evidence <digest> --finding f1 --strategy reparent --parent 43    Project an explicitly selected repair.",
+            "twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy remove-labels -o json --proposal-only > repair.json    Author a native proposal; preview and authorize separately.",
+        ],
         ["proposal preview"] =
         [
             "twig proposal preview --file proposal.json     Preview: import journal, snapshot pending changes, report digest and canApply.",

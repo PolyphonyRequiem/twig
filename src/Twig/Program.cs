@@ -1668,6 +1668,26 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
 
     // ── Proposal lifecycle (native, formerly "plan") ──────────────────
 
+    /// <summary>Assess cached current compliance and explicit repair alternatives. Never mutates ADO.</summary>
+    /// <param name="ids">Required comma-separated positive published item IDs (1 to 200); no implicit active item or board-wide claim.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    [Command("policy assess")]
+    public async Task<int> PolicyAssess(string ids, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PolicyCommand>().AssessAsync(ids, output, ct);
+
+    /// <summary>Render one explicitly selected policy repair as a native proposal. No authorization or apply.</summary>
+    /// <param name="ids">Required comma-separated assessed positive IDs; include a desired parent and its ancestors.</param>
+    /// <param name="evidence">Required evidence digest from policy assess; changed facts/policy refuse.</param>
+    /// <param name="finding">Required finding ID from the same assessment.</param>
+    /// <param name="strategy">Required strategy ID from that finding; no default material choice.</param>
+    /// <param name="parent">Explicit replacement parent ID, only for reparent; default none.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    /// <param name="proposalOnly">With JSON output, emit only native proposal JSON for redirection to a new file; default false.</param>
+    [Command("policy reconcile")]
+    public async Task<int> PolicyReconcile(string ids, string evidence, string finding, string strategy,
+        int? parent = null, string output = OutputFormatterFactory.DefaultFormat, bool proposalOnly = false, CancellationToken ct = default)
+        => await services.GetRequiredService<PolicyCommand>().ReconcileAsync(ids, evidence, finding, strategy, parent, output, proposalOnly, ct);
+
     /// <summary>Validate a proposal v1 file. No ADO mutation. Canonical verb is <c>proposal validate</c>; <c>plan validate</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -2001,6 +2021,9 @@ internal static class GroupedHelp
         // Proposal lifecycle (native, formerly "plan"). Legacy `plan <verb>` entries
         // stay registered so the alias resolves in grouped help and SubcommandGuard.
         "proposal",
+        "policy",
+        "policy assess",
+        "policy reconcile",
         "proposal validate",
         "proposal latest",
         "proposal preview",

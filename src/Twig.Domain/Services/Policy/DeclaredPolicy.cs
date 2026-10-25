@@ -13,7 +13,7 @@ namespace Twig.Domain.Services.Policy;
 /// <para>
 /// Judgment calls — whether work is meaningful, attestation sufficiency, review readiness —
 /// are deliberately not expressible here (D1). See
-/// <c>docs/specs/cloudvault-policy-decisions.spec.md</c>.
+/// <c>docs/specs/declared-policy-decisions.spec.md</c>.
 /// </para>
 /// </remarks>
 public sealed record DeclaredPolicy

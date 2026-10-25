@@ -53,9 +53,9 @@ only a subset of children were complete. (This was partially fixed earlier with
 `epic_completed` guards in commit `e996e5b`, but the root causes above still allowed
 the workflow to reach close-out prematurely.)
 
-### Comparison with cloudvault SDLC
+### Comparison with a reference service's SDLC
 
-We examined the cloudvault SDLC (`~/projects/cloudvault-service-api/.conductor/workflows/`)
+We examined a reference service's SDLC (anonymized here as SampleService)
 which is based on twig's but has evolved separately. Key differences:
 
 - **Execution planner agent** — separate agent in planning that defines PGs before seeding
@@ -169,7 +169,7 @@ state_detector → intent_correction_gate? → cleanup? → planning → impleme
 
 **Structural redesign (in progress):**
 
-Modular sub-workflow architecture inspired by cloudvault SDLC:
+Modular sub-workflow architecture inspired by the reference SDLC:
 - `plan-design.yaml` — architect → reviewers → execution planner (NEW agent)
 - `planning-pr.yaml` — commit plans to branch, push, link artifact, create PR (NEW)
 - `plan-seeding.yaml` — create work items with PG tags, fan-out to child planners
@@ -187,7 +187,7 @@ Human gate confidence thresholds (P6 update): ≤85% during planning (surface ea
 ≥95% during implementation (only genuine blockers).
 
 **Key design decisions:**
-- Execution planner is separate from architect (cloudvault pattern). Architect designs
+- Execution planner is separate from architect (reference pattern). Architect designs
   WHAT, execution planner determines HOW (PG grouping). Exec planner can loop back
   to architect if PGs can't be self-contained.
 - Planning PR is mandatory — plans committed to `planning/<id>` branch, linked to
@@ -363,7 +363,7 @@ reviewers lacking P11 rubrics, pr_fixer no revision cap, no resume capability.
 7. Add state discovery for resume capability (P3)
 
 ### Next step
-Examining cloudvault implementation workflow for patterns to adopt.
+Examining the reference implementation workflow for patterns to adopt.
 
 ---
 
@@ -399,7 +399,7 @@ Comprehensive redesign of `twig-sdlc-implement.yaml` — all 7 hard violations r
 - No-nulls rule added to all 24 system prompts
 - All remaining `plan_reader.output` references replaced (8 files)
 
-### Cloudvault patterns adopted
+### Reference patterns adopted
 1. PG discovery from work items (tags) not plan text
 2. Staleness assessor per PG (proceed/adapt/replan)
 3. Post-merge regression testing on main

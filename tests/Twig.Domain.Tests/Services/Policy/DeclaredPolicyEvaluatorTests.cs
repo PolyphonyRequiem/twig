@@ -13,7 +13,7 @@ using Xunit;
 namespace Twig.Domain.Tests.Services.Policy;
 
 /// <summary>
-/// Declared CloudVault work-management rules (AB#1169). Type and label names below are test
+/// Declared work-management rules (AB#1169). Type and label names below are test
 /// data supplied by a policy file; the evaluator itself names none.
 /// </summary>
 public sealed class DeclaredPolicyEvaluatorTests
@@ -151,6 +151,19 @@ public sealed class DeclaredPolicyEvaluatorTests
 
         d.Outcome.ShouldBe(PolicyOutcome.Refuse);
         d.OpId.ShouldBe("b");
+    }
+
+    [Fact]
+    public async Task ParentType_UnchangedTypeWithExistingViolation_WarnsRatherThanBlockingRepair()
+    {
+        Cache(1, WorkItemType.Task, parent: 2);
+        Cache(2, WorkItemType.Epic);
+
+        var d = (await Evaluate(Policy(TaskUnderIssue),
+            Plan(Batch("b", 1, ("System.WorkItemType", "Task"))))).ShouldHaveSingleItem();
+
+        d.Outcome.ShouldBe(PolicyOutcome.Warn);
+        d.Reason.ShouldContain("Pre-existing");
     }
 
     [Fact]

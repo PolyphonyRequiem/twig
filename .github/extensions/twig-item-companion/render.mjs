@@ -3,6 +3,7 @@ import { validateDraftDocument } from "./draft-document.mjs";
 import { renderDraftInspection } from "./draft-inspection.mjs";
 import { reviewMarkup, reviewClient } from "./review-page.mjs";
 import { createEditingClient } from "./editing-client.mjs";
+import { createHandoffClient } from "./handoff-client.mjs";
 
 export function renderPage({ token, nonce, workbench = false, review = false }) {
     return `<!doctype html>
@@ -61,7 +62,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
     .muted { color: var(--twig-muted); }
     .row { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-bottom: 16px; }
     label { display: grid; gap: 4px; flex: 1 1 220px; }
-    input, button, select {
+    input, button, select, textarea {
       min-height: 36px;
       border: 1px solid var(--twig-border);
       border-radius: 6px;
@@ -194,7 +195,8 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
       loadModule: () => import("/review-module.mjs?token=" + encodeURIComponent(token))
     }).catch((error) => {
       document.querySelector("#review-status").textContent = "Review unavailable: " + error.message;
-    });` : workbench ? `const editingClient = (${createEditingClient.toString()})({ document, request, text });\n${workbenchClient}` : `
+    });` : workbench ? `const editingClient = (${createEditingClient.toString()})({ document, request, text });
+    const handoffClient = (${createHandoffClient.toString()})({ document, request, text });\n${workbenchClient}` : `
     const form = document.querySelector("#load-form");
     const input = document.querySelector("#work-item-id");
     const loadButton = document.querySelector("#load-button");

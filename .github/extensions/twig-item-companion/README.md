@@ -17,6 +17,60 @@ No dependencies are bundled. The Copilot runtime supplies
 node --test .github/extensions/twig-item-companion/tests/*.test.mjs
 ```
 
+## Explicit in-session handoff fallback (not host-qualified)
+
+After loading qualified native detail in the workbench, **Prepare handoff brief**
+creates an item-bound handle without sending a message. Edit the brief, then click
+**Start in this session** to enqueue it in the current Copilot conversation, using
+that conversation's current agent and permissions. The brief does not include unsent
+field edits. This fallback does **not** create/open a new desktop project session,
+launch a separate Agency session, navigate the app, or save/authorize/apply changes.
+
+The server derives the qualified target from its detail observation; the browser
+submits only a handle and bounded brief (8192 UTF-8 bytes; 16KiB route envelope).
+The local SDK session ID and canonical working directory are checked before sending.
+A consumed handle cannot be reused. Admission reports a message ID, not task
+completion. Failed/lost send acknowledgements are unknown: inspect the conversation
+rather than retry. Late admission evidence is kept under the original target,
+including across selection changes. Holds and brief retention are process-memory
+only, not durable restart recovery or an atomic work-item/session association.
+No ADO link/comment is written. The SDK send acknowledgement has a 10-second bound;
+that deadline does not cancel already admitted work.
+**Check handoff status** explicitly reads the authenticated server state and reconciles
+only the same qualified item, Bench, identity and joined session. It can show late
+admission after a lost acknowledgement without resending, retrying or re-arming Start.
+It preserves newer brief text; absent matching evidence leaves uncertainty unresolved.
+
+Shipped SDK evidence (`1.0.102-0.unstable.r40029025960.g5a14a15`):
+`extension.d.ts` declares `joinSession` for the current foreground session;
+`session.d.ts` declares `send` returning an admitted message ID. The installed
+Ask Bluebird extension uses this same `session.send` path. `tasks.startAgent`
+returns a background agent ID, not an app project session. `CopilotClient.createSession`
+is a client-owned runtime API, not a desktop registration/navigation contract.
+`CanvasHostContext` declares only canvas-rendering support. No supported combined
+desktop launch/association/navigation callback was found in these declarations or
+the six installed extension entrypoints. This finding is limited to the inspected
+SDK/callback surface; it does not mean desktop session creation links are unsupported.
+
+GitHub's [official deep-link documentation](https://docs.github.com/en/copilot/how-tos/github-copilot-app/open-with-deep-links)
+documents `ghapp://session/new` (or `ghapp://session/new/OWNER/REPO`) as a session
+creation entrypoint, with app confirmation before creation. Its supported parameters
+are `repo`, `pr`, `branch`, `prompt`, and `mode`; `pr` and `branch` are mutually
+exclusive. The documented existing-session focus route is plural:
+`ghapp://sessions/SESSION_ID`, using a genuine app-local session/workspace ID, not
+an SDK runtime, background-agent, message, or GitHub task ID.
+
+The documentation does not declare `host`/`projectId` selection parameters, a
+created-session ID return callback, or atomic Twig work-item association. Correct
+repository/account host routing and created-session identity remain unqualified.
+No guessed routing parameters or singular focus route are implemented here.
+The docs prohibit secrets or sensitive user content in prompt URLs: private ADO
+briefs must not be put in either a deep-link prompt or its hosted HTTPS launcher.
+The documented links are therefore not a qualified private-brief handoff replacement.
+The full desktop experience remains a limitation, not a claim of completion.
+No link launch, reload or installed-host qualification has been performed for this
+fallback.
+
 ## Explicit workbench editing bridge (source only, not host-qualified)
 
 The workbench source now imports `native-editing.mjs` and `editing-document.mjs`
@@ -36,8 +90,8 @@ The bridge owns a cryptographically random capture handle and native context and
 counters in the server. Browser STAGE requests carry only the handle and ordered
 nullable field intent, never context/counter authority. Existing loopback
 host/token/origin/content-type guards remain. Only `/api/editing` admits up to
-256KiB JSON (the native serialized request still has its own 256KiB bound); other
-routes retain 4KiB. Editing rejects duplicate keys, excess depth, unexpected keys
+256KiB JSON (the native serialized request still has its own 256KiB bound); the
+handoff route admits 16KiB and other routes retain 4KiB. Editing rejects duplicate keys, excess depth, unexpected keys
 and malformed intent before invoking the adapter.
 
 Only visible, non-contribution, non-read-only `FieldControl` values carried in

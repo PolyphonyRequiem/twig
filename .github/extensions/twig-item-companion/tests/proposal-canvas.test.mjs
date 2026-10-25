@@ -8,6 +8,7 @@ import { createReviewServer } from "../review-server.mjs";
 import { reviewClient } from "../review-page.mjs";
 import { renderPage } from "../render.mjs";
 import { mountRetainedReview } from "../retained-review.mjs";
+import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 
 const workspacePath = process.cwd();
 const digest = "a".repeat(64);
@@ -36,7 +37,7 @@ function fixture() {
     };
 }
 function reader(calls, payload = () => JSON.stringify(fixture()), realpath = async (value) => value) {
-    return createNativeProposalReader({
+    return createNativeProposalReader({ executable: fakeExecutable(),
         realpath,
         execFile(exe, args, options, callback) {
             calls.push({ exe, args, options });
@@ -64,7 +65,7 @@ test("one native preview pins physical file/cwd and expected digest then retains
     const calls = [];
     const value = await reader(calls)({ input: input(), workspacePath });
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].exe, "twig");
+    assert.equal(calls[0].exe, FAKE_TWIG);
     assert.deepEqual(calls[0].args, ["proposal", "preview", "--file", path.join(workspacePath, "proposal.json"),
         "--expect-digest", digest, "-o", "json"]);
     assert.equal(calls[0].options.cwd, workspacePath);
@@ -261,7 +262,7 @@ test("rendered review page shares theme and nonce, has no automatic acquisition 
 test("supported SDK declares a third canvas with inert open, explicit action and close cleanup", async () => {
     const source = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
     let declarations, options, creations = 0;
-    const calls = [];
+    const calls = [], admitted = [];
     class CanvasError extends Error {
         constructor(code, message) { super(message); this.code = code; }
     }
@@ -269,7 +270,9 @@ test("supported SDK declares a third canvas with inert open, explicit action and
         CanvasError, createCanvas: (value) => value,
         joinSession: async ({ canvases }) => { declarations = canvases; return { workspacePath }; },
         createNativeDetailReader() {}, createNativeBenchReader() {}, createNativeBenchDetailReader() {},
-        createNativeDraftReader() {}, createNativeProposalReader: () => "native-preview-reader",
+        createNativeDraftReader() {}, ExecutableError: class extends Error {},
+        admitTwigExecutable: async ({ canvas }) => { admitted.push(canvas); return fakeExecutable(); },
+        createNativeProposalReader: ({ executable }) => { assert.equal(executable.path, FAKE_TWIG); return "native-preview-reader"; },
         createReviewServer: async (value) => {
             options = value; creations++;
             return { url: "http://127.0.0.1:1/", acquire: async (value) => { calls.push(value); return { retained: true }; },
@@ -287,6 +290,7 @@ test("supported SDK declares a third canvas with inert open, explicit action and
     await canvas.open({ instanceId: "review" });
     await canvas.open({ instanceId: "review" });
     assert.equal(creations, 1);
+    assert.deepEqual(admitted, ["review"], "one admission per opened instance, scoped to the review manifest");
     assert.equal(options.workspacePath, workspacePath);
     assert.equal(options.readNativeProposal, "native-preview-reader");
     assert.deepEqual(calls, []);

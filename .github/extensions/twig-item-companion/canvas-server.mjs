@@ -5,6 +5,7 @@ import { captureBench } from "./native-bench.mjs";
 import { validateDraftDocument } from "./draft-document.mjs";
 import { createEditingBridge } from "./editing-bridge.mjs";
 import { createSessionHandoff } from "./session-handoff.mjs";
+import { ExecutableError } from "./native-executable.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
@@ -224,6 +225,9 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             return { status: "read", page: result.page, pageHandle: captured.pageHandle };
         } catch (error) {
             if (error instanceof HttpError) throw error;
+            // Executable admission failures are built locally from the admitted path, hash and capability
+            // reason, never from provider output, so only that typed error is relayed with its code.
+            if (error instanceof ExecutableError) throw new HttpError(502, error.message, { code: error.code });
             // Never relay native stderr, provider response bodies, or cursor-bearing diagnostics.
             const message = error instanceof Error && error.message.includes("extension 4MiB output limit")
                 ? "Discussion exceeds the extension 4MiB output limit; no page was accepted."
@@ -243,7 +247,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         void routeRequest(request, response).catch((error) => {
             if (!response.headersSent) {
                 const status = error instanceof HttpError ? error.status : 500;
-                sendJson(response, status, { error: error instanceof Error ? error.message : "Request failed." });
+                sendJson(response, status, { error: error instanceof Error ? error.message : "Request failed.",
+                    ...(error instanceof HttpError && error.code ? { code: error.code } : {}) });
             } else {
                 response.destroy();
             }
@@ -511,8 +516,9 @@ function closeServer(server) {
 }
 
 class HttpError extends Error {
-    constructor(status, message, options) {
+    constructor(status, message, { code, ...options } = {}) {
         super(message, options);
         this.status = status;
+        if (code) this.code = code;
     }
 }

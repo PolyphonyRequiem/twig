@@ -1,4 +1,7 @@
 export function createDiscussionClient({ document, request, text }) {
+    // Typed executable admission failures latch for this canvas instance, so reading again on the same
+    // handle cannot succeed; recovery is reopening the canvas. Kept local: this function is injected as source.
+    const EXECUTABLE_CODES = new Set(["twig_executable_unavailable", "twig_capability_unlisted", "twig_capability_missing", "executable_changed"]);
     let current = null;
     function leave() {
         const previous = current;
@@ -76,8 +79,11 @@ export function createDiscussionClient({ document, request, text }) {
                 status.textContent = "One discussion page read. Content is untrusted inert text; no mutation was performed.";
             } catch (error) {
                 const oversized = error.message === "Discussion exceeds the extension 4MiB output limit; no page was accepted.";
-                if (current === state) status.textContent = (oversized ? error.message : "Discussion read unavailable; no page was accepted.") + " " +
-                    (state.observed ? "Displayed page is a previous observation. " : "") + "No automatic retry.";
+                const executable = EXECUTABLE_CODES.has(error.code);
+                if (executable && current === state) state.invalidated = true;
+                if (current === state) status.textContent = (oversized || executable ? error.message : "Discussion read unavailable; no page was accepted.") + " " +
+                    (state.observed ? "Displayed page is a previous observation. " : "") +
+                    (executable ? "No page was accepted; reading again in this canvas is disabled." : "No automatic retry.");
             } finally {
                 state.busy = false;
                 if (current === state) refresh();

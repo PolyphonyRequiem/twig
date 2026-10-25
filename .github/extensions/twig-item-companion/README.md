@@ -8,7 +8,8 @@ read Twig's SQLite files or call an ADO/GitHub API directly.
 The item companion intentionally does not edit, save, authorize, apply, post discussion,
 upload/download attachments, or infer relationship coverage. The CLI remains the
 authority for workspace admission and detail reads. Twig must be available as
-`twig` on the extension process's `PATH`.
+`twig` on the extension process's `PATH`; see *Executable admission* below for how
+each canvas pins and checks it.
 
 No dependencies are bundled. The Copilot runtime supplies
 `@github/copilot-sdk/extension`. Local checks use Node's built-in test runner:
@@ -16,6 +17,48 @@ No dependencies are bundled. The Copilot runtime supplies
 ```powershell
 node --test .github/extensions/twig-item-companion/tests/*.test.mjs
 ```
+
+## Executable admission and capability preflight
+
+Each opened canvas instance resolves `twig` once from absolute `PATH` entries
+(`twig.exe` only on Windows), canonicalises it to its real path, and records the
+file's SHA-256. Every native command in that instance then spawns that absolute
+path, never a bare `twig` name. Reopening the same instance does not re-admit;
+a new instance does.
+
+Each canvas declares only the native capabilities it uses (item: detail and draft
+show; workbench: Bench browse/detail, discussion and draft open/stage/retain;
+review: proposal preview). Before a capability's first use, the instance runs
+`<command> --help` on the pinned path and requires that the usage line names that
+command and that its `Options:` section declares each flag the canvas will pass as
+an exact token. A generic or different help page, or a prefix of a required flag,
+does not admit. There is no minimum-version check. A refusal is latched for the
+instance and surfaces as `twig_capability_missing`; opening a canvas runs no help.
+
+Before **every** spawn, including help probes, the file is re-hashed. Any change
+since admission, including same-size rewrites with a restored modification time,
+refuses with `executable_changed` and latches. This is a best-effort check made
+immediately before spawning, not an OS-atomic guarantee: a file replaced between the
+hash and the process start is not detected. Successful probes are cached per
+real path and hash, never per `PATH` name. While searching `PATH`, only "not
+usable here" lookup errors (for example missing, not a directory, or access
+denied) skip to the next entry; any other I/O failure is reported with the
+candidate path instead of falling through.
+
+These typed admission errors are built locally from the pinned path, hash and
+capability reason. The discussion panel relays them verbatim, but no other native
+failure: provider and cursor diagnostics there remain redacted. They also disable
+**Read discussion** for that instance and ask you to reopen the canvas, because
+reading again with the same pinned executable cannot succeed. A previously
+displayed page stays visible, labelled as a previous observation.
+
+Help output grants no authority. Every native payload validator and guard runs
+independently of preflight. Each probe is bounded to 5 s and 64 KiB, with 15 s
+total probing per instance. The timeout bounds duration only: it stops the direct
+child, not descendants it may start. Help is not claimed to be offline or free of
+side effects; an older or unknown binary could perform startup work, including
+network access, while printing help. Preflight installs, downloads, reloads and
+changes nothing in the environment.
 
 ## Explicit read-only workbench discussion
 
@@ -552,7 +595,9 @@ These are fake-process, real-loopback, SDK-mock and inert-DOM results, not actua
 native preview or installed review-canvas proof. Separately, the coordinator
 opened an existing companion shell successfully, but its actual item load failed
 with `Argument '--document' is not recognized` from the installed CLI. That
-host/CLI mismatch remains a real failed load, not a passing native integration or
-an eligibility/authorization refusal. No retry, installation or reload was
+host/CLI mismatch remains a real, historical failed load, not a passing native integration or
+an eligibility/authorization refusal. It is not evidence about any currently installed
+binary; current installed-host qualification is unknown. Capability preflight now
+refuses such a mismatch before the detail command runs. No retry, installation or reload was
 performed. The new review canvas is not yet discovered in that host; no Save,
 host authorization or full-native-origin acceptance is claimed.

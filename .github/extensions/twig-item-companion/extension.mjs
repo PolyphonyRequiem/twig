@@ -8,13 +8,11 @@ import { createNativeProposalReader } from "./native-proposal.mjs";
 import { createReviewServer } from "./review-server.mjs";
 import { createNativeEditingAdapter } from "./native-editing.mjs";
 import { createNativeDiscussionReader } from "./native-discussion.mjs";
+import { admitTwigExecutable, ExecutableError } from "./native-executable.mjs";
 
 const instances = new Map();
 const workbenchInstances = new Map();
 const reviewInstances = new Map();
-const readNativeDetail = createNativeDetailReader();
-const readNativeBench = createNativeBenchReader();
-const readNativeBenchDetail = createNativeBenchDetailReader();
 let session;
 
 const canvas = createCanvas({
@@ -81,10 +79,11 @@ const canvas = createCanvas({
 
         let instance = instances.get(ctx.instanceId);
         if (!instance) {
+            const executable = await admit("item");
             instance = await createCanvasServer({
                 workspacePath: session.workspacePath,
-                readNativeDetail,
-                readNativeDraft: createNativeDraftReader(),
+                readNativeDetail: createNativeDetailReader({ executable }),
+                readNativeDraft: createNativeDraftReader({ executable }),
             });
             instances.set(ctx.instanceId, instance);
         }
@@ -113,8 +112,16 @@ function getInstance(instanceId) {
     return instance;
 }
 
+// Pins each canvas instance to the absolute real twig executable and its content hash. Opening only
+// hashes the file; capability help is probed lazily before the first native command that needs it.
+async function admit(canvasId) {
+    try { return await admitTwigExecutable({ canvas: canvasId }); }
+    catch (error) { throw asCanvasError(error); }
+}
+
 function asCanvasError(error) {
     if (error instanceof CanvasError) return error;
+    if (error instanceof ExecutableError) return new CanvasError(error.code, error.message);
     return new CanvasError("native_read_failed", error instanceof Error ? error.message : "Twig detail could not be read.");
 }
 
@@ -157,9 +164,12 @@ const workbenchCanvas = createCanvas({
         }
         let instance = workbenchInstances.get(ctx.instanceId);
         if (!instance) {
-            instance = await createCanvasServer({ workspacePath: session.workspacePath, readNativeBench, readNativeBenchDetail,
-                readNativeDiscussion: createNativeDiscussionReader(),
-                nativeEditing: createNativeEditingAdapter(), handoffSession: session, workbench: true });
+            const executable = await admit("workbench");
+            instance = await createCanvasServer({ workspacePath: session.workspacePath,
+                readNativeBench: createNativeBenchReader({ executable }),
+                readNativeBenchDetail: createNativeBenchDetailReader({ executable }),
+                readNativeDiscussion: createNativeDiscussionReader({ executable }),
+                nativeEditing: createNativeEditingAdapter({ executable }), handoffSession: session, workbench: true });
             workbenchInstances.set(ctx.instanceId, instance);
         }
         return { url: instance.url, title: "Twig workbench", status: "Cached browsing; local draft OPEN/STAGE are explicit and require installed native support" };
@@ -203,7 +213,9 @@ const reviewCanvas = createCanvas({
         if (!session?.workspacePath) throw new CanvasError("workspace_unavailable", "Proposal review requires a project session with an admitted workspace.");
         let instance = reviewInstances.get(ctx.instanceId);
         if (!instance) {
-            instance = await createReviewServer({ workspacePath: session.workspacePath, readNativeProposal: createNativeProposalReader() });
+            const executable = await admit("review");
+            instance = await createReviewServer({ workspacePath: session.workspacePath,
+                readNativeProposal: createNativeProposalReader({ executable }) });
             reviewInstances.set(ctx.instanceId, instance);
         }
         return { url: instance.url, title: "Twig proposal review", status: "Retained evidence only; preview acquisition is explicit and may write the local journal" };

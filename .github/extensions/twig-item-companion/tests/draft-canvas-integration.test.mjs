@@ -7,6 +7,7 @@ import { createCanvasServer } from "../canvas-server.mjs";
 import { createNativeDraftReader, validateDraftDocument as validateNative } from "../native-draft.mjs";
 import { validateDraftDocument } from "../draft-document.mjs";
 import { renderPage } from "../render.mjs";
+import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 
 const workspacePath = process.cwd();
 const key = { checkoutRoot: workspacePath, connectionId: "fictional-connection", bindingId: "fictional-binding", workItemId: 42 };
@@ -29,7 +30,7 @@ function draft() {
     };
 }
 function fakeReader(calls, payload = draft()) {
-    return createNativeDraftReader({
+    return createNativeDraftReader({ executable: fakeExecutable(),
         realpath: async (value) => value,
         execFile(exe, args, options, callback) {
             calls.push({ exe, args, options });
@@ -305,7 +306,9 @@ test("existing SDK declaration wires only explicit inspection with no caller-sup
         CanvasError, createCanvas: (value) => value,
         joinSession: async ({ canvases }) => { declarations = canvases; return { workspacePath }; },
         createCanvasServer: async (options) => { serverOptions = options; return fakeServer; },
-        createNativeDraftReader: () => "draft-reader",
+        ExecutableError: class extends Error {},
+        admitTwigExecutable: async ({ canvas }) => { calls.push(`admit:${canvas}`); return fakeExecutable(); },
+        createNativeDraftReader: ({ executable }) => executable.path === FAKE_TWIG ? "draft-reader" : "unpinned",
         createNativeDetailReader: () => "detail-reader",
         createNativeBenchReader: () => "bench-reader",
         createNativeBenchDetailReader: () => "bench-detail-reader",
@@ -318,9 +321,9 @@ test("existing SDK declaration wires only explicit inspection with no caller-sup
     assert.match(action.description, /May write local observation\/conflict metadata/);
     await companion.open({ instanceId: "fictional" });
     assert.equal(serverOptions.readNativeDraft, "draft-reader");
-    assert.deepEqual(calls, []);
+    assert.deepEqual(calls, ["admit:item"]);
     await action.handler({ instanceId: "fictional", input: {} });
-    assert.deepEqual(calls, ["inspect"]);
+    assert.deepEqual(calls, ["admit:item", "inspect"]);
     assert.equal(declarations[1].actions.some((value) => value.name === "inspect_draft"), false);
     await companion.onClose({ instanceId: "fictional" });
     await assert.rejects(action.handler({ instanceId: "fictional", input: {} }), (error) => {

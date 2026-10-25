@@ -19,6 +19,7 @@ import test from "node:test";
 import { createNativeBenchReader } from "../native-bench.mjs";
 import { createNativeBenchDetailReader } from "../native-bench-detail.mjs";
 import { captureBench } from "../native-bench.mjs";
+import { admitTwigExecutable } from "../native-executable.mjs";
 
 const exeDir = process.env.TWIG_NATIVE_EXE_DIR;
 const manifestPath = process.env.TWIG_NATIVE_FIXTURE;
@@ -49,14 +50,16 @@ test("real native twig: named Bench v2 browse, explicit-Bench detail, origin con
             const currentBefore = probe();
             assert.equal(JSON.parse(currentBefore).current, "Other", "fixture must start on the non-target Bench");
 
-            const browse = await createNativeBenchReader()({ workspacePath: manifest.workspacePath, bench: manifest.bench });
+            const executable = await admitTwigExecutable({ canvas: "workbench" });
+            assert.equal(executable.sha256, manifest.binary.sha256, "admission must pin the manifest binary");
+            const browse = await createNativeBenchReader({ executable })({ workspacePath: manifest.workspacePath, bench: manifest.bench });
             assert.equal(browse.version, 2);
             assert.equal(browse.observation, "raw-mirror");
             const expected = captureBench(browse);
             const member = browse.members.find((entry) => entry.id === manifest.memberId);
             assert.ok(member && member.loaded, "fixture member must be a loaded member of the named Bench");
 
-            const readDetail = createNativeBenchDetailReader();
+            const readDetail = createNativeBenchDetailReader({ executable });
             const detail = await readDetail({ workItemId: manifest.memberId, workspacePath: manifest.workspacePath, expected });
             assert.equal(detail.benchId, browse.benchId);
             assert.deepEqual(

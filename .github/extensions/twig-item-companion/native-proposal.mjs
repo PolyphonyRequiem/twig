@@ -3,6 +3,7 @@ import { realpath as nodeRealpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { retainProposalReview } from "./retained-review.mjs";
+import { requireAdmitted } from "./native-executable.mjs";
 
 export function validateReviewRequest(input) {
     if (!input || typeof input !== "object" || Array.isArray(input) ||
@@ -19,8 +20,9 @@ export function validateReviewRequest(input) {
         workspace: Object.freeze({ ...input.workspace }) });
 }
 
-export function createNativeProposalReader({ execFile = nodeExecFile, realpath = nodeRealpath } = {}) {
+export function createNativeProposalReader({ execFile = nodeExecFile, realpath = nodeRealpath, executable } = {}) {
     return async function acquireReview({ input, workspacePath, signal }) {
+        requireAdmitted(executable);
         const request = validateReviewRequest(input);
         if (typeof workspacePath !== "string" || !workspacePath.trim()) {
             throw new Error("Proposal review requires this session's admitted Twig workspace.");
@@ -32,8 +34,10 @@ export function createNativeProposalReader({ execFile = nodeExecFile, realpath =
             throw new Error("The physical proposal file must be inside this session's physical workspace.");
         }
         signal?.throwIfAborted();
+        const twig = await executable.prepare("proposal-preview", { signal });
+        signal?.throwIfAborted();
         const rawJson = await new Promise((resolve, reject) => {
-            execFile("twig", ["proposal", "preview", "--file", file, "--expect-digest", request.digest, "-o", "json"], {
+            execFile(twig, ["proposal", "preview", "--file", file, "--expect-digest", request.digest, "-o", "json"], {
                 cwd, encoding: "utf8", shell: false, timeout: 15_000,
                 maxBuffer: 4 * 1024 * 1024, windowsHide: true, signal,
             }, (error, stdout, stderr) => {

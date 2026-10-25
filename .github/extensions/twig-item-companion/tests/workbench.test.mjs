@@ -9,12 +9,17 @@ import { createNativeBenchDetailReader } from "../native-bench-detail.mjs";
 import { renderPage } from "../render.mjs";
 import { createNativeDiscussionReader } from "../native-discussion.mjs";
 import { discussionTarget, discussionPage, discussionRefusal, childHarness } from "./discussion-fixture.mjs";
+import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
+import { mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { admitTwigExecutable, ExecutableError } from "../native-executable.mjs";
 
 const fixture = JSON.parse(await readFile(new URL("./fixtures/bench-v2.json", import.meta.url), "utf8"));
 const detailFixture = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8"));
 const workspacePath = fixture.browser.origin.worktreeRoot;
 function reader(payload = fixture, calls = [], fail = () => null) {
-    return createNativeBenchReader({
+    return createNativeBenchReader({ executable: fakeExecutable(),
         realpath: async (path) => path,
         execFile(exe, args, options, callback) {
             calls.push({ exe, args, options });
@@ -125,7 +130,7 @@ async function open(payload = fixture, fail, detailPayload, nativeEditing, hando
     const server = await createCanvasServer({
         workspacePath: payload.browser.origin.worktreeRoot, workbench: true, readNativeBench: reader(payload, calls, fail),
         nativeEditing, handoffSession, readNativeDiscussion,
-        readNativeBenchDetail: detailPayload && createNativeBenchDetailReader({
+        readNativeBenchDetail: detailPayload && createNativeBenchDetailReader({ executable: fakeExecutable(),
             realpath: async (path) => path,
             execFile(exe, args, options, callback) {
                 calls.push({ exe, args, options });
@@ -643,7 +648,7 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE/RETAIN only on explic
     } finally { await ui.server.close(); }
 });
 
-async function discussionSetup(handler = () => ({ value: discussionPage(), code: 0 }), transformResponse, nativeEditing, handoffSession) {
+async function discussionSetup(handler = () => ({ value: discussionPage(), code: 0 }), transformResponse, nativeEditing, handoffSession, executable = fakeExecutable()) {
     const detail = structuredClone(detailFixture);
     Object.assign(detail, {
         benchName: fixture.browser.benchName, observation: "raw-mirror", origin: { ...fixture.browser.origin },
@@ -654,7 +659,7 @@ async function discussionSetup(handler = () => ({ value: discussionPage(), code:
     });
     detail.document.processId = "twig.fallback";
     const h = childHarness(handler);
-    const readNativeDiscussion = createNativeDiscussionReader({ ...h, realpath: async value => value });
+    const readNativeDiscussion = createNativeDiscussionReader({ executable, ...h, realpath: async value => value });
     const ui = await open(fixture, undefined, detail, nativeEditing, handoffSession, transformResponse, readNativeDiscussion);
     const find = label => descendants(ui.nodes.get("#bench-selection")).find(node => node.textContent === label);
     const token = JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]);
@@ -750,6 +755,74 @@ test("discussion real VM native refusal or lost HTTP keeps uncertainty honest wi
     }
 });
 
+// A real admitted handle over a temporary file; only the help probe is faked, so ExecutableError
+// messages are produced by the production helper rather than by the test.
+async function admittedDiscussionExecutable(discussionHelp) {
+    const root = await mkdtemp(path.join(os.tmpdir(), "twig-discussion-exec-"));
+    const file = path.join(root, process.platform === "win32" ? "twig.exe" : "twig");
+    await writeFile(file, "fake-twig-binary-v1", { mode: 0o755 });
+    const probes = [];
+    const execFile = (exe, args, options, callback) => {
+        probes.push(args);
+        queueMicrotask(() => callback(null, discussionHelp, ""));
+        return {};
+    };
+    const executable = await admitTwigExecutable({ canvas: "workbench", env: { PATH: root, Path: root }, execFile });
+    return { root, file, executable, probes };
+}
+
+test("discussion real VM HTTP surfaces a missing native discussion capability with its path, hash and reopen recovery", async () => {
+    const pinned = await admittedDiscussionExecutable("Usage: bench discussion [options...]\n\nOptions:\n  -o, --output <string>    Output format.\n  --stdin-file <string>    Prefix only.\n");
+    const ui = await discussionSetup(undefined, undefined, undefined, undefined, pinned.executable);
+    try {
+        ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+        assert.equal(ui.native.calls.length, 0, "a refused capability must not start the native discussion command");
+        assert.deepEqual(pinned.probes, [["bench", "discussion", "--help"]]);
+        const shown = flatten(ui.nodes.get("#bench-selection"));
+        assert.match(shown, /twig bench discussion --help does not offer --stdin/);
+        assert.ok(shown.includes(pinned.executable.path), "the refused executable path must be visible");
+        assert.ok(shown.includes(pinned.executable.sha256.slice(0, 12)), "the refused executable hash must be visible");
+        assert.match(shown, /reopen the canvas/i);
+        assert.equal(ui.find("Read discussion (online)").disabled, true, "same-handle read again cannot succeed");
+        assert.equal(ui.find("Next discussion page").disabled, true);
+    } finally { await ui.server.close(); await rm(pinned.root, { recursive: true, force: true }); }
+});
+
+test("discussion real VM HTTP executable_changed keeps the previous page labelled and requires reopen without spawning", async () => {
+    const pinned = await admittedDiscussionExecutable("Usage: bench discussion [options...]\n\nOptions:\n  --stdin    Read JSON.\n  -o, --output <string>    Output format.\n");
+    const ui = await discussionSetup(undefined, undefined, undefined, undefined, pinned.executable);
+    try {
+        ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+        assert.equal(ui.native.calls.length, 1);
+        assert.equal(ui.native.calls[0].exe, pinned.executable.path);
+        const before = await stat(pinned.file);
+        await writeFile(pinned.file, "fake-twig-binary-v2");
+        await utimes(pinned.file, before.atime, before.mtime);
+        ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+        assert.equal(ui.native.calls.length, 1, "a changed executable must not be launched");
+        const shown = flatten(ui.nodes.get("#bench-selection"));
+        assert.match(shown, /changed after this canvas opened/);
+        assert.ok(shown.includes(pinned.executable.path));
+        assert.match(shown, /Reopen the canvas/);
+        assert.match(shown, /Displayed page is a previous observation/);
+        assert.match(shown, /Comment 9007199254740993/, "the earlier page remains as a labelled previous observation");
+        assert.equal(ui.find("Read discussion (online)").disabled, true);
+        assert.equal(ui.find("Next discussion page").disabled, true);
+    } finally { await ui.server.close(); await rm(pinned.root, { recursive: true, force: true }); }
+});
+
+test("discussion real VM HTTP keeps untyped errors that merely claim an executable code redacted", async () => {
+    const forged = Object.assign(new Error("PRIVATE PROVIDER STDERR"), { code: "executable_changed" });
+    const ui = await discussionSetup(undefined, undefined, undefined, undefined, fakeExecutable({ refuse: forged }));
+    try {
+        ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+        assert.equal(ui.native.calls.length, 0);
+        const shown = flatten(ui.nodes.get("#bench-selection"));
+        assert.match(shown, /Discussion read unavailable; no page was accepted/);
+        assert.doesNotMatch(shown, /PRIVATE/);
+        assert.equal(ui.find("Read discussion (online)").disabled, false, "an untyped failure keeps explicit read again");
+    } finally { await ui.server.close(); }
+});
 test("discussion real HTTP invalidation cancels owned read and old handle cannot revoke same-item new selection", async () => {
     const ui = await discussionSetup(() => null);
     try {
@@ -994,7 +1067,7 @@ test("workbench styling is scoped and follows the common rules without changing 
 });
 
 test("actual extension wiring registers both canvases and routes workbench actions to its owned server", async () => {
-    const calls = [];
+    const calls = [], admitted = [];
     let declarations;
     const source = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
     const context = createContext({
@@ -1002,6 +1075,8 @@ test("actual extension wiring registers both canvases and routes workbench actio
         createCanvas: (declaration) => declaration,
         joinSession: async (config) => { declarations = config.canvases; return { workspacePath }; },
         createCanvasServer,
+        ExecutableError: class extends Error {},
+        admitTwigExecutable: async ({ canvas }) => { admitted.push(canvas); return fakeExecutable(); },
         createNativeDetailReader: () => { throw new Error("Detail should not be read by a workbench action"); },
         createNativeBenchReader: () => reader(fixture, calls),
         createNativeBenchDetailReader: () => async () => { throw new Error("Bench detail should not be read by a workbench action"); },
@@ -1012,8 +1087,7 @@ test("actual extension wiring registers both canvases and routes workbench actio
         }),
     });
     // Only SDK/import boundaries are replaced; the production declaration and callbacks run unchanged.
-    const script = source.replace(/^import .*;$/gm, "")
-        .replace("const readNativeDetail = createNativeDetailReader();", "const readNativeDetail = async () => { throw new Error('Detail not admitted here'); };");
+    const script = source.replace(/^import .*;$/gm, "");
     await new Script(`(async () => { ${script}\n })()`).runInContext(context);
     assert.deepEqual(Array.from(declarations, (canvas) => canvas.id), ["twig-item-companion", "twig-workbench", "twig-proposal-review"]);
     const workbench = declarations.find((canvas) => canvas.id === "twig-workbench");
@@ -1021,6 +1095,7 @@ test("actual extension wiring registers both canvases and routes workbench actio
     const opened = await workbench.open(ctx);
     try {
         assert.equal((await workbench.open(ctx)).url, opened.url);
+        assert.deepEqual(admitted, ["workbench"], "reopening an instance does not re-admit");
         const loaded = await workbench.actions.find((action) => action.name === "load_bench").handler(ctx);
         assert.deepEqual(loaded, fixture.browser);
         const html = await (await fetch(opened.url)).text();
@@ -1038,7 +1113,7 @@ test("invalid explicit targets never launch Twig, and a valid read keeps the can
     }
     assert.equal(calls.length, 0);
     await read({ bench: "Release focus", workspacePath });
-    assert.equal(calls[0].exe, "twig");
+    assert.equal(calls[0].exe, FAKE_TWIG);
     assert.equal(calls[0].options.maxBuffer, 4 * 1024 * 1024);
 });
 

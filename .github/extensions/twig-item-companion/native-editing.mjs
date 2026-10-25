@@ -2,6 +2,7 @@ import { execFile as nodeExecFile, spawn as nodeSpawn } from "node:child_process
 import { realpath as nodeRealpath } from "node:fs/promises";
 import path from "node:path";
 import { serializeStageRequest, serializeRetainRequest, validateEditingResult, validateRetainResult } from "./editing-document.mjs";
+import { requireAdmitted } from "./native-executable.mjs";
 
 // A transport failure cannot prove that a submitted local mutation rolled back.
 export class NativeEditingTransportError extends Error {
@@ -62,14 +63,23 @@ function samePath(a, b) {
 export function createNativeEditingAdapter({
     spawn = nodeSpawn, launch = (exe, args, options, callback, overflow) =>
         spawnCaptured(exe, args, options, callback, overflow, spawn),
-    realpath = nodeRealpath, stopTree = terminateTree,
+    realpath = nodeRealpath, stopTree = terminateTree, executable,
 } = {}) {
     let active = false;
     let poisoned = false;
-    async function invoke(args, cwd, signal, stdin, expected) {
+    async function invoke(capability, args, cwd, signal, stdin, expected) {
         signal?.throwIfAborted();
+        requireAdmitted(executable);
         if (active || poisoned) throw new Error("Native editing process ownership is busy or unresolved; no second child admitted.");
         active = true;
+        let twig;
+        try {
+            twig = await executable.prepare(capability, { signal });
+            signal?.throwIfAborted();
+        } catch (error) {
+            active = false;
+            throw error;
+        }
         return new Promise((resolve, reject) => {
             let inputError;
             let settled = false;
@@ -119,7 +129,7 @@ export function createNativeEditingAdapter({
             };
             let child;
             try {
-                child = launch("twig", args, {
+                child = launch(twig, args, {
                     cwd, encoding: "utf8", shell: false, windowsHide: true,
                     maxBuffer: 4 * 1024 * 1024,
                     detached: process.platform !== "win32",
@@ -169,7 +179,7 @@ export function createNativeEditingAdapter({
             if (!samePath(captured.checkoutRoot, cwd)) throw new Error("OPEN checkout differs from captured item.");
             const args = ["draft", "open", String(workItemId), "--bench", bench, "-o", "json",
                 "--expect-binding", captured.bindingId, "--expect-identity", identityId];
-            const result = await invoke(args, cwd, signal, undefined, { action: "open", expectedKey: captured, bench });
+            const result = await invoke("draft-open", args, cwd, signal, undefined, { action: "open", expectedKey: captured, bench });
             if (result.document && result.document.nativeContext.identityId !== identityId) {
                 throw new NativeEditingTransportError("Native OPEN identity changed; outcome is unknown. Retain intent and reopen.");
             }
@@ -184,7 +194,7 @@ export function createNativeEditingAdapter({
             if (!samePath(captured.nativeContext.itemKey.checkoutRoot, cwd)) {
                 throw new Error("STAGE checkout differs from captured context.");
             }
-            return invoke(["draft", "stage", "--stdin", "-o", "json"], cwd, signal, json,
+            return invoke("draft-stage", ["draft", "stage", "--stdin", "-o", "json"], cwd, signal, json,
                 { action: "stage", expectedContext: captured.nativeContext, expectedRequest: captured });
         },
         async retain({ request, workspacePath, signal }) {
@@ -196,7 +206,7 @@ export function createNativeEditingAdapter({
             if (!samePath(captured.nativeContext.itemKey.checkoutRoot, cwd)) {
                 throw new Error("RETAIN checkout differs from captured context.");
             }
-            return invoke(["draft", "retain", "--stdin", "-o", "json"], cwd, signal, json,
+            return invoke("draft-retain", ["draft", "retain", "--stdin", "-o", "json"], cwd, signal, json,
                 { action: "retain", expectedRequest: captured });
         },
     };

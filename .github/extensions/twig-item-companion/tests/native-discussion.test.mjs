@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createNativeDiscussionReader } from "../native-discussion.mjs";
 import { discussionTarget, discussionPage, discussionRefusal, childHarness } from "./discussion-fixture.mjs";
+import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 const target = discussionTarget();
 const input = { target, workspacePath: target.expectedKey.checkoutRoot };
-function reader(h) { return createNativeDiscussionReader({ ...h, realpath: async value => value }); }
+function reader(h) { return createNativeDiscussionReader({ executable: fakeExecutable(), ...h, realpath: async value => value }); }
 
 test("discussion uses fixed shell-free command, admitted cwd, bounded stdin EOF and no browser/provider destination", async () => {
     const h = childHarness();
@@ -12,7 +13,7 @@ test("discussion uses fixed shell-free command, admitted cwd, bounded stdin EOF 
     assert.equal(result.status, "read");
     assert.equal(h.calls.length, 1);
     const call = h.calls[0];
-    assert.equal(call.exe, "twig");
+    assert.equal(call.exe, FAKE_TWIG);
     assert.deepEqual(call.args, ["bench", "discussion", "--stdin", "-o", "json"]);
     assert.equal(call.options.cwd, input.workspacePath);
     assert.equal(call.options.shell, false);
@@ -83,7 +84,7 @@ test("pipe errors and excessive diagnostics are sanitized and stop the owned chi
 test("deadline and unresolved closure latch ownership instead of admitting a new child", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = childHarness(() => null);
-    const read = createNativeDiscussionReader({ spawn: h.spawn, realpath: async value => value,
+    const read = createNativeDiscussionReader({ executable: fakeExecutable(), spawn: h.spawn, realpath: async value => value,
         stopTree: async child => { h.stops.push(child.pid); } });
     const pending = read(input);
     const rejected = assert.rejects(pending, /15-second deadline/);

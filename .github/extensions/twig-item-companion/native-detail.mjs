@@ -1,16 +1,18 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { realpath as nodeRealpath } from "node:fs/promises";
 import path from "node:path";
+import { requireAdmitted } from "./native-executable.mjs";
 
 const CLI_TIMEOUT_MS = 15_000;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
-const EXECUTABLE = "twig";
 
 export function createNativeDetailReader({
     execFile = nodeExecFile,
     realpath = nodeRealpath,
+    executable,
 } = {}) {
     return async function readNativeDetail({ workItemId, workspacePath, expected, signal }) {
+        requireAdmitted(executable);
         if (!Number.isInteger(workItemId) || workItemId === 0 || Math.abs(workItemId) > 2_147_483_647) {
             throw new Error("Work item ID must be a non-zero 32-bit integer.");
         }
@@ -26,7 +28,8 @@ export function createNativeDetailReader({
             args.push("--expect-identity", expected.identityId);
         }
 
-        const { stdout } = await execute(execFile, args, {
+        const file = await executable.prepare("detail", { signal });
+        const { stdout } = await execute(execFile, file, args, {
             cwd,
             encoding: "utf8",
             maxBuffer: MAX_OUTPUT_BYTES,
@@ -56,9 +59,9 @@ export function createNativeDetailReader({
     };
 }
 
-function execute(execFile, args, options) {
+function execute(execFile, file, args, options) {
     return new Promise((resolve, reject) => {
-        execFile(EXECUTABLE, args, options, (error, stdout, stderr) => {
+        execFile(file, args, options, (error, stdout, stderr) => {
             if (error) {
                 const detail = typeof stderr === "string" ? stderr.trim() : "";
                 reject(new Error(detail || `Twig detail command failed: ${error.message}`, { cause: error }));

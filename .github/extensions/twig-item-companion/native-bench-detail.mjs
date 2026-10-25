@@ -2,6 +2,7 @@ import { execFile as nodeExecFile } from "node:child_process";
 import { realpath as nodeRealpath } from "node:fs/promises";
 import path from "node:path";
 import { validateObservation } from "./native-detail.mjs";
+import { requireAdmitted } from "./native-executable.mjs";
 
 const ORIGIN_KEYS = ["connectionRef", "organization", "project", "team", "bindingId", "bindingRevision",
     "identityId", "worktreeRoot", "worktreeFingerprint", "attachmentRevision", "selectionSource",
@@ -10,8 +11,9 @@ const ORIGIN_KEYS = ["connectionRef", "organization", "project", "team", "bindin
 // Reads the explicit-Bench detail document (`bench detail <id> --bench <target> --document`).
 // `expected` is the origin captured from the v2 workbench read; it is mandatory, so this reader
 // can never fall back to the shared current Bench.
-export function createNativeBenchDetailReader({ execFile = nodeExecFile, realpath = nodeRealpath } = {}) {
+export function createNativeBenchDetailReader({ execFile = nodeExecFile, realpath = nodeRealpath, executable } = {}) {
     return async ({ workItemId, workspacePath, expected, signal }) => {
+        requireAdmitted(executable);
         if (!Number.isInteger(workItemId) || workItemId === 0 || Math.abs(workItemId) > 2147483647) {
             throw new Error("A non-zero work item ID is required.");
         }
@@ -26,8 +28,9 @@ export function createNativeBenchDetailReader({ execFile = nodeExecFile, realpat
         const args = ["bench", "detail", String(workItemId), "--bench", expected.benchId, "--document", "-o", "json",
             "--expect-bench", expected.benchId, "--expect-binding", expected.origin.bindingId,
             "--expect-identity", expected.origin.identityId];
+        const file = await executable.prepare("bench-detail", { signal });
         const stdout = await new Promise((resolve, reject) => {
-            execFile("twig", args, {
+            execFile(file, args, {
                 cwd, encoding: "utf8", shell: false, windowsHide: true,
                 timeout: 15_000, maxBuffer: 4 * 1024 * 1024, signal,
             }, (error, output, stderr) => {

@@ -2,6 +2,7 @@ import { execFile as nodeExecFile } from "node:child_process";
 import { realpath as nodeRealpath } from "node:fs/promises";
 import path from "node:path";
 import { validateDraftDocument as validateDocument } from "./draft-document.mjs";
+import { requireAdmitted } from "./native-executable.mjs";
 
 const record = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const nonempty = (v) => typeof v === "string" && v.trim().length > 0;
@@ -22,14 +23,16 @@ export function validateDraftDocument(doc, expectedKey, cwd) {
     return validateDocument(doc, expectedKey);
 }
 
-export function createNativeDraftReader({ execFile = nodeExecFile, realpath = nodeRealpath } = {}) {
+export function createNativeDraftReader({ execFile = nodeExecFile, realpath = nodeRealpath, executable } = {}) {
     return async ({ workItemId, workspacePath, expectedKey, signal }) => {
+        requireAdmitted(executable);
         requireShape(id(workItemId) && validKey(expectedKey) && expectedKey.workItemId === workItemId &&
             nonempty(workspacePath), "explicit native item and captured qualified key are required");
         const cwd = await realpath(workspacePath);
         requireShape(samePath(expectedKey.checkoutRoot, cwd), "captured checkout differs from inspection workspace");
+        const file = await executable.prepare("draft-show", { signal });
         const stdout = await new Promise((resolve, reject) => {
-            execFile("twig", ["draft", "show", String(workItemId), "--document", "-o", "json"], {
+            execFile(file, ["draft", "show", String(workItemId), "--document", "-o", "json"], {
                 cwd, encoding: "utf8", shell: false, windowsHide: true,
                 timeout: 15_000, maxBuffer: 4 * 1024 * 1024, signal,
             }, (error, output, stderr) => {

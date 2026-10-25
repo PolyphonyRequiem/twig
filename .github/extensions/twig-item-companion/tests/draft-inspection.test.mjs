@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createNativeDraftReader, validateDraftDocument } from "../native-draft.mjs";
 import { renderDraftInspection } from "../draft-inspection.mjs";
+import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 
 // Fictional flat root matching e735705d DraftCommand.AddDocumentFields, not native validation evidence.
 const checkout = process.cwd();
@@ -23,7 +24,7 @@ function fixture() {
     };
 }
 function reader(payload = fixture(), calls = []) {
-    return createNativeDraftReader({
+    return createNativeDraftReader({ executable: fakeExecutable(),
         realpath: async (path) => path,
         execFile(exe, args, options, callback) {
             calls.push({ exe, args, options });
@@ -43,7 +44,7 @@ test("explicit native inspection preserves string/null values with bounded fake 
     assert.equal(result.changes[0].baselineValue, null);
     assert.equal(result.changes[0].proposedValue, "");
     assert.deepEqual(calls[0].args, ["draft", "show", "42", "--document", "-o", "json"]);
-    assert.equal(calls[0].exe, "twig");
+    assert.equal(calls[0].exe, FAKE_TWIG);
     assert.equal(calls[0].options.shell, false);
     assert.equal(calls[0].options.timeout, 15000);
     assert.equal(calls[0].options.maxBuffer, 4 * 1024 * 1024);

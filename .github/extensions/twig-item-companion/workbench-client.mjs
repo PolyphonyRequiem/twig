@@ -118,10 +118,11 @@ export const workbenchClient = `
       return "#" + row.id + " " + (row.loaded === false ? "Not cached" : row.type + " - " + row.title + " - " + row.state);
     }
     function showSelection(row) {
+      const discussionRevoked = discussionClient.leave();
       handoffClient.leave();
-      const revoked = editingClient.leave();
+      const revoked = Promise.all([editingClient.leave(), discussionRevoked]);
       revoked.catch((error) => {
-        benchStatus.textContent = "Editing capture revocation failed: " + error.message;
+        benchStatus.textContent = "Native selection revocation failed: " + error.message;
         benchStatus.classList.add("error");
       });
       generation++;
@@ -162,7 +163,7 @@ export const workbenchClient = `
       if (member && member.loaded) {
         const job = { gen: generation, obs: observation, id: row.id, note: detailNote, seam };
         void revoked.then(() => { if (!stale(job)) requestDetail(job); }, (error) => {
-          detailNote.textContent = "Editing capture revocation failed; detail was not loaded: " + error.message;
+          detailNote.textContent = "Native selection revocation failed; detail was not loaded: " + error.message;
           benchSelection.append(detailNote);
         });
       }
@@ -251,6 +252,7 @@ export const workbenchClient = `
         benchSelection.append(box);
         editingClient.mount(benchSelection, detail);
         handoffClient.mount(benchSelection, detail);
+        discussionClient.mount(benchSelection, result.discussionTargetHandle);
       } catch (error) {
         if (stale(job)) return;
         note.textContent = seam + " Explicit-Bench detail failed: " + (error instanceof Error ? error.message : "unavailable") + ".";
@@ -266,6 +268,10 @@ export const workbenchClient = `
       }
     }
     function returnToBench() {
+      void discussionClient.leave().catch(() => {
+        benchStatus.textContent = "Discussion read cancellation failed; no further discussion read was requested.";
+        benchStatus.classList.add("error");
+      });
       handoffClient.leave();
       void editingClient.leave().catch((error) => {
         benchStatus.textContent = "Editing capture revocation failed: " + error.message;
@@ -404,7 +410,7 @@ export const workbenchClient = `
       benchStatus.textContent = "Reading native cache; no sync or current-Bench change.";
       try {
         handoffClient.leave();
-        await editingClient.leave();
+        await Promise.all([editingClient.leave(), discussionClient.leave()]);
         const result = await request("/api/bench", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action, bench }),

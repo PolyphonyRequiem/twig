@@ -17,6 +17,54 @@ No dependencies are bundled. The Copilot runtime supplies
 node --test .github/extensions/twig-item-companion/tests/*.test.mjs
 ```
 
+## Explicit read-only workbench discussion
+
+After qualified detail for a published cached member is loaded, **Read discussion
+(online)** reads one remote provider page through the landed
+`twig bench discussion --stdin -o json` version-1 contract. Merely opening,
+selecting, filtering, changing themes or editing fields does not read discussion.
+This is not an offline operation: native admission may attest a cold PAT
+principal before the comments GET. It does not refresh work-item cache data,
+switch the active item/Bench, post comments, or grant Save/apply authority.
+Seeds, uncached rows and ancestor-only context do not acquire discussion targets.
+
+The loopback POST is only an authenticated read-request transport, not an ADO
+comment POST. Browser requests contain opaque selection/page handles only. The
+server supplies the admitted key, stable Bench and identity and holds the unchanged
+native cursor in instance memory. Neither cursor nor provider token is exported
+to the DOM, state endpoint, logs, prompts, deep links or persistent storage.
+First-page results must match the actual native key/Bench/identity and all
+available overlapping origin revisions; subsequent pages must retain the full
+native context. The Bench contents digest is native evidence, never fabricated
+from a configuration/settings digest. The cursor detects mismatches, not authority:
+native admission and its post-read fence still govern every page.
+
+**Next discussion page** performs one explicit read and replaces the displayed
+page. There is no automatic paging, retry or accumulated whole-thread claim.
+An empty page with `more` is different from an exhausted traversal; neither
+exhaustion nor a reported total guarantees a consistent discussion snapshot.
+All accepted comment bodies and nullable metadata are displayed as inert text,
+including HTML/Markdown and deleted flags. No HTML/Markdown renderer, author
+link/avatar, image load or reconstruction of unavailable deleted text is used.
+Unavailable body, empty body and literal `null` remain distinct.
+
+Native limits remain 50 entries and 2MiB of provider response, with bounded
+continuation tokens. The extension additionally refuses stdout above 4MiB and
+diagnostics above 64KiB; these are extension caps, not provider guarantees.
+Oversized or inconsistent output fails visibly, never truncates into an empty
+or exhausted success. The native child has a 15-second deadline, owned-tree
+cancellation and a 19-second closure bound; unresolved ownership prevents reuse.
+Native refusals expose only validated safe codes, never raw stderr/provider text.
+A failed same-target page read drops Next and labels retained content as a previous
+observation; a changed native authority clears it and requires detail reload.
+Selection changes, Back, Bench reload, disconnect and close cancel an owned read
+and discard the cursor. Generation-qualified invalidation cannot revoke a newer
+selection, and late old-target results cannot render under another selection or
+a same-item revisit.
+
+This is source integration, not installed-host or live-provider qualification.
+Discussion posting/editing/deletion and attachments are outside this slice.
+
 ## Explicit in-session handoff fallback (not host-qualified)
 
 After loading qualified native detail in the workbench, **Prepare handoff brief**

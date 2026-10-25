@@ -7,6 +7,8 @@ import { createCanvasServer } from "../canvas-server.mjs";
 import { createNativeBenchReader } from "../native-bench.mjs";
 import { createNativeBenchDetailReader } from "../native-bench-detail.mjs";
 import { renderPage } from "../render.mjs";
+import { createNativeDiscussionReader } from "../native-discussion.mjs";
+import { discussionTarget, discussionPage, discussionRefusal, childHarness } from "./discussion-fixture.mjs";
 
 const fixture = JSON.parse(await readFile(new URL("./fixtures/bench-v2.json", import.meta.url), "utf8"));
 const detailFixture = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8"));
@@ -20,6 +22,26 @@ function reader(payload = fixture, calls = [], fail = () => null) {
         },
     });
 }
+
+test("legacy detail without a discussion reader does not require discussion-only membership", async () => {
+    const detail = structuredClone(detailFixture);
+    assert.equal(Object.hasOwn(detail, "membership"), false);
+    const server = await createCanvasServer({
+        workspacePath: "fixture", workbench: true,
+        readNativeBench: async () => fixture.browser,
+        readNativeBenchDetail: async () => detail,
+    });
+    try {
+        await server.loadBench("7");
+        let loaded;
+        await assert.doesNotReject(async () => {
+            loaded = await server.loadBenchDetail(42);
+        }, "legacy detail without a discussion reader must not require discussion-only membership");
+        assert.equal(loaded, detail);
+    } finally {
+        await server.close();
+    }
+});
 
 class Element {
     children = [];
@@ -98,11 +120,11 @@ function dom(html, url, transformResponse) {
 }
 function flatten(node) { return [node.textContent, ...node.children.flatMap(flatten)].join("\n"); }
 function descendants(node) { return [node, ...node.children.flatMap(descendants)]; }
-async function open(payload = fixture, fail, detailPayload, nativeEditing, handoffSession, transformResponse) {
+async function open(payload = fixture, fail, detailPayload, nativeEditing, handoffSession, transformResponse, readNativeDiscussion) {
     const calls = [];
     const server = await createCanvasServer({
         workspacePath: payload.browser.origin.worktreeRoot, workbench: true, readNativeBench: reader(payload, calls, fail),
-        nativeEditing, handoffSession,
+        nativeEditing, handoffSession, readNativeDiscussion,
         readNativeBenchDetail: detailPayload && createNativeBenchDetailReader({
             realpath: async (path) => path,
             execFile(exe, args, options, callback) {
@@ -621,6 +643,213 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE/RETAIN only on explic
     } finally { await ui.server.close(); }
 });
 
+async function discussionSetup(handler = () => ({ value: discussionPage(), code: 0 }), transformResponse, nativeEditing, handoffSession) {
+    const detail = structuredClone(detailFixture);
+    Object.assign(detail, {
+        benchName: fixture.browser.benchName, observation: "raw-mirror", origin: { ...fixture.browser.origin },
+        layoutStatus: "unavailable", layoutSource: "twig-fallback",
+        membership: { selected: true, seed: false, pending: true },
+        completeness: { sourceComplete: false, sourceChildCount: null, cachedChildCount: 0,
+            parentCached: null, linksVerified: false, reasons: ["source-unknown", "cache-only"] },
+    });
+    detail.document.processId = "twig.fallback";
+    const h = childHarness(handler);
+    const readNativeDiscussion = createNativeDiscussionReader({ ...h, realpath: async value => value });
+    const ui = await open(fixture, undefined, detail, nativeEditing, handoffSession, transformResponse, readNativeDiscussion);
+    const find = label => descendants(ui.nodes.get("#bench-selection")).find(node => node.textContent === label);
+    const token = JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]);
+    const http = (body, extraHeaders = {}, method = "POST") => fetch(new URL("/api/discussion", ui.server.url), {
+        method, headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", ...extraHeaders },
+        ...(method === "POST" ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}),
+    });
+    await load(ui);
+    row42(ui).listeners.click();
+    await ui.settled();
+    return { ...ui, native: h, find, http };
+}
+
+test("discussion real VM HTTP native adapter reads only on explicit online Read with inert qualified page", async () => {
+    const ui = await discussionSetup();
+    try {
+        assert.ok(ui.find("Read discussion (online)"), "explicit online Read discussion button must exist");
+        assert.equal(ui.native.calls.length, 0, "selection and cached detail must not read discussion");
+        ui.find("Read discussion (online)").listeners.click();
+        await ui.settled();
+        assert.equal(ui.native.calls.length, 1);
+        const call = ui.native.calls[0];
+        assert.deepEqual(call.args, ["bench", "discussion", "--stdin", "-o", "json"]);
+        assert.deepEqual(call.input, { version: 1, itemKey: discussionTarget().expectedKey,
+            bench: "7", expectBench: "7", expectIdentity: fixture.browser.origin.identityId, cursor: null });
+        assert.equal(call.options.shell, false);
+        assert.equal(call.options.cwd, fixture.browser.origin.worktreeRoot);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /<script>evil\(\)<\/script>/);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /deleted: true; format \(inert\): html/);
+        const body = ui.browserRequests.find(call => call.route === "/api/discussion").body;
+        assert.deepEqual(Object.keys(body).sort(), ["action", "targetHandle"]);
+        assert.equal(body.targetHandle.length, 43);
+        assert.doesNotMatch(JSON.stringify(ui.browserRequests), /providerToken|private\+token|expectIdentity|checkoutRoot/);
+        const state = await (await fetch(new URL("/api/state", ui.server.url), {
+            headers: { Authorization: "Bearer " + JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]) },
+        })).text();
+        assert.doesNotMatch(state, /private\+token|providerToken|nextCursor|benchContentsDigest/);
+    } finally { await ui.server.close(); }
+});
+
+test("discussion real VM HTTP Next keeps native cursor server-only and replaces page at exhausted traversal", async () => {
+    const ui = await discussionSetup((call, number) => {
+        const value = discussionPage(undefined, number === 1);
+        if (number === 2) { value.comments = []; value.paging.count = "0"; }
+        return { value };
+    });
+    try {
+        ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+        assert.equal(ui.native.calls.length, 1);
+        ui.find("Next discussion page").listeners.click(); await ui.settled();
+        assert.equal(ui.native.calls.length, 2);
+        assert.deepEqual(ui.native.calls[1].input.cursor, discussionPage().paging.nextCursor);
+        assert.equal(ui.find("Next discussion page").disabled, true);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /contains no entries/);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /End of this traversal, not a complete snapshot/);
+        assert.doesNotMatch(flatten(ui.nodes.get("#bench-selection")), /Comment 9007199254740993/);
+        assert.deepEqual(Object.keys(ui.browserRequests.filter(call => call.route === "/api/discussion")[1].body).sort(),
+            ["action", "pageHandle", "targetHandle"]);
+    } finally { await ui.server.close(); }
+});
+
+test("discussion real HTTP rejects method/origin/auth and browser target/cursor authority before native read", async () => {
+    const ui = await discussionSetup();
+    try {
+        assert.equal((await ui.http({}, {}, "GET")).status, 404);
+        assert.equal((await ui.http({}, { Origin: "https://evil.invalid" })).status, 403);
+        assert.equal((await ui.http({}, { Authorization: "wrong" })).status, 401);
+        assert.equal((await ui.http({ action: "read", targetHandle: "a".repeat(43), cursor: discussionPage().paging.nextCursor })).status, 400);
+        assert.equal((await ui.http({ action: "read", targetHandle: "a".repeat(43), workItemId: 99 })).status, 400);
+        assert.equal((await ui.http('{"action":"read","action":"next","targetHandle":"' + "a".repeat(43) + '"}')).status, 400);
+        assert.equal((await ui.http({ action: "read", targetHandle: "a".repeat(43) })).status, 409);
+        assert.equal(ui.native.calls.length, 0);
+    } finally { await ui.server.close(); }
+});
+
+test("discussion real VM native refusal or lost HTTP keeps uncertainty honest without automatic second read", async () => {
+    for (const loss of [false, true]) {
+        const ui = await discussionSetup(() => loss ? { value: discussionPage() } :
+            { value: discussionRefusal(), code: 1, stderr: "PRIVATE PROVIDER RESPONSE" },
+        loss ? async (route, options, response) => {
+            if (route === "/api/discussion" && JSON.parse(options.body).action === "read") {
+                await response.text(); throw new Error("PRIVATE ACK");
+            }
+            return response;
+        } : undefined);
+        try {
+            ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+            assert.equal(ui.native.calls.length, 1);
+            assert.match(flatten(ui.nodes.get("#bench-selection")), loss ? /unavailable.*no page was accepted/ : /discussion-offline/);
+            assert.doesNotMatch(flatten(ui.nodes.get("#bench-selection")), /PRIVATE|private diagnostic|private token/);
+            assert.equal(ui.find("Next discussion page").disabled, true);
+        } finally { await ui.server.close(); }
+    }
+});
+
+test("discussion real HTTP invalidation cancels owned read and old handle cannot revoke same-item new selection", async () => {
+    const ui = await discussionSetup(() => null);
+    try {
+        ui.find("Read discussion (online)").listeners.click();
+        await until(() => ui.native.calls.length === 1);
+        const old = ui.browserRequests.find(call => call.route === "/api/discussion").body.targetHandle;
+        const readButton = ui.find("Read discussion (online)");
+        readButton.listeners.click();
+        assert.equal(ui.native.calls.length, 1);
+        ui.find("Back to Bench").listeners.click();
+        await ui.settled();
+        assert.deepEqual(ui.native.stops, [12345]);
+        row42(ui).listeners.click(); await ui.settled();
+        assert.ok(ui.find("Read discussion (online)"));
+        const lateInvalidate = await ui.http({ action: "invalidate", targetHandle: old });
+        assert.equal(lateInvalidate.status, 200);
+        const oldRead = await ui.http({ action: "read", targetHandle: old });
+        assert.equal(oldRead.status, 409);
+        ui.find("Read discussion (online)").listeners.click();
+        await until(() => ui.native.calls.length === 2);
+        ui.find("Back to Bench").listeners.click(); await ui.settled();
+        assert.equal(ui.native.stops.length, 2, "new selection remained usable after stale invalidation");
+    } finally { await ui.server.close(); }
+});
+
+test("discussion real HTTP close aborts and reaps an active native read without exposing a late page", async () => {
+    const ui = await discussionSetup(() => null);
+    ui.find("Read discussion (online)").listeners.click();
+    await until(() => ui.native.calls.length === 1);
+    await ui.server.close();
+    await ui.settled();
+    assert.deepEqual(ui.native.stops, [12345]);
+    assert.doesNotMatch(flatten(ui.nodes.get("#bench-selection")), /Comment 9007199254740993/);
+});
+
+test("discussion real HTTP read blocks editing and handoff while owned provider read is active", async () => {
+    const ui = await discussionSetup(() => null);
+    try {
+        ui.find("Read discussion (online)").listeners.click();
+        await until(() => ui.native.calls.length === 1);
+        const token = JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]);
+        for (const route of ["editing", "handoff"]) {
+            const response = await fetch(new URL("/api/" + route, ui.server.url), { method: "POST",
+                headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+                body: JSON.stringify({ action: route === "editing" ? "open" : "prepare" }) });
+            assert.equal(response.status, 409);
+        }
+        assert.equal(ui.native.calls.length, 1);
+        ui.find("Back to Bench").listeners.click(); await ui.settled();
+    } finally { await ui.server.close(); }
+});
+
+test("discussion real HTTP read refuses reverse overlap with native editing or handoff preflight", async () => {
+    for (const operation of ["editing", "handoff"]) {
+        let release, entered = false;
+        const gate = new Promise(resolve => { release = resolve; });
+        const adapter = { open: async () => { entered = true; await gate; throw new Error("fixture editing stopped"); } };
+        const session = { sessionId: "fixture-session", send: async () => assert.fail("No SDK send admitted"),
+            rpc: { metadata: { snapshot: async () => { entered = true; await gate;
+                throw new Error("fixture preflight stopped"); } } } };
+        const ui = await discussionSetup(undefined, undefined, adapter, session);
+        let pending;
+        try {
+            ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+            const targetHandle = ui.browserRequests.find(call => call.route === "/api/discussion").body.targetHandle;
+            const token = JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]);
+            const post = (route, body) => fetch(new URL("/api/" + route, ui.server.url), { method: "POST",
+                headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+                body: JSON.stringify(body) });
+            if (operation === "editing") pending = post("editing", { action: "open" });
+            else {
+                const prepared = await (await post("handoff", { action: "prepare" })).json();
+                pending = post("handoff", { action: "start", handle: prepared.handoff.handle, brief: "fixture" });
+            }
+            await until(() => entered);
+            assert.equal((await ui.http({ action: "read", targetHandle })).status, 409);
+            assert.equal(ui.native.calls.length, 1);
+        } finally { release(); await pending; await ui.server.close(); }
+    }
+});
+
+test("discussion real HTTP disconnect aborts its owned child and cannot return a late provider page", async () => {
+    const ui = await discussionSetup((call, number) => number === 1 ? { value: discussionPage() } : null);
+    try {
+        ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+        const targetHandle = ui.browserRequests.find(call => call.route === "/api/discussion").body.targetHandle;
+        const token = JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]);
+        const controller = new AbortController();
+        const pending = fetch(new URL("/api/discussion", ui.server.url), { method: "POST", signal: controller.signal,
+            headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "read", targetHandle }) });
+        const rejected = assert.rejects(pending);
+        await until(() => ui.native.calls.length === 2);
+        controller.abort();
+        await rejected;
+        await until(() => ui.native.stops.length === 1);
+        assert.deepEqual(ui.native.stops, [12345]);
+    } finally { await ui.server.close(); }
+});
+
 async function handoffSetup(send, transformResponse) {
     const bench = structuredClone(fixture);
     bench.browser.origin.worktreeRoot = process.cwd();
@@ -776,6 +1005,7 @@ test("actual extension wiring registers both canvases and routes workbench actio
         createNativeDetailReader: () => { throw new Error("Detail should not be read by a workbench action"); },
         createNativeBenchReader: () => reader(fixture, calls),
         createNativeBenchDetailReader: () => async () => { throw new Error("Bench detail should not be read by a workbench action"); },
+        createNativeDiscussionReader: () => async () => { throw new Error("Browsing must not read online discussion"); },
         createNativeEditingAdapter: () => ({
             open: async () => { throw new Error("Browsing must not OPEN a draft"); },
             stage: async () => { throw new Error("Browsing must not STAGE intent"); },

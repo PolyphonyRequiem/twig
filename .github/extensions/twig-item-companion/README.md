@@ -106,6 +106,48 @@ exact qualified fixture key/Bench/identity/context, request roundtrip, revisions
 and generation acknowledgement, including null/empty/order preservation. This
 does not qualify the new HTTP/UI bridge or installed host.
 
+## Unwired retention adapter
+
+The source-authored `createNativeEditingAdapter().retain({request, workspacePath,
+signal})` invokes only `twig draft retain --stdin -o json`. It is not wired to a
+canvas, server route, Save or review action. The native RETAIN dependency is
+separate; this adapter is qualified offline, not installed-host enabled.
+
+Offline qualification passed 32 focused cases with zero skips/cancellations,
+plus 74 related cases with one existing opt-in native integration skip and zero
+failures/cancellations. A session-only crosscheck verified seven actual native
+wire-file hashes and admitted both corresponding RETAIN request/receipt pairs
+through validation and mocked transport; OPEN/STAGE belonged to a separate
+fixture composition. This is not live native RETAIN composition, HTTP/provider,
+installed-host, full-origin or authorization qualification. These receipts
+precede integration; they do not assert that later integrated gates have passed.
+
+The request contains version 1, exact native editing context and unchanged
+decimal-string generation/baseline/observed revisions, with no effects, path,
+digest or authorizer input. The adapter uses the same owned subprocess, stdin
+EOF, deadline, combined 4 MiB output bound and unknown-outcome cleanup rules as
+OPEN/STAGE. Exported pure receipt validation also bounds the serialized UTF-8
+envelope to 4 MiB before canonical hashing or deep cloning, including aggregate
+effects and canonical content. These are adapter resource bounds, not native
+output limits or a maximum effect count. Accumulated drafts may contain more than
+128 effective fields.
+
+The retained receipt is distinct from an editing document: it preserves native
+ordered effective effects, null versus empty, unchanged counters, exact context,
+operation ID, digest and opaque canonical proposal string. SHA-256 checks the
+exact UTF-8 canonical bytes without parsing or reserializing native numeric
+revisions. This verifies byte integrity only: the adapter does not independently
+prove that canonical operations and reported effects are semantically equivalent,
+authenticate native origin, or produce a semantic review model. Native owns that
+derivation. The operation-ID hash and proposal digest have different inputs.
+
+`originCoverage` is only `editing-context-and-native-origin-digest`, not full
+origin. `authorized:false` and `canApply:false` grant no authority and are not a
+permanent journal-state guarantee. Committed-indeterminate results retain an
+optional capture; missing/malformed output remains unknown, never rollback or an
+automatic retry. Nothing exports a proposal file, authorizes, applies, publishes
+or replaces unsent human input.
+
 ## Read-only v2 boundary
 
 The adapter consumes the native export from `a5d6f5cf`, not a second item model

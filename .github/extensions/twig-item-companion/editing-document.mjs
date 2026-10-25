@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const text = (value) => typeof value === "string" && value.trim().length > 0;
 const nullable = (value) => value === null || typeof value === "string";
@@ -147,4 +149,61 @@ export function serializeStageRequest(value) {
     const json = JSON.stringify(value);
     requireShape(Buffer.byteLength(json, "utf8") <= 262144, "stage request exceeds the native UTF-8 limit");
     return json;
+}
+
+export function serializeRetainRequest(value) {
+    requireShape(keys(value, ["version", "nativeContext", "generation", "baselineRevision", "observedRevision"]) &&
+        value.version === 1, "unsupported retain request");
+    validateEditingContext(value.nativeContext);
+    requireShape(decimal(value.generation) && decimal(value.baselineRevision, true) &&
+        decimal(value.observedRevision, true), "lossless retain counters are required");
+    const json = JSON.stringify(value);
+    requireShape(Buffer.byteLength(json, "utf8") <= 262144, "retain request exceeds the native UTF-8 limit");
+    return json;
+}
+
+// Canonical bytes and effects are native claims, not an independently derived review model.
+export function validateRetainResult(value, { exitCode, expectedRequest } = {}) {
+    requireShape(expectedRequest != null, "exact retain request is required");
+    serializeRetainRequest(expectedRequest);
+    requireShape(keys(value, ["version", "status", "committed"], ["capture", "error"]) &&
+        value.version === 1 && typeof value.committed === "boolean", "unsupported retain result envelope");
+    requireShape(Buffer.byteLength(JSON.stringify(value), "utf8") <= 4 * 1024 * 1024,
+        "retain result exceeds the adapter 4MiB UTF-8 envelope limit");
+    const success = value.status === "retained";
+    const uncertain = value.status === "indeterminate";
+    requireShape(success || uncertain || value.status === "refused", "unexpected retain result status");
+    if (success) {
+        requireShape(exitCode === 0 && value.committed && value.error == null && value.capture != null,
+            "retain success contradicts exit or commit evidence");
+    } else {
+        requireShape(keys(value.error, ["code", "message", "recovery"]) && Object.values(value.error).every(text) &&
+            value.committed === uncertain && (uncertain || value.capture == null) &&
+            exitCode === (["usage", "invalid-json", "input-too-large"].includes(value.error.code) ? 2 : 1) &&
+            (!uncertain || (exitCode === 1 && value.error.code === "post-commit-fence")),
+        "retain failure contradicts exit or commit evidence");
+    }
+    if (value.capture != null) {
+        const capture = value.capture;
+        requireShape(keys(capture, ["nativeContext", "generation", "baselineRevision", "observedRevision",
+            "currentRevision", "digest", "operationId", "canonicalJson", "effects", "originCoverage",
+            "authorized", "canApply"]), "incomplete native retained capture");
+        validateEditingContext(capture.nativeContext);
+        requireShape(sameContext(capture.nativeContext, expectedRequest.nativeContext) &&
+            capture.nativeContext.externalIdentity.providerKind === "ado" &&
+            ["generation", "baselineRevision", "observedRevision"].every((key) =>
+                capture[key] === expectedRequest[key]) &&
+            capture.currentRevision === expectedRequest.observedRevision &&
+            capture.baselineRevision === capture.observedRevision, "retained context or counters changed");
+        requireShape(typeof capture.digest === "string" && /^[a-f0-9]{64}$/.test(capture.digest) &&
+            typeof capture.operationId === "string" && /^draft-[a-f0-9]{64}$/.test(capture.operationId) &&
+            text(capture.canonicalJson) &&
+            createHash("sha256").update(capture.canonicalJson, "utf8").digest("hex") === capture.digest,
+        "invalid retained canonical byte integrity");
+        requireShape(effects(capture.effects) && capture.effects.length > 0 &&
+            capture.effects.every((effect) => effect.baselineValue !== effect.proposedValue) &&
+            capture.originCoverage === "editing-context-and-native-origin-digest" &&
+            capture.authorized === false && capture.canApply === false, "invalid retained effects or authority");
+    }
+    return freeze(structuredClone(value));
 }

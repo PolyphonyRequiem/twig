@@ -1,7 +1,7 @@
 import { execFile as nodeExecFile, spawn as nodeSpawn } from "node:child_process";
 import { realpath as nodeRealpath } from "node:fs/promises";
 import path from "node:path";
-import { serializeStageRequest, validateEditingResult } from "./editing-document.mjs";
+import { serializeStageRequest, serializeRetainRequest, validateEditingResult, validateRetainResult } from "./editing-document.mjs";
 
 // A transport failure cannot prove that a submitted local mutation rolled back.
 export class NativeEditingTransportError extends Error {
@@ -89,7 +89,8 @@ export function createNativeEditingAdapter({
                             const { error, stdout } = output;
                             const code = error ? error.code : 0;
                             if (error?.killed || error?.signal || ![0, 1, 2].includes(code)) throw error;
-                            const result = validateEditingResult(JSON.parse(stdout), { ...expected, exitCode: code });
+                            const validate = expected.action === "retain" ? validateRetainResult : validateEditingResult;
+                            const result = validate(JSON.parse(stdout), { ...expected, exitCode: code });
                             settled = true;
                             clearTimeout(closeTimer);
                             clearTimeout(deadline);
@@ -185,6 +186,18 @@ export function createNativeEditingAdapter({
             }
             return invoke(["draft", "stage", "--stdin", "-o", "json"], cwd, signal, json,
                 { action: "stage", expectedContext: captured.nativeContext, expectedRequest: captured });
+        },
+        async retain({ request, workspacePath, signal }) {
+            signal?.throwIfAborted();
+            const json = serializeRetainRequest(request);
+            const captured = JSON.parse(json);
+            if (!nonempty(workspacePath)) throw new Error("An explicit retain workspace is required.");
+            const cwd = await realpath(workspacePath);
+            if (!samePath(captured.nativeContext.itemKey.checkoutRoot, cwd)) {
+                throw new Error("RETAIN checkout differs from captured context.");
+            }
+            return invoke(["draft", "retain", "--stdin", "-o", "json"], cwd, signal, json,
+                { action: "retain", expectedRequest: captured });
         },
     };
 }

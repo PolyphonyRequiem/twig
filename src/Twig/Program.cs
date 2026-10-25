@@ -53,8 +53,7 @@ if (!isBrowserCommand || ProgressiveHelp.IsHelpRequest(args))
 // deliberately do NOT run here. They sit below the fast-exit block so that
 // --version / --help / no-args / unknown-command never pay for them.
 
-var app = ConsoleApp.Create()
-    .ConfigureServices(services =>
+var runApp = Twig.TwigConsoleApp.CreateRunner(services =>
     {
         // CAF resolves services for leaf help too; keep all offline routes independent
         // of workspace configuration, even when the discovered workspace is invalid.
@@ -74,12 +73,6 @@ var app = ConsoleApp.Create()
         }
         services.AddTwigWorkspaceServices(Directory.GetCurrentDirectory(), args);
     });
-
-app.UseFilter<ExceptionFilter>();
-
-app.Add<TwigCommands>();
-app.Add<OhMyPoshCommands>("ohmyposh");
-app.Add<SkillCommands>("skills");
 
 // Offline discovery and smart landing (no arguments).
 if (args.Length == 1 && args[0] == "--version")
@@ -118,7 +111,7 @@ if (args.Length == 0)
     if (twigDirCheck is not null)
     {
         args = ["show"];
-        // Fall through to app.Run(args)
+        // Fall through to runApp(args)
     }
     else
     {
@@ -137,7 +130,7 @@ if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(a
 
 // Help must return before argument validation, SQLite, cleanup, companion downloads,
 // or command-service resolution. CAF renders declaration-derived help before DI.
-if (ProgressiveHelp.TryShow(args, helpArgs => app.Run(helpArgs)))
+if (ProgressiveHelp.TryShow(args, runApp))
     return;
 
 // Target-only export rejects incompatible/unknown options before DI or repository reads.
@@ -202,7 +195,7 @@ if (outputFormatError is not null)
 // or run binary cleanup/companion installation for this command family.
 if (args.Length > 0 && args[0] == "skills")
 {
-    app.Run(args);
+    runApp(args);
     return;
 }
 
@@ -211,7 +204,7 @@ if (args.Length > 0 && args[0] == "skills")
 if (args.Length > 0 && args[0] == "show-batch" && args.Contains("--include-fields"))
 {
     SQLitePCL.Batteries.Init();
-    app.Run(args);
+    runApp(args);
     return;
 }
 
@@ -229,7 +222,7 @@ if (!isBrowserCommand)
     CompanionStartup.RunFirstRunCheck();
 }
 
-app.Run(args);
+runApp(args);
 
 
 /// <summary>
@@ -1225,6 +1218,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<DraftEditingCommand>().RetainAsync(stdin, output, ct);
 
+    /// <summary>Review the exact effects of one retained native capture without exporting or changing its journal.</summary>
+    /// <param name="digest">Lowercase 64-character SHA-256 digest returned by <c>draft retain</c>; omitted values produce a usage refusal. No proposal file or path is read.</param>
+    /// <param name="output">-o, Output format: human (default) shows exact nullable field effects and freshness/authority limits; minimal shows digest and effect count; json emits the closed review envelope.</param>
+    /// <param name="ct">Cancellation token; no authorization, apply, preview timestamp or journal mutation is performed.</param>
+    [Command("draft review")]
+    public async Task<int> DraftReview([Argument] string? digest = null, string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<DraftEditingCommand>().ReviewAsync(digest, output, ct);
+
     /// <summary>Inspect an existing native recoverable draft without changing intent or applying it.</summary>
     /// <param name="id">Native integer work-item ID or negative seed alias; no default or active-item selection.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal.</param>
@@ -1928,6 +1930,7 @@ internal static class GroupedHelp
         "draft open",
         "draft stage",
         "draft retain",
+        "draft review",
         "draft capture",
         "bench browser",
         "bench configuration",

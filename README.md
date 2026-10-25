@@ -112,6 +112,19 @@ retention transaction reports `indeterminate`, `committed: true` and the capture
 when available; inspect it rather than retrying automatically. Retention is not
 publication authority, and an arbitrary authorizer string is not trusted proof.
 
+Review a retained capture with `twig draft review <digest>`. Human output shows
+each exact field effect with JSON-escaped nullable baseline and proposed values;
+`-o minimal` emits the digest and effect count, while `-o json` returns the
+closed review envelope. Review reads only the stored journal/capture and current
+local evidence; it does not read or create a proposal file, alter export state or
+journal audit fields, authorize, or apply. Freshness means the captured intent
+matches available cached native evidence during validation, not a remote read or
+a lease. Legacy captures without served-metadata evidence, malformed or
+inconsistent captures, non-capture digests, and stale local evidence are refused.
+The cache and durable journal are attached databases; review uses the existing
+non-deferred transaction on the shared connection, but does not claim cross-file
+crash atomicity or a single remote observation instant.
+
 ### Navigation
 
 `twig nav` opens an interactive tree navigator — browse the hierarchy with arrow keys,

@@ -257,8 +257,11 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DraftStageRequest))]
 [JsonSerializable(typeof(DraftRetainRequest))]
 [JsonSerializable(typeof(DraftRetainedCapture))]
+[JsonSerializable(typeof(DraftCaptureReview))]
+[JsonSerializable(typeof(DraftCaptureReviewWorkspace))]
 [JsonSerializable(typeof(DraftEditingResult))]
 [JsonSerializable(typeof(DraftEditingContext))]
+[JsonSerializable(typeof(string))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],

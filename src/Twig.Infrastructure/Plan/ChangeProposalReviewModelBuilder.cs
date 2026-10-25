@@ -1,4 +1,6 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
@@ -30,6 +32,44 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         ?? throw new ArgumentNullException(nameof(workItems));
 
     private IFieldDefinitionStore? _fields;
+
+    /// <summary>
+    /// Statically configured provider descriptor used for the add-link advisory. Null means the
+    /// provider is not known, which is reported as declared <c>unknown</c>, never omitted.
+    /// </summary>
+    internal ProviderCapabilityDescriptor? CapabilityDescriptor { get; init; }
+
+    private static ReviewCapabilityAdvisory AdvisoryFor(ProviderCapabilityDescriptor? descriptor, string relation)
+    {
+        const string Unknown = "unknown";
+        var kind = relation switch
+        {
+            "parent" => (LinkKind?)LinkKind.ParentChild,
+            "predecessor" or "successor" => LinkKind.PredecessorSuccessor,
+            "related" => LinkKind.Related,
+            _ => null,
+        };
+
+        var declared = Unknown;
+        var relationship = Unknown;
+        if (descriptor is not null && kind is { } k)
+        {
+            relationship = LinkKindTokens.ToToken(k);
+            declared = CapabilityTokens.ToToken(CapabilityTokens.Implementation, descriptor.For(k).Implementation);
+        }
+        else if (kind is { } known)
+        {
+            relationship = LinkKindTokens.ToToken(known);
+        }
+
+        return new ReviewCapabilityAdvisory
+        {
+            Relationship = relationship,
+            Declared = declared,
+            Availability = CapabilityTokens.ToToken(CapabilityTokens.Availability, CapabilityAvailability.Unknown),
+            Reason = CapabilityReport.NotProbedReason,
+        };
+    }
 
     /// <summary>Enrich with locally cached field labels and types.</summary>
     public ChangeProposalReviewModelBuilder(IWorkItemRepository workItems, IFieldDefinitionStore fields) : this(workItems)
@@ -72,7 +112,16 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         for (var ordinal = 0; ordinal < definition.Operations.Count; ordinal++)
         {
             var op = definition.Operations[ordinal];
-            operations.Add(ProjectOperation(ordinal, op, roles, providerRoles));
+            var projected = ProjectOperation(ordinal, op, roles, providerRoles);
+            var advisoryRelation = op switch
+            {
+                AddLinkOperation addLink => addLink.Relation,
+                ProviderMutationOperation { OperationKind: PlanOperationKind.AddLink } provider => provider.Relation ?? string.Empty,
+                _ => null,
+            };
+            operations.Add(advisoryRelation is null
+                ? projected
+                : projected with { Capability = AdvisoryFor(CapabilityDescriptor, advisoryRelation) });
         }
 
         var known = roles.Count == 0 ? [] : await _workItems.GetByIdsAsync(roles.Keys, ct).ConfigureAwait(false);

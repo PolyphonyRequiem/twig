@@ -153,6 +153,16 @@ public static class ChangeProposalReviewModelJson
             }
             writer.WriteEndArray();
 
+            if (op.Capability is { } capability)
+            {
+                writer.WriteStartObject("capability");
+                writer.WriteString("relationship", capability.Relationship);
+                writer.WriteString("declared", capability.Declared);
+                writer.WriteString("availability", capability.Availability);
+                writer.WriteString("reason", capability.Reason);
+                writer.WriteEndObject();
+            }
+
             writer.WriteEndObject();
         }
         writer.WriteEndArray();

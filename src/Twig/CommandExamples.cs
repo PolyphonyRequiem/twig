@@ -396,6 +396,11 @@ internal static class CommandExamples
             "twig draft stage --stdin -o json       Send one version 1 JSON request on stdin and close it; never publishes",
             "twig draft stage --stdin -o minimal    Stage an exact nullable field batch using the native context and decimal tokens from OPEN",
         ],
+        ["draft retain"] =
+        [
+            "twig draft retain --stdin -o json       Retain exactly the native context and decimal tokens from STAGE; close stdin after the v1 request",
+            "twig draft retain --stdin -o minimal    Report the retained canonical digest without exporting, authorizing or applying it",
+        ],
         ["draft show"] =
         [
             "twig draft show 42                        Inspect an existing native recoverable draft",

@@ -84,6 +84,34 @@ Hosts must treat missing or invalid stdout as an unknown outcome, not proof of
 rollback, and must not automatically retry. JSON editing refusals that reach the
 command emit the envelope on stdout and a formatted JSON error on stderr.
 
+To retain exact intent locally, send `twig draft retain --stdin -o json` one
+version 1 request containing **only** `version`, the unchanged `nativeContext`,
+and decimal-string `generation`, `baselineRevision`, and `observedRevision` from
+the latest editing envelope, then close stdin. The same 262144-byte UTF-8 and
+depth-32 limits apply; duplicate/unknown members, rounded numbers and caller
+authorizer fields are refused. Native code rechecks the exact draft, baseline,
+origin, served evidence, process gates and explicit Bench. Empty or fully
+restored-to-baseline intent is refused as `draft-empty`, without a journal row.
+
+A successful `retained` envelope contains `capture`: the exact editing context
+and decimal tokens, native `digest`, `operationId`, `canonicalJson` **string**,
+and ordered `effects` with lossless null/empty values. The canonical native v1
+proposal's numeric ADO targets/revisions stay inside that string. Its
+`originCoverage: "editing-context-and-native-origin-digest"` is deliberately not
+a full PlanOrigin projection or a semantic review. `authorized: false` and
+`canApply: false` describe this receipt's lack of publication authority; they
+do not promise the journal will remain Planned forever.
+
+RETAIN uses the existing capture store and journal transaction, reusing an exact
+capture only while it is Planned with no authorization or confirmation evidence.
+`committed: true` includes unchanged exact reuse, not necessarily an insertion.
+It never exports a file (an internal journal SourcePath is not evidence of a
+file), flushes pending work, selects an active item, authorizes or applies.
+Legacy `draft capture` export/recovery is unchanged. A failed fence after the
+retention transaction reports `indeterminate`, `committed: true` and the capture
+when available; inspect it rather than retrying automatically. Retention is not
+publication authority, and an arbitrary authorizer string is not trusted proof.
+
 ### Navigation
 
 `twig nav` opens an interactive tree navigator — browse the hierarchy with arrow keys,

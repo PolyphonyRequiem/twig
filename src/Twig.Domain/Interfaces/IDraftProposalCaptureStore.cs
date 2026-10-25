@@ -9,6 +9,19 @@ namespace Twig.Domain.Interfaces;
 /// </summary>
 internal interface IDraftProposalCaptureStore
 {
+    /// <summary>
+    /// Retains served-evidence-bound intent only while the exact journal is Planned and has
+    /// no confirmation or authorization evidence. The lifecycle fence shares the capture transaction.
+    /// </summary>
+    Task<PlanJournal> CaptureQualifiedAsync(
+        RecoverableWorkItemDraft expectedDraft,
+        WorkItemSnapshot expectedSnapshot,
+        PlanOrigin origin,
+        PlanWorkspace workspace,
+        string proposalDirectory,
+        string evidenceFingerprint,
+        CancellationToken ct = default);
+
     Task<PlanJournal> CaptureAsync(
         RecoverableWorkItemDraft expectedDraft,
         WorkItemSnapshot expectedSnapshot,

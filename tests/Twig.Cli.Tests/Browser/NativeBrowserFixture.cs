@@ -91,7 +91,9 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         _migration = new ConnectionMigrationService(Home, Bindings);
         var preview = await _migration.PreviewAsync(Configuration, Paths, "actor", null);
         preview.CanApply.ShouldBeTrue(string.Join("\n", preview.Blockers));
-        (await _migration.ApplyAsync(Configuration, Paths, "actor", null, preview.Digest)).State.ShouldBe("active");
+        var applied = await _migration.ApplyAsync(Configuration, Paths, "actor", null, preview.Digest);
+        applied.State.ShouldBe("active",
+            $"Native fixture activation after applicable preview: {string.Join("\n", applied.Blockers)}");
         Paths = CurrentPaths();
         Transitions = new ConnectionBindingTransitionService(Home, Bindings);
     }

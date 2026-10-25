@@ -113,9 +113,15 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         {
             var op = definition.Operations[ordinal];
             var projected = ProjectOperation(ordinal, op, roles, providerRoles);
-            operations.Add(op is AddLinkOperation addLink
-                ? projected with { Capability = AdvisoryFor(CapabilityDescriptor, addLink.Relation) }
-                : projected);
+            var advisoryRelation = op switch
+            {
+                AddLinkOperation addLink => addLink.Relation,
+                ProviderMutationOperation { OperationKind: PlanOperationKind.AddLink } provider => provider.Relation ?? string.Empty,
+                _ => null,
+            };
+            operations.Add(advisoryRelation is null
+                ? projected
+                : projected with { Capability = AdvisoryFor(CapabilityDescriptor, advisoryRelation) });
         }
 
         var known = roles.Count == 0 ? [] : await _workItems.GetByIdsAsync(roles.Keys, ct).ConfigureAwait(false);

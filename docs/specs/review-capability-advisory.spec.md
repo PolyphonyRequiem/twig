@@ -20,5 +20,6 @@ This is a **declaration, not an observation**. A previewed edge has not been wri
 
 - Outside canonical effects, consequences and the proposal digest. Digests and request bytes are unchanged.
 - Resolved from configuration plus the static catalog; no provider is constructed and no network or credential is touched.
+- Covers every add-link operation, including provider-neutral (v2) add-link. A missing, empty or unrecognised relation, or an absent descriptor, yields declared `unknown`; native is never inferred. Non-link operations carry no advisory.
 - Only `add-link` operations carry it. Readers must tolerate its absence (older journal rows) and ignore unknown members.
 - The required-provider fail-closed behaviour and the GitHub write gate are unchanged. No emulation is activated.

@@ -22,7 +22,8 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
         Func<BrowserCapture, CancellationToken, Task<T>> action, CancellationToken ct = default,
         string? expectedBench = null, string? expectedBinding = null, string? expectedIdentity = null,
         bool initializeBench = false)
-        => ExecuteCoreAsync(expected, action, null, ct, expectedBench, expectedBinding, expectedIdentity, initializeBench);
+        => ExecuteCoreAsync(expected, action, null, ct, expectedBench, expectedBinding, expectedIdentity, initializeBench,
+            expected?.ExplicitTarget);
 
     // Explicit, cache-only selection by saved name or id. It never falls back to, reads or mutates the shared
     // current-Bench pointer, and every revalidation re-resolves the captured identity rather than the pointer.

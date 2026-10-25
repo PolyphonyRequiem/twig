@@ -164,6 +164,9 @@ public static class CommandRegistrationModule
         services.AddSingleton<BrowserReadModule>();
         services.AddSingleton<BenchDetailCommand>();
         services.AddSingleton<DraftCommand>();
+        services.AddSingleton<RecoverableDraftEditingModule>();
+        services.AddSingleton<DraftEditingCommand>(sp => new DraftEditingCommand(
+            sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<RecoverableDraftEditingModule>()));
         services.AddSingleton<BenchAreaCandidatesCommand>();
         // 'twig save' is deprecated but still dispatches to SaveCommand
         // (Program.cs Save handler); without this it throws at runtime.

@@ -140,6 +140,60 @@ public sealed class SchemaRebuildLocalWorkTests
     public Task SchemaRebuild_WithSeedAndDirtyRows_ReportsBoth() => RefusesAsync(true, true, Present(1, 1));
 
     [Fact]
+    public async Task SchemaRebuild_WithEditedSeedAndWorkspaceContext_RefusesWithoutChangingEitherStore()
+    {
+        var dir = NewDir();
+        const string editedFieldsJson =
+            """{"System.Title":"Edited seed title","System.Description":"Full seed description\nwith multiple lines.","Custom.Marker":"preserve-this-value"}""";
+        const string editedTitle = "Edited seed title";
+        const string editedState = "Drafted locally";
+        const string note = "Seed note must survive an interrupted preservation attempt.";
+        try
+        {
+            var seeded = await SeedAsync(dir, seed: true, dirty: false, c =>
+            {
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = """
+                    UPDATE work_items
+                    SET title = @title, state = @state, parent_id = -73, assigned_to = 'seed-author',
+                        iteration_path = 'Project\Sprint 8', area_path = 'Project\Area 4', revision = 9,
+                        seed_created_at = '2026-08-14T12:34:56.0000000+00:00', fields_json = @fields
+                    WHERE is_seed = 1;
+
+                    INSERT INTO pending.pending_changes
+                        (work_item_id, change_type, field_name, old_value, new_value, created_at)
+                    SELECT id, 'note', NULL, NULL, @note, '2026-08-14T12:35:00.0000000+00:00'
+                    FROM work_items WHERE is_seed = 1;
+
+                    INSERT INTO context (key, value) VALUES
+                        ('active_work_item_id', (SELECT CAST(id AS TEXT) FROM work_items WHERE is_seed = 1)),
+                        ('workspace_mode', 'workspace-scoped-mode'),
+                        ('workspace_context_marker', 'opaque-context-value'),
+                        ('nav_history_cursor', '401')
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+
+                    INSERT INTO navigation_history (id, work_item_id, visited_at)
+                    SELECT 401, id, '2026-08-14T12:36:00.0000000+00:00'
+                    FROM work_items WHERE is_seed = 1;
+                    INSERT INTO navigation_history (id, work_item_id, visited_at)
+                    SELECT 402, id, '2026-08-14T12:37:00.0000000+00:00'
+                    FROM work_items WHERE is_seed = 1;
+                    """;
+                cmd.Parameters.AddWithValue("@title", editedTitle);
+                cmd.Parameters.AddWithValue("@state", editedState);
+                cmd.Parameters.AddWithValue("@fields", editedFieldsJson);
+                cmd.Parameters.AddWithValue("@note", note);
+                cmd.ExecuteNonQuery();
+            });
+
+            AssertEditedSeedAndContextIntact(dir, seeded, editedTitle, editedState, editedFieldsJson, note);
+            Refusal(dir).ShouldBe(Present(1, 0));
+            AssertEditedSeedAndContextIntact(dir, seeded, editedTitle, editedState, editedFieldsJson, note);
+        }
+        finally { Cleanup(dir); }
+    }
+
+    [Fact]
     public Task SchemaRebuild_SeedFlagMissing_StillRefusesOnDirtyRow() =>
         RefusesAsync(false, true, Present(0, 1), c => DropColumn(c, "is_seed", "idx_work_items_seed"), seedFlag: true);
 
@@ -223,5 +277,53 @@ public sealed class SchemaRebuildLocalWorkTests
             Convert.ToInt32(Scalar(reopened.GetConnection(), "SELECT COUNT(*) FROM work_items;")).ShouldBe(0);
         }
         finally { Cleanup(dir); }
+    }
+
+    private static void AssertEditedSeedAndContextIntact(
+        string dir,
+        Seeded seeded,
+        string title,
+        string state,
+        string fieldsJson,
+        string note)
+    {
+        AssertIntact(dir, seeded, seed: false, dirty: false);
+
+        using var mirror = OpenReadOnly(Path.Combine(dir, "twig.db"));
+        var alias = seeded.Minted.Alias.Value;
+        Scalar(mirror, """
+            SELECT title FROM work_items
+            WHERE id = @id AND staged_identity = @identity AND is_seed = 1;
+            """, ("@id", alias), ("@identity", seeded.Minted.Identity.ToString()))
+            .ShouldBe(title);
+        Scalar(mirror, "SELECT state FROM work_items WHERE id = @id;", ("@id", alias))
+            .ShouldBe(state);
+        Scalar(mirror, "SELECT fields_json FROM work_items WHERE id = @id;", ("@id", alias))
+            .ShouldBe(fieldsJson);
+        Convert.ToInt32(Scalar(mirror, """
+            SELECT COUNT(*) FROM work_items
+            WHERE id = @id AND parent_id = -73 AND assigned_to = 'seed-author'
+              AND iteration_path = 'Project\Sprint 8' AND area_path = 'Project\Area 4'
+              AND revision = 9 AND seed_created_at = '2026-08-14T12:34:56.0000000+00:00';
+            """, ("@id", alias))).ShouldBe(1);
+
+        Scalar(mirror, "SELECT value FROM context WHERE key = 'active_work_item_id';")
+            .ShouldBe(alias.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Scalar(mirror, "SELECT value FROM context WHERE key = 'workspace_mode';")
+            .ShouldBe("workspace-scoped-mode");
+        Scalar(mirror, "SELECT value FROM context WHERE key = 'workspace_context_marker';")
+            .ShouldBe("opaque-context-value");
+        Scalar(mirror, "SELECT value FROM context WHERE key = 'nav_history_cursor';")
+            .ShouldBe("401");
+        Convert.ToInt32(Scalar(mirror, """
+            SELECT COUNT(*) FROM navigation_history
+            WHERE work_item_id = @id AND id IN (401, 402);
+            """, ("@id", alias))).ShouldBe(2);
+
+        using var durable = OpenReadOnly(Path.Combine(dir, "pending.db"));
+        Convert.ToInt32(Scalar(durable, """
+            SELECT COUNT(*) FROM pending_changes
+            WHERE work_item_id = @id AND change_type = 'note' AND new_value = @note;
+            """, ("@id", alias), ("@note", note))).ShouldBe(1);
     }
 }

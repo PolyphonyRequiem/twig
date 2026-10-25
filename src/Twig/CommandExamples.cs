@@ -12,6 +12,11 @@ internal static class CommandExamples
     /// </summary>
     internal static Dictionary<string, string[]> Examples { get; } = new(StringComparer.Ordinal)
     {
+        ["bench discussion"] =
+        [
+            "twig bench discussion --stdin -o json       Read one page from an explicit qualified item/Bench JSON request through EOF",
+            "twig bench discussion --stdin -o minimal    Same admission; pass the returned opaque cursor in a subsequent request for another page",
+        ],
         ["init"] =
         [
             // Onboarding is four distinct operations, in order: enroll an identity once,
@@ -400,6 +405,11 @@ internal static class CommandExamples
         [
             "twig draft retain --stdin -o json       Retain exactly the native context and decimal tokens from STAGE; close stdin after the v1 request",
             "twig draft retain --stdin -o minimal    Report the retained canonical digest without exporting, authorizing or applying it",
+        ],
+        ["draft review"] =
+        [
+            "twig draft review <digest>              Review exact retained effects by digest; no file or cache-enriched item context",
+            "twig draft review <digest> -o json      Include captured baseline/proposed values and safe publisher provenance",
         ],
         ["draft show"] =
         [

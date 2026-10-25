@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -52,6 +53,14 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
             return await NativeAsync(module => module.RetainAsync(request,
                 new PlanWorkspace { Organization = ctx.Config.Organization, Project = ctx.Config.Project }, ct));
         }, ct);
+
+    internal Task<int> ReviewAsync(string? digest, string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => ExecuteAsync("draft review", output,
+            () => !IsCanonicalDigest(digest)
+                ? Task.FromResult(RecoverableDraftEditingModule.Refused("usage",
+                    "Provide one lowercase SHA-256 digest from a retained native capture."))
+                : NativeAsync(module => module.ReviewAsync(digest, ct)), ct);
 
     private async Task<DraftEditingResult> NativeAsync(Func<RecoverableDraftEditingModule, Task<DraftEditingResult>> action)
     {
@@ -113,6 +122,10 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
                 RejectDuplicateProperties(child);
     }
 
+    private static bool IsCanonicalDigest([NotNullWhen(true)] string? digest)
+        => digest is { Length: 64 }
+            && digest.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
     private async Task<int> ExecuteAsync(string command, string output,
         Func<Task<DraftEditingResult>> action, CancellationToken ct)
     {
@@ -144,6 +157,13 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
                 ctx.StderrWriter.WriteLine(ctx.FormatterFactory.GetFormatter(format).FormatError(error.Message));
             else if (result.Capture is { } retained)
                 (stdout ?? Console.Out).WriteLine($"draft retained\t{retained.Digest}\t{retained.Generation}");
+            else if (result.Review is { } review)
+            {
+                if (format == "minimal")
+                    (stdout ?? Console.Out).WriteLine($"draft reviewed\t{review.Digest}\t{review.Effects.Count}");
+                else
+                    RenderHumanReview(review);
+            }
             else
                 (stdout ?? Console.Out).WriteLine(
                     $"draft {result.Status}\t{result.Document!.NativeContext.ItemKey.WorkItemId}\t{result.Document.Generation}");
@@ -153,4 +173,19 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
         }
         finally { TelemetryHelper.TrackCommand(ctx.TelemetryClient, command, format ?? "human", exit, started); }
     }
+
+    private void RenderHumanReview(DraftCaptureReview review)
+    {
+        var writer = stdout ?? Console.Out;
+        writer.WriteLine($"Retained draft review {Quote(review.Digest)}");
+        writer.WriteLine($"Workspace: {Quote(review.Workspace.Organization)} / {Quote(review.Workspace.Project)}");
+        writer.WriteLine($"Work item: #{review.WorkItemId}");
+        foreach (var effect in review.Effects)
+            writer.WriteLine($"  {Quote(effect.FieldRef)}: {Quote(effect.BaselineValue)} -> {Quote(effect.ProposedValue)}");
+        writer.WriteLine("Freshness: current against cached native evidence at validation time; not a remote freshness lease.");
+        writer.WriteLine("Authority: not authorized; this review cannot apply the proposal.");
+    }
+
+    private static string Quote(string? value)
+        => JsonSerializer.Serialize(value, TwigJsonContext.Default.String);
 }

@@ -50,6 +50,26 @@ internal sealed record DraftRetainedCapture(
     string OriginCoverage = "editing-context-and-native-origin-digest",
     bool Authorized = false, bool CanApply = false);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record DraftCaptureReview(
+    [property: JsonRequired] string Digest,
+    [property: JsonRequired] DraftCaptureReviewWorkspace Workspace,
+    [property: JsonRequired] int WorkItemId,
+    [property: JsonRequired] string OperationId,
+    [property: JsonRequired] string Generation,
+    [property: JsonRequired] string Revision,
+    [property: JsonRequired] string ItemContext,
+    [property: JsonRequired] string Freshness,
+    [property: JsonRequired] string PublisherProvenance,
+    [property: JsonRequired] IReadOnlyList<DraftEditingEffect> Effects,
+    [property: JsonRequired] bool Authorized,
+    [property: JsonRequired] bool CanApply);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record DraftCaptureReviewWorkspace(
+    [property: JsonRequired] string Organization,
+    [property: JsonRequired] string Project);
+
 internal sealed record DraftEditingField(string FieldRef, bool Editable, string? Reason);
 internal sealed record DraftEditingEffect(string FieldRef,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? BaselineValue,
@@ -69,4 +89,5 @@ internal sealed record DraftEditingDocument(
 
 internal sealed record DraftEditingError(string Code, string Message, string Recovery);
 internal sealed record DraftEditingResult(int Version, string Status, bool Committed,
-    DraftEditingDocument? Document = null, DraftEditingError? Error = null, DraftRetainedCapture? Capture = null);
+    DraftEditingDocument? Document = null, DraftEditingError? Error = null, DraftRetainedCapture? Capture = null,
+    DraftCaptureReview? Review = null);

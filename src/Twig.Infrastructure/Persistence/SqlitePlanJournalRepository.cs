@@ -114,20 +114,83 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     {
         if (_store.ActiveTransaction is null)
             throw new InvalidOperationException("Capture import requires its caller's fenced draft transaction.");
-        if (capture.ProposalDigest != digest || plan.Operations.Count != 1
-            || plan.Operations[0] is not BatchOperation batch || batch.Id != capture.OperationId
-            || batch.WorkItemId != capture.Draft.ItemKey.WorkItemId
-            || batch.ExpectedRevision != capture.CurrentRevision
-            || batch.Fields.Count != capture.Draft.Changes.Count
-            || capture.Draft.Changes.Any(change =>
-                !batch.Fields.TryGetValue(change.FieldRef, out var value) || value != change.ProposedValue)
-            || capture.OperationId != "draft-" + SqliteDraftProposalCaptureStore.IdentityDigest(
-                capture.Draft, capture.CurrentRevision, capture.Origin, plan.Workspace, capture.EvidenceFingerprint))
+        if (!CaptureMatchesProposal(plan, digest, capture))
             throw new InvalidOperationException("Capture binding does not identify the exact proposal.");
         return ImportCoreAsync(plan, canonicalJson, digest, sourcePath, previewedAt, ct, capture.Origin, capture);
     }
 
     internal async Task<PlanValidationIssue> CaptureIssueAsync(PlanJournal journal, PlanOrigin origin, CancellationToken ct)
+    {
+        using var operation = _store.AcquireOperation();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Capture inspection cannot nest a transaction.");
+        using var transaction = _store.GetConnection().BeginTransaction(deferred: false);
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            var issue = await CaptureIssueInTransactionAsync(journal, origin, ct).ConfigureAwait(false);
+            transaction.Commit();
+            return issue;
+        }
+        finally
+        {
+            _store.ActiveTransaction = null;
+        }
+    }
+
+    internal async Task<(PlanJournal? Journal, PlanValidationIssue? Issue)> ReadCaptureForReviewAsync(
+        string digest, PlanOrigin origin, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(digest);
+        ArgumentNullException.ThrowIfNull(origin);
+        using var operation = _store.AcquireOperation();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Capture review cannot nest a transaction.");
+        using var transaction = _store.GetConnection().BeginTransaction(deferred: false);
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            PlanJournal? journal;
+            try
+            {
+                journal = await GetAsync(digest, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or JsonException or ArgumentException or FormatException)
+            {
+                transaction.Commit();
+                return (null, new() { Code = "draft-capture-invalid", Path = string.Empty,
+                    Message = "The retained capture or journal origin is malformed or inconsistent." });
+            }
+            if (journal is null)
+                return (null, null);
+            if (journal.DraftCapture is not { } capture)
+                return (journal, new() { Code = "draft-capture-required", Path = string.Empty,
+                    Message = "This digest does not identify a retained native draft capture." });
+            if (journal.Origin is null || journal.Origin != capture.Origin)
+                return (journal, new() { Code = "draft-capture-invalid", Path = string.Empty,
+                    Message = "The retained journal origin does not match its native capture." });
+
+            var parsed = new PlanDocumentParser().Parse(journal.CanonicalJson);
+            if (!parsed.IsValid || parsed.Plan is null
+                || parsed.CanonicalJson != journal.CanonicalJson || parsed.Digest != journal.Digest
+                || parsed.Plan.Workspace != journal.Workspace
+                || !CaptureMatchesProposal(parsed.Plan, journal.Digest, capture))
+                return (journal, new() { Code = "draft-capture-invalid", Path = string.Empty,
+                    Message = "The retained proposal bytes, digest, workspace or native capture binding disagree." });
+
+            var issue = await CaptureIssueInTransactionAsync(journal, origin, ct).ConfigureAwait(false);
+            transaction.Commit();
+            return (journal, issue);
+        }
+        finally
+        {
+            _store.ActiveTransaction = null;
+        }
+    }
+
+    private async Task<PlanValidationIssue> CaptureIssueInTransactionAsync(
+        PlanJournal journal, PlanOrigin origin, CancellationToken ct)
     {
         var capture = journal.DraftCapture ?? throw new InvalidOperationException("No draft capture exists.");
         if (capture.EvidenceFingerprint is null)
@@ -135,29 +198,23 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 Message = "Legacy capture has no served-metadata evidence; inspection only, never backfilled." };
         try
         {
-            using var operation = _store.AcquireOperation();
-            if (_store.ActiveTransaction is not null) throw new InvalidOperationException("Capture inspection cannot nest a transaction.");
-            using var transaction = _store.GetConnection().BeginTransaction();
-            _store.ActiveTransaction = transaction;
-            try
-            {
-                var draft = await new SqliteRecoverableWorkItemDraftStore(_store).GetAsync(capture.Draft.ItemKey, ct).ConfigureAwait(false);
-                if (draft is null || JsonSerializer.Serialize(draft, TwigJsonContext.Default.RecoverableWorkItemDraft)
-                    != JsonSerializer.Serialize(capture.Draft, TwigJsonContext.Default.RecoverableWorkItemDraft))
-                    throw new InvalidOperationException("Draft generation, conflicts or exact effects changed; intent was retained.");
-                var snapshot = await new SqliteWorkItemRepository(_store, new Twig.Domain.Services.WorkItemMapper())
-                    .GetSnapshotByIdAsync(capture.Draft.ItemKey.WorkItemId, ct).ConfigureAwait(false);
-                if (snapshot is null || snapshot.Revision != capture.CurrentRevision || snapshot.IsDirty)
-                    throw new InvalidOperationException("Cached revision or local work changed; intent was retained.");
-                using var pending = _store.GetConnection().CreateCommand();
-                pending.Transaction = transaction;
-                pending.CommandText = "SELECT EXISTS(SELECT 1 FROM pending.pending_changes);";
-                if (Convert.ToInt64(pending.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
-                    throw new InvalidOperationException("Unrelated pending work blocks capture inspection.");
-                await new SqliteDraftCaptureEvidenceStore(_store).ValidateAsync(draft, snapshot, origin,
-                    capture.EvidenceFingerprint, ct).ConfigureAwait(false);
-            }
-            finally { _store.ActiveTransaction = null; }
+            if (_store.ActiveTransaction is null)
+                throw new InvalidOperationException("Capture inspection requires its read transaction.");
+            var draft = await new SqliteRecoverableWorkItemDraftStore(_store).GetAsync(capture.Draft.ItemKey, ct).ConfigureAwait(false);
+            if (draft is null || JsonSerializer.Serialize(draft, TwigJsonContext.Default.RecoverableWorkItemDraft)
+                != JsonSerializer.Serialize(capture.Draft, TwigJsonContext.Default.RecoverableWorkItemDraft))
+                throw new InvalidOperationException("Draft generation, conflicts or exact effects changed; intent was retained.");
+            var snapshot = await new SqliteWorkItemRepository(_store, new Twig.Domain.Services.WorkItemMapper())
+                .GetSnapshotByIdAsync(capture.Draft.ItemKey.WorkItemId, ct).ConfigureAwait(false);
+            if (snapshot is null || snapshot.Revision != capture.CurrentRevision || snapshot.IsDirty)
+                throw new InvalidOperationException("Cached revision or local work changed; intent was retained.");
+            using var pending = _store.GetConnection().CreateCommand();
+            pending.Transaction = _store.ActiveTransaction;
+            pending.CommandText = "SELECT EXISTS(SELECT 1 FROM pending.pending_changes);";
+            if (Convert.ToInt64(pending.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
+                throw new InvalidOperationException("Unrelated pending work blocks capture inspection.");
+            await new SqliteDraftCaptureEvidenceStore(_store).ValidateAsync(draft, snapshot, origin,
+                capture.EvidenceFingerprint, ct).ConfigureAwait(false);
             return new() { Code = "draft-capture-inspection-only", Path = string.Empty,
                 Message = "Captured local intent is current against cached native evidence, not remote metadata or Apply authority. Native Save is not enabled." };
         }
@@ -166,6 +223,17 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             return new() { Code = "draft-capture-stale", Path = string.Empty, Message = ex.Message };
         }
     }
+
+    private static bool CaptureMatchesProposal(PlanDefinition plan, string digest, DraftProposalCapture capture)
+        => capture.ProposalDigest == digest && plan.Operations.Count == 1
+            && plan.Operations[0] is BatchOperation batch && batch.Id == capture.OperationId
+            && batch.WorkItemId == capture.Draft.ItemKey.WorkItemId
+            && batch.ExpectedRevision == capture.CurrentRevision
+            && batch.Fields.Count == capture.Draft.Changes.Count
+            && capture.Draft.Changes.All(change =>
+                batch.Fields.TryGetValue(change.FieldRef, out var value) && value == change.ProposedValue)
+            && capture.OperationId == "draft-" + SqliteDraftProposalCaptureStore.IdentityDigest(
+                capture.Draft, capture.CurrentRevision, capture.Origin, plan.Workspace, capture.EvidenceFingerprint);
 
     internal void SetCaptureExportState(string digest, bool complete)
     {

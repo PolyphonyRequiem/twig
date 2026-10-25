@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
 using Twig.Domain.Services;
@@ -80,6 +81,62 @@ internal sealed class RecoverableDraftEditingModule(
         }
         return new(1, "retained", committed, Capture: result.Value);
     }
+
+    internal async Task<DraftEditingResult> ReviewAsync(string digest, CancellationToken ct = default)
+    {
+        try
+        {
+            var origin = await origins.GetOriginAsync(ct);
+            var (journal, issue) = await new SqlitePlanJournalRepository(cache)
+                .ReadCaptureForReviewAsync(digest, origin, ct);
+            if (journal is null)
+            {
+                if (issue is not null)
+                    return Refused(issue.Code, ReviewFailureMessage(issue.Code));
+                return Refused("capture-not-found", "No retained proposal journal exists for this digest.");
+            }
+            if (issue?.Code != "draft-capture-inspection-only" || journal.DraftCapture is not { } capture)
+                return Refused(issue?.Code ?? "draft-capture-invalid",
+                    ReviewFailureMessage(issue?.Code ?? "draft-capture-invalid"));
+
+            var review = new DraftCaptureReview(
+                journal.Digest,
+                new DraftCaptureReviewWorkspace(journal.Workspace.Organization, journal.Workspace.Project),
+                capture.Draft.ItemKey.WorkItemId,
+                capture.OperationId,
+                Decimal(capture.Draft.Generation),
+                Decimal(capture.CurrentRevision),
+                "not-retained",
+                "current-against-cached-native-evidence-at-validation",
+                "captured-native-origin-validated",
+                capture.Draft.Changes.Select(change =>
+                    new DraftEditingEffect(change.FieldRef, change.BaselineValue, change.ProposedValue)).ToArray(),
+                Authorized: false,
+                CanApply: false);
+            return new(1, "reviewed", false, Review: review);
+        }
+        catch (InvalidOperationException)
+        {
+            return Refused("capture-unavailable", "The retained capture could not be reviewed from current local evidence.");
+        }
+        catch (SqliteException)
+        {
+            return Refused("capture-unavailable", "The retained capture could not be read from local storage.");
+        }
+        catch (Exception ex) when (ex is InvalidDataException or JsonException)
+        {
+            return Refused("draft-capture-invalid", ReviewFailureMessage("draft-capture-invalid"));
+        }
+    }
+
+    private static string ReviewFailureMessage(string code) => code switch
+    {
+        "draft-capture-required" => "This digest does not identify a retained native draft capture.",
+        "draft-capture-invalid" => "The retained capture or journal origin is malformed or inconsistent.",
+        "draft-capture-missing-evidence" => "This legacy capture lacks native served-metadata evidence and cannot be reviewed.",
+        "draft-capture-stale" => "The retained capture is no longer current against available local evidence.",
+        _ => "The retained capture could not be reviewed from current local evidence.",
+    };
 
     internal static bool IsValidRequest(DraftRetainRequest? request)
         => request is { Version: 1 }

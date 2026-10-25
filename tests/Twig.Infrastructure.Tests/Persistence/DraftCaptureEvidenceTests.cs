@@ -186,6 +186,139 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("malformed")]
+    [InlineData("mismatch")]
+    public async Task ReviewRejectsNullMalformedOrMismatchedPersistedJournalOriginWithoutWriting(string originFault)
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await new SqliteDraftProposalCaptureStore(cache).CaptureQualifiedAsync(
+            draft, snapshot, Origin, Workspace, Path.Combine(_directory, "proposals"),
+            SqliteDraftCaptureEvidenceStore.Fingerprint(evidence));
+
+        using (var tamper = cache.GetConnection().CreateCommand())
+        {
+            tamper.CommandText = originFault switch
+            {
+                "null" => "UPDATE pending.proposal_journals SET origin_json=NULL WHERE digest=@digest;",
+                "malformed" => "UPDATE pending.proposal_journals SET origin_json='{' WHERE digest=@digest;",
+                "mismatch" => "UPDATE pending.proposal_journals SET origin_json=json_set(origin_json,'$.bindingId','other-binding') WHERE digest=@digest;",
+                _ => throw new ArgumentOutOfRangeException(nameof(originFault)),
+            };
+            tamper.Parameters.AddWithValue("@digest", journal.Digest);
+            tamper.ExecuteNonQuery().ShouldBe(1);
+        }
+        var before = ReadReviewState(cache);
+
+        var (read, issue) = await new SqlitePlanJournalRepository(cache)
+            .ReadCaptureForReviewAsync(journal.Digest, Origin, CancellationToken.None);
+
+        read.ShouldBeNull();
+        issue.ShouldNotBeNull().Code.ShouldBe("draft-capture-invalid");
+        ReadReviewState(cache).ShouldBe(before);
+        cache.ActiveTransaction.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("version")]
+    public async Task ReviewClassifiesMalformedCaptureRowsWithoutWriting(string captureFault)
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await new SqliteDraftProposalCaptureStore(cache).CaptureQualifiedAsync(
+            draft, snapshot, Origin, Workspace, Path.Combine(_directory, "proposals"),
+            SqliteDraftCaptureEvidenceStore.Fingerprint(evidence));
+        using (var tamper = cache.GetConnection().CreateCommand())
+        {
+            tamper.CommandText = captureFault == "json"
+                ? "UPDATE pending.proposal_journals SET draft_capture_json='{' WHERE digest=@digest;"
+                : "UPDATE pending.proposal_journals SET draft_capture_json=json_set(draft_capture_json,'$.version',99) WHERE digest=@digest;";
+            tamper.Parameters.AddWithValue("@digest", journal.Digest);
+            tamper.ExecuteNonQuery().ShouldBe(1);
+        }
+        var before = ReadReviewState(cache);
+
+        var (read, issue) = await new SqlitePlanJournalRepository(cache)
+            .ReadCaptureForReviewAsync(journal.Digest, Origin, CancellationToken.None);
+
+        read.ShouldBeNull();
+        issue.ShouldNotBeNull().Code.ShouldBe("draft-capture-invalid");
+        ReadReviewState(cache).ShouldBe(before);
+        cache.ActiveTransaction.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReviewRefusesLegacyCaptureWithoutEvidenceAndPreservesJournalAndExportState()
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, _) = await SeedAsync(cache);
+        var journal = await new SqliteDraftProposalCaptureStore(cache).CaptureAsync(
+            draft, snapshot, Origin, Workspace, Path.Combine(_directory, "proposals"));
+        journal.DraftCapture.ShouldNotBeNull().Version.ShouldBe(1);
+        journal.DraftCapture!.EvidenceFingerprint.ShouldBeNull();
+        File.Exists(journal.SourcePath).ShouldBeFalse();
+        var before = ReadReviewState(cache);
+
+        var (read, issue) = await new SqlitePlanJournalRepository(cache)
+            .ReadCaptureForReviewAsync(journal.Digest, Origin, CancellationToken.None);
+
+        read.ShouldNotBeNull();
+        issue.ShouldNotBeNull().Code.ShouldBe("draft-capture-missing-evidence");
+        ReadReviewState(cache).ShouldBe(before);
+        cache.ActiveTransaction.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReviewRefusesNonCaptureAndMissingDigestWithoutChangingJournalOrExportState()
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await new SqliteDraftProposalCaptureStore(cache).CaptureQualifiedAsync(
+            draft, snapshot, Origin, Workspace, Path.Combine(_directory, "proposals"),
+            SqliteDraftCaptureEvidenceStore.Fingerprint(evidence));
+        Execute(cache, "UPDATE pending.proposal_journals SET draft_capture_json=NULL;");
+        var before = ReadReviewState(cache);
+
+        var (nonCapture, nonCaptureIssue) = await new SqlitePlanJournalRepository(cache)
+            .ReadCaptureForReviewAsync(journal.Digest, Origin, CancellationToken.None);
+        nonCapture.ShouldNotBeNull();
+        nonCaptureIssue.ShouldNotBeNull().Code.ShouldBe("draft-capture-required");
+        ReadReviewState(cache).ShouldBe(before);
+
+        var (missing, missingIssue) = await new SqlitePlanJournalRepository(cache)
+            .ReadCaptureForReviewAsync(new string('a', 64), Origin, CancellationToken.None);
+        missing.ShouldBeNull();
+        missingIssue.ShouldBeNull();
+        ReadReviewState(cache).ShouldBe(before);
+        cache.ActiveTransaction.ShouldBeNull();
+    }
+
+    private static string[] ReadReviewState(SqliteCacheStore cache)
+    {
+        var rows = new List<string>();
+        foreach (var table in new[] { "proposal_journals", "proposal_operations", "proposal_receipts" })
+        {
+            using var command = cache.GetConnection().CreateCommand();
+            command.CommandText = $"SELECT * FROM pending.{table};";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                rows.Add(table + ":" + string.Join("|", Enumerable.Range(0, reader.FieldCount).Select(index =>
+                    reader.IsDBNull(index) ? "<null>" : Convert.ToString(reader.GetValue(index), CultureInfo.InvariantCulture))));
+        }
+        using (var command = cache.GetConnection().CreateCommand())
+        {
+            command.CommandText = "SELECT digest, source_path FROM pending.proposal_journals;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                rows.Add($"export:{reader.GetString(0)}:{File.Exists(reader.GetString(1))}");
+        }
+        rows.Sort(StringComparer.Ordinal);
+        return rows.ToArray();
+    }
+
     [Fact]
     public async Task ServedObservationRoundTripsRulesAndCapturesExactNullAndEmptyValues()
     {

@@ -28,7 +28,7 @@ This ADR proposes one Twig relationship model (hierarchy, predecessor/successor,
 
 ## Activation preconditions
 
-Emulation stays off. Wiring any emulated route needs a separate authorization, a red-first proof on real storage composition (survival across refresh and rebuild, readback, content preservation, concurrent change, ambiguous retry, tombstones, native-failure refusal) and a declared policy treatment: `DeclaredPolicyEvaluator`'s parent-type and dependency-integrity checks must either read Twig-local overlay edges or return `unavailable` for affected items (#1169 merge obligation 2, `docs/specs/cloudvault-policy-decisions.spec.md`). Silently omitting local edges from policy, or downgrading a native declaration to make emulation apply, is not allowed.
+Emulation stays off. Wiring any emulated route needs a separate authorization, a red-first proof on real storage composition (survival across refresh and rebuild, readback, content preservation, concurrent change, ambiguous retry, tombstones, native-failure refusal) and a declared policy treatment: `DeclaredPolicyEvaluator`'s parent-type and dependency-integrity checks must either read Twig-local overlay edges or return `unavailable` for affected items (#1169 merge obligation 2, `docs/specs/declared-policy-decisions.spec.md`). Silently omitting local edges from policy, or downgrading a native declaration to make emulation apply, is not allowed.
 
 ## Considered options
 

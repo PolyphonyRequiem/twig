@@ -22,6 +22,7 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Serialization;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.TestKit;
 using Xunit;
@@ -59,6 +60,40 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         SqliteConnection.ClearAllPools();
         Directory.Delete(_temp, recursive: true);
         return Task.CompletedTask;
+    }
+
+    [Theory]
+    [InlineData("github", "provider-unsupported")]
+    [InlineData("gitlab", WorkItemProviderSetting.UnknownReasonCode)]
+    public async Task DraftRetain_UnderNonAdoRefusesBeforeResolvingTheEditingGraph(string provider, string code)
+    {
+        var request = new DraftRetainRequest(1,
+            new(new QualifiedWorkItemKey(@"C:\fixture", "connection", "binding", 42),
+                new("ado", "resource", "42"), "7", "Sprint", "bench-digest", "identity",
+                "1", "checkout-binding-pin", "1", "1", null, "origin-digest", "evidence-digest"),
+            "1", "3", "3");
+        using var input = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(request,
+            TwigJsonContext.Default.DraftRetainRequest));
+        var output = new StringWriter();
+        var runtime = await AttachAsync(provider, overrides: services =>
+            services.AddSingleton<DraftEditingCommand>(sp => new DraftEditingCommand(
+                sp.GetRequiredService<CommandContext>(),
+                () => throw new InvalidOperationException("The editing graph must not resolve under this provider."),
+                output, input)));
+        var commands = new TwigCommands(runtime);
+        if (provider == "gitlab")
+        {
+            var refusal = await CaptureAsync(() => commands.DraftRetain(true, "json"));
+            refusal.ShouldBeOfType<TwigConfigurationException>().Message.ShouldStartWith(code + ":");
+        }
+        else
+        {
+            (await commands.DraftRetain(true, "json")).ShouldBe(1);
+            using var result = JsonDocument.Parse(output.ToString());
+            result.RootElement.GetProperty("committed").GetBoolean().ShouldBeFalse();
+            result.RootElement.GetProperty("error").GetProperty("code").GetString().ShouldBe(code);
+        }
+        _transport.Requests.ShouldBeEmpty();
     }
 
     [Theory]

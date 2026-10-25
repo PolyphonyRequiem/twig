@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Shouldly;
 using Twig.Commands;
+using Twig.Browser;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Serialization;
 using Xunit;
@@ -10,6 +11,88 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed class DraftEditingTransportTests
 {
+    [Fact]
+    public async Task RetainInputIsStrictLosslessAndAcceptsNoEffectsOrAuthorizationFields()
+    {
+        var staged = Request([]);
+        var expected = new DraftRetainRequest(1, staged.NativeContext with
+        {
+            BindingRevision = "9007199254740993", AttachmentRevision = "9223372036854775807",
+            StorageGeneration = null,
+        }, staged.Generation, staged.BaselineRevision, staged.ObservedRevision);
+        var json = JsonSerializer.Serialize(expected, TwigJsonContext.Default.DraftRetainRequest);
+        using var input = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var actual = await DraftEditingCommand.ReadRetainRequestAsync(input, default);
+        actual.ShouldBe(expected);
+        RecoverableDraftEditingModule.IsValidRequest(actual).ShouldBeTrue();
+        json.ShouldContain("\"storageGeneration\":null");
+        foreach (var addition in new[]
+        {
+            "\"changes\":[]", "\"authorizer\":\"browser\"", "\"authorized\":true",
+            "\"digest\":\"supplied\"", "\"proposalPath\":\"supplied\"", "\"version\":1",
+        })
+        {
+            var malformed = json.Insert(1, addition + ",");
+            using var rejected = new MemoryStream(Encoding.UTF8.GetBytes(malformed));
+            await Should.ThrowAsync<JsonException>(() => DraftEditingCommand.ReadRetainRequestAsync(rejected, default));
+        }
+        foreach (var (from, to) in new[]
+        {
+            ("\"checkoutRoot\":", "\"extra\":true,\"checkoutRoot\":"),
+            ("\"providerKind\":", "\"extra\":true,\"providerKind\":"),
+            ("\"generation\":\"9007199254740993\"", "\"generation\":9007199254740993"),
+            ("\"version\":1,", ""),
+            ("\"observedRevision\":\"3\"", "\"observedRevision\":true"),
+        })
+        {
+            var malformed = json.Replace(from, to, StringComparison.Ordinal);
+            malformed.ShouldNotBe(json);
+            using var rejected = new MemoryStream(Encoding.UTF8.GetBytes(malformed));
+            await Should.ThrowAsync<JsonException>(() => DraftEditingCommand.ReadRetainRequestAsync(rejected, default));
+        }
+        foreach (var malformed in new[]
+        {
+            expected with { NativeContext = null! }, expected with { Generation = null! },
+            expected with { NativeContext = expected.NativeContext with { ItemKey = null! } },
+            expected with { NativeContext = expected.NativeContext with { ExternalIdentity = null! } },
+            expected with { Generation = "01" }, expected with { Generation = "-1" },
+            expected with { Generation = "9223372036854775808" },
+            expected with { BaselineRevision = "0" }, expected with { ObservedRevision = "+3" },
+        })
+            RecoverableDraftEditingModule.IsValidRequest(malformed).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RetainReaderRequiresEofBoundsUtf8AndHonorsCancellation()
+    {
+        var staged = Request([]);
+        var request = new DraftRetainRequest(1, staged.NativeContext, staged.Generation, "3", "3");
+        var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.DraftRetainRequest);
+        var exact = json + new string(' ', DraftEditingCommand.MaximumInputBytes - Encoding.UTF8.GetByteCount(json));
+        using var limit = new MemoryStream(Encoding.UTF8.GetBytes(exact));
+        (await DraftEditingCommand.ReadRetainRequestAsync(limit, default)).ShouldBe(request);
+        foreach (var oversized in new[] { exact + " ", new string('\u00e9', 140000) })
+        {
+            using var rejected = new MemoryStream(Encoding.UTF8.GetBytes(oversized));
+            (await Should.ThrowAsync<ArgumentException>(() =>
+                DraftEditingCommand.ReadRetainRequestAsync(rejected, default))).Message.ShouldContain("input-too-large");
+        }
+        using var held = new OpenInput(Encoding.UTF8.GetBytes(json));
+        var reading = DraftEditingCommand.ReadRetainRequestAsync(held, default);
+        await held.Waiting.Task;
+        reading.IsCompleted.ShouldBeFalse();
+        held.Eof.SetResult();
+        (await reading).ShouldBe(request);
+        using var canceled = new CancellationTokenSource();
+        using var canceledInput = new OpenInput(Encoding.UTF8.GetBytes(json));
+        var canceledRead = DraftEditingCommand.ReadRetainRequestAsync(canceledInput, canceled.Token);
+        await canceledInput.Waiting.Task;
+        canceled.Cancel();
+        await Should.ThrowAsync<OperationCanceledException>(() => canceledRead);
+        using var tooDeep = new MemoryStream(Encoding.UTF8.GetBytes(new string('[', 33) + new string(']', 33)));
+        await Should.ThrowAsync<JsonException>(() => DraftEditingCommand.ReadRetainRequestAsync(tooDeep, default));
+    }
+
     [Fact]
     public async Task StdinPreservesNullableEmptyAndLosslessGeneration()
     {

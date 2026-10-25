@@ -12,13 +12,79 @@ using Twig.Infrastructure.Serialization;
 
 namespace Twig.Browser;
 
-/// <summary>Explicit native OPEN and atomic local-draft STAGE. No publication or pending-change sink.</summary>
+/// <summary>Explicit native OPEN, atomic STAGE and qualified RETAIN. No publication or pending-change sink.</summary>
 internal sealed class RecoverableDraftEditingModule(
     BrowserOperationModule operations, BrowserEditingModule editing, SqliteCacheStore cache,
     IRecoverableWorkItemDraftStore drafts, IWorkItemRepository repository,
     IPendingChangeStore pending, IPlanOriginProvider origins,
-    IWorkItemProvider provider, IProcessRuleProvider rules)
+    IWorkItemProvider provider, IProcessRuleProvider rules, IDraftProposalCaptureStore captures)
 {
+    internal async Task<DraftEditingResult> RetainAsync(DraftRetainRequest request,
+        PlanWorkspace workspace, CancellationToken ct = default)
+    {
+        if (!IsValidRequest(request))
+            return Refused("usage", "Version 1, exact native context and canonical decimal tokens are required.");
+        DraftRetainedCapture? retained = null;
+        var committed = false;
+        var result = await operations.ExecuteExplicitAsync(request.NativeContext.BenchId, async (capture, token) =>
+        {
+            RequireAdo();
+            var key = Key(capture, request.NativeContext.ItemKey.WorkItemId);
+            if (key != request.NativeContext.ItemKey)
+                throw Error("authority-invalidated", "The qualified native item identity changed.");
+            var origin = await origins.GetOriginAsync(token);
+            var evidence = new SqliteDraftCaptureEvidenceStore(cache).Read(key);
+            if (Context(evidence, capture) != request.NativeContext)
+                throw Error("authority-invalidated", "The native editing context or served evidence changed.");
+            var draft = await drafts.GetAsync(key, token)
+                ?? throw Error("draft-unavailable", "No draft exists for this exact native identity.");
+            if (Decimal(draft.Generation) != request.Generation)
+                throw Error("draft-cas-conflict", "The draft generation changed. No retry was attempted.");
+            var snapshot = await new SqliteWorkItemRepository(cache, new WorkItemMapper())
+                .GetSnapshotByIdAsync(key.WorkItemId, token)
+                ?? throw Error("item-unavailable", "The native item is no longer cached.");
+            if (draft.HasConflicts || Decimal(draft.BaselineRevision) != request.BaselineRevision
+                || Decimal(draft.ObservedRevision) != request.ObservedRevision
+                || draft.BaselineRevision != snapshot.Revision || draft.ObservedRevision != snapshot.Revision)
+                throw Error("revision-conflict", "The exact baseline or observation changed; intent was retained.");
+            if (draft.Changes.Count == 0)
+                throw Error("draft-empty", "No effective edits remain; no proposal was retained.");
+            if (draft.Changes.Any(change => change.BaselineValue == change.ProposedValue))
+                throw Error("draft-invalid", "The retained draft contains a baseline-equal effect; nothing was captured.");
+            var fields = Fields(WorkItemDetailProjector.Project(evidence.Layout, snapshot), evidence);
+            foreach (var change in draft.Changes)
+                _ = RequireEditable(fields, change.FieldRef);
+            await operations.EnsureCurrentAsync(capture, token);
+            var journal = await captures.CaptureQualifiedAsync(draft, snapshot, origin, workspace,
+                Path.Combine(key.CheckoutRoot, ".twig", "proposals"), request.NativeContext.EvidenceDigest, token);
+            committed = true;
+            var binding = journal.DraftCapture
+                ?? throw Error("capture-unavailable", "The retained journal has no exact native capture binding.");
+            retained = new(request.NativeContext, Decimal(draft.Generation), Decimal(draft.BaselineRevision),
+                Decimal(draft.ObservedRevision), Decimal(snapshot.Revision), journal.Digest, binding.OperationId,
+                journal.CanonicalJson, draft.Changes.Select(change =>
+                    new DraftEditingEffect(change.FieldRef, change.BaselineValue, change.ProposedValue)).ToArray());
+            return retained;
+        }, ct, expectedBinding: request.NativeContext.ItemKey.BindingId,
+            expectedIdentity: request.NativeContext.IdentityId);
+        if (result.Failure is { } failure)
+        {
+            if (committed)
+                return new(1, "indeterminate", true, Error: new("post-commit-fence", failure.Message,
+                    "Inspect the retained exact capture; do not retry or authorize automatically."), Capture: retained);
+            var split = failure.Message.IndexOf(": ", StringComparison.Ordinal);
+            var code = failure.Kind == BrowserReadFailureKind.AuthorityInvalidated ? "authority-invalidated"
+                : failure.Kind == BrowserReadFailureKind.Canceled ? "canceled"
+                : split > 0 ? failure.Message[..split] : "capture-unavailable";
+            return Refused(code, failure.Message);
+        }
+        return new(1, "retained", committed, Capture: result.Value);
+    }
+
+    internal static bool IsValidRequest(DraftRetainRequest? request)
+        => request is { Version: 1 }
+            && ValidContext(request.NativeContext, request.Generation, request.BaselineRevision, request.ObservedRevision);
+
     internal async Task<DraftEditingResult> OpenAsync(int id, string bench,
         string? expectedBinding = null, string? expectedIdentity = null, CancellationToken ct = default)
     {
@@ -145,10 +211,7 @@ internal sealed class RecoverableDraftEditingModule(
                 {
                     if (!seen.Add(change.FieldRef))
                         throw Error("duplicate-field", "A field was specified more than once.");
-                    var field = fields.SingleOrDefault(field =>
-                        field.FieldRef.Equals(change.FieldRef, StringComparison.OrdinalIgnoreCase));
-                    if (field is null || !field.Editable)
-                        throw Error("field-unavailable", field?.Reason ?? "The field is absent from the native served form.");
+                    var field = RequireEditable(fields, change.FieldRef);
                     if (!WorkItemDetailProjector.TryGetRawValue(snapshot, field.FieldRef, out var baseline))
                         throw Error("field-not-carried", "The exact native baseline value is not carried.");
                     candidate = candidate.SetField(field.FieldRef, baseline, change.ProposedValue);
@@ -180,23 +243,33 @@ internal sealed class RecoverableDraftEditingModule(
             throw Error("provider-unsupported", "This native form editor supports numeric ADO items only; cross-provider editing is unavailable.");
     }
 
+    private static DraftEditingField RequireEditable(IReadOnlyList<DraftEditingField> fields, string fieldRef)
+    {
+        var field = fields.SingleOrDefault(field => field.FieldRef.Equals(fieldRef, StringComparison.OrdinalIgnoreCase));
+        return field is { Editable: true } ? field
+            : throw Error("field-unavailable", field?.Reason ?? "The field is absent from the native served form.");
+    }
+
     internal static bool IsValidRequest(DraftStageRequest? request)
-        => request is { Version: 1, NativeContext.ItemKey.WorkItemId: > 0, Changes.Count: > 0 and <= 128 }
-            && request.NativeContext.ExternalIdentity is not null
-            && Token(request.NativeContext.BenchId, true)
-            && !string.IsNullOrWhiteSpace(request.NativeContext.BenchName)
-            && !string.IsNullOrWhiteSpace(request.NativeContext.IdentityId)
-            && !string.IsNullOrWhiteSpace(request.NativeContext.SelectionSource)
-            && !string.IsNullOrWhiteSpace(request.NativeContext.BenchContentsDigest)
-            && !string.IsNullOrWhiteSpace(request.NativeContext.OriginDigest)
-            && !string.IsNullOrWhiteSpace(request.NativeContext.EvidenceDigest)
-            && Token(request.NativeContext.BindingRevision, false)
-            && Token(request.NativeContext.SelectionRevision, false)
-            && Token(request.NativeContext.AttachmentRevision, false)
-            && request.Changes.All(change => change is not null && !string.IsNullOrWhiteSpace(change.FieldRef))
-            && Token(request.Generation, false) && Token(request.BaselineRevision, true) && Token(request.ObservedRevision, true)
-            && (request.NativeContext.StorageGeneration is null ||
-                !string.IsNullOrWhiteSpace(request.NativeContext.StorageGeneration));
+        => request is { Version: 1, Changes.Count: > 0 and <= 128 }
+            && ValidContext(request.NativeContext, request.Generation, request.BaselineRevision, request.ObservedRevision)
+            && request.Changes.All(change => change is not null && !string.IsNullOrWhiteSpace(change.FieldRef));
+
+    private static bool ValidContext(DraftEditingContext? context, string? generation,
+        string? baselineRevision, string? observedRevision)
+        => context is { ItemKey.WorkItemId: > 0, ExternalIdentity: not null }
+            && Token(context.BenchId, true)
+            && !string.IsNullOrWhiteSpace(context.BenchName)
+            && !string.IsNullOrWhiteSpace(context.IdentityId)
+            && !string.IsNullOrWhiteSpace(context.SelectionSource)
+            && !string.IsNullOrWhiteSpace(context.BenchContentsDigest)
+            && !string.IsNullOrWhiteSpace(context.OriginDigest)
+            && !string.IsNullOrWhiteSpace(context.EvidenceDigest)
+            && Token(context.BindingRevision, false)
+            && Token(context.SelectionRevision, false)
+            && Token(context.AttachmentRevision, false)
+            && Token(generation, false) && Token(baselineRevision, true) && Token(observedRevision, true)
+            && (context.StorageGeneration is null || !string.IsNullOrWhiteSpace(context.StorageGeneration));
 
     private static bool Token(string? value, bool positive)
         => long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)

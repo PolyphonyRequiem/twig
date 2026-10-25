@@ -8,6 +8,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
 using Twig.Domain.Services;
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
@@ -31,6 +32,159 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
     private static PlanWorkspace Workspace => new() { Organization = "scope", Project = "project" };
     private string ConnectionString => $"Data Source={Path.Combine(_directory, "twig.db")};Pooling=False";
     public DraftCaptureEvidenceTests() => Directory.CreateDirectory(_directory);
+
+    [Fact]
+    public async Task QualifiedFenceRechecksNewJournalAuditInsideTheOwningTransactionAndRollsBack()
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var attempted = false;
+        cache.GetConnection().CreateFunction("qualified_fence_probe", () =>
+        {
+            attempted = true;
+            cache.ActiveTransaction.ShouldNotBeNull();
+            using var update = cache.GetConnection().CreateCommand();
+            update.Transaction = cache.ActiveTransaction;
+            update.CommandText = "UPDATE pending.proposal_journals SET authorizer_identity='concurrent-audit';";
+            update.ExecuteNonQuery().ShouldBe(1);
+            return 0;
+        });
+        Execute(cache, """
+            CREATE TEMP TRIGGER qualified_fence_probe AFTER INSERT ON pending.proposal_journals
+            BEGIN SELECT qualified_fence_probe(); END;
+            """);
+        var refused = await Should.ThrowAsync<InvalidOperationException>(() =>
+            new SqliteDraftProposalCaptureStore(cache).CaptureQualifiedAsync(draft, snapshot, Origin, Workspace,
+                Path.Combine(_directory, "proposals"), SqliteDraftCaptureEvidenceStore.Fingerprint(evidence)));
+        refused.Message.ShouldStartWith("capture-not-reviewable:");
+        attempted.ShouldBeTrue();
+        cache.ActiveTransaction.ShouldBeNull();
+        Count(cache, "proposal_journals").ShouldBe(0);
+        Count(cache, "proposal_operations").ShouldBe(0);
+        (await new SqliteRecoverableWorkItemDraftStore(cache).GetAsync(Key))!.Changes.ShouldBe(draft.Changes);
+    }
+
+    [Theory]
+    [InlineData("state")]
+    [InlineData("confirmed")]
+    [InlineData("completed")]
+    [InlineData("mode")]
+    [InlineData("unknown-mode")]
+    [InlineData("empty-authorizer")]
+    [InlineData("empty-mode")]
+    [InlineData("receipt")]
+    [InlineData("authorizer")]
+    [InlineData("rationale")]
+    [InlineData("review")]
+    [InlineData("authorized")]
+    [InlineData("operation-state")]
+    [InlineData("operation-started")]
+    [InlineData("operation-applied")]
+    [InlineData("operation-verified")]
+    public async Task QualifiedRetentionRefusesAdvancedOrAuthorizationBearingReuseWithoutChangingLegacyCapture(string fault)
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var store = new SqliteDraftProposalCaptureStore(cache);
+        var fingerprint = SqliteDraftCaptureEvidenceStore.Fingerprint(evidence);
+        var directory = Path.Combine(_directory, "proposals");
+        var first = await store.CaptureQualifiedAsync(draft, snapshot, Origin, Workspace, directory, fingerprint);
+        cache.ActiveTransaction.ShouldBeNull();
+        var replay = await store.CaptureQualifiedAsync(draft, snapshot, Origin, Workspace, directory, fingerprint);
+        replay.Digest.ShouldBe(first.Digest);
+        replay.PreviewedAt.ShouldBe(first.PreviewedAt);
+        replay.LastPreviewedAt.ShouldBe(first.LastPreviewedAt);
+        if (fault == "receipt")
+        {
+            var operation = first.Operations.Single();
+            var journals = new SqlitePlanJournalRepository(cache);
+            var receipt = new PlanOutcomeReceipt
+            {
+                ReceiptId = Guid.NewGuid().ToString("N"), Digest = first.Digest, OpId = operation.OpId,
+                Kind = PlanOutcomeKind.Retired, RequestJson = operation.RequestJson,
+                Origin = Origin, AuthorizingOrigin = Origin,
+                Authorization = new ProposalAuthorization
+                {
+                    Digest = first.Digest, Mode = ProposalAuthorizationMode.Human,
+                    AuthorizerIdentity = "fixture-only", Rationale = "Retired without admission in local test.",
+                    AuthorizedAt = DateTimeOffset.UtcNow,
+                },
+                EvidenceJson = "{\"neverAdmitted\":true,\"mutationIssued\":false}",
+            };
+            (await journals.TryAppendReceiptAsync(receipt, PlanOperationState.Planned, expectedResultJson: null))
+                .ShouldBeTrue();
+            var settled = (await journals.GetAsync(first.Digest)).ShouldNotBeNull();
+            settled.State.ShouldBe(PlanOperationState.Planned);
+            settled.AuthorizationMode.ShouldBeNull();
+            settled.AuthorizerIdentity.ShouldBeNull();
+            settled.AuthorizedAt.ShouldBeNull();
+            settled.ReviewModelJson.ShouldBeNull();
+            settled.Rationale.ShouldBeNull();
+            settled.ConfirmedAt.ShouldBeNull();
+            settled.CompletedAt.ShouldBeNull();
+            var unchangedOperation = settled.Operations.Single();
+            unchangedOperation.State.ShouldBe(PlanOperationState.Planned);
+            unchangedOperation.StartedAt.ShouldBeNull();
+            unchangedOperation.AppliedAt.ShouldBeNull();
+            unchangedOperation.VerifiedAt.ShouldBeNull();
+            unchangedOperation.OutcomeReceipt.ShouldNotBeNull().ReceiptId.ShouldBe(receipt.ReceiptId);
+        }
+        else Execute(cache, fault switch
+        {
+            "state" => "UPDATE pending.proposal_journals SET state='Confirmed';",
+            "confirmed" => "UPDATE pending.proposal_journals SET confirmed_at='2026-01-01T00:00:00Z';",
+            "completed" => "UPDATE pending.proposal_journals SET completed_at='2026-01-01T00:00:00Z';",
+            "mode" => "UPDATE pending.proposal_journals SET authorization_mode='human';",
+            "unknown-mode" => "UPDATE pending.proposal_journals SET authorization_mode='unrecognized';",
+            "empty-mode" => "UPDATE pending.proposal_journals SET authorization_mode='';",
+            "authorizer" => "UPDATE pending.proposal_journals SET authorizer_identity='untrusted-string';",
+            "empty-authorizer" => "UPDATE pending.proposal_journals SET authorizer_identity='';",
+            "rationale" => "UPDATE pending.proposal_journals SET rationale='prior-rationale';",
+            "review" => "UPDATE pending.proposal_journals SET review_model_json='{}';",
+            "authorized" => "UPDATE pending.proposal_journals SET authorized_at='2026-01-01T00:00:00Z';",
+            "operation-state" => "UPDATE pending.proposal_operations SET state='Confirmed';",
+            "operation-started" => "UPDATE pending.proposal_operations SET started_at='2026-01-01T00:00:00Z';",
+            "operation-applied" => "UPDATE pending.proposal_operations SET applied_at='2026-01-01T00:00:00Z';",
+            "operation-verified" => "UPDATE pending.proposal_operations SET verified_at='2026-01-01T00:00:00Z';",
+            _ => throw new ArgumentOutOfRangeException(nameof(fault)),
+        });
+        var before = ReadRows();
+        var refused = await Should.ThrowAsync<InvalidOperationException>(() =>
+            store.CaptureQualifiedAsync(draft, snapshot, Origin, Workspace, directory, fingerprint));
+        refused.Message.ShouldStartWith("capture-not-reviewable:");
+        cache.ActiveTransaction.ShouldBeNull();
+        ReadRows().ShouldBe(before);
+        // Legacy export/recovery retains its prior exact-binding reuse semantics.
+        var legacy = await store.CaptureObservedAsync(draft, snapshot, Origin, Workspace, directory, fingerprint);
+        legacy.Digest.ShouldBe(first.Digest);
+        ReadRows().ShouldBe(before);
+        Count(cache, "proposal_journals").ShouldBe(1);
+        Count(cache, "proposal_operations").ShouldBe(1);
+        Count(cache, "proposal_receipts").ShouldBe(fault == "receipt" ? 1 : 0);
+        (await new SqliteRecoverableWorkItemDraftStore(cache).GetAsync(Key))!.Changes.ShouldBe(draft.Changes);
+        File.Exists(first.SourcePath).ShouldBeFalse();
+
+        string[] ReadRows()
+        {
+            using var command = cache.GetConnection().CreateCommand();
+            command.CommandText = """
+                SELECT * FROM pending.proposal_journals;
+                SELECT * FROM pending.proposal_operations;
+                SELECT * FROM pending.proposal_receipts;
+                SELECT * FROM pending.recoverable_work_item_drafts;
+                SELECT * FROM metadata ORDER BY key;
+                """;
+            using var reader = command.ExecuteReader();
+            var rows = new List<string>();
+            do
+            {
+                while (reader.Read())
+                    rows.Add(string.Join("|", Enumerable.Range(0, reader.FieldCount).Select(index =>
+                        reader.IsDBNull(index) ? "<null>" : Convert.ToString(reader.GetValue(index), CultureInfo.InvariantCulture))));
+            } while (reader.NextResult());
+            return rows.ToArray();
+        }
+    }
 
     [Fact]
     public async Task ServedObservationRoundTripsRulesAndCapturesExactNullAndEmptyValues()

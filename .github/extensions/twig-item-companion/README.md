@@ -69,6 +69,30 @@ does not add workbench/proposal-review surfaces or qualify actual host rendering
 
 ## Named-Bench workbench (#1198)
 
+The side-panel source now starts in the native Tree projection. Members remains
+available separately, including known items omitted from the hierarchy. Branch
+chevrons operate locally; filtering reveals matching ancestors without discarding
+the previous expansion state. Source/configuration evidence is collapsed by
+default, not removed. Selection can use separate tree/item pages with Back or
+Escape, or a top/bottom arrangement with a labelled, keyboard-operable tree-height
+range. Changing presentation never re-reads the Bench or changes shared state.
+Back restores tree filtering, expansion, focus and scroll.
+
+Native detail retains visible pages, section columns, groups and controls in
+native order. Unsupported contributions and unexported page content are labelled;
+field values remain inert text. The current explicit-Bench reader still accepts
+only native fallback layout, not served ADO layout. No new editing, OPEN/STAGE or
+Save contract is implied. Browser v2 does not export per-row provider/type
+appearance, so this slice does not invent type icons or configurable provider
+rails. These remain contract-backed follow-up work, along with full-view saved
+queries, backlogs, Add to Bench and creation.
+
+This navigation increment passed 21 focused workbench tests and 62 related offline
+JS consumer tests (no skips/cancellations). All eight new regression cases fail on
+the unchanged baseline with only the tests carried over. This qualifies the
+offline consumer composition, not native-binary or host rendering. Historical
+native receipts below do not qualify the new UI's host rendering.
+
 The same provider also declares `twig-workbench`, with `load_bench({ bench })`
 and `refresh_bench({})` actions. The separate workbench panel accepts an existing
 saved name or decimal ID; its reader invokes only:

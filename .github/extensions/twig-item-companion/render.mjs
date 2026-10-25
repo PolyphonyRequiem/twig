@@ -1,4 +1,4 @@
-import { workbenchClient, workbenchMarkup } from "./workbench-client.mjs";
+import { workbenchClient, workbenchMarkup, workbenchStyles } from "./workbench-client.mjs";
 import { validateDraftDocument } from "./draft-document.mjs";
 import { renderDraftInspection } from "./draft-inspection.mjs";
 import { reviewMarkup, reviewClient } from "./review-page.mjs";
@@ -103,6 +103,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
       dl { grid-template-columns: 1fr; gap: 2px; }
       dd { margin-bottom: 8px; }
     }
+    ${workbench ? workbenchStyles : ""}
   </style>
 </head>
 <body>

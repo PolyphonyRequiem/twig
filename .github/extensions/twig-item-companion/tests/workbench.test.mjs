@@ -4,9 +4,11 @@ import { Script, createContext } from "node:vm";
 import test from "node:test";
 import { createCanvasServer } from "../canvas-server.mjs";
 import { createNativeBenchReader } from "../native-bench.mjs";
+import { createNativeBenchDetailReader } from "../native-bench-detail.mjs";
 import { renderPage } from "../render.mjs";
 
 const fixture = JSON.parse(await readFile(new URL("./fixtures/bench-v2.json", import.meta.url), "utf8"));
+const detailFixture = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8"));
 const workspacePath = fixture.browser.origin.worktreeRoot;
 function reader(payload = fixture, calls = [], fail = () => null) {
     return createNativeBenchReader({
@@ -27,11 +29,23 @@ class Element {
     dataset = {};
     attributes = {};
     listeners = {};
-    classList = { add() {}, remove() {} };
-    getAttribute() { return null; }
+    scrollTop = 0;
+    style = { values: {}, setProperty(name, value) { this.values[name] = value; } };
+    classList = { values: new Set(), add(value) { this.values.add(value); }, remove(value) { this.values.delete(value); } };
+    getAttribute(name) { return this.attributes[name] ?? null; }
     setAttribute(name, value) { this.attributes[name] = value; }
-    append(...nodes) { this.children.push(...nodes); }
-    replaceChildren(...nodes) { this.children = nodes; }
+    append(...nodes) {
+        for (const node of nodes) {
+            if (node.parentElement) node.parentElement.children = node.parentElement.children.filter((child) => child !== node);
+            node.parentElement = this;
+            this.children.push(node);
+        }
+    }
+    replaceChildren(...nodes) {
+        for (const child of this.children) child.parentElement = null;
+        this.children = [];
+        this.append(...nodes);
+    }
     addEventListener(event, callback) { this.listeners[event] = callback; }
     focus() { this.focused = true; }
     get childElementCount() { return this.children.length; }
@@ -47,9 +61,14 @@ function dom(html, url) {
         },
     };
     const pending = new Set();
+    const window = {
+        scrollY: 120,
+        scrollTo(x, y) { this.scrollY = y; },
+        matchMedia: () => ({ matches: false, addEventListener() {} }),
+    };
     const context = createContext({
         document,
-        window: { scrollY: 120, scrollTo() {}, matchMedia: () => ({ matches: false, addEventListener() {} }) },
+        window,
         MutationObserver: class { observe() {} },
         fetch: (route, options) => {
             const request = fetch(new URL(route, url), options);
@@ -61,6 +80,7 @@ function dom(html, url) {
     new Script(source).runInContext(context);
     return {
         nodes,
+        window,
         async settled() {
             for (let attempt = 0; attempt < 30; attempt++) {
                 await Promise.all([...pending]);
@@ -73,10 +93,17 @@ function dom(html, url) {
 }
 function flatten(node) { return [node.textContent, ...node.children.flatMap(flatten)].join("\n"); }
 function descendants(node) { return [node, ...node.children.flatMap(descendants)]; }
-async function open(payload = fixture, fail) {
+async function open(payload = fixture, fail, detailPayload) {
     const calls = [];
     const server = await createCanvasServer({
         workspacePath, workbench: true, readNativeBench: reader(payload, calls, fail),
+        readNativeBenchDetail: detailPayload && createNativeBenchDetailReader({
+            realpath: async (path) => path,
+            execFile(exe, args, options, callback) {
+                calls.push({ exe, args, options });
+                callback(null, JSON.stringify(detailPayload), "");
+            },
+        }),
     });
     const html = await (await fetch(server.url)).text();
     const ui = dom(html, server.url);
@@ -113,6 +140,8 @@ test("workbench real client -> loopback -> native reader loads exact named Bench
     const ui = await open();
     try {
         await load(ui);
+        ui.nodes.get("#bench-view").value = "results";
+        ui.nodes.get("#bench-view").listeners.change();
         assert.deepEqual(ui.calls[0].args, [
             "workspace", "--bench", "Release focus", "--include-browser", "--browser-version", "2", "--view", "tree", "-o", "json",
         ]);
@@ -141,6 +170,8 @@ test("local loaded filtering preserves hierarchy ancestors, member order, omitte
     const ui = await open();
     try {
         await load(ui);
+        ui.nodes.get("#bench-view").value = "results";
+        ui.nodes.get("#bench-view").listeners.change();
         assert.ok(flatten(ui.nodes.get("#bench-rows")).indexOf("#42") < flatten(ui.nodes.get("#bench-rows")).indexOf("#43"));
         ui.nodes.get("#bench-filter").value = "script";
         ui.nodes.get("#bench-filter").listeners.input();
@@ -282,6 +313,209 @@ test("workbench page has named target, shared theme and keyboard controls withou
     assert.doesNotMatch(page, /id="load-form"|>Save<|>Apply<|>Start</);
 });
 
+test("tree is the initial view and preserves native hierarchy omissions without claiming source completeness", async () => {
+    const ui = await open();
+    try {
+        await load(ui);
+        assert.equal(ui.nodes.get("#bench-view").value, "hierarchy");
+        assert.equal(ui.nodes.get("#bench-layout").value, "page");
+        const rows = flatten(ui.nodes.get("#bench-rows"));
+        assert.ok(rows.indexOf("#1 Container") < rows.indexOf("#42 Delivery slice"));
+        assert.doesNotMatch(rows, /#43|#44|Never parse ANSI/);
+        assert.match(ui.nodes.get("#bench-counts").textContent, /2 rendered nodes.*partial.*unknown/);
+        assert.match(flatten(ui.nodes.get("#bench-facts")), /omittedLoadedMemberIds\n43/);
+        assert.equal(ui.nodes.get("#bench-selection").hidden, true);
+        assert.equal(ui.nodes.get("#bench-divider").hidden, true);
+        assert.equal(ui.calls.length, 1);
+    } finally { await ui.server.close(); }
+});
+
+test("tree expansion, filtering, page Back, selection and scroll remain local to the same observation", async () => {
+    const ui = await open();
+    try {
+        await load(ui);
+        const toggle = () => descendants(ui.nodes.get("#bench-rows"))
+            .find((node) => node.attributes["aria-expanded"] !== undefined);
+        toggle().listeners.click();
+        assert.equal(toggle().attributes["aria-expanded"], "false");
+        ui.nodes.get("#bench-filter").value = "script";
+        ui.nodes.get("#bench-filter").listeners.input();
+        assert.equal(toggle().attributes["aria-expanded"], "true");
+        ui.nodes.get("#bench-filter").value = "";
+        ui.nodes.get("#bench-filter").listeners.input();
+        assert.equal(toggle().attributes["aria-expanded"], "false");
+        toggle().listeners.click();
+        ui.nodes.get("#bench-browse").scrollTop = 73;
+        const row = row42(ui);
+        row.listeners.click();
+        assert.equal(row.attributes["aria-pressed"], "true");
+        ui.window.scrollY = 450;
+        back(ui).listeners.click();
+        assert.equal(ui.nodes.get("#bench-browse").hidden, false);
+        assert.equal(ui.nodes.get("#bench-browse").scrollTop, 73);
+        assert.equal(ui.window.scrollY, 120);
+        assert.equal(row.focused, true);
+        assert.equal(row.attributes["aria-pressed"], "true");
+        assert.equal(toggle().attributes["aria-expanded"], "true");
+        ui.nodes.get("#bench-filter").value = "script";
+        ui.nodes.get("#bench-filter").listeners.input();
+        assert.equal(row42(ui).attributes["aria-pressed"], "true", "Back retains identity across tree rerenders");
+        assert.equal(ui.nodes.get("#bench-selection").hidden, true, "retained selection does not reopen detail");
+        ui.nodes.get("#bench-layout").value = "split";
+        ui.nodes.get("#bench-layout").listeners.change();
+        assert.equal(ui.nodes.get("#bench-selection").hidden, true, "changing mode does not reopen retained selection");
+        assert.equal(ui.calls.length, 1, "navigation never re-reads or changes the native Bench");
+    } finally { await ui.server.close(); }
+});
+
+test("split/page switching and bounded keyboard range resize retain the selected detail without native reads", async () => {
+    const ui = await open();
+    try {
+        await load(ui);
+        ui.nodes.get("#bench-layout").value = "split";
+        ui.nodes.get("#bench-layout").listeners.change();
+        assert.equal(ui.nodes.get("#bench-divider").hidden, true, "no empty item pane before selection");
+        row42(ui).listeners.click();
+        assert.equal(ui.nodes.get("#bench-panes").attributes["data-layout"], "split");
+        assert.equal(ui.nodes.get("#bench-browse").hidden, false);
+        assert.equal(ui.nodes.get("#bench-selection").hidden, false);
+        assert.equal(ui.nodes.get("#bench-divider").hidden, false);
+        const height = ui.nodes.get("#bench-height");
+        for (const value of ["120", "600"]) {
+            height.value = value;
+            height.listeners.input();
+            assert.equal(ui.nodes.get("#bench-panes").style.values["--bench-tree-height"], value + "px");
+        }
+        for (const value of ["119", "601", "NaN", "200.5"]) {
+            height.value = value;
+            height.listeners.input();
+            assert.equal(ui.nodes.get("#bench-panes").style.values["--bench-tree-height"], "600px");
+        }
+        ui.nodes.get("#bench-layout").value = "page";
+        ui.nodes.get("#bench-layout").listeners.change();
+        assert.equal(ui.nodes.get("#bench-browse").hidden, true);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /#42/);
+        ui.nodes.get("#bench-layout").value = "split";
+        ui.nodes.get("#bench-layout").listeners.change();
+        assert.equal(ui.nodes.get("#bench-browse").hidden, false);
+        assert.equal(ui.calls.length, 1);
+    } finally { await ui.server.close(); }
+});
+
+test("Back and Escape focus the filter when a split-pane selection is filtered out", async () => {
+    for (const exit of ["back", "escape"]) {
+        const ui = await open();
+        try {
+            await load(ui);
+            ui.nodes.get("#bench-layout").value = "split";
+            ui.nodes.get("#bench-layout").listeners.change();
+            const selected = row42(ui);
+            selected.listeners.click();
+            ui.nodes.get("#bench-filter").value = "nothing-matches";
+            ui.nodes.get("#bench-filter").listeners.input();
+            assert.equal(row42(ui), undefined, "selected row really is absent from current tree");
+            if (exit === "back") back(ui).listeners.click();
+            else ui.nodes.get("#bench-selection").listeners.keydown({ key: "Escape", preventDefault() {} });
+            assert.equal(ui.nodes.get("#bench-filter").focused, true, "focus must not target a detached row");
+            assert.equal(selected.focused, undefined);
+            assert.equal(ui.nodes.get("#bench-selection").hidden, true);
+            ui.nodes.get("#bench-filter").value = "";
+            ui.nodes.get("#bench-filter").listeners.input();
+            assert.equal(row42(ui).attributes["aria-pressed"], "true");
+            assert.equal(ui.calls.length, 1);
+        } finally { await ui.server.close(); }
+    }
+});
+
+test("Back focuses the filter when the retained selected row is in a collapsed branch", async () => {
+    const ui = await open();
+    try {
+        await load(ui);
+        ui.nodes.get("#bench-layout").value = "split";
+        ui.nodes.get("#bench-layout").listeners.change();
+        row42(ui).listeners.click();
+        const toggle = descendants(ui.nodes.get("#bench-rows"))
+            .find((node) => node.attributes["aria-expanded"] !== undefined);
+        toggle.listeners.click();
+        assert.equal(toggle.attributes["aria-expanded"], "false");
+        back(ui).listeners.click();
+        assert.equal(ui.nodes.get("#bench-filter").focused, true);
+        assert.equal(row42(ui).focused, undefined, "hidden descendant is not a focus target");
+        assert.equal(row42(ui).attributes["aria-pressed"], "true");
+        assert.equal(ui.calls.length, 1);
+    } finally { await ui.server.close(); }
+});
+
+test("native fallback layout order, visibility and unsupported contributions survive the actual reader path", async () => {
+    const detail = structuredClone(detailFixture);
+    Object.assign(detail, {
+        benchName: fixture.browser.benchName, observation: "raw-mirror",
+        origin: { ...fixture.browser.origin }, layoutStatus: "unavailable", layoutSource: "twig-fallback",
+        membership: { selected: true, seed: false, pending: true },
+        completeness: {
+            sourceComplete: false, sourceChildCount: null, cachedChildCount: 0,
+            parentCached: null, linksVerified: false, reasons: ["source-unknown", "cache-only"],
+        },
+    });
+    detail.document.processId = "twig.fallback";
+    const page = detail.document.pages[0];
+    page.sections[0].groups[0].visible = true;
+    page.sections[0].groups.push({
+        id: "hidden", label: "HIDDEN-GROUP", visible: false, isContribution: false,
+        controls: [{ ...page.sections[0].groups[0].controls[0], label: "HIDDEN-GROUP-VALUE" }],
+    });
+    detail.document.pages.push({ ...structuredClone(page), label: "HIDDEN-PAGE", visible: false });
+    page.sections[0].groups.push({
+        id: "contribution-group", label: "External group", visible: true, isContribution: true, controls: [],
+    });
+    detail.document.pages.push({
+        id: "contribution-page", label: "External page", pageType: "custom",
+        visible: true, isContribution: true, sections: [],
+    });
+    const ui = await open(fixture, undefined, detail);
+    try {
+        await load(ui);
+        row42(ui).listeners.click();
+        await ui.settled();
+        const rendered = flatten(ui.nodes.get("#bench-selection"));
+        assert.match(rendered, /Twig fallback form shown/);
+        assert.match(rendered, /<script>untrusted\(\)<\/script><p>Complete body<\/p>/);
+        assert.match(rendered, /Unsupported native contribution/);
+        assert.match(rendered, /Unsupported native group contribution/);
+        assert.match(rendered, /Unsupported native page contribution/);
+        assert.match(rendered, /Page content is not exported/);
+        assert.doesNotMatch(rendered, /HIDDEN-GROUP|HIDDEN-PAGE|Omitted field/);
+        assert.ok(rendered.indexOf("Title") < rendered.indexOf("Fields"));
+        assert.ok(rendered.indexOf("Fields") < rendered.indexOf("Empty field"));
+        assert.ok(rendered.indexOf("Empty field") < rendered.indexOf("History"));
+        assert.equal(ui.calls.length, 2);
+        assert.equal(ui.calls[1].args[0], "bench");
+    } finally { await ui.server.close(); }
+});
+
+test("failed item detail is a visible alert outside collapsed source evidence", async () => {
+    const ui = await open();
+    try {
+        await load(ui);
+        row42(ui).listeners.click();
+        await ui.settled();
+        const alert = ui.nodes.get("#bench-selection").children.find((node) => node.attributes.role === "alert");
+        assert.ok(alert, "detail failure must not disappear inside the source disclosure");
+        assert.match(alert.textContent, /Explicit-Bench detail failed/);
+        assert.equal(ui.calls.length, 1);
+    } finally { await ui.server.close(); }
+});
+
+test("workbench styling is scoped and follows the common rules without changing other canvases", () => {
+    const workbench = renderPage({ token: "fixture", nonce: "nonce", workbench: true });
+    assert.ok(workbench.indexOf(".twig-workbench section") > workbench.indexOf("section, details"));
+    assert.match(workbench, /type="range" min="120" max="600"/);
+    for (const options of [{}, { review: true }]) {
+        const page = renderPage({ token: "fixture", nonce: "nonce", ...options });
+        assert.doesNotMatch(page, /\.twig-workbench section|id="bench-panes"/);
+    }
+});
+
 test("actual extension wiring registers both canvases and routes workbench actions to its owned server", async () => {
     const calls = [];
     let declarations;
@@ -334,7 +568,7 @@ function deferredDetail(calls) {
             benchName: fixture.browser.benchName, benchId: fixture.browser.benchId,
             membership: { selected: true, seed: false, pending: false },
             completeness: { sourceComplete: false, sourceChildCount: null, cachedChildCount: 0, parentCached: null, linksVerified: false, reasons: ["source-unknown"] },
-            document: { systemControls: [{ id: "x", label, value: { state: 0, full: label } }], pages: [] },
+            document: { systemControls: [{ id: "x", label, visible: true, value: { state: 0, full: label } }], pages: [] },
         }));
     });
     return { read, release: (index, label) => gates[index](label) };

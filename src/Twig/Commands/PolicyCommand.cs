@@ -146,8 +146,10 @@ internal sealed class PolicyCommand(
             return;
         }
         output.WriteLine(format == "minimal"
-            ? $"{result.Status}\t{result.EvidenceDigest}\t{string.Join(',', result.Scope)}\tcached"
+            ? $"{result.Status}\t{result.EvidenceDigest}\t{string.Join(',', result.Scope)}\tcached\tdependencies:{string.Join(',', result.DependencyScope)}"
             : $"Policy: {result.Status}; scope: {string.Join(", ", result.Scope)} (cached, not a whole-board or live compliance claim). Evidence: {result.EvidenceDigest}");
+        if (format == "human")
+            output.WriteLine($"Dependency scope (incident cached observations): {string.Join(", ", result.DependencyScope)}");
         foreach (var finding in result.Findings)
         {
             output.WriteLine($"{finding.Id}\t{finding.RuleId}\t{finding.Code}\t#{finding.WorkItemId}\t{finding.Reason}");

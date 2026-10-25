@@ -103,12 +103,23 @@ MCP integration remains withdrawn.
 The assessment names its exact `scope`, `freshness: cached`, item revisions, sync timestamps,
 and link verification timestamps. It is **not a live or whole-board compliance claim**.
 Scope is 1–200 explicit positive IDs. Parent/label rules assess those IDs, with supporting
-parent observations. Dependency integrity examines their connected dependency component
-(both incoming and outgoing relations), capped by the rule's `maxNodes`, a hard 1,000-item
-ceiling, and 4,000 physical relations. A limit, missing item/type/sync observation, local
+parent observations; they do not certify out-of-scope children, including children of a
+retyped parent. Dependency integrity examines their incident cached dependency component
+(both source and target directions), reports acquired IDs as `dependencyScope`, and is
+capped by the rule's `maxNodes`, a hard 1,000-item ceiling, and 4,000 physical relations.
+A limit, missing item/type/sync observation, local
 modification, absent label field, or unverified link set preserves an `EvidenceUnavailable`
 finding. An explicitly observed empty/null field or verified empty link set is different
 from missing evidence. Missing/empty policy declarations cannot certify compliance.
+
+Link storage contains source-local observations, not synthesized reciprocal rows. Traversal
+discovers outside sources whose cached dependency rows target the frontier, then acquires
+each source's complete relation set, item revision and verification stamp. Those source facts
+are included in the evidence digest. If two verified endpoint observations disagree about a
+dependency's presence, assessment preserves definite findings but reports
+`EvidenceUnavailable`; it does not silently union contradictory facts into compliance.
+A verified empty set is source-local evidence, not a global absence certificate. Uncached
+relations and changes made after the recorded observations remain outside this cached claim.
 
 Findings carry a typed `code`, rule/item identity and structured `evidence`: parent/type,
 labels/field, cycle edges, counts or missing IDs. Strategy generation consumes those facts,

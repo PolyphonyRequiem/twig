@@ -34,6 +34,10 @@ public sealed class PolicyReconciliationServiceTests
         _links.GetLinksForSetAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
             .Returns(ci => (IReadOnlyList<WorkItemLink>)_edges
                 .Where(edge => ci.Arg<IReadOnlyList<int>>().Contains(edge.SourceId)).ToArray());
+        _links.GetIncomingDependencySourcesAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(ci => (IReadOnlyList<int>)_edges
+                .Where(edge => ci.Arg<IReadOnlyList<int>>().Contains(edge.TargetId))
+                .Select(edge => edge.SourceId).Distinct().Order().Take(ci.Arg<int>()).ToArray());
     }
 
     private void Cache(int id, string tags = "")
@@ -48,7 +52,8 @@ public sealed class PolicyReconciliationServiceTests
     public async Task PreservedPhysicalDuplicates_OfferExplicitWholeDependencyRemoval()
     {
         Cache(1); Cache(2);
-        _edges.AddRange([new(1, 2, LinkTypes.Successor), new(1, 2, LinkTypes.Successor)]);
+        _edges.AddRange([new(1, 2, LinkTypes.Successor), new(1, 2, LinkTypes.Successor),
+            new(2, 1, LinkTypes.Predecessor)]);
         var assessment = await _service.AssessAsync(Policy, [1]);
         var finding = assessment.Findings.ShouldHaveSingleItem();
         finding.Code.ShouldBe(PolicyFindingCode.DuplicateDependency);
@@ -67,6 +72,8 @@ public sealed class PolicyReconciliationServiceTests
         _edges.AddRange([
             new(1, 2, LinkTypes.Successor), new(2, 1, LinkTypes.Successor),
             new(2, 3, LinkTypes.Successor), new(3, 1, LinkTypes.Successor),
+            new(2, 1, LinkTypes.Predecessor), new(1, 2, LinkTypes.Predecessor),
+            new(3, 2, LinkTypes.Predecessor), new(1, 3, LinkTypes.Predecessor),
         ]);
         var assessment = await _service.AssessAsync(Policy, [1]);
         var finding = assessment.Findings.First(f => f.Evidence.Edges.Count == 2);

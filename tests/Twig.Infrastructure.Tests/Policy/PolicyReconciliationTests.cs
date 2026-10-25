@@ -67,6 +67,7 @@ public sealed class PolicyReconciliationTests : IDisposable
         result.Compliant.ShouldBeTrue();
         result.Complete.ShouldBeTrue();
         result.Scope.ShouldBe([1]);
+        result.DependencyScope.ShouldBe([1]);
         result.Freshness.ShouldBe("cached");
         result.Items.Single(i => i.WorkItemId == 1).LinksVerifiedAt.ShouldNotBeNull();
     }
@@ -199,6 +200,75 @@ public sealed class PolicyReconciliationTests : IDisposable
             result.Projected!.Compliant.ShouldBeTrue();
             result.Proposal!.Operations.Single().ShouldBeOfType<RemoveLinkOperation>().ExpectedRevision.ShouldBe(7);
         }
+    }
+
+    [Fact]
+    public async Task IncomingOnlyOutsideSource_IsAcquired_AndConflictingEmptySetCannotCertifyCompliance()
+    {
+        await Cache(1);
+        await Cache(2);
+        await Cache(3);
+        await _links.SaveLinksAsync(2,
+            [new(2, 1, LinkTypes.Successor), new(2, 3, LinkTypes.Successor), new(2, 3, LinkTypes.Predecessor)]);
+        await _links.SaveLinksAsync(3, [new(3, 2, LinkTypes.Predecessor), new(3, 2, LinkTypes.Successor)]);
+
+        var result = await _service.AssessAsync(Policy(Dependencies), [1]);
+
+        result.Complete.ShouldBeFalse("a verified empty source set contradicts the incoming observation");
+        result.Compliant.ShouldBeFalse();
+        result.Items.Select(i => i.WorkItemId).ShouldBe([1, 2, 3]);
+        result.DependencyScope.ShouldBe([1, 2, 3]);
+        result.Findings.ShouldContain(f => f.Code == PolicyFindingCode.EvidenceUnavailable);
+        result.Findings.ShouldContain(f => f.Code == PolicyFindingCode.DependencyCycle);
+    }
+
+    [Fact]
+    public async Task ConflictingReciprocalObservations_AreUnavailable_NotSilentlyUnioned()
+    {
+        await Cache(1);
+        await Cache(2);
+        await _links.SaveLinksAsync(1, [new(1, 2, LinkTypes.Successor)]);
+
+        var result = await _service.AssessAsync(Policy(Dependencies), [1]);
+
+        result.Complete.ShouldBeFalse();
+        var conflict = result.Findings.ShouldHaveSingleItem();
+        conflict.Code.ShouldBe(PolicyFindingCode.EvidenceUnavailable);
+        conflict.Evidence.Edges.ShouldBe([new PolicyDependencyEdge(1, 2)]);
+        conflict.Evidence.MissingIds.ShouldBe([1, 2]);
+    }
+
+    [Fact]
+    public async Task IncomingSourceChange_InvalidatesAnEarlierChoice()
+    {
+        await Cache(1);
+        await Cache(2);
+        await _links.SaveLinksAsync(1, [new(1, 1, LinkTypes.Successor)]);
+        await _links.SaveLinksAsync(2, [new(2, 1, LinkTypes.Successor)]);
+        var policy = Policy(Dependencies);
+        var before = await _service.AssessAsync(policy, [1]);
+        var finding = before.Findings.Single(f => f.Code == PolicyFindingCode.SelfDependency);
+        var outside = (await _items.GetByIdAsync(2))!;
+        outside.MarkSynced(8);
+        await _items.SaveAsync(outside);
+
+        var result = await Repair(policy, [1], before, finding.Id, finding.Strategies.Single().Id);
+
+        result.CanPropose.ShouldBeFalse();
+        result.Error.ShouldNotBeNull().ShouldContain("changed");
+    }
+
+    [Fact]
+    public async Task IncomingSourceTraversal_RespectsTheNodeBound()
+    {
+        await Cache(1);
+        await Cache(2);
+        await _links.SaveLinksAsync(2, [new(2, 1, LinkTypes.Successor)]);
+
+        var result = await _service.AssessAsync(Policy(Dependencies with { MaxNodes = 1 }), [1]);
+
+        result.Complete.ShouldBeFalse();
+        result.Compliant.ShouldBeFalse();
     }
 
     [Fact]

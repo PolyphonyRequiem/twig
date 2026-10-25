@@ -41,6 +41,23 @@ public class SqliteWorkItemLinkSetReadTests : IDisposable
     }
 
     [Fact]
+    public async Task IncomingDependencies_FilterTargetsAndKinds_DeduplicateSources_AndHonorLimit()
+    {
+        await _repo.SaveLinksAsync(10, [new(10, 1, LinkTypes.Successor), new(10, 2, LinkTypes.Predecessor)]);
+        await _repo.SaveLinksAsync(20, [new(20, 1, LinkTypes.Predecessor)]);
+        await _repo.SaveLinksAsync(30, [new(30, 1, LinkTypes.Successor)]);
+        await _repo.SaveLinksAsync(40, [new(40, 1, LinkTypes.Related)]);
+        await _repo.SaveLinksAsync(50, [new(50, 99, LinkTypes.Successor)]);
+
+        (await _repo.GetIncomingDependencySourcesAsync([1, 2, 1], 10)).ShouldBe([10, 20, 30]);
+        (await _repo.GetIncomingDependencySourcesAsync([1, 2], 2)).ShouldBe([10, 20]);
+        (await _repo.GetIncomingDependencySourcesAsync([99], 10)).ShouldBe([50]);
+        (await _repo.GetIncomingDependencySourcesAsync([], 10)).ShouldBeEmpty();
+        (await _repo.GetIncomingDependencySourcesAsync([999], 10)).ShouldBeEmpty();
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => _repo.GetIncomingDependencySourcesAsync([1], 0));
+    }
+
+    [Fact]
     public async Task GetLinksForSetAsync_ReturnsEdgesForEveryRequestedId()
     {
         await SeedAsync();

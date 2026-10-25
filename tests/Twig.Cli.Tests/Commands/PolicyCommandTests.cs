@@ -76,6 +76,10 @@ public sealed class PolicyCommandTests : IDisposable
         {
             using var document = JsonDocument.Parse(text);
             document.RootElement.GetProperty("scope")[0].GetInt32().ShouldBe(1);
+            document.RootElement.GetProperty("dependencyScope").GetArrayLength().ShouldBe(0);
+            document.RootElement.GetProperty("evidenceLimits").EnumerateArray()
+                .Select(limit => limit.GetString()).ShouldContain(
+                    "Parent rules do not certify out-of-scope children, including children of a retyped parent.");
             var finding = document.RootElement.GetProperty("findings")[0];
             finding.GetProperty("code").GetString().ShouldBe("ExclusiveLabels");
             finding.GetProperty("evidence").GetProperty("labels").GetArrayLength().ShouldBe(2);

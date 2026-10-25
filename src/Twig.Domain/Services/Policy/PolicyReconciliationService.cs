@@ -180,6 +180,26 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
                 snapshot.Verified[id] = stamp;
             var found = await links.GetLinksForSetAsync(frontier, ct).ConfigureAwait(false);
             var next = new SortedSet<int>();
+            void Discover(int id)
+            {
+                if (visited.Contains(id))
+                    return;
+                if (visited.Count >= bound)
+                    snapshot.Truncated = true;
+                else
+                {
+                    visited.Add(id);
+                    next.Add(id);
+                }
+            }
+            var incoming = await links.GetIncomingDependencySourcesAsync(frontier, bound + 1, ct).ConfigureAwait(false);
+            if (incoming.Count > bound)
+                snapshot.Truncated = true;
+            foreach (var source in incoming)
+            {
+                snapshot.IncomingSources.Add(source);
+                Discover(source);
+            }
             foreach (var link in found.Where(l => frontier.Contains(l.SourceId)))
             {
                 if (Normalize(link) is null)
@@ -190,15 +210,7 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
                     break;
                 }
                 snapshot.RawLinks.Add(link);
-                if (visited.Contains(link.TargetId))
-                    continue;
-                if (visited.Count >= bound)
-                {
-                    snapshot.Truncated = true;
-                    continue;
-                }
-                visited.Add(link.TargetId);
-                next.Add(link.TargetId);
+                Discover(link.TargetId);
             }
             frontier = next.ToArray();
         }
@@ -248,6 +260,18 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
                 var known = snapshot.RawLinks.Where(l => snapshot.Verified.ContainsKey(l.SourceId)).ToArray();
                 var edges = known.Select(Normalize).OfType<PolicyDependencyEdge>()
                     .Distinct().OrderBy(e => e.From).ThenBy(e => e.To).ToArray();
+                foreach (var edge in edges.Where(e => e.From != e.To
+                    && snapshot.Verified.ContainsKey(e.From) && snapshot.Verified.ContainsKey(e.To)))
+                {
+                    var forward = known.Any(l => l.SourceId == edge.From && Names.Equals(l.LinkType, LinkTypes.Successor)
+                        && l.TargetId == edge.To);
+                    var reverse = known.Any(l => l.SourceId == edge.To && Names.Equals(l.LinkType, LinkTypes.Predecessor)
+                        && l.TargetId == edge.From);
+                    if (!forward || !reverse)
+                        Add(rule, PolicyFindingCode.EvidenceUnavailable, edge.From,
+                            "Cached reciprocal dependency observations conflict. Refresh both endpoints before assessment.",
+                            new() { Edges = [edge], MissingIds = [edge.From, edge.To] });
+                }
                 IEnumerable<PolicyRepairStrategy> RemoveChoices(IEnumerable<PolicyDependencyEdge> candidates) =>
                     candidates.Select((edge, index) => new PolicyRepairStrategy
                     {
@@ -334,6 +358,7 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
         return new PolicyAssessment
         {
             Scope = snapshot.Scope, EvidenceDigest = Fingerprint(policy, snapshot),
+            DependencyScope = snapshot.GraphNodes.Order().ToArray(),
             Items = snapshot.Cached.Keys.Concat(snapshot.Scope).Concat(snapshot.GraphNodes).Distinct().Order()
                 .Select(id => new PolicyItemEvidence(id, snapshot.Cached.GetValueOrDefault(id)?.Revision,
                     snapshot.Cached.GetValueOrDefault(id)?.LastSyncedAt,
@@ -398,6 +423,8 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
         }
         foreach (var id in snapshot.Scope) Part(id);
         Part("end-scope"); Part(snapshot.Truncated);
+        foreach (var source in snapshot.IncomingSources.Order()) Part(source);
+        Part("end-incoming-sources");
         foreach (var (id, item) in snapshot.Cached.OrderBy(k => k.Key))
         {
             Part(id); Part(item.Revision); Part(item.LastSyncedAt?.ToString("o")); Part(item.IsDirty); Part(item.Type.Value);
@@ -425,6 +452,7 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
         public List<WorkItemLink> RawLinks { get; } = [];
         public Dictionary<int, DateTimeOffset> Verified { get; } = [];
         public HashSet<int> GraphNodes { get; } = [];
+        public HashSet<int> IncomingSources { get; } = [];
         public bool Truncated { get; set; }
         public Snapshot Copy()
         {
@@ -433,6 +461,7 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
             copy.RawLinks.AddRange(RawLinks);
             foreach (var pair in Verified) copy.Verified.Add(pair.Key, pair.Value);
             copy.GraphNodes.UnionWith(GraphNodes);
+            copy.IncomingSources.UnionWith(IncomingSources);
             return copy;
         }
     }

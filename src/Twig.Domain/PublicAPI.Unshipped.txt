@@ -1,4 +1,5 @@
 #nullable enable
+Twig.Domain.Interfaces.IWorkItemLinkRepository.GetIncomingDependencySourcesAsync(System.Collections.Generic.IReadOnlyList<int>! workItemIds, int limit, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<int>!>!
 *REMOVED*Twig.Domain.Projections.EditCapability.EditCapability(Twig.Domain.Projections.IChangeSink! sink, Twig.Domain.ValueObjects.WorkItemType workItemType, Twig.Domain.Aggregates.ProcessConfiguration? processConfiguration = null) -> void
 Twig.Domain.Projections.EditCapability.EditCapability(Twig.Domain.Projections.IChangeSink! sink, Twig.Domain.ValueObjects.WorkItemType workItemType, bool isSeed, Twig.Domain.Aggregates.ProcessConfiguration? processConfiguration = null) -> void
 Twig.Domain.Projections.WorkItemDetailDocument.SystemControls.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailControl!>!

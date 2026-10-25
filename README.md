@@ -83,8 +83,11 @@ twig proposal preview --file repair.json -o json
 
 Choose the finding and strategy from the assessment; parent targets and retained labels or
 dependency edges are never guessed. Assessment reports cached evidence, unavailable checks
-and bounded alternatives, not live or whole-board certification. A repair only authors
-existing native proposal operations: review, confirmation, authorization and journaled apply
+and bounded alternatives, not live or whole-board certification.
+Dependency scope includes incident cached sources in both directions; contradictory
+reciprocal observations remain unavailable. Parent checks do not certify out-of-scope children.
+A repair only authors existing native proposal operations: review, confirmation,
+authorization and journaled apply
 remain separate. Refresh and reassess after apply; successful writes alone do not prove
 compliance. See the [policy contract](docs/specs/declared-policy-decisions.spec.md#current-state-assessment-and-reconciliation)
 for supported strategies, evidence limits and exit codes.

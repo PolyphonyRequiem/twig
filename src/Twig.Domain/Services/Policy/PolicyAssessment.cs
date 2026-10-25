@@ -65,14 +65,17 @@ internal sealed record PolicyItemEvidence(
 internal sealed record PolicyAssessment
 {
     public required IReadOnlyList<int> Scope { get; init; }
+    public IReadOnlyList<int> DependencyScope { get; init; } = [];
     public required string EvidenceDigest { get; init; }
     public required IReadOnlyList<PolicyItemEvidence> Items { get; init; }
     public required IReadOnlyList<PolicyFinding> Findings { get; init; }
     public string Freshness => "cached";
-    public string ComplianceBasis => "declared rules over named cached items and observed logical dependency relations";
+    public string ComplianceBasis => "parent/label rules over named scope; dependency rules over the incident cached component in dependencyScope";
     public IReadOnlyList<string> EvidenceLimits =>
     [
         "Not live or whole-board certification; refresh and reassess after apply.",
+        "Parent rules do not certify out-of-scope children, including children of a retyped parent.",
+        "Dependency observations are source-local and cached at different times; contradictory reciprocal observations are unavailable. Uncached relations are not certified absent.",
         "The cache stores distinct logical relations and cannot certify physical relation multiplicity on the server.",
     ];
     public bool Complete => Findings.All(f => f.Code != PolicyFindingCode.EvidenceUnavailable);

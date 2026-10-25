@@ -2,6 +2,7 @@ import { spawn as nodeSpawn, execFile } from "node:child_process";
 import { realpath as nodeRealpath } from "node:fs/promises";
 import path from "node:path";
 import { serializeDiscussionRequest, validateDiscussionResult } from "./discussion-document.mjs";
+import { requireAdmitted } from "./native-executable.mjs";
 
 async function terminate(child) {
     if (!Number.isInteger(child.pid) || child.pid <= 0) throw new Error("Owned discussion child unavailable.");
@@ -15,11 +16,12 @@ async function terminate(child) {
     }
 }
 export function createNativeDiscussionReader({
-    spawn = nodeSpawn, realpath = nodeRealpath, stopTree = terminate,
+    spawn = nodeSpawn, realpath = nodeRealpath, stopTree = terminate, executable,
 } = {}) {
     let active = false;
     let poisoned = false;
     return async ({ target, workspacePath, cursor = null, context = null, signal }) => {
+        requireAdmitted(executable);
         if (active || poisoned) throw new Error("Native discussion ownership is busy or unresolved.");
         target = structuredClone(target);
         cursor = structuredClone(cursor);
@@ -32,6 +34,7 @@ export function createNativeDiscussionReader({
             if (normalize(cwd) !== normalize(target.expectedKey.checkoutRoot))
                 throw new Error("Discussion checkout does not match its admitted target.");
             const source = serializeDiscussionRequest(target, cursor);
+            const twig = await executable.prepare("discussion", { signal });
             signal?.throwIfAborted();
             return await new Promise((resolve, reject) => {
                 let child, deadline, closeDeadline, cleanup, failure, settled = false, stdoutBytes = 0, stderrBytes = 0;
@@ -54,7 +57,7 @@ export function createNativeDiscussionReader({
                     if (error) reject(error); else resolve(value);
                 }
                 try {
-                    child = spawn("twig", ["bench", "discussion", "--stdin", "-o", "json"], {
+                    child = spawn(twig, ["bench", "discussion", "--stdin", "-o", "json"], {
                         cwd, shell: false, windowsHide: true, detached: process.platform !== "win32",
                         stdio: ["pipe", "pipe", "pipe"],
                     });

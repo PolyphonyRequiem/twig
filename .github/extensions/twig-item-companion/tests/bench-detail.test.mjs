@@ -8,6 +8,7 @@ import test from "node:test";
 import { createCanvasServer } from "../canvas-server.mjs";
 import { createNativeBenchReader } from "../native-bench.mjs";
 import { createNativeBenchDetailReader } from "../native-bench-detail.mjs";
+import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 
 const bench = JSON.parse(await readFile(new URL("./fixtures/bench-v2.json", import.meta.url), "utf8"));
 const base = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8"));
@@ -34,7 +35,7 @@ function detailPayload(change = () => {}) {
     return value;
 }
 function detailReader(payload = detailPayload(), calls = []) {
-    return createNativeBenchDetailReader({
+    return createNativeBenchDetailReader({ executable: fakeExecutable(),
         realpath: async (path) => path,
         execFile(exe, args, options, callback) {
             calls.push({ exe, args, options });
@@ -105,7 +106,7 @@ test("reader requires a captured Bench and surfaces native error codes verbatim"
 async function open(detail, calls = []) {
     const server = await createCanvasServer({
         workspacePath, workbench: true,
-        readNativeBench: createNativeBenchReader({
+        readNativeBench: createNativeBenchReader({ executable: fakeExecutable(),
             realpath: async (path) => path,
             execFile: (exe, args, options, callback) => callback(null, JSON.stringify(bench), ""),
         }),

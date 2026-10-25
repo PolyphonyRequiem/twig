@@ -1,9 +1,11 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { realpath as nodeRealpath } from "node:fs/promises";
 import path from "node:path";
+import { requireAdmitted } from "./native-executable.mjs";
 
-export function createNativeBenchReader({ execFile = nodeExecFile, realpath = nodeRealpath } = {}) {
+export function createNativeBenchReader({ execFile = nodeExecFile, realpath = nodeRealpath, executable } = {}) {
     return async ({ bench, workspacePath, expected, signal }) => {
+        requireAdmitted(executable);
         if (typeof bench !== "string" || !bench.trim() || bench.length > 512) {
             throw new Error("Enter a saved Bench name or decimal ID (at most 512 characters).");
         }
@@ -14,8 +16,9 @@ export function createNativeBenchReader({ execFile = nodeExecFile, realpath = no
         const args = ["workspace", "--bench", bench, "--include-browser", "--browser-version", "2", "--view", "tree", "-o", "json"];
         if (expected) args.push("--expect-bench", expected.benchId,
             "--expect-binding", expected.origin.bindingId, "--expect-identity", expected.origin.identityId);
+        const file = await executable.prepare("workspace-browser", { signal });
         const stdout = await new Promise((resolve, reject) => {
-            execFile("twig", args, {
+            execFile(file, args, {
                 cwd, encoding: "utf8", shell: false, windowsHide: true,
                 timeout: 15_000, maxBuffer: 4 * 1024 * 1024, signal,
             }, (error, output, stderr) => {

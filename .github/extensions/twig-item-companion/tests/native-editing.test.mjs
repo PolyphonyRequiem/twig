@@ -9,6 +9,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { serializeStageRequest, serializeRetainRequest, validateEditingContext, validateEditingResult,
     validateRetainResult } from "../editing-document.mjs";
+import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 import { createNativeEditingAdapter, NativeEditingTransportError } from "../native-editing.mjs";
 
 const form = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8")).document;
@@ -69,7 +70,7 @@ function retainedResult() {
 const workspacePath = "C:\\fixture\\twig";
 function harness(response = result(), exit = 0, options = {}) {
     const calls = [];
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: options.executable ?? fakeExecutable(),
         realpath: async (value) => value,
         stopTree: async (child) => { child.stopped = true; },
         launch(exe, args, nativeOptions, callback) {
@@ -101,7 +102,7 @@ test("STAGE uses bounded shell-free owned stdin EOF and preserves exact context,
     const value = await promise;
     assert.equal(calls.length, 1);
     assert.deepEqual(calls[0].args, ["draft", "stage", "--stdin", "-o", "json"]);
-    assert.equal(calls[0].exe, "twig");
+    assert.equal(calls[0].exe, FAKE_TWIG);
     assert.equal(calls[0].options.shell, false);
     assert.equal(calls[0].options.timeout, undefined, "owned deadline terminates tree before a direct-child-only timeout");
     assert.equal(calls[0].options.maxBuffer, 4 * 1024 * 1024);
@@ -112,6 +113,36 @@ test("STAGE uses bounded shell-free owned stdin EOF and preserves exact context,
     assert.deepEqual(JSON.parse(calls[0].writes[0].value), request());
     assert.equal(value.document.generation, "9007199254740995");
     assert.ok(Object.isFrozen(value.document.nativeContext));
+});
+
+test("each editing verb prepares its own capability on the admitted executable and spawns only the returned path", async () => {
+    const executable = fakeExecutable();
+    const { adapter, calls } = harness(result("opened"), 0, { executable });
+    await adapter.open({ workItemId: 42, bench: "Sprint", workspacePath, expectedKey: context().itemKey, identityId: "identity" });
+    assert.deepEqual(executable.prepared, ["draft-open"]);
+    assert.equal(calls[0].exe, FAKE_TWIG);
+    const staging = harness(result(), 0, { executable });
+    await staging.adapter.stage({ request: request(), workspacePath });
+    const retaining = harness(retainedResult(), 0, { executable });
+    await retaining.adapter.retain({ request: retainRequest(), workspacePath });
+    assert.deepEqual(executable.prepared, ["draft-open", "draft-stage", "draft-retain"]);
+});
+
+test("a refused capability or changed executable launches nothing and releases ownership for the next explicit verb", async () => {
+    const refusal = Object.assign(new Error("Twig at C:\\fake-twig\\twig.exe changed since this canvas admitted it."), { code: "executable_changed" });
+    const { adapter, calls } = harness(result(), 0, { executable: fakeExecutable({ refuse: refusal }) });
+    await assert.rejects(adapter.stage({ request: request(), workspacePath }), (error) => error === refusal);
+    await assert.rejects(adapter.stage({ request: request(), workspacePath }), (error) => error === refusal,
+        "a second request reaches prepare again rather than finding the adapter busy");
+    assert.equal(calls.length, 0);
+});
+
+test("an editing adapter without an admitted executable refuses before any launch", async () => {
+    const calls = [];
+    const adapter = createNativeEditingAdapter({ realpath: async (value) => value,
+        launch() { calls.push("launch"); throw new Error("must not launch"); } });
+    await assert.rejects(adapter.stage({ request: request(), workspacePath }), { code: "twig_executable_unavailable" });
+    assert.equal(calls.length, 0);
 });
 
 test("OPEN uses explicit Bench and native identity guards without invoking read-only inspector flags", async () => {
@@ -418,7 +449,7 @@ test("unwired adapter preserves native form order, unsupported controls and expl
 
 test("pre-aborted operation never resolves a checkout or launches a child", async () => {
     let touched = false;
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
         realpath: async () => { touched = true; },
         launch: () => { touched = true; },
     });
@@ -435,7 +466,7 @@ test("early abort callback does not settle ownership until child close and tree 
     let child;
     let calls = 0;
     let stops = 0;
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
         realpath: async (value) => value,
         stopTree: async () => { stops++; await new Promise((resolve) => { finishStop = resolve; }); },
         launch(exe, args, options, callback) {
@@ -469,7 +500,7 @@ test("early abort callback does not settle ownership until child close and tree 
 
 test("RETAIN cancellation holds shared OPEN/STAGE ownership until close and cleanup settle", async () => {
     let child, callback, finishStop;
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
         realpath: async (value) => value,
         stopTree: () => new Promise((resolve) => { finishStop = resolve; }),
         launch(exe, args, options, done) {
@@ -503,7 +534,7 @@ test("stdin error requests owned-tree termination and still waits for close", as
     let child;
     let callback;
     let stopped = false;
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
         realpath: async (value) => value,
         stopTree: async () => { stopped = true; },
         launch(exe, args, options, done) {
@@ -531,7 +562,7 @@ test("failed owned-tree cleanup poisons the adapter instead of admitting a repla
     let child;
     let callback;
     let calls = 0;
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
         realpath: async (value) => value,
         stopTree: async () => { throw new Error("Tree closure not proven"); },
         launch(exe, args, options, done) {
@@ -558,7 +589,7 @@ test("failed owned-tree cleanup poisons the adapter instead of admitting a repla
 
 test("editing wiring remains explicit with no native autorun, Save, apply or publication", async () => {
     const extension = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
-    assert.match(extension, /nativeEditing: createNativeEditingAdapter\(\)/);
+    assert.match(extension, /nativeEditing: createNativeEditingAdapter\(\{ executable \}\)/);
     const bridge = await readFile(new URL("../editing-bridge.mjs", import.meta.url), "utf8");
     assert.match(bridge, /adapter\.open\(/);
     assert.match(bridge, /adapter\.stage\(/);
@@ -576,7 +607,7 @@ test("either output stream error requests termination and yields an unknown outc
     for (const name of ["stdout", "stderr"]) {
         let child;
         let stopped = false;
-        const adapter = createNativeEditingAdapter({
+        const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
             realpath: async (value) => value,
             stopTree: async () => { stopped = true; },
             spawn() {
@@ -601,7 +632,7 @@ test("either output stream error requests termination and yields an unknown outc
 test("combined output bound trips on stderr without retaining or parsing partial success", async () => {
     let child;
     let stopped = false;
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
         realpath: async (value) => value,
         stopTree: async () => { stopped = true; },
         spawn() {
@@ -625,7 +656,7 @@ test("combined output bound trips on stderr without retaining or parsing partial
 
 test("overflow with an already-exited root remains unknown and poisons reuse when tree cleanup is unproven", async () => {
     let calls = 0;
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
         realpath: async (value) => value,
         stopTree: async () => { throw new Error("Root PID exited; descendant closure is unproven"); },
         launch(exe, args, options, callback) {
@@ -667,7 +698,7 @@ test("real owned process " + mode + " closes its inherited-pipe descendant befor
     const controller = new AbortController();
     let ids = [];
     let launches = 0;
-    const adapter = createNativeEditingAdapter({
+    const adapter = createNativeEditingAdapter({ executable: fakeExecutable(),
         realpath: async (value) => value,
         spawn(exe, args, options) {
             launches++;

@@ -5,12 +5,13 @@ import test from "node:test";
 import { createNativeDetailReader } from "../native-detail.mjs";
 import { createCanvasServer } from "../canvas-server.mjs";
 import { renderPage } from "../render.mjs";
+import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 
 const fixture = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8"));
 const workspacePath = fixture.itemKey.checkoutRoot;
 
 function reader(payload, calls = []) {
-    return createNativeDetailReader({
+    return createNativeDetailReader({ executable: fakeExecutable(),
         realpath: async (value) => value,
         execFile: (executable, args, options, callback) => {
             calls.push({ executable, args, options });

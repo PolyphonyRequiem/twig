@@ -180,7 +180,11 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
         cache: "no-store",
       });
       const value = await response.json();
-      if (!response.ok) throw new Error(value.error || "Twig request failed.");
+      if (!response.ok) {
+        const failure = new Error(value.error || "Twig request failed.");
+        if (typeof value.code === "string") failure.code = value.code;
+        throw failure;
+      }
       return value;
     }
 

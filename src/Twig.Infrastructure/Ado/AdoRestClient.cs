@@ -19,7 +19,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider
+internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider, IWorkItemDiscussionReader
 {
     private const string JsonPatchMediaType = "application/json-patch+json";
 
@@ -90,6 +90,40 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     }
 
     // ── IAdoWorkItemService ─────────────────────────────────────────
+
+    public async Task<WorkItemDiscussionPage> ReadDiscussionAsync(int id, string? continuationToken, CancellationToken ct = default)
+    {
+        if (id <= 0 || !DiscussionReadLimits.ValidToken(continuationToken))
+            throw new ArgumentException("discussion-usage: a positive item ID and bounded continuation token are required.");
+        using var admission = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workItems/{id}/comments"
+            + $"?$top={DiscussionReadLimits.PageSize}&order=asc&includeDeleted=true&$expand=none&api-version={AdoApiVersions.WorkItemComments}";
+        if (continuationToken is not null) url += "&continuationToken=" + Uri.EscapeDataString(continuationToken);
+        using var response = await SendAsync(HttpMethod.Get, url, null, null, ct,
+            maximumResponseBytes: DiscussionReadLimits.MaximumResponseBytes).ConfigureAwait(false);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        AdoCommentListResponse? page;
+        try { page = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoCommentListResponse, ct).ConfigureAwait(false); }
+        catch (JsonException) { throw new AdoException("discussion-response-invalid: invalid comments response."); }
+        var next = string.IsNullOrEmpty(page?.ContinuationToken) ? null : page.ContinuationToken;
+        if (page?.Comments is null || page.Count != page.Comments.Count || page.Count > DiscussionReadLimits.PageSize
+            || page.WorkItemId is { } pageTarget && pageTarget != id
+            || page.TotalCount < page.Count || page.TotalCount < 0
+            || !DiscussionReadLimits.ValidToken(next) || (next is not null && next == continuationToken)
+            || (next is null && !string.IsNullOrEmpty(page.NextPage))
+            || page.Comments.Any(comment => comment is null || comment.Id is null or <= 0
+                || comment.WorkItemId is { } target && target != id || comment.Version is <= 0)
+            || page.Comments.Select(comment => comment.Id).Distinct().Count() != page.Comments.Count)
+            throw new AdoException("discussion-response-invalid: inconsistent comments page.");
+        var comments = page.Comments.Select(comment => new DiscussionComment(
+            comment.Id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            comment.Version?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            new(comment.CreatedBy?.Id, comment.CreatedBy?.DisplayName),
+            comment.CreatedDate?.ToUniversalTime(), comment.ModifiedDate?.ToUniversalTime(),
+            comment.IsDeleted, comment.Text,
+            comment.Format is null or "markdown" or "html" ? comment.Format : "unknown")).ToArray();
+        return new(comments, page.Count!.Value, page.TotalCount, next);
+    }
 
     public async Task<WorkItemSnapshot> FetchAtRevisionAsync(int id, int expectedRevision, CancellationToken ct = default)
     {
@@ -890,11 +924,12 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         CancellationToken ct,
         bool allowAuthRetry = true,
         string? effectKind = null,
-        SeedPublishCorrelation? seedCorrelation = null)
+        SeedPublishCorrelation? seedCorrelation = null,
+        int? maximumResponseBytes = null)
     {
         try
         {
-            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation);
+            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation, maximumResponseBytes);
         }
         catch (Exception ex) when (allowAuthRetry && AdoErrorHandler.IsAuthChallenge(ex)
             && (effectKind is null || Twig.Infrastructure.Auth.ConnectionOperationAdmission.CanRenewAfterWriteRejection(ex)))
@@ -904,7 +939,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
             // disposes the content, so it can't be re-sent on writes. The invalidation
             // ensures the next call will use a fresh token.
             if (content is not null) throw;
-            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation);
+            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation, maximumResponseBytes);
         }
     }
 
@@ -915,7 +950,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         string? ifMatch,
         CancellationToken ct,
         string? effectKind,
-        SeedPublishCorrelation? seedCorrelation)
+        SeedPublishCorrelation? seedCorrelation,
+        int? maximumResponseBytes)
     {
 
         using var request = new HttpRequestMessage(method, url);
@@ -942,7 +978,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         HttpResponseMessage response;
         try
         {
-            response = await _http.SendAsync(request, ct);
+            response = await _http.SendAsync(request, maximumResponseBytes is null
+                ? HttpCompletionOption.ResponseContentRead : HttpCompletionOption.ResponseHeadersRead, ct);
         }
         catch (HttpRequestException ex)
         {
@@ -956,9 +993,34 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
         try
         {
+            if (maximumResponseBytes is { } maximum)
+            {
+                if (response.Content.Headers.ContentLength > maximum)
+                    throw new AdoException("discussion-response-too-large: the comments page exceeds the Twig response limit.");
+                await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                using var buffer = new MemoryStream();
+                var bytes = new byte[8192];
+                int read;
+                while ((read = await input.ReadAsync(bytes, ct).ConfigureAwait(false)) != 0)
+                {
+                    if (buffer.Length + read > maximum)
+                        throw new AdoException("discussion-response-too-large: the comments page exceeds the Twig response limit.");
+                    await buffer.WriteAsync(bytes.AsMemory(0, read), ct).ConfigureAwait(false);
+                }
+                var prior = response.Content;
+                response.Content = new ByteArrayContent(buffer.ToArray());
+                response.Content.Headers.ContentType = prior.Headers.ContentType;
+                prior.Dispose();
+            }
             await Twig.Infrastructure.Auth.ConnectionOperationAdmission.RecordRemoteWriteResponseAsync(writeAdmission, response,
                 token, request.Headers.Authorization?.Parameter, ct).ConfigureAwait(false);
             await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct, budget, token);
+        }
+        catch (Exception ex) when (maximumResponseBytes is not null
+            && (ex is IOException or HttpRequestException || ex is TaskCanceledException && !ct.IsCancellationRequested))
+        {
+            response.Dispose();
+            throw new AdoOfflineException(ex);
         }
         catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
         {

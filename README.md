@@ -50,6 +50,81 @@ twig nav up                     # move to parent
 twig nav down "subtask"         # move to child by title match
 ```
 
+### Read-only native discussion pages
+
+`twig bench discussion --stdin -o json` reads **one** remote ADO comments page
+for an explicitly qualified cached member of a saved Bench. It never falls back
+to the active item or current Bench, refreshes/enriches the cache, changes native
+work/context/Bench/pending/journal data, posts a comment, or grants Save/Apply
+authority. An admitted cold PAT runtime may attest its principal through the
+existing authentication fence; this is not a work-item/metadata/mutation request.
+Other providers fail closed before constructing the ADO discussion graph.
+
+Close stdin after one strict version 1 request:
+
+```json
+{"version":1,"itemKey":{"checkoutRoot":"<native checkout root>","connectionId":"<native connection reference>","bindingId":"<native binding ID>","workItemId":42},"bench":"Sprint","expectBench":"7","expectIdentity":"<native identity ID>","cursor":null}
+```
+
+Use the admitted native qualified item key and expected saved Bench/identity,
+not panel IDs or guessed local IDs. Input is bounded to 262144 UTF-8 bytes,
+depth 32; duplicate/unknown members and trailing documents are errors. Output
+supports JSON (one complete envelope), human and minimal, not `ids`.
+
+Success has `status: "read"`, a `native/available` capability, exact native
+context, comments and paging. Comment IDs/versions and paging/context counters
+are decimal strings; the existing qualified key retains its integer
+`workItemId`. Authors contain only nullable ID/display name; UTC timestamps,
+deletion status, body and format preserve missing values as explicit `null`.
+Empty body differs from unavailable body. Known formats are `markdown`/`html`;
+an unfamiliar string is `unknown`. Body text is untrusted data. Human output
+labels version, author ID/name, created/modified UTC timestamps, deletion, format
+and body explicitly. Human/minimal strings are AOT-safe JSON-quoted text with
+escaped terminal controls and markup, not rendered HTML/Markdown. Bare `null`
+means unavailable; `""` means an empty string and `"null"` is literal text.
+Minimal comment rows have nine tab-separated columns: ID, version, author ID,
+author display name, createdAt, modifiedAt, isDeleted, format, body. Nullable
+string cells use the same quoted/null distinction; isDeleted is `true`, `false`
+or `null`. The final summary row is `discussion`, count, traversal and
+`snapshot-not-guaranteed`. This quoting is not HTML/Markdown sanitization.
+No identity/comment links, email/unique-name metadata, or rendered HTML are
+exported.
+
+Paging reports `scope: "provider-page"`, `traversal: "more"` or `"exhausted"`,
+and `snapshotConsistency: "not-guaranteed"`. To request another page, pass the
+returned `nextCursor` unchanged as `cursor` with the same explicit request
+qualifiers. Its version, exact context and fixed option profile detect
+accidental mismatches only: **the cursor is not authenticated or authority**.
+Every invocation independently admits the item, Bench, origin and principal.
+The provider token is untrusted paging data, percent-encoded only as a query
+value; it cannot choose the origin, item, credential or endpoint. Native code
+never follows `nextPage` or supplied identity/comment URLs, automatically walks
+pages, or retries an invalidated context.
+
+Twig adapter limits are 50 entries, 2 MiB of response bytes (bounded before
+materialization), and 8192 UTF-8 bytes/no control characters per provider token.
+These are **not provider limits**. Oversize or inconsistent pages are refused,
+never truncated or reported as an empty/exhausted success. Exhaustion describes
+this traversal, not a consistent whole-thread snapshot. Deleted comments are
+requested explicitly; unavailable deleted content is never reconstructed.
+
+The fixed GET uses comments `7.1-preview.4`, ascending order, `includeDeleted=true`
+and `$expand=none`. The [Microsoft 7.1 schema](https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/comments/get-comments?view=azure-devops-rest-7.1)
+and [first-party generated interfaces](https://github.com/microsoft/azure-devops-node-api/blob/master/api/interfaces/WorkItemTrackingInterfaces.ts)
+declare comment `id`; Learn examples instead show `commentId`. This boundary
+uses the formal schema, refuses a missing valid `id`, and does not invent an alias.
+That is source-contract evidence, **not live-wire proof**. Counts, deletion
+visibility and continuation do not establish snapshot consistency.
+
+Refusals return `status: "refused"`, `context: null`, `comments: []`,
+`paging: null`, and a structured `error` without provider bodies, tokens or URLs.
+JSON stderr is a separate formatted error. Exit 2 means usage/invalid JSON/input
+size; exit 1 means an unavailable, denied, changed, canceled or invalid read;
+exit 0 means a validated page, including a legitimately empty one. Failures
+before command construction retain the existing CLI error path and may have no
+discussion envelope. Missing stdout is not evidence of a successful empty read.
+Semantic detail v1/v2 and history (updates, not discussion) are unchanged.
+
 ### Recoverable native drafts
 
 `twig draft open 42 --bench Sprint -o json` opens the shared recoverable draft

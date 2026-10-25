@@ -123,6 +123,11 @@ public static class NetworkServiceModule
             RequireAdoBoundary(sp, "provider read boundary for these reads");
             return sp.GetRequiredService<IAdoWorkItemService>();
         });
+        services.AddSingleton<IWorkItemDiscussionReader>(sp =>
+        {
+            RequireAdoBoundary(sp, "discussion read boundary");
+            return (IWorkItemDiscussionReader)sp.GetRequiredService<IAdoWorkItemService>();
+        });
         // Feature #1178: the provider mutation boundary that update, state, note, link, patch,
         // edit, batch, the pending-change flusher and proposal apply resolve. Same ordering
         // as the read boundary: a non-ADO workspace refuses here, before any ADO client exists.

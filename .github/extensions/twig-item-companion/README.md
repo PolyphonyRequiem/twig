@@ -281,16 +281,24 @@ from Twig or detect a consistently forged or consistently shortened envelope.
 The view labels workspace/digest/source as **reported**, and capture authenticity
 as unverified. Missing expected identity/version, malformed or structurally
 truncated input, unsupported kinds and contradictory evidence show unavailable.
-Provider-qualified targets/peers, provider affected items and provider revision
-preconditions are explicitly refused until their native consumer contract lands;
-opaque identities are never coerced to integer ADO IDs.
+Provider-qualified targets/peers, complete provider affected-item coverage and
+opaque provider revision preconditions are supported within review model version
+1. Proposal document version 2 is not review model version 2: unknown review model
+versions still refuse. Provider identity retains the exact local ID, provider,
+resource scope and native ID; opaque identities/revisions are never coerced to
+integer ADO IDs. Numeric and provider target/endpoint alternatives cannot be mixed.
+Provider deletion must match the complete target identity. Missing provider before
+observations remain unknown, without fabricated cache values or change metrics.
 
 Details and Back only switch the same detached, frozen observation; neither
 acquires another preview. Brief retains every operation, effect, precondition,
 issue, blocker, policy decision and pending-change record. Long `System.Description` field-set bodies (case-insensitive native classification)
 are explicitly deferred to Details, which includes the complete envelope and
 exact retained values. Text, links and markup remain inert `textContent`.
-Authorization choices remain evidence in that envelope, never actionable controls.
+Authorization choices, recipe context and declared capability advisories are
+visible inert evidence in Brief and Details, never actionable controls or observed
+availability. Provider-qualified identity does not establish full native origin
+or capture authenticity; neither is added or inferred by this consumer.
 `canApply` or a favorable policy assessment does not grant this consumer authority.
 The complete envelope is limited to 4 Mi characters; oversized input refuses,
 never partially renders.
@@ -324,8 +332,13 @@ The adapter pins physical session checkout/file and the exact expected/reported
 workspace/digest, with a 15-second child timeout, 4 MiB output bound, abort signal
 and no shell. The preview envelope does **not** export full connection/binding/
 identity/Bench origin, so the canvas claims no full-origin continuity or host
-authentication. Provider/model-v2 material remains explicitly unsupported: it is
-not downgraded or partially rendered.
+authentication. Provider-qualified effects use the same review model version 1;
+unknown review-model versions remain unsupported and are never partially rendered.
+
+The provider-review consumer extension is source-authored but not yet runtime
+qualified. Its fictional tests are not actual production-serialized fixture
+crosschecks. The capture-only `draft retain` contract is separate and supplies no
+semantic review or full origin; this consumer does not acquire or interpret it.
 
 The complete validated observation is detached and frozen. Details/Back, Show
 retained observation, iframe reload and close perform no preview. The protected

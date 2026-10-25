@@ -107,7 +107,7 @@ test("malformed, unsupported and structurally truncated envelopes refuse instead
         (v) => { delete v.reviewModel.blockers; },
         (v) => { delete v.pendingChanges; },
         (v) => { delete v.reviewModel.authorizationChoices; },
-        (v) => { v.reviewModel.providerAffectedItems = []; },
+        (v) => { v.reviewModel.providerAffectedItems = {}; },
         (v) => { v.reviewModel.operations[0].target.providerWorkItem = { localId: "opaque" }; },
         (v) => { v.reviewModel.operations[1].consequences[0].otherProviderWorkItem = { localId: "opaque" }; },
         (v) => { v.reviewModel.operations[0].preconditions[0].kind = "expectedProviderRevision"; },
@@ -214,4 +214,159 @@ test("invalid replacement clears old review and exposes unavailable alert, not p
     assert.match(flatten(root), /unavailable/);
     assert.equal(root.children[0].role, "alert");
     assert.equal(all(root).filter((e) => e.tag === "button").length, 0);
+});
+
+const providerRef = (nativeId, resourceScope = "scope/<opaque>", providerKind = "fixture-provider") => ({
+    localId: `local-${nativeId}`, externalIdentity: { providerKind, resourceScope, nativeId },
+});
+
+function providerFixture() {
+    const value = fixture();
+    const target = providerRef("900719925474099312345");
+    const peer = providerRef("peer/<script>untrusted()</script>");
+    const kinds = ["batch", "add-link", "remove-link", "delete"];
+    value.operations = ["Batch", "AddLink", "RemoveLink", "Delete"].map((kind, ordinal) =>
+        ({ ordinal, id: `provider-${ordinal}`, kind }));
+    value.reviewModel.affectedItems = [];
+    value.reviewModel.providerAffectedItems = [{ item: target, role: "target" }, { item: peer, role: "peer" }];
+    value.reviewModel.operations = kinds.map((kind, ordinal) => ({
+        ordinal, opId: `provider-${ordinal}`, kind,
+        target: { workItemId: null, stagedIdentity: null, providerWorkItem: target },
+        summary: `Provider ${kind}`,
+        preconditions: [{ kind: "expectedProviderRevision", value: 'W/"opaque-900719925474099312345"' }],
+        consequences: kind === "batch" ? [
+            { kind: "field-set", field: "Custom.Value", to: "", relation: null, otherId: null },
+            { kind: "field-clear", field: "Custom.Clear", to: null, relation: null, otherId: null },
+        ] : [{
+            kind: kind === "delete" ? "work-item-delete" : kind === "add-link" ? "link-add" : "link-remove",
+            field: null, to: null, relation: kind === "delete" ? null : "related", otherId: null,
+            otherProviderWorkItem: kind === "delete" ? target : peer,
+        }],
+        ...(kind === "add-link" ? { capability: { relationship: "related", declared: "emulated",
+            availability: "unknown", reason: "not-probed" } } : {}),
+    }));
+    return value;
+}
+
+test("provider review model v1 retains every opaque identity, effect and precondition without numeric coercion", () => {
+    const value = providerFixture();
+    const retained = capture(value);
+    assert.deepEqual(retained.envelope, value);
+    assert.ok(Object.isFrozen(retained.envelope.reviewModel.providerAffectedItems[0].item.externalIdentity));
+    assert.equal(retained.envelope.reviewModel.operations[0].preconditions[0].value, 'W/"opaque-900719925474099312345"');
+    assert.equal(retained.envelope.reviewModel.operations[0].consequences[0].to, "");
+    assert.equal(retained.envelope.reviewModel.operations[0].consequences[1].to, null);
+    value.reviewModel.providerAffectedItems[0].item.externalIdentity.nativeId = "changed";
+    assert.equal(retained.envelope.reviewModel.operations[0].target.providerWorkItem.externalIdentity.nativeId,
+        "900719925474099312345");
+});
+
+test("provider identities distinguish equal native IDs across scopes and providers and preserve target role precedence", () => {
+    const value = providerFixture();
+    const target = value.reviewModel.operations[0].target.providerWorkItem;
+    const otherScope = providerRef(target.externalIdentity.nativeId, "another-scope");
+    const otherProvider = providerRef(target.externalIdentity.nativeId, target.externalIdentity.resourceScope, "another-provider");
+    value.reviewModel.operations[1].consequences[0].otherProviderWorkItem = otherScope;
+    value.reviewModel.operations[2].consequences[0].otherProviderWorkItem = otherProvider;
+    value.reviewModel.providerAffectedItems = [
+        { item: target, role: "target" }, { item: otherScope, role: "peer" }, { item: otherProvider, role: "peer" },
+    ];
+    assert.equal(capture(value).envelope.reviewModel.providerAffectedItems.length, 3);
+    value.reviewModel.operations[2].consequences[0].otherProviderWorkItem = target;
+    value.reviewModel.providerAffectedItems.pop();
+    assert.equal(capture(value).envelope.reviewModel.providerAffectedItems[0].role, "target");
+});
+
+test("provider targets, endpoints, coverage and preconditions refuse malformed or contradictory evidence", () => {
+    const mutations = [
+        (v) => { v.reviewModel.operations[0].target.workItemId = 42; },
+        (v) => { v.reviewModel.operations[0].target.stagedIdentity = "seed"; },
+        (v) => { v.reviewModel.operations[0].target.seed = {}; },
+        (v) => { v.reviewModel.operations[0].target.providerWorkItem.localId = 42; },
+        (v) => { v.reviewModel.operations[0].target.providerWorkItem.externalIdentity.nativeId = ""; },
+        (v) => { v.reviewModel.operations[0].target.providerWorkItem.externalIdentity.resourceScope = null; },
+        (v) => { delete v.reviewModel.operations[0].target.providerWorkItem.externalIdentity.providerKind; },
+        (v) => { v.reviewModel.operations[0].preconditions[0].kind = "expectedRevision"; },
+        (v) => { v.reviewModel.operations[0].preconditions[0].value = 3; },
+        (v) => { v.reviewModel.operations[0].preconditions[0].value = ""; },
+        (v) => { v.reviewModel.operations[1].consequences[0].otherId = 43; },
+        (v) => { delete v.reviewModel.operations[1].consequences[0].otherProviderWorkItem; },
+        (v) => { v.reviewModel.operations[1].consequences[0].relation = null; },
+        (v) => { v.reviewModel.operations[3].consequences[0].otherProviderWorkItem = providerRef("elsewhere"); },
+        (v) => { v.reviewModel.operations[0].consequences[0].otherProviderWorkItem = providerRef("peer"); },
+        (v) => { v.reviewModel.operations[0].consequences[1].to = ""; },
+        (v) => { v.reviewModel.operations[0].consequences[0].kind = "future-effect"; },
+        (v) => { v.reviewModel.operations[1].opId = v.reviewModel.operations[0].opId; },
+        (v) => { v.reviewModel.operations.reverse(); },
+        (v) => { delete v.reviewModel.providerAffectedItems; },
+        (v) => { v.reviewModel.providerAffectedItems.pop(); },
+        (v) => { v.reviewModel.providerAffectedItems[0].role = "peer"; },
+        (v) => { v.reviewModel.providerAffectedItems[1].role = "context"; },
+        (v) => { v.reviewModel.providerAffectedItems.push(v.reviewModel.providerAffectedItems[0]); },
+        (v) => { v.reviewModel.providerAffectedItems.push({ item: providerRef("extra"), role: "peer" }); },
+        (v) => { v.reviewModel.modelVersion = 2; },
+        (v) => { v.reviewModel.operations[1].capability.reason = null; },
+    ];
+    for (const [index, mutate] of mutations.entries()) {
+        const value = providerFixture();
+        mutate(value);
+        assert.throws(() => capture(value), /unavailable/, `mutation ${index}`);
+    }
+});
+
+test("provider deletion equality checks complete identity even when coverage is internally consistent", () => {
+    for (const key of ["localId", "providerKind", "resourceScope", "nativeId"]) {
+        const value = providerFixture();
+        const other = structuredClone(value.reviewModel.operations[3].target.providerWorkItem);
+        if (key === "localId") other.localId += "-other";
+        else other.externalIdentity[key] += "-other";
+        value.reviewModel.operations[3].consequences[0].otherProviderWorkItem = other;
+        value.reviewModel.providerAffectedItems.push({ item: other, role: "peer" });
+        assert.throws(() => capture(value), /deletion identity mismatch/, key);
+    }
+});
+
+test("mixed legacy and provider operations preserve both complete affected sets", () => {
+    const value = fixture();
+    const provider = providerFixture();
+    value.reviewModel.providerAffectedItems = provider.reviewModel.providerAffectedItems;
+    const offset = value.operations.length;
+    value.operations.push(...provider.operations.map((op) => ({ ...op, ordinal: op.ordinal + offset })));
+    value.reviewModel.operations.push(...provider.reviewModel.operations.map((op) => ({ ...op, ordinal: op.ordinal + offset })));
+    assert.equal(capture(value).envelope.reviewModel.operations.length, 9);
+    value.reviewModel.operations[0].consequences[0].otherProviderWorkItem = providerRef("unexpected");
+    assert.throws(() => capture(value), /invalid field effect/);
+});
+
+test("provider brief exposes all effects, choices, recipe and capability evidence inertly without claiming origin", () => {
+    const root = dom();
+    const value = providerFixture();
+    value.canApply = true;
+    value.reviewModel.authorizationChoices = ["apply", "revise", "decline"];
+    value.reviewModel.recipe = { recipeId: "<img src=x onerror=untrusted()>", version: 3 };
+    const view = mountRetainedReview(root, JSON.stringify(value), expected);
+    assert.equal(view.available, true);
+    const brief = flatten(root);
+    for (const text of ["900719925474099312345", "field-clear", "link-add", "link-remove", "work-item-delete",
+        "expectedProviderRevision", '"apply"', "not-probed", "emulated", "Before value for Custom.Value: unknown",
+        "<img src=x onerror=untrusted()>", "capture authenticity is not verified"])
+        assert.ok(brief.includes(text), text);
+    const buttons = all(root).filter((e) => e.tag === "button");
+    assert.deepEqual(buttons.map((e) => e.textContent), ["Details", "Back"]);
+    buttons[0].listeners.click();
+    assert.match(flatten(root), /Complete retained envelope/);
+    buttons[1].listeners.click();
+    assert.equal(flatten(root), brief);
+    assert.equal(all(root).some((e) => ["a", "script", "img", "iframe"].includes(e.tag)), false);
+    assert.equal(view.retained.envelope.reviewModel.operations[0].consequences[0].before, undefined);
+});
+
+test("known additive provider evidence is retained while malformed recipe refuses", () => {
+    const value = providerFixture();
+    value.reviewModel.providerAffectedItems[0].item.additive = "future evidence";
+    assert.deepEqual(capture(value).envelope, value);
+    for (const recipe of [{ recipeId: "", version: 1 }, { recipeId: "recipe", version: "1" }]) {
+        value.reviewModel.recipe = recipe;
+        assert.throws(() => capture(value), /recipe context/);
+    }
 });

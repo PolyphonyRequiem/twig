@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Twig.Domain.ValueObjects;
 
 /// <summary>
@@ -61,6 +63,7 @@ internal sealed record ProcessRule(
     /// default converges with "the server did not say" on the one honest answer.
     /// </para>
     /// </remarks>
+    [JsonInclude]
     internal RuleCustomization? Customization { get; init; } =
         Customization ?? RuleCustomization.Unknown;
 

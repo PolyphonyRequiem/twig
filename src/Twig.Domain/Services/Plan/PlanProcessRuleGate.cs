@@ -173,6 +173,14 @@ internal sealed class PlanProcessRuleGate
         if (rules is null)
             return PlanProcessRuleGateOutcome.RequiresRefresh(
                 $"Process rules for type '{typeName}' returned no rule set; required-field gates cannot be evaluated.");
+        return EvaluateObserved(batch, source, rules);
+    }
+
+    // Pure evaluation also supports explicitly retained native observations. That caller
+    // reports local advisory evidence, never the authoritative apply-time guarantee.
+    internal static PlanProcessRuleGateOutcome EvaluateObserved(
+        BatchOperation batch, WorkItem source, IReadOnlyList<ProcessRule> rules)
+    {
         if (rules.Count == 0) return PlanProcessRuleGateOutcome.Ok;
 
         // Cheap short-circuit: with no enabled makeRequired candidate in the rule set,
@@ -180,10 +188,10 @@ internal sealed class PlanProcessRuleGate
         if (!HasEnabledMakeRequiredCandidate(rules))
             return PlanProcessRuleGateOutcome.Ok;
 
-        // Authoritative-input invariant: PlanLifecycleService only hands us a source
+        // Authoritative-input invariant of EvaluateAsync: PlanLifecycleService hands it a source
         // projected from an at-revision server snapshot equal to batch.ExpectedRevision
-        // (either freshly fetched or carried forward from a prior verified operation on
-        // the same work item — AB#721). No cached-projection drift path exists here.
+        // (freshly fetched or carried from a prior verified operation — AB#721).
+        // A retained-observation caller instead reports only local advisory evidence.
 
         var fromState = source.State ?? string.Empty;
         var toState = fromState;

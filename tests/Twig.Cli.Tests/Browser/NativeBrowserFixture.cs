@@ -183,6 +183,21 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
     {
         internal List<int> RequestedItems { get; } = [];
         internal int Mutations { get; private set; }
+        internal int HttpAttempts { get; private set; }
+        internal int MetadataAttempts { get; private set; }
+        internal int PrincipalAttempts { get; private set; }
+        internal int ProfileAttempts { get; private set; }
+        internal int WorkReadAttempts { get; private set; }
+        internal int WorkMutationAttempts { get; private set; }
+        internal int OtherAttempts { get; private set; }
+        internal readonly record struct HttpSnapshot(int Total, int Principal, int Profile, int WorkRead,
+            int Metadata, int WorkMutation, int Other)
+        {
+            internal int ClassifiedTotal => Principal + Profile + WorkRead + Metadata + WorkMutation + Other;
+        }
+        internal HttpSnapshot SnapshotHttp() => new(HttpAttempts, PrincipalAttempts, ProfileAttempts,
+            WorkReadAttempts, MetadataAttempts, WorkMutationAttempts, OtherAttempts);
+        internal bool RejectMetadata { get; set; }
         internal bool HoldNext { get; set; }
         internal bool FailNext { get; set; }
         internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -190,18 +205,36 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            HttpAttempts++;
             var encoded = request.Headers.Authorization?.Parameter;
             var secret = encoded is null ? null : Encoding.UTF8.GetString(Convert.FromBase64String(encoded))[1..];
             var actor = secret is ActorPat or RenewedPat ? Actor : secret == SiblingPat ? Sibling : null;
-            if (actor is null) return Reply(HttpStatusCode.Unauthorized, new { message = "Unregistered credential" });
+            if (actor is null)
+            {
+                OtherAttempts++;
+                return Reply(HttpStatusCode.Unauthorized, new { message = "Unregistered credential" });
+            }
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
+            {
+                PrincipalAttempts++;
                 return Reply(HttpStatusCode.OK, new { instanceId = ResourceScopeId, authenticatedUser = new { id = actor, providerDisplayName = "Fixture reader" } });
+            }
             if (path.EndsWith("/_apis/profile/profiles/me", StringComparison.Ordinal))
+            {
+                ProfileAttempts++;
                 return Reply(HttpStatusCode.OK, new { displayName = "Fixture reader", emailAddress = actor + "@fixture.invalid" });
+            }
             const string segment = "/_apis/wit/workitems/";
             var offset = path.IndexOf(segment, StringComparison.OrdinalIgnoreCase);
-            if (offset < 0) return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
+            if (offset < 0)
+            {
+                MetadataAttempts++;
+                if (RejectMetadata) throw new InvalidOperationException("Fixture metadata HTTP is sealed.");
+                return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
+            }
+            if (request.Method == HttpMethod.Get) WorkReadAttempts++;
+            else WorkMutationAttempts++;
             var id = int.Parse(path[(offset + segment.Length)..].Split('/')[0], System.Globalization.CultureInfo.InvariantCulture);
             RequestedItems.Add(id);
             if (request.Method != HttpMethod.Get)

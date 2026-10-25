@@ -312,6 +312,15 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 CanApply = false,
             };
 
+        var capturedJournal = await _journal.GetAsync(parsed.Digest, ct).ConfigureAwait(false);
+        if (capturedJournal?.DraftCapture is not null)
+            return new PlanPreviewResult
+            {
+                Digest = parsed.Digest, Operations = parsed.Plan.Operations, Workspace = parsed.Plan.Workspace,
+                PendingChanges = pending, CanApply = false,
+                Issues = [await CaptureIssueAsync(capturedJournal, containment.AbsolutePath!, ct).ConfigureAwait(false)],
+            };
+
         // Idempotent import — a matching digest returns the existing journal, a mismatched
         // one throws (the ledger refuses to co-sign a doctored file). We hoist that as a
         // preview-level issue rather than an unhandled exception.
@@ -774,6 +783,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
         return new PlanStatusResult
         {
+            Issues = journal.DraftCapture is null ? [] : [await CaptureIssueAsync(journal, containment.AbsolutePath!, ct).ConfigureAwait(false)],
             Found = true,
             Digest = journal.Digest,
             State = journal.State,
@@ -782,6 +792,29 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             Origin = journal.Origin,
             Replacement = replacement,
         };
+    }
+
+    private async Task<PlanValidationIssue> CaptureIssueAsync(PlanJournal journal, string sourcePath, CancellationToken ct)
+    {
+        if (_journal is not Persistence.SqlitePlanJournalRepository native)
+            return new() { Code = "draft-capture-missing-evidence", Path = string.Empty,
+                Message = "The native local capture observation store is unavailable." };
+        if (!native.SourcePathComparer.Equals(journal.SourcePath, sourcePath))
+            return new() { Code = "draft-capture-stale", Path = string.Empty,
+                Message = "The file is not at the retained native capture source path." };
+        if (_origin is not { } origin)
+            return new() { Code = "draft-capture-stale", Path = string.Empty,
+                Message = "Native capture origin is unavailable in this provider composition." };
+        try
+        {
+            return await native.CaptureIssueAsync(journal,
+                await origin.GetOriginAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new() { Code = "draft-capture-stale", Path = string.Empty,
+                Message = "Native capture origin is unavailable or changed: " + ex.Message };
+        }
     }
 
     /// <summary>

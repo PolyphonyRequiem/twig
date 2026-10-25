@@ -17,6 +17,55 @@ No dependencies are bundled. The Copilot runtime supplies
 node --test .github/extensions/twig-item-companion/tests/*.test.mjs
 ```
 
+## Unwired native editing adapter (source only)
+
+`native-editing.mjs` and `editing-document.mjs` are isolated adapter source for the
+separate frozen native editing v1 contract. They are not imported by the extension,
+canvas server or rendered client. No new host action or HTTP endpoint is available.
+Native qualification and explicit integration approval remain prerequisites.
+
+OPEN is explicit and may acquire metadata and persist local evidence/draft
+observations; it is not a read-only/cache-only detail fallback. STAGE sends one
+bounded UTF-8 request through `draft stage --stdin -o json` and closes EOF. It
+preserves the native context, ordered nullable intent and decimal-string Int64
+tokens, without retry, rebase, Save, Apply or remote publication.
+
+The adapter parses native structured stdout even on exit 1/2, preserving refusal
+and committed/indeterminate evidence. Missing, malformed or contradictory output,
+process failure and broken input transport produce an explicit unknown outcome,
+never a rollback claim. Unknown-provider configuration failures may happen before
+the command can emit a structured envelope. Existing inspection v1 and read-only
+v2 contracts remain unchanged.
+
+The adapter owns one invocation at a time. Its 15-second deadline and cancellation
+request PID-scoped tree termination (Windows) or an isolated process-group stop
+(POSIX); completion waits for the child close event and termination result, not
+only the exec callback. Cleanup has a separate four-second bound. If closure or
+cleanup cannot be proven, the outcome is unknown and that adapter instance stays
+unusable for another child. Qualification outside the exercised Windows
+cancellation/overflow cases is not claimed.
+
+Output capture uses `spawn` and an owned **combined stdout plus stderr 4MiB**
+limit. Exceeding that bound stops retaining output and requests tree termination
+while the root is still alive; Node is not allowed to automatically kill only
+the root on buffer overflow. Both streams remain drained until closure. If the
+root nevertheless exits before PID-scoped termination can prove descendant
+closure, the adapter reports unknown outcome and poisons reuse.
+
+Native OPEN's normal-operation evidence/draft transaction is not a certified
+cross-file WAL crash/power-loss guarantee. Postcommit origin fencing may return
+indeterminate with committed true and an optional document. Callers must retain
+unsent input and native intent, and explicitly reopen rather than retrying.
+
+The contract tests use synthetic native envelopes, not native Twig execution.
+The focused run passed 23/23, including real Node parent/inherited-descendant
+cancellation and combined-output overflow through the actual supervisor. The
+related offline consumers passed 83/83, with no skips/cancellations, and both
+adapter modules passed syntax checks. The initial focused run failed one
+acknowledgement-guard fixture because its drift flag was contradictory; that
+fixture was corrected to reach the intended guard before the passing rerun.
+No runtime success envelope from native Twig has yet been cross-checked.
+
 ## Read-only v2 boundary
 
 The adapter consumes the native export from `a5d6f5cf`, not a second item model

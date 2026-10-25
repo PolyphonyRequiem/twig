@@ -66,7 +66,10 @@ public static class CommandRegistrationModule
             twigPaths: sp.GetService<TwigPaths>(),
             adoGitService: sp.GetService<IAdoGitService>(),
             treeRenderingService: sp.GetService<TreeRenderingService>(),
-            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
+            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>())
+        {
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+        });
         services.AddSingleton<ShowLocalIdCommand>(sp => new ShowLocalIdCommand(
             sp.GetService<IProviderWorkItemReadService>(),
             sp.GetRequiredService<Twig.Rendering.RendererFactory>(),

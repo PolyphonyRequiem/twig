@@ -24,6 +24,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
             SELECT type_name, states_json, default_child_type, valid_child_types_json, color_hex, icon_id,
                    category_reference_names_json
@@ -44,6 +45,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
             SELECT type_name, states_json, default_child_type, valid_child_types_json, color_hex, icon_id,
                    category_reference_names_json
@@ -64,6 +66,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
 
         var statesJson = JsonSerializer.Serialize(
             record.States.ToList(),
@@ -154,6 +157,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
             INSERT OR REPLACE INTO metadata (key, value)
             VALUES (@key, @value)
@@ -170,6 +174,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = "SELECT value FROM metadata WHERE key = @key";
         cmd.Parameters.AddWithValue("@key", ProcessConfigurationDataKey);
 

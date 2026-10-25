@@ -146,7 +146,7 @@ public sealed class CurrentBenchResolver
     /// canonical form, preserving every non-sprint selector exactly. Pins (item / subtree) and any
     /// unrelated query rule survive — only the automanaged sprint rule is re-sourced.
     /// </summary>
-    private static Bench NormalizeDefaultSelfSprint(Bench current, IReadOnlyCollection<BenchSelector> freshSelectors)
+    internal static Bench NormalizeDefaultSelfSprint(Bench current, IReadOnlyCollection<BenchSelector> freshSelectors)
     {
         var uniqueName = freshSelectors.Single(s => s.Kind == SelectorKind.Query).QueryAssignedToUniqueName!;
         var combined = new List<BenchSelector>(current.Selectors.Count);

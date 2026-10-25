@@ -15,9 +15,9 @@ namespace Twig.Rendering;
 public static class ChangeProposalReviewRenderer
 {
     /// <summary>The only supported semantic model version.</summary>
-    public const int SupportedModelVersion = 1;
+    public const int SupportedModelVersion = 2;
     /// <summary>Unknown versions must not be partially presented.</summary>
-    public static bool IsSupported(int modelVersion) => modelVersion == SupportedModelVersion;
+    public static bool IsSupported(int modelVersion) => modelVersion is 1 or SupportedModelVersion;
     /// <summary>Builds a brief review without presenting authorization controls.</summary>
     public static IReadOnlyList<RenderNode> Render(ChangeProposalReviewModel model)
         => Render(model, false);
@@ -247,6 +247,7 @@ public static class ChangeProposalReviewRenderer
         "link-remove" => $"remove {c.Relation} link to {DescribeOther(c)}",
         "seed-publish" => "publish staged draft (new published identity assigned only when applied)",
         "work-item-delete" => $"delete work item {DescribeOther(c)}",
+        "discussion-append" => $"append {c.BodyFormat} comment\nSubmitted text:\n{Safe(c.SubmittedText ?? string.Empty)}\nEffective HTML body:\n{Safe(c.EffectiveBody ?? string.Empty)}",
         _ => $"change {c.Field ?? "item"} {c.To ?? string.Empty} {c.Relation} {c.OtherId}".Trim(),
     };
 

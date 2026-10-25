@@ -47,8 +47,13 @@ export function createNativeProposalReader({ execFile = nodeExecFile, realpath =
         });
         signal?.throwIfAborted();
         const captureId = randomUUID();
+        let modelVersion;
+        try { modelVersion = JSON.parse(rawJson)?.reviewModel?.modelVersion; }
+        catch { throw new Error("Retained proposal review unavailable: malformed or truncated JSON"); }
+        if (![1, 2].includes(modelVersion))
+            throw new Error("Retained proposal review unavailable: unsupported review model version");
         const expected = Object.freeze({
-            captureId, expectedCaptureId: captureId, expectedModelVersion: 1,
+            captureId, expectedCaptureId: captureId, expectedModelVersion: modelVersion,
             digest: request.digest, workspace: request.workspace, sourceKind: "host-supplied-native-preview",
         });
         const retained = retainProposalReview(rawJson, expected);

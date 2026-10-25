@@ -7,7 +7,7 @@ namespace Twig.Infrastructure.Plan;
 
 /// <summary>
 /// The single serializer for the canonical semantic review model (design record T2 §4.1,
-/// <c>modelVersion</c> 1).
+/// <c>modelVersion</c> 1, with version 2 for discussion-append effects).
 /// <para>
 /// 🔴 <b>One writer, every consumer.</b> The MCP preview payload, and the
 /// <c>review_model_json</c> audit column written at authorization time, are produced here.
@@ -143,6 +143,12 @@ public static class ChangeProposalReviewModelJson
                 }
                 else writer.WriteNull("textChange");
                 WriteNullableString(writer, "relation", con.Relation);
+                if (model.ModelVersion >= 2)
+                {
+                    WriteNullableString(writer, "bodyFormat", con.BodyFormat);
+                    WriteNullableString(writer, "submittedText", con.SubmittedText);
+                    WriteNullableString(writer, "effectiveBody", con.EffectiveBody);
+                }
                 if (con.OtherId is { } otherId)
                     writer.WriteNumber("otherId", otherId);
                 else

@@ -112,6 +112,37 @@ public sealed record DeleteOperation : PlanOperationDefinition
     public required int ExpectedRevision { get; init; }
 }
 
+/// <summary>
+/// Append one comment to a published work item. The effective HTML is captured in the
+/// proposal so review, authorization, execution, and readback all bind to identical bytes.
+/// </summary>
+public sealed record AppendCommentOperation : PlanOperationDefinition
+{
+    /// <inheritdoc/>
+    public override PlanOperationKind Kind => PlanOperationKind.AppendComment;
+
+    /// <summary>The published work item receiving the comment.</summary>
+    public required int WorkItemId { get; init; }
+
+    /// <summary>The explicitly selected saved Bench identity.</summary>
+    public required string SavedBenchId { get; init; }
+
+    /// <summary>The saved Bench contents digest reviewed by the authorizer.</summary>
+    public required string ExpectedBenchContentsDigest { get; init; }
+
+    /// <summary>The bound identity required to apply the proposal.</summary>
+    public required string ExpectedIdentityId { get; init; }
+
+    /// <summary>The submitted format: plain or markdown.</summary>
+    public required string Format { get; init; }
+
+    /// <summary>The exact submitted text.</summary>
+    public required string Text { get; init; }
+
+    /// <summary>The exact inert HTML body sent to the provider.</summary>
+    public required string EffectiveBody { get; init; }
+}
+
 /// <summary>A provider-qualified work item reference bound to its durable Twig identity.</summary>
 public sealed record ProviderWorkItemReference
 {

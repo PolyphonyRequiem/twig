@@ -6,4 +6,6 @@ namespace Twig.Domain.Interfaces;
 internal interface IWorkItemDiscussionReader
 {
     Task<WorkItemDiscussionPage> ReadDiscussionAsync(int id, string? continuationToken, CancellationToken ct = default);
+
+    Task<DiscussionComment?> ReadDiscussionCommentAsync(int workItemId, string commentId, CancellationToken ct = default);
 }

@@ -297,8 +297,50 @@ public sealed class ChangeProposalReviewRendererTests
     {
         ChangeProposalReviewRenderer.IsSupported(ChangeProposalReviewRenderer.SupportedModelVersion)
             .ShouldBeTrue();
-        ChangeProposalReviewRenderer.IsSupported(2).ShouldBeFalse();
+        ChangeProposalReviewRenderer.IsSupported(2).ShouldBeTrue();
+        ChangeProposalReviewRenderer.IsSupported(3).ShouldBeFalse();
         ChangeProposalReviewRenderer.IsSupported(0).ShouldBeFalse();
     }
 
+    [Fact]
+    public void Render_Version2DiscussionAppend_ShowsSubmittedAndEffectiveBodies()
+    {
+        var model = Model() with
+        {
+            Operations =
+            [
+                new ReviewOperation
+                {
+                    Ordinal = 0,
+                    OpId = "comment",
+                    Kind = "append-comment",
+                    Target = new ReviewTarget { WorkItemId = 729 },
+                    Summary = "Append markdown discussion comment",
+                    Preconditions =
+                    [
+                        new ReviewPrecondition { Kind = "savedBenchId", Value = "7" },
+                        new ReviewPrecondition { Kind = "expectedBenchContentsDigest", Value = new string('a', 64) },
+                        new ReviewPrecondition { Kind = "expectedIdentityId", Value = "identity-1" },
+                    ],
+                    Consequences =
+                    [
+                        new ReviewConsequence
+                        {
+                            Kind = "discussion-append",
+                            BodyFormat = "markdown",
+                            SubmittedText = "Hello **team**",
+                            EffectiveBody = "<p>Hello <strong>team</strong></p>\n",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        model.ModelVersion.ShouldBe(2);
+        var output = RenderText(model);
+
+        output.ShouldContain("append markdown comment");
+        output.ShouldContain("Hello **team**");
+        output.ShouldContain("<p>Hello <strong>team</strong></p>");
+    }
 }

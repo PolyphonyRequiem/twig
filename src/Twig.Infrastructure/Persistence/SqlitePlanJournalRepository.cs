@@ -471,7 +471,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // Semantic-equality cross-check. The parser IS the reference implementation of "what
         // this canonical document means" — comparing subtype by subtype catches every same-id,
         // same-kind payload tamper (workItemId, expectedRevision, fields, relation/otherId,
-        // stagedIdentity/expectedFingerprint) that a coarser id+kind check would miss.
+        // stagedIdentity/expectedFingerprint, or append-comment review bindings) that a
+        // coarser id+kind check would miss.
         if (!IsSemanticallyEqual(parseResult.Plan, plan, out var mismatch))
         {
             throw new InvalidOperationException(
@@ -557,6 +558,21 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             case DeleteOperation cd when supplied is DeleteOperation sd:
                 if (cd.WorkItemId != sd.WorkItemId) { mismatch = "workItemId"; return false; }
                 if (cd.ExpectedRevision != sd.ExpectedRevision) { mismatch = "expectedRevision"; return false; }
+                break;
+            case AppendCommentOperation ca when supplied is AppendCommentOperation sa:
+                if (ca.WorkItemId != sa.WorkItemId) { mismatch = "workItemId"; return false; }
+                if (!string.Equals(ca.SavedBenchId, sa.SavedBenchId, StringComparison.Ordinal))
+                { mismatch = "savedBenchId"; return false; }
+                if (!string.Equals(ca.ExpectedBenchContentsDigest, sa.ExpectedBenchContentsDigest, StringComparison.Ordinal))
+                { mismatch = "expectedBenchContentsDigest"; return false; }
+                if (!string.Equals(ca.ExpectedIdentityId, sa.ExpectedIdentityId, StringComparison.Ordinal))
+                { mismatch = "expectedIdentityId"; return false; }
+                if (!string.Equals(ca.Format, sa.Format, StringComparison.Ordinal))
+                { mismatch = "format"; return false; }
+                if (!string.Equals(ca.Text, sa.Text, StringComparison.Ordinal))
+                { mismatch = "text"; return false; }
+                if (!string.Equals(ca.EffectiveBody, sa.EffectiveBody, StringComparison.Ordinal))
+                { mismatch = "effectiveBody"; return false; }
                 break;
             default:
                 mismatch = $"unknown subtype {canonical.GetType().Name}";

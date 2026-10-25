@@ -299,6 +299,20 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task Import_AcceptsAppendCommentWhenEveryBoundFieldMatchesCanonical()
+    {
+        var plan = BuildMixedPlan();
+        plan.Plan.Operations.Count.ShouldBe(6);
+
+        var imported = await _repo.ImportAsync(
+            plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+
+        var append = imported.Operations.Single(operation => operation.Kind == PlanOperationKind.AppendComment);
+        append.OpId.ShouldBe("op-comment");
+        append.State.ShouldBe(PlanOperationState.Planned);
+    }
+
+    [Fact]
     public async Task Import_RejectsSameKindSameIdPayloadTamper_Fields()
     {
         var truePlan = BuildTwoOpPlan();
@@ -391,9 +405,9 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
     // Every branch of the semantic-equality comparator that the boundary uses to reject a
     // PlanDefinition that disagrees with its canonical bytes. A missing branch here means a
     // caller could smuggle a tampered payload past the digest check because the property was
-    // never compared. The matrix drives one plan (mixed-subtype, all five kinds) through the
+    // never compared. The matrix drives one plan (mixed-subtype, all six kinds) through the
     // full grid of single-property mutations — Version, Workspace.Project, per-op Id, and
-    // every payload field on Batch / AddLink / RemoveLink / PublishSeed / Delete.
+    // every payload field on Batch / AddLink / RemoveLink / PublishSeed / Delete / AppendComment.
     public static IEnumerable<object[]> SemanticMutations() => new[]
     {
         new object[] { "version", "version" },
@@ -415,6 +429,13 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         new object[] { "publishseed.expectedFingerprint", "expectedFingerprint" },
         new object[] { "delete.workItemId", "workItemId" },
         new object[] { "delete.expectedRevision", "expectedRevision" },
+        new object[] { "append.workItemId", "workItemId" },
+        new object[] { "append.savedBenchId", "savedBenchId" },
+        new object[] { "append.expectedBenchContentsDigest", "expectedBenchContentsDigest" },
+        new object[] { "append.expectedIdentityId", "expectedIdentityId" },
+        new object[] { "append.format", "format" },
+        new object[] { "append.text", "text" },
+        new object[] { "append.effectiveBody", "effectiveBody" },
     };
 
     [Theory]
@@ -445,6 +466,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         int rmIx = IndexOfKind(ops, PlanOperationKind.RemoveLink);
         int seedIx = IndexOfKind(ops, PlanOperationKind.PublishSeed);
         int delIx = IndexOfKind(ops, PlanOperationKind.Delete);
+        int appendIx = IndexOfKind(ops, PlanOperationKind.AppendComment);
         var version = source.Version;
         var workspace = source.Workspace;
 
@@ -521,6 +543,27 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 break;
             case "delete.expectedRevision":
                 ops[delIx] = ((DeleteOperation)ops[delIx]) with { ExpectedRevision = 42 };
+                break;
+            case "append.workItemId":
+                ops[appendIx] = ((AppendCommentOperation)ops[appendIx]) with { WorkItemId = 43 };
+                break;
+            case "append.savedBenchId":
+                ops[appendIx] = ((AppendCommentOperation)ops[appendIx]) with { SavedBenchId = "tampered" };
+                break;
+            case "append.expectedBenchContentsDigest":
+                ops[appendIx] = ((AppendCommentOperation)ops[appendIx]) with { ExpectedBenchContentsDigest = new string('b', 64) };
+                break;
+            case "append.expectedIdentityId":
+                ops[appendIx] = ((AppendCommentOperation)ops[appendIx]) with { ExpectedIdentityId = "identity-2" };
+                break;
+            case "append.format":
+                ops[appendIx] = ((AppendCommentOperation)ops[appendIx]) with { Format = "markdown" };
+                break;
+            case "append.text":
+                ops[appendIx] = ((AppendCommentOperation)ops[appendIx]) with { Text = "Tampered text" };
+                break;
+            case "append.effectiveBody":
+                ops[appendIx] = ((AppendCommentOperation)ops[appendIx]) with { EffectiveBody = "<p>Tampered body</p>\n" };
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(mutation), $"Unknown mutation '{mutation}'.");
@@ -2438,10 +2481,10 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
     private static PlanFixture BuildMixedPlan()
     {
         // Mixed-subtype canonical plan carrying one of every operation kind (batch, add-link,
-        // remove-link, publish-seed, delete). Feeds the semantic-comparator mutation matrix so
+        // remove-link, publish-seed, delete, append-comment). Feeds the semantic-comparator mutation matrix so
         // every branch of the binding can be exercised against a single (canonical, digest)
         // pair.
-        const string source = """
+        var source = $$"""
             {
               "version": 1,
               "workspace": { "organization": "acme", "project": "cache" },
@@ -2455,7 +2498,11 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 { "id": "op-seed",  "kind": "publish-seed",
                   "stagedIdentity": "01947f00-0000-7000-8000-000000000001",
                   "expectedFingerprint": "ff" },
-                { "id": "op-del",   "kind": "delete", "workItemId": 5, "expectedRevision": 6 }
+                { "id": "op-del",   "kind": "delete", "workItemId": 5, "expectedRevision": 6 },
+                { "id": "op-comment", "kind": "append-comment", "workItemId": 42,
+                  "savedBenchId": "7", "expectedBenchContentsDigest": "{{new string('a', 64)}}",
+                  "expectedIdentityId": "identity-1", "format": "plain",
+                  "text": "Review note", "effectiveBody": "<p>Review note</p>\n" }
               ]
             }
             """;

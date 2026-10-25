@@ -10,3 +10,9 @@ internal sealed class AdoCommentRequest
     [JsonPropertyName("text")]
     public string Text { get; set; } = string.Empty;
 }
+
+internal sealed class AdoDiscussionCommentPostRequest
+{
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+}

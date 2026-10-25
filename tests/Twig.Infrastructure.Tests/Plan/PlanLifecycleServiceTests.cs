@@ -14,6 +14,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.ValueObjects.Fields;
 using Twig.Infrastructure.Ado.Exceptions;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Plan;
@@ -139,11 +140,16 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
     private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null,
         IProviderWorkItemWriter? writer = null, IPlanOriginProvider? origin = null,
-        IWorkItemSnapshotReader? providerSnapshots = null)
+        IWorkItemSnapshotReader? providerSnapshots = null,
+        IWorkItemRepository? workItems = null,
+        IWorkItemDiscussionReader? discussionReader = null,
+        IWorkItemDiscussionWriter? discussionWriter = null,
+        DiscussionAppendAdmission? discussionAdmission = null,
+        TimeProvider? timeProvider = null)
     {
-        var provider = clock is null
+        var provider = timeProvider ?? (clock is null
             ? TimeProvider.System
-            : (TimeProvider)new FakeClock(clock.Value);
+            : new FakeClock(clock.Value));
         return new PlanLifecycleService(
             new PlanDocumentParser(),
             journal ?? _journal,
@@ -153,7 +159,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             AdoWriterFixture.Codec,
             _revisionBound,
             _seedPublish.Orchestrator,
-            _workItems,
+            workItems ?? _workItems,
             _seedLinks,
             _stagedRegistry,
             _publishIdMap,
@@ -165,7 +171,10 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             origin ?? new FixtureOrigin(_repoRoot),
             _ruleProvider,
             Substitute.For<IUnitOfWork>(),
-            providerSnapshots: providerSnapshots);
+            providerSnapshots: providerSnapshots,
+            discussionReader: discussionReader,
+            discussionWriter: discussionWriter,
+            discussionAdmission: discussionAdmission);
     }
 
     [Fact]
@@ -1149,6 +1158,158 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         row.Diagnostics.ExpectedRevision.ShouldBe(3);
         row.Diagnostics.ObservedRevision.ShouldBeNull();
         await _revisionBound.Received(1).DeleteAtRevisionAsync(42, 3, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_AppendComment_LostReceiptPersistsIndeterminateAndNeverReplaysPost()
+    {
+        var setup = await CreateDiscussionAppendProposalAsync();
+        setup.Writer.AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("connection lost after request"));
+
+        var first = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+
+        first.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
+        var persisted = (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem();
+        persisted.State.ShouldBe(PlanOperationState.Indeterminate);
+        persisted.ResultJson.ShouldBeNull();
+        await setup.Reader.DidNotReceive().ReadDiscussionCommentAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+
+        var resumed = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+
+        resumed.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
+        await setup.Writer.Received(1).AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_AppendComment_ReadsOnlyReceiptCommentAndVerifiesPersistedEffect()
+    {
+        var setup = await CreateDiscussionAppendProposalAsync();
+        setup.Writer.AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new DiscussionPostReceipt(42, "45", setup.Body, "html")));
+        setup.Reader.ReadDiscussionCommentAsync(42, "45", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<DiscussionComment?>(new DiscussionComment(
+                "45", "1", new DiscussionAuthor("author-1", "Reviewer"),
+                DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, false, setup.Body, "html")));
+
+        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+        var persisted = (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem();
+        persisted.State.ShouldBe(PlanOperationState.Verified);
+        using var result = JsonDocument.Parse(persisted.ResultJson!);
+        result.RootElement.GetProperty("commentId").GetString().ShouldBe("45");
+        result.RootElement.GetProperty("body").GetString().ShouldBe(setup.Body);
+        result.RootElement.GetProperty("format").GetString().ShouldBe("html");
+        await setup.Reader.Received(1).ReadDiscussionCommentAsync(42, "45", Arg.Any<CancellationToken>());
+        await setup.Reader.DidNotReceive().ReadDiscussionAsync(
+            Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_AppendComment_MissingReceiptCommentStaysIndeterminateWithoutListSearch()
+    {
+        var setup = await CreateDiscussionAppendProposalAsync();
+        setup.Writer.AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new DiscussionPostReceipt(42, "46", setup.Body, "html")));
+        setup.Reader.ReadDiscussionCommentAsync(42, "46", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<DiscussionComment?>(null));
+
+        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
+        var persisted = (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem();
+        persisted.State.ShouldBe(PlanOperationState.Indeterminate);
+        await setup.Reader.Received(1).ReadDiscussionCommentAsync(42, "46", Arg.Any<CancellationToken>());
+        await setup.Reader.DidNotReceive().ReadDiscussionAsync(
+            Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await setup.Writer.Received(1).AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("wrong-receipt-body")]
+    [InlineData("wrong-receipt-target")]
+    [InlineData("wrong-receipt-format")]
+    [InlineData("deleted-comment")]
+    [InlineData("wrong-readback-body")]
+    public async Task Apply_AppendComment_ContradictoryReceiptOrReadbackFailsWithoutReplay(string mismatch)
+    {
+        var setup = await CreateDiscussionAppendProposalAsync();
+        var receiptBody = mismatch == "wrong-receipt-body" ? "<p>different</p>\n" : setup.Body;
+        var receiptWorkItemId = mismatch == "wrong-receipt-target" ? 43 : 42;
+        var receiptFormat = mismatch == "wrong-receipt-format" ? "plain" : "html";
+        setup.Writer.AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new DiscussionPostReceipt(receiptWorkItemId, "47", receiptBody, receiptFormat)));
+        if (mismatch is not ("wrong-receipt-body" or "wrong-receipt-target" or "wrong-receipt-format"))
+        {
+            setup.Reader.ReadDiscussionCommentAsync(42, "47", Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<DiscussionComment?>(new DiscussionComment(
+                    "47", "1", new DiscussionAuthor("author-1", "Reviewer"),
+                    DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+                    mismatch == "deleted-comment", mismatch == "wrong-readback-body" ? "<p>different</p>\n" : setup.Body,
+                    "html")));
+        }
+
+        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+
+        var expectedState = mismatch == "wrong-receipt-target"
+            ? PlanOperationState.Indeterminate
+            : PlanOperationState.Failed;
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(expectedState);
+        (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem().State.ShouldBe(expectedState);
+        if (mismatch is "wrong-receipt-body" or "wrong-receipt-target" or "wrong-receipt-format")
+            await setup.Reader.DidNotReceive().ReadDiscussionCommentAsync(
+                Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await setup.Writer.Received(1).AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Apply_AppendComment_ChangedIdentityOrBenchRefusesBeforeTransport(bool changeIdentity)
+    {
+        var setup = await CreateDiscussionAppendProposalAsync();
+        if (changeIdentity)
+            setup.Authentication.Identity = setup.Authentication.Identity with { IdentityId = "identity-2" };
+        else
+            await setup.Benches.AddSelectorAsync(setup.BenchId, BenchSelector.ForItem(43));
+
+        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+
+        apply.Failed.ShouldBeTrue();
+        var expectedRefusal = changeIdentity
+            ? "The bound identity changed since the discussion append was reviewed."
+            : "The saved Bench contents changed since the discussion append was reviewed.";
+        apply.Operations.ShouldHaveSingleItem().Error.ShouldBe(expectedRefusal);
+        (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem().Error.ShouldBe(expectedRefusal);
+        await setup.Writer.DidNotReceive().AppendDiscussionCommentAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_AppendComment_CancellationAfterAdmissionDoesNotRetry()
+    {
+        var setup = await CreateDiscussionAppendProposalAsync(withClock: true);
+        using var cancellation = new CancellationTokenSource();
+        setup.Writer.AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var token = call.ArgAt<CancellationToken>(2);
+                cancellation.Cancel();
+                return Task.FromCanceled<DiscussionPostReceipt>(token);
+            });
+
+        await Should.ThrowAsync<OperationCanceledException>(() => setup.Service.ApplyAsync(
+            setup.File, setup.Digest, Authorize(setup.Digest), cancellation.Token));
+
+        (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Applying);
+        setup.Clock!.Advance(TimeSpan.FromMinutes(6));
+        var resumed = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+        resumed.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
+        (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
+        await setup.Writer.Received(1).AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -3698,6 +3859,107 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     // ── helpers ────────────────────────────────────────────────────────────
+
+    private sealed record DiscussionAppendSetup(
+        PlanLifecycleService Service,
+        string File,
+        string Digest,
+        string Body,
+        long BenchId,
+        SqliteBenchRepository Benches,
+        StubDiscussionAuthentication Authentication,
+        IWorkItemDiscussionWriter Writer,
+        IWorkItemDiscussionReader Reader,
+        FakeClock? Clock);
+
+    private sealed class StubDiscussionAuthentication(AuthenticationIdentity identity)
+        : IAuthenticationProvider, IBoundAuthenticationMetadata
+    {
+        public AuthenticationIdentity Identity { get; set; } = identity;
+
+        public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
+            => throw new InvalidOperationException("Discussion admission must use bound metadata, not acquire a token.");
+
+        public void InvalidateToken()
+            => throw new InvalidOperationException("Discussion admission must not mutate authentication state.");
+
+        public Task<AuthenticationIdentity> GetBoundIdentityAsync(CancellationToken ct = default)
+            => Task.FromResult(Identity);
+    }
+
+    private async Task<DiscussionAppendSetup> CreateDiscussionAppendProposalAsync(bool withClock = false)
+    {
+        var workItems = new SqliteWorkItemRepository(_store, _mapper);
+        await workItems.SaveAsync(_mapper.Map(new WorkItemSnapshot
+        {
+            Id = 42,
+            Revision = 3,
+            Title = "discussion target",
+            TypeName = "FixtureType",
+            State = "Active",
+            Fields = new Dictionary<string, string?> { ["System.Title"] = "discussion target" },
+        }));
+
+        var benches = new SqliteBenchRepository(_store);
+        var bench = await benches.CreateAsync($"discussion-{Guid.NewGuid():N}");
+        bench.ShouldNotBeNull();
+        await benches.AddSelectorAsync(bench!.Id, BenchSelector.ForItem(42));
+        var stored = (await benches.GetByNameAsync(bench.Name)).ShouldNotBeNull();
+        var benchContentsDigest = BenchQueryRule.ContentsDigest(stored!.Selectors);
+
+        const string submittedText = "Discussion note";
+        var body = DiscussionPostBodyFormatter.Format("plain", submittedText);
+        var source = $$"""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [{
+                "id": "comment",
+                "kind": "append-comment",
+                "workItemId": 42,
+                "savedBenchId": "{{bench.Id}}",
+                "expectedBenchContentsDigest": "{{benchContentsDigest}}",
+                "expectedIdentityId": "identity-1",
+                "format": "plain",
+                "text": {{JsonSerializer.Serialize(submittedText)}},
+                "effectiveBody": {{JsonSerializer.Serialize(body)}}
+              }]
+            }
+            """;
+        var file = WritePlan(source, $"discussion-{Guid.NewGuid():N}.json");
+        var writer = Substitute.For<IWorkItemDiscussionWriter>();
+        var reader = Substitute.For<IWorkItemDiscussionReader>();
+        var authentication = new StubDiscussionAuthentication(new AuthenticationIdentity(
+            "identity-1", "Test Reviewer", "tenant-1", "object-1", "issuer", "authority",
+            "credential-1", "reviewer@example.test"));
+        var pendingStore = Substitute.For<IPendingChangeStore>();
+        pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<int>>([]));
+        var selectors = new DefaultBenchSelectors(Substitute.For<IIterationService>());
+        var admission = new DiscussionAppendAdmission(
+            new CurrentBenchResolver(benches, selectors),
+            new BenchEvaluator(workItems, Substitute.For<IIterationCalendar>(), pendingStore),
+            authentication,
+            workItems);
+        var clock = withClock ? new FakeClock(DateTimeOffset.UtcNow) : null;
+        var service = BuildService(
+            workItems: workItems,
+            discussionReader: reader,
+            discussionWriter: writer,
+            discussionAdmission: admission,
+            timeProvider: clock);
+        var preview = await service.PreviewAsync(file);
+        preview.CanApply.ShouldBeTrue(string.Join(Environment.NewLine, preview.Issues.Select(issue => issue.Message)));
+        preview.Issues.ShouldBeEmpty();
+        preview.Digest.ShouldNotBeNull();
+        var digest = preview.Digest!;
+        var journal = await _journal.GetAsync(digest);
+        journal.ShouldNotBeNull();
+        journal.Operations.ShouldHaveSingleItem().Kind.ShouldBe(PlanOperationKind.AppendComment);
+
+        return new DiscussionAppendSetup(service, file, digest, body, bench.Id, benches,
+            authentication, writer, reader, clock);
+    }
 
     private async Task<string> GetJournaledSourcePathAsync(string digest, IPlanJournalRepository? journal = null)
     {

@@ -38,6 +38,9 @@ internal sealed class PlanOperationExecutor
     private readonly IWorkItemRepository? _workItemRepo;
     private readonly IPendingChangeReader? _pendingReader;
     private readonly IUnitOfWork? _unitOfWork;
+    private readonly IWorkItemDiscussionWriter? _discussionWriter;
+    private readonly IWorkItemDiscussionReader? _discussionReader;
+    private readonly DiscussionAppendAdmission? _discussionAdmission;
 
     /// <summary>
     /// Production constructor: builds the seed publisher inline over the shared
@@ -55,7 +58,10 @@ internal sealed class PlanOperationExecutor
         IPublishIdMapRepository publishIdMap,
         IPublishIntentRepository publishIntent,
         IPendingChangeReader pendingReader,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IWorkItemDiscussionWriter? discussionWriter = null,
+        IWorkItemDiscussionReader? discussionReader = null,
+        DiscussionAppendAdmission? discussionAdmission = null)
         : this(
             adoService,
             revisionCodec,
@@ -73,6 +79,9 @@ internal sealed class PlanOperationExecutor
         _workItemRepo = workItemRepo;
         _pendingReader = pendingReader;
         _unitOfWork = unitOfWork;
+        _discussionWriter = discussionWriter;
+        _discussionReader = discussionReader;
+        _discussionAdmission = discussionAdmission;
     }
 
     /// <summary>
@@ -85,13 +94,19 @@ internal sealed class PlanOperationExecutor
         IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
         IFieldDefinitionStore fieldDefinitionStore,
-        PlanSeedPublisher seedPublisher)
+        PlanSeedPublisher seedPublisher,
+        IWorkItemDiscussionWriter? discussionWriter = null,
+        IWorkItemDiscussionReader? discussionReader = null,
+        DiscussionAppendAdmission? discussionAdmission = null)
     {
         _adoService = adoService;
         _revisionCodec = revisionCodec;
         _revisionBound = revisionBound;
         _fieldDefinitionStore = fieldDefinitionStore;
         _seedPublisher = seedPublisher;
+        _discussionWriter = discussionWriter;
+        _discussionReader = discussionReader;
+        _discussionAdmission = discussionAdmission;
     }
 
     /// <summary>
@@ -111,6 +126,7 @@ internal sealed class PlanOperationExecutor
                 RemoveLinkOperation remove => await ExecuteRemoveLinkAsync(remove, ct).ConfigureAwait(false),
                 DeleteOperation delete => await ExecuteDeleteAsync(delete, ct).ConfigureAwait(false),
                 PublishSeedOperation seed => await ExecutePublishSeedAsync(seed, ct).ConfigureAwait(false),
+                AppendCommentOperation append => await ExecuteAppendCommentAsync(append, ct).ConfigureAwait(false),
                 _ => PlanExecutionResult.Failure($"Unsupported operation kind: {operation.Kind}"),
             };
         }
@@ -219,6 +235,18 @@ internal sealed class PlanOperationExecutor
     private Task<PlanExecutionResult> ExecutePublishSeedAsync(PublishSeedOperation op, CancellationToken ct)
         => _seedPublisher.ExecuteAsync(op, ct);
 
+    private async Task<PlanExecutionResult> ExecuteAppendCommentAsync(AppendCommentOperation operation, CancellationToken ct)
+    {
+        if (_discussionWriter is null || _discussionAdmission is null)
+            return PlanExecutionResult.Failure("Discussion append is unavailable in this provider configuration.");
+        var refusal = await _discussionAdmission.ValidateAsync(operation, ct).ConfigureAwait(false);
+        if (refusal is not null)
+            return PlanExecutionResult.Failure(refusal);
+        var receipt = await _discussionWriter.AppendDiscussionCommentAsync(
+            operation.WorkItemId, operation.EffectiveBody, ct).ConfigureAwait(false);
+        return PlanExecutionResult.Success(SerializeDiscussionReceipt(receipt));
+    }
+
     /// <summary>
     /// Distinguishes the two categories of <see cref="SeedPublishResult.LinkWarnings"/>:
     /// <list type="bullet">
@@ -273,6 +301,7 @@ internal sealed class PlanOperationExecutor
                 RemoveLinkOperation remove => await ReadbackRemoveLinkAsync(remove, ct).ConfigureAwait(false),
                 DeleteOperation delete => await ReadbackDeleteAsync(delete, ct).ConfigureAwait(false),
                 PublishSeedOperation seed => await ReadbackPublishSeedAsync(seed, applyResult, ct).ConfigureAwait(false),
+                AppendCommentOperation append => await ReadbackAppendCommentAsync(append, applyResult, ct).ConfigureAwait(false),
                 _ => PlanReadbackOutcome.Indeterminate($"Unsupported kind {operation.Kind} in readback."),
             };
         }
@@ -651,6 +680,35 @@ internal sealed class PlanOperationExecutor
         CancellationToken ct)
         => _seedPublisher.ReadbackAsync(op, applyResult, ct);
 
+    private async Task<PlanReadbackOutcome> ReadbackAppendCommentAsync(
+        AppendCommentOperation operation, PlanExecutionResult applyResult, CancellationToken ct)
+    {
+        if (_discussionReader is null || string.IsNullOrWhiteSpace(applyResult.ResultJson))
+            return PlanReadbackOutcome.Indeterminate(
+                "No attributable comment receipt is available; discussion append was not retried or inferred from comment lists.");
+        using var document = JsonDocument.Parse(applyResult.ResultJson);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("workItemId", out var workItemElement) || !workItemElement.TryGetInt32(out var workItemId)
+            || workItemId != operation.WorkItemId
+            || !root.TryGetProperty("commentId", out var commentElement) || commentElement.ValueKind != JsonValueKind.String
+            || !root.TryGetProperty("body", out var bodyElement) || bodyElement.ValueKind != JsonValueKind.String
+            || !root.TryGetProperty("format", out var formatElement) || formatElement.ValueKind != JsonValueKind.String)
+            return PlanReadbackOutcome.Indeterminate("The append receipt is malformed or targets another work item.");
+        var commentId = commentElement.GetString()!;
+        var body = bodyElement.GetString()!;
+        var format = formatElement.GetString()!;
+        if (body != operation.EffectiveBody || format != "html")
+            return PlanReadbackOutcome.Failed("The append receipt does not match the reviewed effective body.");
+        var comment = await _discussionReader.ReadDiscussionCommentAsync(operation.WorkItemId, commentId, ct)
+            .ConfigureAwait(false);
+        if (comment is null)
+            return PlanReadbackOutcome.Indeterminate("The receipt-identified comment is not yet available for readback.");
+        if (comment.IsDeleted == true || comment.Body != body || comment.Format != format)
+            return PlanReadbackOutcome.Failed("The receipt-identified comment differs from the reviewed effective body.");
+        return PlanReadbackOutcome.VerifiedWith(SerializeDiscussionReceipt(
+            new DiscussionPostReceipt(operation.WorkItemId, commentId, body, format)));
+    }
+
     private static string SerializeRevision(int newRevision)
         => $"{{\"rev\":{newRevision}}}";
 
@@ -659,6 +717,21 @@ internal sealed class PlanOperationExecutor
 
     private static string SerializePublishedSeed(int newId, StagedIdentity identity)
         => $"{{\"identity\":\"{identity}\",\"publishedId\":{newId}}}";
+
+    private static string SerializeDiscussionReceipt(DiscussionPostReceipt receipt)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("workItemId", receipt.WorkItemId);
+            writer.WriteString("commentId", receipt.CommentId);
+            writer.WriteString("body", receipt.Body);
+            writer.WriteString("format", receipt.Format);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
 
     internal static string SerializeMappedPublish(int newId)
         => $"{{\"publishedId\":{newId},\"source\":\"publish_id_map\"}}";

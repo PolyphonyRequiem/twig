@@ -11,6 +11,11 @@ Approved after review of a running six-item prototype. Work item and decision pr
 
 One canonical semantic review feeds independently shaped presenters. The default human CLI remains inline; it does not invoke the full-screen TUI. A host such as a Discord agent consumes structured review data and owns message formatting and interaction. Discord transport, new credentials, MCP redesign, and full-screen TUI review are not part of this implementation.
 
+Review model version 2 carries a discussion append's format, exact submitted text,
+exact effective body, saved-Bench identity and contents digest, and expected bound
+identity. Presenters that only understand version 1 must refuse version 2 rather than
+partially rendering an append effect.
+
 This spec records the approved behavior. Feature documentation and executable tests describe the shipped command syntax; they must not advertise a capability before the real command path implements it.
 
 ## Shared facts, independent layout

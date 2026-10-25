@@ -693,7 +693,17 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<IUnitOfWork>(),
                 // Declared repository policy (AB#1169): twig.policy.json at the repo root,
                 // judged against cached links for dependency integrity.
-                sp.GetService<IWorkItemLinkRepository>());
+                sp.GetService<IWorkItemLinkRepository>(),
+                providerSnapshots: null,
+                discussionReader: sp.GetService<IWorkItemDiscussionReader>(),
+                discussionWriter: sp.GetService<IWorkItemDiscussionWriter>(),
+                discussionAdmission: sp.GetService<IAuthenticationProvider>() is { } authentication
+                    ? new Twig.Infrastructure.Plan.DiscussionAppendAdmission(
+                        sp.GetRequiredService<Twig.Domain.Services.Workspace.CurrentBenchResolver>(),
+                        sp.GetRequiredService<Twig.Domain.Services.Workspace.BenchEvaluator>(),
+                        authentication,
+                        sp.GetRequiredService<IWorkItemRepository>())
+                    : null);
         });
 
         return services;

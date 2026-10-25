@@ -42,6 +42,12 @@ public sealed class PlanDocumentParser
     private const string PropFields = "fields";
     private const string PropRelation = "relation";
     private const string PropOtherId = "otherId";
+    private const string PropSavedBenchId = "savedBenchId";
+    private const string PropExpectedBenchContentsDigest = "expectedBenchContentsDigest";
+    private const string PropExpectedIdentityId = "expectedIdentityId";
+    private const string PropFormat = "format";
+    private const string PropText = "text";
+    private const string PropEffectiveBody = "effectiveBody";
     private const string PropStagedIdentity = "stagedIdentity";
     private const string PropExpectedFingerprint = "expectedFingerprint";
     private const string PropTarget = "target";
@@ -59,6 +65,7 @@ public sealed class PlanDocumentParser
     private const string KindRemoveLink = "remove-link";
     private const string KindPublishSeed = "publish-seed";
     private const string KindDelete = "delete";
+    private const string KindAppendComment = "append-comment";
 
     private static readonly FrozenSet<string> RootProperties = new[]
     {
@@ -88,6 +95,12 @@ public sealed class PlanDocumentParser
     private static readonly FrozenSet<string> DeleteProperties = new[]
     {
         PropId, PropKind, PropWorkItemId, PropExpectedRevision,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> AppendCommentProperties = new[]
+    {
+        PropId, PropKind, PropWorkItemId, PropSavedBenchId, PropExpectedBenchContentsDigest,
+        PropExpectedIdentityId, PropFormat, PropText, PropEffectiveBody,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> ProviderBatchProperties = new[]
@@ -321,9 +334,68 @@ public sealed class PlanDocumentParser
             KindRemoveLink => ReadLink(op, path, id, PlanOperationKind.RemoveLink, issues),
             KindPublishSeed => ReadPublishSeed(op, path, id, issues, seenPublishTargets),
             KindDelete => ReadDelete(op, path, id, issues),
+            KindAppendComment => ReadAppendComment(op, path, id, issues),
             _ => AddUnknownKind(op, path, kind, version, issues),
         };
     }
+
+    private static PlanOperationDefinition? ReadAppendComment(
+        JsonElement op, string path, string id, List<PlanValidationIssue> issues)
+    {
+        RejectUnknown(op, AppendCommentProperties, path, issues);
+        var workItemId = ReadRequiredPositiveInt(op, PropWorkItemId, $"{path}/{PropWorkItemId}", issues);
+        var benchId = ReadRequiredNonEmptyString(op, PropSavedBenchId, $"{path}/{PropSavedBenchId}", issues);
+        var digest = ReadRequiredNonEmptyString(op, PropExpectedBenchContentsDigest, $"{path}/{PropExpectedBenchContentsDigest}", issues);
+        var identity = ReadRequiredNonEmptyString(op, PropExpectedIdentityId, $"{path}/{PropExpectedIdentityId}", issues);
+        var format = ReadRequiredNonEmptyString(op, PropFormat, $"{path}/{PropFormat}", issues);
+        var text = ReadRequiredNonEmptyString(op, PropText, $"{path}/{PropText}", issues);
+        var effectiveBody = ReadRequiredNonEmptyString(op, PropEffectiveBody, $"{path}/{PropEffectiveBody}", issues);
+        if (benchId is not null
+            && (!long.TryParse(benchId, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsedBenchId)
+                || parsedBenchId <= 0
+                || !string.Equals(parsedBenchId.ToString(System.Globalization.CultureInfo.InvariantCulture), benchId, StringComparison.Ordinal)))
+            AddDiscussionIssue($"{path}/{PropSavedBenchId}", "Saved Bench ID must be a canonical positive integer.", issues);
+        if (digest is not null && !System.Text.RegularExpressions.Regex.IsMatch(digest, "^[0-9a-f]{64}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+            AddDiscussionIssue($"{path}/{PropExpectedBenchContentsDigest}", "Saved Bench contents digest must be 64 lowercase hexadecimal characters.", issues);
+        if (format is not null && format is not ("plain" or "markdown"))
+            AddDiscussionIssue($"{path}/{PropFormat}", "Discussion format must be plain or markdown.", issues);
+        if (workItemId is null || benchId is null || digest is null || identity is null
+            || format is null || text is null || effectiveBody is null)
+            return null;
+        try
+        {
+            var formatted = DiscussionPostBodyFormatter.Format(format, text);
+            if (!string.Equals(formatted, effectiveBody, StringComparison.Ordinal))
+                AddDiscussionIssue($"{path}/{PropEffectiveBody}", "Effective body does not match the submitted text and format.", issues);
+        }
+        catch (ArgumentException ex)
+        {
+            AddDiscussionIssue($"{path}/{PropText}", ex.Message, issues);
+        }
+        if (issues.Any(issue => issue.Path.StartsWith(path + "/", StringComparison.Ordinal)
+            && issue.Code == PlanValidationCodes.InvalidDiscussionAppend))
+            return null;
+        return new AppendCommentOperation
+        {
+            Id = id,
+            WorkItemId = workItemId.Value,
+            SavedBenchId = benchId,
+            ExpectedBenchContentsDigest = digest,
+            ExpectedIdentityId = identity,
+            Format = format,
+            Text = text,
+            EffectiveBody = effectiveBody,
+        };
+    }
+
+    private static void AddDiscussionIssue(string path, string message, List<PlanValidationIssue> issues)
+        => issues.Add(new PlanValidationIssue
+        {
+            Code = PlanValidationCodes.InvalidDiscussionAppend,
+            Path = path,
+            Message = message,
+        });
 
     private static PlanOperationDefinition? ReadProviderOperation(
         JsonElement op, string path, string id, string kind, List<PlanValidationIssue> issues)
@@ -508,7 +580,7 @@ public sealed class PlanDocumentParser
         _ = op;
         var expectedKinds = version == ProviderIdentityVersion
             ? "batch | add-link | remove-link | delete"
-            : "batch | add-link | remove-link | publish-seed | delete";
+            : "batch | add-link | remove-link | publish-seed | delete | append-comment";
         issues.Add(new PlanValidationIssue
         {
             Code = PlanValidationCodes.UnknownKind,

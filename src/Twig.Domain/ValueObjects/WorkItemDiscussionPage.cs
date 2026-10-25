@@ -16,6 +16,8 @@ internal sealed record DiscussionComment(
 internal sealed record WorkItemDiscussionPage(
     IReadOnlyList<DiscussionComment> Comments, int Count, int? ReportedTotalCount, string? ContinuationToken);
 
+internal sealed record DiscussionPostReceipt(int WorkItemId, string CommentId, string Body, string Format);
+
 /// <summary>Twig adapter limits, not limits promised by the provider.</summary>
 internal static class DiscussionReadLimits
 {

@@ -16,8 +16,8 @@ no host plugin or Discord credentials are bundled or required.
    the result as JSON. Preview can update the local proposal journal; it does not apply
    work-item changes.
 3. Require a `reviewModel` with `model = "twig.change-proposal.review"` and a supported
-   `modelVersion`. This presenter understands version 1. Unknown additive members can
-   be ignored; an unknown version is a refusal, not permission to improvise.
+   `   modelVersion`. This presenter understands versions 1 and 2. Version 2 adds the
+   complete append-comment effect; unknown versions or incomplete effects are a refusal.
 4. Retain the exact `digest`, workspace, complete model and preview result. Refuse a
    missing model, mismatched outer/model digest, truncated JSON, or an unsupported
    operation/consequence kind. Never reconstruct a digest from rendered text.
@@ -106,7 +106,8 @@ send the returned `messages` in order and verify delivery; `allowed_mentions` di
 mentions and `flags` suppresses embeds. This is not a bot, transport plugin, or approval
 handler. It intentionally retains operation/precondition labels rather than imitating
 an agent-written summary. It accepts the enriched v1 before-observation/textChange
-members and falls back to “before unavailable” for legacy v1 data.
+members and version-2 append-comment effects; it refuses an append unless submitted text,
+format, effective body, and saved-Bench/identity preconditions are present.
 
 ## Review checklist
 

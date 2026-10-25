@@ -1,7 +1,7 @@
 namespace Twig.Domain.Services.Plan;
 
 /// <summary>
-/// The five kinds of operation a plan file may declare. Version 1 uses all kinds;
+/// The six kinds of operation a plan file may declare. Version 1 uses all kinds;
 /// version 2 supports provider-bound batch, link and delete operations. Anything else is a schema
 /// violation surfaced as a <see cref="PlanValidationIssue"/>, never coerced.
 /// </summary>
@@ -21,4 +21,7 @@ public enum PlanOperationKind
 
     /// <summary>Delete a work item at an exact expected revision.</summary>
     Delete,
+
+    /// <summary>Append one bounded discussion comment under an explicitly selected saved Bench.</summary>
+    AppendComment,
 }

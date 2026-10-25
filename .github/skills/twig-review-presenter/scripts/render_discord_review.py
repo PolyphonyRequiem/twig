@@ -10,8 +10,8 @@ import sys
 import unicodedata
 from urllib.parse import urlparse
 
-KINDS = {'batch', 'add-link', 'remove-link', 'publish-seed', 'delete'}
-EFFECTS = {'field-set', 'field-clear', 'link-add', 'link-remove', 'seed-publish', 'work-item-delete'}
+KINDS = {'batch', 'add-link', 'remove-link', 'publish-seed', 'delete', 'append-comment'}
+EFFECTS = {'field-set', 'field-clear', 'link-add', 'link-remove', 'seed-publish', 'work-item-delete', 'discussion-append'}
 ICONS = {'Epic': '👑', 'Feature': '🏆', 'Task': '☑', 'Bug': '🐛'}
 
 
@@ -33,7 +33,7 @@ def check_model(payload):
     if not isinstance(payload, dict):
         raise ValueError('Expected a complete preview object')
     model = payload.get('reviewModel', payload)
-    if not isinstance(model, dict) or model.get('model') != 'twig.change-proposal.review' or type(model.get('modelVersion')) is not int or model['modelVersion'] != 1:
+    if not isinstance(model, dict) or model.get('model') != 'twig.change-proposal.review' or type(model.get('modelVersion')) is not int or model['modelVersion'] not in {1, 2}:
         raise ValueError('Unsupported or missing complete review model')
     if not isinstance(model.get('digest'), str) or not re.fullmatch('[0-9a-f]{64}', model['digest']):
         raise ValueError('Missing or malformed proposal digest')
@@ -42,6 +42,10 @@ def check_model(payload):
     for key in ('affectedItems', 'operations', 'blockers', 'authorizationChoices'):
         if not isinstance(model.get(key), list):
             raise ValueError(f'Missing complete {key}')
+    if model['modelVersion'] == 2 and not any(
+            isinstance(op, dict) and op.get('kind') == 'append-comment'
+            for op in model['operations']):
+        raise ValueError('Review model version 2 requires a discussion append')
     workspace = model.get('workspace', {})
     if not workspace.get('organization') or not workspace.get('project'):
         raise ValueError('Missing workspace')
@@ -57,20 +61,45 @@ def check_model(payload):
             raise ValueError('Missing operation safety data')
         allowed_effects = {'batch': {'field-set', 'field-clear'}, 'add-link': {'link-add'},
                            'remove-link': {'link-remove'}, 'publish-seed': {'seed-publish'},
-                           'delete': {'work-item-delete'}}[op['kind']]
+                           'delete': {'work-item-delete'}, 'append-comment': {'discussion-append'}}[op['kind']]
         if not op['consequences'] or any(c.get('kind') not in allowed_effects for c in op['consequences']):
             raise ValueError('Missing or incompatible consequences; refuse partial presentation')
         if op['kind'] != 'batch' and len(op['consequences']) != 1:
             raise ValueError('Expected exactly one consequence for this operation')
-        required = 'expectedFingerprint' if op['kind'] == 'publish-seed' else 'expectedRevision'
-        preconditions = [p for p in op['preconditions'] if p.get('kind') == required]
-        if len(preconditions) != 1:
-            raise ValueError('Missing or duplicate operation precondition')
-        expected = str(preconditions[0]['value'])
-        if required == 'expectedRevision' and (not expected.isdecimal() or int(expected) <= 0):
-            raise ValueError('Invalid expected revision')
-        if required == 'expectedFingerprint' and not re.fullmatch('[0-9a-f]{64}', expected):
-            raise ValueError('Invalid expected fingerprint')
+        if op['kind'] == 'append-comment':
+            if model['modelVersion'] < 2:
+                raise ValueError('Discussion append requires review model version 2')
+            if len(op['preconditions']) != 3 or any(
+                    not isinstance(p, dict) or p.get('kind') not in {
+                        'savedBenchId', 'expectedBenchContentsDigest', 'expectedIdentityId'
+                    } for p in op['preconditions']):
+                raise ValueError('Unexpected discussion append preconditions')
+            for required in ('savedBenchId', 'expectedBenchContentsDigest', 'expectedIdentityId'):
+                if sum(p.get('kind') == required for p in op['preconditions']) != 1:
+                    raise ValueError(f'Missing or duplicate {required} precondition')
+            values = {p['kind']: p.get('value') for p in op['preconditions']}
+            if not isinstance(values['savedBenchId'], str) or not re.fullmatch('[1-9][0-9]*', values['savedBenchId']):
+                raise ValueError('Invalid savedBenchId precondition')
+            if not isinstance(values['expectedBenchContentsDigest'], str) or not re.fullmatch('[0-9a-f]{64}', values['expectedBenchContentsDigest']):
+                raise ValueError('Invalid expectedBenchContentsDigest precondition')
+            if not isinstance(values['expectedIdentityId'], str) or not values['expectedIdentityId'].strip():
+                raise ValueError('Invalid expectedIdentityId precondition')
+            consequence = op['consequences'][0]
+            if consequence.get('bodyFormat') not in {'plain', 'markdown'} or not isinstance(consequence.get('submittedText'), str) or not consequence['submittedText'] or not isinstance(consequence.get('effectiveBody'), str) or not consequence['effectiveBody']:
+                raise ValueError('Incomplete discussion append body; refuse partial presentation')
+            if any(c.get('kind') != 'discussion-append' for c in op['consequences']):
+                raise ValueError('Incompatible discussion append consequence')
+            expected = None
+        else:
+            required = 'expectedFingerprint' if op['kind'] == 'publish-seed' else 'expectedRevision'
+            preconditions = [p for p in op['preconditions'] if p.get('kind') == required]
+            if len(preconditions) != 1:
+                raise ValueError('Missing or duplicate operation precondition')
+            expected = str(preconditions[0]['value'])
+            if required == 'expectedRevision' and (not expected.isdecimal() or int(expected) <= 0):
+                raise ValueError('Invalid expected revision')
+            if required == 'expectedFingerprint' and not re.fullmatch('[0-9a-f]{64}', expected):
+                raise ValueError('Invalid expected fingerprint')
         for c in op['consequences']:
             before = c.get('before')
             metric = c.get('textChange')
@@ -168,6 +197,10 @@ def effect_line(effect, full):
         return f"> **Link:** {'add' if kind == 'link-add' else 'remove'} {escape(effect['relation'])} → #{effect['otherId']}"
     if kind == 'work-item-delete':
         return f"> **DELETE work item #{effect['otherId']}**"
+    if kind == 'discussion-append':
+        return (f"> **Append {escape(effect['bodyFormat'])} discussion comment**\n"
+                f"> Submitted text:\n> {escape(effect['submittedText'])}\n"
+                f"> Effective HTML body:\n> {escape(effect['effectiveBody'])}")
     return '> **Publish staged seed** — creates a work item; no published ID yet.'
 
 

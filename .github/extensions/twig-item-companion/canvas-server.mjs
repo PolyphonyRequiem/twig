@@ -4,12 +4,14 @@ import { renderPage } from "./render.mjs";
 import { captureBench } from "./native-bench.mjs";
 import { validateDraftDocument } from "./draft-document.mjs";
 import { createEditingBridge } from "./editing-bridge.mjs";
+import { createSessionHandoff } from "./session-handoff.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, nativeEditing, workbench = false }) {
+export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, nativeEditing, handoffSession, workbench = false }) {
     const token = randomBytes(32).toString("base64url");
     const editing = createEditingBridge({ adapter: nativeEditing, workspacePath });
+    const handoff = createSessionHandoff({ session: handoffSession });
     let editingTarget = null;
     let selectionGeneration = 0;
     let closing = null;
@@ -17,6 +19,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         selectionGeneration++;
         editingTarget = null;
         editing.invalidate();
+        handoff.invalidate();
     }
     const state = {
         observation: null,
@@ -236,13 +239,15 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 error: state.error,
                 busy: state.busy,
                 ...(workbench ? { editingOutcome: editing.outcome, editingBusy: editing.busy,
-                    retainOutcomes: editing.retainOutcomes } : {}),
+                    retainOutcomes: editing.retainOutcomes, handoffOutcomes: handoff.outcomes,
+                    handoffSessionId: handoffSession?.sessionId ?? null } : {}),
             });
             return;
         }
 
         const editingRoute = workbench && request.url === "/api/editing";
-        if (request.method !== "POST" || (!editingRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
+        const handoffRoute = workbench && request.url === "/api/handoff";
+        if (request.method !== "POST" || (!editingRoute && !handoffRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
             sendJson(response, 404, { error: "Unknown Twig companion route." });
             return;
         }
@@ -253,7 +258,18 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
 
         // Only the editing intent route admits the native 256KiB request-sized payload.
-        const body = await readJsonBody(request, editingRoute ? 262144 : MAX_REQUEST_BYTES, editingRoute);
+        const body = await readJsonBody(request, editingRoute ? 262144 : handoffRoute ? 16384 : MAX_REQUEST_BYTES, editingRoute || handoffRoute);
+        if (handoffRoute) {
+            if (state.busy || state.closed || editing.busy || !editingTarget) throw new HttpError(409, "Load current qualified Bench detail before handoff.");
+            if (body.action === "prepare" && Object.keys(body).length === 1) {
+                sendJson(response, 200, { handoff: handoff.prepare(editingTarget) });
+            } else if (body.action === "start" && Object.keys(body).sort().join(",") === "action,brief,handle") {
+                sendJson(response, 200, { handoff: { outcome: await handoff.start(body) } });
+            } else {
+                throw new HttpError(400, "Expected prepare, or explicit Start with only a handle and brief.");
+            }
+            return;
+        }
         if (editingRoute) {
             if (body.action === "invalidate" && Object.keys(body).length === 1) {
                 invalidateEditing();

@@ -51,7 +51,7 @@ class Element {
     focus() { this.focused = true; }
     get childElementCount() { return this.children.length; }
 }
-function dom(html, url) {
+function dom(html, url, transformResponse) {
     const nodes = new Map();
     const document = {
         documentElement: new Element(), body: new Element(),
@@ -74,7 +74,8 @@ function dom(html, url) {
         MutationObserver: class { observe() {} },
         fetch: (route, options) => {
             if (options?.body) browserRequests.push({ route, body: JSON.parse(options.body) });
-            const request = fetch(new URL(route, url), options);
+            const response = fetch(new URL(route, url), options);
+            const request = transformResponse ? response.then(value => transformResponse(route, options, value)) : response;
             pending.add(request);
             return request.finally(() => pending.delete(request));
         },
@@ -87,7 +88,7 @@ function dom(html, url) {
         window,
         async settled() {
             for (let attempt = 0; attempt < 30; attempt++) {
-                await Promise.all([...pending]);
+                await Promise.allSettled([...pending]);
                 await new Promise((resolve) => setTimeout(resolve, 5));
                 if (!pending.size && !nodes.get("#bench-load")?.disabled) return;
             }
@@ -97,11 +98,11 @@ function dom(html, url) {
 }
 function flatten(node) { return [node.textContent, ...node.children.flatMap(flatten)].join("\n"); }
 function descendants(node) { return [node, ...node.children.flatMap(descendants)]; }
-async function open(payload = fixture, fail, detailPayload, nativeEditing) {
+async function open(payload = fixture, fail, detailPayload, nativeEditing, handoffSession, transformResponse) {
     const calls = [];
     const server = await createCanvasServer({
-        workspacePath, workbench: true, readNativeBench: reader(payload, calls, fail),
-        nativeEditing,
+        workspacePath: payload.browser.origin.worktreeRoot, workbench: true, readNativeBench: reader(payload, calls, fail),
+        nativeEditing, handoffSession,
         readNativeBenchDetail: detailPayload && createNativeBenchDetailReader({
             realpath: async (path) => path,
             execFile(exe, args, options, callback) {
@@ -111,7 +112,7 @@ async function open(payload = fixture, fail, detailPayload, nativeEditing) {
         }),
     });
     const html = await (await fetch(server.url)).text();
-    const ui = dom(html, server.url);
+    const ui = dom(html, server.url, transformResponse);
     await ui.settled();
     return { ...ui, server, calls, html };
 }
@@ -617,6 +618,139 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE/RETAIN only on explic
         find("Back to Bench").listeners.click();
         await ui.settled();
         assert.equal(nativeCalls.length, 5, "navigation revokes capture without native mutation");
+    } finally { await ui.server.close(); }
+});
+
+async function handoffSetup(send, transformResponse) {
+    const bench = structuredClone(fixture);
+    bench.browser.origin.worktreeRoot = process.cwd();
+    const detail = structuredClone(detailFixture);
+    Object.assign(detail, {
+        benchName: bench.browser.benchName, observation: "raw-mirror",
+        origin: { ...bench.browser.origin }, layoutStatus: "unavailable", layoutSource: "twig-fallback",
+        membership: { selected: true, seed: false, pending: true },
+        completeness: { sourceComplete: false, sourceChildCount: null, cachedChildCount: 0,
+            parentCached: null, linksVerified: false, reasons: ["source-unknown", "cache-only"] },
+    });
+    detail.itemKey.checkoutRoot = process.cwd();
+    detail.document.processId = "twig.fallback";
+    const session = { sessionId: "fixture-session", rpc: { metadata: { snapshot: async () => ({
+        sessionId: "fixture-session", workingDirectory: process.cwd(), isRemote: false,
+    }) } }, send };
+    return open(bench, undefined, detail, undefined, session, transformResponse);
+}
+
+test("rendered VM crosses HTTP handoff only after explicit Prepare and Start with edited brief", async () => {
+    const sends = [];
+    const ui = await handoffSetup(async options => { sends.push(options); return "fixture-message"; });
+    const find = label => descendants(ui.nodes.get("#bench-selection")).find(node => node.textContent === label);
+    try {
+        await load(ui);
+        row42(ui).listeners.click();
+        await ui.settled();
+        assert.ok(find("Start in this session"), "explicit in-session Start button must exist");
+        assert.equal(sends.length, 0);
+        assert.equal(find("Start in this session").disabled, true);
+        const token = JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]);
+        const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+        const post = (body, overrides = {}) => fetch(new URL("/api/handoff", ui.server.url), {
+            method: "POST", headers: { ...headers, ...overrides }, body: typeof body === "string" ? body : JSON.stringify(body),
+        });
+        assert.equal((await post({ action: "prepare" }, { Authorization: "" })).status, 401);
+        assert.equal((await post({ action: "prepare" }, { Origin: "https://invalid.example" })).status, 403);
+        assert.equal((await post('{"action":"prepare","action":"start"}')).status, 400);
+        assert.equal((await post({ action: "prepare", padding: "x".repeat(16384) })).status, 413);
+        for (const extra of [{ sessionId: "forged" }, { nativeContext: {} }, { workItemId: 43 },
+            { agent: "other" }, { model: "other" }, { authorize: true }]) {
+            assert.equal((await post({ action: "prepare", ...extra })).status, 400);
+            assert.equal((await post({ action: "start", handle: "forged", brief: "task", ...extra })).status, 400);
+        }
+        assert.equal(sends.length, 0);
+        find("Prepare handoff brief").listeners.click();
+        await ui.settled();
+        assert.equal(sends.length, 0, "preparation does not send");
+        const brief = descendants(ui.nodes.get("#bench-selection")).find(node => node.rows === 5);
+        brief.value = "<script>My explicit task</script>";
+        brief.listeners.input();
+        find("Start in this session").listeners.click();
+        await ui.settled();
+        assert.equal(sends.length, 1);
+        assert.ok(sends[0].prompt.endsWith(brief.value));
+        assert.equal(sends[0].mode, "enqueue");
+        const submitted = ui.browserRequests.find(call => call.body.action === "start");
+        assert.equal(submitted.route, "/api/handoff");
+        assert.deepEqual(Object.keys(submitted.body).sort(), ["action", "brief", "handle"]);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /fixture-message/);
+        find("Back to Bench").listeners.click();
+        await ui.settled();
+        row42(ui).listeners.click();
+        await ui.settled();
+        assert.equal(find("Start in this session").disabled, true);
+        assert.equal(sends.length, 1);
+    } finally { await ui.server.close(); }
+});
+
+test("real VM HTTP status reconciles delayed admission after server deadline without another Start", async () => {
+    let resolve;
+    const pending = new Promise(yes => { resolve = yes; });
+    let sends = 0;
+    const ui = await handoffSetup(async () => { sends++; return pending; });
+    const find = label => descendants(ui.nodes.get("#bench-selection")).find(node => node.textContent === label);
+    try {
+        await load(ui);
+        row42(ui).listeners.click();
+        await ui.settled();
+        find("Prepare handoff brief").listeners.click();
+        await ui.settled();
+        find("Start in this session").listeners.click();
+        await ui.settled();
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /outcome unknown/);
+        const brief = descendants(ui.nodes.get("#bench-selection")).find(node => node.rows === 5);
+        brief.value = "newer text after deadline";
+        brief.listeners.input();
+        resolve("late-admission-id");
+        await new Promise(yes => setImmediate(yes));
+        find("Check handoff status").listeners.click();
+        await ui.settled();
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /admitted.*late-admission-id/);
+        assert.equal(brief.value, "newer text after deadline");
+        assert.equal(find("Start in this session").disabled, true);
+        assert.equal(find("Prepare handoff brief").disabled, true);
+        assert.equal(sends, 1);
+        assert.equal(ui.browserRequests.filter(call => call.body.action === "start").length, 1);
+    } finally { resolve("cleanup"); await ui.server.close(); }
+});
+
+test("real VM HTTP status recovers lost HTTP acknowledgement under original target only", async () => {
+    let sends = 0;
+    const ui = await handoffSetup(async () => { sends++; return "lost-http-message"; }, async (route, options, response) => {
+        if (route === "/api/handoff" && JSON.parse(options.body).action === "start") {
+            await response.text();
+            throw new Error("Simulated lost HTTP acknowledgement");
+        }
+        return response;
+    });
+    const find = label => descendants(ui.nodes.get("#bench-selection")).find(node => node.textContent === label);
+    try {
+        await load(ui);
+        row42(ui).listeners.click();
+        await ui.settled();
+        find("Prepare handoff brief").listeners.click();
+        await ui.settled();
+        find("Start in this session").listeners.click();
+        await ui.settled();
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /acknowledgement unavailable/);
+        find("Back to Bench").listeners.click();
+        await ui.settled();
+        row42(ui).listeners.click();
+        await ui.settled();
+        find("Check handoff status").listeners.click();
+        await ui.settled();
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /admitted.*lost-http-message/);
+        assert.equal(find("Start in this session").disabled, true);
+        assert.equal(find("Prepare handoff brief").disabled, true);
+        assert.equal(sends, 1);
+        assert.equal(ui.browserRequests.filter(call => call.body.action === "start").length, 1);
     } finally { await ui.server.close(); }
 });
 

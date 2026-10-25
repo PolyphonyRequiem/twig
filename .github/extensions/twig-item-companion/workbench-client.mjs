@@ -118,6 +118,7 @@ export const workbenchClient = `
       return "#" + row.id + " " + (row.loaded === false ? "Not cached" : row.type + " - " + row.title + " - " + row.state);
     }
     function showSelection(row) {
+      handoffClient.leave();
       const revoked = editingClient.leave();
       revoked.catch((error) => {
         benchStatus.textContent = "Editing capture revocation failed: " + error.message;
@@ -249,6 +250,7 @@ export const workbenchClient = `
         note.textContent = "Native explicit-Bench detail loaded. Displayed as inert text; no edit, save or apply authority.";
         benchSelection.append(box);
         editingClient.mount(benchSelection, detail);
+        handoffClient.mount(benchSelection, detail);
       } catch (error) {
         if (stale(job)) return;
         note.textContent = seam + " Explicit-Bench detail failed: " + (error instanceof Error ? error.message : "unavailable") + ".";
@@ -264,6 +266,7 @@ export const workbenchClient = `
       }
     }
     function returnToBench() {
+      handoffClient.leave();
       void editingClient.leave().catch((error) => {
         benchStatus.textContent = "Editing capture revocation failed: " + error.message;
         benchStatus.classList.add("error");
@@ -400,6 +403,7 @@ export const workbenchClient = `
       benchStatus.classList.remove("error");
       benchStatus.textContent = "Reading native cache; no sync or current-Bench change.";
       try {
+        handoffClient.leave();
         await editingClient.leave();
         const result = await request("/api/bench", {
           method: "POST", headers: { "Content-Type": "application/json" },

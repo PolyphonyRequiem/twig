@@ -157,7 +157,7 @@ const workbenchCanvas = createCanvas({
         let instance = workbenchInstances.get(ctx.instanceId);
         if (!instance) {
             instance = await createCanvasServer({ workspacePath: session.workspacePath, readNativeBench, readNativeBenchDetail,
-                nativeEditing: createNativeEditingAdapter(), workbench: true });
+                nativeEditing: createNativeEditingAdapter(), handoffSession: session, workbench: true });
             workbenchInstances.set(ctx.instanceId, instance);
         }
         return { url: instance.url, title: "Twig workbench", status: "Cached browsing; local draft OPEN/STAGE are explicit and require installed native support" };

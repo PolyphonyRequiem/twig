@@ -54,7 +54,109 @@ public sealed partial class WorkspaceCommand(
     IAuthenticationProvider? authenticationProvider = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
     internal Func<CancellationToken, Task<ResolvedConnectionBinding>>? ResolveBrowserBindingAsync { get; init; }
+
+    private Task<WorkItem> OverlayAsync(WorkItem item, CancellationToken ct) =>
+        FieldOverlay is null ? Task.FromResult(item) : FieldOverlay.ApplyAsync(item, ct);
+
+    private Task<IReadOnlyList<WorkItem>> OverlayAsync(IReadOnlyList<WorkItem> items, CancellationToken ct) =>
+        FieldOverlay is null ? Task.FromResult(items) : FieldOverlay.ApplyAsync(items, ct);
+
+    internal async Task<Workspace> OverlayDisplayAsync(Workspace workspace, CancellationToken ct)
+    {
+        if (FieldOverlay is null)
+            return workspace;
+
+        var itemsByReference = new HashSet<WorkItem>(ReferenceEqualityComparer.Instance);
+        var items = new List<WorkItem>();
+        void Add(WorkItem? item)
+        {
+            if (item is not null && itemsByReference.Add(item))
+                items.Add(item);
+        }
+
+        void AddNodes(IEnumerable<SprintHierarchyNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (!node.IsVirtualGroup)
+                    Add(node.Item);
+                AddNodes(node.Children);
+            }
+        }
+
+        Add(workspace.ContextItem);
+        foreach (var item in workspace.SprintItems) Add(item);
+        foreach (var item in workspace.Seeds) Add(item);
+        if (workspace.Hierarchy is not null)
+            foreach (var group in workspace.Hierarchy.AssigneeGroups.Values)
+                AddNodes(group);
+        if (workspace.Sections is not null)
+            foreach (var section in workspace.Sections.Sections)
+            {
+                foreach (var item in section.Items) Add(item);
+                if (section.TreeRoots is not null)
+                    AddNodes(section.TreeRoots);
+            }
+
+        var displayedItems = await OverlayAsync(items, ct);
+        var changed = false;
+        for (var i = 0; i < items.Count; i++)
+            changed |= !ReferenceEquals(items[i], displayedItems[i]);
+        if (!changed)
+            return workspace;
+
+        var displayedByReference = new Dictionary<WorkItem, WorkItem>(ReferenceEqualityComparer.Instance);
+        for (var i = 0; i < items.Count; i++)
+            displayedByReference.Add(items[i], displayedItems[i]);
+        WorkItem Displayed(WorkItem item) => displayedByReference[item];
+
+        IReadOnlyList<SprintHierarchyNode> DisplayNodes(IEnumerable<SprintHierarchyNode> nodes)
+        {
+            var result = new List<SprintHierarchyNode>();
+            foreach (var node in nodes)
+            {
+                var displayed = node.IsVirtualGroup
+                    ? new SprintHierarchyNode(node.GroupLabel ?? string.Empty, node.BacklogLevel)
+                    : new SprintHierarchyNode(Displayed(node.Item), node.IsSprintItem);
+                displayed.IsSprintItem = node.IsSprintItem;
+                displayed.Children.AddRange(DisplayNodes(node.Children));
+                result.Add(displayed);
+            }
+            return result;
+        }
+
+        SprintHierarchy? hierarchy = null;
+        if (workspace.Hierarchy is not null)
+        {
+            var groups = new Dictionary<string, IReadOnlyList<SprintHierarchyNode>>(StringComparer.Ordinal);
+            foreach (var (assignee, roots) in workspace.Hierarchy.AssigneeGroups)
+                groups.Add(assignee, DisplayNodes(roots));
+            hierarchy = SprintHierarchy.Create(groups);
+        }
+
+        WorkspaceSections? sections = null;
+        if (workspace.Sections is not null)
+        {
+            var displayedSections = workspace.Sections.Sections
+                .Select(section => section with
+                {
+                    Items = section.Items.Select(Displayed).ToArray(),
+                    TreeRoots = section.TreeRoots is null ? null : DisplayNodes(section.TreeRoots),
+                }).ToArray();
+            sections = WorkspaceSections.BuildWithTreeRoots(displayedSections, workspace.Sections.ExcludedItemIds);
+        }
+
+        return Workspace.Build(
+            workspace.ContextItem is null ? null : Displayed(workspace.ContextItem),
+            workspace.SprintItems.Select(Displayed).ToArray(),
+            workspace.Seeds.Select(Displayed).ToArray(),
+            hierarchy,
+            sections,
+            workspace.TrackedItems,
+            workspace.ExcludedIds);
+    }
 
     private enum WorkspaceViewMode
     {
@@ -285,7 +387,7 @@ public sealed partial class WorkspaceCommand(
                     var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
                     resolveResult.TryGetWorkItem(out contextItem, out _, out _);
                 }
-                yield return new ContextLoaded(contextItem);
+                yield return new ContextLoaded(contextItem is null ? null : await OverlayAsync(contextItem, ct));
 
                 // Stage 2: evaluate the current Bench against the local cache. Query selectors
                 // supply the Sprint origin; pin selectors supply the Manual origin. Membership is
@@ -307,11 +409,13 @@ public sealed partial class WorkspaceCommand(
                     sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: treeRoots);
                 if (useTreeRendering)
                     sections = await AddSectionHierarchiesAsync(sections, ct);
-                yield return new SprintItemsLoaded(sprintItems, sections);
+                var displayWorkspace = await OverlayDisplayAsync(
+                    Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections), ct);
+                yield return new SprintItemsLoaded(displayWorkspace.SprintItems, displayWorkspace.Sections);
 
                 // Stage 3: Seeds
                 seeds = await workItemRepo.GetSeedsAsync(ct);
-                yield return new SeedsLoaded(seeds);
+                yield return new SeedsLoaded(await OverlayAsync(seeds, ct));
 
                 // Stage 4: Check cache freshness for stale-while-revalidate (EPIC-006)
                 // Wayfinder 0004 §3: the revalidate pass is opt-in via --refresh.
@@ -371,8 +475,10 @@ public sealed partial class WorkspaceCommand(
                             sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: refreshTreeRoots);
                         if (useTreeRendering)
                             refreshedSections = await AddSectionHierarchiesAsync(refreshedSections, ct);
-                        yield return new SprintItemsLoaded(sprintItems, refreshedSections);
-                        yield return new SeedsLoaded(seeds);
+                        var refreshedDisplayWorkspace = await OverlayDisplayAsync(
+                            Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: refreshedSections), ct);
+                        yield return new SprintItemsLoaded(refreshedDisplayWorkspace.SprintItems, refreshedDisplayWorkspace.Sections);
+                        yield return new SeedsLoaded(await OverlayAsync(seeds, ct));
                         yield return new RefreshCompleted();
                     }
                 }
@@ -552,7 +658,8 @@ public sealed partial class WorkspaceCommand(
         // Resolve dynamic columns (EPIC-004)
         var isJsonOutput = IsJsonFormat(outputFormat);
         var viewName = all ? "sprint" : "workspace";
-        var dynamicColumns = await ResolveDynamicColumnsAsync(viewName, isJsonOutput, sprintItems: sprintItems);
+        var displaySprintItems = await OverlayAsync(sprintItems, ct);
+        var dynamicColumns = await ResolveDynamicColumnsAsync(viewName, isJsonOutput, sprintItems: displaySprintItems);
 
         // Update freshness timestamp (sync path also tracks cache freshness)
         await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
@@ -644,21 +751,22 @@ public sealed partial class WorkspaceCommand(
         var browser = browserBinding is not null
             ? await BuildBrowserDocumentAsync(workspace, observedBench!, observedStoredBench!, observedMembership!, browserBinding, typeLevelMap, ct)
             : null;
+        var displayWorkspace = await OverlayDisplayAsync(workspace, ct);
 
         if (fmt is HumanOutputFormatter human)
         {
             if (all || sprintLayout)
             {
-                Console.WriteLine(human.FormatSprintView(workspace, ctx.Config.Seed.StaleDays));
+                Console.WriteLine(human.FormatSprintView(displayWorkspace, ctx.Config.Seed.StaleDays));
             }
             else
             {
-                Console.WriteLine(human.FormatWorkspace(workspace, ctx.Config.Seed.StaleDays));
+                Console.WriteLine(human.FormatWorkspace(displayWorkspace, ctx.Config.Seed.StaleDays));
             }
         }
         else
         {
-            RenderWorkspaceAsTree(workspace, outputFormat, useSprintLayout: all || sprintLayout, ctx.Config.Seed.StaleDays, dynamicColumns, browser);
+            RenderWorkspaceAsTree(displayWorkspace, outputFormat, useSprintLayout: all || sprintLayout, ctx.Config.Seed.StaleDays, dynamicColumns, browser);
         }
 
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
@@ -697,7 +805,7 @@ public sealed partial class WorkspaceCommand(
                     {
                         Console.WriteLine();
                         Console.WriteLine("Unsaved changes:");
-                        foreach (var orphan in orphanItems)
+                        foreach (var orphan in await OverlayAsync(orphanItems, ct))
                             Console.WriteLine($"  #{orphan.Id} {orphan.Type} — {orphan.Title} [{orphan.State}] *");
                         Console.WriteLine("Run 'twig save' to push these changes.");
                     }

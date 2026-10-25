@@ -16,9 +16,11 @@ internal sealed class DraftProposalCapture
         int currentRevision,
         PlanOrigin origin,
         string operationId,
-        string proposalDigest)
+        string proposalDigest,
+        string? evidenceFingerprint = null)
     {
-        if (version != 1)
+        if (version is not (1 or 2) || (version == 2 && string.IsNullOrWhiteSpace(evidenceFingerprint))
+            || (version == 1 && evidenceFingerprint is not null))
             throw new ArgumentOutOfRangeException(nameof(version));
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(origin);
@@ -32,6 +34,7 @@ internal sealed class DraftProposalCapture
         Origin = origin;
         OperationId = operationId;
         ProposalDigest = proposalDigest;
+        EvidenceFingerprint = evidenceFingerprint;
     }
 
     public int Version { get; }
@@ -40,4 +43,5 @@ internal sealed class DraftProposalCapture
     public PlanOrigin Origin { get; }
     public string OperationId { get; }
     public string ProposalDigest { get; }
+    public string? EvidenceFingerprint { get; }
 }

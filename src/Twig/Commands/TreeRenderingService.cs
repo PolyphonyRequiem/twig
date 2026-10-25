@@ -27,6 +27,16 @@ public sealed class TreeRenderingService(
     IProcessTypeStore processTypeStore,
     RendererFactory rendererFactory)
 {
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
+
+    private Task<Domain.Aggregates.WorkItem> OverlayAsync(
+        Domain.Aggregates.WorkItem item, CancellationToken ct) =>
+        FieldOverlay is null ? Task.FromResult(item) : FieldOverlay.ApplyAsync(item, ct);
+
+    private Task<IReadOnlyList<Domain.Aggregates.WorkItem>> OverlayAsync(
+        IReadOnlyList<Domain.Aggregates.WorkItem> items, CancellationToken ct) =>
+        FieldOverlay is null ? Task.FromResult(items) : FieldOverlay.ApplyAsync(items, ct);
+
     /// <summary>
     /// Builds and renders a work-item tree, matching the behaviour of <c>twig tree</c>.
     /// </summary>
@@ -80,21 +90,30 @@ public sealed class TreeRenderingService(
             var getSiblingCount = MakeSiblingCounter(resolvedItem, ct);
 
             // Fallback: render tree without sync
-            Task RenderTreeDirectAsync() => renderer.RenderTreeAsync(
-                getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(resolvedItem),
-                getParentChain: async () => resolvedItem?.ParentId is null
-                    ? Array.Empty<Domain.Aggregates.WorkItem>()
-                    : await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value, ct),
-                getChildren: () => workItemRepo.GetChildrenAsync(activeId.Value, ct),
-                maxDepth: maxDepth,
-                activeId: activeId,
-                ct: ct,
-                getSiblingCount: getSiblingCount,
-                getLinks: !refresh ? null : async () =>
-                {
-                    try { return await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
-                    catch (Exception ex) when (ex is not OperationCanceledException) { return Array.Empty<WorkItemLink>(); }
-                });
+            async Task RenderTreeDirectAsync()
+            {
+                var displayItem = await OverlayAsync(resolvedItem, ct);
+                await renderer.RenderTreeAsync(
+                    getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(displayItem),
+                    getParentChain: async () =>
+                    {
+                        var parents = displayItem.ParentId is null
+                            ? Array.Empty<Domain.Aggregates.WorkItem>()
+                            : await workItemRepo.GetParentChainAsync(displayItem.ParentId.Value, ct);
+                        return await OverlayAsync(parents, ct);
+                    },
+                    getChildren: async () => await OverlayAsync(
+                        await workItemRepo.GetChildrenAsync(activeId.Value, ct), ct),
+                    maxDepth: maxDepth,
+                    activeId: activeId,
+                    ct: ct,
+                    getSiblingCount: getSiblingCount,
+                    getLinks: !refresh ? null : async () =>
+                    {
+                        try { return await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
+                        catch (Exception ex) when (ex is not OperationCanceledException) { return Array.Empty<WorkItemLink>(); }
+                    });
+            }
 
             if (spectreRenderer is not null && refresh)
             {
@@ -109,13 +128,16 @@ public sealed class TreeRenderingService(
                     try { cachedLinks = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
                     catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
+                    var cachedDisplayItem = await OverlayAsync(resolvedItem, ct);
+                    var cachedDisplayParentChain = await OverlayAsync(cachedParentChain, ct);
+                    var cachedDisplayChildren = await OverlayAsync(cachedChildren, ct);
                     var workingSet = await workingSetService.ComputeAsync([resolvedItem.IterationPath]);
 
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => spectreRenderer.BuildTreeViewAsync(
-                            resolvedItem,
-                            cachedParentChain,
-                            cachedChildren,
+                            cachedDisplayItem,
+                            cachedDisplayParentChain,
+                            cachedDisplayChildren,
                             maxDepth,
                             activeId,
                             getSiblingCount,
@@ -131,11 +153,14 @@ public sealed class TreeRenderingService(
                                 ? Array.Empty<Domain.Aggregates.WorkItem>()
                                 : await workItemRepo.GetParentChainAsync(freshItem.ParentId.Value, ct);
                             var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, ct);
+                            var displayFreshItem = await OverlayAsync(freshItem, ct);
+                            var displayFreshParentChain = await OverlayAsync(freshParentChain, ct);
+                            var displayFreshChildren = await OverlayAsync(freshChildren, ct);
 
                             return await spectreRenderer.BuildTreeViewAsync(
-                                freshItem,
-                                freshParentChain,
-                                freshChildren,
+                                displayFreshItem,
+                                displayFreshParentChain,
+                                displayFreshChildren,
                                 maxDepth,
                                 activeId,
                                 MakeSiblingCounter(freshItem, ct),
@@ -223,7 +248,14 @@ public sealed class TreeRenderingService(
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
         }
 
-        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
+        var machineDisplayItem = await OverlayAsync(item, ct);
+        var machineDisplayParentChain = await OverlayAsync(parentChain, ct);
+        var machineDisplayChildren = await OverlayAsync(children, ct);
+        foreach (var parentId in descendantsByParentId.Keys.ToArray())
+            descendantsByParentId[parentId] = await OverlayAsync(descendantsByParentId[parentId], ct);
+
+        var tree = WorkTree.Build(
+            machineDisplayItem, machineDisplayParentChain, machineDisplayChildren, siblingCounts, links, descendantsByParentId);
 
         RenderWorkTree(tree, outputFormat);
 

@@ -254,6 +254,25 @@ Twig.Domain.Services.ChangeProposals.ReviewOperation.Summary.get -> string!
 Twig.Domain.Services.ChangeProposals.ReviewOperation.Summary.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewOperation.Target.get -> Twig.Domain.Services.ChangeProposals.ReviewTarget!
 Twig.Domain.Services.ChangeProposals.ReviewOperation.Target.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Capability.get -> Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory?
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Capability.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory!
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Availability.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Availability.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Declared.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Declared.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Equals(Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Reason.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Reason.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Relationship.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Relationship.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.ReviewCapabilityAdvisory() -> void
+override Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.ToString() -> string!
+static Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.operator !=(Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory? left, Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory.operator ==(Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory? left, Twig.Domain.Services.ChangeProposals.ReviewCapabilityAdvisory? right) -> bool
 Twig.Domain.Services.ChangeProposals.ReviewPrecondition
 Twig.Domain.Services.ChangeProposals.ReviewPrecondition.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewPrecondition!
 Twig.Domain.Services.ChangeProposals.ReviewPrecondition.Equals(Twig.Domain.Services.ChangeProposals.ReviewPrecondition? other) -> bool

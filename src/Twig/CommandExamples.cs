@@ -391,6 +391,11 @@ internal static class CommandExamples
             "twig draft show 42                        Inspect an existing native recoverable draft",
             "twig draft show 42 --document -o json     Export semantic inspection; may write local observation metadata, never applies",
         ],
+        ["draft capture"] =
+        [
+            "twig draft capture 42 --bench Sprint --checkout-root <root> --connection-id <connection> --binding-id <binding> --identity-id <identity> --generation 1 --revision 3 -o json     Capture previously inspected native intent locally",
+            "twig draft capture 42 --bench Sprint --checkout-root <root> --connection-id <connection> --binding-id <binding> --identity-id <identity> --generation 1 --revision 3 --recover <digest> -o json     Recover only the retained exact export",
+        ],
         ["bench detail"] =
         [
             "twig bench detail 42                  Read full cached detail without changing the active item",

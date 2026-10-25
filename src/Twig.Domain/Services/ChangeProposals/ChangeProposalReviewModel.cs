@@ -161,6 +161,32 @@ public sealed record ReviewOperation
 
     /// <summary>What this operation will change if it proceeds. May be empty.</summary>
     public required IReadOnlyList<ReviewConsequence> Consequences { get; init; }
+
+    /// <summary>
+    /// Declared (not observed) capability advisory for add-link operations; null for every other
+    /// operation. Additive within <c>modelVersion</c> 1 and outside the canonical effects/digest.
+    /// </summary>
+    public ReviewCapabilityAdvisory? Capability { get; init; }
+}
+
+/// <summary>
+/// What the configured provider <em>declares</em> for a relationship, shown before apply.
+/// It is a static declaration, never an observation: it carries no origin, and availability is
+/// only ever <c>unknown</c> with reason <c>not-probed</c> in this slice.
+/// </summary>
+public sealed record ReviewCapabilityAdvisory
+{
+    /// <summary>Provider-neutral relationship token (<c>parent-child</c>, <c>predecessor-successor</c>, <c>related</c>) or <c>unknown</c>.</summary>
+    public required string Relationship { get; init; }
+
+    /// <summary><c>native</c>, <c>emulated</c>, <c>unsupported</c> or <c>unknown</c>.</summary>
+    public required string Declared { get; init; }
+
+    /// <summary>Always <c>unknown</c> until a probe exists.</summary>
+    public required string Availability { get; init; }
+
+    /// <summary>Why availability is not known, e.g. <c>not-probed</c>.</summary>
+    public required string Reason { get; init; }
 }
 
 /// <summary>

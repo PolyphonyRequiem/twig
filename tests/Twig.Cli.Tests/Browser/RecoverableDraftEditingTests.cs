@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 using NSubstitute;
 using Shouldly;
 using Twig.Browser;
@@ -40,13 +41,21 @@ public sealed class RecoverableDraftEditingTests : IAsyncLifetime
         var before = _fixture.Transport.SnapshotHttp();
         _layout.Refuse = _rules.Refuse = true;
         _fixture.Transport.RejectMetadata = true;
-        var staged = await module.StageAsync(Request(document, [
-            new("system.title", "Intent"), new("System.AssignedTo", "")]));
+        var request = Request(document, [
+            new("system.title", "Intent"), new("System.AssignedTo", "")]);
+        var staged = await module.StageAsync(request);
         staged.Error.ShouldBeNull(staged.Error?.Message);
         staged.Committed.ShouldBeTrue();
         staged.Document!.Generation.ShouldBe("2");
         staged.Document.Changes.Single(change => change.FieldRef == "System.AssignedTo").BaselineValue.ShouldBeNull();
         staged.Document.Changes.Single(change => change.FieldRef == "System.AssignedTo").ProposedValue.ShouldBe("");
+        CaptureEnvelope("opened", opened);
+        CaptureEnvelope("staged", staged);
+        var requestJson = JsonSerializer.Serialize(request, TwigJsonContext.Default.DraftStageRequest);
+        var restoredRequest = JsonSerializer.Deserialize(requestJson, TwigJsonContext.Default.DraftStageRequest);
+        restoredRequest.ShouldNotBeNull();
+        JsonSerializer.Serialize(restoredRequest, TwigJsonContext.Default.DraftStageRequest).ShouldBe(requestJson);
+        CaptureJson("request", requestJson);
         var cleared = await module.StageAsync(Request(staged.Document, [new("System.AssignedTo", null)]));
         cleared.Error.ShouldBeNull(cleared.Error?.Message);
         cleared.Document!.Changes.Single().FieldRef.ShouldBe("System.Title");
@@ -273,6 +282,23 @@ public sealed class RecoverableDraftEditingTests : IAsyncLifetime
 
     private static DraftStageRequest Request(DraftEditingDocument document, IReadOnlyList<DraftEditingChange> changes)
         => new(1, document.NativeContext, document.Generation, document.BaselineRevision, document.ObservedRevision, changes);
+
+    private static void CaptureEnvelope(string name, DraftEditingResult result)
+    {
+        var json = JsonSerializer.Serialize(result, TwigJsonContext.Default.DraftEditingResult);
+        var restored = JsonSerializer.Deserialize(json, TwigJsonContext.Default.DraftEditingResult);
+        restored.ShouldNotBeNull();
+        JsonSerializer.Serialize(restored, TwigJsonContext.Default.DraftEditingResult).ShouldBe(json);
+        CaptureJson(name, json);
+    }
+
+    private static void CaptureJson(string name, string json)
+    {
+        var directory = Environment.GetEnvironmentVariable("TWIG_DRAFT_EDITING_TEST_CAPTURE_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(directory)) return;
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, name + ".json"), json);
+    }
 
     private sealed class RuleProvider : IProcessRuleProvider
     {

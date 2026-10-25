@@ -286,15 +286,21 @@ async function httpSetup(overrides) {
     const bench = JSON.parse(await readFile(new URL("./fixtures/bench-v2.json", import.meta.url), "utf8")).browser;
     const server = await createCanvasServer({ workspacePath: "fixture", workbench: true,
         nativeEditing: native.adapter, readNativeBench: async () => bench, readNativeBenchDetail: async () => detail });
-    const html = await (await fetch(server.url)).text();
-    const token = JSON.parse(html.match(/const token = ("[^"]+");/)[1]);
-    const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Origin: new URL(server.url).origin };
-    const post = (route, body, extra = {}) => fetch(new URL(route, server.url), {
-        method: "POST", headers: { ...headers, ...extra }, body: JSON.stringify(body),
-    });
-    await server.loadBench("7");
-    await server.loadBenchDetail(42);
-    return { ...native, server, post, headers };
+    try {
+        const html = await (await fetch(server.url)).text();
+        const token = JSON.parse(html.match(/const token = ("[^"]+");/)[1]);
+        const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Origin: new URL(server.url).origin };
+        const post = (route, body, extra = {}) => fetch(new URL(route, server.url), {
+            method: "POST", headers: { ...headers, ...extra }, body: JSON.stringify(body),
+        });
+        await server.loadBench("7");
+        await server.loadBenchDetail(42);
+        return { ...native, server, post, headers };
+    } catch (error) {
+        try { await server.close(); }
+        catch (cleanupError) { throw new AggregateError([error, cleanupError], "Editing HTTP setup and server cleanup both failed."); }
+        throw error;
+    }
 }
 
 test("loopback editing routes reuse token/origin guards, forbid browser authority and preserve unrelated 4KiB cap", async () => {

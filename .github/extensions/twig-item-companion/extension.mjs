@@ -7,6 +7,7 @@ import { createNativeDraftReader } from "./native-draft.mjs";
 import { createNativeProposalReader } from "./native-proposal.mjs";
 import { createReviewServer } from "./review-server.mjs";
 import { createNativeEditingAdapter } from "./native-editing.mjs";
+import { createNativeDiscussionReader } from "./native-discussion.mjs";
 
 const instances = new Map();
 const workbenchInstances = new Map();
@@ -157,6 +158,7 @@ const workbenchCanvas = createCanvas({
         let instance = workbenchInstances.get(ctx.instanceId);
         if (!instance) {
             instance = await createCanvasServer({ workspacePath: session.workspacePath, readNativeBench, readNativeBenchDetail,
+                readNativeDiscussion: createNativeDiscussionReader(),
                 nativeEditing: createNativeEditingAdapter(), handoffSession: session, workbench: true });
             workbenchInstances.set(ctx.instanceId, instance);
         }

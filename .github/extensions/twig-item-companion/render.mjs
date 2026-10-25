@@ -4,6 +4,7 @@ import { renderDraftInspection } from "./draft-inspection.mjs";
 import { reviewMarkup, reviewClient } from "./review-page.mjs";
 import { createEditingClient } from "./editing-client.mjs";
 import { createHandoffClient } from "./handoff-client.mjs";
+import { createDiscussionClient } from "./discussion-client.mjs";
 
 export function renderPage({ token, nonce, workbench = false, review = false }) {
     return `<!doctype html>
@@ -196,7 +197,8 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
     }).catch((error) => {
       document.querySelector("#review-status").textContent = "Review unavailable: " + error.message;
     });` : workbench ? `const editingClient = (${createEditingClient.toString()})({ document, request, text });
-    const handoffClient = (${createHandoffClient.toString()})({ document, request, text });\n${workbenchClient}` : `
+    const handoffClient = (${createHandoffClient.toString()})({ document, request, text });
+    const discussionClient = (${createDiscussionClient.toString()})({ document, request, text });\n${workbenchClient}` : `
     const form = document.querySelector("#load-form");
     const input = document.querySelector("#work-item-id");
     const loadButton = document.querySelector("#load-button");

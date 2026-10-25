@@ -8,18 +8,26 @@ import { createSessionHandoff } from "./session-handoff.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, nativeEditing, handoffSession, workbench = false }) {
+export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, readNativeDiscussion, nativeEditing, handoffSession, workbench = false }) {
     const token = randomBytes(32).toString("base64url");
     const editing = createEditingBridge({ adapter: nativeEditing, workspacePath });
     const handoff = createSessionHandoff({ session: handoffSession });
     let editingTarget = null;
     let selectionGeneration = 0;
     let closing = null;
+    let discussionTarget = null;
+    let discussionController = null;
+    let discussionIdle = Promise.resolve();
+    function invalidateDiscussion() {
+        discussionTarget = null;
+        discussionController?.abort();
+    }
     function invalidateEditing() {
         selectionGeneration++;
         editingTarget = null;
         editing.invalidate();
         handoff.invalidate();
+        invalidateDiscussion();
     }
     const state = {
         observation: null,
@@ -169,10 +177,65 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 workItemId: detail.itemKey.workItemId, bench: detail.benchId,
                 expectedKey: structuredClone(detail.itemKey), identityId: detail.identityId,
             };
+            discussionTarget = readNativeDiscussion && detail.itemKey.workItemId > 0 && !detail.membership.seed ? {
+                handle: randomBytes(32).toString("base64url"),
+                target: { ...structuredClone(editingTarget), origin: structuredClone(detail.origin), benchName: detail.benchName },
+                context: null, cursor: null, pageHandle: null,
+            } : null;
             return detail;
         } finally {
             state.controller = null;
             state.busy = false;
+        }
+    };
+
+    const readDiscussion = async (body, response) => {
+        const captured = discussionTarget;
+        if (state.closed || !captured || body.targetHandle !== captured.handle)
+            throw new HttpError(409, "Discussion selection is no longer current; reload qualified detail.");
+        if (state.busy || editing.busy || handoff.busy)
+            throw new HttpError(409, "A native operation is already in progress.");
+        if (body.action === "next" && (!captured.cursor || body.pageHandle !== captured.pageHandle))
+            throw new HttpError(409, "Discussion page is no longer current; explicitly read again.");
+        const cursor = body.action === "next" ? captured.cursor : null;
+        const context = body.action === "next" ? captured.context : null;
+        captured.cursor = captured.pageHandle = null;
+        if (body.action === "read") captured.context = null;
+        const controller = new AbortController();
+        discussionController = state.controller = controller;
+        state.busy = true;
+        let release;
+        discussionIdle = new Promise(resolve => { release = resolve; });
+        const disconnected = () => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", disconnected);
+        try {
+            const result = await readNativeDiscussion({
+                target: captured.target, workspacePath, cursor, context, signal: controller.signal,
+            });
+            if (state.closed || controller.signal.aborted || captured !== discussionTarget)
+                throw new HttpError(409, "Discussion read was canceled or superseded; no page was accepted.");
+            if (result.status === "refused") {
+                if (result.code === "authority-invalidated") invalidateDiscussion();
+                return { status: "refused", code: result.code };
+            }
+            captured.context = result.context;
+            captured.cursor = result.cursor;
+            captured.pageHandle = result.cursor ? randomBytes(32).toString("base64url") : null;
+            return { status: "read", page: result.page, pageHandle: captured.pageHandle };
+        } catch (error) {
+            if (error instanceof HttpError) throw error;
+            // Never relay native stderr, provider response bodies, or cursor-bearing diagnostics.
+            const message = error instanceof Error && error.message.includes("extension 4MiB output limit")
+                ? "Discussion exceeds the extension 4MiB output limit; no page was accepted."
+                : "Discussion read unavailable; no page was accepted.";
+            throw new HttpError(502, message);
+        } finally {
+            response.removeListener("close", disconnected);
+            if (discussionController === controller) {
+                discussionController = state.controller = null;
+                state.busy = false;
+            }
+            release();
         }
     };
 
@@ -247,7 +310,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
 
         const editingRoute = workbench && request.url === "/api/editing";
         const handoffRoute = workbench && request.url === "/api/handoff";
-        if (request.method !== "POST" || (!editingRoute && !handoffRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
+        const discussionRoute = workbench && request.url === "/api/discussion";
+        if (request.method !== "POST" || (!editingRoute && !handoffRoute && !discussionRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
             sendJson(response, 404, { error: "Unknown Twig companion route." });
             return;
         }
@@ -258,7 +322,24 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
 
         // Only the editing intent route admits the native 256KiB request-sized payload.
-        const body = await readJsonBody(request, editingRoute ? 262144 : handoffRoute ? 16384 : MAX_REQUEST_BYTES, editingRoute || handoffRoute);
+        const body = await readJsonBody(request, editingRoute ? 262144 : handoffRoute ? 16384 : MAX_REQUEST_BYTES, editingRoute || handoffRoute || discussionRoute);
+        if (discussionRoute) {
+            const keys = Object.keys(body).sort().join(",");
+            if (typeof body.targetHandle !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.targetHandle) ||
+                !(["read", "invalidate"].includes(body.action) && keys === "action,targetHandle" ||
+                    body.action === "next" && keys === "action,pageHandle,targetHandle" &&
+                    typeof body.pageHandle === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.pageHandle))) {
+                throw new HttpError(400, "Expected an explicit discussion read or next page with opaque handles only.");
+            }
+            if (body.action === "invalidate") {
+                if (body.targetHandle === discussionTarget?.handle) {
+                    invalidateDiscussion();
+                    await discussionIdle;
+                }
+                sendJson(response, 200, { invalidated: true });
+            } else sendJson(response, 200, { discussion: await readDiscussion(body, response) });
+            return;
+        }
         if (handoffRoute) {
             if (state.busy || state.closed || editing.busy || !editingTarget) throw new HttpError(409, "Load current qualified Bench detail before handoff.");
             if (body.action === "prepare" && Object.keys(body).length === 1) {
@@ -305,7 +386,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             } else if (body.action === "refresh") {
                 sendJson(response, 200, { benchObservation: await refreshBench() });
             } else if (body.action === "detail" && isWorkItemId(body.workItemId)) {
-                sendJson(response, 200, { benchDetail: await loadBenchDetail(body.workItemId) });
+                const detail = await loadBenchDetail(body.workItemId);
+                sendJson(response, 200, { benchDetail: detail, discussionTargetHandle: discussionTarget?.handle ?? null });
             } else {
                 sendJson(response, 400, { error: "Expected a saved Bench name or ID, or a refresh action." });
             }
@@ -337,7 +419,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             invalidateEditing();
             clearDraft();
             state.controller?.abort();
-            closing = Promise.all([closeServer(server), editing.awaitIdle()]).then(() => undefined);
+            closing = Promise.all([closeServer(server), editing.awaitIdle(), discussionIdle]).then(() => undefined);
             return closing;
         },
     };

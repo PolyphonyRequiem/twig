@@ -77,6 +77,32 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData("github", "provider-unsupported")]
+    [InlineData("gitlab", WorkItemProviderSetting.UnknownReasonCode)]
+    public async Task DraftOpen_UnderNonAdoRefusesBeforeResolvingTheAdoEditingGraph(string provider, string code)
+    {
+        var output = new StringWriter();
+        var runtime = await AttachAsync(provider, overrides: services =>
+            services.AddSingleton<DraftEditingCommand>(sp => new DraftEditingCommand(
+                sp.GetRequiredService<CommandContext>(),
+                () => sp.GetRequiredService<Twig.Browser.RecoverableDraftEditingModule>(), output)));
+        var commands = new TwigCommands(runtime);
+        if (provider == "gitlab")
+        {
+            var refusal = await CaptureAsync(() => commands.DraftOpen(42, "explicit", "json"));
+            refusal.ShouldBeOfType<TwigConfigurationException>().Message.ShouldStartWith(code + ":");
+            _transport.Requests.ShouldBeEmpty();
+            return;
+        }
+        var exit = await commands.DraftOpen(42, "explicit", "json");
+        exit.ShouldBe(1);
+        using var result = JsonDocument.Parse(output.ToString());
+        result.RootElement.GetProperty("committed").GetBoolean().ShouldBeFalse();
+        result.RootElement.GetProperty("error").GetProperty("code").GetString().ShouldBe(code);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
     [InlineData("github", WorkItemProviderSetting.UnavailableReasonCode)]
     [InlineData("gitlab", WorkItemProviderSetting.UnknownReasonCode)]
     public async Task Show_UnderNonAdoProvider_FailsClosedWithExitOneAndNoHttp(string provider, string reason)

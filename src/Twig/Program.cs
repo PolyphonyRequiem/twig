@@ -1194,6 +1194,28 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, string? bench = null, CancellationToken ct = default)
         => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct, document: document, bench: bench);
 
+    /// <summary>Open a shared recoverable draft using an explicit saved Bench and the native ADO form.</summary>
+    /// <param name="id">Positive native ADO item ID; no active-item default or cross-provider fallback.</param>
+    /// <param name="bench">Explicit saved Bench name or decimal ID; never switches the current Bench.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal. JSON returns editing envelope version 1.</param>
+    /// <param name="expectBinding">Expected admitted binding ID (optional); a mismatch refuses without switching connections.</param>
+    /// <param name="expectIdentity">Expected admitted identity ID (optional); never selects an identity.</param>
+    /// <param name="ct">Cancellation token.</param>
+    [Command("draft open")]
+    public async Task<int> DraftOpen([Argument] int id, string bench,
+        string output = OutputFormatterFactory.DefaultFormat, string? expectBinding = null,
+        string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<DraftEditingCommand>().OpenAsync(id, bench, output, expectBinding, expectIdentity, ct);
+
+    /// <summary>Atomically stage nullable fields into a recoverable draft, never pending changes or the server.</summary>
+    /// <param name="stdin">Read one strict version 1 JSON request through EOF (required); maximum 262144 UTF-8 bytes, 128 ordered changes. Close stdin after writing; cancellation aborts the read.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal. JSON always reports committed and structured errors.</param>
+    /// <param name="ct">Cancellation token. No retry, rebase, authorization or publication is performed.</param>
+    [Command("draft stage")]
+    public async Task<int> DraftStage(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<DraftEditingCommand>().StageAsync(stdin, output, ct);
+
     /// <summary>Inspect an existing native recoverable draft without changing intent or applying it.</summary>
     /// <param name="id">Native integer work-item ID or negative seed alias; no default or active-item selection.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal.</param>
@@ -1894,6 +1916,8 @@ internal static class GroupedHelp
         "bench delete",
         "bench detail",
         "draft show",
+        "draft open",
+        "draft stage",
         "draft capture",
         "bench browser",
         "bench configuration",

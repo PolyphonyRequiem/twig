@@ -6,6 +6,7 @@ import { createNativeBenchDetailReader } from "./native-bench-detail.mjs";
 import { createNativeDraftReader } from "./native-draft.mjs";
 import { createNativeProposalReader } from "./native-proposal.mjs";
 import { createReviewServer } from "./review-server.mjs";
+import { createNativeEditingAdapter } from "./native-editing.mjs";
 
 const instances = new Map();
 const workbenchInstances = new Map();
@@ -119,7 +120,7 @@ function asCanvasError(error) {
 const workbenchCanvas = createCanvas({
     id: "twig-workbench",
     displayName: "Twig workbench",
-    description: "Browse an explicitly named native Bench's cached members and hierarchy without switching workspace context.",
+    description: "Browse a named native Bench without switching context. Explicit OPEN/STAGE can update local drafts; never Save, apply or publish.",
     actions: [
         {
             name: "load_bench",
@@ -155,10 +156,11 @@ const workbenchCanvas = createCanvas({
         }
         let instance = workbenchInstances.get(ctx.instanceId);
         if (!instance) {
-            instance = await createCanvasServer({ workspacePath: session.workspacePath, readNativeBench, readNativeBenchDetail, workbench: true });
+            instance = await createCanvasServer({ workspacePath: session.workspacePath, readNativeBench, readNativeBenchDetail,
+                nativeEditing: createNativeEditingAdapter(), workbench: true });
             workbenchInstances.set(ctx.instanceId, instance);
         }
-        return { url: instance.url, title: "Twig workbench", status: "Read-only named Bench browsing" };
+        return { url: instance.url, title: "Twig workbench", status: "Cached browsing; local draft OPEN/STAGE are explicit and require installed native support" };
     },
     onClose: async (ctx) => {
         const instance = workbenchInstances.get(ctx.instanceId);

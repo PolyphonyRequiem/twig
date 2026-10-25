@@ -1187,6 +1187,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, string? bench = null, CancellationToken ct = default)
         => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct, document: document, bench: bench);
 
+    /// <summary>Read one remote discussion page for an explicitly qualified cached Bench member, without saving or refreshing.</summary>
+    /// <param name="stdin">Read strict version 1 JSON through EOF (required, default false), at most 262144 UTF-8 bytes/depth 32. The cursor is untrusted paging data, not authority.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal; no ids. Reads at most 50 comments/2 MiB per page, not a consistent whole-thread snapshot.</param>
+    /// <param name="ct">Cancellation token; never changes the current item or Bench, posts comments, or follows supplied URLs.</param>
+    [Command("bench discussion")]
+    public async Task<int> BenchDiscussion(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<BenchDiscussionCommand>().ExecuteAsync(stdin, output, ct);
+
     /// <summary>Open a shared recoverable draft using an explicit saved Bench and the native ADO form.</summary>
     /// <param name="id">Positive native ADO item ID; no active-item default or cross-provider fallback.</param>
     /// <param name="bench">Explicit saved Bench name or decimal ID; never switches the current Bench.</param>
@@ -1926,6 +1935,7 @@ internal static class GroupedHelp
         "bench switch",
         "bench delete",
         "bench detail",
+        "bench discussion",
         "draft show",
         "draft open",
         "draft stage",

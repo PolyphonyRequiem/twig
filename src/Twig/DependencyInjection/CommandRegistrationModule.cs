@@ -162,6 +162,9 @@ public static class CommandRegistrationModule
         services.AddSingleton<BrowserApplication>();
         services.AddSingleton<BrowserHostCommand>();
         services.AddSingleton<BrowserReadModule>();
+        services.AddSingleton<BrowserDiscussionModule>();
+        services.AddSingleton<BenchDiscussionCommand>(sp => new BenchDiscussionCommand(
+            sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<BrowserDiscussionModule>()));
         services.AddSingleton<BenchDetailCommand>();
         services.AddSingleton<DraftCommand>();
         services.AddSingleton<RecoverableDraftEditingModule>();

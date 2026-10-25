@@ -65,6 +65,55 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     [Theory]
     [InlineData("github", "provider-unsupported")]
     [InlineData("gitlab", WorkItemProviderSetting.UnknownReasonCode)]
+    public async Task Discussion_UnderNonAdoRefusesBeforeGraphOrHttp(string provider, string code)
+    {
+        using var input = new MemoryStream(Encoding.UTF8.GetBytes("""
+            {"version":1,"itemKey":{"checkoutRoot":"fixture","connectionId":"connection","bindingId":"binding","workItemId":42},
+             "bench":"explicit","expectBench":"7","expectIdentity":"identity","cursor":null}
+            """));
+        var output = new StringWriter();
+        var constructions = 0;
+        var runtime = await AttachAsync(provider, overrides: services =>
+        {
+            services.AddSingleton<IAdoWorkItemService>(_ =>
+            {
+                constructions++;
+                throw new InvalidOperationException("ADO must not resolve.");
+            });
+            services.AddSingleton<BenchDiscussionCommand>(sp => new(
+                sp.GetRequiredService<CommandContext>(),
+                () => throw new InvalidOperationException("The discussion graph must not resolve."), output, input));
+        });
+        if (provider == "gitlab")
+        {
+            (await CaptureAsync(() => new TwigCommands(runtime).BenchDiscussion(true, "json")))
+                .ShouldBeOfType<TwigConfigurationException>().Message.ShouldStartWith(code + ":");
+            output.ToString().ShouldBeEmpty();
+        }
+        else
+        {
+            (await new TwigCommands(runtime).BenchDiscussion(true, "json")).ShouldBe(1);
+            using var result = JsonDocument.Parse(output.ToString());
+            result.RootElement.GetProperty("error").GetProperty("code").GetString().ShouldBe(code);
+            result.RootElement.GetProperty("comments").GetArrayLength().ShouldBe(0);
+        }
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IWorkItemDiscussionReader>());
+        constructions.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DiscussionReaderAliasesTheExistingAdoClient()
+    {
+        var runtime = await AttachAsync(provider: null, gitProject: "Project");
+        runtime.GetRequiredService<IWorkItemDiscussionReader>()
+            .ShouldBeSameAs(runtime.GetRequiredService<IAdoWorkItemService>());
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("github", "provider-unsupported")]
+    [InlineData("gitlab", WorkItemProviderSetting.UnknownReasonCode)]
     public async Task DraftRetain_UnderNonAdoRefusesBeforeResolvingTheEditingGraph(string provider, string code)
     {
         var request = new DraftRetainRequest(1,

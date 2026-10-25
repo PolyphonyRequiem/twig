@@ -335,10 +335,21 @@ identity/Bench origin, so the canvas claims no full-origin continuity or host
 authentication. Provider-qualified effects use the same review model version 1;
 unknown review-model versions remain unsupported and are never partially rendered.
 
-The provider-review consumer extension is source-authored but not yet runtime
-qualified. Its fictional tests are not actual production-serialized fixture
-crosschecks. The capture-only `draft retain` contract is separate and supplies no
-semantic review or full origin; this consumer does not acquire or interpret it.
+The provider-review consumer extension is offline-qualified: focused tests passed
+15/15 and the four-file related union passed 60/60, with zero skips or
+cancellations. The initial related run was 59/60: its stale negative fixture
+expected an empty provider affected-item list to refuse. That fixture now tests
+malformed evidence, while the reader explicitly accepts a valid empty list.
+
+Eight parser-admitted proposals passed through the production review builder and
+serializer with a fake repository; the candidate accepted all eight serialized
+models. The same acceptance harness against the baseline failed first on missing
+Brief authorization-choice evidence; this is not proof of six provider refusals.
+The temporary Infrastructure test-project build passed with six SourceLink
+warnings, not a supported-solution build. These receipts are not full CLI, HTTP,
+SQLite, installed-host or origin-authority qualification. The capture-only
+`draft retain` contract is separate and supplies no semantic review or full
+origin; this consumer does not acquire or interpret it.
 
 The complete validated observation is detached and frozen. Details/Back, Show
 retained observation, iframe reload and close perform no preview. The protected

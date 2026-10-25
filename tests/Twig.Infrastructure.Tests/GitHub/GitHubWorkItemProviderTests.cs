@@ -58,7 +58,10 @@ public sealed class GitHubWorkItemProviderTests
             Edge("I_caseSensitive", "I_blocked", LinkKind.PredecessorSuccessor),
         ], ignoreOrder: true);
         snapshot.Relationships.ShouldAllBe(r =>
-            RelationshipProvenance.OfProviderObservation(provider.Capabilities, r.Kind) == RelationshipOrigin.ProviderNative);
+            RelationshipProvenance.OfProviderObservation(provider.Capabilities, r) == RelationshipOrigin.ProviderNative);
+        snapshot.Relationships.ShouldAllBe(r =>
+            RelationshipProvenance.ToToken(RelationshipProvenance.OfProviderObservation(provider.Capabilities, r))
+                == "provider-native");
         provider.Capabilities.For(LinkKind.Related).Implementation.ShouldBe(CapabilityImplementation.Unsupported);
         transport.Requests.ShouldContain(r => r.Body.Contains("\"after\":\"cursor-1\"", StringComparison.Ordinal));
     }
@@ -82,7 +85,52 @@ public sealed class GitHubWorkItemProviderTests
         var expected = status is 401 or 403 or 404 or 410
             ? CapabilityAvailability.Unavailable : CapabilityAvailability.Unknown;
         evidence.ShouldAllBe(e => e.Availability == expected);
+        evidence.ShouldAllBe(e => e.ReasonCode == (expected == CapabilityAvailability.Unavailable
+            ? "read-denied" : "read-failed"));
+        evidence.Select(e => e.Kind).ShouldBe(
+            [LinkKind.ParentChild, LinkKind.PredecessorSuccessor], ignoreOrder: true);
+        var requestsAfterRead = transport.Requests.Count;
+        var report = CapabilityReport.Create(provider.Capabilities, await provider.ProbeCapabilitiesAsync());
+        transport.Requests.Count.ShouldBe(requestsAfterRead);
+        report.Relationships.Where(e => e.Kind != LinkKind.Related)
+            .ShouldAllBe(e => e.Implementation == CapabilityImplementation.Native && e.Availability == expected);
+        var related = report.Relationships.Single(e => e.Kind == LinkKind.Related);
+        related.Implementation.ShouldBe(CapabilityImplementation.Unsupported);
+        related.Availability.ShouldBe(CapabilityAvailability.Unknown);
+        related.ReasonCode.ShouldBe(CapabilityReport.NotProbedReason);
         provider.Capabilities.For(LinkKind.ParentChild).Implementation.ShouldBe(CapabilityImplementation.Native);
+    }
+
+    [Fact]
+    public async Task ReadEvidence_IsScopedToAdapter_NotSharedByProviderKindOrOrigin()
+    {
+        using var deniedTransport = new RecordingTransport { Status = HttpStatusCode.Forbidden };
+        using var otherTransport = new RecordingTransport();
+        using var deniedHttp = new HttpClient(deniedTransport);
+        using var otherHttp = new HttpClient(otherTransport);
+        var denied = new GitHubWorkItemProvider(deniedHttp);
+        var other = new GitHubWorkItemProvider(otherHttp);
+
+        await Should.ThrowAsync<HttpRequestException>(() => denied.FetchSnapshotAsync(Identity));
+        var deniedEvidence = await denied.ProbeCapabilitiesAsync();
+        deniedEvidence.Count.ShouldBe(2);
+        deniedEvidence.ShouldAllBe(e =>
+            e.Availability == CapabilityAvailability.Unavailable && e.ReasonCode == "read-denied");
+
+        var beforeRead = CapabilityReport.Create(other.Capabilities, await other.ProbeCapabilitiesAsync());
+        beforeRead.Relationships.ShouldAllBe(e =>
+            e.Availability == CapabilityAvailability.Unknown && e.ReasonCode == CapabilityReport.NotProbedReason);
+        otherTransport.Requests.ShouldBeEmpty();
+
+        var snapshot = await other.FetchSnapshotAsync(Identity);
+        snapshot.RelationshipsComplete.ShouldBeTrue();
+        snapshot.Relationships.ShouldNotBeEmpty();
+        var requestsAfterRead = otherTransport.Requests.Count;
+        var afterRead = CapabilityReport.Create(other.Capabilities, await other.ProbeCapabilitiesAsync());
+        afterRead.Relationships.ShouldAllBe(e =>
+            e.Availability == CapabilityAvailability.Unknown && e.ReasonCode == CapabilityReport.NotProbedReason);
+        otherTransport.Requests.Count.ShouldBe(requestsAfterRead);
+        (await denied.ProbeCapabilitiesAsync()).ShouldBe(deniedEvidence);
     }
 
     [Theory]
@@ -321,7 +369,8 @@ public sealed class GitHubWorkItemProviderTests
         await provider.FetchSnapshotAsync(Identity);
         var requestCount = transport.Requests.Count;
         var report = CapabilityReport.Create(provider.Capabilities, await provider.ProbeCapabilitiesAsync());
-        report.Relationships.ShouldAllBe(r => r.Availability == CapabilityAvailability.Unknown);
+        report.Relationships.ShouldAllBe(r =>
+            r.Availability == CapabilityAvailability.Unknown && r.ReasonCode == CapabilityReport.NotProbedReason);
         transport.Requests.Count.ShouldBe(requestCount);
     }
 

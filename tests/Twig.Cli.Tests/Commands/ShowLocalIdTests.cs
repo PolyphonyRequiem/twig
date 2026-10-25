@@ -194,10 +194,13 @@ public sealed class ShowLocalIdTests
             .ShouldNotBeNull().ShouldContain("not available in this composition");
     }
 
-    [Fact]
-    public async Task LocalIdRead_LabelsRowsProviderNativeOnlyForMatchingActiveDescriptor()
+    [Theory]
+    [InlineData("ado", true)]
+    [InlineData("github", false)]
+    public async Task LocalIdRead_LabelsRowsProviderNativeOnlyForMatchingActiveDescriptor(
+        string providerKind, bool relatedIsNative)
     {
-        var descriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.Ado;
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(providerKind, out var descriptor).ShouldBeTrue();
         var matching = new ExternalWorkItemIdentity(descriptor.ProviderKind, "scope", "1");
         var other = new ExternalWorkItemIdentity("fixture", "scope", "2");
         var localId = LocalWorkItemId.New();
@@ -210,6 +213,8 @@ public sealed class ShowLocalIdTests
             [
                 new ProviderWorkItemRelationship(matching, new ExternalWorkItemIdentity(descriptor.ProviderKind, "scope", "3"), LinkKind.ParentChild),
                 new ProviderWorkItemRelationship(matching, other, LinkKind.ParentChild),
+                new ProviderWorkItemRelationship(matching, new ExternalWorkItemIdentity(descriptor.ProviderKind, "scope", "4"), LinkKind.PredecessorSuccessor),
+                new ProviderWorkItemRelationship(matching, new ExternalWorkItemIdentity(descriptor.ProviderKind, "scope", "5"), LinkKind.Related),
             ]);
         _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>()).Returns(result);
         var provider = Substitute.For<IWorkItemProvider>();
@@ -224,6 +229,10 @@ public sealed class ShowLocalIdTests
         var rows = document.RootElement.GetProperty("relationships");
         rows[0].GetProperty("origin").GetString().ShouldBe("provider-native");
         rows[1].TryGetProperty("origin", out _).ShouldBeFalse();
+        rows[2].GetProperty("origin").GetString().ShouldBe("provider-native");
+        rows[3].TryGetProperty("origin", out var relatedOrigin).ShouldBe(relatedIsNative);
+        if (relatedIsNative)
+            relatedOrigin.GetString().ShouldBe("provider-native");
     }
 
     [Fact]

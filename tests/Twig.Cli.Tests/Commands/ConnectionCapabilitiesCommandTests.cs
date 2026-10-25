@@ -108,6 +108,39 @@ public sealed class ConnectionCapabilitiesCommandTests
         kinds["predecessor-successor"].GetProperty("storage").GetString().ShouldBe("local-only");
     }
 
+    [Theory]
+    [InlineData("available", null)]
+    [InlineData("unavailable", "read-denied")]
+    [InlineData("unknown", "read-incomplete")]
+    public async Task Json_GitHub_ReportsSuppliedEvidence_WithoutChangingDeclarationOrOtherKinds(
+        string token, string? reason)
+    {
+        CapabilityTokens.TryResolve(CapabilityTokens.Availability, token, out var availability).ShouldBeTrue();
+        var provider = Provider(ProviderCapabilityCatalog.GitHub,
+            [new(LinkKind.ParentChild, availability, reason)]);
+
+        var (exit, output) = await StdoutCapture.RunAsync(() => CreateCommand(() => provider).ExecuteAsync("json"));
+
+        exit.ShouldBe(0);
+        var kinds = ByKind(output, out var providerKind);
+        providerKind.ShouldBe("github");
+        kinds["parent-child"].GetProperty("implementation").GetString().ShouldBe("native");
+        kinds["parent-child"].GetProperty("storage").GetString().ShouldBe("none");
+        kinds["parent-child"].GetProperty("availability").GetString().ShouldBe(token);
+        if (reason is null)
+            kinds["parent-child"].GetProperty("reason").ValueKind.ShouldBe(JsonValueKind.Null);
+        else
+            kinds["parent-child"].GetProperty("reason").GetString().ShouldBe(reason);
+        foreach (var kind in new[] { "predecessor-successor", "related" })
+        {
+            kinds[kind].GetProperty("availability").GetString().ShouldBe("unknown");
+            kinds[kind].GetProperty("reason").GetString().ShouldBe(CapabilityReport.NotProbedReason);
+        }
+        kinds["predecessor-successor"].GetProperty("implementation").GetString().ShouldBe("native");
+        kinds["related"].GetProperty("implementation").GetString().ShouldBe("unsupported");
+        await provider.Received(1).ProbeCapabilitiesAsync(Arg.Any<CancellationToken>());
+    }
+
     // The report must follow the resolved descriptor's declarations, never a lookup keyed by the
     // provider name. Each well-known name carries the OTHER catalog's declarations, so any
     // name-keyed shortcut reports the wrong implementation for at least one kind.

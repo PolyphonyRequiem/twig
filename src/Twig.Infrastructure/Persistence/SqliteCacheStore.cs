@@ -297,6 +297,7 @@ public sealed class SqliteCacheStore : IDisposable
         if (!SchemaExists() || !SchemaVersionMatches())
         {
             GuardLegacyPendingSet();
+            GuardMirrorLocalWork();
             DropAllTables();
             DropLegacyDurableTables();
             CreateSchema();
@@ -333,6 +334,47 @@ public sealed class SqliteCacheStore : IDisposable
             "  twig sync      # push staged changes to Azure DevOps\n" +
             "  twig discard   # abandon them\n\n" +
             "Then re-run this command.");
+    }
+
+    /// <summary>
+    /// Refuses a mirror rebuild that would drop seed or dirty rows, which live only in
+    /// <c>work_items</c>. Runs before any destructive statement. A non-empty table whose shape
+    /// cannot prove the absence of local work is refused as unverifiable; an empty one rebuilds.
+    /// </summary>
+    private void GuardMirrorLocalWork()
+    {
+        if (!LegacyMirrorTableExists("work_items"))
+            return;
+
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var info = _connection.CreateCommand())
+        {
+            info.CommandText = "PRAGMA main.table_info(work_items);";
+            using var reader = info.ExecuteReader();
+            while (reader.Read())
+                columns.Add(reader.GetString(1));
+        }
+
+        var seeds = columns.Contains("is_seed") ? CountWorkItems("is_seed = 1") : 0;
+        var dirty = columns.Contains("is_dirty") ? CountWorkItems("is_dirty = 1") : 0;
+        if (seeds > 0 || dirty > 0)
+            throw new InvalidOperationException(
+                $"mirror-local-work-present: this cache holds {seeds} seed(s) and {dirty} dirty item(s) that exist only locally " +
+                "and a rebuild would drop them. No local work was dropped. Preserve this cache's files and open it " +
+                "with a compatible Twig version, or export/recover the work first; do not delete the cache.");
+
+        if ((!columns.Contains("is_seed") || !columns.Contains("is_dirty")) && CountWorkItems("1 = 1") > 0)
+            throw new InvalidOperationException(
+                "mirror-local-work-unverifiable: this cache's work item table has an older shape that cannot show " +
+                "whether it holds local-only work. No local work was dropped. Preserve this cache's files and open it " +
+                "with a compatible Twig version, or export/recover the work first; do not delete the cache.");
+    }
+
+    private int CountWorkItems(string predicate)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"SELECT COUNT(*) FROM main.work_items WHERE {predicate};";
+        return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
     /// <summary>

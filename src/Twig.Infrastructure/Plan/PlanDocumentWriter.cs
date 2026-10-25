@@ -104,10 +104,20 @@ public static class PlanDocumentWriter
                 writer.WriteNumber("expectedRevision", delete.ExpectedRevision);
                 break;
 
+            case AppendCommentOperation append:
+                writer.WriteNumber("workItemId", append.WorkItemId);
+                writer.WriteString("savedBenchId", append.SavedBenchId);
+                writer.WriteString("expectedBenchContentsDigest", append.ExpectedBenchContentsDigest);
+                writer.WriteString("expectedIdentityId", append.ExpectedIdentityId);
+                writer.WriteString("format", append.Format);
+                writer.WriteString("text", append.Text);
+                writer.WriteString("effectiveBody", append.EffectiveBody);
+                break;
+
             default:
                 throw new NotSupportedException(
-                    $"Plan operation kind '{op.Kind}' has no writer. The five kinds are a closed set; " +
-                    "adding a sixth requires updating the parser, the writer, and the review model together.");
+                    $"Plan operation kind '{op.Kind}' has no writer. The versioned kinds are a closed set; " +
+                    "adding another kind requires updating the parser, the writer, and the review model together.");
         }
 
         writer.WriteEndObject();
@@ -181,6 +191,7 @@ public static class PlanDocumentWriter
         PlanOperationKind.RemoveLink => "remove-link",
         PlanOperationKind.PublishSeed => "publish-seed",
         PlanOperationKind.Delete => "delete",
+        PlanOperationKind.AppendComment => "append-comment",
         _ => throw new NotSupportedException($"Unknown plan operation kind '{kind}'."),
     };
 }

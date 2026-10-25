@@ -339,6 +339,33 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                     ],
                 };
 
+            case AppendCommentOperation append:
+                MarkTarget(roles, append.WorkItemId);
+                return new ReviewOperation
+                {
+                    Ordinal = ordinal,
+                    OpId = append.Id,
+                    Kind = PlanDocumentWriter.WireKind(append.Kind),
+                    Target = new ReviewTarget { WorkItemId = append.WorkItemId },
+                    Summary = $"Append {append.Format} discussion comment to #{append.WorkItemId}",
+                    Preconditions =
+                    [
+                        new ReviewPrecondition { Kind = "savedBenchId", Value = append.SavedBenchId },
+                        new ReviewPrecondition { Kind = "expectedBenchContentsDigest", Value = append.ExpectedBenchContentsDigest },
+                        new ReviewPrecondition { Kind = "expectedIdentityId", Value = append.ExpectedIdentityId },
+                    ],
+                    Consequences =
+                    [
+                        new ReviewConsequence
+                        {
+                            Kind = "discussion-append",
+                            BodyFormat = append.Format,
+                            SubmittedText = append.Text,
+                            EffectiveBody = append.EffectiveBody,
+                        },
+                    ],
+                };
+
             case ProviderMutationOperation provider:
                 {
                     var item = provider.Target.Item;

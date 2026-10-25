@@ -8,6 +8,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Boundary;
+using Twig.Infrastructure.Plan;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Ado;
@@ -19,7 +20,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider, IWorkItemDiscussionReader
+internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider, IWorkItemDiscussionReader, IWorkItemDiscussionWriter
 {
     private const string JsonPatchMediaType = "application/json-patch+json";
 
@@ -115,14 +116,35 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
                 || comment.WorkItemId is { } target && target != id || comment.Version is <= 0)
             || page.Comments.Select(comment => comment.Id).Distinct().Count() != page.Comments.Count)
             throw new AdoException("discussion-response-invalid: inconsistent comments page.");
-        var comments = page.Comments.Select(comment => new DiscussionComment(
+        var comments = page.Comments.Select(MapDiscussionComment).ToArray();
+        return new(comments, page.Count!.Value, page.TotalCount, next);
+    }
+
+    private static DiscussionComment MapDiscussionComment(AdoDiscussionComment comment)
+        => new(
             comment.Id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
             comment.Version?.ToString(System.Globalization.CultureInfo.InvariantCulture),
             new(comment.CreatedBy?.Id, comment.CreatedBy?.DisplayName),
             comment.CreatedDate?.ToUniversalTime(), comment.ModifiedDate?.ToUniversalTime(),
             comment.IsDeleted, comment.Text,
-            comment.Format is null or "markdown" or "html" ? comment.Format : "unknown")).ToArray();
-        return new(comments, page.Count!.Value, page.TotalCount, next);
+            comment.Format is null or "markdown" or "html" ? comment.Format : "unknown");
+
+    public async Task<DiscussionComment?> ReadDiscussionCommentAsync(int workItemId, string commentId, CancellationToken ct = default)
+    {
+        if (workItemId <= 0 || !int.TryParse(commentId, out var parsedId) || parsedId <= 0)
+            throw new ArgumentException("discussion-usage: positive work item and comment IDs are required.");
+        using var admission = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workItems/{workItemId}/comments/{parsedId}"
+            + $"?api-version={AdoApiVersions.WorkItemComments}";
+        using var response = await SendAsync(HttpMethod.Get, url, null, null, ct,
+            maximumResponseBytes: DiscussionReadLimits.MaximumResponseBytes).ConfigureAwait(false);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        AdoDiscussionComment? comment;
+        try { comment = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoDiscussionComment, ct).ConfigureAwait(false); }
+        catch (JsonException) { throw new AdoException("discussion-response-invalid: invalid comment response."); }
+        if (comment is null || comment.Id != parsedId || comment.WorkItemId != workItemId || comment.Version is <= 0)
+            return null;
+        return MapDiscussionComment(comment);
     }
 
     public async Task<WorkItemSnapshot> FetchAtRevisionAsync(int id, int expectedRevision, CancellationToken ct = default)
@@ -389,6 +411,32 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var _ = await SendAsync(HttpMethod.Post, url, content, ifMatch: null, ct, effectKind: "comment-add");
+    }
+
+    public async Task<DiscussionPostReceipt> AppendDiscussionCommentAsync(
+        int workItemId, string effectiveBody, CancellationToken ct = default)
+    {
+        if (workItemId <= 0 || string.IsNullOrWhiteSpace(effectiveBody)
+            || Encoding.UTF8.GetByteCount(effectiveBody) > DiscussionPostBodyFormatter.MaximumEffectiveUtf8Bytes)
+            throw new ArgumentException("discussion-usage: positive item ID and bounded non-empty effective body are required.");
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        AdoProjectionGuard.AssertNoTransportOrigin(effectiveBody, "proposal discussion append");
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workItems/{workItemId}/comments"
+            + $"?format=html&api-version={AdoApiVersions.WorkItemComments}";
+        var request = new AdoDiscussionCommentPostRequest { Text = effectiveBody };
+        var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoDiscussionCommentPostRequest);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var response = await SendAsync(HttpMethod.Post, url, content, null, ct,
+            effectKind: "comment-add", maximumResponseBytes: DiscussionReadLimits.MaximumResponseBytes).ConfigureAwait(false);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        AdoDiscussionComment? comment;
+        try { comment = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoDiscussionComment, ct).ConfigureAwait(false); }
+        catch (JsonException) { throw new AdoException("discussion-receipt-invalid: invalid comment receipt."); }
+        if (comment is null || comment.Id is null or <= 0 || comment.WorkItemId != workItemId
+            || comment.Text != effectiveBody || comment.Format != "html")
+            throw new AdoException("discussion-receipt-invalid: response did not identify the exact appended comment.");
+        return new DiscussionPostReceipt(workItemId, comment.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            effectiveBody, "html");
     }
 
     public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default)

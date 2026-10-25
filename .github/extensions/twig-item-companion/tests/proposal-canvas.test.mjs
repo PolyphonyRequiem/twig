@@ -100,6 +100,7 @@ test("bad input and physical path escape refuse without launching a child", asyn
 test("native failure, malformed JSON, unknown model/malformed provider evidence and contradictory identity refuse once without retry", async () => {
     const values = [
         new Error("child exit 1"), '{"digest":', "x".repeat(4 * 1024 * 1024 + 1),
+        { ...fixture(), reviewModel: { ...fixture().reviewModel, modelVersion: 3 } },
         { ...fixture(), reviewModel: { ...fixture().reviewModel, modelVersion: 2 } },
         { ...fixture(), reviewModel: { ...fixture().reviewModel, providerAffectedItems: {} } },
         { ...fixture(), digest: "b".repeat(64) },

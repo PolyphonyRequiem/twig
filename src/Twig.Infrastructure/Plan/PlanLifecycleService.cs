@@ -145,7 +145,10 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IProcessRuleProvider? ruleProvider,
         IUnitOfWork unitOfWork,
         IWorkItemLinkRepository? linkRepo = null,
-        IWorkItemSnapshotReader? providerSnapshots = null)
+        IWorkItemSnapshotReader? providerSnapshots = null,
+        IWorkItemDiscussionReader? discussionReader = null,
+        IWorkItemDiscussionWriter? discussionWriter = null,
+        DiscussionAppendAdmission? discussionAdmission = null)
     {
         _parser = parser;
         _journal = journal;
@@ -163,7 +166,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _clock = clock;
         _executor = new PlanOperationExecutor(
             adoService, revisionCodec, revisionBound, fieldDefinitionStore, seedPublish,
-            workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent, pendingReader, unitOfWork);
+            workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent, pendingReader, unitOfWork,
+            discussionWriter, discussionReader, discussionAdmission);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore)
         {

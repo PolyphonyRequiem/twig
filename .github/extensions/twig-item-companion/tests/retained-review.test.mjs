@@ -77,7 +77,7 @@ test("missing expected capture identity/version/source or mismatched reported id
     }
     for (const e of [
         { ...expected, expectedCaptureId: "another" },
-        { ...expected, expectedModelVersion: 2 },
+        { ...expected, expectedModelVersion: 3 },
         { ...expected, digest: "b".repeat(64) },
         { ...expected, workspace: { ...workspace, project: "elsewhere" } },
         { ...expected, sourceKind: "authenticated" },
@@ -92,7 +92,7 @@ test("malformed, unsupported and structurally truncated envelopes refuse instead
     for (let i = 0; i < 65; i++) { cursor.extra = {}; cursor = cursor.extra; }
     assert.throws(() => capture(deep), /nesting/);
     for (const mutate of [
-        (v) => { v.reviewModel.modelVersion = 2; },
+        (v) => { v.reviewModel.modelVersion = 3; },
         (v) => { v.reviewModel.digest = "b".repeat(64); },
         (v) => { v.reviewModel.operations.pop(); },
         (v) => { v.reviewModel.operations.reverse(); },
@@ -369,4 +369,57 @@ test("known additive provider evidence is retained while malformed recipe refuse
         value.reviewModel.recipe = recipe;
         assert.throws(() => capture(value), /recipe context/);
     }
+});
+
+function appendFixture() {
+    const value = fixture();
+    value.operations = [{ ordinal: 0, id: "comment-1", kind: "AppendComment" }];
+    value.reviewModel.modelVersion = 2;
+    value.reviewModel.operations = [{
+        ordinal: 0, opId: "comment-1", kind: "append-comment",
+        target: { workItemId: 42, stagedIdentity: null, seed: null },
+        summary: "Append markdown discussion comment",
+        preconditions: [
+            { kind: "savedBenchId", value: "7" },
+            { kind: "expectedBenchContentsDigest", value: "b".repeat(64) },
+            { kind: "expectedIdentityId", value: "identity-1" },
+        ],
+        consequences: [{
+            kind: "discussion-append", bodyFormat: "markdown",
+            submittedText: "Hello **team**", effectiveBody: "<p>Hello <strong>team</strong></p>\n",
+            field: null, to: null, relation: null, otherId: null,
+        }],
+    }];
+    return value;
+}
+
+test("v2 discussion append requires and renders exact saved-Bench and identity preconditions", () => {
+    const value = appendFixture();
+    const version2 = { ...expected, expectedModelVersion: 2 };
+    const root = dom();
+    const result = mountRetainedReview(root, JSON.stringify(value), version2);
+    assert.equal(result.available, true);
+    const output = flatten(root);
+    assert.match(output, /savedBenchId.*7/s);
+    assert.ok(output.includes("expectedBenchContentsDigest"));
+    assert.ok(output.includes("b".repeat(64)));
+    assert.ok(output.includes("expectedIdentityId"));
+    assert.ok(output.includes("identity-1"));
+    assert.ok(output.includes("Hello **team**"));
+    assert.ok(output.includes("<p>Hello <strong>team</strong></p>"));
+
+    for (const mutate of [
+        (v) => { v.reviewModel.operations[0].preconditions[0].value = "07"; },
+        (v) => { v.reviewModel.operations[0].preconditions[1].value = "A".repeat(64); },
+        (v) => { v.reviewModel.operations[0].preconditions[2].value = ""; },
+        (v) => { v.reviewModel.operations[0].preconditions[2].value = 42; },
+        (v) => { v.reviewModel.operations[0].preconditions.pop(); },
+        (v) => { v.reviewModel.operations[0].preconditions[0].kind = "expectedIdentityId"; },
+        (v) => { v.reviewModel.operations[0].consequences[0].bodyFormat = "html"; },
+    ]) {
+        const invalid = appendFixture();
+        mutate(invalid);
+        assert.throws(() => retainProposalReview(JSON.stringify(invalid), version2), /unavailable/);
+    }
+    assert.throws(() => retainProposalReview(JSON.stringify(value), expected), /unavailable/);
 });

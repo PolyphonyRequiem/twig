@@ -155,6 +155,90 @@ class DiscordReviewTests(unittest.TestCase):
         self.assertIn('Hierarchy context only', output)
         self.assertNotIn('#-1', output)
 
+    def test_v2_append_comment_preserves_exact_submitted_and_effective_body(self):
+        model = fixture()
+        model['modelVersion'] = 2
+        model['operations'][0].update(
+            kind='append-comment',
+            summary='Append markdown discussion comment',
+            preconditions=[
+                {'kind': 'savedBenchId', 'value': '7'},
+                {'kind': 'expectedBenchContentsDigest', 'value': 'b' * 64},
+                {'kind': 'expectedIdentityId', 'value': 'identity-1'},
+            ],
+            consequences=[{
+                'kind': 'discussion-append', 'bodyFormat': 'markdown',
+                'submittedText': 'Hello **team** @everyone',
+                'effectiveBody': '<p>Hello <strong>team</strong> @everyone</p>\n',
+            }])
+        output = text(model)
+        self.assertIn('Append markdown discussion comment', output)
+        self.assertIn('Hello \\*\\*team\\*\\* @\u200beveryone', output)
+        self.assertIn('\\<p\\>Hello \\<strong\\>team\\</strong\\>', output)
+        self.assertIn('expectedBenchContentsDigest = ' + 'b' * 64, output)
+        self.assertNotIn('@everyone', output)
+
+    def test_v2_append_refuses_incomplete_body_or_legacy_model_version(self):
+        model = fixture()
+        model['modelVersion'] = 2
+        model['operations'][0].update(
+            kind='append-comment',
+            preconditions=[
+                {'kind': 'savedBenchId', 'value': '7'},
+                {'kind': 'expectedBenchContentsDigest', 'value': 'b' * 64},
+                {'kind': 'expectedIdentityId', 'value': 'identity-1'},
+            ],
+            consequences=[{'kind': 'discussion-append', 'bodyFormat': 'plain', 'submittedText': 'Hello'}])
+        with self.assertRaises(ValueError):
+            render(model)
+        model['operations'][0]['consequences'][0]['effectiveBody'] = '<p>Hello</p>\n'
+        model['modelVersion'] = 1
+        with self.assertRaises(ValueError):
+            render(model)
+
+    def test_v2_append_validates_exact_bound_precondition_values(self):
+        model = fixture()
+        model['modelVersion'] = 2
+        model['operations'][0].update(
+            kind='append-comment',
+            preconditions=[
+                {'kind': 'savedBenchId', 'value': '7'},
+                {'kind': 'expectedBenchContentsDigest', 'value': 'b' * 64},
+                {'kind': 'expectedIdentityId', 'value': 'identity-1'},
+            ],
+            consequences=[{
+                'kind': 'discussion-append', 'bodyFormat': 'plain',
+                'submittedText': 'Hello', 'effectiveBody': '<p>Hello</p>\n',
+            }])
+        self.assertIn('Append plain discussion comment', text(model))
+
+        for kind, value in [
+            ('savedBenchId', '0'), ('savedBenchId', '07'), ('savedBenchId', 7),
+            ('expectedBenchContentsDigest', 'A' * 64),
+            ('expectedBenchContentsDigest', 'b' * 63),
+            ('expectedBenchContentsDigest', None),
+            ('expectedIdentityId', ''), ('expectedIdentityId', ' '),
+            ('expectedIdentityId', 42),
+        ]:
+            with self.subTest(kind=kind, value=value):
+                invalid = copy.deepcopy(model)
+                next(p for p in invalid['operations'][0]['preconditions']
+                     if p['kind'] == kind)['value'] = value
+                with self.assertRaisesRegex(ValueError, f'Invalid {kind}'):
+                    render(invalid)
+
+        extra = copy.deepcopy(model)
+        extra['operations'][0]['preconditions'].append(
+            {'kind': 'unexpected', 'value': 'not a supported precondition'})
+        with self.assertRaisesRegex(ValueError, 'preconditions'):
+            render(extra)
+
+    def test_v2_requires_a_discussion_append_effect(self):
+        model = fixture()
+        model['modelVersion'] = 2
+        with self.assertRaisesRegex(ValueError, 'requires a discussion append'):
+            render(model)
+
 
 if __name__ == '__main__':
     unittest.main()

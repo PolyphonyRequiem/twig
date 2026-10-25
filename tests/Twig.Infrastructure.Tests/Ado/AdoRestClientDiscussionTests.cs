@@ -6,6 +6,7 @@ using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
+using Twig.Infrastructure.Auth;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Ado;
@@ -212,6 +213,81 @@ public sealed class AdoRestClientDiscussionTests
         offline.Uris.Count.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task AppendPostSendsExactHtmlAndReturnsCommentIdReceipt()
+    {
+        const string body = "<p>Review &amp; approve.</p>\n";
+        using var handler = new RecordingHandler((_, _) => Reply(
+            """{"id":45,"workItemId":42,"text":"<p>Review &amp; approve.</p>\n","format":"html"}"""));
+        using var http = new HttpClient(handler);
+        var auth = new RecordingAdmissionAuthentication();
+        var client = new AdoRestClient(http, auth, "https://dev.azure.com/fixture",
+            "Project Space", new WorkItemMapper());
+
+        var receipt = await client.AppendDiscussionCommentAsync(42, body);
+
+        handler.Methods.ShouldBe([HttpMethod.Post]);
+        handler.Uris.Single().AbsolutePath.ShouldBe("/fixture/Project%20Space/_apis/wit/workItems/42/comments");
+        handler.Uris.Single().Query.ShouldBe("?format=html&api-version=7.1-preview.4");
+        using var request = System.Text.Json.JsonDocument.Parse(handler.Bodies.Single()!);
+        request.RootElement.EnumerateObject().Select(property => property.Name).ShouldBe(["text"]);
+        request.RootElement.GetProperty("text").GetString().ShouldBe(body);
+        var admittedWrite = auth.Requests.ShouldHaveSingleItem();
+        admittedWrite.EffectKind.ShouldBe("comment-add");
+        admittedWrite.Method.ShouldBe("POST");
+        admittedWrite.Target.ShouldBe(handler.Uris.Single().AbsoluteUri);
+        admittedWrite.Payload.ShouldBe(handler.Bodies.Single());
+        using var admittedPayload = System.Text.Json.JsonDocument.Parse(admittedWrite.Payload);
+        admittedPayload.RootElement.GetProperty("text").GetString().ShouldBe(body);
+        receipt.ShouldBe(new DiscussionPostReceipt(42, "45", body, "html"));
+    }
+
+    [Fact]
+    public async Task AppendPostWithoutNativeWriteAdmissionIsRefusedBeforeHttp()
+    {
+        using var handler = new RecordingHandler((_, _) => Reply(
+            """{"id":45,"workItemId":42,"text":"<p>One attempt.</p>\n","format":"html"}"""));
+        using var http = new HttpClient(handler);
+        var client = new AdoRestClient(http, new FakeAuthentication(), "https://dev.azure.com/fixture",
+            "Project Space", new WorkItemMapper());
+
+        var error = await Should.ThrowAsync<InvalidOperationException>(
+            () => client.AppendDiscussionCommentAsync(42, "<p>One attempt.</p>\n"));
+
+        error.Message.ShouldContain("remote-write-admission-required");
+        handler.Uris.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task LostAppendResponseIsNotRetried()
+    {
+        using var handler = new RecordingHandler((_, _) => throw new HttpRequestException("connection lost"));
+        using var http = new HttpClient(handler);
+        var client = new AdoRestClient(http, new RecordingAdmissionAuthentication(), "https://dev.azure.com/fixture",
+            "Project Space", new WorkItemMapper());
+
+        await Should.ThrowAsync<AdoOfflineException>(() => client.AppendDiscussionCommentAsync(42, "<p>One attempt.</p>\n"));
+
+        handler.Methods.ShouldBe([HttpMethod.Post]);
+        handler.Uris.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task CommentReadbackUsesOnlyTheReceiptCommentId()
+    {
+        using var handler = new RecordingHandler((_, _) => Reply(
+            """{"id":45,"workItemId":42,"version":2,"text":"<p>Exact</p>\n","format":"html"}"""));
+        using var http = new HttpClient(handler);
+
+        var comment = await Reader(http).ReadDiscussionCommentAsync(42, "45");
+
+        handler.Methods.ShouldBe([HttpMethod.Get]);
+        handler.Uris.Single().AbsolutePath.ShouldBe("/fixture/Project%20Space/_apis/wit/workItems/42/comments/45");
+        comment!.Id.ShouldBe("45");
+        comment.Body.ShouldBe("<p>Exact</p>\n");
+        comment.Format.ShouldBe("html");
+    }
+
     [Theory]
     [InlineData("io")]
     [InlineData("http")]
@@ -258,6 +334,34 @@ public sealed class AdoRestClientDiscussionTests
         public void InvalidateToken() => Invalidations++;
     }
 
+    private sealed class RecordingAdmissionAuthentication : IAuthenticationProvider, IConnectionRemoteWriteGuard
+    {
+        internal List<ConnectionRemoteWriteRequest> Requests { get; } = [];
+
+        public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult("fixture-token");
+        }
+
+        public void InvalidateToken() { }
+
+        public Task<IConnectionRemoteWriteAdmission> BeginRemoteWriteAsync(
+            ConnectionRemoteWriteRequest request, CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            Requests.Add(request);
+            return Task.FromResult<IConnectionRemoteWriteAdmission>(new RecordingAdmission());
+        }
+
+        private sealed class RecordingAdmission : IConnectionRemoteWriteAdmission
+        {
+            public bool IsDefinitivelyRejected => false;
+            public Task RecordResponseAsync(ConnectionRemoteWriteResponse response, CancellationToken ct = default)
+                => Task.CompletedTask;
+        }
+    }
+
     private static Task<HttpResponseMessage> Reply(string json, HttpStatusCode status = HttpStatusCode.OK)
         => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
 
@@ -266,12 +370,15 @@ public sealed class AdoRestClientDiscussionTests
         internal List<Uri> Uris { get; } = [];
         internal List<HttpMethod> Methods { get; } = [];
         internal List<string> Authorizations { get; } = [];
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        internal List<string?> Bodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Uris.Add(request.RequestUri!);
             Methods.Add(request.Method);
             Authorizations.Add(request.Headers.Authorization!.ToString());
-            return reply(Uris.Count, ct);
+            Bodies.Add(request.Content is null ? null : await request.Content.ReadAsStringAsync(ct));
+            return await reply(Uris.Count, ct);
         }
     }
 

@@ -79,6 +79,9 @@ public static class PlanValidationCodes
     /// <summary>Two publish-seed operations targeted the same stagedIdentity.</summary>
     public const string DuplicateStagedIdentityTarget = "plan.duplicate_staged_identity_target";
 
+    /// <summary>A discussion append has invalid format, identity binding, or bounded body content.</summary>
+    public const string InvalidDiscussionAppend = "plan.invalid_discussion_append";
+
     /// <summary>A numeric value was outside the allowed range (e.g. workItemId must be &gt; 0).</summary>
     public const string IntegerOutOfRange = "plan.integer_out_of_range";
 

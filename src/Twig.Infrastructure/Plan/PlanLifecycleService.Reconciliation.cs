@@ -161,6 +161,17 @@ public sealed partial class PlanLifecycleService
         if (acknowledged is null) return false;
         using var proof = JsonDocument.Parse(acknowledged);
         using var observed = JsonDocument.Parse(readback);
+        if (operation is AppendCommentOperation append)
+            return proof.RootElement.TryGetProperty("workItemId", out var target)
+                && target.ValueKind == JsonValueKind.Number && target.GetInt32() == append.WorkItemId
+                && proof.RootElement.TryGetProperty("commentId", out var commentId)
+                && commentId.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(commentId.GetString())
+                && proof.RootElement.TryGetProperty("body", out var body)
+                && body.ValueKind == JsonValueKind.String && body.GetString() == append.EffectiveBody
+                && proof.RootElement.TryGetProperty("format", out var format)
+                && format.ValueKind == JsonValueKind.String && format.GetString() == "html"
+                && observed.RootElement.TryGetProperty("commentId", out var observedId)
+                && observedId.ValueKind == JsonValueKind.String && observedId.GetString() == commentId.GetString();
         if (operation is DeleteOperation deleted)
             return proof.RootElement.TryGetProperty("deleted", out var id) && id.ValueKind == JsonValueKind.Number
                 && id.GetInt32() == deleted.WorkItemId;

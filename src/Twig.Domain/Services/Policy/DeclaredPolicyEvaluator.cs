@@ -976,6 +976,7 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
                     case AddLinkOperation a: ids.Add(a.WorkItemId); ids.Add(a.OtherId); break;
                     case RemoveLinkOperation r: ids.Add(r.WorkItemId); ids.Add(r.OtherId); break;
                     case DeleteOperation d: ids.Add(d.WorkItemId); break;
+                    case AppendCommentOperation a: ids.Add(a.WorkItemId); break;
                 }
             }
 
@@ -1141,6 +1142,7 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             BatchOperation batch => batch.WorkItemId,
             AddLinkOperation add => add.WorkItemId,
             RemoveLinkOperation remove => remove.WorkItemId,
+            AppendCommentOperation append => append.WorkItemId,
             _ => 0,
         };
 

@@ -89,11 +89,13 @@ twig proposal validate --file proposal.json -o json
 `PlanDocumentParser` owns the strict input contract: only `version`, `workspace`
 and `operations` are root properties; operations are ordered and nonempty.
 Unknown/duplicate properties, unsupported versions/kinds and invalid values are
-rejected. Version 1 supports `batch`, `add-link`, `remove-link`, `publish-seed`
-and `delete`. Version 2 supports provider-bound `batch`, `add-link`,
-`remove-link` and `delete`; `publish-seed` remains version 1 only. Notes,
-artifacts, branch links, composite
-reparent operations and model-authored lifecycle state do not belong in this file.
+rejected. Version 1 supports `batch`, `add-link`, `remove-link`, `publish-seed`,
+`delete`, and `append-comment`. Version 2 supports provider-bound `batch`,
+`add-link`, `remove-link` and `delete`; `publish-seed` and `append-comment`
+remain version 1 only. Pending-note queue entries, artifacts, branch links,
+composite reparent operations and model-authored lifecycle state do not belong in
+this file. Use the explicit `append-comment` operation for a proposal-bound
+discussion write.
 
 ### Validation is not publication permission
 
@@ -105,6 +107,23 @@ reparent operations and model-authored lifecycle state do not belong in this fil
 - **Apply** requires the previewed exact digest and native authorization. It
   checks live preconditions and records execution/readback in the journal.
   Structural validity or a successful preview is not consent to publish.
+
+### Append one discussion comment
+
+An `append-comment` operation is an ADO-only, single-attempt write through the same
+digest-bound proposal and journal lifecycle as other proposal operations. It names a
+published `workItemId`, an explicit saved Bench ID and contents digest, and the bound
+identity ID. The review model shows the exact submitted text and the exact effective
+HTML body that will be sent. Plain text is HTML-escaped; Markdown disables raw HTML,
+images, and non-HTTP(S)/mailto links. The format is only `plain` or `markdown`.
+
+Twig enforces separate local UTF-8 limits of 16 KiB for submitted text and 64 KiB for
+the effective provider body. These are safety caps, not provider limits; over-limit
+content is rejected and never truncated. An ambiguous POST outcome is `Indeterminate`.
+Twig never retries the append or infers success from comment-list contents. Only a
+typed comment-ID receipt permits comment-specific readback. A v2 proposal cannot
+contain this operation, and review-model version 2 requires presenters to render the
+complete effect rather than authorizing while omitting it.
 
 Do not edit a previewed proposal. Changed intent needs a fresh file and fresh
 operation identities; use native recovery for an interrupted original instead.
@@ -181,8 +200,7 @@ Unknown/in-flight outcomes, active leases, missing evidence and mismatches stay 
 `proposal status` exposes `origin` and each operation's separate `outcomeReceipt`;
 the historical `state` is never rewritten as `Verified`. Unknown legacy origin
 cannot silently adopt the current actor. A fresh proposal requires fresh operation
-identities and current preview/authorization. Plan JSON v1 still has only its five
-existing operation kinds. Version 2 uses provider-qualified identities and opaque
+identities and current preview/authorization. Plan JSON v1 supports six operation kinds, including `append-comment`. Version 2 uses provider-qualified identities and opaque
 provider revision tokens for batch/link/delete proposals, but remains review-only:
 preview does not journal it and apply refuses it before authorization or provider
 access. Reconciliation is a separate native action.

@@ -55,6 +55,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoWiqlResponse))]
 [JsonSerializable(typeof(AdoWiqlRequest))]
 [JsonSerializable(typeof(AdoCommentRequest))]
+[JsonSerializable(typeof(AdoDiscussionCommentPostRequest))]
 [JsonSerializable(typeof(AdoPatchOperation))]
 [JsonSerializable(typeof(List<AdoPatchOperation>))]
 // Work item type CATEGORY DTOs (AB#656 — hidden/system type membership)
@@ -263,6 +264,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DraftEditingContext))]
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(AdoCommentListResponse))]
+[JsonSerializable(typeof(AdoDiscussionComment))]
 [JsonSerializable(typeof(DiscussionRequest))]
 [JsonSerializable(typeof(DiscussionResult))]
 [JsonSerializable(typeof(DiscussionContext))]

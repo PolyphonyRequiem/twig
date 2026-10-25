@@ -1,8 +1,9 @@
 // Shape validation is not capture authentication. This module performs no acquisition or mutation.
-const KINDS = { Batch: "batch", AddLink: "add-link", RemoveLink: "remove-link", PublishSeed: "publish-seed", Delete: "delete" };
+const KINDS = { Batch: "batch", AddLink: "add-link", RemoveLink: "remove-link", PublishSeed: "publish-seed", Delete: "delete", AppendComment: "append-comment" };
 const EFFECTS = {
     batch: ["field-set", "field-clear"], "add-link": ["link-add"],
     "remove-link": ["link-remove"], "publish-seed": ["seed-publish"], delete: ["work-item-delete"],
+    "append-comment": ["discussion-append"],
 };
 const record = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const text = (v) => typeof v === "string";
@@ -67,7 +68,7 @@ function consequence(c, kind, provider) {
 
 export function retainProposalReview(rawJson, expected) {
     requireShape(record(expected) && nonempty(expected.captureId) &&
-        expected.captureId === expected.expectedCaptureId && expected.expectedModelVersion === 1 &&
+        expected.captureId === expected.expectedCaptureId && [1, 2].includes(expected.expectedModelVersion) &&
         digest(expected.digest) && workspace(expected.workspace) &&
         expected.sourceKind === "host-supplied-native-preview",
     "expected capture identity, model version, workspace, digest and source kind are required");
@@ -79,13 +80,17 @@ export function retainProposalReview(rawJson, expected) {
         typeof envelope.canApply === "boolean" && Array.isArray(envelope.operations) &&
         Array.isArray(envelope.issues) && Array.isArray(envelope.pendingChanges), "invalid native preview envelope");
     const model = envelope.reviewModel;
-    requireShape(record(model) && model.model === "twig.change-proposal.review" && model.modelVersion === 1 &&
+    requireShape(record(model) && model.model === "twig.change-proposal.review" &&
+        model.modelVersion === expected.expectedModelVersion &&
         model.digest === envelope.digest && sameWorkspace(model.workspace, expected.workspace),
     "unsupported model or reported identity mismatch");
     requireShape(nullableText(model.rationale) && Array.isArray(model.operations) &&
         model.operations.length === envelope.operations.length &&
         Array.isArray(model.authorizationChoices) && model.authorizationChoices.every(nonempty) &&
         Array.isArray(model.blockers), "missing review coverage");
+    requireShape(model.modelVersion === 1 ||
+        model.operations.some((operation) => record(operation) && operation.kind === "append-comment"),
+    "version 2 requires a discussion append");
     items(model.affectedItems);
     if (model.contextItems !== undefined) items(model.contextItems);
     if (model.recipe != null) requireShape(record(model.recipe) && nonempty(model.recipe.recipeId) &&
@@ -125,10 +130,34 @@ export function retainProposalReview(rawJson, expected) {
                 : publishedId(op.target.workItemId) && op.target.stagedIdentity === null, "invalid operation target");
         if (provider) markProvider(op.target.providerWorkItem, "target");
         if (op.kind !== "batch") requireShape(op.consequences.length === 1, "unexpected effect count");
-        for (const pre of op.preconditions) {
-            requireShape(record(pre) && pre.kind === (provider ? "expectedProviderRevision"
-                : op.kind === "publish-seed" ? "expectedFingerprint" : "expectedRevision") &&
-                nonempty(pre.value), "invalid native precondition");
+        if (op.kind === "append-comment") {
+            requireShape(model.modelVersion === 2 && !provider && op.target.workItemId > 0 &&
+                op.target.stagedIdentity === null && op.target.seed == null,
+            "discussion append requires a version-2 published work-item target");
+            const expectedPreconditions = new Map([
+                ["savedBenchId", (value) => text(value) && /^[1-9][0-9]*$/.test(value)],
+                ["expectedBenchContentsDigest", digest],
+                ["expectedIdentityId", nonempty],
+            ]);
+            requireShape(op.preconditions.length === expectedPreconditions.size, "incomplete discussion append preconditions");
+            for (const pre of op.preconditions) {
+                requireShape(record(pre) && expectedPreconditions.has(pre.kind) &&
+                    expectedPreconditions.get(pre.kind)(pre.value), "invalid discussion append precondition");
+                expectedPreconditions.delete(pre.kind);
+            }
+            requireShape(expectedPreconditions.size === 0, "missing discussion append precondition");
+            const effect = op.consequences[0];
+            requireShape(op.consequences.length === 1 && record(effect) &&
+                effect.kind === "discussion-append" &&
+                ["plain", "markdown"].includes(effect.bodyFormat) &&
+                nonempty(effect.submittedText) && nonempty(effect.effectiveBody),
+            "incomplete discussion append effect");
+        } else {
+            for (const pre of op.preconditions) {
+                requireShape(record(pre) && pre.kind === (provider ? "expectedProviderRevision"
+                    : op.kind === "publish-seed" ? "expectedFingerprint" : "expectedRevision") &&
+                    nonempty(pre.value), "invalid native precondition");
+            }
         }
         for (const c of op.consequences) {
             consequence(c, op.kind, provider);

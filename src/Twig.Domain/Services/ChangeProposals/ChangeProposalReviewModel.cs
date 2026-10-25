@@ -5,7 +5,7 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// <summary>
 /// The canonical semantic review model — the sole source of truth for what a reviewer must
 /// be shown before authorizing a Change Proposal. Shape fixed by design record T2 (AB#741)
-/// as <c>modelVersion</c> 1.
+/// as <c>modelVersion</c> 1, with version 2 for discussion-append effects.
 /// <para>
 /// <b>Derived, never hashed.</b> The model embeds <see cref="Digest"/>; it never contributes
 /// to it. <see cref="AffectedItems"/> carries live titles and states, which change over
@@ -35,10 +35,10 @@ public sealed record ChangeProposalReviewModel
     public string Model => "twig.change-proposal.review";
 
     /// <summary>
-    /// Model schema version. Incremented ONLY on a breaking change; additive optional
-    /// members do not increment it.
+    /// Append-comment operations require version 2 so consumers validate and render their
+    /// exact submitted and effective discussion bodies.
     /// </summary>
-    public int ModelVersion => 1;
+    public int ModelVersion => Operations.Any(static operation => operation.Kind == "append-comment") ? 2 : 1;
 
     /// <summary>
     /// The proposal's digest, verbatim. A renderer never recomputes this — it is the value
@@ -147,7 +147,7 @@ public sealed record ReviewOperation
     /// <summary>The document-unique operation id.</summary>
     public required string OpId { get; init; }
 
-    /// <summary>Wire kind: <c>batch|add-link|remove-link|publish-seed|delete</c>.</summary>
+    /// <summary>Wire kind: <c>batch|add-link|remove-link|publish-seed|delete|append-comment</c>.</summary>
     public required string Kind { get; init; }
 
     /// <summary>What this operation acts on.</summary>
@@ -224,7 +224,7 @@ public sealed record ReviewConsequence
 {
     /// <summary>
     /// <c>field-set</c>, <c>field-clear</c>, <c>link-add</c>, <c>link-remove</c>,
-    /// <c>seed-publish</c>, or <c>work-item-delete</c>.
+    /// <c>seed-publish</c>, <c>work-item-delete</c>, or <c>discussion-append</c>.
     /// </summary>
     public required string Kind { get; init; }
 
@@ -255,6 +255,15 @@ public sealed record ReviewConsequence
 
     /// <summary>Provider-qualified far end of a version 2 link or deleted item.</summary>
     public ProviderWorkItemReference? OtherProviderWorkItem { get; init; }
+
+    /// <summary>Submitted format for an append-comment consequence.</summary>
+    public string? BodyFormat { get; init; }
+
+    /// <summary>Exact submitted text for an append-comment consequence.</summary>
+    public string? SubmittedText { get; init; }
+
+    /// <summary>Exact effective provider body for an append-comment consequence.</summary>
+    public string? EffectiveBody { get; init; }
 }
 
 /// <summary>Something preventing this proposal from applying right now.</summary>

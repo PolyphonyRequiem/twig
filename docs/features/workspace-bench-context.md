@@ -255,6 +255,11 @@ before its reads or mutations. A pin operation resolves its current Bench once
 and uses that captured storage ID for both removals, even if another caller
 switches the Bench pointer while it runs.
 
+Ordinary workspace and tree displays compose durable local field edits over
+the mirrored values on display copies; reads do not write those values back.
+The versioned BrowserV2 document remains explicitly `raw-mirror` and does not
+use that display overlay.
+
 `twig workspace sync` is a pull-only, Bench-scoped refresh of its query and
 pin selectors plus bounded configured context relationships. It never flushes
 pending writes and does not change the behavior of ordinary `twig sync`.

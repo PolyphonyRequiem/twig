@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
 """Run already-built CI assemblies serially, with bounded CLI sessions and exact coverage.
 
-Usage: python tools/run-ci-tests.py [--selftest]
+Usage: python tools/run-ci-tests.py [--selftest | --selftest-windows-cleanup]
 The local run-tests.sh BinaryLauncher exclusion is deliberately NOT used here.
 """
 
 import argparse
 from collections import Counter
 from dataclasses import dataclass
+import ctypes
 import json
 import os
 from pathlib import Path
+import queue
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
 
 
@@ -49,6 +54,121 @@ SUMMARY = re.compile(
     r"Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)"
 )
 NS = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+WINDOWS_TREE_STARTUP_TIMEOUT = 10
+WINDOWS_TREE_OUTER_TIMEOUT = 45
+
+WINDOWS_TREE_WORKER = r"""
+import ctypes
+from ctypes import wintypes
+import os
+import subprocess
+import sys
+import time
+
+class FILETIME(ctypes.Structure):
+    _fields_ = [("low", wintypes.DWORD), ("high", wintypes.DWORD)]
+
+kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+kernel.GetCurrentProcess.restype = wintypes.HANDLE
+
+def creation_time(handle):
+    kernel.GetProcessTimes.argtypes = [
+        wintypes.HANDLE, ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+        ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+    ]
+    created = FILETIME()
+    exited = FILETIME()
+    kernel_seconds = FILETIME()
+    user_seconds = FILETIME()
+    if not kernel.GetProcessTimes(
+        handle, ctypes.byref(created), ctypes.byref(exited),
+        ctypes.byref(kernel_seconds), ctypes.byref(user_seconds),
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return (created.high << 32) | created.low
+
+creation = creation_time(kernel.GetCurrentProcess())
+role = sys.argv[1]
+
+if role == "root":
+    print(f"READY root {os.getpid()} {creation}", flush=True)
+    child = None
+    for command in sys.stdin:
+        command = command.strip()
+        if command == "spawn-child":
+            child = subprocess.Popen(
+                [sys.executable, "-c", sys.argv[2], "child", sys.argv[2]],
+                stdin=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            print(f"CHILD {child.pid} {creation_time(child._handle)}", flush=True)
+        elif command == "announce-child" and child is not None:
+            child.stdin.write("announce\n")
+            child.stdin.flush()
+        elif command == "spawn-grandchild" and child is not None:
+            child.stdin.write("spawn-grandchild\n")
+            child.stdin.flush()
+        elif command == "announce-grandchild" and child is not None:
+            child.stdin.write("announce-grandchild\n")
+            child.stdin.flush()
+elif role == "child":
+    grandchild = None
+    for command in sys.stdin:
+        command = command.strip()
+        if command == "announce":
+            print(f"READY child {os.getpid()} {creation}", flush=True)
+        elif command == "spawn-grandchild":
+            grandchild = subprocess.Popen(
+                [sys.executable, "-c", sys.argv[2], "grandchild", sys.argv[2]],
+                stdin=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            print(f"CHILD {grandchild.pid} {creation_time(grandchild._handle)}", flush=True)
+        elif command == "announce-grandchild" and grandchild is not None:
+            grandchild.stdin.write("announce\n")
+            grandchild.stdin.flush()
+elif role == "grandchild":
+    for command in sys.stdin:
+        if command.strip() == "announce":
+            print(f"READY grandchild {os.getpid()} {creation}", flush=True)
+            break
+while True:
+    time.sleep(0.1)
+"""
+
+WINDOWS_SENTINEL_WORKER = r"""
+import ctypes
+from ctypes import wintypes
+import os
+import sys
+
+class FILETIME(ctypes.Structure):
+    _fields_ = [("low", wintypes.DWORD), ("high", wintypes.DWORD)]
+
+kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+kernel.GetCurrentProcess.restype = wintypes.HANDLE
+kernel.GetProcessTimes.argtypes = [
+    wintypes.HANDLE, ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+    ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+]
+created = FILETIME()
+exited = FILETIME()
+kernel_seconds = FILETIME()
+user_seconds = FILETIME()
+if not kernel.GetProcessTimes(
+    kernel.GetCurrentProcess(), ctypes.byref(created), ctypes.byref(exited),
+    ctypes.byref(kernel_seconds), ctypes.byref(user_seconds),
+):
+    raise ctypes.WinError(ctypes.get_last_error())
+creation = (created.high << 32) | created.low
+print(f"READY sentinel {os.getpid()} {creation}", flush=True)
+for challenge in sys.stdin:
+    print(f"PONG {challenge.strip()} {os.getpid()} {creation}", flush=True)
+"""
 
 
 class RunFailure(RuntimeError):
@@ -194,11 +314,69 @@ def reconcile_result(output, exit_code, trx, expected):
     return actual, passed, skipped
 
 
+def _cleanup_output(value):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _stop_windows_session(process):
+    command = ["taskkill", "/PID", str(process.pid), "/T", "/F"]
+    result = None
+    taskkill_error = None
+    try:
+        result = subprocess.run(command, capture_output=True, check=False, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        taskkill_error = error
+
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired as error:
+        if taskkill_error is not None:
+            taskkill_status = (
+                "taskkill timed out"
+                if isinstance(taskkill_error, subprocess.TimeoutExpired)
+                else f"taskkill could not run: {taskkill_error}"
+            )
+            stdout = _cleanup_output(getattr(taskkill_error, "stdout", None))
+            stderr = _cleanup_output(getattr(taskkill_error, "stderr", None))
+        else:
+            taskkill_status = f"taskkill returned {result.returncode}"
+            stdout = _cleanup_output(result.stdout)
+            stderr = _cleanup_output(result.stderr)
+        raise RunFailure(
+            f"{taskkill_status}; wrapper did not exit within 10 seconds; "
+            f"tree termination unconfirmed; taskkill stdout={stdout!r}; taskkill stderr={stderr!r}"
+        ) from error
+
+    if taskkill_error is not None:
+        taskkill_status = (
+            "taskkill timed out"
+            if isinstance(taskkill_error, subprocess.TimeoutExpired)
+            else f"taskkill could not run: {taskkill_error}"
+        )
+        stdout = _cleanup_output(getattr(taskkill_error, "stdout", None))
+        stderr = _cleanup_output(getattr(taskkill_error, "stderr", None))
+        raise RunFailure(
+            f"{taskkill_status}; wrapper exited; tree termination unconfirmed; "
+            f"taskkill stdout={stdout!r}; taskkill stderr={stderr!r}"
+        ) from taskkill_error
+
+    if result.returncode != 0:
+        raise RunFailure(
+            f"taskkill returned {result.returncode}; wrapper exited; tree termination unconfirmed; "
+            f"taskkill stdout={_cleanup_output(result.stdout)!r}; "
+            f"taskkill stderr={_cleanup_output(result.stderr)!r}"
+        )
+
+
 def stop_session(process, elevated):
     # Kill only the tree launched by this runner; never leave a timed-out host beside the next partition.
     if os.name == "nt":
-        result = subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
-        require(result.returncode == 0 or process.poll() is not None, "could not stop timed-out test process tree")
+        _stop_windows_session(process)
+        return
     else:
         prefix = ["sudo", "-n"] if elevated else []
         # Freeze parents before looking for children, so the captured tree cannot keep spawning.
@@ -334,6 +512,117 @@ class Runner:
 
 class RunnerSelfTests(unittest.TestCase):
     """Synthetic runner-contract checks only: no SDK, build, discovery or test host."""
+    def test_windows_taskkill_failure_reaps_wrapper_without_claiming_tree_stopped(self):
+        process = Mock(pid=4321)
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        self.assertIsNone(process.poll())
+        taskkill = subprocess.CompletedProcess(
+            ["taskkill"], 1, "synthetic taskkill stdout", "synthetic taskkill diagnostic")
+
+        with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
+            with patch.object(subprocess, "run", return_value=taskkill) as run:
+                with self.assertRaisesRegex(RunFailure, "tree termination unconfirmed") as failure:
+                    stop_session(process, False)
+
+        process.wait.assert_called_once_with(timeout=10)
+        self.assertIn("taskkill returned 1", str(failure.exception))
+        self.assertIn("synthetic taskkill stdout", str(failure.exception))
+        self.assertIn("synthetic taskkill diagnostic", str(failure.exception))
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "4321", "/T", "/F"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+
+    def test_windows_taskkill_timeout_preserves_diagnostics_and_bounds_wrapper_reap(self):
+        process = Mock(pid=4322)
+        process.wait.return_value = 0
+        timeout = subprocess.TimeoutExpired(
+            ["taskkill"], 10, output="partial taskkill stdout", stderr="partial taskkill stderr")
+
+        with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
+            with patch.object(subprocess, "run", side_effect=timeout) as run:
+                with self.assertRaisesRegex(RunFailure, "taskkill timed out") as failure:
+                    stop_session(process, False)
+
+        process.wait.assert_called_once_with(timeout=10)
+        self.assertIn("partial taskkill stdout", str(failure.exception))
+        self.assertIn("partial taskkill stderr", str(failure.exception))
+        self.assertIn("tree termination unconfirmed", str(failure.exception))
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "4322", "/T", "/F"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+
+    def test_windows_taskkill_failure_reports_unreaped_wrapper_honestly(self):
+        process = Mock(pid=4323)
+        process.wait.side_effect = subprocess.TimeoutExpired(["test-runner"], 10)
+        taskkill = subprocess.CompletedProcess(
+            ["taskkill"], 1, "taskkill stdout", "taskkill stderr")
+
+        with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
+            with patch.object(subprocess, "run", return_value=taskkill):
+                with self.assertRaisesRegex(RunFailure, "wrapper did not exit") as failure:
+                    stop_session(process, False)
+
+        process.wait.assert_called_once_with(timeout=10)
+        self.assertIn("tree termination unconfirmed", str(failure.exception))
+        self.assertIn("taskkill stdout", str(failure.exception))
+        self.assertIn("taskkill stderr", str(failure.exception))
+
+    def test_windows_taskkill_success_keeps_bounded_wrapper_wait(self):
+        process = Mock(pid=4324)
+        process.wait.return_value = 0
+        taskkill = subprocess.CompletedProcess(["taskkill"], 0, "SUCCESS", "")
+
+        with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
+            with patch.object(subprocess, "run", return_value=taskkill) as run:
+                stop_session(process, False)
+
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "4324", "/T", "/F"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        process.wait.assert_called_once_with(timeout=10)
+
+    def test_windows_taskkill_success_does_not_claim_tree_stopped_when_wrapper_wait_times_out(self):
+        process = Mock(pid=4325)
+        process.wait.side_effect = subprocess.TimeoutExpired(["test-runner"], 10)
+        taskkill = subprocess.CompletedProcess(["taskkill"], 0, "SUCCESS", "")
+
+        with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
+            with patch.object(subprocess, "run", return_value=taskkill):
+                with self.assertRaises(RunFailure) as failure:
+                    stop_session(process, False)
+
+        process.wait.assert_called_once_with(timeout=10)
+        self.assertNotIn("tree stopped", str(failure.exception))
+
+    def test_windows_taskkill_oserror_reaps_wrapper_and_reports_unconfirmed_tree(self):
+        process = Mock(pid=4326)
+        process.wait.return_value = 0
+
+        with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
+            with patch.object(subprocess, "run", side_effect=FileNotFoundError("taskkill missing")) as run:
+                with self.assertRaisesRegex(RunFailure, "tree termination unconfirmed") as failure:
+                    stop_session(process, False)
+
+        process.wait.assert_called_once_with(timeout=10)
+        self.assertIn("taskkill could not run", str(failure.exception))
+        self.assertIn("taskkill missing", str(failure.exception))
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "4326", "/T", "/F"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+
     def test_partition_coverage_is_complete_disjoint_and_bounded(self):
         cases = Counter({f"Twig.Cli.Tests.Commands.Ordinary{index // 15}.Case{index}": 1 for index in range(421)})
         cases.update({f"Twig.Cli.Tests.Commands.Oversized.Case{index}": 1 for index in range(250)})
@@ -404,14 +693,492 @@ class RunnerSelfTests(unittest.TestCase):
                 reconcile_result(output, 0, path, expected)
 
 
+class WindowsCleanupProcessTreeSelfTest(unittest.TestCase):
+    """Opt-in Windows process-tree control; ordinary --selftest remains synthetic-only."""
+
+    @unittest.skipUnless(os.name == "nt", "real process-tree control requires Windows")
+    def test_taskkill_stops_owned_tree_and_preserves_challenged_sentinel(self):
+        api = _WindowsProcessApi()
+        cleanup_deadline = time.monotonic() + WINDOWS_TREE_OUTER_TIMEOUT
+        startup_deadline = time.monotonic() + WINDOWS_TREE_STARTUP_TIMEOUT
+        root = None
+        root_handle = None
+        sentinel = None
+        owned = []
+        process_roles = {}
+        sentinel_handle = None
+        readers = []
+        primary_error = None
+        cleanup_errors = []
+        taskkill_attempted = False
+        child_spawn_requested = False
+        grandchild_spawn_requested = False
+        child_handle = None
+        grandchild_handle = None
+        child_identity = None
+        grandchild_identity = None
+        final_handle_states = []
+
+        try:
+            root = subprocess.Popen(
+                [sys.executable, "-c", WINDOWS_TREE_WORKER, "root", WINDOWS_TREE_WORKER],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            root_handle = api.open_from_popen(root)
+            owned.append(root_handle)
+            process_roles[root_handle.pid] = "root"
+            root_lines = queue.Queue()
+            root_reader = threading.Thread(target=_pump_lines, args=(root.stdout, root_lines), daemon=True)
+            root_reader.start()
+            readers.append((root_reader, root.stdout))
+            root_record = _read_worker_record(root_lines, "root", startup_deadline)
+            require(root_record[1] == root_handle.pid and root_record[2] == root_handle.creation_time,
+                    "root READY identity did not match the immediately retained Popen handle")
+            _fixture_evidence("identity", f"role={root_record[0]} pid={root_record[1]} creation={root_record[2]}")
+
+            child_spawn_requested = True
+            root.stdin.write("spawn-child\n")
+            root.stdin.flush()
+            child_pid, child_creation = _read_child_pid(root_lines, startup_deadline)
+            child_identity = (child_pid, child_creation)
+            child_handle = api.open_verified(child_pid, child_creation)
+            owned.append(child_handle)
+            process_roles[child_handle.pid] = "child"
+            root.stdin.write("announce-child\n")
+            root.stdin.flush()
+            child_record = _read_worker_record(root_lines, "child", startup_deadline)
+            require(child_record[1:] == (child_handle.pid, child_handle.creation_time),
+                    "child READY identity did not match its immediately retained parent-reported handle")
+            _fixture_evidence("identity", f"role={child_record[0]} pid={child_record[1]} creation={child_record[2]}")
+
+            grandchild_spawn_requested = True
+            root.stdin.write("spawn-grandchild\n")
+            root.stdin.flush()
+            grandchild_pid, grandchild_creation = _read_child_pid(root_lines, startup_deadline)
+            grandchild_identity = (grandchild_pid, grandchild_creation)
+            grandchild_handle = api.open_verified(grandchild_pid, grandchild_creation)
+            owned.append(grandchild_handle)
+            process_roles[grandchild_handle.pid] = "grandchild"
+            root.stdin.write("announce-grandchild\n")
+            root.stdin.flush()
+            grandchild_record = _read_worker_record(root_lines, "grandchild", startup_deadline)
+            require(grandchild_record[1:] == (grandchild_handle.pid, grandchild_handle.creation_time),
+                    "grandchild READY identity did not match its immediately retained parent-reported handle")
+            _fixture_evidence(
+                "identity",
+                f"role={grandchild_record[0]} pid={grandchild_record[1]} creation={grandchild_record[2]}",
+            )
+
+            sentinel = subprocess.Popen(
+                [sys.executable, "-c", WINDOWS_SENTINEL_WORKER],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            sentinel_handle = api.open_from_popen(sentinel)
+            process_roles[sentinel_handle.pid] = "sentinel"
+            sentinel_lines = queue.Queue()
+            sentinel_reader = threading.Thread(target=_pump_lines, args=(sentinel.stdout, sentinel_lines), daemon=True)
+            sentinel_reader.start()
+            readers.append((sentinel_reader, sentinel.stdout))
+            sentinel_record = _read_worker_record(sentinel_lines, "sentinel", startup_deadline)
+            require(sentinel_record[1:] == (sentinel_handle.pid, sentinel_handle.creation_time),
+                    "sentinel READY identity did not match the immediately retained Popen handle")
+            _fixture_evidence(
+                "identity",
+                f"role={sentinel_record[0]} pid={sentinel_record[1]} creation={sentinel_record[2]}",
+            )
+
+            pids = [record[1] for record in (*[root_record, child_record, grandchild_record], sentinel_record)]
+            require(len(set(pids)) == 4, f"fixture PIDs are not distinct: {pids}")
+            require(
+                all(api.is_running(handle) for handle in owned) and api.is_running(sentinel_handle),
+                "not all four identity-validated process handles were alive immediately before taskkill",
+            )
+            pre_taskkill = [(process_roles[handle.pid], handle, api.is_running(handle)) for handle in [*owned, sentinel_handle]]
+            _fixture_evidence(
+                "pre-taskkill",
+                *(f"role={role} pid={handle.pid} creation={handle.creation_time} alive={alive}"
+                  for role, handle, alive in pre_taskkill),
+            )
+            require(time.monotonic() + 20 < cleanup_deadline, "fixture startup left insufficient bounded cleanup time")
+
+            taskkill_attempted = True
+            _stop_with_evidence(root, "primary")
+            for handle in owned:
+                require(api.wait(handle, _remaining_ms(cleanup_deadline)),
+                        f"owned PID {handle.pid} did not exit before the outer deadline")
+            _fixture_evidence(
+                "post-taskkill",
+                *(f"role={process_roles[handle.pid]} pid={handle.pid} creation={handle.creation_time} signaled={not api.is_running(handle)}"
+                  for handle in owned),
+            )
+            require(api.is_running(sentinel_handle), "unrelated sentinel exited during taskkill")
+
+            challenge = f"challenge-{time.monotonic_ns()}"
+            sentinel.stdin.write(challenge + "\n")
+            sentinel.stdin.flush()
+            response = _read_line(sentinel_lines, cleanup_deadline)
+            expected_response = f"PONG {challenge} {sentinel_record[1]} {sentinel_record[2]}"
+            require(response == expected_response, f"sentinel challenge response mismatch: {response!r}")
+            require(api.is_running(sentinel_handle), "sentinel exited after answering the post-cleanup challenge")
+            _fixture_evidence("sentinel-challenge", response)
+        except Exception as error:
+            primary_error = error
+        finally:
+            if child_spawn_requested and child_handle is None:
+                cleanup_errors.append("child was requested but its creation-identity-validated handle was not retained")
+            if grandchild_spawn_requested and grandchild_handle is None:
+                cleanup_errors.append("grandchild was requested but its creation-identity-validated handle was not retained")
+            if root is not None and not taskkill_attempted and child_spawn_requested and root_handle is not None:
+                try:
+                    if root.poll() is None and time.monotonic() + 20 < cleanup_deadline:
+                        _stop_with_evidence(root, "incomplete-tree-cleanup")
+                    elif root.poll() is None:
+                        cleanup_errors.append("could not safely bound taskkill cleanup for an incompletely identified tree")
+                    else:
+                        cleanup_errors.append("root exited before the incomplete process tree was fully confirmed")
+                except Exception as error:
+                    cleanup_errors.append(f"could not stop incompletely identified tree: {error}")
+            elif root is not None and root_handle is None and root.poll() is None:
+                try:
+                    root.terminate()
+                    root.wait(timeout=min(2, max(0.001, cleanup_deadline - time.monotonic())))
+                except Exception as error:
+                    cleanup_errors.append(f"could not terminate exact Popen root handle PID {root.pid}: {error}")
+
+            if sentinel is not None and sentinel_handle is None and sentinel.poll() is None:
+                try:
+                    sentinel.terminate()
+                    sentinel.wait(timeout=min(2, max(0.001, cleanup_deadline - time.monotonic())))
+                except Exception as error:
+                    cleanup_errors.append(f"could not terminate exact Popen sentinel handle PID {sentinel.pid}: {error}")
+
+            for handle in owned:
+                try:
+                    if api.is_running(handle):
+                        api.terminate(handle)
+                except Exception as error:
+                    cleanup_errors.append(f"could not terminate owned PID {handle.pid} by retained handle: {error}")
+            if sentinel_handle is not None:
+                try:
+                    if api.is_running(sentinel_handle):
+                        api.terminate(sentinel_handle)
+                except Exception as error:
+                    cleanup_errors.append(f"could not terminate sentinel PID {sentinel_handle.pid} by retained handle: {error}")
+
+            for handle in [*owned, *([sentinel_handle] if sentinel_handle is not None else [])]:
+                try:
+                    running = api.is_running(handle)
+                except Exception as error:
+                    cleanup_errors.append(f"could not verify termination for PID {handle.pid}: {error}")
+                    final_handle_states.append((process_roles[handle.pid], handle.pid, handle.creation_time, None))
+                    continue
+                if running:
+                    remaining = _remaining_ms(cleanup_deadline)
+                    try:
+                        stopped = remaining > 0 and api.wait(handle, min(2000, remaining))
+                    except Exception as error:
+                        cleanup_errors.append(f"could not wait for PID {handle.pid}: {error}")
+                    else:
+                        if not stopped:
+                            cleanup_errors.append(f"process termination unconfirmed for PID {handle.pid}")
+                try:
+                    final_handle_states.append(
+                        (process_roles[handle.pid], handle.pid, handle.creation_time, api.is_running(handle))
+                    )
+                except Exception as error:
+                    cleanup_errors.append(f"could not verify final state for PID {handle.pid}: {error}")
+                    final_handle_states.append((process_roles[handle.pid], handle.pid, handle.creation_time, None))
+
+            for process in (root, sentinel):
+                if process is not None:
+                    remaining = cleanup_deadline - time.monotonic()
+                    if remaining > 0:
+                        try:
+                            process.wait(timeout=min(2, remaining))
+                        except (subprocess.TimeoutExpired, OSError) as error:
+                            cleanup_errors.append(f"could not reap fixture wrapper PID {process.pid}: {error}")
+                    elif process.poll() is None:
+                        cleanup_errors.append(f"fixture wrapper PID {process.pid} remained alive at the outer deadline")
+                    if process.stdin is not None:
+                        try:
+                            process.stdin.close()
+                        except OSError as error:
+                            cleanup_errors.append(f"could not close fixture input pipe for PID {process.pid}: {error}")
+                    if process is root and root_handle is None or process is sentinel and sentinel_handle is None:
+                        role = "root" if process is root else "sentinel"
+                        try:
+                            creation = api._creation_time(process._handle)
+                        except Exception:
+                            creation = None
+                        final_handle_states.append((role, process.pid, creation, process.poll() is None))
+            for reader, _ in readers:
+                reader.join(timeout=min(0.2, max(0, cleanup_deadline - time.monotonic())))
+                if reader.is_alive():
+                    cleanup_errors.append("fixture output reader did not stop within 200ms")
+            for reader, stream in readers:
+                if not reader.is_alive():
+                    try:
+                        stream.close()
+                    except OSError as error:
+                        cleanup_errors.append(f"could not close fixture output pipe: {error}")
+            for handle in [*owned, *([sentinel_handle] if sentinel_handle is not None else [])]:
+                try:
+                    api.close(handle)
+                except OSError as error:
+                    cleanup_errors.append(f"could not close process handle for PID {handle.pid}: {error}")
+
+            if child_spawn_requested and child_handle is None:
+                final_handle_states.append(
+                    ("child", child_identity[0] if child_identity else None,
+                     child_identity[1] if child_identity else None, None)
+                )
+            if grandchild_spawn_requested and grandchild_handle is None:
+                final_handle_states.append(
+                    ("grandchild", grandchild_identity[0] if grandchild_identity else None,
+                     grandchild_identity[1] if grandchild_identity else None, None)
+                )
+            _fixture_evidence(
+                "final-cleanup",
+                *(
+                    f"role={role} pid={pid if pid is not None else 'unrecorded'} "
+                    f"creation={creation if creation is not None else 'unrecorded'} "
+                    f"state={'unknown' if state is None else ('alive' if state else 'signaled')}"
+                    for role, pid, creation, state in final_handle_states
+                ),
+            )
+
+        if primary_error is not None or cleanup_errors:
+            details = []
+            if primary_error is not None:
+                details.append(f"primary failure: {primary_error}")
+            if cleanup_errors:
+                details.append("cleanup failures: " + " | ".join(cleanup_errors))
+            raise RunFailure("; ".join(details)) from primary_error
+
+
+class _WindowsProcessApi:
+    PROCESS_TERMINATE = 0x0001
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    SYNCHRONIZE = 0x00100000
+    WAIT_OBJECT_0 = 0
+    WAIT_TIMEOUT = 258
+
+    def __init__(self):
+        from ctypes import wintypes
+
+        class FILETIME(ctypes.Structure):
+            _fields_ = [("low", wintypes.DWORD), ("high", wintypes.DWORD)]
+
+        self.FILETIME = FILETIME
+        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        self.kernel.OpenProcess.restype = wintypes.HANDLE
+        self.kernel.GetProcessTimes.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(FILETIME),
+            ctypes.POINTER(FILETIME),
+            ctypes.POINTER(FILETIME),
+            ctypes.POINTER(FILETIME),
+        ]
+        self.kernel.GetProcessTimes.restype = wintypes.BOOL
+        self.kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        self.kernel.WaitForSingleObject.restype = wintypes.DWORD
+        self.kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        self.kernel.TerminateProcess.restype = wintypes.BOOL
+        self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        self.kernel.CloseHandle.restype = wintypes.BOOL
+
+    def open_verified(self, pid, expected_creation):
+        handle = self.kernel.OpenProcess(
+            self.PROCESS_TERMINATE | self.PROCESS_QUERY_LIMITED_INFORMATION | self.SYNCHRONIZE,
+            False,
+            pid,
+        )
+        if not handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            created = self.FILETIME()
+            exited = self.FILETIME()
+            kernel_seconds = self.FILETIME()
+            user_seconds = self.FILETIME()
+            if not self.kernel.GetProcessTimes(
+                handle,
+                ctypes.byref(created),
+                ctypes.byref(exited),
+                ctypes.byref(kernel_seconds),
+                ctypes.byref(user_seconds),
+            ):
+                raise ctypes.WinError(ctypes.get_last_error())
+            actual_creation = (created.high << 32) | created.low
+            require(actual_creation == expected_creation, f"PID {pid} creation identity changed")
+            return _WindowsProcessHandle(pid, actual_creation, handle)
+        except Exception:
+            self.kernel.CloseHandle(handle)
+            raise
+
+    def open_from_popen(self, process):
+        creation = self._creation_time(process._handle)
+        return self.open_verified(process.pid, creation)
+
+    def _creation_time(self, handle):
+        created = self.FILETIME()
+        exited = self.FILETIME()
+        kernel_seconds = self.FILETIME()
+        user_seconds = self.FILETIME()
+        if not self.kernel.GetProcessTimes(
+            handle,
+            ctypes.byref(created),
+            ctypes.byref(exited),
+            ctypes.byref(kernel_seconds),
+            ctypes.byref(user_seconds),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return (created.high << 32) | created.low
+
+    def is_running(self, handle):
+        result = self.kernel.WaitForSingleObject(handle.handle, 0)
+        if result == self.WAIT_TIMEOUT:
+            return True
+        if result == self.WAIT_OBJECT_0:
+            return False
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    def wait(self, handle, timeout_ms):
+        result = self.kernel.WaitForSingleObject(handle.handle, timeout_ms)
+        if result == self.WAIT_OBJECT_0:
+            return True
+        if result == self.WAIT_TIMEOUT:
+            return False
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    def terminate(self, handle):
+        if not self.kernel.TerminateProcess(handle.handle, 1) and self.is_running(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def close(self, handle):
+        if not self.kernel.CloseHandle(handle.handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+
+@dataclass(frozen=True)
+class _WindowsProcessHandle:
+    pid: int
+    creation_time: int
+    handle: object
+
+
+def _pump_lines(stream, destination):
+    for line in stream:
+        destination.put(line.rstrip("\r\n"))
+
+
+def _read_line(lines, deadline):
+    remaining = deadline - time.monotonic()
+    require(remaining > 0, "fixture event exceeded its bounded deadline")
+    try:
+        return lines.get(timeout=remaining)
+    except queue.Empty as error:
+        raise RunFailure("fixture event exceeded its bounded deadline") from error
+
+
+def _read_worker_record(lines, expected_role, deadline):
+    line = _read_line(lines, deadline)
+    parts = line.split()
+    require(
+        len(parts) == 4 and parts[0] == "READY" and parts[1] == expected_role,
+        f"unexpected fixture output while waiting for {expected_role}: {line!r}",
+    )
+    try:
+        return parts[1], int(parts[2]), int(parts[3])
+    except ValueError as error:
+        raise RunFailure(f"invalid fixture process identity: {line!r}") from error
+
+
+def _read_child_pid(lines, deadline):
+    line = _read_line(lines, deadline)
+    parts = line.split()
+    require(len(parts) == 3 and parts[0] == "CHILD",
+            f"parent did not report child PID and creation identity before readiness: {line!r}")
+    try:
+        return int(parts[1]), int(parts[2])
+    except ValueError as error:
+        raise RunFailure(f"invalid child PID report: {line!r}") from error
+
+
+def _remaining_ms(deadline):
+    return max(0, int((deadline - time.monotonic()) * 1000))
+
+
+def _fixture_evidence(phase, *details):
+    suffix = " ".join(details)
+    print(f"TWIG-CLEANUP-EVIDENCE {phase}" + (f" {suffix}" if suffix else ""), flush=True)
+
+
+def _stop_with_evidence(process, phase):
+    run = subprocess.run
+
+    def recorded_run(command, *args, **kwargs):
+        if command and Path(str(command[0])).name.casefold() == "taskkill":
+            try:
+                result = run(command, *args, **kwargs)
+            except subprocess.TimeoutExpired as error:
+                _fixture_evidence(
+                    "taskkill",
+                    f"phase={phase}",
+                    "result=timeout",
+                    f"stdout={_cleanup_output(error.stdout)!r}",
+                    f"stderr={_cleanup_output(error.stderr)!r}",
+                )
+                raise
+            except OSError as error:
+                _fixture_evidence("taskkill", f"phase={phase}", f"result=oserror:{error!r}")
+                raise
+            _fixture_evidence(
+                "taskkill",
+                f"phase={phase}",
+                f"returncode={result.returncode}",
+                f"stdout={_cleanup_output(result.stdout)!r}",
+                f"stderr={_cleanup_output(result.stderr)!r}",
+            )
+            return result
+        return run(command, *args, **kwargs)
+
+    with patch.object(subprocess, "run", side_effect=recorded_run):
+        return stop_session(process, False)
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true", help="check coverage and false-green guards with synthetic data only")
+    parser.add_argument("--selftest-windows-cleanup", action="store_true", help="opt-in real Windows process-tree cleanup control")
     args = parser.parse_args()
+    if args.selftest and args.selftest_windows_cleanup:
+        parser.error("--selftest and --selftest-windows-cleanup are separate selectors")
     if args.selftest:
         result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(RunnerSelfTests))
+        return int(not result.wasSuccessful())
+    if args.selftest_windows_cleanup:
+        if os.name != "nt":
+            parser.error("--selftest-windows-cleanup requires Windows")
+        result = unittest.TextTestRunner(verbosity=2).run(
+            unittest.defaultTestLoader.loadTestsFromTestCase(WindowsCleanupProcessTreeSelfTest)
+        )
         return int(not result.wasSuccessful())
     try:
         return Runner().run()

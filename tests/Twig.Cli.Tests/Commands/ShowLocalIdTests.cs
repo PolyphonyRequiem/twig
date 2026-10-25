@@ -26,7 +26,8 @@ public sealed class ShowLocalIdTests
             .Set("System.Description", new TextValue("Provider description"));
         var localFields = FieldValues.Empty
             .Set("System.Title", new TextValue("Local title"))
-            .Set("System.Description", NullValue.Instance);
+            .Set("System.Description", NullValue.Instance)
+            .Set("custom.facets.review_track", new TextValue("user extension"));
         var now = DateTimeOffset.UtcNow;
         var result = new ProviderWorkItemReadResult(
             identity,
@@ -34,7 +35,8 @@ public sealed class ShowLocalIdTests
             null,
             providerFields,
             providerFields.Set("System.Title", new TextValue("Local title"))
-                .Set("System.Description", NullValue.Instance),
+                .Set("System.Description", NullValue.Instance)
+                .Set("custom.facets.review_track", new TextValue("user extension")),
             [new ProviderWorkItemRelationship(
                 identity,
                 new ExternalWorkItemIdentity("fixture", "scope-7", "opaque/parent"),
@@ -54,10 +56,22 @@ public sealed class ShowLocalIdTests
         root.GetProperty("providerIdentity").GetProperty("nativeId").GetString().ShouldBe("opaque/42");
         root.GetProperty("providerFields").GetProperty("System.Title").GetProperty("value").GetString()
             .ShouldBe("Provider title");
+        root.GetProperty("providerFields").GetProperty("System.Description").GetProperty("value").GetString()
+            .ShouldBe("Provider description");
+        root.GetProperty("localFields").GetProperty("System.Title").GetProperty("value").GetString()
+            .ShouldBe("Local title");
+        root.GetProperty("localFields").GetProperty("System.Description").GetProperty("kind").GetString()
+            .ShouldBe("null");
+        root.GetProperty("localFields").GetProperty("custom.facets.review_track").GetProperty("value").GetString()
+            .ShouldBe("user extension");
+        root.GetProperty("localFields").EnumerateObject().Count().ShouldBe(3);
+        root.GetProperty("localFields").TryGetProperty("custom.facets.not-present", out _).ShouldBeFalse();
         root.GetProperty("fields").GetProperty("System.Title").GetProperty("value").GetString()
             .ShouldBe("Local title");
         root.GetProperty("fields").GetProperty("System.Description").GetProperty("kind").GetString()
             .ShouldBe("null");
+        root.GetProperty("fields").GetProperty("custom.facets.review_track").GetProperty("value").GetString()
+            .ShouldBe("user extension");
         root.GetProperty("relationships")[0].GetProperty("kind").GetString().ShouldBe("parent-child");
         root.GetProperty("relationships")[0].GetProperty("target").GetProperty("nativeId").GetString()
             .ShouldBe("opaque/parent");
@@ -84,6 +98,7 @@ public sealed class ShowLocalIdTests
         outputs.Distinct(StringComparer.Ordinal).Count().ShouldBe(1);
         outputs[0].ShouldContain(Environment.NewLine + "  \"localId\"");
         using var document = JsonDocument.Parse(outputs[0]);
+        document.RootElement.GetProperty("localFields").EnumerateObject().Count().ShouldBe(0);
         document.RootElement.GetProperty("providerRevision").GetString().ShouldBe("provider-token-9");
     }
 

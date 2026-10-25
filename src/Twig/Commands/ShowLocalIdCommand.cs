@@ -115,6 +115,8 @@ internal sealed class ShowLocalIdCommand(
                 writer.WriteString("providerRevision", result.RevisionToken.Value);
             writer.WritePropertyName("providerFields");
             JsonSerializer.Serialize(writer, result.ProviderFields, TwigJsonContext.Default.FieldValues);
+            writer.WritePropertyName("localFields");
+            JsonSerializer.Serialize(writer, result.Local.Fields, TwigJsonContext.Default.FieldValues);
             writer.WritePropertyName("fields");
             JsonSerializer.Serialize(writer, result.Fields, TwigJsonContext.Default.FieldValues);
             writer.WriteStartArray("relationships");

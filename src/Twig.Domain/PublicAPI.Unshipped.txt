@@ -1738,6 +1738,8 @@ Twig.Domain.Services.Policy.PolicyDecision.Outcome.get -> Twig.Domain.Services.P
 Twig.Domain.Services.Policy.PolicyDecision.Outcome.init -> void
 Twig.Domain.Services.Policy.PolicyDecision.OutcomeName.get -> string!
 Twig.Domain.Services.Policy.PolicyDecision.PolicyDecision() -> void
+Twig.Domain.Services.Policy.PolicyDecision.ProviderIdentity.get -> Twig.Domain.ValueObjects.ExternalWorkItemIdentity?
+Twig.Domain.Services.Policy.PolicyDecision.ProviderIdentity.init -> void
 Twig.Domain.Services.Policy.PolicyDecision.Reason.get -> string!
 Twig.Domain.Services.Policy.PolicyDecision.Reason.init -> void
 Twig.Domain.Services.Policy.PolicyDecision.RuleId.get -> string!

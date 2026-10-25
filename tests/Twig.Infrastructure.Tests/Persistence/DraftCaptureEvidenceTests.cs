@@ -5,16 +5,19 @@ using Microsoft.Data.Sqlite;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
+using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Serialization;
 using Twig.Infrastructure.Plan;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Tests.Ado;
+using NSubstitute;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Persistence;
@@ -305,6 +308,69 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         (await journals.GetAsync(journal.Digest))!.DraftCapture!.EvidenceFingerprint.ShouldBe(journal.DraftCapture!.EvidenceFingerprint);
         var next = await CaptureAsync(cache, draft, snapshot, replacement);
         next.Digest.ShouldNotBe(journal.Digest);
+    }
+
+    [Fact]
+    public async Task ProviderNeutralStatusRetainsCaptureWhenNativeOriginUnavailable()
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var captured = await CaptureAsync(cache, draft, snapshot, evidence);
+        var journals = new SqlitePlanJournalRepository(cache);
+        Directory.CreateDirectory(Path.Combine(_directory, "proposals"));
+        await File.WriteAllTextAsync(captured.SourcePath, captured.CanonicalJson);
+        journals.SetCaptureExportState(captured.Digest, complete: true);
+        var before = await journals.GetAsync(captured.Digest);
+        before.ShouldNotBeNull();
+        before.State.ShouldBe(PlanOperationState.Planned);
+        before.AuthorizationMode.ShouldBeNull();
+        before.AuthorizerIdentity.ShouldBeNull();
+        before.AuthorizedAt.ShouldBeNull();
+        before.ConfirmedAt.ShouldBeNull();
+        before.DraftCapture.ShouldNotBeNull();
+        var fileBefore = await File.ReadAllBytesAsync(before.SourcePath);
+        var journalBefore = ReadRows("SELECT * FROM pending.proposal_journals;");
+        var operationsBefore = ReadRows("SELECT * FROM pending.proposal_operations;");
+        var metadataBefore = ReadRows("SELECT * FROM metadata ORDER BY key;");
+        var draftBefore = JsonSerializer.Serialize(draft, TwigJsonContext.Default.RecoverableWorkItemDraft);
+        var twigDir = Path.Combine(_directory, ".twig");
+        var paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(_directory, "twig.db"));
+        var providerSnapshots = Substitute.For<IWorkItemSnapshotReader>();
+        var lifecycle = new PlanLifecycleService(new PlanDocumentParser(), journals,
+            new SqlitePendingChangeStore(cache), new SqliteWorkItemRepository(cache, new WorkItemMapper()),
+            new TwigConfiguration { Organization = Workspace.Organization, Project = Workspace.Project },
+            paths, providerSnapshots);
+
+        var status = await lifecycle.StatusAsync(before.SourcePath);
+
+        status.ShouldNotBeNull();
+        status.Found.ShouldBeTrue();
+        status.Digest.ShouldBe(before.Digest);
+        var issue = status.Issues.ShouldHaveSingleItem();
+        issue.Code.ShouldBe("draft-capture-stale");
+        issue.Path.ShouldBe(string.Empty);
+        issue.Message.ShouldBe("Native capture origin is unavailable in this provider composition.");
+        providerSnapshots.ReceivedCalls().ShouldBeEmpty();
+        ReadRows("SELECT * FROM pending.proposal_journals;").ShouldBe(journalBefore);
+        ReadRows("SELECT * FROM pending.proposal_operations;").ShouldBe(operationsBefore);
+        ReadRows("SELECT * FROM metadata ORDER BY key;").ShouldBe(metadataBefore);
+        (await File.ReadAllBytesAsync(before.SourcePath)).ShouldBe(fileBefore);
+        var retainedDraft = await new SqliteRecoverableWorkItemDraftStore(cache).GetAsync(Key);
+        retainedDraft.ShouldNotBeNull();
+        JsonSerializer.Serialize(retainedDraft, TwigJsonContext.Default.RecoverableWorkItemDraft).ShouldBe(draftBefore);
+
+        string[] ReadRows(string sql)
+        {
+            using var command = cache.GetConnection().CreateCommand();
+            command.CommandText = sql;
+            using var reader = command.ExecuteReader();
+            var rows = new List<string>();
+            while (reader.Read())
+                rows.Add(string.Join("|", Enumerable.Range(0, reader.FieldCount)
+                    .Select(index => reader.IsDBNull(index) ? "<null>"
+                        : Convert.ToString(reader.GetValue(index), CultureInfo.InvariantCulture))));
+            return rows.ToArray();
+        }
     }
 
     [Fact]

@@ -1,10 +1,12 @@
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Policy;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.ValueObjects.Fields;
 using Twig.TestKit;
 using Xunit;
 
@@ -269,5 +271,207 @@ public sealed class DeclaredPolicyEvaluatorTests
     public async Task EmptyPolicy_ProducesNoDecisions()
     {
         (await Evaluate(Policy(), Plan(Link("a", 1, "parent", 2)))).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task V1Decisions_AreUnchangedWhenProviderSnapshotReaderIsRegistered()
+    {
+        Cache(1, WorkItemType.Task);
+        var plan = Plan(Batch("labels", 1, (Tags, "priority:high")));
+        var policy = Policy(Priority);
+        var reader = Substitute.For<IWorkItemSnapshotReader>();
+
+        var withoutProvider = await new DeclaredPolicyEvaluator(_items, _links).EvaluateAsync(policy, plan);
+        var withProvider = await new DeclaredPolicyEvaluator(_items, _links, reader).EvaluateAsync(policy, plan);
+
+        withProvider.ShouldHaveSingleItem().ShouldBe(withoutProvider.ShouldHaveSingleItem());
+        await reader.DidNotReceiveWithAnyArgs().FetchSnapshotAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task ProviderLabels_UnavailableSnapshotBlocksInsteadOfTreatingItAsEmpty()
+    {
+        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_offline");
+        var reader = Substitute.For<IWorkItemSnapshotReader>();
+        reader.FetchSnapshotAsync(identity, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ProviderWorkItemSnapshot>(new HttpRequestException("offline")));
+        var operation = ProviderBatch("labels", identity, ("System.Tags", "priority:high"));
+
+        var decision = (await new DeclaredPolicyEvaluator(_items, null, reader)
+            .EvaluateAsync(Policy(Priority), ProviderPlan(operation))).ShouldHaveSingleItem();
+
+        decision.Outcome.ShouldBe(PolicyOutcome.Unavailable);
+        decision.ProviderIdentity.ShouldBe(identity);
+        decision.Reason.ShouldContain("provider request failed");
+        decision.Reason.ShouldContain("not exact-revision apply authority");
+    }
+
+    [Fact]
+    public async Task ProviderLabels_UseTypedObservedFactsAndExplainPreviewOnlyDecision()
+    {
+        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_issue");
+        var reader = Substitute.For<IWorkItemSnapshotReader>();
+        reader.FetchSnapshotAsync(identity, Arg.Any<CancellationToken>())
+            .Returns(ProviderSnapshot(identity, "Task", ["bug"]));
+        var operation = ProviderBatch("labels", identity, ("System.Tags", "priority:high"));
+
+        var decision = (await new DeclaredPolicyEvaluator(_items, null, reader)
+            .EvaluateAsync(Policy(Priority), ProviderPlan(operation))).ShouldHaveSingleItem();
+
+        decision.Outcome.ShouldBe(PolicyOutcome.Refuse);
+        decision.OpId.ShouldBe("labels");
+        decision.WorkItemId.ShouldBeNull();
+        decision.ProviderIdentity.ShouldBe(identity);
+        decision.Reason.ShouldContain("I_issue");
+        decision.Reason.ShouldContain("Observed at preview");
+        decision.Reason.ShouldContain("not exact-revision apply authority");
+    }
+
+    [Fact]
+    public async Task ProviderLabels_DistinguishKnownEmptyOverlayFromAmbiguousScalar()
+    {
+        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_issue");
+        var evaluator = new DeclaredPolicyEvaluator(_items, null, providerSnapshots: null);
+
+        var empty = (await evaluator.EvaluateAsync(
+            Policy(Priority), ProviderPlan(ProviderBatch("clear", identity, ("System.Tags", null)))))
+            .ShouldHaveSingleItem();
+        var ambiguous = (await evaluator.EvaluateAsync(
+            Policy(Priority), ProviderPlan(ProviderBatch("ambiguous", identity, ("System.Tags", "priority:a;priority:b")))))
+            .ShouldHaveSingleItem();
+
+        empty.Outcome.ShouldBe(PolicyOutcome.Permit);
+        empty.Reason.ShouldContain("Observed at preview");
+        ambiguous.Outcome.ShouldBe(PolicyOutcome.Unavailable);
+        ambiguous.Reason.ShouldContain("without splitting a provider value");
+    }
+
+    [Theory]
+    [InlineData(true, PolicyOutcome.Permit)]
+    [InlineData(false, PolicyOutcome.Unavailable)]
+    public async Task ProviderDependencies_RequireExplicitlyCompleteRelationshipGraph(
+        bool complete, PolicyOutcome expected)
+    {
+        var source = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_source");
+        var target = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_target");
+        var reader = Substitute.For<IWorkItemSnapshotReader>();
+        reader.FetchSnapshotAsync(source, Arg.Any<CancellationToken>())
+            .Returns(ProviderSnapshot(source, "Issue", [], complete));
+        reader.FetchSnapshotAsync(target, Arg.Any<CancellationToken>())
+            .Returns(ProviderSnapshot(target, "Issue", [], complete));
+        var operation = new ProviderMutationOperation
+        {
+            Id = "dependency",
+            OperationKind = PlanOperationKind.AddLink,
+            Target = ProviderTarget(source),
+            Other = ProviderReference(target),
+            Relation = "successor",
+        };
+
+        var decision = (await new DeclaredPolicyEvaluator(_items, null, reader)
+            .EvaluateAsync(Policy(Deps), ProviderPlan(operation))).ShouldHaveSingleItem();
+
+        decision.Outcome.ShouldBe(expected);
+        decision.Reason.ShouldContain("Observed at preview");
+    }
+
+    [Theory]
+    [InlineData(true, PolicyOutcome.Refuse)]
+    [InlineData(false, PolicyOutcome.Unavailable)]
+    public async Task ProviderParentType_RetypeRechecksExistingParentOnlyWithCompleteRelationships(
+        bool complete, PolicyOutcome expected)
+    {
+        var child = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_child");
+        var parent = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_parent");
+        var reader = Substitute.For<IWorkItemSnapshotReader>();
+        reader.FetchSnapshotAsync(child, Arg.Any<CancellationToken>())
+            .Returns(ProviderSnapshot(child, "Bug", [], complete,
+                [new ProviderWorkItemRelationship(parent, child, LinkKind.ParentChild)]));
+        reader.FetchSnapshotAsync(parent, Arg.Any<CancellationToken>())
+            .Returns(ProviderSnapshot(parent, "Epic", []));
+        var operation = ProviderBatch("retype", child, ("System.WorkItemType", "Task"));
+
+        var decision = (await new DeclaredPolicyEvaluator(_items, null, reader)
+            .EvaluateAsync(Policy(TaskUnderIssue), ProviderPlan(operation))).ShouldHaveSingleItem();
+
+        decision.Outcome.ShouldBe(expected);
+        decision.ProviderIdentity.ShouldBe(child);
+        decision.OpId.ShouldBe("retype");
+        decision.Reason.ShouldContain("Observed at preview");
+    }
+
+    [Theory]
+    [InlineData(false, PolicyOutcome.Refuse)]
+    [InlineData(true, PolicyOutcome.Permit)]
+    public async Task ProviderParentType_RetypeOnlyExcludesTheExactRemovedParent(
+        bool removeActualParent, PolicyOutcome expected)
+    {
+        var child = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_child");
+        var actualParent = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_actual_parent");
+        var removedParent = removeActualParent
+            ? actualParent
+            : new ExternalWorkItemIdentity("github", "https://api.github.com", "I_other_parent");
+        var reader = Substitute.For<IWorkItemSnapshotReader>();
+        reader.FetchSnapshotAsync(child, Arg.Any<CancellationToken>())
+            .Returns(ProviderSnapshot(child, "Bug", [], relationships:
+                [new ProviderWorkItemRelationship(actualParent, child, LinkKind.ParentChild)]));
+        reader.FetchSnapshotAsync(actualParent, Arg.Any<CancellationToken>())
+            .Returns(ProviderSnapshot(actualParent, "Epic", []));
+        var retype = ProviderBatch("retype", child, ("System.WorkItemType", "Task"));
+        var remove = new ProviderMutationOperation
+        {
+            Id = "remove-parent",
+            OperationKind = PlanOperationKind.RemoveLink,
+            Target = ProviderTarget(child),
+            Other = ProviderReference(removedParent),
+            Relation = "parent",
+        };
+
+        var decision = (await new DeclaredPolicyEvaluator(_items, null, reader)
+            .EvaluateAsync(Policy(TaskUnderIssue), ProviderPlan(retype, remove))).ShouldHaveSingleItem();
+
+        decision.Outcome.ShouldBe(expected);
+        decision.ProviderIdentity.ShouldBe(expected == PolicyOutcome.Refuse ? child : null);
+    }
+
+    private static PlanDefinition ProviderPlan(params PlanOperationDefinition[] operations) => new()
+    {
+        Version = 2,
+        Workspace = new PlanWorkspace { Organization = "acme", Project = "widgets" },
+        Operations = operations,
+    };
+
+    private static ProviderMutationOperation ProviderBatch(
+        string id, ExternalWorkItemIdentity identity, params (string Key, string? Value)[] fields) => new()
+    {
+        Id = id,
+        OperationKind = PlanOperationKind.Batch,
+        Target = ProviderTarget(identity),
+        Fields = fields.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal),
+    };
+
+    private static ProviderWorkItemMutationTarget ProviderTarget(ExternalWorkItemIdentity identity) => new()
+    {
+        Item = ProviderReference(identity),
+        ExpectedProviderRevision = new ProviderRevisionToken("opaque-token"),
+    };
+
+    private static ProviderWorkItemReference ProviderReference(ExternalWorkItemIdentity identity) => new()
+    {
+        LocalId = LocalWorkItemId.New(),
+        ExternalIdentity = identity,
+    };
+
+    private static ProviderWorkItemSnapshot ProviderSnapshot(
+        ExternalWorkItemIdentity identity,
+        string? type,
+        IReadOnlyList<string> tags,
+        bool complete = true,
+        IReadOnlyList<ProviderWorkItemRelationship>? relationships = null)
+    {
+        var fields = FieldValues.Empty.Set("System.Tags", new StringListValue(tags));
+        if (type is not null)
+            fields = fields.Set("System.WorkItemType", new TextValue(type));
+        return new ProviderWorkItemSnapshot(identity, null, fields, relationships ?? [], complete);
     }
 }

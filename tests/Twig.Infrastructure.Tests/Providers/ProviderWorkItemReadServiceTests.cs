@@ -28,7 +28,7 @@ public sealed class ProviderWorkItemReadServiceTests
             Identity,
             LinkKind.ParentChild);
         var snapshot = Snapshot(Identity, token, Fields(("System.Title", new TextValue("remote")),
-            ("System.State", new TextValue("OPEN"))), [relationship]);
+            ("System.State", new TextValue("OPEN"))), [relationship], relationshipsComplete: true);
         var local = Local(id, 7, Fields(("System.State", new TextValue("locally held"))));
 
         snapshotReader.FetchSnapshotAsync(Identity, Arg.Any<CancellationToken>())
@@ -62,7 +62,8 @@ public sealed class ProviderWorkItemReadServiceTests
         var localStore = Substitute.For<ILocalWorkItemStore>();
         var id = LocalWorkItemId.New();
         var local = Local(id, 2, FieldValues.Empty);
-        var snapshot = Snapshot(Identity, null, Fields(("System.Title", new TextValue("issue"))), []);
+        var snapshot = Snapshot(
+            Identity, null, Fields(("System.Title", new TextValue("issue"))), [], relationshipsComplete: true);
 
         localStore.GetAsync(id, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<LocalWorkItemRecord?>(local));
@@ -160,7 +161,8 @@ public sealed class ProviderWorkItemReadServiceTests
         var localStore = Substitute.For<ILocalWorkItemStore>();
         var otherIdentity = new ExternalWorkItemIdentity("github", Scope, "I_other");
         snapshotReader.FetchSnapshotAsync(Identity, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Snapshot(otherIdentity, null, FieldValues.Empty, [])));
+            .Returns(Task.FromResult(Snapshot(
+                otherIdentity, null, FieldValues.Empty, [], relationshipsComplete: true)));
 
         var exception = await Should.ThrowAsync<InvalidOperationException>(() =>
             new ProviderWorkItemReadService(snapshotReader, identities, localStore).ReadByIdentityAsync(Identity));
@@ -179,7 +181,8 @@ public sealed class ProviderWorkItemReadServiceTests
         var id = LocalWorkItemId.New();
         var local = Local(id, 91, FieldValues.Empty);
         snapshotReader.FetchSnapshotAsync(Identity, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Snapshot(Identity, null, FieldValues.Empty, [])));
+            .Returns(Task.FromResult(Snapshot(
+                Identity, null, FieldValues.Empty, [], relationshipsComplete: true)));
         identities.ResolveAsync(Identity, null, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new ExternalIdentityResolution(id, Created: true)));
         localStore.GetAsync(id, Arg.Any<CancellationToken>())
@@ -208,8 +211,9 @@ public sealed class ProviderWorkItemReadServiceTests
         ExternalWorkItemIdentity identity,
         ProviderRevisionToken? token,
         FieldValues fields,
-        IReadOnlyList<ProviderWorkItemRelationship> relationships)
-        => new(identity, token, fields, relationships);
+        IReadOnlyList<ProviderWorkItemRelationship> relationships,
+        bool relationshipsComplete)
+        => new(identity, token, fields, relationships, relationshipsComplete);
 
     private static LocalWorkItemRecord Local(LocalWorkItemId id, long revision, FieldValues fields)
     {

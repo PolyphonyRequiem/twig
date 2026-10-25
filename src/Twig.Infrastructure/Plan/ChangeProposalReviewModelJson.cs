@@ -196,6 +196,18 @@ public static class ChangeProposalReviewModelJson
             writer.WriteBoolean("blocking", decision.IsBlocking);
             writer.WriteString("reason", decision.Reason);
             WriteNullableInt(writer, "workItemId", decision.WorkItemId);
+            if (decision.ProviderIdentity is { } identity)
+            {
+                writer.WriteStartObject("providerIdentity");
+                writer.WriteString("providerKind", identity.ProviderKind);
+                writer.WriteString("resourceScope", identity.ResourceScope);
+                writer.WriteString("nativeId", identity.NativeId);
+                writer.WriteEndObject();
+            }
+            else
+            {
+                writer.WriteNull("providerIdentity");
+            }
             WriteNullableString(writer, "opId", decision.OpId);
             writer.WriteEndObject();
         }

@@ -1,6 +1,6 @@
 # Declared Policy Decisions — CloudVault Inventory and Engine Contract
 
-> **Status:** Implemented (first slice), AB#1169.
+> **Status:** Implemented for ADO v1 proposals and provider-observed v2 preview decisions; provider-v2 apply remains blocked, AB#1169/#1189.
 > **Domain:** Declared, repository-owned work-management policy evaluated natively in the
 > change-proposal path.
 > **Settled by:** Epic #1169 Phase 0 rulings D1–D5 (approved by Daniel), Idea #615
@@ -83,20 +83,25 @@ Every evaluated rule produces zero or more `PolicyDecision` records:
 | `outcome` | `permit`, `warn`, `refuse`, `unavailable` |
 | `reason` | Human-readable explanation, naming the item and the fix |
 | `workItemId` | Affected item (negative for a seed in the proposal), when applicable |
+| `providerIdentity` | Exact provider-qualified identity for a v2 observation, when applicable |
 | `opId` | Proposal operation that introduced the change, when applicable |
 
 `refuse` and `unavailable` are **blocking**. A rule declared with `"enforcement": "warn"`
 reports `warn` in place of `refuse`; `unavailable` is never downgraded. Pre-existing
 violations that the proposal does not worsen are reported as `warn` (D4).
+For provider-qualified v2 proposals, `workItemId` is null, `providerIdentity` carries the
+exact observed identity, and the explanation names the provider-qualified item; `opId` retains
+the proposal operation link.
 
 ### Surfacing
 
 * **Preview** — declared policy and process-rule decisions appear in the review model
   (`policyDecisions`), in JSON, human, table and browser renderings. Each blocking decision
-  is also a `policy` blocker, and a proposal with a blocking decision cannot be applied.
-* **Apply** — declared policy is re-evaluated immediately before authorization; a blocking
-  decision refuses the apply before any write. Process rules are re-evaluated at the
-  per-operation pre-write gate.
+  is also a `policy` blocker. A v2 decision is an observation for review, not an exact-revision
+  assertion; v2 remains non-applicable regardless of a permit.
+* **Apply** — for supported ADO v1 proposals, declared policy is re-evaluated immediately
+  before authorization and process rules at the per-operation pre-write gate. Provider-v2
+  apply remains blocked before confirmation, authorization, journal mutation or provider call.
 
 Evaluation is over the **whole proposal's post-change state**, not operation order.
 
@@ -122,30 +127,37 @@ Evaluation is over the **whole proposal's post-change state**, not operation ord
 * **Unreadable or malformed file, unknown kind, unsupported version, duplicate id** — one
   blocking `unavailable` decision with rule id `policy-load`. A team that declared policy
   must not lose it silently to a typo (D3).
-* Type and label comparisons are case-insensitive. Labels are read from `System.Tags`
-  (semicolon-separated) unless a rule sets `field`.
+* Type and label comparisons are case-insensitive. ADO labels are read from `System.Tags`
+  (semicolon-separated) unless a rule sets `field`. Provider-v2 reads use typed string-list
+  observations; a scalar v2 label overlay containing a semicolon is `unavailable`, never
+  split into inferred labels.
 * Every rule accepts `"enforcement": "refuse"` (default) or `"warn"`. A `warn` rule reports a
   violation as a non-blocking `warn` decision; `unavailable` stays blocking regardless.
 * Policy is evaluated at preview and before authorization at apply, only while the proposal
   journal is still `Planned`. A resumed apply does not re-judge operations already confirmed.
 * Decisions appear in the review model and in JSON as `policyDecisions`: an array of
-  `{ ruleId, kind, outcome, blocking, reason, workItemId, opId }` with `outcome` one of `permit`, `warn`,
-  `refuse`, `unavailable`. Any `refuse` or `unavailable` sets `canApply` to false.
+  `{ ruleId, kind, outcome, blocking, reason, workItemId, providerIdentity, opId }` with
+  `outcome` one of `permit`, `warn`, `refuse`, `unavailable`. `providerIdentity` is either
+  null or `{ providerKind, resourceScope, nativeId }`; it identifies the observed provider
+  item and does not assert exact-revision authority. Any `refuse` or `unavailable` sets
+  `canApply` to false.
 
 ### Rule kinds
 
 **`parent-type`** — evaluates each *new* parent edge in the proposal (`add-link` with relation
 `parent`, or a seed published with a parent). If the child's type is `childType` and the
 parent's type is not in `allowedParentTypes`, refuse. Existing edges are not re-judged (D4),
-except that a `batch` changing an item's type re-judges that item's existing parent edge,
-because the change can bring it under a rule. A parent whose type is not known locally is
-`unavailable`. Known limit: retyping a *parent* does not re-judge its children.
+except that an ADO v1 `batch` changing an item's type re-judges that item's existing parent edge,
+because the change can bring it under a rule. For v2, GitHub issue type comes from observed
+provider metadata; an absent or unreadable type is `unavailable`, never a hardcoded generic
+`Issue`. Known limit: retyping a *parent* does not re-judge its children.
 
 **`dependency-integrity`** — evaluates each new predecessor/successor edge. Self-dependency and
 duplicate edges (already cached or repeated in the proposal) refuse. A cycle is found by a
 bounded search over cached links plus proposed adds minus proposed removes; a cycle refuses.
-If the search reaches an item whose links were never fetched, or exceeds `maxNodes`, the
-outcome is `unavailable` and the reason says to refresh links.
+For v2, only provider-native relationships from snapshots explicitly marked complete are
+evidence; incomplete or unreadable graph facts, or a search exceeding `maxNodes`, yield
+`unavailable`. A complete empty graph is distinct from an unavailable graph.
 
 **`label-applicability`** — evaluates items whose label field the proposal sets (a `batch`
 writing the field, or a published seed carrying it). A label with `prefix` on a type outside
@@ -172,12 +184,16 @@ empty rule set), which permits.
   re-close, re-scope or reassign #726, #674, #727 or #850.
 * **#729** owns authorizer authenticity. Nothing here claims to prove who authorized.
 * **#1167 / #1170** provide provider capability contracts, a read-only GitHub adapter, and
-  a durable local relationship overlay. Those capabilities do not themselves provide policy
-  facts. The evaluator consumes cached local work-item and link repositories, while process
-  rules arrive through `IProcessRuleProvider` (work-item type → `ProcessRule` list). A provider
-  with no process rules must register `EmptyProcessRuleProvider.Instance` (or another provider
-  returning an empty rule set); an unregistered provider fails closed. Provider-native
-  revision-bound reads and provider-gated write composition remain outside this slice and are
-  owned by #1189, which depends on #1177 and #1178. Relationship overlay facts are not treated
-  as native policy facts here.
+  a durable local relationship overlay. For provider-v2 preview, the existing evaluator reads
+  provider-qualified snapshots directly; local CAS revisions and relationship overlays are
+  not provider evidence. The GitHub adapter maps its observed issue-type metadata and typed
+  labels to the policy fields, and marks its fully paginated relationship observations complete.
+  Preview explanations explicitly state that these observations are not exact-revision apply
+  authority. The nullable provider token, current read, and proposed overlay are not combined
+  into a remote revision claim. Provider-v2 apply and writer composition remain outside this
+  implementation; the read-only lifecycle can review v2 decisions but refuses all apply and
+  reconciliation. Process rules remain a separate gate: GitHub's explicit empty rule provider
+  is a known-empty rule set, while a missing provider is unavailable. #1171 continues to own
+  historical journal reconciliation; relationship overlay facts are not treated as native
+  policy facts here.
 * Host skills keep every **Host** row above; Twig reports mechanical facts they can rely on.

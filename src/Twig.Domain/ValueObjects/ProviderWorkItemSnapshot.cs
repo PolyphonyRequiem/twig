@@ -10,4 +10,5 @@ internal sealed record ProviderWorkItemSnapshot(
     ExternalWorkItemIdentity Identity,
     ProviderRevisionToken? RevisionToken,
     FieldValues Fields,
-    IReadOnlyList<ProviderWorkItemRelationship> Relationships);
+    IReadOnlyList<ProviderWorkItemRelationship> Relationships,
+    bool RelationshipsComplete);

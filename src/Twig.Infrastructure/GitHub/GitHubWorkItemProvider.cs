@@ -74,6 +74,9 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
                 .Set("System.State", new TextValue(Text(node, "state")))
                 .Set("github.number", new IntegerValue(IssueNumber(node)))
                 .Set("github.url", new TextValue(Text(node, "url")));
+            var issueType = Required(node, "issueType");
+            fields = fields.Set("System.WorkItemType", issueType.ValueKind == JsonValueKind.Null
+                ? (FieldValue)NullValue.Instance : new TextValue(Text(issueType, "name")));
             var body = Required(node, "body");
             fields = fields.Set("System.Description",
                 body.ValueKind == JsonValueKind.Null || Text(node, "body").Length == 0
@@ -84,7 +87,8 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
                 ? (FieldValue)NullValue.Instance : new TextValue(Text(milestone, "title")));
 
             var labels = await ReadConnectionAsync(identity, "labels", ct);
-            fields = fields.Set("github.labels", new StringListValue(labels.Select(l => Text(l, "name"))));
+            var labelValues = new StringListValue(labels.Select(l => Text(l, "name")));
+            fields = fields.Set("github.labels", labelValues).Set("System.Tags", labelValues);
             var assignees = (await ReadConnectionAsync(identity, "assignees", ct))
                 .Select(a => new GitHubIssueAssignee(NativeId(a), Text(a, "login")))
                 .OrderBy(a => a.Id, StringComparer.Ordinal).ToArray();
@@ -108,7 +112,7 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
                 AddEdge(relationships, identity, External(blocked), LinkKind.PredecessorSuccessor);
 
             _lastReadEvidence = [];
-            return new(identity, null, fields, relationships.ToArray());
+            return new(identity, null, fields, relationships.ToArray(), RelationshipsComplete: true);
         }
         catch (HttpRequestException ex)
         {

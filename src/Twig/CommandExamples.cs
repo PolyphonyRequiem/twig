@@ -386,6 +386,16 @@ internal static class CommandExamples
             "twig bench configuration              Read current Bench pins, areas, sprints and ownership",
             "twig bench configuration -o json      Capture raw settings digest for guarded edits",
         ],
+        ["draft open"] =
+        [
+            "twig draft open 42 --bench Sprint      Open the shared native draft and served form",
+            "twig draft open 42 --bench 7 --expect-binding <binding> --expect-identity <identity> -o json     Export editing envelope v1 with exact native tokens",
+        ],
+        ["draft stage"] =
+        [
+            "twig draft stage --stdin -o json       Send one version 1 JSON request on stdin and close it; never publishes",
+            "twig draft stage --stdin -o minimal    Stage an exact nullable field batch using the native context and decimal tokens from OPEN",
+        ],
         ["draft show"] =
         [
             "twig draft show 42                        Inspect an existing native recoverable draft",

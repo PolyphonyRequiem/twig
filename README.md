@@ -50,6 +50,40 @@ twig nav up                     # move to parent
 twig nav down "subtask"         # move to child by title match
 ```
 
+### Recoverable native drafts
+
+`twig draft open 42 --bench Sprint -o json` opens the shared recoverable draft
+and returns editing envelope **version 1**, separate from the unchanged detail
+and draft inspectors. It explicitly inspects the native ADO form and rules but
+does not refresh the item, switch the current Bench, publish changes, or grant
+Save/Apply authority. Unsupported providers and fields are refused explicitly.
+The ordered form and unavailable/read-only reasons remain visible.
+
+For local staging, send one JSON request through `twig draft stage --stdin -o json`
+and close stdin. The request contains `version: 1`, the **unchanged** `nativeContext`
+from OPEN, its decimal-string `generation`, `baselineRevision`, `observedRevision`,
+and an ordered `changes` array of `{ "fieldRef": "...", "proposedValue": null }`
+or string values. `null` and `""` remain distinct. The UTF-8 input limit is
+262144 bytes, with at most 128 changes; exceeding either limit is an error, never
+truncation. Cancellation interrupts input; EOF is required before staging.
+
+Evidence and draft writes share a SQLite transaction for normal-operation
+commit/rollback. Evidence and drafts remain in separate attached WAL files;
+cross-file crash or power-loss atomicity is **not** guaranteed. Inconsistent
+evidence after a crash fails closed: explicitly reopen while retaining intent,
+never automatically correct or rebase it. The editing envelope always reports
+`committed`; refusals carry structured `error.code`, `message`, and `recovery`.
+A post-commit origin fence failure reports `indeterminate` and `committed: true`:
+reopen and inspect, never automatically retry or rebase. STAGE writes only the
+recoverable draft, not pending changes or the server. Native publication
+capabilities and process gates remain authoritative.
+
+Configuration failures before command construction retain the existing CLI
+error path and may have no editing envelope (for example, an unknown provider).
+Hosts must treat missing or invalid stdout as an unknown outcome, not proof of
+rollback, and must not automatically retry. JSON editing refusals that reach the
+command emit the envelope on stdout and a formatted JSON error on stderr.
+
 ### Navigation
 
 `twig nav` opens an interactive tree navigator — browse the hierarchy with arrow keys,

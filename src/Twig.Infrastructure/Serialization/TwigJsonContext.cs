@@ -254,6 +254,9 @@ namespace Twig.Infrastructure.Serialization;
 // Epic #1168 provider-neutral field values (canonical hand-written converter on the type)
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.Fields.FieldValues))]
 [JsonSerializable(typeof(CanvasDetailExport))]
+[JsonSerializable(typeof(DraftStageRequest))]
+[JsonSerializable(typeof(DraftEditingResult))]
+[JsonSerializable(typeof(DraftEditingContext))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],

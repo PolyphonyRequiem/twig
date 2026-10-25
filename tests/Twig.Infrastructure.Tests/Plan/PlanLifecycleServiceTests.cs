@@ -350,6 +350,45 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_V1ParentRetypeWithoutCompleteChildrenShowsBlockingPolicyDecision()
+    {
+        var parent = new WorkItem
+        {
+            Id = 2,
+            Title = "parent",
+            Type = Twig.Domain.ValueObjects.WorkItemType.Parse("Issue").Value,
+        };
+        _workItems.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlyList<WorkItem>)call.Arg<IEnumerable<int>>()
+                .Where(id => id == parent.Id).Select(_ => parent).ToList());
+        await File.WriteAllTextAsync(_paths.PolicyPath, """
+            { "version": 1, "rules": [
+              { "id": "task-parent", "kind": "parent-type",
+                "childType": "Task", "allowedParentTypes": ["Issue"] }
+            ] }
+            """);
+        var source = WritePlan("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "parent-retype", "kind": "batch", "workItemId": 2, "expectedRevision": 1,
+                  "fields": { "System.WorkItemType": "Epic" } }
+              ]
+            }
+            """);
+
+        var result = await BuildService().PreviewAsync(source);
+
+        result.CanApply.ShouldBeFalse();
+        var decision = result.ReviewModel.ShouldNotBeNull().PolicyDecisions.ShouldHaveSingleItem();
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Unavailable);
+        decision.OpId.ShouldBe("parent-retype");
+        decision.WorkItemId.ShouldBe(2);
+        result.ReviewModel.Blockers.ShouldContain(blocker => blocker.Kind == "policy");
+    }
+
+    [Fact]
     public async Task Preview_V1PreservesCanonicalRequestJsonInTheJournal()
     {
         var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Doing"));

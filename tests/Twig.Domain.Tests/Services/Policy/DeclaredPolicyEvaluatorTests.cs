@@ -146,11 +146,156 @@ public sealed class DeclaredPolicyEvaluatorTests
         Cache(1, WorkItemType.Bug, parent: 2);
         Cache(2, WorkItemType.Epic);
 
-        var d = (await Evaluate(Policy(TaskUnderIssue),
-            Plan(Batch("b", 1, ("System.WorkItemType", "Task"))))).ShouldHaveSingleItem();
+        var decisions = await Evaluate(Policy(TaskUnderIssue),
+            Plan(Batch("b", 1, ("System.WorkItemType", "Task"))));
 
-        d.Outcome.ShouldBe(PolicyOutcome.Refuse);
-        d.OpId.ShouldBe("b");
+        decisions.ShouldContain(d => d.Outcome == PolicyOutcome.Refuse
+            && d.OpId == "b" && d.WorkItemId == 1);
+        decisions.ShouldContain(d => d.Outcome == PolicyOutcome.Unavailable
+            && d.OpId == "b" && d.WorkItemId == 1);
+    }
+
+    [Fact]
+    public async Task ParentType_RetypeToDisallowedType_RejudgesExplicitChildAndReportsIncompleteChildSet()
+    {
+        Cache(1, WorkItemType.Task, parent: 2);
+        Cache(2, WorkItemType.Issue);
+
+        var decisions = await Evaluate(Policy(TaskUnderIssue), Plan(
+            Batch("parent-retype", 2, ("System.WorkItemType", "Epic")),
+            Batch("child-touch", 1, ("System.Title", "touched"))));
+
+        var violation = decisions.Single(d => d.Outcome == PolicyOutcome.Refuse);
+        violation.RuleId.ShouldBe("task-parent");
+        violation.OpId.ShouldBe("parent-retype");
+        violation.WorkItemId.ShouldBe(1);
+        var unavailable = decisions.Single(d => d.Outcome == PolicyOutcome.Unavailable);
+        unavailable.OpId.ShouldBe("parent-retype");
+        unavailable.WorkItemId.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ParentType_RetypeToDisallowedType_KnownCachedLeafIsUnavailableNotPermit()
+    {
+        // No child is present in this local cache, but it carries no complete-child certificate.
+        Cache(2, WorkItemType.Issue);
+
+        var d = (await Evaluate(Policy(TaskUnderIssue),
+            Plan(Batch("parent-retype", 2, ("System.WorkItemType", "Epic"))))).ShouldHaveSingleItem();
+
+        d.Outcome.ShouldBe(PolicyOutcome.Unavailable);
+        d.OpId.ShouldBe("parent-retype");
+        d.WorkItemId.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ParentType_RetypeAndChildRetype_EvaluatesSharedEdgeOnceUnderParentOperation()
+    {
+        Cache(1, WorkItemType.Bug, parent: 2);
+        Cache(2, WorkItemType.Issue);
+
+        var decisions = await Evaluate(Policy(TaskUnderIssue), Plan(
+            Batch("parent-retype", 2, ("System.WorkItemType", "Epic")),
+            Batch("child-retype", 1, ("System.WorkItemType", "Task"))));
+
+        decisions.Count(d => d.Outcome == PolicyOutcome.Refuse && d.WorkItemId == 1).ShouldBe(1);
+        decisions.Single(d => d.Outcome == PolicyOutcome.Refuse && d.WorkItemId == 1)
+            .OpId.ShouldBe("parent-retype");
+        decisions.ShouldContain(d => d.Outcome == PolicyOutcome.Unavailable
+            && d.WorkItemId == 2 && d.OpId == "parent-retype");
+    }
+
+    [Fact]
+    public async Task ParentType_RetypeToAllowedType_DoesNotRequireChildSetEvidence()
+    {
+        Cache(2, WorkItemType.Epic);
+
+        var d = (await Evaluate(Policy(TaskUnderIssue),
+            Plan(Batch("parent-retype", 2, ("System.WorkItemType", "Issue"))))).ShouldHaveSingleItem();
+
+        d.Outcome.ShouldBe(PolicyOutcome.Permit);
+    }
+
+    [Fact]
+    public async Task ParentType_RetypeAndDeleteSameParent_DoesNotRequireChildSetEvidence()
+    {
+        Cache(2, WorkItemType.Issue);
+
+        var delete = new DeleteOperation
+        {
+            Id = "delete-parent",
+            WorkItemId = 2,
+            ExpectedRevision = 1,
+        };
+        var d = (await Evaluate(Policy(TaskUnderIssue),
+            Plan(Batch("parent-retype", 2, ("System.WorkItemType", "Epic")), delete))).ShouldHaveSingleItem();
+
+        d.Outcome.ShouldBe(PolicyOutcome.Permit);
+    }
+
+    [Fact]
+    public async Task ParentType_RetypeWithExistingViolation_IsNotDowngradedToD4Warning()
+    {
+        Cache(1, WorkItemType.Task, parent: 2);
+        Cache(2, WorkItemType.Epic);
+
+        var decisions = await Evaluate(Policy(TaskUnderIssue), Plan(
+            Batch("parent-retype", 2, ("System.WorkItemType", "Feature")),
+            Batch("child-touch", 1, ("System.Title", "touched"))));
+
+        decisions.ShouldContain(d => d.Outcome == PolicyOutcome.Refuse
+            && d.OpId == "parent-retype" && d.WorkItemId == 1);
+        decisions.ShouldNotContain(d => d.Outcome == PolicyOutcome.Warn);
+        decisions.ShouldContain(d => d.Outcome == PolicyOutcome.Unavailable && d.WorkItemId == 2);
+    }
+
+    [Fact]
+    public async Task ParentType_RetypeAndReparentAway_UsesFinalEdgeAndDoesNotRefuseOldEdge()
+    {
+        Cache(1, WorkItemType.Task, parent: 2);
+        Cache(2, WorkItemType.Issue);
+        Cache(3, WorkItemType.Issue);
+
+        var remove = new RemoveLinkOperation
+        {
+            Id = "remove-old-parent",
+            WorkItemId = 1,
+            ExpectedRevision = 1,
+            Relation = "parent",
+            OtherId = 2,
+        };
+        var decisions = await Evaluate(Policy(TaskUnderIssue), Plan(
+            Batch("parent-retype", 2, ("System.WorkItemType", "Epic")),
+            remove,
+            Link("add-new-parent", 1, "parent", 3)));
+
+        decisions.ShouldNotContain(d => d.Outcome == PolicyOutcome.Refuse && d.WorkItemId == 1);
+        decisions.ShouldContain(d => d.Outcome == PolicyOutcome.Unavailable
+            && d.OpId == "parent-retype" && d.WorkItemId == 2);
+    }
+
+    [Fact]
+    public async Task ParentType_RetypeAndRemoveUnrelatedParentLink_StillChecksExistingEdge()
+    {
+        Cache(1, WorkItemType.Task, parent: 2);
+        Cache(2, WorkItemType.Issue);
+
+        var remove = new RemoveLinkOperation
+        {
+            Id = "remove-other-parent",
+            WorkItemId = 1,
+            ExpectedRevision = 1,
+            Relation = "parent",
+            OtherId = 99,
+        };
+        var decisions = await Evaluate(Policy(TaskUnderIssue), Plan(
+            Batch("parent-retype", 2, ("System.WorkItemType", "Epic")),
+            remove));
+
+        decisions.ShouldContain(d => d.Outcome == PolicyOutcome.Refuse
+            && d.OpId == "parent-retype" && d.WorkItemId == 1);
+        decisions.ShouldContain(d => d.Outcome == PolicyOutcome.Unavailable
+            && d.OpId == "parent-retype" && d.WorkItemId == 2);
     }
 
     [Fact]

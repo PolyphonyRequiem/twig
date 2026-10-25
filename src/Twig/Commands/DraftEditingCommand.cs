@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using Twig.Domain.Services.Plan;
 using Twig.Browser;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
@@ -11,6 +14,10 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
     TextWriter? stdout = null, Stream? stdin = null)
 {
     internal const int MaximumInputBytes = 256 * 1024;
+    private static readonly TwigJsonContext StrictInputJson = new(new JsonSerializerOptions(TwigJsonContext.Default.Options)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    });
 
     internal Task<int> OpenAsync(int id, string bench, string output = OutputFormatterFactory.DefaultFormat,
         string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
@@ -33,6 +40,19 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
             return await NativeAsync(module => module.StageAsync(request, ct));
         }, ct);
 
+    internal Task<int> RetainAsync(bool readStdin, string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => ExecuteAsync("draft retain", output, async () =>
+        {
+            if (!readStdin)
+                return RecoverableDraftEditingModule.Refused("usage", "Use --stdin and close stdin after one version 1 retain request.");
+            var request = await ReadRetainRequestAsync(stdin ?? Console.OpenStandardInput(), ct);
+            if (!RecoverableDraftEditingModule.IsValidRequest(request))
+                return RecoverableDraftEditingModule.Refused("usage", "Exact native context and canonical decimal tokens are required.");
+            return await NativeAsync(module => module.RetainAsync(request,
+                new PlanWorkspace { Organization = ctx.Config.Organization, Project = ctx.Config.Project }, ct));
+        }, ct);
+
     private async Task<DraftEditingResult> NativeAsync(Func<RecoverableDraftEditingModule, Task<DraftEditingResult>> action)
     {
         try
@@ -52,7 +72,14 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
         }
     }
 
-    internal static async Task<DraftStageRequest> ReadRequestAsync(Stream input, CancellationToken ct)
+    internal static Task<DraftStageRequest> ReadRequestAsync(Stream input, CancellationToken ct)
+        => ReadRequestAsync(input, StrictInputJson.DraftStageRequest, ct);
+
+    internal static Task<DraftRetainRequest> ReadRetainRequestAsync(Stream input, CancellationToken ct)
+        => ReadRequestAsync(input, StrictInputJson.DraftRetainRequest, ct);
+
+    private static async Task<T> ReadRequestAsync<T>(Stream input, JsonTypeInfo<T> type, CancellationToken ct)
+        where T : class
     {
         using var bytes = new MemoryStream();
         var buffer = new byte[8192];
@@ -60,13 +87,13 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
         while ((count = await input.ReadAsync(buffer.AsMemory(), ct)) != 0)
         {
             if (bytes.Length + count > MaximumInputBytes)
-                throw new ArgumentException("input-too-large: stage stdin exceeds the 262144-byte UTF-8 limit; nothing was staged.");
+                throw new ArgumentException("input-too-large: draft stdin exceeds the 262144-byte UTF-8 limit; nothing was committed.");
             await bytes.WriteAsync(buffer.AsMemory(0, count), ct);
         }
         using var parsed = JsonDocument.Parse(bytes.ToArray(), new JsonDocumentOptions { MaxDepth = 32 });
         RejectDuplicateProperties(parsed.RootElement);
-        return parsed.RootElement.Deserialize(TwigJsonContext.Default.DraftStageRequest)
-            ?? throw new JsonException("A version 1 stage request is required.");
+        return parsed.RootElement.Deserialize(type)
+            ?? throw new JsonException("A version 1 draft request is required.");
     }
 
     private static void RejectDuplicateProperties(JsonElement element)
@@ -115,6 +142,8 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
             }
             else if (result.Error is { } error)
                 ctx.StderrWriter.WriteLine(ctx.FormatterFactory.GetFormatter(format).FormatError(error.Message));
+            else if (result.Capture is { } retained)
+                (stdout ?? Console.Out).WriteLine($"draft retained\t{retained.Digest}\t{retained.Generation}");
             else
                 (stdout ?? Console.Out).WriteLine(
                     $"draft {result.Status}\t{result.Document!.NativeContext.ItemKey.WorkItemId}\t{result.Document.Generation}");

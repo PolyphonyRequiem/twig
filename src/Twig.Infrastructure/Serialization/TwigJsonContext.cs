@@ -255,6 +255,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.Fields.FieldValues))]
 [JsonSerializable(typeof(CanvasDetailExport))]
 [JsonSerializable(typeof(DraftStageRequest))]
+[JsonSerializable(typeof(DraftRetainRequest))]
+[JsonSerializable(typeof(DraftRetainedCapture))]
 [JsonSerializable(typeof(DraftEditingResult))]
 [JsonSerializable(typeof(DraftEditingContext))]
 [JsonSourceGenerationOptions(

@@ -1216,6 +1216,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<DraftEditingCommand>().StageAsync(stdin, output, ct);
 
+    /// <summary>Retain one exact qualified recoverable draft as local proposal intent, never authorize or apply.</summary>
+    /// <param name="stdin">Read one strict version 1 JSON request through EOF (required, default false); maximum 262144 UTF-8 bytes and depth 32. No changes or authorizer may be supplied.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal. JSON reports committed and structured refusals.</param>
+    /// <param name="ct">Cancellation token; no retry, rebase, export or remote publication.</param>
+    [Command("draft retain")]
+    public async Task<int> DraftRetain(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<DraftEditingCommand>().RetainAsync(stdin, output, ct);
+
     /// <summary>Inspect an existing native recoverable draft without changing intent or applying it.</summary>
     /// <param name="id">Native integer work-item ID or negative seed alias; no default or active-item selection.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal.</param>
@@ -1918,6 +1927,7 @@ internal static class GroupedHelp
         "draft show",
         "draft open",
         "draft stage",
+        "draft retain",
         "draft capture",
         "bench browser",
         "bench configuration",

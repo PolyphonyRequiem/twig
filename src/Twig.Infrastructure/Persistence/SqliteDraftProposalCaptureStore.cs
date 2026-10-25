@@ -12,6 +12,20 @@ namespace Twig.Infrastructure.Persistence;
 /// <summary>Local exact capture using the draft and journal's shared pending.db connection.</summary>
 internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : IDraftProposalCaptureStore
 {
+    public Task<PlanJournal> CaptureQualifiedAsync(RecoverableWorkItemDraft expectedDraft,
+        WorkItemSnapshot expectedSnapshot, PlanOrigin origin, PlanWorkspace workspace,
+        string proposalDirectory, string evidenceFingerprint, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(expectedDraft);
+        ArgumentNullException.ThrowIfNull(expectedSnapshot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(evidenceFingerprint);
+        if (expectedDraft.ObservedRevision != expectedSnapshot.Revision
+            || expectedDraft.Changes.Any(change => change.BaselineValue == change.ProposedValue))
+            throw new InvalidOperationException("Qualified capture requires exact observation and effective edits.");
+        return CaptureCoreAsync(expectedDraft, expectedSnapshot, origin, workspace, proposalDirectory,
+            evidenceFingerprint, ct, requireReviewable: true);
+    }
+
     public Task<PlanJournal> CaptureAsync(
         RecoverableWorkItemDraft expectedDraft,
         WorkItemSnapshot expectedSnapshot,
@@ -31,7 +45,7 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
 
     private async Task<PlanJournal> CaptureCoreAsync(RecoverableWorkItemDraft expectedDraft,
         WorkItemSnapshot expectedSnapshot, PlanOrigin origin, PlanWorkspace workspace,
-        string proposalDirectory, string? evidenceFingerprint, CancellationToken ct)
+        string proposalDirectory, string? evidenceFingerprint, CancellationToken ct, bool requireReviewable = false)
     {
         ArgumentNullException.ThrowIfNull(expectedDraft);
         ArgumentNullException.ThrowIfNull(expectedSnapshot);
@@ -102,6 +116,7 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
                     sourcePath, DateTimeOffset.UtcNow, capture, ct).ConfigureAwait(false);
                 if (evidenceFingerprint is not null) journals.SetCaptureExportState(parsed.Digest, complete: false);
             }
+            if (requireReviewable) EnsureReviewable(parsed.Digest);
             ct.ThrowIfCancellationRequested();
             transaction.Commit();
             return result;
@@ -115,6 +130,31 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
         {
             store.ActiveTransaction = null;
         }
+    }
+
+    private void EnsureReviewable(string digest)
+    {
+        using var command = store.GetConnection().CreateCommand();
+        command.Transaction = store.ActiveTransaction
+            ?? throw new InvalidOperationException("Qualified retention requires its capture transaction.");
+        // Check raw nullable audit columns: an unknown stored authorization mode must not
+        // become absence of authorization through a projected enum.
+        command.CommandText = """
+            SELECT EXISTS(
+                SELECT 1 FROM pending.proposal_journals j
+                WHERE j.digest=@digest AND j.state='Planned'
+                    AND j.confirmed_at IS NULL AND j.completed_at IS NULL
+                    AND j.authorization_mode IS NULL AND j.authorizer_identity IS NULL
+                    AND j.rationale IS NULL AND j.review_model_json IS NULL AND j.authorized_at IS NULL
+                    AND NOT EXISTS(
+                        SELECT 1 FROM pending.proposal_operations o WHERE o.digest=j.digest
+                            AND (o.state<>'Planned' OR o.started_at IS NOT NULL
+                                OR o.applied_at IS NOT NULL OR o.verified_at IS NOT NULL))
+                    AND NOT EXISTS(SELECT 1 FROM pending.proposal_receipts r WHERE r.digest=j.digest));
+            """;
+        command.Parameters.AddWithValue("@digest", digest);
+        if (Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 1)
+            throw new InvalidOperationException("capture-not-reviewable: retained capture is no longer an unconfirmed, unauthorized planned observation.");
     }
 
     internal static string IdentityDigest(

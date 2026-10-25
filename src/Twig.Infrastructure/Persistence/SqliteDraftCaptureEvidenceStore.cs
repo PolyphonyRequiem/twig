@@ -16,7 +16,10 @@ namespace Twig.Infrastructure.Persistence;
 internal sealed record DraftCaptureEvidence(int Version, QualifiedWorkItemKey ItemKey,
     PlanOrigin Origin, string? StorageGeneration, string TypeName, int Revision,
     string ProcessFingerprint, string SnapshotFingerprint, FormLayout Layout, IReadOnlyList<ProcessRule>? Rules,
-    [property: JsonConverter(typeof(DraftCaptureBenchJsonConverter))] Bench Bench, string? NormalizationAccount);
+    [property: JsonConverter(typeof(DraftCaptureBenchJsonConverter))] Bench Bench, string? NormalizationAccount)
+{
+    public ExternalWorkItemIdentity? ExternalIdentity { get; init; }
+}
 
 internal sealed record DraftCaptureBench([property: JsonRequired] long Id, [property: JsonRequired] string Name,
     [property: JsonRequired] bool IsDefault, [property: JsonRequired] DraftCaptureSelector[] Selectors);
@@ -113,12 +116,15 @@ internal sealed class SqliteDraftCaptureEvidenceStore(SqliteCacheStore store)
         command.ExecuteNonQuery();
     }
 
-    internal async Task RecordAsync(DraftCaptureEvidence evidence, WorkItemSnapshot expected, CancellationToken ct)
+    internal async Task RecordAsync(DraftCaptureEvidence evidence, WorkItemSnapshot expected, CancellationToken ct,
+        bool joinTransaction = false)
     {
         using var operation = store.AcquireOperation();
-        if (store.ActiveTransaction is not null) throw new InvalidOperationException("Inspection must own its evidence transaction.");
-        using var transaction = store.GetConnection().BeginTransaction(deferred: false);
-        store.ActiveTransaction = transaction;
+        if (joinTransaction ? store.ActiveTransaction is null : store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Inspection evidence transaction ownership is invalid.");
+        using var ownedTransaction = joinTransaction ? null : store.GetConnection().BeginTransaction(deferred: false);
+        var transaction = store.ActiveTransaction ?? ownedTransaction!;
+        if (ownedTransaction is not null) store.ActiveTransaction = ownedTransaction;
         try
         {
             var current = await new SqliteWorkItemRepository(store, new WorkItemMapper())
@@ -138,9 +144,9 @@ internal sealed class SqliteDraftCaptureEvidenceStore(SqliteCacheStore store)
             command.Parameters.AddWithValue("@value", JsonSerializer.Serialize(evidence, TwigJsonContext.Default.DraftCaptureEvidence));
             command.ExecuteNonQuery();
             ct.ThrowIfCancellationRequested();
-            transaction.Commit();
+            ownedTransaction?.Commit();
         }
-        finally { store.ActiveTransaction = null; }
+        finally { if (ownedTransaction is not null) store.ActiveTransaction = null; }
     }
 
     internal DraftCaptureEvidence Read(QualifiedWorkItemKey key)

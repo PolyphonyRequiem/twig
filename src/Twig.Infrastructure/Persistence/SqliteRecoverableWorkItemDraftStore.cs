@@ -53,7 +53,9 @@ internal sealed class SqliteRecoverableWorkItemDraftStore(SqliteCacheStore store
         var json = JsonSerializer.Serialize(draft, TwigJsonContext.Default.RecoverableWorkItemDraft);
         using var operation = store.AcquireOperation();
         var connection = store.GetConnection();
-        using var transaction = connection.BeginTransaction();
+        // Editing owns a wider transaction that also fences the native observation.
+        using var ownedTransaction = store.ActiveTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = store.ActiveTransaction ?? ownedTransaction!;
         try
         {
             using var command = connection.CreateCommand();
@@ -86,12 +88,12 @@ internal sealed class SqliteRecoverableWorkItemDraftStore(SqliteCacheStore store
             command.Parameters.AddWithValue("@draftJson", json);
             command.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToString("o"));
             var saved = command.ExecuteNonQuery() == 1;
-            transaction.Commit();
+            ownedTransaction?.Commit();
             return Task.FromResult(saved);
         }
         catch
         {
-            transaction.Rollback();
+            ownedTransaction?.Rollback();
             throw;
         }
     }

@@ -5,7 +5,7 @@ one item through `twig bench detail <id> --document -o json` from the current
 session workspace and displays the native version-2 detail document. It does not
 read Twig's SQLite files or call an ADO/GitHub API directly.
 
-The canvas intentionally does not edit, save, authorize, apply, post discussion,
+The item companion intentionally does not edit, save, authorize, apply, post discussion,
 upload/download attachments, or infer relationship coverage. The CLI remains the
 authority for workspace admission and detail reads. Twig must be available as
 `twig` on the extension process's `PATH`.
@@ -16,6 +16,95 @@ No dependencies are bundled. The Copilot runtime supplies
 ```powershell
 node --test .github/extensions/twig-item-companion/tests/*.test.mjs
 ```
+
+## Explicit workbench editing bridge (source only, not host-qualified)
+
+The workbench source now imports `native-editing.mjs` and `editing-document.mjs`
+through `editing-bridge.mjs`, with explicit browser OPEN/STAGE buttons in
+`editing-client.mjs`. This integration delta passed ten module syntax checks,
+59 focused cases and 126 cases across all fourteen offline extension test files
+(zero skips/cancellations). The optional installed-native integration file was
+not run. The panel-close regression failed against an HTTP-only-close mutant
+and passed after exact source restoration. The initial focused run passed 57/59;
+two deferred-detail fixtures lacked the qualified key/identity now needed by the
+bridge and were corrected without weakening production validation or assertions.
+The integration has not been activated in the installed host. A pushed native implementation does not
+establish that the installed `twig` supports these commands. Unknown subcommands
+or missing native envelopes surface unavailable/unknown outcomes, not readiness.
+
+The bridge owns a cryptographically random capture handle and native context and
+counters in the server. Browser STAGE requests carry only the handle and ordered
+nullable field intent, never context/counter authority. Existing loopback
+host/token/origin/content-type guards remain. Only `/api/editing` admits up to
+256KiB JSON (the native serialized request still has its own 256KiB bound); other
+routes retain 4KiB. Editing rejects duplicate keys, excess depth, unexpected keys
+and malformed intent before invoking the adapter.
+
+Only visible, non-contribution, non-read-only `FieldControl` values carried in
+full or explicitly empty, with native `editable: true`, receive plain text/null
+inputs. HTML, other control types and unsupported contributions remain explicitly
+read-only. This is a transport capability limit, not inferred field rules.
+
+Selection, Bench reads and identity-qualified target changes revoke the capture.
+Unsent input remains in memory per checkout/connection/binding/item/Bench/identity,
+never transfers to another target and is not automatically staged on a read.
+A reopened different observed revision marks retained input stale and disables
+staging until the human reviews/discards it and enters reconciled intent. Native
+drift/conflicts also disable staging. Exact successful acknowledgement advances
+the capture without clearing newer input typed while awaiting it; effect list
+sorting or removal of baseline-equal edits is not treated as failed acknowledgement.
+Refusal, transport unknown and indeterminate outcomes retain unsent input and
+require explicit reopen. Disconnect/close aborts owned work; the busy latch stays
+held until adapter closure, and unknown outcomes are retained in server state.
+Panel close also awaits bridge idle after disconnect, rather than mistaking
+closed HTTP connections for completed native cleanup.
+No Save, apply, authorization or publication route is added.
+
+OPEN is explicit and may acquire metadata and persist local evidence/draft
+observations; it is not a read-only/cache-only detail fallback. STAGE sends one
+bounded UTF-8 request through `draft stage --stdin -o json` and closes EOF. It
+preserves the native context, ordered nullable intent and decimal-string Int64
+tokens, without retry, rebase, Save, Apply or remote publication.
+
+The adapter parses native structured stdout even on exit 1/2, preserving refusal
+and committed/indeterminate evidence. Missing, malformed or contradictory output,
+process failure and broken input transport produce an explicit unknown outcome,
+never a rollback claim. Unknown-provider configuration failures may happen before
+the command can emit a structured envelope. Existing inspection v1 and read-only
+v2 contracts remain unchanged.
+
+The adapter owns one invocation at a time. Its 15-second deadline and cancellation
+request PID-scoped tree termination (Windows) or an isolated process-group stop
+(POSIX); completion waits for the child close event and termination result, not
+only the exec callback. Cleanup has a separate four-second bound. If closure or
+cleanup cannot be proven, the outcome is unknown and that adapter instance stays
+unusable for another child. Qualification outside the exercised Windows
+cancellation/overflow cases is not claimed.
+
+Output capture uses `spawn` and an owned **combined stdout plus stderr 4MiB**
+limit. Exceeding that bound stops retaining output and requests tree termination
+while the root is still alive; Node is not allowed to automatically kill only
+the root on buffer overflow. Both streams remain drained until closure. If the
+root nevertheless exits before PID-scoped termination can prove descendant
+closure, the adapter reports unknown outcome and poisons reuse.
+
+Native OPEN's normal-operation evidence/draft transaction is not a certified
+cross-file WAL crash/power-loss guarantee. Postcommit origin fencing may return
+indeterminate with committed true and an optional document. Callers must retain
+unsent input and native intent, and explicitly reopen rather than retrying.
+
+The contract tests use synthetic native envelopes, not native Twig execution.
+The focused run passed 23/23, including real Node parent/inherited-descendant
+cancellation and combined-output overflow through the actual supervisor. The
+related offline consumers passed 83/83, with no skips/cancellations, and both
+adapter modules passed syntax checks. The initial focused run failed one
+acknowledgement-guard fixture because its drift flag was contradictory; that
+fixture was corrected to reach the intended guard before the passing rerun.
+Actual native OPEN/STAGE production DTO serialization (fake HTTP plus real SQLite
+HostFact, not installed CLI/live ADO) has passed a separate adapter cross-check:
+exact qualified fixture key/Bench/identity/context, request roundtrip, revisions
+and generation acknowledgement, including null/empty/order preservation. This
+does not qualify the new HTTP/UI bridge or installed host.
 
 ## Read-only v2 boundary
 
@@ -68,6 +157,30 @@ localStorage, native preferences or new endpoint is used. This styling slice
 does not add workbench/proposal-review surfaces or qualify actual host rendering.
 
 ## Named-Bench workbench (#1198)
+
+The side-panel source now starts in the native Tree projection. Members remains
+available separately, including known items omitted from the hierarchy. Branch
+chevrons operate locally; filtering reveals matching ancestors without discarding
+the previous expansion state. Source/configuration evidence is collapsed by
+default, not removed. Selection can use separate tree/item pages with Back or
+Escape, or a top/bottom arrangement with a labelled, keyboard-operable tree-height
+range. Changing presentation never re-reads the Bench or changes shared state.
+Back restores tree filtering, expansion, focus and scroll.
+
+Native detail retains visible pages, section columns, groups and controls in
+native order. Unsupported contributions and unexported page content are labelled;
+field values remain inert text. The current explicit-Bench reader still accepts
+only native fallback layout, not served ADO layout. No new editing, OPEN/STAGE or
+Save contract is implied. Browser v2 does not export per-row provider/type
+appearance, so this slice does not invent type icons or configurable provider
+rails. These remain contract-backed follow-up work, along with full-view saved
+queries, backlogs, Add to Bench and creation.
+
+This navigation increment passed 21 focused workbench tests and 62 related offline
+JS consumer tests (no skips/cancellations). All eight new regression cases fail on
+the unchanged baseline with only the tests carried over. This qualifies the
+offline consumer composition, not native-binary or host rendering. Historical
+native receipts below do not qualify the new UI's host rendering.
 
 The same provider also declares `twig-workbench`, with `load_bench({ bench })`
 and `refresh_bench({})` actions. The separate workbench panel accepts an existing

@@ -79,6 +79,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = "SELECT * FROM pending_changes WHERE work_item_id = @workItemId ORDER BY id;";
         cmd.Parameters.AddWithValue("@workItemId", workItemId);
 

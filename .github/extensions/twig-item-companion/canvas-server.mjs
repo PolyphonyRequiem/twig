@@ -235,7 +235,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 ...(!workbench ? { draftDocument: state.draftDocument, draftError: state.draftError } : {}),
                 error: state.error,
                 busy: state.busy,
-                ...(workbench ? { editingOutcome: editing.outcome, editingBusy: editing.busy } : {}),
+                ...(workbench ? { editingOutcome: editing.outcome, editingBusy: editing.busy,
+                    retainOutcomes: editing.retainOutcomes } : {}),
             });
             return;
         }
@@ -271,8 +272,10 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 } else if (body.action === "stage" && Object.keys(body).sort().join(",") === "action,captureHandle,changes") {
                     const { captureHandle, changes } = body;
                     sendJson(response, 200, { editing: await editing.stage({ captureHandle, changes }) });
+                } else if (body.action === "retain" && Object.keys(body).sort().join(",") === "action,captureHandle") {
+                    sendJson(response, 200, { editing: await editing.retain({ captureHandle: body.captureHandle }) });
                 } else {
-                    sendJson(response, 400, { error: "Expected explicit OPEN or STAGE with only a capture handle and ordered intent." });
+                    sendJson(response, 400, { error: "Expected explicit OPEN, STAGE with handle and intent, or RETAIN with only a handle." });
                 }
             } finally {
                 request.removeListener("aborted", disconnected);

@@ -40,6 +40,14 @@ against the value in the `metadata` table. If the version differs or the table i
 missing, all tables are dropped and re-created from the DDL string. The
 `SchemaWasRebuilt` property signals to callers that a full re-sync is needed.
 
+Before any drop, `GuardMirrorLocalWork` refuses the rebuild when `work_items` holds
+local-only work: seed rows (`is_seed = 1`) or dirty rows (`is_dirty = 1`), checked
+independently. It throws `mirror-local-work-present` and drops nothing. If the table
+is non-empty but lacks either flag column it cannot prove there is no local work, and
+the refusal is `mirror-local-work-unverifiable`; an empty table rebuilds. Preserve the
+cache files and open them with a compatible Twig version, or export or recover the
+work first. The durable `pending.db` is never dropped by a mirror rebuild.
+
 ### Database Tables
 
 #### Recoverable native drafts (durable storage)

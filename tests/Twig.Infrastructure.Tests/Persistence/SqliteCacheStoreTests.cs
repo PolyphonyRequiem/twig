@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Shouldly;
 using Twig.Infrastructure.Persistence;
 using Xunit;
@@ -228,9 +228,9 @@ public class SqliteCacheStoreTests
             cmd.CommandText = """
                 CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 INSERT INTO metadata (key, value) VALUES ('schema_version', '1');
-                CREATE TABLE work_items (id INTEGER PRIMARY KEY, type TEXT, title TEXT, state TEXT, revision INTEGER, fields_json TEXT, is_dirty INTEGER, last_synced_at TEXT);
-                INSERT INTO work_items (id, type, title, state, revision, fields_json, is_dirty, last_synced_at)
-                    VALUES (42, 'Bug', 'Stale bug from old schema', 'Active', 1, '{}', 0, '2024-01-01');
+                CREATE TABLE work_items (id INTEGER PRIMARY KEY, type TEXT, title TEXT, state TEXT, revision INTEGER, fields_json TEXT, is_dirty INTEGER, is_seed INTEGER, last_synced_at TEXT);
+                INSERT INTO work_items (id, type, title, state, revision, fields_json, is_dirty, is_seed, last_synced_at)
+                    VALUES (42, 'Bug', 'Stale bug from old schema', 'Active', 1, '{}', 0, 0, '2024-01-01');
                 CREATE TABLE pending_changes (id INTEGER PRIMARY KEY, work_item_id INTEGER);
                 CREATE TABLE process_types (type_name TEXT PRIMARY KEY, states_json TEXT NOT NULL, last_synced_at TEXT NOT NULL);
                 INSERT INTO process_types (type_name, states_json, last_synced_at) VALUES ('OldType', '[]', '2024-01-01');
@@ -474,8 +474,8 @@ public class SqliteCacheStoreTests
         using (var cmd = setupConn.CreateCommand())
         {
             cmd.CommandText = """
-                CREATE TABLE work_items (id INTEGER PRIMARY KEY);
-                INSERT INTO work_items (id) VALUES (999);
+                CREATE TABLE work_items (id INTEGER PRIMARY KEY, is_seed INTEGER, is_dirty INTEGER);
+                INSERT INTO work_items (id, is_seed, is_dirty) VALUES (999, 0, 0);
                 """;
             cmd.ExecuteNonQuery();
         }

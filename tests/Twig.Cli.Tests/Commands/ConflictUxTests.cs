@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
@@ -84,7 +85,7 @@ public class ConflictUxTests
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _writer,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
@@ -112,7 +113,7 @@ public class ConflictUxTests
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _writer,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
@@ -141,7 +142,7 @@ public class ConflictUxTests
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _writer,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
+            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c");
@@ -212,6 +213,21 @@ public class ConflictUxTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);
         _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
+    }
+
+    private IRevisionBoundAdoWorkItemService CreateRevisionBoundSource()
+    {
+        var source = Substitute.For<IRevisionBoundAdoWorkItemService>();
+        source.FetchAtRevisionAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var id = call.ArgAt<int>(0);
+                var revision = call.ArgAt<int>(1);
+                var item = await _workItemRepo.GetByIdAsync(id, call.ArgAt<CancellationToken>(2))
+                    ?? throw new InvalidOperationException($"No cached fixture item for #{id}.");
+                return new WorkItemMapper().ToSnapshot(item) with { Revision = revision };
+            });
+        return source;
     }
 
     private static WorkItem CreateWorkItem(int id, string title, string state)

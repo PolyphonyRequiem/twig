@@ -134,6 +134,32 @@ public sealed class StateTransitionWorkflowAuthoritativeGateTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_AuthoritativeSnapshotForDifferentItem_FailsClosedWithoutPatching()
+    {
+        var item = new WorkItemBuilder(ItemId, "Gate").AsTask().InState("To Do").Build();
+        var differentItem = new WorkItemBuilder(ItemId + 1, "Different gate").AsTask().InState("To Do").Build();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
+        revisionBound.FetchAtRevisionAsync(ItemId, Revision, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemMapper().ToSnapshot(differentItem) with { Revision = Revision });
+        var processConfig = Substitute.For<IProcessConfigurationProvider>();
+        processConfig.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+        var workflow = new StateTransitionWorkflow(
+            Substitute.For<IWorkItemRepository>(),
+            AdoWriterFixture.Wrap(adoService),
+            Substitute.For<IPendingChangeStore>(),
+            processConfig,
+            parentPropagation: null,
+            promptStateWriter: null,
+            processRuleProvider: new FakeProcessRuleProvider(UnconditionalSystemRequirements),
+            revisionBound: revisionBound);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => workflow.ExecuteAsync(item, "Doing", Revision));
+
+        await adoService.DidNotReceiveWithAnyArgs().PatchAsync(default, default!, default, default);
+    }
+
+    [Fact]
     public void Constructor_GateWithoutAuthoritativeSource_IsRejected()
     {
         Should.Throw<ArgumentNullException>(() => new StateTransitionWorkflow(

@@ -26,7 +26,7 @@ const detail = (override = {}) => ({
     benchId: "7", identityId: "identity", ...override,
 });
 function editing(status = "opened", revision = "17") {
-    return { status, canStage: true, captureHandle: status + "-handle", observedRevision: revision,
+    return { status, canStage: true, canRetain: status === "staged", captureHandle: status + "-handle", observedRevision: revision,
         editors: [{ fieldRef: "System.Title", label: "Title", value: "Native title" }], changes: [] };
 }
 async function settle() { await setImmediate(); await setImmediate(); }
@@ -166,4 +166,131 @@ test("exact successful acknowledgement clears submitted intent, not newer user e
     assert.equal(input(h.root).value, "newer unsent");
     assert.match(flattened(h.root), /newer unsent/);
     assert.equal(button(h.root, "Stage local changes").disabled, false);
+});
+
+function captureOutcome(status = "retained") {
+    return { status, committed: true, canStage: false, canRetain: false,
+        inspectFirst: status === "indeterminate", receipt: {
+            digest: "a".repeat(64), operationId: "draft-" + "b".repeat(64),
+            effects: [
+                { fieldRef: "Custom.Absent", proposedValue: null },
+                { fieldRef: "Custom.Empty", baselineValue: null, proposedValue: "" },
+                { fieldRef: "Custom.Inert", baselineValue: "", proposedValue: "<script>inert</script>" },
+            ], originCoverage: "editing-context-and-native-origin-digest", authorized: false, canApply: false,
+        } };
+}
+test("RETAIN requires explicit click after staging with no unsent input and sends only capture handle", async () => {
+    const h = harness(body => ({ editing: body.action === "retain" ? captureOutcome() :
+        editing(body.action === "stage" ? "staged" : "opened") }));
+    h.mount(detail());
+    assert.equal(button(h.root, "Retain staged draft").disabled, true);
+    assert.equal(h.calls.length, 0);
+    await h.click("Open native draft");
+    await h.click("Retain staged draft");
+    assert.equal(h.calls.length, 1);
+    h.type("staged value");
+    await h.click("Stage local changes");
+    assert.equal(button(h.root, "Retain staged draft").disabled, false);
+    h.type("unsent");
+    await h.click("Retain staged draft");
+    assert.equal(h.calls.length, 2);
+    assert.match(flattened(h.root), /Stage unsent input first/);
+    await h.click("Stage local changes");
+    await h.click("Retain staged draft");
+    assert.deepEqual(h.calls[3], { action: "retain", captureHandle: "staged-handle" });
+    assert.equal(button(h.root, "Retain staged draft").disabled, true);
+    assert.equal(button(h.root, "Stage local changes").disabled, true);
+    assert.match(flattened(h.root), /Captured locally, not authorized or applied/);
+    assert.match(flattened(h.root), /Baseline: \(absent \/ unknown\)/);
+    assert.match(flattened(h.root), /Baseline: \(null\)/);
+    assert.match(flattened(h.root), /Proposed: \(empty text ""\)/);
+    assert.match(flattened(h.root), /<script>inert<\/script>/);
+    assert.equal(descendants(h.root).some(node => node.tag === "script"), false);
+});
+
+test("pending RETAIN preserves newer unsent input on success and never auto-stages it", async () => {
+    let release;
+    const h = harness(body => body.action === "retain" ? new Promise(resolve => { release = resolve; }) :
+        { editing: editing(body.action === "stage" ? "staged" : "opened") });
+    h.mount(detail());
+    await h.click("Open native draft");
+    h.type("staged");
+    await h.click("Stage local changes");
+    button(h.root, "Retain staged draft").listeners.click();
+    h.type("newer unsent");
+    assert.equal(button(h.root, "Open native draft").disabled, true);
+    release({ editing: captureOutcome() });
+    await settle();
+    assert.equal(input(h.root).value, "newer unsent");
+    assert.match(flattened(h.root), /newer unsent/);
+    assert.deepEqual(h.calls.map(call => call.action), ["open", "stage", "retain"]);
+});
+
+test("RETAIN unknown and committed-indeterminate impose sticky inspect-first hold across navigation", async () => {
+    for (const failure of ["unknown", "indeterminate"]) {
+        const h = harness(body => {
+            if (body.action === "retain") {
+                if (failure === "unknown") throw new Error("No native stdout");
+                return { editing: captureOutcome("indeterminate") };
+            }
+            return { editing: editing(body.action === "stage" ? "staged" : "opened") };
+        });
+        h.mount(detail());
+        await h.click("Open native draft");
+        h.type("staged");
+        await h.click("Stage local changes");
+        await h.click("Retain staged draft");
+        const count = h.calls.length;
+        assert.match(flattened(h.root), /Inspect the local proposal journal/);
+        await h.click("Open native draft");
+        assert.equal(h.calls.length, count);
+        await h.client.leave();
+        h.mount(detail());
+        assert.equal(button(h.root, "Open native draft").disabled, true);
+        await h.click("Open native draft");
+        assert.equal(h.calls.length, count + 1, "only navigation invalidate was sent");
+        assert.match(flattened(h.root), /Inspect the local proposal journal/);
+    }
+});
+
+test("late RETAIN cannot render old-target receipt and retains unresolved hold for the original qualified identity", async () => {
+    let release;
+    const h = harness(body => body.action === "retain" ? new Promise(resolve => { release = resolve; }) :
+        { editing: editing(body.action === "stage" ? "staged" : "opened") });
+    h.mount(detail());
+    await h.click("Open native draft");
+    h.type("staged");
+    await h.click("Stage local changes");
+    button(h.root, "Retain staged draft").listeners.click();
+    h.type("belongs to old identity");
+    await h.client.leave();
+    h.mount(detail({ identityId: "another-identity" }));
+    release({ editing: captureOutcome("indeterminate") });
+    await settle();
+    assert.doesNotMatch(flattened(h.root), /Native capture receipt|belongs to old identity/);
+    assert.equal(button(h.root, "Open native draft").disabled, false);
+    await h.client.leave();
+    h.mount(detail());
+    assert.equal(button(h.root, "Open native draft").disabled, true);
+    assert.match(flattened(h.root), /belongs to old identity/);
+    assert.match(flattened(h.root), /Inspect the local proposal journal/);
+});
+
+test("known RETAIN refusal consumes handle but permits explicit reopen without clearing unsent input", async () => {
+    const h = harness(body => ({ editing: body.action === "retain"
+        ? { status: "refused", committed: false, canStage: false, canRetain: false,
+            error: { message: "Native draft is empty" } }
+        : editing(body.action === "stage" ? "staged" : "opened") }));
+    h.mount(detail());
+    await h.click("Open native draft");
+    h.type("staged");
+    await h.click("Stage local changes");
+    await h.click("Retain staged draft");
+    assert.equal(button(h.root, "Retain staged draft").disabled, true);
+    assert.equal(button(h.root, "Open native draft").disabled, false);
+    h.type("unsent after refusal");
+    await h.click("Open native draft");
+    assert.equal(h.calls.at(-1).action, "open");
+    assert.equal(button(h.root, "Retain staged draft").disabled, true);
+    assert.equal(input(h.root).value, "unsent after refusal");
 });

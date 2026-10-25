@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { serializeStageRequest, validateEditingResult } from "./editing-document.mjs";
+import { serializeStageRequest, validateEditingResult, validateRetainResult } from "./editing-document.mjs";
 
 function editableControls(document) {
     const controls = [...document.systemControls];
@@ -31,11 +31,15 @@ export function createEditingBridge({ adapter, workspacePath }) {
     let active = false;
     let controller = null;
     let lastOutcome = null;
+    const retainOutcomes = new Map();
+    const targetKey = (target) => JSON.stringify([target.expectedKey.checkoutRoot, target.expectedKey.connectionId,
+        target.expectedKey.bindingId, target.expectedKey.workItemId, target.bench, target.identityId]);
+    const inspectFirst = "Inspect the local proposal journal before deciding any new capture. Outcome cannot be cleared by reopening. Unsent input is retained; no automatic retry.";
     let idle = Promise.resolve();
     function invalidate() {
         epoch++;
         capture = null;
-        if (lastOutcome) lastOutcome = { ...lastOutcome, captureHandle: null, canStage: false };
+        if (lastOutcome) lastOutcome = { ...lastOutcome, captureHandle: null, canStage: false, canRetain: false };
         controller?.abort();
     }
     function view(result) {
@@ -45,13 +49,15 @@ export function createEditingBridge({ adapter, workspacePath }) {
             status: result.status, committed: result.committed,
             captureHandle: capture.handle, itemKey: document.nativeContext.itemKey,
             canStage: !document.hasConflicts,
+            canRetain: !document.hasConflicts && document.changes.length > 0 &&
+                document.changes.every(change => change.baselineValue !== change.proposedValue),
             hasConflicts: document.hasConflicts,
             observedRevision: document.observedRevision,
             editors: editableControls(document),
             changes: document.changes, conflicts: document.conflicts,
         };
     }
-    async function run(operation, target) {
+    async function run(operation, target, retaining = false) {
         if (!adapter) throw new Error("Native editing adapter is unavailable; installed Twig support is not qualified.");
         if (active) throw new Error("A native editing operation is already in progress.");
         active = true;
@@ -61,6 +67,16 @@ export function createEditingBridge({ adapter, workspacePath }) {
         const generation = epoch;
         try {
             const result = await operation(controller.signal);
+            if (retaining) {
+                const outcome = { ...result, itemKey: target.expectedKey, benchId: target.bench,
+                    identityId: target.identityId, captureHandle: null, canStage: false, canRetain: false,
+                    inspectFirst: result.status === "indeterminate" };
+                if (outcome.inspectFirst) outcome.recovery = inspectFirst;
+                retainOutcomes.set(targetKey(target), structuredClone(outcome));
+                capture = null;
+                lastOutcome = outcome;
+                return outcome;
+            }
             if (generation !== epoch) throw new Error("Editing target changed; retain unsent input and explicitly reopen.");
             lastOutcome = { ...result, itemKey: target.expectedKey, benchId: target.bench, identityId: target.identityId };
             return lastOutcome;
@@ -69,6 +85,11 @@ export function createEditingBridge({ adapter, workspacePath }) {
             lastOutcome = { status: "unknown", canStage: false, itemKey: target.expectedKey,
                 benchId: target.bench, identityId: target.identityId,
                 error: { message: error instanceof Error ? error.message : "Native outcome unavailable." } };
+            if (retaining) {
+                lastOutcome = { ...lastOutcome, canRetain: false, captureHandle: null,
+                    inspectFirst: true, recovery: inspectFirst };
+                retainOutcomes.set(targetKey(target), structuredClone(lastOutcome));
+            }
             throw error;
         } finally {
             controller = null;
@@ -81,9 +102,15 @@ export function createEditingBridge({ adapter, workspacePath }) {
         awaitIdle: () => idle,
         get busy() { return active; },
         get outcome() { return lastOutcome; },
+        get retainOutcomes() { return structuredClone([...retainOutcomes.values()]); },
         open(target) {
             if (active) throw new Error("A native editing operation is already in progress.");
             invalidate();
+            const held = retainOutcomes.get(targetKey(target));
+            if (held?.inspectFirst) {
+                lastOutcome = structuredClone(held);
+                return Promise.resolve(lastOutcome);
+            }
             return run(async (signal) => {
                 const result = await adapter.open({ ...target, workspacePath, signal });
                 if (result.status !== "opened") {
@@ -128,6 +155,36 @@ export function createEditingBridge({ adapter, workspacePath }) {
                 return view(result);
             }, { expectedKey: document.nativeContext.itemKey, bench: document.nativeContext.benchId,
                 identityId: document.nativeContext.identityId });
+        },
+        async retain(body) {
+            if (active) throw new Error("A native editing operation is already in progress.");
+            if (!body || Object.keys(body).join(",") !== "captureHandle" ||
+                typeof body.captureHandle !== "string" || !capture || body.captureHandle !== capture.handle) {
+                throw new Error("A current server-held editing capture is required; explicitly reopen.");
+            }
+            const document = capture.document;
+            if (document.hasConflicts || !document.changes.length ||
+                document.changes.some(change => change.baselineValue === change.proposedValue)) {
+                throw new Error("RETAIN requires effective staged native changes without conflicts.");
+            }
+            const target = { expectedKey: document.nativeContext.itemKey, bench: document.nativeContext.benchId,
+                identityId: document.nativeContext.identityId };
+            const request = { version: 1, nativeContext: document.nativeContext, generation: document.generation,
+                baselineRevision: document.baselineRevision, observedRevision: document.observedRevision };
+            capture = null;
+            return run(async (signal) => {
+                const result = await adapter.retain({ request, workspacePath, signal });
+                const exitCode = result.error ? (["usage", "invalid-json", "input-too-large"]
+                    .includes(result.error.code) ? 2 : 1) : 0;
+                validateRetainResult(result, { exitCode, expectedRequest: request });
+                const receipt = result.capture && {
+                    digest: result.capture.digest, operationId: result.capture.operationId,
+                    effects: structuredClone(result.capture.effects), originCoverage: result.capture.originCoverage,
+                    authorized: false, canApply: false,
+                };
+                return { status: result.status, committed: result.committed, error: result.error,
+                    ...(receipt ? { receipt } : {}) };
+            }, target, true);
         },
     };
 }

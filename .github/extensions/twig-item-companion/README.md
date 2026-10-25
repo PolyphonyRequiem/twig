@@ -106,12 +106,45 @@ exact qualified fixture key/Bench/identity/context, request roundtrip, revisions
 and generation acknowledgement, including null/empty/order preservation. This
 does not qualify the new HTTP/UI bridge or installed host.
 
-## Unwired retention adapter
+## Retention adapter and source-authored explicit bridge
 
 The source-authored `createNativeEditingAdapter().retain({request, workspacePath,
-signal})` invokes only `twig draft retain --stdin -o json`. It is not wired to a
-canvas, server route, Save or review action. The native RETAIN dependency is
-separate; this adapter is qualified offline, not installed-host enabled.
+signal})` invokes only `twig draft retain --stdin -o json`. The adapter is qualified
+offline, not installed-host enabled. The explicit browser/server bridge described
+below is qualified offline through the real rendered client and HTTP routes with
+a fake native adapter, not live native RETAIN composition. No Save or
+semantic-review action is wired.
+
+Bridge qualification passed 49 focused cases and a deduplicated 120-case union:
+119 passed, zero failures/cancellations and one existing opt-in native integration
+skip. The exact named VM/HTTP regression failed on base `a40903dd` with only the
+modified workbench test overlaid, at the runtime assertion that the explicit
+Retain button must exist; the same one executed test passed on the candidate.
+Name-filtered unselected tests are not coverage. These receipts do not qualify
+live CLI/provider/installed-host behavior or claim later build/smoke gates passed.
+
+The workbench's explicit **Retain staged draft** button sends only its opaque
+server-held capture handle. The server derives native context and all counters
+from the last admitted OPEN/STAGE document, refuses conflict/empty/equal-value
+intent and consumes the handle on every native RETAIN outcome. It does not trust
+browser `canRetain`, counters, effects, digest or authority. Unsent input disables
+Retain: nothing automatically stages it. New edits made while retaining remain
+unsent and are never replaced by a receipt.
+
+Presentation is capture-only inert text: digest, operation ID, ordered native
+effects and nonauthority/origin-coverage labels. Canonical proposal text and
+native context are not sent to this UI. An absent baseline is labelled unknown,
+separately from explicit null and empty text. No generic review model is inferred.
+
+Known refusal permits explicit reopen, not automatic retry. Unknown transport or
+committed-indeterminate RETAIN creates an inspect-first hold keyed by qualified
+item, Bench and identity; OPEN cannot clear that hold or reenable RETAIN. The user
+must inspect the local proposal journal before deciding any new capture; no
+recovery authority or inspection callback is invented here. Server outcomes retain
+committed/optional receipt evidence even after invalidation, disconnect or close
+settlement, but old-target results do not populate a new target's UI. Client
+holds/unsent input survive navigation in that client. These stores are
+session-memory only, not durable recovery or reload-proof authorization.
 
 Offline qualification passed 32 focused cases with zero skips/cancellations,
 plus 74 related cases with one existing opt-in native integration skip and zero

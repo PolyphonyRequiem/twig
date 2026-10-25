@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Script, createContext } from "node:vm";
 import test from "node:test";
@@ -61,6 +62,7 @@ function dom(html, url) {
         },
     };
     const pending = new Set();
+    const browserRequests = [];
     const window = {
         scrollY: 120,
         scrollTo(x, y) { this.scrollY = y; },
@@ -71,6 +73,7 @@ function dom(html, url) {
         window,
         MutationObserver: class { observe() {} },
         fetch: (route, options) => {
+            if (options?.body) browserRequests.push({ route, body: JSON.parse(options.body) });
             const request = fetch(new URL(route, url), options);
             pending.add(request);
             return request.finally(() => pending.delete(request));
@@ -80,6 +83,7 @@ function dom(html, url) {
     new Script(source).runInContext(context);
     return {
         nodes,
+        browserRequests,
         window,
         async settled() {
             for (let attempt = 0; attempt < 30; attempt++) {
@@ -507,7 +511,7 @@ test("failed item detail is a visible alert outside collapsed source evidence", 
     } finally { await ui.server.close(); }
 });
 
-test("rendered workbench VM crosses actual HTTP OPEN/STAGE routes only on explicit buttons", async () => {
+test("rendered workbench VM crosses actual HTTP OPEN/STAGE/RETAIN only on explicit buttons with handle-only capture", async () => {
     const detail = structuredClone(detailFixture);
     Object.assign(detail, {
         benchName: fixture.browser.benchName, observation: "raw-mirror",
@@ -542,6 +546,17 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE routes only on explic
                 generation: (BigInt(input.request.generation) + BigInt(input.request.changes.length)).toString(),
                 changes: input.request.changes.map(change => ({ ...change, baselineValue: "Read-only fixture" })) };
             return { version: 1, status: "staged", committed: true, document: structuredClone(nativeDocument) };
+        },
+        async retain(input) {
+            nativeCalls.push({ action: "retain", input });
+            const canonicalJson = '{"opaqueNativeClaim":900719925474099312345}';
+            const { version, ...request } = structuredClone(input.request);
+            return { version: 1, status: "retained", committed: true, capture: {
+                ...request, currentRevision: request.observedRevision,
+                canonicalJson, digest: createHash("sha256").update(canonicalJson).digest("hex"),
+                operationId: "draft-" + "b".repeat(64), effects: structuredClone(nativeDocument.changes),
+                originCoverage: "editing-context-and-native-origin-digest", authorized: false, canApply: false,
+            } };
         },
     };
     const ui = await open(fixture, undefined, detail, adapter);
@@ -581,9 +596,27 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE routes only on explic
         await ui.settled();
         assert.equal(nativeCalls[3].input.request.changes[0].proposedValue, null);
         assert.equal(nativeCalls[3].input.request.generation, "9007199254740995");
+        assert.ok(find("Retain staged draft"), "explicit Retain staged draft button must exist in rendered workbench");
+        assert.equal(find("Retain staged draft").disabled, false);
+        find("Retain staged draft").listeners.click();
+        await ui.settled();
+        assert.deepEqual(nativeCalls.map(call => call.action), ["open", "stage", "stage", "stage", "retain"]);
+        const retainedRequest = nativeCalls[4].input.request;
+        assert.equal(retainedRequest.generation, "9007199254740996");
+        assert.deepEqual(retainedRequest.nativeContext, nativeDocument.nativeContext);
+        assert.deepEqual(Object.keys(retainedRequest).sort(),
+            ["baselineRevision", "generation", "nativeContext", "observedRevision", "version"]);
+        const browserRetain = ui.browserRequests.find(call => call.body.action === "retain");
+        assert.equal(browserRetain.route, "/api/editing");
+        assert.deepEqual(Object.keys(browserRetain.body).sort(), ["action", "captureHandle"]);
+        assert.equal(browserRetain.body.captureHandle.length, 43);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /Native capture receipt/);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /Proposed: \(null\)/);
+        assert.doesNotMatch(flatten(ui.nodes.get("#bench-selection")), /opaqueNativeClaim|canonicalJson/);
+        assert.equal(find("Retain staged draft").disabled, true);
         find("Back to Bench").listeners.click();
         await ui.settled();
-        assert.equal(nativeCalls.length, 4, "navigation revokes capture without native mutation");
+        assert.equal(nativeCalls.length, 5, "navigation revokes capture without native mutation");
     } finally { await ui.server.close(); }
 });
 

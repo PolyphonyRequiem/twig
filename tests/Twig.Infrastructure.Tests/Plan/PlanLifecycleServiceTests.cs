@@ -137,7 +137,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null,
-        IProviderWorkItemWriter? writer = null)
+        IProviderWorkItemWriter? writer = null, IPlanOriginProvider? origin = null)
     {
         var provider = clock is null
             ? TimeProvider.System
@@ -160,7 +160,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             _paths,
             provider,
             new StubSteering(() => { _steeringResolutions++; return _steeringMode; }),
-            new FixtureOrigin(_repoRoot),
+            origin ?? new FixtureOrigin(_repoRoot),
             _ruleProvider,
             Substitute.For<IUnitOfWork>());
     }
@@ -512,6 +512,60 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         retained.State.ShouldBe(PlanOperationState.Planned);
         retained.ConfirmedAt.ShouldBeNull();
         retained.AuthorizationMode.ShouldBeNull();
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+        _ruleProvider.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Status_DraftCapturedJournal_WithUnavailableOrigin_RetainsIntentWithoutAuthority()
+    {
+        var repository = new SqliteWorkItemRepository(_store, _mapper);
+        await repository.SaveAsync(_mapper.Map(new WorkItemSnapshot
+        {
+            Id = 42, Revision = 3, Title = "baseline", TypeName = "FixtureType", State = "FixtureState",
+            Fields = new Dictionary<string, string?> { ["Fixture.Field"] = "old" },
+        }));
+        var snapshot = (await repository.GetSnapshotByIdAsync(42))!;
+        var draft = RecoverableWorkItemDraft.Create(
+            new QualifiedWorkItemKey(_repoRoot, "fixture-connection", "fixture-binding", 42), 3)
+            .SetField("Fixture.Field", "old", "intent");
+        var drafts = new SqliteRecoverableWorkItemDraftStore(_store);
+        (await drafts.TrySaveAsync(draft, null)).ShouldBeTrue();
+        var journal = await new SqliteDraftProposalCaptureStore(_store).CaptureAsync(
+            draft, snapshot, await new FixtureOrigin(_repoRoot).GetOriginAsync(),
+            new PlanWorkspace { Organization = "acme", Project = "cache" }, _repoRoot);
+        await File.WriteAllTextAsync(journal.SourcePath, journal.CanonicalJson);
+        using var retainedRow = _store.GetConnection().CreateCommand();
+        retainedRow.CommandText = """
+            SELECT json_array(digest,canonical_json,origin_json,draft_capture_json,state,confirmed_at,
+                authorization_mode,last_previewed_at,error) FROM pending.proposal_journals WHERE digest=@digest;
+            """;
+        retainedRow.Parameters.AddWithValue("@digest", journal.Digest);
+        var before = (string)retainedRow.ExecuteScalar()!;
+        var origin = Substitute.For<IPlanOriginProvider>();
+        origin.GetOriginAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Current principal is unavailable."));
+
+        var result = (await BuildService(origin: origin).StatusAsync(journal.SourcePath)).ShouldNotBeNull();
+
+        result.Found.ShouldBeTrue();
+        result.Digest.ShouldBe(journal.Digest);
+        var issue = result.Issues.ShouldHaveSingleItem();
+        issue.Code.ShouldBe("draft-capture-stale");
+        issue.Path.ShouldBe(string.Empty);
+        issue.Message.ShouldBe("Native capture origin is unavailable or changed: Current principal is unavailable.");
+        await origin.Received(1).GetOriginAsync(Arg.Any<CancellationToken>());
+        ((string)retainedRow.ExecuteScalar()!).ShouldBe(before);
+        (await File.ReadAllTextAsync(journal.SourcePath)).ShouldBe(journal.CanonicalJson);
+        JsonSerializer.Serialize(await drafts.GetAsync(draft.ItemKey),
+            Twig.Infrastructure.Serialization.TwigJsonContext.Default.RecoverableWorkItemDraft)
+            .ShouldBe(JsonSerializer.Serialize(draft,
+                Twig.Infrastructure.Serialization.TwigJsonContext.Default.RecoverableWorkItemDraft));
+        journal.State.ShouldBe(PlanOperationState.Planned);
+        journal.ConfirmedAt.ShouldBeNull();
+        journal.AuthorizationMode.ShouldBeNull();
+        _steeringResolutions.ShouldBe(0);
         _ado.ReceivedCalls().ShouldBeEmpty();
         _revisionBound.ReceivedCalls().ShouldBeEmpty();
         _ruleProvider.ReceivedCalls().ShouldBeEmpty();

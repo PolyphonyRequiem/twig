@@ -802,10 +802,13 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         if (!native.SourcePathComparer.Equals(journal.SourcePath, sourcePath))
             return new() { Code = "draft-capture-stale", Path = string.Empty,
                 Message = "The file is not at the retained native capture source path." };
+        if (_origin is not { } origin)
+            return new() { Code = "draft-capture-stale", Path = string.Empty,
+                Message = "Native capture origin is unavailable in this provider composition." };
         try
         {
             return await native.CaptureIssueAsync(journal,
-                await _origin.GetOriginAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+                await origin.GetOriginAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {

@@ -188,7 +188,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _config = config;
         _paths = paths;
         _clock = TimeProvider.System;
-        _ruleGate = new PlanProcessRuleGate(ruleProvider: null);
+        _ruleGate = new PlanProcessRuleGate(rules: null);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo);
         _steering = new UnresolvedSessionSteeringModeProvider();
         _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
@@ -299,7 +299,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
         if (parsed.Plan.Version == 2)
         {
-            var policyDecisions = await EvaluateDeclaredPolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
+            var providerPolicyDecisions = await EvaluateDeclaredPolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
             var blocker = new PlanValidationIssue
             {
                 Code = PlanValidationCodes.UnsupportedApplyVersion,
@@ -317,7 +317,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 CanApply = false,
                 ReviewModel = await _reviewModel.BuildAsync(
                     parsed.Plan, parsed.Digest, blockedIssues, pending, canApply: false, ct: ct,
-                    policyDecisions: policyDecisions)
+                    policyDecisions: providerPolicyDecisions)
                     .ConfigureAwait(false),
             };
         }

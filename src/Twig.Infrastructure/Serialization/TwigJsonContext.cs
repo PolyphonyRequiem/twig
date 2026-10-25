@@ -249,6 +249,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAgentDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportTerminalDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAdapterTargetDocument))]
+// Provider-neutral worktree target pointer, separate from ADO connection attachments.
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.ProviderTargets.ProviderTargetAttachmentDocument))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.DraftProposalCapture))]
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.WorkItemSnapshot))]

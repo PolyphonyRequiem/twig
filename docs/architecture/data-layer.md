@@ -48,6 +48,40 @@ the refusal is `mirror-local-work-unverifiable`; an empty table rebuilds. Preser
 cache files and open them with a compatible Twig version, or export or recover the
 work first. The durable `pending.db` is never dropped by a mirror rebuild.
 
+### Provider-Target Bindings in the System Registry
+
+The user-level `system.db` registry is separate from the workspace mirror and
+durable work-item store. Its `provider_target_bindings` table gives each immutable
+provider target a stable Twig-local binding ID. Identity consists of the provider
+kind, canonical resource scope, descriptor kind, and opaque descriptor value,
+compared ordinally. Locator and display name are mutable metadata, not identity;
+idempotent registration never refreshes them. Updating them requires explicit
+identity confirmation and revision compare-and-swap. These bindings contain no
+credentials, authentication actors, claims, or approval authority.
+
+A worktree's separate `.twig/provider-target.json` pointer records its binding ID,
+live worktree fingerprint, and local revision. Attachment commits or reuses the
+system-registry row **before** compare-and-swap replacement of the pointer. If the
+pointer write fails, the durable row remains available for an idempotent retry;
+the previous pointer is retained. Missing referenced rows, unreadable or invalid
+documents, fingerprint mismatches, and stale revisions refuse rather than being
+treated as an unattached worktree. Detachment retains a revisioned tombstone.
+This foundation does not migrate edited seeds, notes, context, or history and
+does not enroll credentials or change existing ADO attachments.
+
+System-registry schema **v9 to v10 is additive and forward-only**, unlike the
+disposable mirror's rebuild strategy. Supported v3-v8 registries first follow the
+existing additive path to v9, then add the target-binding table at v10. Opening
+the registry with the new binary can upgrade it even for an ADO-only operation;
+provider-target attachment is not required to trigger the upgrade. Binaries that
+only understand v9 then refuse that v10 registry, including otherwise unrelated
+ADO operations. Newer, unsupported schema versions likewise fail closed without
+rebuilding or downgrading the database. **Restoring the old executable alone is
+not a rollback**: rollback requires a compatible database backup as well, and
+restoring an older backup would omit later writes. No automatic backup or
+downgrade is provided. These are compatibility rules, not a statement that any
+installed user's system database has already been upgraded.
+
 ### Database Tables
 
 #### Recoverable native drafts (durable storage)

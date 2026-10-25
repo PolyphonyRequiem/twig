@@ -13,8 +13,11 @@ namespace Twig.Infrastructure.Persistence;
 /// <para>
 /// Unknown <c>layout_meta.version</c> values fail closed with
 /// <c>system-store-schema-mismatch</c>. Only bounded additive v3/v4/v5/v6/v7/v8→v9
-/// identity/native-migration/transition/remote-write/default-family upgrades are supported; earlier tuple-storage layouts remain
-/// a hard boundary. Existing worktree, claim and credential authority is retained.
+/// identity/native-migration/transition/remote-write/default-family upgrades followed
+/// by v9→v10 provider-target storage are supported; earlier tuple-storage layouts
+/// remain a hard boundary. Existing worktree, claim and credential authority is retained.
+/// After a v9→v10 upgrade, binaries that only understand schema v9 fail closed; rolling
+/// back the executable alone is unsupported and requires restoring a compatible database backup.
 /// </para>
 /// <para>
 /// <b>Concurrent open safety.</b> Initialization is serialized across
@@ -41,7 +44,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry : ISystemWorktreeRegi
     // v6→v7 adds recoverable binding pin/removal authority, retaining all prior ledgers.
     // v7→v8 adds native remote-write admission/observations/receipts; process death cannot erase uncertainty.
     // v8→v9 adds all-worktree default families; unfinished families fence every affected generation.
-    private const int SchemaVersion = 9;
+    // v9→v10 adds provider-neutral target bindings without referencing ADO rows.
+    private const int SchemaVersion = 10;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -851,40 +855,77 @@ ON CONFLICT(connection_ref) DO UPDATE SET
     }
 
     /// <summary>
-    /// Forward-only additive native authority upgrades from v3 through v8 to v9. Existing
-    /// connection/worktree/claim rows and credentials are never rewritten.
+    /// Forward-only additive upgrades through v9, then a separate v9→v10
+    /// provider-target table addition. Existing connection/worktree/claim rows
+    /// and credentials are never rewritten.
     /// </summary>
     private bool TryAdditiveMigrate(SqliteConnection connection, int fromVersion, int toVersion)
     {
-        if (fromVersion is 3 or 4 or 5 or 6 or 7 or 8 && toVersion == 9)
+        if (toVersion != SchemaVersion)
+            return false;
+
+        if (fromVersion is 3 or 4 or 5 or 6 or 7 or 8)
         {
-            using var tx = connection.BeginTransaction(deferred: false);
-            try
-            {
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.Transaction = tx;
-                    cmd.CommandText = (fromVersion >= 5 ? string.Empty : IdentitySchemaSql + PatPrincipalSchemaSql)
-                        + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql;
-                    cmd.ExecuteNonQuery();
-                }
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.Transaction = tx;
-                    cmd.CommandText = "UPDATE layout_meta SET version = $version WHERE id = 1;";
-                    cmd.Parameters.AddWithValue("$version", toVersion);
-                    cmd.ExecuteNonQuery();
-                }
-                tx.Commit();
-                return true;
-            }
-            catch
-            {
-                try { tx.Rollback(); } catch { /* best effort */ }
+            if (!TryAdditiveMigrateToNine(connection, fromVersion))
                 return false;
-            }
+            fromVersion = 9;
         }
-        return false;
+
+        if (fromVersion != 9)
+            return false;
+
+        using var targetTx = connection.BeginTransaction(deferred: false);
+        try
+        {
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = targetTx;
+                cmd.CommandText = ProviderTargetBindingSchemaSql;
+                cmd.ExecuteNonQuery();
+            }
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = targetTx;
+                cmd.CommandText = "UPDATE layout_meta SET version = $version WHERE id = 1;";
+                cmd.Parameters.AddWithValue("$version", toVersion);
+                cmd.ExecuteNonQuery();
+            }
+            targetTx.Commit();
+            return true;
+        }
+        catch
+        {
+            try { targetTx.Rollback(); } catch { /* best effort */ }
+            return false;
+        }
+    }
+
+    private static bool TryAdditiveMigrateToNine(SqliteConnection connection, int fromVersion)
+    {
+        using var tx = connection.BeginTransaction(deferred: false);
+        try
+        {
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = (fromVersion >= 5 ? string.Empty : IdentitySchemaSql + PatPrincipalSchemaSql)
+                    + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql;
+                cmd.ExecuteNonQuery();
+            }
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "UPDATE layout_meta SET version = 9 WHERE id = 1;";
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
+            return true;
+        }
+        catch
+        {
+            try { tx.Rollback(); } catch { /* best effort */ }
+            return false;
+        }
     }
 
     /// <summary>
@@ -1022,7 +1063,7 @@ CREATE TABLE IF NOT EXISTS profile_cache (
         using (var cmd = connection.CreateCommand())
         {
             cmd.Transaction = tx;
-            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql;
+            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql + ProviderTargetBindingSchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

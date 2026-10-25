@@ -18,9 +18,11 @@ local identity (the other provider compositions currently report it unavailable)
 It requires `-o json` (including the `json-full` and
 `json-compact` aliases) and cannot be combined with an integer ID, `--tree`,
 `--refresh`, `--fields`, or `--sections`. The output keeps the local revision,
-nullable provider revision token, provider identity, provider fields, and
-locally overlaid fields distinct. A missing provider token is reported as
-`null`; it is not inferred from the local revision.
+nullable provider revision token, provider identity, provider fields (`providerFields`),
+locally owned fields (`localFields`), and the effective overlaid field map (`fields`)
+distinct. `localFields` preserves locally authored keys without assigning them
+predefined Twig roles; `fields` retains the existing local-over-provider precedence.
+A missing provider token is reported as `null`; it is not inferred from the local revision.
 
 Each `relationships` row may carry an optional `origin` (currently
 `provider-native`). It is emitted only when the row came from the active
@@ -137,6 +139,21 @@ Branch:   sdlc/1234 (PR #987: Active)
 ```
 $ twig show 1234 --refresh --output json
 {"id":1234,"title":"Fix login redirect","state":"Doing","type":"Task", ... }
+```
+
+```
+$ twig show --local-id <guid> --output json
+{
+  "providerFields": { "System.Title": { "kind": "text", "value": "Server title" } },
+  "localFields": {
+    "System.Title": { "kind": "text", "value": "Locally edited title" },
+    "custom.marker": { "kind": "text", "value": "triage" }
+  },
+  "fields": {
+    "System.Title": { "kind": "text", "value": "Locally edited title" },
+    "custom.marker": { "kind": "text", "value": "triage" }
+  }
+}
 ```
 
 ## Exit codes and failure modes

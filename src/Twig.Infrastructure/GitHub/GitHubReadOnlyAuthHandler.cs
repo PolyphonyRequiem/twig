@@ -103,6 +103,8 @@ internal sealed class GitHubReadOnlyAuthHandler(IGitHubTokenSource tokenSource, 
 
         if (query is not { ValueKind: JsonValueKind.String } q || variables is not { ValueKind: JsonValueKind.Object } v)
             return false;
+        if (string.Equals(q.GetString(), GitHubIssueQueries.AuthenticatedViewer, StringComparison.Ordinal))
+            return !v.EnumerateObject().Any();
         var discovery = string.Equals(q.GetString(), GitHubIssueQueries.RepositoryDiscovery, StringComparison.Ordinal);
         if (discovery)
             return IsDiscoveryVariables(v);

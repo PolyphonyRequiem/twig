@@ -79,6 +79,17 @@ jobs:
             artifacts/test-logs/ci/gh-parser-overlap/
           if-no-files-found: warn
 
+      - name: GitHub authenticated actor read-only regression
+        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubAuthenticatedActorReaderTests|FullyQualifiedName~GitHubReadOnlyAuthHandlerTests" --logger "trx;LogFileName=github-actor.trx" --results-directory artifacts/test-logs/ci/github-actor
+
+      - name: Preserve GitHub authenticated actor results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-github-actor-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/github-actor/
+          if-no-files-found: warn
+
       - name: Fundamental build validation (15-second offline smoke)
         run: python tools/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --timeout 15 --trace artifacts/smoke/boundaries.jsonl
 

@@ -59,7 +59,8 @@ def run_bounded(command, timeout, runner, popen=subprocess.Popen):
 
 
 class _FakeProcess:
-    """Synthetic owned root; an untimed wait is the unbounded reap this wrapper must never make."""
+    """Synthetic owned root. An untimed wait on a still-running root is the unbounded reap this
+    wrapper must never make; on an already-exited root it returns at once, as a real Popen does."""
 
     def __init__(self, wait_outcome, poll_result=None):
         self.pid = 4321
@@ -76,8 +77,10 @@ class _FakeProcess:
 
     def wait(self, timeout=None):
         if timeout is None:
+            if self.poll_result is not None:
+                return self.poll_result
             self.untimed_waits += 1
-            raise AssertionError('unbounded wait on the owned root')
+            raise AssertionError('unbounded wait on a still-running owned root')
         if isinstance(self.wait_outcome, BaseException):
             raise self.wait_outcome
         return self.wait_outcome

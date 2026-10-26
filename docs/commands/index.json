@@ -256,6 +256,14 @@
     "path": "bench/README.md"
   },
   {
+    "command": "bench discussion",
+    "group": "bench",
+    "summary": "Read one remote discussion page for an explicitly qualified cached Bench member.",
+    "stability": "experimental",
+    "mutates": "none",
+    "path": "bench/README.md"
+  },
+  {
     "command": "bench browser",
     "group": "bench",
     "summary": "Open the native Bench browser or route authenticated source-scoped Herdr controls.",

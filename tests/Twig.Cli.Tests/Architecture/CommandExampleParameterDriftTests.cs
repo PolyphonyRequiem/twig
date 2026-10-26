@@ -232,9 +232,22 @@ public sealed class CommandExampleParameterDriftTests
         return example.Trim();
     }
 
+    /// <summary>
+    /// Bare shell operators. The shell consumes the operator and its target before argv is
+    /// built, so neither reaches the command. Matched as WHOLE tokens only, so a placeholder
+    /// such as <c>&lt;digest&gt;</c> remains an ordinary value.
+    /// </summary>
+    private static readonly HashSet<string> ShellOperators =
+        new(StringComparer.Ordinal) { ">", ">>", "<", "2>", "2>>", "|", "&&", "||", ";" };
+
     private static string[] Tokenize(string invocation, string commandName)
     {
         var all = SplitRespectingQuotes(invocation);
+        // Without this cut, `--proposal-only > repair.json` reads as a boolean consuming
+        // '>' as its value and 'repair.json' as a positional the command never receives.
+        var operatorAt = Array.FindIndex(all, ShellOperators.Contains);
+        if (operatorAt >= 0)
+            all = all[..operatorAt];
         // Drop "twig" plus the command's own words ("link parent" == 2 words).
         var skip = 1 + commandName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
         return all.Length <= skip ? [] : all[skip..];

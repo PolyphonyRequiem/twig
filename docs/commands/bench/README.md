@@ -24,6 +24,7 @@ command means the same thing in a pipe as at a prompt.
 |[`bench switch`](./switch.md)|Stand on another Bench.|local|
 |[`bench delete`](./delete.md)|Delete a Bench — one holding pins refuses without `--confirm`.|local|
 |`bench detail <id>`|Read full cached work-item or seed detail without changing context.|none|
+|`bench discussion --stdin`|Read one remote discussion page for an explicitly qualified cached Bench member.|none|
 |`bench configuration area candidates`|Read official configured-team paths and Exact/Under semantics.|none|
 |`bench browser`|Shared native Bench terminal, local editing and read-only Review; Windows/Linux `twig tui` uses the same application.|local only; explicit S pulls selected root/links|
 
@@ -147,6 +148,28 @@ The complete metadata acquisition and projection run inside the existing native
 operation guard. Origin or Bench drift and cancellation emit no observation.
 No active item, binding, default, proposal or journal is changed by this export.
 This is a native read foundation for Epic #1172, not an installed Copilot extension.
+
+### Read one discussion page
+
+```powershell
+twig bench discussion --stdin -o json < request.json
+```
+
+`--stdin` is required. The command reads one strict version-1 JSON request through
+EOF: at most 262144 UTF-8 bytes, depth 32, no unknown or duplicate members. The
+request names the qualified `itemKey`, `bench`, `expectBench`, `expectIdentity`
+and a `cursor` (`null` for the first page). The item must be a cached member of
+that Bench.
+
+Each call reads at most one provider page (50 comments, 2 MiB). The result carries
+the comments, a `nextCursor` and `snapshotConsistency: "not-guaranteed"`. Pages are
+not a consistent whole-thread snapshot. The cursor is untrusted paging data, not
+authority, and a context mismatch refuses. Human and minimal output print one line
+per comment plus a `discussion` paging line; `ids` output is refused.
+
+This read never changes the current item or Bench, never saves or refreshes the
+cache, never posts comments, and never follows supplied URLs. Non-ADO providers
+refuse with `provider-unsupported`.
 
 ### Native Bench Browser
 
@@ -376,7 +399,12 @@ deleted it, then consumers can refresh native truth.
 - `1`: cache miss, unavailable Bench, ADO/authentication failure, or changed origin,
   Bench or settings. No read retries or selects a replacement account/Bench.
 - `2`: invalid arguments, including zero detail ID, unsupported detail `ids` output,
-  invalid rendering width or malformed configuration selectors.
+  invalid rendering width or malformed configuration selectors. For `bench discussion`,
+  also a missing `--stdin`, an invalid or oversized request, or `ids` output.
+- `bench discussion` exits `1` on a typed refusal, for example `bench-item-not-member`,
+  `bench-item-not-cached`, `authority-invalidated`, `discussion-denied`,
+  `discussion-not-found`, `discussion-offline`, `discussion-throttled` or
+  `provider-unsupported`. JSON output still carries the refusal object.
 - Detail requires an existing cached Bench and never performs first-use initialization.
 - Team candidates require a successful official team read; an empty collection is
   successful and distinct from a failed lookup. No guessed workspace paths are used.

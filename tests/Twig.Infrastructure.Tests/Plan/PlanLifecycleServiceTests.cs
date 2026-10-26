@@ -2000,22 +2000,89 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     [InlineData(false, true, false)]
     public async Task Reconcile_RejectedCreateFamily_RequiresEveryMatchingSiblingToBeRejected(
         bool secondMemberMatchesOriginalIntent, bool secondMemberRejected, bool secondMemberHasStructuredCorrelation)
+        => await ReconcileRejectedCreateFamilyScenario(
+            secondMemberMatchesOriginalIntent, secondMemberRejected, secondMemberHasStructuredCorrelation);
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("principal")]
+    [InlineData("attachment")]
+    [InlineData("raw-root")]
+    public async Task Reconcile_RejectedCreateFamily_AliasedWorktreePreservesExactAuthority(string? changedAuthority)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            await ReconcileRejectedCreateFamilyScenario(
+                true, true, true, Path.Combine(_repoRoot, ".", ".twig"), changedAuthority);
+            return;
+        }
+
+        var alias = Path.Combine(_repoRoot, "linked-root");
+        Directory.CreateSymbolicLink(alias, _repoRoot);
+        try
+        {
+            await ReconcileRejectedCreateFamilyScenario(
+                true, true, true, Path.Combine(alias, ".twig"), changedAuthority);
+        }
+        finally
+        {
+            RemoveDirectoryAlias(alias);
+        }
+    }
+
+    private async Task ReconcileRejectedCreateFamilyScenario(
+        bool secondMemberMatchesOriginalIntent, bool secondMemberRejected, bool secondMemberHasStructuredCorrelation,
+        string? aliasedStartDir = null, string? changedAuthority = null)
     {
         var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000041"));
         InitializeGitRepository(_repoRoot);
+        var startDir = aliasedStartDir ?? _repoRoot;
+        WorktreeAnchorDetector.TryDetect(startDir, out var anchor, out var anchorFailure)
+            .ShouldBeTrue($"the real Git fixture must have a stable anchor: {anchorFailure}");
+        var worktreeRoot = anchor.WorktreeRoot;
+        CanonicalPathResolver.Resolve(startDir).Refusal.ShouldBeNull();
+        if (aliasedStartDir is not null)
+        {
+            startDir.ShouldNotBe(CanonicalPathResolver.Resolve(startDir).Path,
+                "the control must actually enter through an alias (lexical on Windows, symbolic on Unix)");
+            WorktreeAnchorDetector.TryDetect(_repoRoot, out var directAnchor, out _).ShouldBeTrue();
+            anchor.WorktreeRoot.ShouldBe(directAnchor.WorktreeRoot,
+                "aliased and direct entry must discover the same physical worktree root");
+            foreach (var (aliasedDirectory, directDirectory) in new[]
+            {
+                (anchor.GitCommonDir, directAnchor.GitCommonDir),
+                (anchor.WorktreeGitDir, directAnchor.WorktreeGitDir),
+            })
+            {
+                Directory.Exists(aliasedDirectory).ShouldBeTrue();
+                Directory.Exists(directDirectory).ShouldBeTrue();
+                var aliasedResolution = CanonicalPathResolver.Resolve(aliasedDirectory);
+                var directResolution = CanonicalPathResolver.Resolve(directDirectory);
+                aliasedResolution.Refusal.ShouldBeNull();
+                directResolution.Refusal.ShouldBeNull();
+                aliasedResolution.Path.ShouldNotBeNull();
+                directResolution.Path.ShouldNotBeNull();
+                aliasedResolution.Path.ShouldBe(directResolution.Path,
+                    "Git metadata directory spellings may differ but must name the same physical directory");
+            }
+        }
         await _config.SaveSplitAsync(_paths);
         using var workspaceStore = new SqliteCacheStore($"Data Source={_paths.DbPath}");
         var workspaceJournal = new SqlitePlanJournalRepository(workspaceStore);
         var file = WritePlan(PublishSeedPlan(identity, expectedFingerprint: "fixture-seed"));
         var registryPath = Path.Combine(_repoRoot, "rejected-family-system.db");
-        var worktreeRoot = _repoRoot;
+        var originProvider = Substitute.For<IPlanOriginProvider>();
+        var origin = (await new FixtureOrigin(worktreeRoot).GetOriginAsync()) with
+        {
+            WorktreeFingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor),
+        };
+        originProvider.GetOriginAsync(Arg.Any<CancellationToken>()).Returns(origin);
         var planService = BuildService(
-            journal: workspaceJournal, origin: new FixtureOrigin(worktreeRoot),
-            systemRegistryPath: registryPath, startDir: worktreeRoot);
+            journal: workspaceJournal, origin: originProvider,
+            systemRegistryPath: registryPath, startDir: startDir);
         var validation = await planService.ValidateAsync(file);
         validation.IsValid.ShouldBeTrue();
         var digest = validation.Digest!;
-        var origin = await new FixtureOrigin(worktreeRoot).GetOriginAsync();
         (await workspaceJournal.ImportAsync(validation.Plan!, validation.CanonicalJson!, digest, file,
             DateTimeOffset.UtcNow, origin: origin)).ShouldNotBeNull();
         var operation = (await workspaceJournal.GetAsync(digest))!.Operations.Single();
@@ -2145,6 +2212,59 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         unknown.State.ShouldBe(PlanOperationState.Indeterminate);
         unknown.OutcomeReceipt.ShouldBeNull();
         (await workspaceIntents.GetIntentAsync(identity))!.IsOpen.ShouldBeTrue();
+        var originalJournal = (await workspaceJournal.GetAsync(digest))!;
+        originalJournal.Origin.ShouldBe(origin);
+        (await originProvider.GetOriginAsync()).ShouldBe(originalJournal.Origin,
+            "the family controls must reach their intended guard, not fail on fixture authority");
+        WorktreeAnchorDetector.TryDetect(startDir, out var currentAnchor, out var currentAnchorFailure)
+            .ShouldBeTrue($"the originating anchor must still be available: {currentAnchorFailure}");
+        currentAnchor.ShouldBe(anchor, "fixture setup must not change the originating Git anchor");
+        origin.WorktreeRoot.ShouldBe(currentAnchor.WorktreeRoot,
+            "the fixture must compose origins from the same detected root as the bound runtime");
+        origin.WorktreeFingerprint.ShouldBe(WorktreeFingerprintProvider.CanonicalJson(currentAnchor));
+        binding.WorktreeRoot.ShouldBe(origin.WorktreeRoot);
+        binding.Operation.WorktreeFingerprint.ShouldBe(origin.WorktreeFingerprint);
+        binding.Operation.AttachmentRevision.ShouldBe(origin.AttachmentRevision);
+        binding.Binding.Revision.ShouldBe(origin.BindingRevision);
+        binding.SelectionRevision.ShouldBe(origin.SelectionRevision);
+
+        if (changedAuthority is not null)
+        {
+            var changed = changedAuthority switch
+            {
+                "principal" => origin with { ObjectId = origin.ObjectId + "-changed" },
+                "attachment" => origin with { AttachmentRevision = origin.AttachmentRevision + 1 },
+                "raw-root" => origin with { WorktreeRoot = Path.GetDirectoryName(startDir)! },
+                _ => throw new ArgumentOutOfRangeException(nameof(changedAuthority)),
+            };
+            changed.ShouldNotBe(origin);
+            if (changedAuthority == "raw-root")
+            {
+                CanonicalPathResolver.Resolve(changed.WorktreeRoot).Path.ShouldBe(origin.WorktreeRoot,
+                    "the rejected spelling must still name the same physical root");
+            }
+            originProvider.GetOriginAsync(Arg.Any<CancellationToken>()).Returns(changed);
+            var refused = await planService.ReconcileAsync(
+                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
+                Authorize(digest) with { Rationale = "Preserve the original exact authority." });
+            refused.Settled.ShouldBeFalse();
+            refused.Receipt.ShouldBeNull();
+            refused.Error.ShouldBe(
+                "The original proposal authority or attached worktree changed; negative evidence cannot acquire a different actor.");
+            var retained = (await workspaceJournal.GetAsync(digest))!;
+            retained.Origin.ShouldBe(originalJournal.Origin);
+            retained.CanonicalJson.ShouldBe(originalJournal.CanonicalJson);
+            retained.Operations.Single().ShouldBe(unknown);
+            (await workspaceIntents.GetIntentAsync(identity)).ShouldBe(intent);
+            var retainedHistories = await native.ReadConnectionRemoteWritesAsync(origin.WorktreeFingerprint);
+            retainedHistories.IsSuccess.ShouldBeTrue();
+            retainedHistories.Value.Select(history => JsonSerializer.Serialize(
+                    history, Twig.Infrastructure.Serialization.TwigJsonContext.Default.ConnectionRemoteWriteHistory))
+                .ShouldBe(histories.Value.Select(history => JsonSerializer.Serialize(
+                    history, Twig.Infrastructure.Serialization.TwigJsonContext.Default.ConnectionRemoteWriteHistory)),
+                    "authority refusal must preserve every recorded native intent, observation, and receipt");
+            return;
+        }
 
         if (secondMemberMatchesOriginalIntent && secondMemberRejected)
         {
@@ -2158,6 +2278,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
                 Authorize(digest) with { Rationale = "Verify failed local disposition remains unresolved." });
             interrupted.Settled.ShouldBeFalse();
+            interrupted.Error.ShouldNotBeNull();
+            interrupted.Error.ShouldContain("simulated local receipt write failure");
             (await workspaceJournal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
             (await workspaceIntents.GetIntentAsync(identity))!.IsOpen.ShouldBeTrue();
             ExecuteJournalSql(workspaceStore, "DROP TRIGGER fail_rejected_family_receipt;");
@@ -2170,6 +2292,12 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         if (!secondMemberMatchesOriginalIntent || !secondMemberRejected)
         {
             result.Settled.ShouldBeFalse();
+            var expectedError = !secondMemberHasStructuredCorrelation
+                ? "A native create carries the original staged identity marker without matching structured correlation; preserve the unknown outcome."
+                : !secondMemberMatchesOriginalIntent
+                    ? "The exact staged identity has a native create outside the original intent correlation; preserve the unknown outcome."
+                    : "Every admitted create in the exact correlation family must have one classifier-backed definitive rejection; an unknown or positive sibling remains unresolved.";
+            result.Error.ShouldBe(expectedError);
             result.Receipt.ShouldBeNull();
             (await workspaceJournal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
             (await workspaceIntents.GetIntentAsync(identity))!.IsOpen.ShouldBeTrue();

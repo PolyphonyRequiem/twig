@@ -1,6 +1,8 @@
 ﻿using Microsoft.Data.Sqlite;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Plan;
 
 namespace Twig.Infrastructure.Persistence;
 
@@ -24,6 +26,7 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         string typeName,
         CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         // An EXISTING intent is returned as-is — whether it is open or completed. Two distinct
         // reasons, and the second one is the bug review caught:
         //
@@ -38,9 +41,14 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         // recorded_at, destroying the evidence AND moving the fence past the orphan. CreateAsync
         // then fired again: a duplicate, in exactly the #270 scenario this ledger exists to
         // prevent. The caller adopts PublishedId when it is set.
-        var existing = await GetIntentAsync(identity, ct);
+        var existing = await GetIntentCoreAsync(identity);
         if (existing is not null)
+        {
+            if (HasValidatedNegativeDisposition(_store.GetConnection(), _store.ActiveTransaction, existing))
+                throw new InvalidOperationException(
+                    $"Publish intent {identity} was settled as a rejected create family; create a new explicitly authorized identity instead of reusing it.");
             return existing;
+        }
 
         var intent = new PublishIntent
         {
@@ -50,7 +58,6 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
             RecordedAt = DateTimeOffset.UtcNow,
         };
 
-        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -66,8 +73,12 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         cmd.Parameters.AddWithValue("@recordedAt", intent.RecordedAt.ToString("o"));
         cmd.ExecuteNonQuery();
 
-        return await GetIntentAsync(identity, ct).ConfigureAwait(false)
+        var recorded = await GetIntentCoreAsync(identity).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Recorded publish intent disappeared before readback.");
+        if (HasValidatedNegativeDisposition(_store.GetConnection(), _store.ActiveTransaction, recorded))
+            throw new InvalidOperationException(
+                $"Publish intent {identity} was settled as a rejected create family; create a new explicitly authorized identity instead of reusing it.");
+        return recorded;
     }
 
     public async Task CompleteIntentAsync(StagedIdentity identity, int publishedId, CancellationToken ct = default)
@@ -138,6 +149,11 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
     public Task<PublishIntent?> GetIntentAsync(StagedIdentity identity, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        return GetIntentCoreAsync(identity);
+    }
+
+    private Task<PublishIntent?> GetIntentCoreAsync(StagedIdentity identity)
+    {
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -178,15 +194,50 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
             ORDER BY recorded_at;
             """;
 
-        var intents = new List<PublishIntent>();
+        var candidates = new List<PublishIntent>();
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
             if (Map(reader) is { } intent)
-                intents.Add(intent);
+                candidates.Add(intent);
         }
+        reader.Close();
 
-        return Task.FromResult<IReadOnlyList<PublishIntent>>(intents);
+        var connection = _store.GetConnection();
+        var open = candidates.Where(intent => !HasValidatedNegativeDisposition(
+            connection, _store.ActiveTransaction, intent)).ToArray();
+        return Task.FromResult<IReadOnlyList<PublishIntent>>(open);
+    }
+
+    internal bool HasValidatedRejectedCreateFamilyDisposition(PublishIntent intent)
+    {
+        using var bindingOperation = _store.AcquireOperation();
+        return HasValidatedNegativeDisposition(_store.GetConnection(), _store.ActiveTransaction, intent);
+    }
+
+    private static bool HasValidatedNegativeDisposition(
+        SqliteConnection connection, SqliteTransaction? transaction, PublishIntent intent)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT digest, op_id, kind, publish_identity, publish_intent_recorded_at, receipt_json
+            FROM proposal_receipts
+            WHERE publish_identity = @identity
+              AND publish_intent_recorded_at = @recordedAt;
+            """;
+        command.Parameters.AddWithValue("@identity", intent.Identity.ToString());
+        command.Parameters.AddWithValue("@recordedAt", intent.RecordedAt.ToString("o"));
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+            if (RejectedCreateFamilyReceiptValidator.IsValidStoredDisposition(
+                reader.GetString(5), reader.GetString(2),
+                reader.GetString(0), reader.GetString(1),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                intent.Identity, intent.RecordedAt.ToString("o")))
+                return true;
+        return false;
     }
 
     // An unparseable identity is skipped rather than coerced to a plausible value (0003 §4).

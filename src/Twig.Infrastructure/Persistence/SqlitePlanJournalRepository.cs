@@ -685,17 +685,15 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     }
 
     /// <inheritdoc />
-    public Task<PlanLatestResult?> GetLatestUnresolvedAsync(CancellationToken ct = default)
+    public async Task<PlanLatestResult?> GetLatestUnresolvedAsync(CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        // A journal is fully settled when every operation is either Verified in the ledger OR
-        // has a receipt row for it: retirement, readback, and supersession all leave the
-        // original execution state in place but establish the native outcome. The latest-
-        // unresolved pointer must skip those; otherwise a plan whose only op was retired would
-        // keep reappearing in `latest` with no way to resolve it through the apply path.
+        // Positive/legacy receipt kinds retain their established settlement semantics. A
+        // RejectedCreateFamily row is different: only its validated proof may settle an op, so
+        // receipt filtering is performed after loading the diagnostic row.
         cmd.CommandText = """
             SELECT source_path, digest, state
             FROM proposal_journals j
@@ -704,34 +702,37 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 SELECT 1 FROM proposal_operations o
                 WHERE o.digest = j.digest
                   AND o.state <> 'Verified'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM proposal_receipts r
-                    WHERE r.digest = o.digest AND r.op_id = o.op_id
-                  )
               )
             ORDER BY last_previewed_at DESC, digest ASC
-            LIMIT 1;
             """;
-        using var reader = cmd.ExecuteReader();
-        if (!reader.Read())
-            return Task.FromResult<PlanLatestResult?>(null);
-
-        return Task.FromResult<PlanLatestResult?>(new PlanLatestResult
+        var candidates = new List<(string SourcePath, string Digest, PlanOperationState State)>();
+        using (var reader = cmd.ExecuteReader())
         {
-            Found = true,
-            File = reader.GetString(0),
-            Digest = reader.GetString(1),
-            State = ParseState(reader.GetString(2)),
-        });
+            while (reader.Read())
+                candidates.Add((reader.GetString(0), reader.GetString(1), ParseState(reader.GetString(2))));
+        }
+
+        foreach (var candidate in candidates)
+        {
+            var journal = await GetAsync(candidate.Digest, ct).ConfigureAwait(false);
+            if (journal is not null && HasUnsettledOperations(journal))
+                return new PlanLatestResult
+                {
+                    Found = true,
+                    File = candidate.SourcePath,
+                    Digest = candidate.Digest,
+                    State = candidate.State,
+                };
+        }
+        return null;
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<PlanJournal>> GetUnresolvedAsync(CancellationToken ct = default)
     {
-        // The full unresolved set: every journal with at least one operation that is neither
-        // Verified in the ledger nor settled by a native receipt. Oldest preview first so a
-        // caller walking the list sees the longest-standing orphan work first; digest ties
-        // so the order is total across equal timestamps.
+        // Oldest preview first so a caller walking the list sees the longest-standing orphan
+        // work first; digest ties so the order is total across equal timestamps. Negative
+        // receipts are classified from their validated proof below, not trusted by row presence.
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var digests = new List<string>();
@@ -745,10 +746,6 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                     SELECT 1 FROM proposal_operations o
                     WHERE o.digest = j.digest
                       AND o.state <> 'Verified'
-                      AND NOT EXISTS (
-                        SELECT 1 FROM proposal_receipts r
-                        WHERE r.digest = o.digest AND r.op_id = o.op_id
-                      )
                 )
                 ORDER BY previewed_at ASC, digest ASC;
                 """;
@@ -761,10 +758,38 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         foreach (var d in digests)
         {
             var j = await GetAsync(d, ct).ConfigureAwait(false);
-            if (j is not null)
+            if (j is not null && HasUnsettledOperations(j))
                 result.Add(j);
         }
         return result;
+    }
+
+    private bool HasUnsettledOperations(PlanJournal journal)
+        => journal.Operations.Any(operation => operation.State != PlanOperationState.Verified
+            && !HasSettledReceipt(journal, operation));
+
+    private bool HasSettledReceipt(PlanJournal journal, PlanJournalOperation operation)
+    {
+        var receipt = operation.OutcomeReceipt;
+        if (receipt is null) return false;
+        if (receipt.Kind != PlanOutcomeKind.RejectedCreateFamily) return true;
+
+        using var command = _store.GetConnection().CreateCommand();
+        command.Transaction = _store.ActiveTransaction;
+        command.CommandText = """
+            SELECT digest, op_id, kind, publish_identity, publish_intent_recorded_at, receipt_json
+            FROM proposal_receipts
+            WHERE digest = @digest AND op_id = @opId;
+            """;
+        command.Parameters.AddWithValue("@digest", journal.Digest);
+        command.Parameters.AddWithValue("@opId", operation.OpId);
+        using var reader = command.ExecuteReader();
+        return reader.Read() && RejectedCreateFamilyReceiptValidator.IsValidStoredOperationDisposition(
+            reader.GetString(5), reader.GetString(2),
+            reader.GetString(0), reader.GetString(1),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            journal.Digest, operation.OpId, operation.RequestJson);
     }
 
     /// <inheritdoc />
@@ -1240,6 +1265,25 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         PlanOperationState expectedState,
         string? expectedResultJson,
         CancellationToken ct = default)
+        => await TryAppendReceiptCoreAsync(receipt, expectedState, expectedResultJson, null, null, ct)
+            .ConfigureAwait(false);
+
+    public Task<bool> TryAppendRejectedCreateFamilyReceiptAsync(
+        PlanOutcomeReceipt receipt,
+        PlanOperationState expectedState,
+        string? expectedResultJson,
+        StagedIdentity identity,
+        DateTimeOffset recordedAt,
+        CancellationToken ct = default)
+        => TryAppendReceiptCoreAsync(receipt, expectedState, expectedResultJson, identity, recordedAt, ct);
+
+    private async Task<bool> TryAppendReceiptCoreAsync(
+        PlanOutcomeReceipt receipt,
+        PlanOperationState expectedState,
+        string? expectedResultJson,
+        StagedIdentity? dispositionIdentity,
+        DateTimeOffset? dispositionRecordedAt,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(receipt);
         ArgumentException.ThrowIfNullOrEmpty(receipt.ReceiptId);
@@ -1250,6 +1294,12 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         ArgumentNullException.ThrowIfNull(receipt.AuthorizingOrigin);
         ArgumentNullException.ThrowIfNull(receipt.Authorization);
         ArgumentException.ThrowIfNullOrEmpty(receipt.Authorization.AuthorizerIdentity);
+        if (receipt.Kind == PlanOutcomeKind.RejectedCreateFamily
+            ? dispositionIdentity is null || dispositionRecordedAt is null
+                || !RejectedCreateFamilyReceiptValidator.IsValid(receipt, dispositionIdentity,
+                    dispositionRecordedAt.Value.ToString("o", CultureInfo.InvariantCulture))
+            : dispositionIdentity is not null || dispositionRecordedAt is not null)
+            return false;
         if (receipt.Authorization.Digest != receipt.Digest
             || string.IsNullOrWhiteSpace(receipt.Authorization.Rationale)
             || !Enum.IsDefined(receipt.Authorization.Mode)
@@ -1263,7 +1313,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var ownedTx = _store.ActiveTransaction is null;
-        var tx = _store.ActiveTransaction ?? conn.BeginTransaction();
+        var tx = _store.ActiveTransaction ?? conn.BeginTransaction(deferred: false);
         await Task.CompletedTask.ConfigureAwait(false);
         try
         {
@@ -1365,6 +1415,15 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                         return false;
                     }
                     break;
+                case PlanOutcomeKind.RejectedCreateFamily:
+                    if (dispositionIdentity != receipt.PublishIdentity
+                        || expectedState is not (PlanOperationState.Failed or PlanOperationState.Indeterminate)
+                        || opStarted is null || opApplied is not null || opVerified is not null || opResult is not null)
+                    {
+                        if (ownedTx) tx.Rollback();
+                        return false;
+                    }
+                    break;
                 default:
                     if (ownedTx) tx.Rollback();
                     return false;
@@ -1450,7 +1509,66 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 }
             }
 
-            if (receipt.PublishIdentity is { } publishIdentity)
+            if (receipt.Kind == PlanOutcomeKind.RejectedCreateFamily)
+            {
+                var identity = dispositionIdentity!.Value;
+                var recordedAt = dispositionRecordedAt!.Value.ToString("o", CultureInfo.InvariantCulture);
+                using (var intent = conn.CreateCommand())
+                {
+                    intent.Transaction = tx;
+                    intent.CommandText = """
+                        SELECT recorded_at, published_id
+                        FROM publish_intents
+                        WHERE staged_identity = @identity;
+                        """;
+                    intent.Parameters.AddWithValue("@identity", identity.ToString());
+                    using var intentReader = intent.ExecuteReader();
+                    if (!intentReader.Read() || intentReader.GetString(0) != recordedAt
+                        || !intentReader.IsDBNull(1))
+                    {
+                        if (ownedTx) tx.Rollback();
+                        return false;
+                    }
+                }
+                using (var map = conn.CreateCommand())
+                {
+                    map.Transaction = tx;
+                    map.CommandText = "SELECT 1 FROM publish_id_map WHERE staged_identity = @identity LIMIT 1;";
+                    map.Parameters.AddWithValue("@identity", identity.ToString());
+                    if (map.ExecuteScalar() is not null)
+                    {
+                        if (ownedTx) tx.Rollback();
+                        return false;
+                    }
+                }
+                using (var applying = conn.CreateCommand())
+                {
+                    applying.Transaction = tx;
+                    applying.CommandText = "SELECT request_json FROM proposal_operations WHERE state = @state;";
+                    applying.Parameters.AddWithValue("@state", PlanOperationState.Applying.ToString());
+                    using var applyingReader = applying.ExecuteReader();
+                    while (applyingReader.Read())
+                    {
+                        try
+                        {
+                            using var request = JsonDocument.Parse(applyingReader.GetString(0));
+                            if (request.RootElement.TryGetProperty("stagedIdentity", out var staged)
+                                && staged.ValueKind == JsonValueKind.String
+                                && staged.GetString() == identity.ToString())
+                            {
+                                if (ownedTx) tx.Rollback();
+                                return false;
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                            if (ownedTx) tx.Rollback();
+                            return false;
+                        }
+                    }
+                }
+            }
+            else if (receipt.PublishIdentity is { } publishIdentity)
             {
                 using var request = JsonDocument.Parse(receipt.RequestJson);
                 using var evidence = JsonDocument.Parse(receipt.EvidenceJson);
@@ -1534,6 +1652,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             if (receipt.Kind == PlanOutcomeKind.Retired)
                 return root.TryGetProperty("neverAdmitted", out var never) && never.ValueKind == JsonValueKind.True
                     && root.TryGetProperty("mutationIssued", out var issued) && issued.ValueKind == JsonValueKind.False;
+            if (receipt.Kind == PlanOutcomeKind.RejectedCreateFamily)
+                return acknowledgedJson is null && RejectedCreateFamilyReceiptValidator.IsValid(receipt);
             if (!root.TryGetProperty("verifiedReadback", out var readback) || readback.ValueKind != JsonValueKind.Object
                 || !request.RootElement.TryGetProperty("kind", out var kind)) return false;
             if ((receipt.PublishIdentity is null) != (receipt.PublishIntentRecordedAt is null)) return false;

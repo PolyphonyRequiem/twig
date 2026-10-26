@@ -38,6 +38,7 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
     private readonly SqlitePublishIdMapRepository _publishIdMapRepo;
     private readonly SqliteUnitOfWork _unitOfWork;
     private readonly SqliteStagedIdentityRegistry _registry;
+    private readonly SqlitePublishIntentRepository _publishIntentRepo;
     private StagedIdentity _seedIdentity;
     private readonly ISeedLinkRepository _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
     private readonly IWorkItemLinkRepository _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
@@ -52,6 +53,7 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
         _repo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
         _registry = new SqliteStagedIdentityRegistry(_store);
         _publishIdMapRepo = new SqlitePublishIdMapRepository(_store, _registry);
+        _publishIntentRepo = new SqlitePublishIntentRepository(_store);
         _unitOfWork = new SqliteUnitOfWork(_store);
 
         _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -71,7 +73,7 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
-    private SeedPublishOrchestrator CreateOrchestrator() =>
+    private SeedPublishOrchestrator CreateOrchestrator(bool trackIntents = false) =>
         new(
             _repo,
             _adoService,
@@ -82,7 +84,7 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
             _unitOfWork,
             new BacklogOrderer(_adoService, _fieldDefinitionStore),
             _changeStore,
-            null,
+            trackIntents ? _publishIntentRepo : null,
             Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
 
     /// <summary>
@@ -152,6 +154,59 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
         (await _repo.GetByIdAsync(SeedId)).ShouldBeNull();
         (await _changeStore.GetChangesAsync(PublishedId)).ShouldBeEmpty();
         await _adoService.Received(1).CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PublishSeed_IndependentIdentityMayProceedAndItsUnknownIntentRemainsOpenBesideUnvalidatedReceipt()
+    {
+        await SaveSeedAsync();
+        await _changeStore.AddChangeAsync(SeedId, "note", null, null, "keep this note");
+        var priorIdentity = StagedIdentity.New();
+        priorIdentity.ShouldNotBe(_seedIdentity);
+        var prior = await _publishIntentRepo.RecordIntentAsync(priorIdentity, "prior seed", "Task");
+        InsertUnvalidatedDisposition(priorIdentity, prior.RecordedAt);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<int>(new InvalidOperationException("simulated unknown create outcome")));
+
+        var error = await Should.ThrowAsync<InvalidOperationException>(
+            () => CreateOrchestrator(trackIntents: true).PublishAsync(SeedId));
+        error.Message.ShouldBe("simulated unknown create outcome");
+
+        var openIntents = await _publishIntentRepo.GetOpenIntentsAsync();
+        openIntents.Count.ShouldBe(2);
+        openIntents.ShouldContain(open => open.Identity == _seedIdentity);
+        openIntents.ShouldContain(open => open.Identity == priorIdentity);
+        (await _publishIntentRepo.GetIntentAsync(_seedIdentity)).ShouldNotBeNull();
+        (await _publishIntentRepo.GetIntentAsync(priorIdentity)).ShouldNotBeNull();
+        var unchangedSeed = await _repo.GetByIdAsync(SeedId);
+        unchangedSeed.ShouldNotBeNull();
+        unchangedSeed.IsSeed.ShouldBeTrue();
+        (await _changeStore.GetChangesAsync(SeedId)).Single().NewValue.ShouldBe("keep this note");
+        (await _publishIdMapRepo.GetNewIdAsync(_seedIdentity)).ShouldBeNull();
+        await _adoService.Received(1).FindPublishedIntentAsync(
+            Arg.Is<PublishIntent>(intent => intent.Identity == _seedIdentity), Arg.Any<CancellationToken>());
+        await _adoService.Received(1).CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    private void InsertUnvalidatedDisposition(StagedIdentity identity, DateTimeOffset recordedAt)
+    {
+        using var operation = _store.AcquireOperation();
+        using var command = _store.GetConnection().CreateCommand();
+        command.Transaction = _store.ActiveTransaction;
+        command.CommandText = """
+            INSERT INTO proposal_receipts
+                (digest, op_id, receipt_id, kind, publish_identity, publish_intent_recorded_at, receipt_json, created_at)
+            VALUES
+                (@digest, @op, @receipt, 'RejectedCreateFamily', @identity, @recordedAt, '{}', @createdAt);
+            """;
+        command.Parameters.AddWithValue("@digest", Guid.NewGuid().ToString("N"));
+        command.Parameters.AddWithValue("@op", Guid.NewGuid().ToString("N"));
+        command.Parameters.AddWithValue("@receipt", Guid.NewGuid().ToString("N"));
+        command.Parameters.AddWithValue("@identity", identity.ToString());
+        command.Parameters.AddWithValue("@recordedAt", recordedAt.ToString("o"));
+        command.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToString("o"));
+        command.ExecuteNonQuery();
     }
 
     private static WorkItem PublishedItem() => new()

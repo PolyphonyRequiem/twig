@@ -24,8 +24,30 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
     internal static async Task<IConnectionRemoteWriteAdmission> BeginAsync(string registryPath,
         ResolvedConnectionBinding binding, ConnectionRemoteWriteRequest request, CancellationToken ct = default)
     {
+        return await BeginCoreAsync(registryPath, binding, request, null, ct).ConfigureAwait(false);
+    }
+
+    internal static Task<IConnectionRemoteWriteAdmission> BeginWithWorkspaceStoreAsync(string registryPath,
+        ResolvedConnectionBinding binding, ConnectionRemoteWriteRequest request, SqliteCacheStore workspaceStore,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspaceStore);
+        return BeginCoreAsync(registryPath, binding, request, workspaceStore, ct);
+    }
+
+    private static async Task<IConnectionRemoteWriteAdmission> BeginCoreAsync(string registryPath,
+        ResolvedConnectionBinding binding, ConnectionRemoteWriteRequest request, SqliteCacheStore? workspaceStore,
+        CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(binding.WorktreeRoot);
         ValidateRequest(binding, request);
-        await ValidateSeedCorrelationAsync(registryPath, binding, request, ct).ConfigureAwait(false);
+        if (request.SeedCorrelation is not null
+            && (request.EffectKind != "workitem-create" || request.Method != "POST"))
+            throw new InvalidOperationException("remote-write-seed-correlation-invalid: native staged create metadata cannot authorize another mutation kind.");
+        if (workspaceStore is null)
+            await ValidateSeedCorrelationAsync(registryPath, binding, request, ct).ConfigureAwait(false);
+        else
+            await ValidateSeedCorrelationAsync(workspaceStore, request, ct).ConfigureAwait(false);
         var intent = new ConnectionRemoteWriteIntent(1, Guid.NewGuid().ToString("N"), RequestDigest(binding, request),
             binding.Operation.WorktreeFingerprint, binding, request, DateTimeOffset.UtcNow);
         using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
@@ -64,15 +86,24 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
         ConnectionRemoteWriteRequest request, CancellationToken ct)
     {
         if (request.SeedCorrelation is not { } correlation) return;
-        if (request.EffectKind != "workitem-create" || request.Method != "POST")
-            throw new InvalidOperationException("remote-write-seed-correlation-invalid: native staged create metadata cannot authorize another mutation kind.");
         var twigDir = Path.Combine(binding.WorktreeRoot, ".twig");
         var configuration = await Twig.Infrastructure.Config.TwigConfiguration.LoadSplitAsync(
             Twig.Infrastructure.Config.TwigPaths.BuildPaths(twigDir, new Twig.Infrastructure.Config.TwigConfiguration
             { Organization = binding.Operation.Organization, Project = binding.Operation.Project, Team = binding.Operation.Team }, binding.WorktreeRoot), ct).ConfigureAwait(false);
         var paths = Twig.Infrastructure.Config.TwigPaths.BuildPaths(twigDir, configuration, binding.WorktreeRoot);
         using var store = SqliteCacheStore.OpenWorkspace(paths, registryPath);
+        await ValidateSeedCorrelationAsync(store, request, ct).ConfigureAwait(false);
+    }
+
+    private static async Task ValidateSeedCorrelationAsync(
+        SqliteCacheStore store, ConnectionRemoteWriteRequest request, CancellationToken ct)
+    {
+        if (request.SeedCorrelation is not { } correlation) return;
         var intent = await new SqlitePublishIntentRepository(store).GetIntentAsync(correlation.Identity, ct).ConfigureAwait(false);
+        if (intent is not null && intent.RecordedAt == correlation.IntentRecordedAt
+            && new SqlitePublishIntentRepository(store).HasValidatedRejectedCreateFamilyDisposition(intent))
+            throw new InvalidOperationException(
+                "remote-write-seed-correlation-settled: this staged identity was already settled as a rejected create family. Use a new explicitly authorized identity; no HTTP mutation was admitted.");
         if (intent is null || intent.RecordedAt != correlation.IntentRecordedAt || intent.PublishedId is not null
             || SeedCreateTitle(request.Payload) != intent.Title || SeedCreateType(request.Target) != intent.TypeName
             || !SeedCreateHasDescriptionCorrelation(request.Payload, correlation))

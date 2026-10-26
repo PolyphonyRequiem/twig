@@ -9,6 +9,7 @@ public enum PlanOutcomeKind
     Retired,
     Readback,
     Superseded,
+    RejectedCreateFamily,
 }
 
 /// <summary>Append-only settlement bound to the original effect and native authorizing authority.</summary>

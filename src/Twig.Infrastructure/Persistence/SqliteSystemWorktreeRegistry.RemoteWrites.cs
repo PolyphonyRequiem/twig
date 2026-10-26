@@ -15,6 +15,15 @@ internal sealed record ConnectionRemoteWriteReceipt(int Version, string ReceiptI
     ResolvedConnectionBinding AuthorizingOrigin, string? AuthorizerIdentity, string? Rationale, DateTimeOffset RecordedAt);
 internal sealed record ConnectionRemoteWriteHistory(ConnectionRemoteWriteIntent Intent,
     IReadOnlyList<ConnectionRemoteWriteObservation> Observations, ConnectionRemoteWriteReceipt? Receipt);
+internal sealed record ConnectionRemoteWriteSnapshotMember(long Sequence, ConnectionRemoteWriteHistory History);
+internal sealed record ConnectionRemoteWriteFamilySnapshot(string SnapshotId, string Fingerprint,
+    long HighWaterSequence, IReadOnlyList<ConnectionRemoteWriteSnapshotMember> Members);
+internal sealed record RejectedCreateFamilyProof(int Version, string SnapshotId, string Fingerprint,
+    long HighWaterSequence, string PublishIdentity, string PublishIntentRecordedAt,
+    string ExpectedSeedFingerprint, string PublishTitle, string PublishTypeName,
+    IReadOnlyList<RejectedCreateFamilyProofMember> Members);
+internal sealed record RejectedCreateFamilyProofMember(long Sequence, ConnectionRemoteWriteIntent Intent,
+    ConnectionRemoteWriteObservation Observation, ConnectionRemoteWriteReceipt Receipt);
 
 internal sealed partial class SqliteSystemWorktreeRegistry
 {
@@ -177,6 +186,90 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             }
             return Result.Ok<IReadOnlyList<ConnectionRemoteWriteHistory>>(histories);
         }, ct);
+
+    internal Task<Result<T>> ExecuteWithConnectionRemoteWriteSnapshotAsync<T>(
+        string fingerprint,
+        Func<ConnectionRemoteWriteFamilySnapshot, Task<Result<T>>> action,
+        CancellationToken ct = default)
+        => ExecuteWriteAsync(async (connection, transaction) =>
+        {
+            var snapshot = await ReadConnectionRemoteWriteSnapshotAsync(connection, transaction, fingerprint, ct)
+                .ConfigureAwait(false);
+            return snapshot.IsSuccess
+                ? await action(snapshot.Value).ConfigureAwait(false)
+                : Result.Fail<T>(snapshot.Error);
+        }, ct);
+
+    private static async Task<Result<ConnectionRemoteWriteFamilySnapshot>> ReadConnectionRemoteWriteSnapshotAsync(
+        SqliteConnection connection, SqliteTransaction transaction, string fingerprint, CancellationToken ct)
+    {
+        var highWater = 0L;
+        using (var highWaterCommand = connection.CreateCommand())
+        {
+            highWaterCommand.Transaction = transaction;
+            highWaterCommand.CommandText = "SELECT COALESCE(MAX(sequence), 0) FROM connection_remote_write_intents;";
+            var value = await highWaterCommand.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            highWater = Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        var intents = new List<(long Sequence, ConnectionRemoteWriteIntent Intent, ConnectionRemoteWriteReceipt? Receipt)>();
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT i.sequence, i.intent_id, i.request_digest, i.intent_json, r.receipt_json
+                FROM connection_remote_write_intents i
+                LEFT JOIN connection_remote_write_receipts r ON r.intent_id=i.intent_id
+                WHERE i.worktree_fingerprint=$fp AND i.sequence<=$highWater
+                ORDER BY i.sequence;
+                """;
+            command.Parameters.AddWithValue("$fp", fingerprint);
+            command.Parameters.AddWithValue("$highWater", highWater);
+            using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var intent = JsonSerializer.Deserialize(reader.GetString(3), TwigJsonContext.Default.ConnectionRemoteWriteIntent);
+                var receipt = reader.IsDBNull(4) ? null
+                    : JsonSerializer.Deserialize(reader.GetString(4), TwigJsonContext.Default.ConnectionRemoteWriteReceipt);
+                if (intent is null || intent.Version != 1 || intent.IntentId != reader.GetString(1)
+                    || intent.RequestDigest != reader.GetString(2) || intent.Fingerprint != fingerprint
+                    || receipt is not null && (receipt.Version != 1 || receipt.IntentId != intent.IntentId
+                        || receipt.RequestDigest != intent.RequestDigest))
+                    return Result.Fail<ConnectionRemoteWriteFamilySnapshot>(
+                        "remote-write-native-evidence-inconsistent: preserve original records; unknown evidence is not settled.");
+                intents.Add((reader.GetInt64(0), intent, receipt));
+            }
+        }
+
+        var members = new List<ConnectionRemoteWriteSnapshotMember>(intents.Count);
+        foreach (var (sequence, intent, receipt) in intents)
+        {
+            var observations = new List<ConnectionRemoteWriteObservation>();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT observation_id, observation_json
+                FROM connection_remote_write_observations
+                WHERE intent_id=$id
+                ORDER BY sequence;
+                """;
+            command.Parameters.AddWithValue("$id", intent.IntentId);
+            using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var observation = JsonSerializer.Deserialize(reader.GetString(1), TwigJsonContext.Default.ConnectionRemoteWriteObservation);
+                if (observation is null || observation.Version != 1 || observation.ObservationId != reader.GetString(0)
+                    || observation.IntentId != intent.IntentId || observation.RequestDigest != intent.RequestDigest)
+                    return Result.Fail<ConnectionRemoteWriteFamilySnapshot>(
+                        "remote-write-observation-inconsistent: original outcome remains unknown.");
+                observations.Add(observation);
+            }
+            members.Add(new(sequence, new ConnectionRemoteWriteHistory(intent, observations, receipt)));
+        }
+
+        return Result.Ok(new ConnectionRemoteWriteFamilySnapshot(
+            Guid.NewGuid().ToString("N"), fingerprint, highWater, members));
+    }
 
     private static async Task<Result> ValidateRemoteIntentAsync(SqliteConnection connection, SqliteTransaction tx,
         ConnectionRemoteWriteIntent intent, CancellationToken ct)

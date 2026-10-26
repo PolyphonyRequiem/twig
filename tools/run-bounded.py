@@ -30,8 +30,10 @@ def _stop_owned_tree(process, runner):
     try:
         runner.stop_session(process, False)
         return True
-    except Exception as error:  # any cleanup failure leaves survivors unknown; report, never claim success
-        root = process.poll()  # non-blocking: cleanup already spent its own bounded reap
+    except (runner.RunFailure, OSError, subprocess.SubprocessError) as error:
+        # Expected cleanup failures leave survivors unknown: report, never claim success.
+        # Programming defects are not caught here and still propagate.
+        root = process.poll()  # non-blocking: shared cleanup already spent its own bounded root wait
         root_state = 'root still running' if root is None else f'root exited {root}'
         cause = f'; cause={error.__cause__!r}' if error.__cause__ is not None else ''
         print(f'BOUNDED-CLEANUP: tree termination unconfirmed; {root_state}; survivors unknown; '
@@ -86,6 +88,7 @@ class _FakeProcess:
 
 class _FakeRunner:
     def __init__(self, failure=None):
+        self.RunFailure = load_runner().RunFailure
         self.failure = failure
         self.calls = []
 
@@ -144,6 +147,25 @@ class RunBoundedSelfTests(unittest.TestCase):
         self.assertIn('BOUNDED-CLEANUP: tree termination unconfirmed', stderr)
         self.assertIn('could not reap timed-out test process tree', stderr)
         self.assertNotIn('owned process tree stopped', stderr)
+        self.assertEqual(0, process.untimed_waits)
+
+    def test_deadline_taskkill_oserror_keeps_124_and_preserves_cause(self):
+        process = _FakeProcess(subprocess.TimeoutExpired(['owned'], 7), poll_result=None)
+        failure = self.RunFailure('taskkill could not run; wrapper exited; tree termination unconfirmed')
+        failure.__cause__ = FileNotFoundError('synthetic taskkill missing')
+        code, stderr = self.invoke(process, _FakeRunner(failure))
+        self.assertEqual(124, code)
+        self.assertIn('RunFailure: taskkill could not run', stderr)
+        self.assertIn("cause=FileNotFoundError('synthetic taskkill missing')", stderr)
+        self.assertIn('owned process tree termination unconfirmed', stderr)
+
+    def test_cleanup_programming_defect_is_not_masked(self):
+        process = _FakeProcess(subprocess.TimeoutExpired(['owned'], 7), poll_result=None)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(TypeError):
+            run_bounded(['owned'], 7, _FakeRunner(TypeError('synthetic defect')),
+                        popen=lambda *args, **kwargs: process)
+        self.assertNotIn('BOUNDED-VERDICT', stderr.getvalue())
         self.assertEqual(0, process.untimed_waits)
 
     def test_deadline_cleanup_success_reports_stopped_tree(self):

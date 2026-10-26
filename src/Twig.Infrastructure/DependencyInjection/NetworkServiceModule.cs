@@ -275,6 +275,12 @@ public static class NetworkServiceModule
                 sp.GetService<GitHubTransportOverride>()?.CreateHandler()), scope);
         });
         services.TryAddSingleton<GitHubBoundTargetResolver>();
+        services.TryAddSingleton(sp => new GitHubCapturedReadSessionFactory(
+            sp.GetRequiredService<IGitHubTokenSource>(),
+            sp.GetRequiredService<GitHubBoundTargetResolver>(),
+            sp.GetRequiredService<GitHubWorkspaceScope>(),
+            sp.GetRequiredService<TwigConfiguration>().GitHubAccount,
+            sp.GetService<GitHubTransportOverride>()));
         services.TryAddSingleton(sp => new GitHubProviderSetupService(
             () => sp.GetRequiredService<IProviderTargetBindingStore>(),
             () => sp.GetRequiredService<Twig.Infrastructure.Persistence.ProviderTargets.IProviderTargetAttachmentStore>(),

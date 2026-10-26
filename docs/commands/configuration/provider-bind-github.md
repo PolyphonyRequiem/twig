@@ -65,3 +65,16 @@ ADO bindings. Choose normal-read configuration explicitly with `twig config`
 after binding. It does not initialize/migrate item stores, seeds or context.
 Twig-owned OAuth sign-in and complete GitHub integration remain required before
 1.0; this command alone does not complete those requirements.
+
+The internal captured-read-session API can explicitly observe the authenticated
+actor and read issue snapshots using one captured in-memory credential. It retains
+the selected API endpoint, repository identity, attachment fingerprint/revision
+and binding revision, and rechecks selection around reads. This is not invoked by
+binding and does not establish storage-generation admission, durable proposal
+handoff, atomic provider concurrency or future write authority. Account/login
+names remain locators, not stable actor identity.
+
+Ordinary bound reads allow a confirmed same-identity locator/display metadata
+refresh without changing repository selection. Captured sessions are stricter:
+their captured binding revision must still match before further HTTP reads.
+Repository identity and attachment changes remain refusal conditions for both.

@@ -1,0 +1,54 @@
+---
+command: provider bind github
+group: configuration
+summary: Select a freshly confirmed GitHub repository identity locally.
+stability: stable
+mutates: local
+---
+
+# `twig provider bind github`
+
+Bind an expected [discovery observation](provider-discover-github.md) to this
+worktree. Twig repeats the fixed lookup and compares both opaque IDs exactly,
+then commits a durable target row before CAS-replacing the local pointer.
+This selects local repository identity; it grants no remote permissions.
+
+## Usage
+
+```text
+twig provider bind github --host github.com --repository owner/repo --expected-owner-id O_id --expected-repository-id R_id --expected-attachment-revision 0
+twig provider bind github --host github.com --repository new/repo --expected-owner-id O_new --expected-repository-id R_new --expected-attachment-revision 4 --replace-binding <current-binding-id> -o json
+```
+
+Required options are `--host`, `--repository`, `--expected-owner-id`,
+`--expected-repository-id` and `--expected-attachment-revision`. IDs are opaque,
+case-sensitive values from discovery. The revision is mandatory even for the same
+identity: stale values and A-to-B-to-A selection changes cannot bypass CAS.
+An absent attachment requires `0`; detached pointers require their current
+tombstone revision. There is no force option.
+
+`--replace-binding` must equal the current attached binding ID when identity
+changes, including owner transfers, reused slugs or a different API host with the
+same opaque IDs. Old rows and existing item data are retained. Same-identity
+rebinding reuses the durable row without silently refreshing locator/display
+metadata; renames do not redefine identity.
+
+The user-local `github.account` must explicitly select an existing GitHub CLI
+account. Tokens stay in memory; no refresh, storage, new scopes, active-account
+switch or remote write occurs. A token may have broader grants than Twig's fixed
+request admission permits.
+
+`-o` / `--output` accepts `human` (default), `json` or `minimal`, with the same
+columns as discovery plus the resulting binding ID and attachment revision.
+Its `bindingValidated` value is `true` after the normal binding-store checks and
+successful local commit; discovery's pointer-only observation is never treated as
+binding authority.
+Exit codes are `0` for a committed local selection, `1` for identity/CAS/storage/
+credential failure, and `2` for invalid usage. A late pointer-write failure may
+leave a recoverable unreferenced row; rediscover before retrying.
+
+This command changes neither `provider`, `github.host`, `github.repository`, nor
+ADO bindings. Choose normal-read configuration explicitly with `twig config`
+after binding. It does not initialize/migrate item stores, seeds or context.
+Twig-owned OAuth sign-in and complete GitHub integration remain required before
+1.0; this command alone does not complete those requirements.

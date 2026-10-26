@@ -13,7 +13,7 @@ namespace Twig.DependencyInjection;
 internal static class WorkspaceRegistrationModule
 {
     internal static IServiceCollection AddTwigWorkspaceServices(this IServiceCollection services,
-        string startDir, IReadOnlyList<string> args)
+        string startDir, IReadOnlyList<string> args, string? globalDisplayPath = null)
     {
         startDir = Path.GetFullPath(startDir);
         var workspaceRoot = WorkspaceDiscovery.FindWorkspaceRoot(startDir);
@@ -21,7 +21,8 @@ internal static class WorkspaceRegistrationModule
             ? Path.Combine(workspaceRoot, ".twig")
             : Path.Combine(startDir, ".twig");
 
-        var probePaths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"), startDir);
+        var probePaths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"),
+            startDir, globalDisplayPath);
         var config = TwigConfiguration.LoadSplit(probePaths);
         services.AddConnectionServices(config, twigDir, startDir);
 
@@ -45,7 +46,8 @@ internal static class WorkspaceRegistrationModule
         try
         {
             var paths = TwigPaths.BuildPaths(twigDir, config, startDir);
-            if (!(args.Count >= 2 && args[0] == "connection" && args[1] is "migrate" or "pin" or "unpin" or "default")
+            if (!(args.Count > 0 && args[0] == "provider")
+                && !(args.Count >= 2 && args[0] == "connection" && args[1] is "migrate" or "pin" or "unpin" or "default")
                 && Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
             {
                 using var cacheStore = SqliteCacheStore.OpenWorkspace(paths);

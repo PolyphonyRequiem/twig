@@ -888,6 +888,22 @@
     "path": "plans/proposal-validate.md"
   },
   {
+    "command": "provider discover github",
+    "group": "configuration",
+    "summary": "Observe immutable GitHub repository identity without binding.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "configuration/provider-discover-github.md"
+  },
+  {
+    "command": "provider bind github",
+    "group": "configuration",
+    "summary": "Select a freshly confirmed GitHub repository identity locally.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "configuration/provider-bind-github.md"
+  },
+  {
     "command": "config",
     "group": "configuration",
     "summary": "Read or set a configuration value.",

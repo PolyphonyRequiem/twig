@@ -1,9 +1,14 @@
 # Configuration commands
 
 Commands for reading, writing, and migrating Twig's local configuration state,
-plus offline help and explicit skill installation. Workspace configuration uses
+plus provider-target discovery and binding, offline help and explicit skill installation. Workspace configuration uses
 `.twig/` and `twig.json`; skill commands use only their explicit target root.
-None of these commands mutate Azure DevOps.
+None of these commands mutate remote providers. GitHub discovery performs a fixed
+remote read and observes the existing local pointer without initializing the
+central registry. Binding repeats that read, confirms the expected immutable IDs
+and attachment revision, and writes only the local target selection. Neither
+command changes configuration or enrolls credentials; see
+[`config`](config.md#work-item-provider) for the explicit setup sequence.
 
 Twig splits configuration into two JSON files:
 
@@ -22,6 +27,8 @@ catalog escape hatch and executable-matched `--skill` entry guidance.
 |---|---|
 |[`config`](./config.md)|Read or set a configuration value.|
 |[`config status-fields`](./config-status-fields.md)|Configure which fields appear in the status view.|
+|[`provider discover github`](provider-discover-github.md)|Observe immutable GitHub repository identity without binding.|
+|[`provider bind github`](provider-bind-github.md)|Select a freshly confirmed GitHub repository identity locally.|
 |[`migrate-config`](./migrate-config.md)|Split a legacy `.twig/config` into `twig.json` + per-user prefs (AB#3296).|
 |[`help`](./help.md)|Progressive offline help and `--skill` guidance.|
 |[`skills install`](skills-install.md)|Install the canonical Twig skill into an explicit root.|

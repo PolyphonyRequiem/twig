@@ -133,6 +133,8 @@ and updates.
 | [Plans and Proposals](plans/README.md) | [`twig proposal validate`](plans/proposal-validate.md) | Validate proposal v1/v2 without touching providers. | stable | `none` |
 | [Configuration](configuration/README.md) | [`twig config`](configuration/config.md) | Read or set a configuration value. | stable | `local` |
 | [Configuration](configuration/README.md) | [`twig config status-fields`](configuration/config-status-fields.md) | Configure which fields appear in the status view. | stable | `local` |
+| [Configuration](configuration/README.md) | [`twig provider discover github`](configuration/provider-discover-github.md) | Observe immutable GitHub repository identity without binding. | stable | `none` |
+| [Configuration](configuration/README.md) | [`twig provider bind github`](configuration/provider-bind-github.md) | Select a freshly confirmed GitHub repository identity locally. | stable | `local` |
 | [Configuration](configuration/README.md) | [`twig help`](configuration/help.md) | Progressive offline root, group and leaf help. | stable | `none` |
 | [Configuration](configuration/README.md) | [`twig migrate-config`](configuration/migrate-config.md) | Split a legacy .twig/config into a committed twig.json and gitignored user prefs. | stable | `local` |
 | [Configuration](configuration/README.md) | [`twig skills install`](configuration/skills-install.md) | Install the generic skill family into an explicit root. | stable | `local` |

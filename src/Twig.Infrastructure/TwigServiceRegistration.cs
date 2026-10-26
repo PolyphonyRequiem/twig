@@ -240,6 +240,18 @@ public static class TwigServiceRegistration
                 Path.Combine(systemRoot, "system.db"),
                 sp.GetService<TimeProvider>() ?? TimeProvider.System);
         });
+        services.AddSingleton<Twig.Domain.Interfaces.IProviderTargetBindingStore>(sp =>
+            (Twig.Domain.Interfaces.IProviderTargetBindingStore)
+            sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>());
+        services.AddSingleton<Twig.Infrastructure.Persistence.ProviderTargets.IProviderTargetAttachmentStore>(sp =>
+            new Twig.Infrastructure.Persistence.ProviderTargets.WorktreeLocalProviderTargetAttachmentStore(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IProviderTargetBindingStore>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.AddSingleton<Twig.Infrastructure.Persistence.ProviderTargets.ProviderTargetAttachmentService>(sp =>
+            new Twig.Infrastructure.Persistence.ProviderTargets.ProviderTargetAttachmentService(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IProviderTargetBindingStore>(),
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.ProviderTargets.IProviderTargetAttachmentStore>()));
         services.AddSingleton<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>(sp =>
             new Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),

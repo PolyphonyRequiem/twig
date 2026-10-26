@@ -350,6 +350,10 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
                 });
             },
             githubConfig: new GitHubConfig { Host = "github.com", Repository = "owner/repository" });
+        var targetBinding = await runtime.GetRequiredService<Twig.Infrastructure.Persistence.ProviderTargets.ProviderTargetAttachmentService>()
+            .AttachAsync(new GitHubRepositoryTarget("O_owner", "R_repo")
+                .ToIdentity(new Uri("https://api.github.com/graphql")), "owner/repository", null, 0);
+        targetBinding.IsSuccess.ShouldBeTrue(targetBinding.Error);
         var commands = new TwigCommands(runtime);
         var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_canonical");
         var identityMap = runtime.GetRequiredService<IExternalIdentityMap>();
@@ -446,7 +450,6 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     [InlineData(typeof(NoteWorkflow))]
     [InlineData(typeof(PatchWorkflow))]
     [InlineData(typeof(IPendingChangeFlusher))]
-    [InlineData(typeof(IPlanLifecycleService))]
     public async Task MutationPort_UnderGitHub_RefusesWithoutConstructingTheAdoClient(Type serviceType)
     {
         var adoConstructions = 0;
@@ -462,6 +465,33 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         refusal.Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
         refusal.Message.ShouldContain("provider mutation boundary");
         adoConstructions.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PreviewLifecycle_UnderGitHubWithoutScope_RefusesBeforeClientsOrCredentials()
+    {
+        var adoConstructions = 0;
+        var tokens = new FixtureGitHubTokenSource();
+        var runner = Substitute.For<IBoundedProcessRunner>();
+        var runtime = await AttachAsync("github", gitProject: "Project", overrides: services =>
+        {
+            services.AddSingleton<IGitHubTokenSource>(tokens);
+            services.AddSingleton(runner);
+            services.AddSingleton<IAdoWorkItemService>(_ =>
+            {
+                Interlocked.Increment(ref adoConstructions);
+                throw new InvalidOperationException("ADO client must not be constructed");
+            });
+        });
+
+        var refusal = Should.Throw<TwigConfigurationException>(() =>
+            runtime.GetRequiredService<IPlanLifecycleService>());
+
+        refusal.Message.ShouldStartWith(WorkItemProviderSetting.UnconfiguredReasonCode + ":");
+        adoConstructions.ShouldBe(0);
+        tokens.Calls.ShouldBe(0);
+        runner.ReceivedCalls().ShouldBeEmpty();
         _transport.Requests.ShouldBeEmpty();
     }
 
@@ -758,7 +788,7 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
             {"data":{"node":{"__typename":"Issue","id":"I_canonical","number":42,
             "title":"Provider snapshot","state":"OPEN","body":"**provider body**",
             "url":"https://github.com/owner/repository/issues/42","parent":{"id":"I_parent"},"milestone":null,
-            "repository":{"nameWithOwner":"owner/repository"}}}}
+            "issueType":null,"repository":{"id":"R_repo","nameWithOwner":"owner/repository","owner":{"id":"O_owner"}}}}}
             """;
     }
 

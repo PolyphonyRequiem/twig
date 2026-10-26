@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Twig.Infrastructure.Config;
 
 namespace Twig.Infrastructure.GitHub;
 
@@ -102,6 +103,9 @@ internal sealed class GitHubReadOnlyAuthHandler(IGitHubTokenSource tokenSource, 
 
         if (query is not { ValueKind: JsonValueKind.String } q || variables is not { ValueKind: JsonValueKind.Object } v)
             return false;
+        var discovery = string.Equals(q.GetString(), GitHubIssueQueries.RepositoryDiscovery, StringComparison.Ordinal);
+        if (discovery)
+            return IsDiscoveryVariables(v);
         if (!GitHubIssueQueries.TryMatch(q.GetString()!, out var paginated))
             return false;
 
@@ -125,6 +129,29 @@ internal sealed class GitHubReadOnlyAuthHandler(IGitHubTokenSource tokenSource, 
             }
         }
         return sawId && sawAfter == paginated;
+    }
+
+    private static bool IsDiscoveryVariables(JsonElement variables)
+    {
+        string? owner = null, name = null;
+        foreach (var variable in variables.EnumerateObject())
+        {
+            if (variable.Value.ValueKind != JsonValueKind.String)
+                return false;
+            switch (variable.Name)
+            {
+                case "owner" when owner is null:
+                    owner = variable.Value.GetString();
+                    break;
+                case "name" when name is null:
+                    name = variable.Value.GetString();
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return owner is not null && name is not null
+            && GitHubWorkspaceScope.NormalizeRepository(owner + "/" + name) is not null;
     }
 
     private static GitHubReadOnlyRequestRefusedException Refuse(string reason) =>

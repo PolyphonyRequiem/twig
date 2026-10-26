@@ -184,6 +184,7 @@ public sealed class ConfigCommand(
             "git.repository" => config.Git.Repository,
             "github.host" => config.GitHub?.Host,
             "github.repository" => config.GitHub?.Repository,
+            "github.account" => config.GitHubAccount,
             "display.fillratethreshold"=> config.Display.FillRateThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "display.maxextracolumns" => config.Display.MaxExtraColumns.ToString(),
             "display.columns.workspace" => config.Display.Columns?.Workspace is { Count: > 0 } ws ? string.Join(";", ws) : null,

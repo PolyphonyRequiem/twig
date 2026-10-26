@@ -94,8 +94,8 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
         // Epic #1167: the active provider follows the explicit workspace `provider` setting
-        // (absent => ado). GitHub resolves only from explicit github.* scope plus the gh CLI
-        // credential; anything missing fails closed rather than silently falling back to ADO.
+        // (absent => ado). GitHub reads require a durable neutral target attachment;
+        // configured slugs and explicit credential selection never substitute for that identity.
         services.AddSingleton<IWorkItemProvider>(sp =>
         {
             var kind = sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind();
@@ -265,7 +265,16 @@ public static class NetworkServiceModule
         services.TryAddSingleton(sp => GitHubScope(sp.GetRequiredService<TwigConfiguration>()));
         services.TryAddSingleton<IGitHubTokenSource>(sp => new GhCliTokenSource(
             sp.GetRequiredService<IBoundedProcessRunner>(),
-            sp.GetRequiredService<GitHubWorkspaceScope>().Host));
+            sp.GetRequiredService<GitHubWorkspaceScope>().Host,
+            sp.GetRequiredService<TwigConfiguration>().GitHubAccount));
+        services.TryAddSingleton<GitHubBoundTargetResolver>();
+        services.TryAddSingleton(sp =>
+        {
+            var scope = sp.GetRequiredService<GitHubWorkspaceScope>();
+            return new GitHubRepositoryDiscovery(GitHubReadOnlyAuthHandler.CreateClient(
+                sp.GetRequiredService<IGitHubTokenSource>(), scope.GraphQlEndpoint,
+                sp.GetService<GitHubTransportOverride>()?.CreateHandler()), scope);
+        });
         services.TryAddSingleton(sp =>
         {
             var scope = sp.GetRequiredService<GitHubWorkspaceScope>();
@@ -273,7 +282,9 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<IGitHubTokenSource>(),
                 scope.GraphQlEndpoint,
                 sp.GetService<GitHubTransportOverride>()?.CreateHandler());
-            return new GitHubWorkItemProvider(http, scope.GraphQlEndpoint, scope.Repository);
+            return new GitHubWorkItemProvider(http, scope.GraphQlEndpoint,
+                resolveTarget: ct => sp.GetRequiredService<GitHubBoundTargetResolver>().ResolveAsync(ct),
+                validateTarget: (context, ct) => sp.GetRequiredService<GitHubBoundTargetResolver>().ValidateAsync(context, ct));
         });
 
         if (string.Equals(config.Provider, ProviderCapabilityCatalog.GitHubProviderKind, StringComparison.Ordinal))

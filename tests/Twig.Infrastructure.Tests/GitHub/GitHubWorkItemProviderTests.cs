@@ -397,12 +397,13 @@ public sealed class GitHubWorkItemProviderTests
         public bool PaginateChildren { get; init; }
         public Dictionary<string, string> Overrides { get; } = new(StringComparer.Ordinal);
         public Func<string, JsonElement, string?>? ResponseOverride { get; init; }
+        public Func<string, Task>? BeforeResponseAsync { get; init; }
         public string Metadata { get; init; } = DefaultMetadata;
         public const string DefaultMetadata = """
             {"data":{"node":{"__typename":"Issue","id":"I_caseSensitive","number":42,
             "title":"Issue title","state":"OPEN","body":"**body**","url":"https://github.com/new/repo/issues/42",
             "issueType":{"name":"Bug"},"parent":{"id":"I_parent"},"milestone":null,
-            "repository":{"nameWithOwner":"new/repo"}}}}
+            "repository":{"id":"R_repo","nameWithOwner":"new/repo","owner":{"id":"O_owner"}}}}}
             """;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -416,6 +417,8 @@ public sealed class GitHubWorkItemProviderTests
             query.ShouldStartWith("query(");
             var variables = document.RootElement.GetProperty("variables");
             variables.GetProperty("id").GetString().ShouldBe(Identity.NativeId);
+            if (BeforeResponseAsync is not null)
+                await BeforeResponseAsync(query);
             var json = OverrideJson ?? ResponseOverride?.Invoke(query, variables) ?? Response(query, variables);
             return new(Status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         }

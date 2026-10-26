@@ -13,6 +13,7 @@ namespace Twig.Infrastructure.GitHub;
 /// <summary>
 /// Read-only GitHub issue adapter. Authentication and transport lifetime belong to the caller.
 /// When <c>expectedRepository</c> is supplied, snapshots of issues in any other repository are refused.
+/// Normal composition supplies an immutable target resolver instead; locator names are not authority.
 /// </summary>
 internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
 {
@@ -20,11 +21,17 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
     private readonly Uri _endpoint;
     private readonly string _scope;
     private readonly string? _expectedRepository;
+    private readonly Func<CancellationToken, Task<GitHubBoundReadContext>>? _resolveTarget;
+    private readonly Func<GitHubBoundReadContext, CancellationToken, Task>? _validateTarget;
     private IReadOnlyList<CapabilityAvailabilityEvidence> _lastReadEvidence = [];
 
-    public GitHubWorkItemProvider(HttpClient http, Uri? graphQlEndpoint = null, string? expectedRepository = null)
+    public GitHubWorkItemProvider(HttpClient http, Uri? graphQlEndpoint = null, string? expectedRepository = null,
+        Func<CancellationToken, Task<GitHubBoundReadContext>>? resolveTarget = null,
+        Func<GitHubBoundReadContext, CancellationToken, Task>? validateTarget = null)
     {
         ArgumentNullException.ThrowIfNull(http);
+        if ((resolveTarget is null) != (validateTarget is null))
+            throw new ArgumentException("A bound read requires both target capture and final validation.");
         _http = http;
         _endpoint = graphQlEndpoint ?? new Uri("https://api.github.com/graphql");
         if (!_endpoint.IsAbsoluteUri || _endpoint.Scheme != Uri.UriSchemeHttps
@@ -34,6 +41,8 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
                 nameof(graphQlEndpoint));
         _scope = _endpoint.GetLeftPart(UriPartial.Authority).ToLowerInvariant();
         _expectedRepository = expectedRepository;
+        _resolveTarget = resolveTarget;
+        _validateTarget = validateTarget;
     }
 
     public ProviderCapabilityDescriptor Capabilities => ProviderCapabilityCatalog.GitHub;
@@ -64,7 +73,16 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
 
         try
         {
+            var target = _resolveTarget is null ? null : await _resolveTarget(ct).ConfigureAwait(false);
             var node = await ReadNodeAsync(identity, GitHubIssueQueries.Snapshot, null, ct);
+            if (target is not null)
+            {
+                var repository = Required(node, "repository");
+                var observed = new GitHubRepositoryTarget(
+                    NativeId(Required(repository, "owner")), NativeId(repository));
+                if (observed != target.Target)
+                    throw new JsonException("GitHub repository or owner identity changed; explicit rediscovery and rebind are required.");
+            }
             if (_expectedRepository is not null
                 && !string.Equals(Text(Required(node, "repository"), "nameWithOwner"), _expectedRepository,
                     StringComparison.OrdinalIgnoreCase))
@@ -111,6 +129,8 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
             foreach (var blocked in await ReadConnectionAsync(identity, "blocking", ct))
                 AddEdge(relationships, identity, External(blocked), LinkKind.PredecessorSuccessor);
 
+            if (target is not null)
+                await _validateTarget!(target, ct).ConfigureAwait(false);
             _lastReadEvidence = [];
             return new(identity, null, fields, relationships.ToArray(), RelationshipsComplete: true);
         }

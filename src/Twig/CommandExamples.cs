@@ -632,8 +632,8 @@ internal static class CommandExamples
         ],
         ["connection reconcile-write"] =
         [
-            "twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis>   Prove a CAS-bound outcome through original-actor readback",
-            "twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis> --output json   Emit the native receipt or unresolved evidence blocker; never replay a write",
+            "twig connection reconcile-write --intent <id> --confirm <digest> --rationale <basis>   Prove a CAS-bound outcome through original-actor readback",
+            "twig connection reconcile-write --intent <id> --confirm <digest> --rationale <basis> --output json   Emit the native receipt or unresolved evidence blocker; never replay a write",
         ],
         ["version"] =
         [

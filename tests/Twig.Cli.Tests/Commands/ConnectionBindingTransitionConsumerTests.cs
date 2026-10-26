@@ -689,9 +689,8 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         var replay = await Should.ThrowAsync<InvalidOperationException>(() => reconnected.GetRequiredService<IAdoWorkItemService>().AddCommentAsync(42, note));
         replay.Message.ShouldContain("remote-write-outcome-unknown");
         _transport.WorkRequests.ShouldBe(beforeRequests, "the native semantic request fence must refuse before a duplicate POST");
-        var authorizer = (await _bindings.ListIdentitiesAsync()).Single(x => x.Name == "actor").IdentityId;
         var refused = await InvokeWritesAsync(reconnected, reconciliation, reconcile: true,
-            intent: unknown.IntentId, confirm: unknown.Digest, authorizer: authorizer);
+            intent: unknown.IntentId, confirm: unknown.Digest);
         refused.Exit.ShouldBe(1, refused.Error);
         using (var json = JsonDocument.Parse(refused.Output))
         {
@@ -760,15 +759,45 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
             [new FieldChange("System.Title", "Original exhausted CAS effect", "Later acknowledged actor title")], 2)).ShouldBe(3);
         var current = await reconnected.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
         current.Title.ShouldBe("Later acknowledged actor title");
-        var siblingAuthorizer = (await _bindings.ListIdentitiesAsync()).Single(x => x.Name == "sibling").IdentityId;
-        var wrongActor = await InvokeWritesAsync(reconnected, reconciliation, reconcile: true,
-            intent: unknown.IntentId, confirm: unknown.Digest, authorizer: siblingAuthorizer);
-        wrongActor.Exit.ShouldBe(1);
-        using (var json = JsonDocument.Parse(wrongActor.Output))
-            AssertNoReceipt(json.RootElement);
-        var originalAuthorizer = (await _bindings.ListIdentitiesAsync()).Single(x => x.Name == "actor").IdentityId;
+        var beforeDigestCheck = _transport.WorkRequests;
+        var wrongDigest = await InvokeWritesAsync(reconnected, reconciliation, reconcile: true,
+            intent: unknown.IntentId, confirm: unknown.Digest + "-different");
+        wrongDigest.Exit.ShouldBe(1);
+        wrongDigest.Error.ShouldContain("remote-write-digest-mismatch");
+        (await reconciliation.InspectAsync(_configuration, CurrentPaths()))
+            .Single(x => x.IntentId == unknown.IntentId).Receipt.ShouldBeNull();
+        _transport.WorkRequests.ShouldBe(beforeDigestCheck, "wrong intent confirmation must refuse before readback");
+        var currentBinding = await _bindings.ResolveAsync(_configuration, CurrentPaths());
+        var siblingIdentity = (await _bindings.ListIdentitiesAsync()).Single(x => x.Name == "sibling");
+        foreach (var changedAuthority in new[]
+        {
+            currentBinding with { Identity = siblingIdentity },
+            currentBinding with { Identity = currentBinding.Identity with { CredentialRef = "different-fixture-credential" } },
+            currentBinding with { Binding = currentBinding.Binding with { Revision = currentBinding.Binding.Revision + 1 } },
+            currentBinding with { StorageGeneration = currentBinding.StorageGeneration + "-different" },
+        })
+        {
+            var changedBindings = Substitute.For<IConnectionBindingService>();
+            changedBindings.RegistryPath.Returns(_bindings.RegistryPath);
+            changedBindings.ResolveAsync(_configuration, Arg.Any<TwigPaths>(), Arg.Any<CancellationToken>())
+                .Returns(changedAuthority);
+            using var wrongReconciliation = new ConnectionRemoteWriteReconciliationService(Home, changedBindings, _http);
+            var beforeReadback = _transport.WorkRequests;
+            var wrongActor = await InvokeWritesAsync(reconnected, wrongReconciliation, reconcile: true,
+                intent: unknown.IntentId, confirm: unknown.Digest);
+            wrongActor.Exit.ShouldBe(1);
+            using (var json = JsonDocument.Parse(wrongActor.Output))
+            {
+                AssertNoReceipt(json.RootElement);
+                json.RootElement.GetProperty("blockers").EnumerateArray().ShouldContain(x =>
+                    x.GetString()!.Contains("remote-write-authority-mismatch", StringComparison.Ordinal));
+            }
+            _transport.WorkRequests.ShouldBe(beforeReadback, "changed native authority must refuse before readback");
+            (await reconciliation.InspectAsync(_configuration, CurrentPaths()))
+                .Single(x => x.IntentId == unknown.IntentId).Receipt.ShouldBeNull();
+        }
         var settled = await InvokeWritesAsync(reconnected, reconciliation, reconcile: true,
-            intent: unknown.IntentId, confirm: unknown.Digest, authorizer: originalAuthorizer);
+            intent: unknown.IntentId, confirm: unknown.Digest);
         settled.Exit.ShouldBe(0, settled.Error + settled.Output);
         using (var json = JsonDocument.Parse(settled.Output))
         {
@@ -779,7 +808,8 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         var retained = (await reconciliation.InspectAsync(_configuration, CurrentPaths())).Single(x => x.IntentId == unknown.IntentId);
         retained.Request.ShouldBe(unknown.Request);
         retained.Observations.ShouldBeEmpty("readback adds an attributable receipt, not an invented acknowledgement to the lost HTTP response");
-        retained.Receipt!.AuthorizerIdentity.ShouldBe(originalAuthorizer);
+        retained.Receipt!.AuthorizerIdentity.ShouldBeNull("native provenance is not a fabricated signer");
+        retained.Receipt.AuthorizingOrigin.ShouldBe(currentBinding);
         await ApplyPinAsync(_siblingBinding.BindingId);
         var switched = await CreateRuntimeAsync();
         (await switched.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42)).ShouldBeNull();
@@ -810,9 +840,8 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         unknown.Request.SeedCorrelation.ShouldBe(correlation);
         unknown.Request.EffectKind.ShouldBe("workitem-create");
         unknown.Receipt.ShouldBeNull();
-        var authorizer = (await _bindings.ListIdentitiesAsync()).Single(x => x.Name == "actor").IdentityId;
         var premature = await reconciliation.ReconcileAsync(_configuration, CurrentPaths(), unknown.IntentId,
-            unknown.Digest, authorizer, "Native publication has not yet recovered");
+            unknown.Digest, "Native publication has not yet recovered");
         premature.Receipt.ShouldBeNull("server creation alone does not complete this exact native seed intent/map");
         (await _transitions.PreviewAsync(_configuration, CurrentPaths(), _siblingBinding.BindingId)).CanApply.ShouldBeFalse();
 
@@ -848,7 +877,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
 
         _transport.RejectNextCleanupPatch = true;
         var settled = await InvokeWritesAsync(reconnected, reconciliation, reconcile: true,
-            intent: unknown.IntentId, confirm: unknown.Digest, authorizer: authorizer);
+            intent: unknown.IntentId, confirm: unknown.Digest);
         settled.Exit.ShouldBe(0, settled.Error + settled.Output);
         var receipt = (await reconciliation.InspectAsync(_configuration, CurrentPaths()))
             .Single(x => x.IntentId == unknown.IntentId).Receipt!;
@@ -859,7 +888,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         var pendingCleanup = await reconnected.GetRequiredService<IAdoWorkItemService>().FetchAsync(recovered.NewId);
         correlation.ContainsDescriptionMarker(pendingCleanup.Fields.GetValueOrDefault("System.Description")).ShouldBeTrue();
         var cleanupRetry = await InvokeWritesAsync(reconnected, reconciliation, reconcile: true,
-            intent: unknown.IntentId, confirm: unknown.Digest, authorizer: authorizer);
+            intent: unknown.IntentId, confirm: unknown.Digest);
         cleanupRetry.Exit.ShouldBe(0, cleanupRetry.Error + cleanupRetry.Output);
         (await reconciliation.InspectAsync(_configuration, CurrentPaths()))
             .Single(x => x.IntentId == unknown.IntentId).Receipt.ShouldBe(receipt,
@@ -908,11 +937,11 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
 
     private Task<CapturedCommand> InvokeWritesAsync(ServiceProvider runtime,
         ConnectionRemoteWriteReconciliationService reconciliation, bool reconcile,
-        string? intent = null, string? confirm = null, string? authorizer = null)
+        string? intent = null, string? confirm = null)
     {
         var command = new ConnectionWritesCommand(reconciliation, _configuration, CurrentPaths(),
             runtime.GetRequiredService<OutputFormatterFactory>(), runtime.GetRequiredService<RendererFactory>());
-        return CaptureAsync(() => command.ExecuteAsync(reconcile, intent, confirm, authorizer,
+        return CaptureAsync(() => command.ExecuteAsync(reconcile, intent, confirm,
             reconcile ? "Isolated original-actor native evidence proof" : null, "json", CancellationToken.None));
     }
 

@@ -1703,14 +1703,13 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Reconcile an exact native request through original-actor authoritative readback. Confirmed seeds can retry revision-guarded temporary metadata cleanup without replacing their receipt. Missing attribution, a live operation or unexhausted CAS stays blocked; no force, create replay or inferred outcome.</summary>
     /// <param name="intent">Opaque native write intent ID from connection writes; required.</param>
     /// <param name="confirm">Exact immutable request digest from connection writes; required.</param>
-    /// <param name="authorize">Original registered identity ID, not a display name or a replacement actor; required.</param>
-    /// <param name="rationale">Truthful authorization/evidence rationale; required. Rationale alone never settles a write.</param>
+    /// <param name="rationale">Truthful evidence rationale; required. Rationale alone never settles a write.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection reconcile-write")]
     public async Task<int> ConnectionReconcileWrite(string? intent = null, string? confirm = null,
-        string? authorize = null, string? rationale = null,
+        string? rationale = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(true, intent, confirm, authorize, rationale, output, ct);
+        => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(true, intent, confirm, rationale, output, ct);
 
     /// <summary>Show the current version.</summary>
     public Task<int> Version()

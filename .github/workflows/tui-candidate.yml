@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Select the normal candidate run or the approved dependency transfer.
+        description: Select the normal candidate run or an approved exact-package dependency transfer.
         required: true
         type: choice
         options:
           - candidate
           - nuget-dependency-transfer
+          - nuget-runtime-completion-transfer
         default: candidate
   push:
     branches: [planning/tui-aot-epic]
@@ -179,7 +180,7 @@ jobs:
           if-no-files-found: ignore
 
   nuget-dependency-transfer:
-    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'nuget-dependency-transfer'
+    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'nuget-dependency-transfer' || inputs.operation == 'nuget-runtime-completion-transfer')
     name: Approved .NET dependency transfer
     runs-on: ubuntu-latest
     timeout-minutes: 6
@@ -190,11 +191,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Download and verify the exact approved packages
-        run: python tools/nuget-transfer.py --output-dir artifacts/nuget-transfer --source-sha "$GITHUB_SHA"
+        run: python tools/nuget-transfer.py --output-dir artifacts/nuget-transfer --source-sha "$GITHUB_SHA" --package-set "${{ inputs.operation == 'nuget-runtime-completion-transfer' && 'runtime-completion' || 'initial' }}"
       - name: Preserve packages and independent receipts
         uses: actions/upload-artifact@v4
         with:
-          name: twig-nuget-transfer-${{ github.sha }}-10.0.14-11.0.0-rc.3.26522.148-win-x64-11.0.0-rc.3.26522.148
+          name: twig-nuget-transfer-${{ github.sha }}-${{ inputs.operation }}
           path: artifacts/nuget-transfer/
           if-no-files-found: error
           retention-days: 1

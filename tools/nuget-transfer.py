@@ -18,6 +18,30 @@ PACKAGES = (
     ("Microsoft.NET.ILLink.Tasks", "11.0.0-rc.3.26522.148"),
     ("Microsoft.NETCore.App.Runtime.win-x64", "11.0.0-rc.3.26522.148"),
 )
+RUNTIME_COMPLETION_PACKAGES = (
+    ("Microsoft.DotNet.ILCompiler", "11.0.0-rc.3.26522.148"),
+    ("Microsoft.WindowsDesktop.App.Runtime.win-x64", "11.0.0-rc.3.26522.148"),
+    ("Microsoft.AspNetCore.App.Runtime.win-x64", "11.0.0-rc.3.26522.148"),
+    ("Microsoft.NETCore.App.Runtime.NativeAOT.win-x64", "11.0.0-rc.3.26522.148"),
+    ("runtime.win-x64.Microsoft.DotNet.ILCompiler", "11.0.0-rc.3.26522.148"),
+)
+PACKAGE_SETS = {
+    "initial": PACKAGES,
+    "runtime-completion": RUNTIME_COMPLETION_PACKAGES,
+}
+PACKAGE_CAP_BYTES = {
+    package: MAX_PACKAGE_BYTES for package in PACKAGES
+} | {
+    RUNTIME_COMPLETION_PACKAGES[0]: 256 * 1024 * 1024,
+    RUNTIME_COMPLETION_PACKAGES[1]: 128 * 1024 * 1024,
+    RUNTIME_COMPLETION_PACKAGES[2]: 128 * 1024 * 1024,
+    RUNTIME_COMPLETION_PACKAGES[3]: 128 * 1024 * 1024,
+    RUNTIME_COMPLETION_PACKAGES[4]: 256 * 1024 * 1024,
+}
+TRANSFER_CAP_BYTES = {
+    "initial": 3 * MAX_PACKAGE_BYTES,
+    "runtime-completion": 896 * 1024 * 1024,
+}
 
 
 def curl(url, destination, max_filesize):
@@ -76,10 +100,12 @@ def nuspec_identity(path):
 
 
 def verify_package(path, package_id, version, official_sha512=None):
-    if (package_id, version) not in PACKAGES:
+    package = (package_id, version)
+    if package not in PACKAGE_CAP_BYTES:
         raise ValueError("Package is not in the approved exact ID/version allowlist.")
-    if not path.is_file() or path.stat().st_size == 0 or path.stat().st_size > MAX_PACKAGE_BYTES:
-        raise ValueError("Package is empty, missing, or exceeds the 64 MiB cap.")
+    cap = PACKAGE_CAP_BYTES[package]
+    if not path.is_file() or path.stat().st_size == 0 or path.stat().st_size > cap:
+        raise ValueError(f"Package is empty, missing, or exceeds its {cap}-byte cap.")
     actual_id, actual_version = nuspec_identity(path)
     if (actual_id, actual_version) != (package_id, version):
         raise ValueError("Package nuspec ID/version does not match the approved package.")
@@ -99,6 +125,7 @@ def verify_package(path, package_id, version, official_sha512=None):
         "packageId": package_id,
         "version": version,
         "sizeBytes": path.stat().st_size,
+        "packageCapBytes": cap,
         "sha256": sha256(path),
         "sha512": actual_sha512.hex(),
         "officialSha512": official_sha512.strip() if official_sha512 is not None else None,
@@ -107,11 +134,14 @@ def verify_package(path, package_id, version, official_sha512=None):
 
 
 def download_one(output, source_sha, package_id, version):
+    cap = PACKAGE_CAP_BYTES.get((package_id, version))
+    if cap is None:
+        raise ValueError("Package is not in the approved exact ID/version allowlist.")
     slug = package_id.lower()
     filename = f"{slug}.{version}.nupkg"
     url = f"{FLAT_CONTAINER}/{slug}/{version.lower()}/{filename}"
     package_path = output / filename
-    status, http_status, error = curl(url, package_path, MAX_PACKAGE_BYTES)
+    status, http_status, error = curl(url, package_path, cap)
     if status != 0 or http_status != "200":
         raise RuntimeError(f"NuGet package request failed (HTTP {http_status or 'unknown'}): {error}")
 
@@ -151,16 +181,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--package-set", choices=PACKAGE_SETS, default="initial")
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.source_sha):
         raise ValueError("Source SHA must be a full lowercase 40-character commit hash.")
     output = args.output_dir
     output.parent.mkdir(parents=True, exist_ok=True)
     output.mkdir(exist_ok=False)
-    receipts = [download_one(output, args.source_sha, package_id, version)
-                for package_id, version in PACKAGES]
+    receipts = []
+    for package_id, version in PACKAGE_SETS[args.package_set]:
+        receipts.append(download_one(output, args.source_sha, package_id, version))
+        total_size = sum(receipt["sizeBytes"] for receipt in receipts)
+        if total_size > TRANSFER_CAP_BYTES[args.package_set]:
+            raise ValueError("Transfer exceeds its aggregate byte cap.")
     manifest = {
         "sourceCommit": args.source_sha,
+        "packageSet": args.package_set,
+        "totalSizeBytes": sum(receipt["sizeBytes"] for receipt in receipts),
+        "transferCapBytes": TRANSFER_CAP_BYTES[args.package_set],
         "packages": receipts,
         "networkPolicy": "official NuGet flat container; standard curl TLS; no redirects or retries",
     }

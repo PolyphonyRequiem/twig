@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 import zipfile
 from unittest.mock import patch
@@ -32,6 +33,55 @@ class NugetTransferTests(unittest.TestCase):
                     self.assertEqual(run.call_args.args[0][run.call_args.args[0].index("--max-filesize") + 1],
                                      str(cap))
                     self.assertEqual(run.call_args.kwargs["timeout"], 35)
+
+    def test_runtime_completion_set_has_exact_packages_and_bounded_caps(self):
+        self.assertEqual(transfer.PACKAGE_SETS["runtime-completion"], (
+            ("Microsoft.DotNet.ILCompiler", "11.0.0-rc.3.26522.148"),
+            ("Microsoft.WindowsDesktop.App.Runtime.win-x64", "11.0.0-rc.3.26522.148"),
+            ("Microsoft.AspNetCore.App.Runtime.win-x64", "11.0.0-rc.3.26522.148"),
+            ("Microsoft.NETCore.App.Runtime.NativeAOT.win-x64", "11.0.0-rc.3.26522.148"),
+            ("runtime.win-x64.Microsoft.DotNet.ILCompiler", "11.0.0-rc.3.26522.148"),
+        ))
+        self.assertEqual(
+            [transfer.PACKAGE_CAP_BYTES[package]
+             for package in transfer.RUNTIME_COMPLETION_PACKAGES],
+            [256 * 1024 * 1024, 128 * 1024 * 1024, 128 * 1024 * 1024,
+             128 * 1024 * 1024, 256 * 1024 * 1024],
+        )
+        self.assertEqual(transfer.TRANSFER_CAP_BYTES["runtime-completion"],
+                         sum(transfer.PACKAGE_CAP_BYTES[package]
+                             for package in transfer.RUNTIME_COMPLETION_PACKAGES))
+        self.assertEqual(transfer.PACKAGE_SETS["initial"], transfer.PACKAGES)
+
+    def test_runtime_completion_download_uses_each_package_cap(self):
+        for package_id, version in transfer.RUNTIME_COMPLETION_PACKAGES:
+            with self.subTest(package_id=package_id), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory)
+
+                def package_then_404(url, destination, _max_filesize):
+                    if destination.suffix == ".nupkg":
+                        package(destination, package_id, version)
+                        return 0, "200", ""
+                    return 22, "404", "curl: (22) The requested URL returned error: 404"
+
+                with patch.object(transfer, "curl", side_effect=package_then_404) as curl:
+                    receipt = transfer.download_one(
+                        output, "a" * 40, package_id, version)
+                expected_cap = transfer.PACKAGE_CAP_BYTES[(package_id, version)]
+                self.assertEqual(curl.call_args_list[0].args[2], expected_cap)
+                self.assertEqual(receipt["packageCapBytes"], expected_cap)
+
+    def test_verify_package_rejects_file_above_its_package_cap(self):
+        package_id, version = transfer.RUNTIME_COMPLETION_PACKAGES[0]
+        cap = transfer.PACKAGE_CAP_BYTES[(package_id, version)]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "package.nupkg"
+            package(path, package_id, version)
+            with patch.object(transfer.Path, "is_file", return_value=True), \
+                    patch.object(transfer.Path, "stat",
+                                 return_value=SimpleNamespace(st_size=cap + 1)):
+                with self.assertRaisesRegex(ValueError, "exceeds its"):
+                    transfer.verify_package(path, package_id, version)
 
     def test_checksum_404_is_optional_only_for_curl_http_failure(self):
         def package_then_success(url, destination, _max_filesize):

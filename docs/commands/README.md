@@ -96,6 +96,9 @@ and updates.
 | [Work Items](work-items/README.md) | [`twig state`](work-items/state.md) | Change the state of the active work item by name. | stable | `ado` |
 | [Work Items](work-items/README.md) | [`twig update`](work-items/update.md) | Update a single field on the active work item. | stable | `ado` |
 | [Links](links/README.md) | [`twig link artifact`](links/link-artifact.md) | Attach a hyperlink or vstfs artifact link to a work item. | stable | `ado` |
+| [Links](links/README.md) | [`twig link local list`](links/link-local-list.md) | List Twig-local Related links touching a local work item. | stable | `none` |
+| [Links](links/README.md) | [`twig link local related`](links/link-local-related.md) | Add an explicit Twig-local Related link between two local work items. | stable | `local` |
+| [Links](links/README.md) | [`twig link local unrelate`](links/link-local-unrelate.md) | Remove an existing Twig-local Related link without provider access. | stable | `local` |
 | [Links](links/README.md) | [`twig link parent`](links/link-parent.md) | Set the parent of the active (or targeted) work item. | stable | `ado` |
 | [Links](links/README.md) | [`twig link predecessor`](links/link-predecessor.md) | Mark the active (or targeted) item as blocked by another item. | stable | `ado` |
 | [Links](links/README.md) | [`twig link related`](links/link-related.md) | Add a symmetric Related link between two work items, optionally with a comment. | stable | `ado` |

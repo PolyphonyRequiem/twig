@@ -70,7 +70,7 @@ public sealed class SubcommandGuardTests
 
         error.ShouldNotBeNull();
         error.ShouldContain("Valid 'link' subcommands:");
-        foreach (var verb in new[] { "parent", "unparent", "reparent", "predecessor", "successor", "unlink", "artifact" })
+        foreach (var verb in new[] { "parent", "unparent", "reparent", "predecessor", "successor", "local", "unlink", "artifact" })
             error.ShouldContain(verb, customMessage: $"'link {verb}' is a real verb and must be offered");
     }
 
@@ -108,13 +108,15 @@ public sealed class SubcommandGuardTests
         error.ShouldContain($"Valid '{group}' subcommands:");
     }
 
-    [Fact]
-    public void GroupWithNoBareHandler_InvokedBare_AtTheSecondLevel_IsRejected()
+    [Theory]
+    [InlineData("workspace", "sprint")]
+    [InlineData("link", "local")]
+    public void GroupWithNoBareHandler_InvokedBare_AtTheSecondLevel_IsRejected(string group, string subGroup)
     {
-        var error = SubcommandGuard.Validate(["workspace", "sprint"]);
+        var error = SubcommandGuard.Validate([group, subGroup]);
 
         error.ShouldNotBeNull();
-        error.ShouldContain("Missing subcommand: 'workspace sprint' requires one.");
+        error.ShouldContain($"Missing subcommand: '{group} {subGroup}' requires one.");
     }
 
     // ---- The trap on this card. A fix that breaks these is worse than the bug.
@@ -168,6 +170,9 @@ public sealed class SubcommandGuardTests
     [Theory]
     [InlineData("link", "parent", "77")]
     [InlineData("link", "predecessor", "65")]
+    [InlineData("link", "local", "related", "00000000-0000-7000-8000-000000000001", "00000000-0000-7000-8000-000000000002")]
+    [InlineData("link", "local", "unrelate", "00000000-0000-7000-8000-000000000001", "00000000-0000-7000-8000-000000000002")]
+    [InlineData("link", "local", "list", "00000000-0000-7000-8000-000000000001")]
     [InlineData("seed", "new")]
     [InlineData("seed", "publish", "5")]
     [InlineData("nav", "up")]

@@ -2,6 +2,7 @@ using System.Text.Json;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
@@ -15,6 +16,18 @@ public sealed class ShowLocalIdTests
 {
     private readonly StringWriter _stderr = new();
     private readonly IProviderWorkItemReadService _reader = Substitute.For<IProviderWorkItemReadService>();
+    private readonly ILocalRelationshipRepository _localRelationships = Substitute.For<ILocalRelationshipRepository>();
+    private readonly LocalRelationshipService _localRelationshipService;
+
+    public ShowLocalIdTests()
+    {
+        _localRelationships.GetForItemsAsync(
+                Arg.Any<IReadOnlyCollection<LocalWorkItemId>>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<LocalRelationship>());
+        _localRelationshipService = new LocalRelationshipService(_localRelationships);
+    }
 
     [Fact]
     public async Task LocalIdRead_EmitsProviderAndComposedFieldsWithoutIntegerAlias()
@@ -75,6 +88,7 @@ public sealed class ShowLocalIdTests
         root.GetProperty("relationships")[0].GetProperty("kind").GetString().ShouldBe("parent-child");
         root.GetProperty("relationships")[0].GetProperty("target").GetProperty("nativeId").GetString()
             .ShouldBe("opaque/parent");
+        root.GetProperty("localRelationships").GetArrayLength().ShouldBe(0);
         await _reader.Received(1).ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>());
     }
 
@@ -198,7 +212,7 @@ public sealed class ShowLocalIdTests
     public async Task LocalIdRead_ReportsUnavailableProviderReadService()
     {
         var localId = LocalWorkItemId.New();
-        var command = new ShowLocalIdCommand(null, new RendererFactory(), stderrWriter: _stderr);
+        var command = new ShowLocalIdCommand(null, new RendererFactory(), _localRelationshipService, stderrWriter: _stderr);
 
         var (exitCode, output) = await StdoutCapture.RunAsync(
             () => command.ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
@@ -236,7 +250,8 @@ public sealed class ShowLocalIdTests
         provider.Capabilities.Returns(descriptor);
 
         var (exitCode, output) = await StdoutCapture.RunAsync(
-            () => new ShowLocalIdCommand(_reader, new RendererFactory(), stderrWriter: _stderr, provider: provider)
+            () => new ShowLocalIdCommand(
+                _reader, new RendererFactory(), _localRelationshipService, stderrWriter: _stderr, provider: provider)
                 .ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
 
         exitCode.ShouldBe(0);
@@ -272,8 +287,41 @@ public sealed class ShowLocalIdTests
             .TryGetProperty("origin", out _).ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task LocalIdRead_EmitsLocalOnlyRelationshipsSeparatelyFromProviderRelationships()
+    {
+        var localId = LocalWorkItemId.New();
+        var target = LocalWorkItemId.New();
+        var now = DateTimeOffset.UtcNow;
+        var edge = new LocalRelationship(
+            localId, target, LinkKind.Related, EmulationStorage.LocalOnly, PublicationState.NotApplicable,
+            1, now, now);
+        _localRelationships.GetForItemsAsync(
+                Arg.Any<IReadOnlyCollection<LocalWorkItemId>>(),
+                Arg.Any<bool>(),
+                Arg.Any<CancellationToken>())
+            .Returns([edge]);
+        _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>())
+            .Returns(CreateResult(localId, revisionToken: null));
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand().ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
+
+        exitCode.ShouldBe(0);
+        using var document = JsonDocument.Parse(output);
+        var root = document.RootElement;
+        root.GetProperty("relationships").GetArrayLength().ShouldBe(0);
+        var localRelationship = root.GetProperty("localRelationships")[0];
+        localRelationship.GetProperty("kind").GetString().ShouldBe("related");
+        localRelationship.GetProperty("source").GetString().ShouldBe(localId.ToString());
+        localRelationship.GetProperty("target").GetString().ShouldBe(target.ToString());
+        localRelationship.GetProperty("origin").GetString().ShouldBe("twig-local");
+        localRelationship.GetProperty("storage").GetString().ShouldBe("local-only");
+        localRelationship.GetProperty("publication").GetString().ShouldBe("not-applicable");
+    }
+
     private ShowLocalIdCommand CreateCommand() =>
-        new(_reader, new RendererFactory(), stderrWriter: _stderr);
+        new(_reader, new RendererFactory(), _localRelationshipService, stderrWriter: _stderr);
 
     private static ProviderWorkItemReadResult CreateResult(
         LocalWorkItemId localId,

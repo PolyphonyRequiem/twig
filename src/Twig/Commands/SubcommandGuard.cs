@@ -77,6 +77,7 @@ internal static class SubcommandGuard
         "proposal",
         "skills",
         "workspace sprint",
+        "link local",
         "bench configuration area",
         "bench configuration sprint",
     ];

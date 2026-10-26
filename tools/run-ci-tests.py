@@ -9,6 +9,7 @@ import argparse
 from collections import Counter
 from dataclasses import dataclass
 import ctypes
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -51,6 +52,9 @@ MAX_CLI_CASES = 200
 MAX_HOST_CASES = 10
 MAX_FILTER_LENGTH = 6000  # Leave room in Windows' command-line limit for SDK/artifact paths.
 SESSION_TIMEOUT = 300000
+TEMP_GH_FACT = "Twig.Infrastructure.Tests.GitHub.GhCliTokenSourceTests.ProductionArguments_AreAcceptedByInstalledGhHelp_WithoutCredentialLookup"
+TEMP_GH_FLAG = "--temporary-windows-installed-gh-help-deviation"
+TEMP_GH_REASON = "Installed gh help stalls on Windows; Path A diagnosis remains unresolved. Internal schema10 unblock only."
 BAD_OUTPUT = re.compile(
     r"Test Run Aborted|Aborting test run|test host process crashed|"
     r"No test matches the given testcase filter|No test is available|"
@@ -218,6 +222,18 @@ def eligible_cases(cases, methods):
     require(bool(methods), "filtered discovery is empty")
     require(methods <= discovered, f"filtered discovery absent from display discovery: {sorted(methods - discovered)}")
     return Counter({name: count for name, count in cases.items() if method_name(name) in methods})
+
+
+def temporary_gh_eligibility(cases, base_filter, enabled, platform):
+    if not enabled:
+        return cases, base_filter
+    require(platform == "win32", f"{TEMP_GH_FLAG} requires Windows")
+    matches = Counter({name: count for name, count in cases.items() if method_name(name) == TEMP_GH_FACT})
+    require(matches == Counter({TEMP_GH_FACT: 1}),
+            "temporary deviation requires exactly one eligible installed-gh help fact from actual discovery")
+    remaining = cases - matches
+    require(bool(remaining), "temporary deviation cannot exclude the entire assembly")
+    return remaining, f"({base_filter})&FullyQualifiedName!={TEMP_GH_FACT}"
 
 
 @dataclass(frozen=True)
@@ -405,7 +421,10 @@ def stop_session(process, elevated):
 
 
 class Runner:
-    def __init__(self):
+    def __init__(self, temporary_gh_deviation=False):
+        require(not temporary_gh_deviation or sys.platform == "win32",
+                f"{TEMP_GH_FLAG} requires Windows")
+        self.temporary_gh_deviation = temporary_gh_deviation
         settings = ROOT / "test.runsettings"
         config = ET.parse(settings).getroot().find("RunConfiguration")
         require(config is not None and config.findtext("TestSessionTimeout") == str(SESSION_TIMEOUT), "the existing 300000ms watchdog must be preserved")
@@ -487,15 +506,38 @@ class Runner:
                 all_cases = display_cases(output, assembly)
                 methods = self.discover_methods(dll, self.base_filter, f"{assembly}-eligible")
                 cases = eligible_cases(all_cases, methods)
+                execution_filter = self.base_filter
+                if assembly == "Infrastructure":
+                    cases, execution_filter = temporary_gh_eligibility(
+                        cases, self.base_filter, self.temporary_gh_deviation, sys.platform)
+                    if self.temporary_gh_deviation:
+                        source = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                                                capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+                        require(re.fullmatch(r"[0-9a-f]{40}", source) is not None, "source commit unavailable")
+                        receipt = {
+                            "status": "KNOWN DEVIATION - NOT FULL RC / 1.0 / PUBLIC RELEASE",
+                            "sourceCommit": source, "rid": "win-x64",
+                            "excludedTests": [TEMP_GH_FACT], "excludedCaseCount": 1,
+                            "reason": TEMP_GH_REASON,
+                            "approval": "Daniel approved Path B through readiness on 2026-10-26; no installation or real-store cutover grant.",
+                            "recordedUtc": datetime.now(timezone.utc).isoformat(),
+                            "scope": "Private temporary internal unblock; not executed and not an xUnit skip.",
+                            "retirement": "Remove this temporary branch/workflow opt-in when Path A fix qualifies.",
+                        }
+                        sidecar = ROOT / "artifacts" / "tui-candidate" / "win-x64-temporary-deviation.json"
+                        sidecar.parent.mkdir(parents=True, exist_ok=True)
+                        sidecar.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+                        print("KNOWN DEVIATION " + json.dumps(receipt), flush=True)
                 if assembly == "Cli":
                     host_methods = self.discover_methods(dll, f"({self.base_filter})&Category=HostInventory", "Cli-host-discovery")
                     partitions = partition_cli(cases, host_methods, self.base_filter)
                 else:
-                    partitions = [Partition(assembly, self.base_filter, cases)]
+                    partitions = [Partition(assembly, execution_filter, cases)]
                 manifest = [{"name": part.name, "filter": part.filter, "expected": sum(part.cases.values()),
                              "hostInventory": part.host_inventory, "cases": dict(sorted(part.cases.items()))} for part in partitions]
                 (self.logs / f"{assembly}-plan.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-                print(f"TWIG-DISCOVERY {assembly}: {sum(cases.values())} eligible, {sum(all_cases.values()) - sum(cases.values())} excluded by runsettings, {len(partitions)} sessions")
+                exclusion_label = "runsettings + EXACT ONE TEMPORARY DEVIATION" if self.temporary_gh_deviation and assembly == "Infrastructure" else "runsettings"
+                print(f"TWIG-DISCOVERY {assembly}: {sum(cases.values())} eligible, {sum(all_cases.values()) - sum(cases.values())} excluded by {exclusion_label}, {len(partitions)} sessions")
                 completed = []
                 for part in partitions:
                     try:
@@ -515,12 +557,47 @@ class Runner:
             except (RunFailure, OSError, ET.ParseError, ValueError) as error:
                 failed = True
                 print(f"TWIG-VERDICT {assembly}: FAILED ({error})")
-        print(f"TWIG-VERDICT OVERALL: {'FAILED' if failed else 'PASSED'} ({totals['passed']} passed, {totals['skipped']} skipped) [logs: {self.logs}]")
+        qualifier = " KNOWN DEVIATION; NOT FULL RC / 1.0 / PUBLIC RELEASE; ONE FACT NOT EXECUTED" if self.temporary_gh_deviation else ""
+        print(f"TWIG-VERDICT OVERALL: {'FAILED' if failed else 'PASSED'}{qualifier} ({totals['passed']} passed, {totals['skipped']} skipped) [logs: {self.logs}]")
         return int(failed)
 
 
 class RunnerSelfTests(unittest.TestCase):
     """Synthetic runner-contract checks only: no SDK, build, discovery or test host."""
+    def test_temporary_gh_default_preserves_all_cases_and_filter(self):
+        cases = Counter({TEMP_GH_FACT: 1, TEMP_GH_FACT + "Sibling": 2})
+        actual, expression = temporary_gh_eligibility(cases, "Category!=Interactive", False, "linux")
+        self.assertIs(actual, cases)
+        self.assertEqual(expression, "Category!=Interactive")
+
+    def test_temporary_gh_excludes_exactly_one_fact_and_retains_coverage(self):
+        sibling = TEMP_GH_FACT + "Sibling"
+        output = "The following Tests are available:\n" + "\n".join(
+            "    " + name for name in (TEMP_GH_FACT, sibling, sibling))
+        cases = eligible_cases(display_cases(output, "Infrastructure"), {TEMP_GH_FACT, sibling})
+        actual, expression = temporary_gh_eligibility(cases, "BASE", True, "win32")
+        self.assertEqual(actual, Counter({sibling: 2}))
+        self.assertEqual(cases[TEMP_GH_FACT], 1)
+        self.assertEqual(expression, f"(BASE)&FullyQualifiedName!={TEMP_GH_FACT}")
+        reconcile_coverage(actual, [Counter({sibling: 2})])
+        with self.assertRaises(RunFailure):
+            reconcile_coverage(actual, [Counter({sibling: 1})])
+        with self.assertRaises(RunFailure):
+            check_process("Passed!", 1)
+        with self.assertRaises(RunFailure):
+            reconcile_coverage(actual, [cases])
+
+    def test_temporary_gh_refuses_platform_missing_multiple_and_theory_drift(self):
+        for platform, cases in [
+            ("linux", Counter({TEMP_GH_FACT: 1, "Twig.Infrastructure.Tests.Other.Run": 1})),
+            ("darwin", Counter({TEMP_GH_FACT: 1})),
+            ("win32", Counter({"Twig.Infrastructure.Tests.Other.Run": 1})),
+            ("win32", Counter({TEMP_GH_FACT: 2})),
+            ("win32", Counter({TEMP_GH_FACT + "(value: 1)": 1})),
+            ("win32", Counter({TEMP_GH_FACT: 1})),
+        ]:
+            with self.subTest(platform=platform, cases=cases), self.assertRaises(RunFailure):
+                temporary_gh_eligibility(cases, "BASE", True, platform)
     def test_windows_taskkill_failure_reaps_wrapper_without_claiming_tree_stopped(self):
         process = Mock(pid=4321)
         process.poll.return_value = None
@@ -1176,7 +1253,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true", help="check coverage and false-green guards with synthetic data only")
     parser.add_argument("--selftest-windows-cleanup", action="store_true", help="opt-in real Windows process-tree cleanup control")
+    parser.add_argument(TEMP_GH_FLAG, action="store_true",
+                        help="TEMPORARY private Windows candidate only; excludes exactly one installed-gh help fact, NOT full RC")
     args = parser.parse_args()
+    if args.temporary_windows_installed_gh_help_deviation and (args.selftest or args.selftest_windows_cleanup):
+        parser.error("temporary candidate deviation cannot be combined with selftest selectors")
     if args.selftest and args.selftest_windows_cleanup:
         parser.error("--selftest and --selftest-windows-cleanup are separate selectors")
     if args.selftest:
@@ -1190,7 +1271,7 @@ def main():
         )
         return int(not result.wasSuccessful())
     try:
-        return Runner().run()
+        return Runner(args.temporary_windows_installed_gh_help_deviation).run()
     except (RunFailure, OSError, ET.ParseError, ValueError) as error:
         print(f"TWIG-VERDICT OVERALL: FAILED ({error})")
         return 1

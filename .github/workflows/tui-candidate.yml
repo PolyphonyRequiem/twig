@@ -1,4 +1,4 @@
-name: Native TUI candidate
+name: TEMP private candidate - known Windows gh-help deviation
 
 on:
   workflow_dispatch:
@@ -39,10 +39,17 @@ jobs:
           dotnet-version: 11.0.100-rc.1.26425.128
       - run: dotnet restore
       - run: dotnet build --no-restore
-      - name: Full existing release-candidate validation
+      - name: Existing validation - TEMP Windows deviation, NOT full RC
         env:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/trace-311
-        run: python tools/run-ci-tests.py
+        shell: pwsh
+        run: |
+          if ('${{ matrix.rid }}' -eq 'win-x64') {
+            python tools/run-ci-tests.py --temporary-windows-installed-gh-help-deviation
+          } else {
+            python tools/run-ci-tests.py
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate validation failed; temporary deviation is not a failure bypass.' }
       - name: Source-pinned full-trim native candidate
         shell: pwsh
         run: |
@@ -108,6 +115,24 @@ jobs:
           $receipt = python tools/tui-candidate.py seal --directory "artifacts/tui-candidate/${{ matrix.rid }}" --commit "${{ github.sha }}" --rid "${{ matrix.rid }}"
           if ($LASTEXITCODE -ne 0) { throw 'Candidate trust/checksum sealing failed.' }
           $receipt | Set-Content -Encoding utf8 "artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json"
+      - name: Bind TEMP deviation sidecar to exact seal - no install authority
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          $path = 'artifacts/tui-candidate/win-x64-temporary-deviation.json'
+          $deviation = Get-Content $path -Raw | ConvertFrom-Json
+          if ($deviation.sourceCommit -cne '${{ github.sha }}' -or
+              $deviation.excludedCaseCount -ne 1 -or
+              $deviation.excludedTests.Count -ne 1 -or
+              $deviation.excludedTests[0] -cne 'Twig.Infrastructure.Tests.GitHub.GhCliTokenSourceTests.ProductionArguments_AreAcceptedByInstalledGhHelp_WithoutCredentialLookup') {
+            throw 'TEMP deviation receipt does not match exact approved source/test.'
+          }
+          $sealHash = (Get-FileHash 'artifacts/tui-candidate/win-x64-seal-receipt.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $deviation | Add-Member -NotePropertyName sealReceiptSha256 -NotePropertyValue $sealHash
+          $deviation | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 $path
+          (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() |
+            Set-Content -Encoding ascii "$path.sha256"
+          Write-Output 'KNOWN DEVIATION: exactly one installed-gh help fact NOT EXECUTED; NOT full RC/1.0/public release. No installation or real-store cutover authorized.'
       - name: Verify sealed inventory after normal native startup
         shell: pwsh
         env:
@@ -147,6 +172,8 @@ jobs:
           path: |
             artifacts/tui-candidate/${{ matrix.rid }}/
             artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json
+            artifacts/tui-candidate/win-x64-temporary-deviation.json
+            artifacts/tui-candidate/win-x64-temporary-deviation.json.sha256
           if-no-files-found: error
           include-hidden-files: true
       - name: Preserve exact Unix archive and independent digest receipt
@@ -166,4 +193,6 @@ jobs:
           path: |
             artifacts/trace-311/
             artifacts/test-logs/ci/
+            artifacts/tui-candidate/win-x64-temporary-deviation.json
+            artifacts/tui-candidate/win-x64-temporary-deviation.json.sha256
           if-no-files-found: ignore

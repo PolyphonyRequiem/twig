@@ -74,7 +74,8 @@ internal sealed class PlanOperationExecutor
                 stagedRegistry,
                 publishIdMap,
                 publishIntent,
-                (seedId, ct) => seedPublish.PublishAsync(seedId, force: false, dryRun: false, ct)))
+                (seedId, ct) => seedPublish.PublishAsync(seedId, force: false, dryRun: false, ct),
+                (seedId, ct) => seedPublish.RecoverPublishedAsync(seedId, ct)))
     {
         _workItemRepo = workItemRepo;
         _pendingReader = pendingReader;

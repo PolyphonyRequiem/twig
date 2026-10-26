@@ -372,6 +372,8 @@ Twig.Domain.Services.Plan.PlanApplyResult.Failed.init -> void
 Twig.Domain.Services.Plan.PlanApplyResult.Operations.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Plan.PlanJournalOperation!>!
 Twig.Domain.Services.Plan.PlanApplyResult.Operations.init -> void
 Twig.Domain.Services.Plan.PlanApplyResult.PlanApplyResult() -> void
+Twig.Domain.Services.Plan.PlanApplyResult.UnsettledAcknowledgments.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+Twig.Domain.Services.Plan.PlanApplyResult.UnsettledAcknowledgments.init -> void
 Twig.Domain.Services.Plan.PlanDefinition
 Twig.Domain.Services.Plan.PlanDefinition.<Clone>$() -> Twig.Domain.Services.Plan.PlanDefinition!
 Twig.Domain.Services.Plan.PlanDefinition.Equals(Twig.Domain.Services.Plan.PlanDefinition? other) -> bool

@@ -751,6 +751,23 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             }
 
             var step = await StepOperationAsync(parsed.Digest, row, opDef, carry, ct).ConfigureAwait(false);
+            if (step.UnsettledAcknowledgment is { } acknowledgment)
+            {
+                var observed = await _journal.GetAsync(parsed.Digest, ct).ConfigureAwait(false);
+                return new PlanApplyResult
+                {
+                    Digest = parsed.Digest,
+                    Operations = observed?.Operations ?? [],
+                    Failed = true,
+                    Error = $"acknowledged-effect-unsettled: operation {row.OpId} was acknowledged remotely but its local recording fence was lost."
+                        + (observed is null ? " The current journal is unavailable; no current operation rows can be reported." : string.Empty)
+                        + " Do not retry the mutation. Inspect the native remote-write receipt and reconcile the winning journal row.",
+                    UnsettledAcknowledgments = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [row.OpId] = acknowledgment,
+                    },
+                };
+            }
             if (step.Busy)
             {
                 // Two disjoint sources produce a busy short-circuit:
@@ -1069,7 +1086,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     /// Both surface via <see cref="Busy"/> because the top-level handling is identical: a
     /// top-level refusal, no journal terminalisation, no header completion.
     /// </summary>
-    private readonly record struct StepResult(PlanOperationState State, string? BusyMessage)
+    private readonly record struct StepResult(
+        PlanOperationState State, string? BusyMessage, string? UnsettledAcknowledgment = null)
     {
         public bool Busy => BusyMessage is not null;
 
@@ -1344,12 +1362,44 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             digest, opId, applyResult.ResultJson, _clock.GetUtcNow(), ct).ConfigureAwait(false);
         if (!recorded)
         {
+            if (applyResult.Outcome == PlanExecutionOutcome.Applied && applyResult.ResultJson is { } acknowledgment)
+            {
+                var observed = await _journal.GetAsync(digest, ct).ConfigureAwait(false);
+                var winner = observed?.Operations.FirstOrDefault(row => row.OpId == opId);
+                if (winner is null || winner.State is not (PlanOperationState.Applied or PlanOperationState.Verified)
+                    || !ContainsAcknowledgment(winner.ResultJson, acknowledgment))
+                    return new StepResult(winner?.State ?? PlanOperationState.Indeterminate, null, acknowledgment);
+            }
             // Lost the atomic Applying → Applied CAS. Reload and route off the persisted
             // state; never assume the row is where our winning-execute branch expected it.
             return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
         }
 
         return await FinalizeAppliedAsync(digest, opId, opDef, applyResult, carry, ct).ConfigureAwait(false);
+    }
+
+    internal static bool ContainsAcknowledgment(string? recordedJson, string acknowledgedJson)
+    {
+        if (recordedJson is null) return false;
+        try
+        {
+            using var recorded = JsonDocument.Parse(recordedJson);
+            using var acknowledged = JsonDocument.Parse(acknowledgedJson);
+            if (recorded.RootElement.ValueKind != JsonValueKind.Object
+                || acknowledged.RootElement.ValueKind != JsonValueKind.Object
+                || !acknowledged.RootElement.EnumerateObject().Any())
+                return JsonElement.DeepEquals(recorded.RootElement, acknowledged.RootElement);
+            foreach (var property in acknowledged.RootElement.EnumerateObject())
+                if (!recorded.RootElement.TryGetProperty(property.Name, out var value)
+                    || !JsonElement.DeepEquals(value, property.Value))
+                    return false;
+            return true;
+        }
+        catch (JsonException)
+        {
+            // Unreadable evidence cannot settle this acknowledgment; return it to the caller.
+            return false;
+        }
     }
 
     /// <summary>

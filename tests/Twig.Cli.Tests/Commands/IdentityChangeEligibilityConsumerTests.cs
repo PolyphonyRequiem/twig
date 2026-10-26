@@ -495,6 +495,7 @@ public sealed class IdentityChangeEligibilityConsumerTests : IAsyncLifetime
                 return Reply(HttpStatusCode.OK, new
                 {
                     authenticatedUser = new { id = principal, providerDisplayName = "Alex Reader" },
+                    instanceId = "b0b0b0b0-0005-4000-8000-000000000005",
                 });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Alex Reader", emailAddress = principal + "@fixture.example" });

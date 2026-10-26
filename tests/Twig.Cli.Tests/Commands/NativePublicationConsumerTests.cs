@@ -596,7 +596,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     private void SwapSelection(TwigConfiguration config, string binding)
     {
         // Fixture-only authoritative CAS; guarded production transition belongs to the subsequent ticket.
-        using var database = new SqliteConnection($"Data Source={Path.Combine(Home, "system.db")}");
+        using var database = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _bindings.RegistryPath,
+            Pooling = false,
+        }.ToString());
         database.Open();
         using var current = database.CreateCommand();
         current.CommandText = "SELECT revision FROM connection_defaults WHERE connection_ref = @connection";

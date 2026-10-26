@@ -1142,7 +1142,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
             if (principal is null) return Reply(HttpStatusCode.Unauthorized, new { message = "Unknown fixture principal" });
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.OK, new { authenticatedUser = new { id = principal, providerDisplayName = "Alex Reader" } });
+                return Reply(HttpStatusCode.OK, new { authenticatedUser = new { id = principal, providerDisplayName = "Alex Reader" }, instanceId = "b0b0b0b0-0006-4000-8000-000000000006" });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Alex Reader", emailAddress = principal + "@fixture.example" });
             if (path.Contains("/_apis/wit/wiql", StringComparison.OrdinalIgnoreCase))

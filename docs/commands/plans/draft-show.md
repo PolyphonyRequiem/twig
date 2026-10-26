@@ -66,7 +66,7 @@ Rules are `not-applicable` without a state effect, `unknown` without native
 process metadata, or native `accepted`/`rejected`. Eligibility is not a promise
 that the server will accept a transition.
 
-## Local effects and refusals
+## Behavior
 
 Observation may advance generation and record revision drift or field conflicts
 through the existing admission/operation gate and durable CAS. The original
@@ -78,12 +78,15 @@ pending rows, seeds, and proposal journals are untouched. Cancellation propagate
 to the native CLI cancellation handler rather than becoming a successful document
 or a generic draft error.
 
-A missing draft returns exit 1 and a format-aware error, not an empty successful
-document. Native admission and stale observation/CAS refusals return exit 1;
-invalid ID/output combinations return exit 2. Errors are structured on stderr
-for JSON, with no partial successful document on stdout. The command offers no
-edit, capture, apply, or host-authenticated Save endpoint.
+The command offers no edit, capture, apply, or host-authenticated Save endpoint.
 
 Without `--document`, JSON describes the retained local draft and minimal output
 is one tab-separated row: item ID, generation, baseline revision, observed
 revision, current revision, local/conflict/blocker status, effect count.
+
+## Exit codes
+
+A missing draft returns exit 1 and a format-aware error, not an empty successful
+document. Native admission and stale observation/CAS refusals return exit 1;
+invalid ID/output combinations return exit 2. Errors are structured on stderr
+for JSON, with no partial successful document on stdout.

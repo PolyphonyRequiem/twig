@@ -144,15 +144,29 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
                 AreaPath.Parse("Work").Value, IterationPath.Parse("Work").Value, minted);
             seed.IsSuccess.ShouldBeTrue(seed.Error);
             await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(seed.Value);
+            // A published item carries a positive provider revision; sync it BEFORE the local edit so the edit stays dirty.
             var editing = new WorkItem { Id = 77, Type = WorkItemType.Task, Title = "Pending actor work" };
+            editing.MarkSynced(1);
             editing.UpdateField("System.Title", "Unpublished edit");
+            editing.Revision.ShouldBe(1);
+            editing.IsDirty.ShouldBeTrue();
             await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(editing);
             var pending = runtime.GetRequiredService<IPendingChangeStore>();
             await pending.AddChangeAsync(77, "field", "System.Title", "Pending actor work", "Unpublished edit");
             await pending.AddChangeAsync(77, "note", null, null, "Private pending note");
+            var stored = await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(77);
+            stored.ShouldNotBeNull();
+            stored.Revision.ShouldBe(1);
+            stored.IsDirty.ShouldBeTrue();
+            (await pending.GetChangesAsync(77)).Select(x => x.NewValue)
+                .ShouldBe(new[] { "Unpublished edit", "Private pending note" });
+            (await runtime.GetRequiredService<IWorkItemRepository>().GetSeedsAsync())
+                .ShouldHaveSingleItem().Id.ShouldBe(seedAlias);
             digest = (await runtime.GetRequiredService<IPlanLifecycleService>().PreviewAsync(proposal)).Digest!;
             await runtime.GetRequiredService<IPlanJournalRepository>().SaveOperationErrorAsync(digest, "old-unknown",
                 "Earlier unacknowledged outcome", PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
+            (await runtime.GetRequiredService<IPlanJournalRepository>().GetAsync(digest))!
+                .Operations.Single().State.ShouldBe(PlanOperationState.Indeterminate);
         }
         var portable = await File.ReadAllBytesAsync(_paths.RepoConfigPath);
         var legacyCredential = await File.ReadAllBytesAsync(Path.Combine(Home, ".refresh-token"));
@@ -371,6 +385,25 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         await AssertReadAsync("AAD private release plan");
     }
 
+    [Fact]
+    public async Task FixtureConnectionDataServesOnlyTheConfiguredPrincipalCredentials()
+    {
+        using var client = new HttpClient(new PrincipalTransport());
+        async Task<HttpStatusCode> ConnectionData(string scheme, string parameter)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://dev.azure.com/fixture/_apis/connectionData");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(scheme, parameter);
+            using var response = await client.SendAsync(request);
+            return response.StatusCode;
+        }
+
+        (await ConnectionData("Bearer", Token())).ShouldBe(HttpStatusCode.OK);
+        (await ConnectionData("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(":" + Pat)))).ShouldBe(HttpStatusCode.OK);
+        (await ConnectionData("Bearer", Token("33333333-3333-3333-3333-333333333333"))).ShouldBe(HttpStatusCode.Forbidden);
+        (await ConnectionData("Bearer", "not-a-jwt")).ShouldBe(HttpStatusCode.Forbidden);
+        (await ConnectionData("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(":wrong-account-pat")))).ShouldBe(HttpStatusCode.Forbidden);
+    }
+
     private async Task RegisterExistingIdentityAsync()
     {
         await _bindings.RegisterAadIdentityAsync("legacy", new TwigRefreshTokenStore(Path.Combine(Home, ".refresh-token")).TryRead()!);
@@ -430,13 +463,13 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         (await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(99)).ShouldBeNull();
     }
 
-    private static string Token()
+    private static string Token(string objectId = Principal)
     {
         var payload = JsonSerializer.Serialize(new
         {
             aud = "499b84ac-1321-427f-aa17-267ca6975798",
             tid = Tenant,
-            oid = Principal,
+            oid = objectId,
             iss = "https://sts.windows.net/" + Tenant + "/",
             exp = DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeSeconds()
         });
@@ -464,8 +497,8 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
             var pat = header?.Scheme == "Basic" && header.Parameter == Convert.ToBase64String(Encoding.UTF8.GetBytes(":" + Pat));
             var aad = header?.Scheme == "Bearer" && JwtAccessTokenInspector.TryDecode(header.Parameter)?.ObjectId == Principal;
             if (request.RequestUri!.AbsolutePath.EndsWith("connectionData", StringComparison.Ordinal))
-                return Response(pat ? HttpStatusCode.OK : HttpStatusCode.Forbidden,
-                    "{\"authenticatedUser\":{\"id\":\"" + Principal + "\",\"providerDisplayName\":\"Fixture actor\"}}");
+                return Response(pat || aad ? HttpStatusCode.OK : HttpStatusCode.Forbidden,
+                    "{\"authenticatedUser\":{\"id\":\"" + Principal + "\",\"providerDisplayName\":\"Fixture actor\"},\"instanceId\":\"b0b0b0b0-0007-4000-8000-000000000007\"}");
             if (request.RequestUri.AbsolutePath.Contains("/workitems", StringComparison.Ordinal))
             {
                 WorkRequests++;

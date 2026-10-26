@@ -87,8 +87,9 @@ class _FakeProcess:
 
 
 class _FakeRunner:
-    def __init__(self, failure=None):
-        self.RunFailure = load_runner().RunFailure
+    def __init__(self, run_failure, failure=None):
+        # The one RunFailure class the tests raise; a second module load would be a distinct class.
+        self.RunFailure = run_failure
         self.failure = failure
         self.calls = []
 
@@ -111,7 +112,7 @@ class RunBoundedSelfTests(unittest.TestCase):
 
     def test_deadline_cleanup_failure_keeps_124_and_reports_unconfirmed_tree(self):
         process = _FakeProcess(subprocess.TimeoutExpired(['owned'], 7), poll_result=None)
-        runner = _FakeRunner(self.RunFailure('taskkill returned 1; wrapper did not exit within 10 seconds; '
+        runner = _FakeRunner(self.RunFailure, self.RunFailure('taskkill returned 1; wrapper did not exit within 10 seconds; '
                                              "tree termination unconfirmed; taskkill stderr='synthetic'"))
         code, stderr = self.invoke(process, runner)
         self.assertEqual(124, code)
@@ -127,7 +128,7 @@ class RunBoundedSelfTests(unittest.TestCase):
 
     def test_deadline_cleanup_failure_after_root_already_exited_keeps_124(self):
         process = _FakeProcess(subprocess.TimeoutExpired(['owned'], 7), poll_result=1)
-        runner = _FakeRunner(self.RunFailure('taskkill returned 128; wrapper exited; tree termination unconfirmed; '
+        runner = _FakeRunner(self.RunFailure, self.RunFailure('taskkill returned 128; wrapper exited; tree termination unconfirmed; '
                                              "taskkill stderr='ERROR: The process \"4321\" not found.'"))
         code, stderr = self.invoke(process, runner)
         self.assertEqual(124, code)
@@ -140,7 +141,7 @@ class RunBoundedSelfTests(unittest.TestCase):
 
     def test_interrupt_cleanup_failure_keeps_130_and_reports_unconfirmed_tree(self):
         process = _FakeProcess(KeyboardInterrupt(), poll_result=None)
-        runner = _FakeRunner(self.RunFailure('could not reap timed-out test process tree'))
+        runner = _FakeRunner(self.RunFailure, self.RunFailure('could not reap timed-out test process tree'))
         code, stderr = self.invoke(process, runner)
         self.assertEqual(130, code)
         self.assertIn('BOUNDED-VERDICT: INTERRUPTED (owned process tree termination unconfirmed)', stderr)
@@ -153,7 +154,7 @@ class RunBoundedSelfTests(unittest.TestCase):
         process = _FakeProcess(subprocess.TimeoutExpired(['owned'], 7), poll_result=None)
         failure = self.RunFailure('taskkill could not run; wrapper exited; tree termination unconfirmed')
         failure.__cause__ = FileNotFoundError('synthetic taskkill missing')
-        code, stderr = self.invoke(process, _FakeRunner(failure))
+        code, stderr = self.invoke(process, _FakeRunner(self.RunFailure, failure))
         self.assertEqual(124, code)
         self.assertIn('RunFailure: taskkill could not run', stderr)
         self.assertIn("cause=FileNotFoundError('synthetic taskkill missing')", stderr)
@@ -163,14 +164,14 @@ class RunBoundedSelfTests(unittest.TestCase):
         process = _FakeProcess(subprocess.TimeoutExpired(['owned'], 7), poll_result=None)
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr), self.assertRaises(TypeError):
-            run_bounded(['owned'], 7, _FakeRunner(TypeError('synthetic defect')),
+            run_bounded(['owned'], 7, _FakeRunner(self.RunFailure, TypeError('synthetic defect')),
                         popen=lambda *args, **kwargs: process)
         self.assertNotIn('BOUNDED-VERDICT', stderr.getvalue())
         self.assertEqual(0, process.untimed_waits)
 
     def test_deadline_cleanup_success_reports_stopped_tree(self):
         process = _FakeProcess(subprocess.TimeoutExpired(['owned'], 7), poll_result=-9)
-        runner = _FakeRunner()
+        runner = _FakeRunner(self.RunFailure)
         code, stderr = self.invoke(process, runner)
         self.assertEqual(124, code)
         self.assertIn('BOUNDED-VERDICT: FAILED (deadline 7s; owned process tree stopped)', stderr)
@@ -178,13 +179,13 @@ class RunBoundedSelfTests(unittest.TestCase):
         self.assertNotIn('BOUNDED-CLEANUP', stderr)
 
     def test_interrupt_cleanup_success_reports_stopped_tree(self):
-        code, stderr = self.invoke(_FakeProcess(KeyboardInterrupt(), poll_result=-9), _FakeRunner())
+        code, stderr = self.invoke(_FakeProcess(KeyboardInterrupt(), poll_result=-9), _FakeRunner(self.RunFailure))
         self.assertEqual(130, code)
         self.assertIn('BOUNDED-VERDICT: INTERRUPTED (owned process tree stopped)', stderr)
         self.assertNotIn('unconfirmed', stderr)
 
     def test_completed_command_preserves_native_exit_without_cleanup(self):
-        runner = _FakeRunner()
+        runner = _FakeRunner(self.RunFailure)
         code, stderr = self.invoke(_FakeProcess(3, poll_result=3), runner)
         self.assertEqual(3, code)
         self.assertEqual([], runner.calls)

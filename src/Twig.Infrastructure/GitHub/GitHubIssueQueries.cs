@@ -7,6 +7,8 @@ namespace Twig.Infrastructure.GitHub;
 /// </summary>
 internal static class GitHubIssueQueries
 {
+    public const string AuthenticatedViewer = "query { viewer { id login } }";
+
     public const string RepositoryDiscovery = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id nameWithOwner owner { id login } } }";
 
     public const string Snapshot = """

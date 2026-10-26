@@ -14,6 +14,50 @@ public sealed class GitHubReadOnlyAuthHandlerTests
     private const string DiscoveryQuery = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id nameWithOwner owner { id login } } }";
 
     [Fact]
+    public async Task FixedAuthenticatedViewer_IsAdmittedWithEmptyVariables()
+    {
+        var h = new Harness();
+        using var response = await h.SendAsync(HttpMethod.Post, Endpoint.ToString(),
+            Body("query { viewer { id login } }", new Dictionary<string, string?>()));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        h.Tokens.Calls.ShouldBe(1);
+        h.Network.Requests.Count.ShouldBe(1);
+        h.Network.Requests[0].Authorization.ShouldBe("Bearer " + Token);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("""{"id":"U_actor"}""")]
+    [InlineData("""{"after":null}""")]
+    [InlineData("""{"id":"U_actor","id":"U_other"}""")]
+    public async Task AuthenticatedViewer_NonemptyOrInvalidVariablesRefusedBeforeToken(string variables)
+    {
+        var h = new Harness();
+        var body = "{\"query\":" + JsonSerializer.Serialize(GitHubIssueQueries.AuthenticatedViewer)
+            + ",\"variables\":" + variables + "}";
+        await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(() =>
+            h.SendAsync(HttpMethod.Post, Endpoint.ToString(), body));
+        h.Tokens.Calls.ShouldBe(0);
+        h.Network.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("query { viewer { id login } } ")]
+    [InlineData("query { viewer { id login name } }")]
+    [InlineData("query { viewer { id login } } mutation { x }")]
+    [InlineData("query { viewer { login } }")]
+    [InlineData("mutation { viewer { id login } }")]
+    public async Task ModifiedOrUnknownViewerDocument_RefusedBeforeToken(string query)
+    {
+        var h = new Harness();
+        await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(() =>
+            h.SendAsync(HttpMethod.Post, Endpoint.ToString(), Body(query, new Dictionary<string, string?>())));
+        h.Tokens.Calls.ShouldBe(0);
+        h.Network.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task FixedRepositoryDiscovery_IsAdmitted()
     {
         var h = new Harness();
@@ -143,6 +187,11 @@ public sealed class GitHubReadOnlyAuthHandlerTests
             { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + ",\"query\":\"mutation { x }\",\"variables\":{\"id\":\"I_1\"}}" },
             { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + ",\"variables\":{\"id\":\"I_1\",\"id\":\"I_2\"}}" },
             { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + "}" },
+            { "POST", "https://evil.example.com/graphql", Body(GitHubIssueQueries.AuthenticatedViewer, new Dictionary<string, string?>()) },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(GitHubIssueQueries.AuthenticatedViewer) + "}" },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(GitHubIssueQueries.AuthenticatedViewer) + ",\"variables\":{},\"operationName\":\"x\"}" },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(GitHubIssueQueries.AuthenticatedViewer) + ",\"query\":\"mutation { x }\",\"variables\":{}}" },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(GitHubIssueQueries.AuthenticatedViewer) + ",\"variables\":{},\"variables\":{}}" },
         };
     }
 
@@ -158,16 +207,30 @@ public sealed class GitHubReadOnlyAuthHandlerTests
         h.Network.Requests.ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task PreexistingAuthorization_IsRefusedBeforeToken()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PreexistingAuthorization_IsRefusedBeforeToken(bool viewer)
     {
         var h = new Harness();
 
         await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(() => h.SendAsync(HttpMethod.Post, Endpoint.ToString(),
-            SnapshotBody, r => r.Headers.Authorization = new("Bearer", "other")));
+            viewer ? Body(GitHubIssueQueries.AuthenticatedViewer, new Dictionary<string, string?>()) : SnapshotBody,
+            r => r.Headers.Authorization = new("Bearer", "other")));
 
         h.Tokens.Calls.ShouldBe(0);
         h.Network.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task AuthenticatedViewer_RedirectResponse_IsRefusedAndNotFollowed()
+    {
+        var h = new Harness(HttpStatusCode.Found, new Uri("https://evil.example.com/collect"));
+        await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(() =>
+            h.SendAsync(HttpMethod.Post, Endpoint.ToString(),
+                Body(GitHubIssueQueries.AuthenticatedViewer, new Dictionary<string, string?>())));
+        h.Network.Requests.Count.ShouldBe(1);
+        h.Network.Requests[0].Uri.ShouldBe(Endpoint);
     }
 
     [Theory]

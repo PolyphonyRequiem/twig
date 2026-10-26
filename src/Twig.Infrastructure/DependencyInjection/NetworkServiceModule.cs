@@ -267,6 +267,13 @@ public static class NetworkServiceModule
             sp.GetRequiredService<IBoundedProcessRunner>(),
             sp.GetRequiredService<GitHubWorkspaceScope>().Host,
             sp.GetRequiredService<TwigConfiguration>().GitHubAccount));
+        services.TryAddSingleton(sp =>
+        {
+            var scope = sp.GetRequiredService<GitHubWorkspaceScope>();
+            return new GitHubAuthenticatedActorReader(GitHubReadOnlyAuthHandler.CreateClient(
+                sp.GetRequiredService<IGitHubTokenSource>(), scope.GraphQlEndpoint,
+                sp.GetService<GitHubTransportOverride>()?.CreateHandler()), scope);
+        });
         services.TryAddSingleton<GitHubBoundTargetResolver>();
         services.TryAddSingleton(sp => new GitHubProviderSetupService(
             () => sp.GetRequiredService<IProviderTargetBindingStore>(),

@@ -154,6 +154,9 @@ internal sealed class ConnectionDefaultTransitionService : IConnectionDefaultTra
             if (record.Digest != confirmedDigest)
                 throw new InvalidOperationException("binding-default-preview-stale: exact digest no longer matches every registered worktree, attachment, binding and default revision. No transition occurred; review a fresh preview.");
             if (record.State == "completed") return Report(record, []);
+            foreach (var member in record.Members)
+                if (member.Transition is { ResetRequired: true } local)
+                    RefusePreservationTransition(local.CurrentMirror);
             if (native.Value is null)
             {
                 Require(await _registry.BeginDefaultTransitionAsync(record, ct).ConfigureAwait(false));

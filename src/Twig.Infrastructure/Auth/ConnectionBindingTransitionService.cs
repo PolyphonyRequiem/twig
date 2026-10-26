@@ -92,6 +92,7 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
                     throw new InvalidOperationException("binding-transition-preview-stale: exact confirmed digest no longer matches attachment, configuration or native selection revisions. Rerun and review preview; no transition occurred.");
                 if (preview.State is "unchanged" or "completed") return preview;
                 if (record is null) throw new InvalidOperationException("binding-transition-context-missing: native review context is unavailable.");
+                if (record.ResetRequired) RefusePreservationTransition(record.CurrentMirror);
                 if (preview.State == "preview")
                 {
                     var begun = await _registry.BeginConnectionBindingTransitionAsync(record, ct).ConfigureAwait(false);
@@ -266,6 +267,7 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
 
     private async Task CompleteAsync(ConnectionBindingTransitionRecord record, TwigConfiguration configuration, TwigPaths paths, CancellationToken ct)
     {
+        if (record.ResetRequired) RefusePreservationTransition(record.CurrentMirror);
         var errors = new List<string>();
         ValidateRecord(record, paths, configuration, record.Fingerprint, errors);
         if (errors.Count > 0) throw new InvalidOperationException(string.Join('\n', errors));
@@ -327,6 +329,11 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
         try
         {
             VerifyStorageShape(record.CurrentMirror);
+            if (record.ResetRequired && HasPreservationMigration(record.CurrentMirror))
+            {
+                blockers.Add("binding-pending-work: this generation has retained local workspace state. A preservation-aware identity transition is required; no reset, rebind, force or discard workaround is admitted.");
+                return;
+            }
             using var store = SqliteCacheStore.OpenMigrationMirror(record.CurrentMirror);
             using var attachment = new WorktreeLocalAttachmentStore(paths, configuration, TimeProvider.System);
             var inspector = new IdentityChangeEligibilityService(_registry, attachment, new SqlitePendingChangeStore(store),
@@ -400,6 +407,7 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
 
     internal static void ResetMirror(ConnectionBindingTransitionRecord record)
     {
+        RefusePreservationTransition(record.CurrentMirror);
         VerifyStorageShape(record.CurrentMirror);
         using var store = SqliteCacheStore.OpenMigrationMirror(record.CurrentMirror);
         using var tx = store.GetConnection().BeginTransaction();
@@ -420,6 +428,29 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
         reset.Parameters.AddWithValue("$generation", record.Generation);
         reset.ExecuteNonQuery();
         tx.Commit();
+    }
+
+    internal static void RefusePreservationTransition(string mirror)
+    {
+        if (HasPreservationMigration(mirror))
+            throw new ConnectionBindingResolutionException("binding-pending-work",
+                "binding-pending-work: retained workspace state cannot cross this generation-changing transition. The original generation remains selected; use a separately qualified preservation-aware transition.");
+    }
+
+    private static bool HasPreservationMigration(string mirror)
+    {
+        using var durable = OpenReadOnly(SqliteCacheStore.DeriveDurableDataSource(mirror));
+        using var command = durable.CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='preservation_migrations';";
+        if (command.ExecuteScalar() is null) return false;
+        command.CommandText = """
+            SELECT EXISTS(SELECT 1 FROM preservation_migrations WHERE slot=1)
+                OR EXISTS(SELECT 1 FROM seed_local_identities)
+                OR EXISTS(SELECT 1 FROM seed_work_items)
+                OR EXISTS(SELECT 1 FROM workspace_context)
+                OR EXISTS(SELECT 1 FROM workspace_navigation_history);
+            """;
+        return Convert.ToInt64(command.ExecuteScalar()) != 0;
     }
 
     internal static void VerifyMirrorGeneration(ConnectionBindingTransitionRecord record)

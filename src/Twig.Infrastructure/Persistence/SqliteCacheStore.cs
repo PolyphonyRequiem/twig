@@ -23,10 +23,19 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 16;
+    internal const int DurableSchemaVersion = 17;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
+
+    internal string? AdmittedGeneration => _admission?.Generation;
+    internal string? AdmittedWorktreeRoot => _admission?.WorktreeRoot;
+
+    internal string? ValidateAdmittedGeneration()
+    {
+        _admission?.Validate();
+        return _admission?.Generation;
+    }
 
     // SQLite NOCASE only folds ASCII; iteration matching uses .NET ordinal case folding.
     internal const string OrdinalIgnoreCaseCollationName = "TWIG_ORDINAL_IGNORE_CASE";
@@ -34,6 +43,7 @@ public sealed class SqliteCacheStore : IDisposable
     private readonly SqliteConnection _connection;
     private readonly MirrorAdmission? _admission;
     private readonly LegacyHostCapability? _legacyCapability;
+    internal bool IsMigrationInspection { get; }
     private readonly AsyncLocal<OperationScope?> _operationScope = new();
     private bool _schemaRebuilt;
 
@@ -87,6 +97,7 @@ public sealed class SqliteCacheStore : IDisposable
 
     private SqliteCacheStore(string connectionString, MirrorAdmission? admission, bool migration)
     {
+        IsMigrationInspection = migration;
         _admission = admission;
         var builder = new SqliteConnectionStringBuilder(connectionString);
         if (!migration && admission is null && Path.GetFileName(builder.DataSource).StartsWith("admitted-", StringComparison.Ordinal))
@@ -103,11 +114,7 @@ public sealed class SqliteCacheStore : IDisposable
         try
         {
             _connection.Open();
-            SqlitePlanJournalRepository.RegisterSourcePathCollation(
-                _connection,
-                SqlitePlanJournalRepository.CreateDefaultSourcePathComparer());
-            _connection.CreateCollation(OrdinalIgnoreCaseCollationName,
-                static (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left, right));
+            RegisterCollations(_connection);
             EnableWalMode();
             AttachDurableStore();
             if (ReadDurableSchemaVersion() > DurableSchemaVersion)
@@ -120,6 +127,11 @@ public sealed class SqliteCacheStore : IDisposable
                 stamp.CommandText = "SELECT value FROM metadata WHERE key='binding_generation';";
                 if (!string.Equals(stamp.ExecuteScalar() as string, _admission.Generation, StringComparison.Ordinal))
                     throw new InvalidOperationException("mirror-generation-mismatch: native generation does not own the mirror. Resume its original migration before reading data.");
+            }
+            if (!migration)
+            {
+                var preserved = new PreservedWorkspaceState(this);
+                if (preserved.IsActive) preserved.VerifyParity();
             }
         }
         catch (SqliteException ex)
@@ -216,6 +228,14 @@ public sealed class SqliteCacheStore : IDisposable
     /// </summary>
     public bool SchemaWasRebuilt => _schemaRebuilt;
 
+    internal static void RegisterCollations(SqliteConnection connection)
+    {
+        SqlitePlanJournalRepository.RegisterSourcePathCollation(
+            connection, SqlitePlanJournalRepository.CreateDefaultSourcePathComparer());
+        connection.CreateCollation(OrdinalIgnoreCaseCollationName,
+            static (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left, right));
+    }
+
     private void EnableWalMode()
     {
         using var walCmd = _connection.CreateCommand();
@@ -296,6 +316,7 @@ public sealed class SqliteCacheStore : IDisposable
         }
         if (!SchemaExists() || !SchemaVersionMatches())
         {
+            GuardPreservedWorkspace();
             GuardLegacyPendingSet();
             GuardMirrorLocalWork();
             DropAllTables();
@@ -304,6 +325,21 @@ public sealed class SqliteCacheStore : IDisposable
             WriteSchemaVersion();
             _schemaRebuilt = true;
         }
+    }
+
+    private void GuardPreservedWorkspace()
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM pending.sqlite_master WHERE type='table' AND name='preservation_migrations';";
+        if (command.ExecuteScalar() is null) return;
+        command.CommandText = """
+            SELECT 1 WHERE EXISTS(SELECT 1 FROM pending.preservation_migrations WHERE state <> 'cancelled' OR slot IS NOT NULL)
+                OR EXISTS(SELECT 1 FROM pending.seed_local_identities) OR EXISTS(SELECT 1 FROM pending.seed_work_items)
+                OR EXISTS(SELECT 1 FROM pending.workspace_context) OR EXISTS(SELECT 1 FROM pending.workspace_navigation_history)
+                OR EXISTS(SELECT 1 FROM pending.sqlite_sequence WHERE name='workspace_navigation_history');
+            """;
+        if (command.ExecuteScalar() is not null)
+            throw new InvalidOperationException("mirror-local-work-present: a preservation intent owns this generation. No mirror rebuild is permitted; retain the originals and resume with the compatible Twig version.");
     }
 
     /// <summary>
@@ -899,6 +935,50 @@ public sealed class SqliteCacheStore : IDisposable
 
         [16] = $"""
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN draft_capture_json TEXT;
+            """,
+
+        [17] = $"""
+            CREATE TABLE {DurableSchema}.seed_local_identities (
+                staged_identity TEXT PRIMARY KEY,
+                local_id TEXT NOT NULL UNIQUE
+            );
+            CREATE TABLE {DurableSchema}.seed_work_items (
+                local_id TEXT PRIMARY KEY,
+                id INTEGER NOT NULL UNIQUE CHECK(id < 0),
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                state TEXT NOT NULL,
+                parent_id INTEGER,
+                assigned_to TEXT,
+                assigned_to_unique_name TEXT,
+                iteration_path TEXT,
+                area_path TEXT,
+                revision INTEGER NOT NULL,
+                is_seed INTEGER NOT NULL CHECK(is_seed = 1),
+                seed_created_at TEXT,
+                staged_identity TEXT NOT NULL UNIQUE,
+                fields_json TEXT NOT NULL,
+                is_dirty INTEGER NOT NULL,
+                last_synced_at TEXT NOT NULL
+            );
+            CREATE TABLE {DurableSchema}.workspace_context (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE {DurableSchema}.workspace_navigation_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work_item_id INTEGER NOT NULL,
+                visited_at TEXT NOT NULL
+            );
+            CREATE TABLE {DurableSchema}.preservation_migrations (
+                intent_id TEXT PRIMARY KEY,
+                slot INTEGER UNIQUE CHECK(slot IS NULL OR slot = 1),
+                source_generation TEXT NOT NULL,
+                source_digest TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('preparing','active','rolled-back','cancelled')),
+                coverage_version INTEGER NOT NULL,
+                backup_directory TEXT NOT NULL
+            );
             """,
 
     };

@@ -11,10 +11,12 @@ public sealed class SqliteContextStore : IContextStore
 {
     private const string ActiveWorkItemKey = "active_work_item_id";
     private readonly SqliteCacheStore _store;
+    private readonly PreservedWorkspaceState _preserved;
 
     public SqliteContextStore(SqliteCacheStore store)
     {
         _store = store;
+        _preserved = new(store);
     }
 
     public Task<int?> GetActiveWorkItemIdAsync(CancellationToken ct = default)
@@ -55,7 +57,8 @@ public sealed class SqliteContextStore : IContextStore
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT value FROM context WHERE key = @key;";
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = $"SELECT value FROM {_preserved.Context} WHERE key = @key;";
         cmd.Parameters.AddWithValue("@key", key);
         var result = cmd.ExecuteScalar();
         return result as string;
@@ -64,21 +67,29 @@ public sealed class SqliteContextStore : IContextStore
     private void SetValue(string key, string value)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT OR REPLACE INTO context (key, value) VALUES (@key, @value);";
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = "INSERT OR REPLACE INTO main.context (key, value) VALUES (@key, @value);";
         cmd.Parameters.AddWithValue("@key", key);
         cmd.Parameters.AddWithValue("@value", value);
         cmd.ExecuteNonQuery();
+        if (_preserved.IsActive) _preserved.SetContext(key, value);
+        write.Complete();
     }
 
     private void DeleteKey(string key)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM context WHERE key = @key;";
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = "DELETE FROM main.context WHERE key = @key;";
         cmd.Parameters.AddWithValue("@key", key);
         cmd.ExecuteNonQuery();
+        if (_preserved.IsActive) _preserved.SetContext(key, null);
+        write.Complete();
     }
 }

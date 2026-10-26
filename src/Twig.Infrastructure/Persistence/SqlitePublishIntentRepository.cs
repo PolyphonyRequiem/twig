@@ -27,6 +27,29 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        var preserved = new PreservedWorkspaceState(_store);
+        if (!preserved.HasRetainedIdentity(identity))
+            return await RecordIntentCoreAsync(identity, title, typeName, ct).ConfigureAwait(false);
+        var connection = _store.GetConnection();
+        var prior = _store.ActiveTransaction;
+        using var owned = prior is null ? connection.BeginTransaction() : null;
+        _store.ActiveTransaction = prior ?? owned!;
+        try
+        {
+            var evidence = preserved.ReadPublicationEvidence(identity, _store.ActiveTransaction)
+                ?? throw new InvalidOperationException("preservation-publication-evidence-invalid: retained ownership changed before intent admission.");
+            if (evidence.MappedId is not null && evidence.CompletedId is null)
+                throw new InvalidOperationException("preservation-publication-recovery-required: retained positive mapping needs explicit local recovery; a new create is not admitted.");
+            var intent = await RecordIntentCoreAsync(identity, title, typeName, ct).ConfigureAwait(false);
+            owned?.Commit();
+            return intent;
+        }
+        finally { _store.ActiveTransaction = prior; }
+    }
+
+    private async Task<PublishIntent> RecordIntentCoreAsync(
+        StagedIdentity identity, string title, string typeName, CancellationToken ct)
+    {
         // An EXISTING intent is returned as-is — whether it is open or completed. Two distinct
         // reasons, and the second one is the bug review caught:
         //
@@ -89,6 +112,7 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         var tx = _store.ActiveTransaction ?? conn.BeginTransaction();
         try
         {
+            _ = new PreservedWorkspaceState(_store).RequireCompatiblePublication(identity, publishedId, tx);
             // First-outcome-wins. A completed intent is proof that an ADO item exists under
             // THIS staged identity; overwriting it with a different publishedId would silently
             // reattribute the create. Re-asserting the SAME publishedId is a safe idempotent

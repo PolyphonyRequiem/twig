@@ -111,6 +111,8 @@ internal sealed class AdoMirrorIdentityProjection
         var identity = new ExternalWorkItemIdentity(
             ProviderKind, resourceScope, item.Id.ToString(CultureInfo.InvariantCulture));
         var token = new ProviderRevisionToken(item.Revision.ToString(CultureInfo.InvariantCulture));
+        if (await _identities.ObservePublishedSeedAsync(identity, token, ct).ConfigureAwait(false))
+            return;
         await _identities.ObserveAsync(identity, token, ct).ConfigureAwait(false);
     }
 

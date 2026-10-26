@@ -28,10 +28,15 @@ internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : IL
     private const string Columns = "local_id, revision, fields_json, created_at, updated_at, deleted_at";
 
     public async Task<LocalWorkItemRecord> CreateAsync(FieldValues fields, CancellationToken ct = default)
+        => await CreateAsync(LocalWorkItemId.New(), fields, ct).ConfigureAwait(false);
+
+    internal async Task<LocalWorkItemRecord> CreateAsync(
+        LocalWorkItemId id, FieldValues fields, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(fields);
+        RequireId(id);
         using var operation = store.AcquireOperation();
-        return await InsertAsync(store.GetConnection(), LocalWorkItemId.New(), fields, ct);
+        return await InsertAsync(store.GetConnection(), id, fields, ct);
     }
 
     public async Task<LocalWorkItemRecord?> GetAsync(LocalWorkItemId id, CancellationToken ct = default)
@@ -104,6 +109,45 @@ internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : IL
             return resolution;
         }, ct);
     }
+
+    internal Task<bool> ObservePublishedSeedAsync(
+        ExternalWorkItemIdentity identity, ProviderRevisionToken token, CancellationToken ct)
+        => InTransactionAsync(async conn =>
+        {
+            var candidates = new HashSet<LocalWorkItemId>();
+            using (var mapping = Command(conn, """
+                SELECT s.local_id FROM seed_local_identities s
+                JOIN publish_id_map p ON p.staged_identity=s.staged_identity
+                WHERE CAST(p.new_id AS TEXT)=@native;
+                """))
+            {
+                mapping.Parameters.AddWithValue("@native", identity.NativeId);
+                using var reader = await mapping.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                    candidates.Add(ParseId(reader.GetString(0)));
+            }
+            if (candidates.Count == 0) return false;
+            if (candidates.Count != 1)
+                throw new InvalidOperationException("preservation-publish-mapping-ambiguous: the published identity names multiple retained local items.");
+            var local = candidates.Single();
+            var item = await ReadAsync(conn, local, ct).ConfigureAwait(false);
+            if (item is null || item.IsDeleted)
+                throw new InvalidOperationException("preservation-publish-mapping-invalid: the retained local item is absent or tombstoned.");
+            using var observe = Command(conn, """
+                INSERT INTO external_identities(provider_kind,resource_scope,native_id,local_id,provider_token,observed_at)
+                VALUES(@kind,@scope,@native,@local,@token,@now)
+                ON CONFLICT(provider_kind,resource_scope,native_id) DO UPDATE SET
+                    provider_token=excluded.provider_token,observed_at=excluded.observed_at
+                WHERE external_identities.local_id=excluded.local_id;
+                """);
+            AddKey(observe, identity);
+            observe.Parameters.AddWithValue("@local", local.ToString());
+            observe.Parameters.AddWithValue("@token", token.Value);
+            observe.Parameters.AddWithValue("@now", Now());
+            if (await observe.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException("preservation-publish-mapping-conflict: the provider identity already belongs to another local item; neither mapping was replaced.");
+            return true;
+        }, ct);
 
     public async Task<LocalWorkItemId?> FindAsync(ExternalWorkItemIdentity identity, CancellationToken ct = default)
     {

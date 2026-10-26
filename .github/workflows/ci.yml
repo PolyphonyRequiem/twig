@@ -141,6 +141,57 @@ jobs:
           path: artifacts/test-logs/ci/github-actor/
           if-no-files-found: warn
 
+      - name: Preservation v17 primary and publication regressions
+        shell: python
+        env:
+          TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/preservation-v17/trace
+        run: |
+          import os, pathlib, subprocess, sys, xml.etree.ElementTree as ET
+          base = pathlib.Path("artifacts/test-logs/ci/preservation-v17")
+          base.mkdir(parents=True, exist_ok=True)
+          owned_temp = (base / "owned-temp").resolve()
+          owned_temp.mkdir(exist_ok=True)
+          os.environ.update({key: str(owned_temp) for key in ("TMP", "TEMP", "TMPDIR")})
+          ordinary = ["ConflictingIntentCompletionPreservesPriorMapAndUnpublishedPayload",
+                      "ExactRepeatKeepsFirstEvidenceAndContradictionsLeaveWholeStandingUnchanged",
+                      "KnownMappingWithUnsettledIntentRefusesBeforeCreateOrIntentRewrite",
+                      "StaleNegativeSaveCannotRecreateACompletedRetainedSeed"]
+          groups = [("rich", "PreservationMigrationTests", ["SuccessfulMigrationPreservesSeedAndStandingThroughProductionReadersAfterReopen"], 1),
+                    ("ordinary", "RetainedPublicationTests", ordinary, 4)]
+          for label, method in [("map", "CrashAfterPublishMapKeepsKnownOutcomeAndStableIdentity"),
+                                ("binding", "CrashAfterIdentityBindingKeepsKnownOutcomeAndStableIdentity"),
+                                ("delete", "CrashAfterPayloadDeletionKeepsKnownOutcomeAndStableIdentity")]:
+              groups.append((label, "RetainedPublicationTests", [method], 1))
+          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+          for label, cls, methods, count in groups:
+              selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.{cls}.{m}" for m in methods)
+              args = [sys.executable, "tools/run-bounded.py", "--timeout", "60", "--", "dotnet", "test",
+                      "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "-f", "net11.0", "--no-build", "--no-restore",
+                      "--filter", selector, "--logger", f"trx;LogFileName={label}.trx", "--results-directory", str(base)]
+              with (base / f"{label}.log").open("w", encoding="utf-8") as log:
+                  code = subprocess.call(args, stdout=log, stderr=subprocess.STDOUT)
+              print((base / f"{label}.log").read_text(encoding="utf-8"), flush=True)
+              if code:
+                  raise SystemExit(code)
+              root = ET.parse(base / f"{label}.trx").getroot()
+              defs, results = root.findall(".//t:UnitTest", ns), root.findall(".//t:UnitTestResult", ns)
+              counters = root.find(".//t:Counters", ns).attrib
+              assert len(defs) == len(results) == len({r.attrib["testId"] for r in results}) == len({r.attrib["executionId"] for r in results}) == count
+              assert {d.attrib["id"] for d in defs} == {r.attrib["testId"] for r in results}
+              assert {d.find("t:TestMethod", ns).attrib["name"] for d in defs} == set(methods)
+              assert all(d.find("t:TestMethod", ns).attrib["className"] == f"Twig.Cli.Tests.Commands.{cls}" for d in defs)
+              assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
+              assert all(r.attrib["outcome"] == "Passed" for r in results)
+              assert all(counters[k] == str(count) for k in ("total", "executed", "passed"))
+              assert all(counters[k] == "0" for k in ("failed", "error", "timeout", "aborted", "notExecuted", "passedButRunAborted"))
+      - name: Preserve preservation v17 regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-preservation-v17-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/preservation-v17/
+          if-no-files-found: error
+
       - name: Fundamental build validation (15-second offline smoke)
         run: python tools/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --timeout 15 --trace artifacts/smoke/boundaries.jsonl
 

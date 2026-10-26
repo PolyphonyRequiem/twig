@@ -144,15 +144,29 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
                 AreaPath.Parse("Work").Value, IterationPath.Parse("Work").Value, minted);
             seed.IsSuccess.ShouldBeTrue(seed.Error);
             await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(seed.Value);
+            // A published item carries a positive provider revision; sync it BEFORE the local edit so the edit stays dirty.
             var editing = new WorkItem { Id = 77, Type = WorkItemType.Task, Title = "Pending actor work" };
+            editing.MarkSynced(1);
             editing.UpdateField("System.Title", "Unpublished edit");
+            editing.Revision.ShouldBe(1);
+            editing.IsDirty.ShouldBeTrue();
             await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(editing);
             var pending = runtime.GetRequiredService<IPendingChangeStore>();
             await pending.AddChangeAsync(77, "field", "System.Title", "Pending actor work", "Unpublished edit");
             await pending.AddChangeAsync(77, "note", null, null, "Private pending note");
+            var stored = await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(77);
+            stored.ShouldNotBeNull();
+            stored.Revision.ShouldBe(1);
+            stored.IsDirty.ShouldBeTrue();
+            (await pending.GetChangesAsync(77)).Select(x => x.NewValue)
+                .ShouldBe(new[] { "Unpublished edit", "Private pending note" });
+            (await runtime.GetRequiredService<IWorkItemRepository>().GetSeedsAsync())
+                .ShouldHaveSingleItem().Id.ShouldBe(seedAlias);
             digest = (await runtime.GetRequiredService<IPlanLifecycleService>().PreviewAsync(proposal)).Digest!;
             await runtime.GetRequiredService<IPlanJournalRepository>().SaveOperationErrorAsync(digest, "old-unknown",
                 "Earlier unacknowledged outcome", PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
+            (await runtime.GetRequiredService<IPlanJournalRepository>().GetAsync(digest))!
+                .Operations.Single().State.ShouldBe(PlanOperationState.Indeterminate);
         }
         var portable = await File.ReadAllBytesAsync(_paths.RepoConfigPath);
         var legacyCredential = await File.ReadAllBytesAsync(Path.Combine(Home, ".refresh-token"));

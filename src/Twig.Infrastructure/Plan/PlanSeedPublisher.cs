@@ -17,6 +17,8 @@ namespace Twig.Infrastructure.Plan;
 /// </summary>
 internal delegate Task<SeedPublishResult> SeedPublishInvoker(int seedId, CancellationToken ct);
 
+internal delegate Task<SeedPublishResult> SeedPublishRecoveryInvoker(int seedId, CancellationToken ct);
+
 /// <summary>
 /// Owns the plan pipeline's publish-seed operation end-to-end: pre-apply fingerprint
 /// attestation, orchestrator delegation, applying-state recovery, and remote verification.
@@ -38,9 +40,8 @@ internal delegate Task<SeedPublishResult> SeedPublishInvoker(int seedId, Cancell
 /// of truth for a committed publish; the intent is the source of truth for what the wire
 /// was told. Disagreement is a determinate corruption. An intent with no matching map means
 /// the crash landed between step 7 (wire) and step 10 (local UoW); we re-drive the
-/// orchestrator, which detects the completed intent and skips the create rather than
-/// duplicating it. Absent both records, nothing local can prove the wire was touched and
-/// the outcome stays Indeterminate.
+/// orchestrator through a read-only recovery path that requires positive intent evidence
+/// and cannot issue another create. Without positive evidence, the outcome stays Indeterminate.
 /// </para>
 /// <para>
 /// <b>Verified requires more than the item's existence.</b> An unpromoted parent or
@@ -60,6 +61,7 @@ internal sealed class PlanSeedPublisher
     private readonly IPublishIdMapRepository _publishIdMap;
     private readonly IPublishIntentRepository _publishIntent;
     private readonly SeedPublishInvoker _invokePublish;
+    private readonly SeedPublishRecoveryInvoker _recoverPublish;
 
     internal PlanSeedPublisher(
         IProviderWorkItemReader ado,
@@ -68,7 +70,8 @@ internal sealed class PlanSeedPublisher
         IStagedIdentityRegistry stagedRegistry,
         IPublishIdMapRepository publishIdMap,
         IPublishIntentRepository publishIntent,
-        SeedPublishInvoker invokePublish)
+        SeedPublishInvoker invokePublish,
+        SeedPublishRecoveryInvoker recoverPublish)
     {
         _ado = ado;
         _workItems = workItems;
@@ -77,6 +80,7 @@ internal sealed class PlanSeedPublisher
         _publishIdMap = publishIdMap;
         _publishIntent = publishIntent;
         _invokePublish = invokePublish;
+        _recoverPublish = recoverPublish;
     }
 
     /// <summary>
@@ -223,10 +227,8 @@ internal sealed class PlanSeedPublisher
 
     /// <summary>
     /// Applying recovery when only the intent record survives. The wire may or may not have
-    /// landed the create; the orchestrator's step-7 idempotency (existing intent detects the
-    /// prior create instead of reissuing it) plus step-10 map recording is the single seam
-    /// that can close the window. Re-drive it here, then verify the remote once the map
-    /// row is present.
+    /// landed the create; query for positive provider evidence once, then finish local state
+    /// only when that evidence identifies the published item.
     /// </summary>
     private async Task<PlanReadbackOutcome> RecoverIntentOnlyAsync(
         PublishSeedOperation op,
@@ -246,7 +248,7 @@ internal sealed class PlanSeedPublisher
         SeedPublishResult publishResult;
         try
         {
-            publishResult = await _invokePublish(seed.Id, ct).ConfigureAwait(false);
+            publishResult = await _recoverPublish(seed.Id, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

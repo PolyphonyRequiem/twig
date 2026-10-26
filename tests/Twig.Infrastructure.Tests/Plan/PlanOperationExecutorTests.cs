@@ -6,10 +6,12 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Plan;
 using Twig.Infrastructure.Tests.Ado;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Plan;
@@ -38,10 +40,16 @@ public sealed class PlanOperationExecutorTests
     private readonly IPublishIntentRepository _publishIntent = Substitute.For<IPublishIntentRepository>();
     private readonly PlanOperationExecutor _executor;
     private readonly List<int> _publishInvocations = new();
+    private readonly List<int> _recoveryInvocations = new();
     private Func<int, SeedPublishResult> _publishBehaviour = _ => new SeedPublishResult
     {
         Status = SeedPublishStatus.Error,
         ErrorMessage = "PlanSeedPublisher invoked publish unexpectedly.",
+    };
+    private Func<int, SeedPublishResult> _recoveryBehaviour = _ => new SeedPublishResult
+    {
+        Status = SeedPublishStatus.Error,
+        ErrorMessage = "PlanSeedPublisher invoked recovery unexpectedly.",
     };
 
     public PlanOperationExecutorTests()
@@ -62,9 +70,51 @@ public sealed class PlanOperationExecutorTests
             {
                 _publishInvocations.Add(seedId);
                 return Task.FromResult(_publishBehaviour(seedId));
+            },
+            (seedId, _) =>
+            {
+                _recoveryInvocations.Add(seedId);
+                return Task.FromResult(_recoveryBehaviour(seedId));
             });
         _executor = new PlanOperationExecutor(
             AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions, publisher);
+    }
+
+    private PlanOperationExecutor CreateProductionSeedExecutor(
+        IUnitOfWork unitOfWork,
+        IPendingChangeStore? pendingChangeStore = null)
+    {
+        var rules = Substitute.For<ISeedPublishRulesProvider>();
+        rules.GetRulesAsync(Arg.Any<CancellationToken>()).Returns(SeedPublishRules.Default);
+        var orchestrator = new SeedPublishOrchestrator(
+            _workItems,
+            _ado,
+            _seedLinks,
+            Substitute.For<IWorkItemLinkRepository>(),
+            _publishIdMap,
+            rules,
+            unitOfWork,
+            new BacklogOrderer(_ado, _fieldDefinitions),
+            pendingChangeStore ?? Substitute.For<IPendingChangeStore>(),
+            _publishIntent,
+            ReferenceProfileBuilder.SprintPolicy());
+        return new PlanOperationExecutor(
+            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions,
+            orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap, _publishIntent,
+            Substitute.For<IPendingChangeReader>(), unitOfWork);
+    }
+
+    private async Task<PublishSeedOperation> CreatePublishSeedOperation(WorkItem seed)
+    {
+        var identity = seed.StagedIdentity!.Value;
+        var fingerprint = await SeedFingerprintCalculator.ComputeAsync(seed, Array.Empty<SeedLink>(),
+            _stagedRegistry, _publishIdMap);
+        return new PublishSeedOperation
+        {
+            Id = "publish",
+            StagedIdentity = identity,
+            ExpectedFingerprint = fingerprint,
+        };
     }
 
     private void StubFieldDefinition(string referenceName, string dataType)
@@ -934,14 +984,224 @@ public sealed class PlanOperationExecutorTests
         outcome.Error!.ShouldContain("disagree");
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task RejectedOrTimedOutCreate_ImmediateReadback_DoesNotIssueAnotherCreate(
+        bool timedOut, bool ambiguousReadback)
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000204"));
+        var alias = MakeAlias(-9);
+        var seed = new WorkItemBuilder(alias.Value, "Rejected seed").AsSeed(stagedIdentity: identity).Build();
+        _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
+        _stagedRegistry.FindByAliasAsync(alias, Arg.Any<CancellationToken>()).Returns(identity);
+        _workItems.GetByIdAsync(alias.Value, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinks.GetLinksForItemAsync(alias.Value, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var intent = new PublishIntent
+        {
+            Identity = identity,
+            Title = seed.Title,
+            TypeName = seed.Type.Value,
+            RecordedAt = DateTimeOffset.Parse("2026-08-22T10:00:00Z"),
+        };
+        _publishIntent.RecordIntentAsync(identity, seed.Title, seed.Type.Value, Arg.Any<CancellationToken>())
+            .Returns(intent);
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>()).Returns(intent);
+        _ado.FindPublishedIntentAsync(intent, Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<int?>(null),
+            ambiguousReadback
+                ? Task.FromException<int?>(new InvalidOperationException("seed-recovery-correlation-ambiguous"))
+                : Task.FromResult<int?>(null));
+        Exception createFailure = timedOut
+            ? new TimeoutException("The create request timed out.")
+            : new AdoBadRequestException("The create request was rejected.");
+        _ado.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<int>(createFailure));
+
+        var unitOfWork = Substitute.For<IUnitOfWork>();
+        var executor = CreateProductionSeedExecutor(unitOfWork);
+        var operation = await CreatePublishSeedOperation(seed);
+
+        var execution = await executor.ExecuteAsync(operation, CancellationToken.None);
+        execution.Outcome.ShouldBe(PlanExecutionOutcome.Indeterminate);
+        var readback = await executor.ReadbackAsync(operation, execution, CancellationToken.None);
+
+        readback.Ok.ShouldBeFalse();
+        readback.Deterministic.ShouldBeFalse();
+        await _ado.Received(1).CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
-    public async Task ReadbackPublishSeed_IntentOnly_InvokesOrchestratorAndDoesNotDuplicate()
+    public async Task ReadbackPublishSeed_ExistingProviderMarker_RecoversLocalStateWithoutRemoteWrites()
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000207"));
+        var alias = MakeAlias(-10);
+        var seed = new WorkItemBuilder(alias.Value, "Published seed").AsSeed(stagedIdentity: identity).Build();
+        var intent = new PublishIntent
+        {
+            Identity = identity,
+            Title = seed.Title,
+            TypeName = seed.Type.Value,
+            RecordedAt = DateTimeOffset.Parse("2026-08-22T10:00:00Z"),
+        };
+        var publishedId = 7777;
+        int? mappedId = null;
+        _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
+        _workItems.GetByIdAsync(alias.Value, Arg.Any<CancellationToken>()).Returns(seed);
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>()).Returns(intent);
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns(_ => mappedId);
+        _publishIdMap.RecordMappingAsync(identity, publishedId, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                mappedId = publishedId;
+                return Task.CompletedTask;
+            });
+        _ado.FindPublishedIntentAsync(intent, Arg.Any<CancellationToken>())
+            .Returns((int?)publishedId);
+        var published = new WorkItemBuilder(publishedId, seed.Title).AsTask().Build();
+        published.MarkSynced(1);
+        _ado.FetchAsync(publishedId, Arg.Any<CancellationToken>()).Returns(published);
+        _ado.FetchWithLinksAsync(publishedId, Arg.Any<CancellationToken>())
+            .Returns((published, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
+        var transaction = Substitute.For<ITransaction>();
+        var unitOfWork = Substitute.For<IUnitOfWork>();
+        unitOfWork.BeginAsync(Arg.Any<CancellationToken>()).Returns(transaction);
+
+        var executor = CreateProductionSeedExecutor(unitOfWork);
+        var operation = await CreatePublishSeedOperation(seed);
+        var readback = await executor.ReadbackAsync(operation, default, CancellationToken.None);
+
+        readback.Ok.ShouldBeTrue();
+        readback.Deterministic.ShouldBeTrue();
+        mappedId.ShouldBe(publishedId);
+        await _ado.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+        _ado.ReceivedCalls()
+            .Select(call => call.GetMethodInfo().Name)
+            .ShouldAllBe(name => name == nameof(IAdoWorkItemService.FindPublishedIntentAsync)
+                || name == nameof(IAdoWorkItemService.FetchAsync)
+                || name == nameof(IAdoWorkItemService.FetchWithLinksAsync));
+    }
+
+    [Theory]
+    [InlineData(7778, 1, false)]
+    [InlineData(7777, 0, false)]
+    [InlineData(7777, 1, true)]
+    public async Task ReadbackPublishSeed_InvalidFetchedItem_DoesNotSettleLocalSeed(
+        int fetchedId,
+        int fetchedRevision,
+        bool fetchedIsSeed)
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000209"));
+        var alias = MakeAlias(-12);
+        var seedId = alias.Value;
+        const int publishedId = 7777;
+        var seed = new WorkItemBuilder(alias.Value, "Published seed").AsSeed(stagedIdentity: identity).Build();
+        var intent = new PublishIntent
+        {
+            Identity = identity,
+            Title = seed.Title,
+            TypeName = seed.Type.Value,
+            RecordedAt = DateTimeOffset.Parse("2026-08-22T10:00:00Z"),
+        };
+        _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
+        _workItems.GetByIdAsync(seedId, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinks.GetLinksForItemAsync(seedId, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>()).Returns(intent);
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _ado.FindPublishedIntentAsync(intent, Arg.Any<CancellationToken>()).Returns((int?)publishedId);
+        var fetched = new WorkItem
+        {
+            Id = fetchedId,
+            Title = seed.Title,
+            Type = seed.Type,
+            IsSeed = fetchedIsSeed,
+        };
+        fetched.MarkSynced(fetchedRevision);
+        fetched.Id.ShouldBe(fetchedId);
+        fetched.Revision.ShouldBe(fetchedRevision);
+        fetched.IsSeed.ShouldBe(fetchedIsSeed);
+        _ado.FetchAsync(publishedId, Arg.Any<CancellationToken>()).Returns(fetched);
+
+        var pendingChanges = Substitute.For<IPendingChangeStore>();
+        var unitOfWork = Substitute.For<IUnitOfWork>();
+        var executor = CreateProductionSeedExecutor(unitOfWork, pendingChanges);
+        var operation = await CreatePublishSeedOperation(seed);
+
+        var readback = await executor.ReadbackAsync(operation, default, CancellationToken.None);
+
+        readback.Ok.ShouldBeFalse();
+        readback.Deterministic.ShouldBeFalse();
+        readback.Error.ShouldNotBeNull().ShouldContain("The fetched published item does not match");
+        await _ado.Received(1).FindPublishedIntentAsync(intent, Arg.Any<CancellationToken>());
+        await _ado.Received(1).FetchAsync(publishedId, Arg.Any<CancellationToken>());
+        await _publishIntent.DidNotReceive()
+            .CompleteIntentAsync(identity, Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await unitOfWork.DidNotReceive().BeginAsync(Arg.Any<CancellationToken>());
+        await _publishIdMap.DidNotReceive()
+            .RecordMappingAsync(identity, Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _seedLinks.DidNotReceive().RemapIdAsync(seedId, Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _workItems.DidNotReceive().DeleteByIdAsync(seedId, Arg.Any<CancellationToken>());
+        await pendingChanges.DidNotReceive()
+            .RemapWorkItemIdAsync(seedId, Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReadbackPublishSeed_CreateSucceededButFetchKeepsFailing_RemainsIndeterminate()
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000208"));
+        var alias = MakeAlias(-11);
+        var seed = new WorkItemBuilder(alias.Value, "Partially published seed").AsSeed(stagedIdentity: identity).Build();
+        var intent = new PublishIntent
+        {
+            Identity = identity,
+            Title = seed.Title,
+            TypeName = seed.Type.Value,
+            RecordedAt = DateTimeOffset.Parse("2026-08-22T10:00:00Z"),
+        };
+        var publishedId = 8888;
+        _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
+        _stagedRegistry.FindByAliasAsync(alias, Arg.Any<CancellationToken>()).Returns(identity);
+        _workItems.GetByIdAsync(alias.Value, Arg.Any<CancellationToken>()).Returns(seed);
+        _publishIntent.RecordIntentAsync(identity, seed.Title, seed.Type.Value, Arg.Any<CancellationToken>())
+            .Returns(intent);
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>()).Returns(_ => intent);
+        _publishIntent.CompleteIntentAsync(identity, publishedId, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                intent = intent with { PublishedId = publishedId, CompletedAt = DateTimeOffset.UtcNow };
+                return Task.CompletedTask;
+            });
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _ado.FindPublishedIntentAsync(intent, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _ado.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(publishedId);
+        _ado.FetchAsync(publishedId, Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<WorkItem>(new TimeoutException("The post-create fetch timed out.")));
+
+        var unitOfWork = Substitute.For<IUnitOfWork>();
+        var executor = CreateProductionSeedExecutor(unitOfWork);
+        var operation = await CreatePublishSeedOperation(seed);
+
+        var execution = await executor.ExecuteAsync(operation, CancellationToken.None);
+        execution.Outcome.ShouldBe(PlanExecutionOutcome.Indeterminate);
+        var readback = await executor.ReadbackAsync(operation, execution, CancellationToken.None);
+
+        readback.Ok.ShouldBeFalse();
+        readback.Deterministic.ShouldBeFalse();
+        await _ado.Received(1).CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+        await _publishIdMap.DidNotReceive()
+            .RecordMappingAsync(identity, Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReadbackPublishSeed_IntentOnly_UsesRecoveryWithoutReissuingPublish()
     {
         // Crash between wire (step 7) and local UoW (step 10): the intent completed with a
-        // real ADO id but the id map never landed. Recovery re-drives the orchestrator —
-        // the completed intent forces step 7 to skip CreateAsync (idempotent by contract),
-        // and step 10a lands the missed map row. The readback then verifies remote against
-        // that recovered map.
+        // real ADO id but the id map never landed. Recovery uses a dedicated path that may
+        // finish local settlement from that positive evidence but cannot enter publication.
         var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000203"));
         var alias = MakeAlias(-7);
         var op = new PublishSeedOperation
@@ -968,11 +1228,9 @@ public sealed class PlanOperationExecutorTests
             });
         _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
         _workItems.GetByIdAsync(alias.Value, Arg.Any<CancellationToken>()).Returns(seed);
-        _publishBehaviour = seedId =>
+        _recoveryBehaviour = seedId =>
         {
-            // Emulates the orchestrator's step-7 idempotent branch: an intent already
-            // records the wire outcome, no CreateAsync is issued, and step 10a records
-            // the map. Flip the map return so the follow-up readback sees the row.
+            // Emulates positive provider-marker recovery and its local ID-map settlement.
             mapReturn = publishedId;
             return new SeedPublishResult
             {
@@ -988,10 +1246,9 @@ public sealed class PlanOperationExecutorTests
 
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
-        _publishInvocations.ShouldBe(new[] { alias.Value });
-        // No wire-level write was issued through the executor's mutation port — the recovery
-        // path never bypasses the orchestrator. (#1178: the port carries no CreateAsync, so a
-        // fresh create is unreachable by type; pin that only reads crossed the port.)
+        _publishInvocations.ShouldBeEmpty();
+        _recoveryInvocations.ShouldBe(new[] { alias.Value });
+        // No provider mutation crossed the readback path.
         _ado.ReceivedCalls()
             .Select(c => c.GetMethodInfo().Name)
             .ShouldAllBe(name => name.StartsWith("Fetch", StringComparison.Ordinal));
@@ -1027,7 +1284,7 @@ public sealed class PlanOperationExecutorTests
                 Id = alias.Value, Title = "T", Type = WorkItemType.Parse("Task").Value,
                 IsSeed = true, StagedIdentity = identity,
             });
-        _publishBehaviour = seedId => new SeedPublishResult
+        _recoveryBehaviour = seedId => new SeedPublishResult
         {
             OldId = seedId, NewId = 4242, Title = "T",
             Status = SeedPublishStatus.Created,

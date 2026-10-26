@@ -67,6 +67,12 @@ identity, an optional rationale, and the current UTC timestamp
   failures land on `PlanJournalOperation.Error`; a terminal-level failure
   lands on `PlanApplyResult.Error`
   (`src/Twig.Domain/Services/Plan/PlanApplyResult.cs:14-26`).
+- **Seed-publish readback never retries creation.** After an uncertain publish,
+  readback may query for the existing immutable publish marker and finish local
+  mapping only when the positive evidence and fetched item agree. It does not
+  issue another create or perform remote link promotion or cleanup. Missing,
+  ambiguous, or inconsistent evidence remains unresolved; it is not proof that
+  the create was rejected or never happened.
 - **All-or-nothing exit.** Exit 0 requires every operation to reach the
   Verified terminal state; any failed row returns exit 1.
 

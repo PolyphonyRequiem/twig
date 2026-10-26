@@ -77,6 +77,59 @@ public sealed class SeedPublishOrchestrator
     }
 
     /// <summary>
+    /// Recovers an interrupted publish from an existing durable intent or immutable provider
+    /// marker. This path may finish local settlement, but never issues a create or other
+    /// provider mutation.
+    /// </summary>
+    internal async Task<SeedPublishResult> RecoverPublishedAsync(int seedId, CancellationToken ct = default)
+    {
+        var seed = await _workItemRepo.GetByIdAsync(seedId, ct).ConfigureAwait(false);
+        if (seed is null || !seed.IsSeed || seed.StagedIdentity is not { } identity || _publishIntentRepo is null)
+            return RecoveryError(seedId, "The staged seed or its durable publish identity is unavailable.");
+
+        var intent = await _publishIntentRepo.GetIntentAsync(identity, ct).ConfigureAwait(false);
+        if (intent is null || intent.Title != seed.Title || intent.TypeName != seed.Type.Value)
+            return RecoveryError(seedId, "No matching durable publish intent exists.");
+
+        var publishedId = intent.PublishedId
+            ?? await _adoService.FindPublishedIntentAsync(intent, ct).ConfigureAwait(false);
+        if (publishedId is not { } id || id <= 0)
+            return RecoveryError(seedId, "No existing immutable publish marker proves that the create landed.");
+
+        var existingMap = await _publishIdMapRepo.GetNewIdAsync(identity, ct).ConfigureAwait(false);
+        if (existingMap is { } mappedId && mappedId != id)
+            return RecoveryError(seedId, "The durable publish intent and identity map disagree.");
+
+        WorkItem? fetched = null;
+        if (existingMap is null)
+        {
+            fetched = await _adoService.FetchAsync(id, ct).ConfigureAwait(false);
+            if (fetched.Id != id || fetched.Id <= 0 || fetched.Revision <= 0 || fetched.IsSeed)
+                return RecoveryError(seedId, "The fetched published item does not match the positive provider evidence.");
+        }
+
+        await _publishIntentRepo.CompleteIntentAsync(identity, id, ct).ConfigureAwait(false);
+        if (fetched is not null)
+            await CompleteLocalPublishAsync(seed, fetched.WithIsSeed(false), id, ct).ConfigureAwait(false);
+
+        return new SeedPublishResult
+        {
+            OldId = seedId,
+            NewId = id,
+            Title = seed.Title,
+            Status = SeedPublishStatus.Created,
+            LinkWarnings = ["Remote link promotion and cleanup are not performed during readback recovery."],
+        };
+    }
+
+    private static SeedPublishResult RecoveryError(int seedId, string message) => new()
+    {
+        OldId = seedId,
+        Status = SeedPublishStatus.Error,
+        ErrorMessage = message,
+    };
+
+    /// <summary>
     /// Publishes a single seed to Azure DevOps.
     /// </summary>
     /// <param name="seedId">The negative seed ID to publish.</param>
@@ -292,53 +345,7 @@ public sealed class SeedPublishOrchestrator
         fetchedItem = fetchedItem.WithIsSeed(false);
 
         // Step 10: Transactional local update
-        var tx = await _unitOfWork.BeginAsync(ct);
-        try
-        {
-            // 10a: Record publish mapping
-            // 10a: Record publish mapping, keyed on the durable identity (wayfinder 0014).
-            // The negative alias is no longer the key, so a cache rebuild cannot reissue it to
-            // a different seed and make this lookup resolve to a previous owner (#280).
-            if (seed.StagedIdentity is { } stagedIdentity)
-                await _publishIdMapRepo.RecordMappingAsync(stagedIdentity, newId, ct);
-
-            // 10b: Remap ID in seed_links
-            await _seedLinkRepo.RemapIdAsync(seedId, newId, ct);
-
-            // 10c: Remap ParentId in child seeds
-            await _workItemRepo.RemapParentIdAsync(seedId, newId, ct);
-
-            // 10d: Save new item.
-            // Ordered BEFORE the remap/delete below, unlike the pre-#270 sequence. This was
-            // mandatory while pending_changes carried an FK to work_items(id); wayfinder 0013
-            // deleted that FK, so the order now expresses intent rather than a constraint.
-            await _workItemRepo.SaveAsync(fetchedItem, ct);
-
-            // 10e: Migrate staged notes / field edits from the seed ID onto the published ID.
-            // pending_changes is the one referencing table the publish path used to forget: its
-            // FK kept the seed row alive, so DeleteByIdAsync threw FOREIGN KEY constraint failed,
-            // the local transaction rolled back, and the ADO item created in Step 7 — outside
-            // this transaction — was orphaned. Every retry then made another duplicate
-            // (PolyphonyRequiem/twig#270). The FK is gone, but the migration stays: clearing the
-            // rows would fix the crash while silently destroying an unpushed note, and they
-            // still need to flush onto the published ID on the next sync.
-            await _pendingChangeStore.RemapWorkItemIdAsync(seedId, newId, ct);
-
-            // 10f: Delete old seed row
-            await _workItemRepo.DeleteByIdAsync(seedId, ct);
-
-            // 10g: Commit transaction
-            await _unitOfWork.CommitAsync(tx, ct);
-        }
-        catch
-        {
-            await _unitOfWork.RollbackAsync(tx, ct);
-            throw;
-        }
-        finally
-        {
-            await tx.DisposeAsync();
-        }
+        await CompleteLocalPublishAsync(seed, fetchedItem, newId, ct).ConfigureAwait(false);
 
         // The intent and ID map are durable before metadata cleanup. The native guard
         // additionally requires the original create outcome receipt; a lost-response
@@ -411,6 +418,32 @@ public sealed class SeedPublishOrchestrator
             Status = SeedPublishStatus.Created,
             LinkWarnings = linkWarnings,
         };
+    }
+
+    private async Task CompleteLocalPublishAsync(WorkItem seed, WorkItem publishedItem, int newId, CancellationToken ct)
+    {
+        var tx = await _unitOfWork.BeginAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (seed.StagedIdentity is { } stagedIdentity)
+                await _publishIdMapRepo.RecordMappingAsync(stagedIdentity, newId, ct).ConfigureAwait(false);
+            await _seedLinkRepo.RemapIdAsync(seed.Id, newId, ct).ConfigureAwait(false);
+            await _workItemRepo.RemapParentIdAsync(seed.Id, newId, ct).ConfigureAwait(false);
+            await _workItemRepo.SaveAsync(publishedItem, ct).ConfigureAwait(false);
+            // Staged notes and field edits must follow the seed ID before that seed is removed.
+            await _pendingChangeStore.RemapWorkItemIdAsync(seed.Id, newId, ct).ConfigureAwait(false);
+            await _workItemRepo.DeleteByIdAsync(seed.Id, ct).ConfigureAwait(false);
+            await _unitOfWork.CommitAsync(tx, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync(tx, ct).ConfigureAwait(false);
+            throw;
+        }
+        finally
+        {
+            await tx.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     /// <summary>

@@ -57,6 +57,7 @@ public sealed class PlanLinkOperationRankPreservationTests
             Substitute.For<IStagedIdentityRegistry>(),
             Substitute.For<IPublishIdMapRepository>(),
             Substitute.For<IPublishIntentRepository>(),
+            (_, _) => Task.FromResult(new SeedPublishResult { Status = SeedPublishStatus.Error }),
             (_, _) => Task.FromResult(new SeedPublishResult { Status = SeedPublishStatus.Error }));
 
         _executor = new PlanOperationExecutor(

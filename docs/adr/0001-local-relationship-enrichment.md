@@ -1,38 +1,32 @@
 ---
-status: proposed
+status: accepted
 tracked_in: [1190]
 ---
 
 # Local relationship enrichment is declared per provider, native-first, and never silent
 
-This ADR proposes one Twig relationship model (hierarchy, predecessor/successor, related) across providers. Where a provider natively supports a relationship, Twig should use and label the native operation. Only an evidenced semantic gap may activate enrichment, each provider adapter declares where enrichment data lives, and no emulation is active. Epic #1170, Feature #1190. Acceptance of this ADR is a human decision and is not implied by its presence.
+Accepted for the 1.0 scope: use provider-native relationship operations, and allow an explicit durable Twig-local Related association only when the selected provider declares Related unsupported. This does not authorize other local-only relationship kinds or provider-metadata projection. Provider-projected emulation remains deferred and inactive.
 
 ## Decisions
 
-1. **Storage engine.** SQLite stays until it is shown not to scale. Local-owned relationships live in the durable store, never in the rebuildable mirror (`work_item_links`). Landed on main at d35c5d9b: #1168's durable-file split with `local_relationships` (v13, #482) and the additive v14 `storage` and `publication` columns with the capability contracts (#483). This describes storage only; no emulation is activated. Refresh replaces only provider observations. Daniel, with #1168's durable-file plus rebuildable-mirror split; no crash-safety claim spans the two files.
-2. **Storage ownership is per provider, not global.** Each adapter declares, per emulated capability, `LocalOnly` or `LocalWithProviderProjection` as static versioned descriptor data. Native capabilities declare no emulation storage. Unsupported capabilities are refused explicitly.
-3. **Implementation kind and runtime availability are separate.** `Native | Emulated | Unsupported` is descriptor data. `Available | Unavailable | Unknown` is per-connection evidence. Denied, throttled, failed or unprobed discovery is Unknown or Unavailable, never absence, and never changes the declared kind.
-4. **GitHub and ADO both support hierarchy and blocking dependencies natively.** Neither declares emulation for them. The GitHub implementation must satisfy the hierarchy and dependency requirement through native operations, labelled native; a read-only GitHub provider transport has landed on main (#487), but GitHub writes and native hierarchy/dependency delivery are not claimed complete (#1191 remains open).
-5. **Distinct refusals.** `relationship-unsupported` and `relationship-emulation-unavailable` stay separate. A native write failure is never retried as an emulated write.
-6. **Provenance.** `show`, `link` and `connection capabilities` derive relationship origin only from the resolved descriptor and valid probe evidence, never from a provider-name heuristic. An unresolvable provider fails closed (`provider-unavailable`, `provider-unknown`, `provider-unconfigured`).
+1. **Storage engine and ownership.** SQLite stays until it is shown not to scale. Local-owned relationships live in the durable store, never in the rebuildable mirror (`work_item_links`). #1168's durable-file split keeps the durable `local_relationships` data separate from provider observations; no crash-safety claim spans the two files. Refresh replaces only provider observations.
+2. **The accepted 1.0 enrichment is narrowly local-only.** Native provider operations remain the route for declared-native relationships. A provider-native write failure is not a reason to fall back. A provider-declared unsupported kind is refused for provider mutation; the separate explicit local-only Related creation is allowed only when the selected provider declares Related unsupported and both endpoints are existing live local records. List and removal operate on existing Twig-local edges without requiring live endpoints or provider resolution. These edges remain distinct from provider observations and are never published to or translated by a provider. This exception does not apply to other kinds.
+3. **Implementation kind and runtime availability are separate.** `Native | Emulated | Unsupported` is static descriptor data. `Available | Unavailable | Unknown` is per-connection evidence. Denied, throttled, failed or unprobed reads never downgrade the declared kind. In particular, GitHub dependencies may remain `native` while their availability is `unavailable`; absent evidence is `unknown`, not evidence of no relationships.
+4. **The report contract stays compact and explicit.** Relationship kind, declared implementation, storage/publication where relevant, and per-kind availability with its reason are distinct facts. A provider-read relationship may be labelled `provider-native` only when it is a valid observed relationship matching the provider and resource scope and the resolved provider descriptor declares that kind native. A local-only association is labelled `twig-local` from its explicit durable-store origin, not from a provider descriptor. Unknown or denied read evidence does not mean the relationship set is empty. Capability reporting is read-only and starts no background probe; availability evidence does not authorize mutation.
+5. **GitHub and ADO support hierarchy and blocking dependencies natively.** Their declarations remain native; local enrichment must not replace these native operations. GitHub's native hierarchy and dependency write/readback path remains required for 1.0 and is not claimed complete by the capability report or read-only snapshot adapter (#1191 remains open).
+6. **Distinct refusals and provenance.** `relationship-unsupported` remains distinct from `relationship-emulation-unavailable`. A provider-native origin requires a valid provider-read observation matching the provider and resource scope plus a resolved descriptor declaring that kind native; Twig-local origin comes from the explicit durable-store record. Per-connection evidence supplies availability and its reason, never a provider-name heuristic. An unresolvable provider fails closed (`provider-unavailable`, `provider-unknown`, `provider-unconfigured`).
 
-## Sync, conflict and recovery (apply to `LocalWithProviderProjection`; proposed, not implemented)
+## Deferred: provider-metadata projection (inactive; not accepted implementation)
 
-- Writes go through the proposal authorization and journal. A changed metadata destination or material effect requires re-review.
-- Use provider conditional mutation where it exists. Otherwise refuse when concurrent user content cannot be preserved; never call read-then-write compare-and-swap.
-- Preserve non-Twig content. Remote metadata is untrusted: validate ownership, schema version, canonical endpoints, cardinality and graph constraints. Unknown or malformed owned metadata fails explicitly and deletes nothing.
-- An ambiguous remote outcome stays pending reconciliation. Inspect receipt evidence before retry; never append duplicate edges.
-- Removal is a durable tombstone until verified against the shared projection, so a stale observation cannot resurrect it.
-- Native-versus-local parentage conflicts and concurrent enrichment changes surface as conflicts. No last-writer-wins and no automatic conversion to native.
-- Local commit, pending publication, remote receipt and verified readback are reported separately; there is no distributed transaction.
+Provider-metadata projection, including labels or descriptions, is deferred from 1.0. `LocalWithProviderProjection` remains inactive. No projection format, remote metadata route, projection effect/schema, or associated conflict/recovery behavior is approved or claimed shipped here. Any future projection requires a separately scoped design and activation decision, including its format, concurrency, preservation, retry, tombstone, and readback behavior.
 
 ## Activation preconditions
 
-Emulation stays off. Wiring any emulated route needs a separate authorization, a red-first proof on real storage composition (survival across refresh and rebuild, readback, content preservation, concurrent change, ambiguous retry, tombstones, native-failure refusal) and a declared policy treatment: `DeclaredPolicyEvaluator`'s parent-type and dependency-integrity checks must either read Twig-local overlay edges or return `unavailable` for affected items (#1169 merge obligation 2, `docs/specs/declared-policy-decisions.spec.md`). Silently omitting local edges from policy, or downgrading a native declaration to make emulation apply, is not allowed.
+The accepted explicit local-only Related association does not claim provider support and is not provider-projected emulation. Any future provider-projected emulated route remains inactive and requires a separately scoped design and activation decision, a red-first proof on real storage composition, and a declared policy treatment: `DeclaredPolicyEvaluator`'s parent-type and dependency-integrity checks must either read Twig-local overlay edges or return `unavailable` for affected items (#1169 merge obligation 2, `docs/specs/declared-policy-decisions.spec.md`). Silently omitting local edges from policy, or downgrading a native declaration to make emulation apply, is not allowed.
 
 ## Considered options
 
-- Global DB-only or hybrid policy: rejected by Daniel in favour of per-provider declaration.
+- A single global emulation-storage policy: rejected by Daniel in favour of per-provider declaration.
 - Provider metadata only: lacks independent local durability; not offered.
 - Sync server, event sourcing or a second journal: out of scope.
 - Replacing SQLite: deferred.
@@ -40,11 +34,8 @@ Emulation stays off. Wiring any emulated route needs a separate authorization, a
 ## Consequences
 
 - Body-marker or label projection formats are not approved by this ADR; each needs its own adapter-level decision.
-- `show` and `link` labelling for GitHub depends on provider read routing (#1167, #1177) and is delivered by #1191.
+- The 1.0 contract deliberately keeps native provider relationships and explicit local-only enrichment separate. GitHub native hierarchy/dependency write routing and readback remain required work under #1191.
 
-## Open decisions for acceptance
+## Deferred decisions outside this 1.0 scope
 
-1. Should capability discovery be static descriptor data only, or connection-scoped async evidence on top of it? This draft assumes both, with descriptor as the declared kind.
-2. What canonical relationship vocabulary and provenance fields are required beyond origin and publication state?
-3. How should partial or permission-denied discovery be shown per capability, beyond Unknown versus Unavailable?
-4. Does the proposal journal bind projection destinations as a new effect kind, or reuse existing effects?
+Provider-metadata projection and its format, effect/journal representation, and conflict/recovery behavior are deferred. The accepted report model uses the existing canonical relationship, implementation, origin, storage/publication, availability, and per-kind reason vocabulary; this ADR does not add further fields or a new schema.

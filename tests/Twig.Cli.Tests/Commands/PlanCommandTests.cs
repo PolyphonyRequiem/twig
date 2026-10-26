@@ -392,6 +392,52 @@ public sealed class PlanCommandTests
     [Theory]
     [InlineData("human")]
     [InlineData("minimal")]
+    [InlineData("json")]
+    public async Task Apply_UnsettledAcknowledgment_ReportsFailureWithoutReplacingWinningRow(string format)
+    {
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        _lifecycle.ApplyAsync("plan.json", "abc", Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult
+            {
+                Digest = "abc",
+                Failed = true,
+                Error = "acknowledged-effect-unsettled: Do not retry the mutation.",
+                Operations =
+                [
+                    new PlanJournalOperation
+                    {
+                        Ordinal = 0, OpId = "attempt", Kind = PlanOperationKind.Batch,
+                        State = PlanOperationState.Indeterminate, RequestJson = "{}",
+                        ResultJson = """{"winner":"untouched"}""",
+                    },
+                ],
+                UnsettledAcknowledgments = new Dictionary<string, string>
+                {
+                    ["attempt"] = """{"rev":2}""",
+                },
+            });
+
+        (await CreateCommand(stdout, stderr).ApplyAsync("plan.json", "abc", "Test Authorizer", null, format, default))
+            .ShouldBe(1);
+
+        stdout.ToString().ShouldContain("acknowledged-effect-unsettled");
+        stdout.ToString().ShouldContain("Do not retry");
+        if (format == "json")
+        {
+            using var output = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+            output.RootElement.GetProperty("unsettledAcknowledgments").GetProperty("attempt")
+                .GetString().ShouldBe("""{"rev":2}""");
+            output.RootElement.GetProperty("operations")[0].GetProperty("resultJson")
+                .GetString().ShouldBe("""{"winner":"untouched"}""");
+        }
+        else
+            stdout.ToString().ShouldContain("local outcome unsettled");
+    }
+
+    [Theory]
+    [InlineData("human")]
+    [InlineData("minimal")]
     public async Task Apply_VerifiedWithWarning_OmitsRawWarningBody_AndPointsAtFullEvidence(string format)
     {
         // AB#881: the human/minimal surface must not echo the raw Warning body — it can

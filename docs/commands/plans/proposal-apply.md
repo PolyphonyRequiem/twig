@@ -75,6 +75,20 @@ identity, an optional rationale, and the current UTC timestamp
   the create was rejected or never happened.
 - **All-or-nothing exit.** Exit 0 requires every operation to reach the
   Verified terminal state; any failed row returns exit 1.
+- **Acknowledgment is not lost when a journal fence loses.** If the remote effect
+  was acknowledged but another actor advanced its journal row without matching
+  acknowledgment evidence, apply stops with exit 1 and
+  `acknowledged-effect-unsettled`. The winning row is not overwritten. JSON adds
+  `unsettledAcknowledgments`, keyed by operation ID with the acknowledgment JSON
+  as a string; these are transient attempt results, not journal rows or settlement
+  receipts. The existing native remote-write history retains the durable response.
+  Do not retry the mutation: inspect that history and reconcile the winning row.
+  Re-running apply does not reproduce the original transient acknowledgment.
+  Malformed winning evidence cannot settle an acknowledgment. If the current
+  journal is unavailable, the result explicitly reports that fact and returns no
+  current operation rows, while retaining the acknowledged attempt evidence.
+  A matching Applied or Verified winning receipt continues the existing verify-only
+  resume path without another mutation.
 
 ## Examples
 

@@ -2720,6 +2720,78 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         row.ResultJson.ShouldNotBeNullOrEmpty(); // the executor's result was recorded atomically
     }
 
+    [Theory]
+    [InlineData("{", """{"rev":4}""", false)]
+    [InlineData("""{"rev":4}""", "{}", false)]
+    [InlineData("{}", "{}", true)]
+    [InlineData("[]", "{}", false)]
+    [InlineData("[4]", "[4]", true)]
+    [InlineData("[4,5]", "[4]", false)]
+    [InlineData("""{"rev":4,"diagnostics":{}}""", """{"rev":4}""", true)]
+    public void AcknowledgmentMatchingRequiresReadableNonVacuousEvidence(
+        string recorded, string acknowledged, bool matches)
+    {
+        PlanLifecycleService.ContainsAcknowledgment(recorded, acknowledged).ShouldBe(matches);
+    }
+
+    [Fact]
+    public async Task Apply_LostAppliedCasWithMissingJournal_RetainsAcknowledgmentWithoutInventingRows()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
+        var digest = (await BuildService().PreviewAsync(file)).Digest!;
+        var opId = (await _journal.GetAsync(digest))!.Operations[0].OpId;
+        (await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Planned, PlanOperationState.Confirmed, DateTimeOffset.UtcNow)).ShouldBeTrue();
+        await _journal.ConfirmAsync(digest, DateTimeOffset.UtcNow);
+        var confirmed = (await _journal.GetAsync(digest))!;
+        confirmed.Operations.Single().State.ShouldBe(PlanOperationState.Confirmed);
+        var journal = Substitute.For<IPlanJournalRepository>();
+        var acknowledged = false;
+        var casLost = false;
+        journal.GetAsync(digest, Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<PlanJournal?>(acknowledged ? null : confirmed));
+        journal.GetDigestsBySourcePathAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<string>>([digest]));
+        journal.TryTransitionOperationAsync(digest, opId, PlanOperationState.Confirmed,
+            PlanOperationState.Applying, Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>(),
+            Arg.Any<string?>(), Arg.Any<string?>()).Returns(true);
+        journal.TryRecordAppliedAsync(digest, opId, Arg.Any<string?>(),
+            Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                acknowledged.ShouldBeTrue("the missing-journal race must occur after the transport acknowledgment");
+                call.ArgAt<string>(2).ShouldBe("""{"rev":4}""");
+                casLost = true;
+                return false;
+            });
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                acknowledged = true;
+                return Task.FromResult(4);
+            });
+
+        var result = await BuildService(journal: journal).ApplyAsync(file, digest, Authorize(digest));
+
+        casLost.ShouldBeTrue();
+        result.Digest.ShouldBe(digest);
+        result.Failed.ShouldBeTrue();
+        result.Error.ShouldNotBeNull().ShouldStartWith("acknowledged-effect-unsettled:");
+        result.Error.ShouldContain("journal is unavailable");
+        result.Error.ShouldContain("Do not retry");
+        result.Operations.ShouldBeEmpty();
+        result.UnsettledAcknowledgments.Keys.ShouldBe(new[] { opId });
+        result.UnsettledAcknowledgments[opId].ShouldBe("""{"rev":4}""");
+        await _ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3,
+            Arg.Any<CancellationToken>());
+        await _ado.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await journal.DidNotReceive().CompleteAsync(Arg.Any<string>(), Arg.Any<PlanOperationState>(),
+            Arg.Any<DateTimeOffset>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        var retained = (await _journal.GetAsync(digest))!;
+        retained.State.ShouldBe(confirmed.State);
+        retained.CompletedAt.ShouldBeNull();
+        retained.Operations.Single().ShouldBe(confirmed.Operations.Single());
+    }
+
     [Fact]
     public async Task Apply_ExecuteIndeterminate_ReadbackProvesEffect_TransitionsToVerified()
     {

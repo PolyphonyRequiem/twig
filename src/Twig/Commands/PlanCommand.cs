@@ -582,6 +582,11 @@ public sealed class PlanCommand(
             new("operations", new RenderNode.KeyValue("operations", JournalOperationsCell(result.Operations))),
             new("error", new RenderNode.KeyValue("error", NullableStringCell(result.Error))),
         };
+        if (result.UnsettledAcknowledgments.Count > 0)
+            fields.Add(new("unsettledAcknowledgments", new RenderNode.KeyValue("unsettledAcknowledgments",
+                new RenderCell("Acknowledged remote effects with unsettled local records",
+                    new RenderValue.Object(result.UnsettledAcknowledgments.ToDictionary(
+                        entry => entry.Key, entry => RenderCell.String(entry.Value), StringComparer.Ordinal))))));
         var doc = new RenderNode.Document("proposalApply", fields);
         var tree = new RenderTree.RenderTree([doc]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
@@ -598,6 +603,10 @@ public sealed class PlanCommand(
         AppendOperationLines(result.Operations, lines);
         if (!string.IsNullOrEmpty(result.Error))
             lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
+        foreach (var acknowledgment in result.UnsettledAcknowledgments)
+            lines.Add(new RenderNode.Text(
+                $"  {acknowledgment.Key}: remote effect acknowledged; local outcome unsettled. Do not retry. Inspect the native remote-write receipt before reconciliation.",
+                Severity.Error));
         return lines;
     }
 

@@ -36,21 +36,30 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     private readonly List<ServiceProvider> _runtimes = [];
     private HttpClient _http = null!;
     private ConnectionBindingService _bindings = null!;
+    private SqliteSystemWorktreeRegistry _systemRegistry = null!;
     private string Home => Path.Combine(_temp, "home");
 
     public Task InitializeAsync()
     {
         _http = new HttpClient(_transport);
         _bindings = new ConnectionBindingService(Home, patHttpClient: _http);
+        _systemRegistry = new SqliteSystemWorktreeRegistry(_bindings.RegistryPath, TimeProvider.System);
         return Task.CompletedTask;
     }
 
     public Task DisposeAsync()
     {
         foreach (var runtime in _runtimes) runtime.Dispose();
+        _systemRegistry.Dispose();
         _bindings.Dispose();
         _http.Dispose();
-        SqliteConnection.ClearAllPools();
+        using var pool = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _bindings.RegistryPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            DefaultTimeout = 30,
+        }.ToString());
+        SqliteConnection.ClearPool(pool);
         Directory.Delete(_temp, recursive: true);
         return Task.CompletedTask;
     }
@@ -143,6 +152,153 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             .Settled.ShouldBeTrue();
         (await repository.GetByIdAsync(42))!.Title.ShouldBe(original.Title);
         _transport.CommittedWrites.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(PlanOperationState.Failed)]
+    [InlineData(PlanOperationState.Indeterminate)]
+    [InlineData(PlanOperationState.Applied)]
+    [InlineData(PlanOperationState.Verified)]
+    [InlineData(PlanOperationState.Applied, "{")]
+    [InlineData(PlanOperationState.Verified, "{")]
+    public async Task AcknowledgedCommitAfterLostAppliedCasReturnsReceiptWithoutOverwritingWinner(
+        PlanOperationState winningState, string winningJson = """{"rev":99}""")
+    {
+        var runtime = await AttachAsync();
+        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
+        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
+        journal.ShouldBeOfType<SqlitePlanJournalRepository>();
+        runtime.GetRequiredService<ISystemWorktreeRegistry>().ShouldBeSameAs(_systemRegistry);
+        var repository = runtime.GetRequiredService<IWorkItemRepository>();
+        await repository.SaveAsync(await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42));
+        (await repository.GetByIdAsync(42))!.Revision.ShouldBe(1, "mirror admission and persistence must succeed before forcing the race");
+        var competing = BuildRuntime(runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
+        var competingJournal = competing.GetRequiredService<IPlanJournalRepository>();
+        competingJournal.ShouldBeOfType<SqlitePlanJournalRepository>();
+        competingJournal.ShouldNotBeSameAs(journal);
+        var file = await ProposalAsync(runtime, "acknowledgment-fence-loss", "attempt", 42, 1, "Committed actor plan", includeTail: true);
+        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
+        PlanJournalOperation? winner = null;
+        _transport.AfterCommit = async () =>
+        {
+            var applying = (await competingJournal.GetAsync(digest))!.Operations.Single(row => row.OpId == "attempt");
+            applying.State.ShouldBe(PlanOperationState.Applying);
+            applying.AppliedAt.ShouldBeNull();
+            if (winningState is PlanOperationState.Applied or PlanOperationState.Verified)
+            {
+                (await competingJournal.TryRecordAppliedAsync(digest, "attempt", winningJson, DateTimeOffset.UtcNow))
+                    .ShouldBeTrue();
+                if (winningState == PlanOperationState.Verified)
+                    (await competingJournal.TryTransitionOperationAsync(digest, "attempt", PlanOperationState.Applied,
+                        PlanOperationState.Verified, DateTimeOffset.UtcNow)).ShouldBeTrue();
+            }
+            else
+                await competingJournal.SaveOperationErrorAsync(digest, "attempt", "Competing unresolved classification",
+                    winningState, DateTimeOffset.UtcNow, resultJson: """{"winner":"competing classification"}""");
+            winner = (await competingJournal.GetAsync(digest))!.Operations.Single(row => row.OpId == "attempt");
+            winner.State.ShouldBe(winningState);
+            (await competingJournal.TryRecordAppliedAsync(digest, "attempt", """{"rev":999}""", DateTimeOffset.UtcNow))
+                .ShouldBeFalse("the real SQLite Applying-to-Applied fence must already have been lost");
+        };
+
+        var attempted = await lifecycle.ApplyAsync(file, digest, Authorize(digest));
+
+        winner.ShouldNotBeNull();
+        _transport.CommittedWrites.ShouldBe(1);
+        _transport.RevisionOf(42).ShouldBe(2);
+        _transport.TitleOf(42).ShouldBe("Committed actor plan");
+        _transport.ReadbacksAfterCommit.ShouldBe(0);
+        (await journal.GetAsync(digest))!.Operations.Single(row => row.OpId == "attempt").ShouldBe(winner);
+        attempted.Operations.Single(row => row.OpId == "tail").State.ShouldBe(PlanOperationState.Confirmed);
+        _transport.TitleOf(43).ShouldBe("Another actor plan");
+        var native = await InspectAcknowledgedWriteAsync(runtime);
+        var reopened = await InspectAcknowledgedWriteAsync(competing);
+        reopened.Receipt.ShouldBe(native.Receipt, "the native acknowledgment must remain recoverable through another registry reader");
+        attempted.Failed.ShouldBeTrue();
+        if (winningState is PlanOperationState.Failed or PlanOperationState.Indeterminate)
+        {
+            var resumed = await lifecycle.ApplyAsync(file, digest, Authorize(digest));
+            resumed.Operations.Single(row => row.OpId == "attempt").ShouldBe(winner);
+        }
+        _transport.CommittedWrites.ShouldBe(1, "neither the losing attempt nor resume may repeat an acknowledged write");
+        _transport.PatchAttempts.ShouldBe(1, "a rejected duplicate PATCH is still an unsafe duplicate send");
+        (await competingJournal.GetAsync(digest))!.Operations.Single(row => row.OpId == "attempt").ShouldBe(winner);
+
+        attempted.Error.ShouldNotBeNull().ShouldStartWith("acknowledged-effect-unsettled:");
+        attempted.Error.ShouldContain("Do not retry");
+        attempted.UnsettledAcknowledgments.Keys.ShouldBe(new[] { "attempt" });
+        using var returned = JsonDocument.Parse(attempted.UnsettledAcknowledgments["attempt"]);
+        returned.RootElement.GetProperty("rev").GetInt32().ShouldBe(2);
+    }
+
+    [Theory]
+    [InlineData(PlanOperationState.Applied)]
+    [InlineData(PlanOperationState.Verified)]
+    public async Task AcknowledgedCommitAfterLostAppliedCasResumesMatchingWinningReceipt(
+        PlanOperationState winningState)
+    {
+        var runtime = await AttachAsync();
+        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
+        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
+        var repository = runtime.GetRequiredService<IWorkItemRepository>();
+        await repository.SaveAsync(await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42));
+        (await repository.GetByIdAsync(42))!.Revision.ShouldBe(1);
+        var competing = BuildRuntime(runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
+        var competingJournal = competing.GetRequiredService<IPlanJournalRepository>();
+        var file = await ProposalAsync(runtime, "acknowledgment-winning-receipt", "attempt", 42, 1, "Committed actor plan");
+        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
+        _transport.AfterCommit = async () =>
+        {
+            (await competingJournal.GetAsync(digest))!.Operations.Single().State.ShouldBe(PlanOperationState.Applying);
+            (await competingJournal.TryRecordAppliedAsync(digest, "attempt", """{"rev":2}""", DateTimeOffset.UtcNow))
+                .ShouldBeTrue();
+            if (winningState == PlanOperationState.Verified)
+                (await competingJournal.TryTransitionOperationAsync(digest, "attempt", PlanOperationState.Applied,
+                    PlanOperationState.Verified, DateTimeOffset.UtcNow)).ShouldBeTrue();
+            (await competingJournal.TryRecordAppliedAsync(digest, "attempt", """{"rev":999}""", DateTimeOffset.UtcNow))
+                .ShouldBeFalse();
+        };
+
+        var attempted = await lifecycle.ApplyAsync(file, digest, Authorize(digest));
+
+        attempted.Failed.ShouldBeFalse(attempted.Error);
+        attempted.UnsettledAcknowledgments.ShouldBeEmpty();
+        attempted.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        using (var evidence = JsonDocument.Parse(attempted.Operations.Single().ResultJson!))
+            evidence.RootElement.GetProperty("rev").GetInt32().ShouldBe(2);
+        (await InspectAcknowledgedWriteAsync(runtime)).Receipt.ShouldNotBeNull();
+        var winner = (await journal.GetAsync(digest))!.Operations.Single();
+        var readbacks = _transport.ReadbacksAfterCommit;
+        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Failed.ShouldBeFalse();
+        (await competingJournal.GetAsync(digest))!.Operations.Single().ShouldBe(winner);
+        _transport.CommittedWrites.ShouldBe(1);
+        _transport.PatchAttempts.ShouldBe(1);
+        _transport.ReadbacksAfterCommit.ShouldBe(readbacks);
+    }
+
+    private static async Task<ConnectionRemoteWriteInspection> InspectAcknowledgedWriteAsync(ServiceProvider runtime)
+    {
+        var records = await runtime.GetRequiredService<IConnectionRemoteWriteReconciliationService>().InspectAsync(
+            runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
+        var native = records.ShouldHaveSingleItem();
+        native.State.ShouldBe("settled");
+        native.Blockers.ShouldBeEmpty();
+        native.Request.Method.ShouldBe("PATCH");
+        native.Request.EffectKind.ShouldBe("workitem-patch");
+        var response = native.Observations.ShouldHaveSingleItem();
+        response.Response.StatusCode.ShouldBe(200);
+        using (var body = JsonDocument.Parse(response.Response.Body))
+        {
+            body.RootElement.GetProperty("id").GetInt32().ShouldBe(42);
+            body.RootElement.GetProperty("rev").GetInt32().ShouldBe(2);
+            body.RootElement.GetProperty("fields").GetProperty("System.Title").GetString().ShouldBe("Committed actor plan");
+        }
+        var receipt = native.Receipt.ShouldNotBeNull();
+        receipt.Kind.ShouldBe("acknowledged");
+        receipt.IntentId.ShouldBe(native.IntentId);
+        receipt.RequestDigest.ShouldBe(native.Digest);
+        receipt.ObservationId.ShouldBe(response.ObservationId);
+        return native;
     }
 
     [Fact]
@@ -393,6 +549,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddConnectionServices(config, paths.TwigDir, paths.StartDir);
+        services.AddSingleton<ISystemWorktreeRegistry>(_systemRegistry);
         services.AddSingleton(paths);
         services.AddSingleton(_http);
         services.AddTwigNetworkServices(config);
@@ -415,14 +572,23 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         }
     }
 
-    private static async Task<string> ProposalAsync(ServiceProvider runtime, string name, string opId, int itemId, int revision, string title)
+    private static async Task<string> ProposalAsync(ServiceProvider runtime, string name, string opId, int itemId, int revision, string title,
+        bool includeTail = false)
     {
         var config = runtime.GetRequiredService<TwigConfiguration>();
         var file = Path.Combine(runtime.GetRequiredService<TwigPaths>().TwigDir, name + ".json");
+        var operations = new[]
+        {
+            new { id = opId, kind = "batch", workItemId = itemId, expectedRevision = revision,
+                fields = new Dictionary<string, string> { ["System.Title"] = title } }
+        }.ToList();
+        if (includeTail)
+            operations.Add(new { id = "tail", kind = "batch", workItemId = 43, expectedRevision = 1,
+                fields = new Dictionary<string, string> { ["System.Title"] = "Must not send the tail" } });
         await File.WriteAllTextAsync(file, JsonSerializer.Serialize(new
         {
             version = 1, workspace = new { organization = config.Organization, project = config.Project },
-            operations = new[] { new { id = opId, kind = "batch", workItemId = itemId, expectedRevision = revision, fields = new Dictionary<string, string> { ["System.Title"] = title } } }
+            operations
         }));
         return file;
     }
@@ -457,9 +623,12 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         public int WorkRequests { get; private set; }
         public int PostCount { get; private set; }
         public int CommittedWrites { get; private set; }
+        public int PatchAttempts { get; private set; }
+        public int ReadbacksAfterCommit { get; private set; }
         public bool RejectNextPatch { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
         public Func<Task>? BeforeReadback { get; set; }
+        public Func<Task>? AfterCommit { get; set; }
         public string TitleOf(int id) => _items[id].Title;
         public int RevisionOf(int id) => _items[id].Revision;
         public void SetItem(int id, string title, int revision, string principal)
@@ -478,7 +647,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             if (principal is null) return Reply(HttpStatusCode.Unauthorized, new { message = "Unknown fixture credential" });
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.OK, new { authenticatedUser = new { id = principal, providerDisplayName = "Same display" } });
+                return Reply(HttpStatusCode.OK, new
+                {
+                    instanceId = "11111111-1111-1111-1111-111111111111",
+                    authenticatedUser = new { id = principal, providerDisplayName = "Same display" }
+                });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
             const string route = "/_apis/wit/workitems/";
@@ -492,6 +665,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 return Reply(HttpStatusCode.NotFound, new { message = "Not readable by the selected principal" });
             if (request.Method == HttpMethod.Patch)
             {
+                PatchAttempts++;
                 if (RejectNextPatch)
                 {
                     RejectNextPatch = false;
@@ -509,6 +683,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 SetItem(id, title, item.Revision + 1, item.Principal);
                 item = _items[id];
                 CommittedWrites++;
+                if (AfterCommit is { } afterCommit)
+                {
+                    AfterCommit = null;
+                    await afterCommit();
+                }
             }
             else if (FailReadbackAfterCommit && CommittedWrites > 0)
                 throw new HttpRequestException("Fixture readback unavailable after acknowledged commit");
@@ -518,10 +697,14 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 if (!_history.TryGetValue((id, revision), out item))
                     return Reply(HttpStatusCode.NotFound, new { message = "No historical revision" });
             }
-            if (request.Method == HttpMethod.Get && CommittedWrites > 0 && BeforeReadback is { } beforeReadback)
+            if (request.Method == HttpMethod.Get && CommittedWrites > 0)
             {
-                BeforeReadback = null;
-                await beforeReadback();
+                ReadbacksAfterCommit++;
+                if (BeforeReadback is { } beforeReadback)
+                {
+                    BeforeReadback = null;
+                    await beforeReadback();
+                }
             }
             return Reply(HttpStatusCode.OK, new
             {

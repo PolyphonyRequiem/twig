@@ -25,19 +25,35 @@ def load_runner():
     return runner
 
 
+def _stop_owned_tree(process, runner):
+    """Return True only when the shared cleanup confirmed the owned tree stopped."""
+    try:
+        runner.stop_session(process, False)
+        return True
+    except Exception as error:  # any cleanup failure leaves survivors unknown; report, never claim success
+        root = process.poll()  # non-blocking: cleanup already spent its own bounded reap
+        root_state = 'root still running' if root is None else f'root exited {root}'
+        cause = f'; cause={error.__cause__!r}' if error.__cause__ is not None else ''
+        print(f'BOUNDED-CLEANUP: tree termination unconfirmed; {root_state}; survivors unknown; '
+              f'{type(error).__name__}: {error}{cause}', file=sys.stderr, flush=True)
+        return False
+
+
 def run_bounded(command, timeout, runner, popen=subprocess.Popen):
-    with popen(command, start_new_session=os.name != 'nt') as process:
-        try:
-            return process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            runner.stop_session(process, False)
-            print(f'BOUNDED-VERDICT: FAILED (deadline {timeout}s; owned process tree stopped)',
-                  file=sys.stderr, flush=True)
-            return 124
-        except KeyboardInterrupt:
-            runner.stop_session(process, False)
-            print('BOUNDED-VERDICT: INTERRUPTED (owned process tree stopped)', file=sys.stderr, flush=True)
-            return 130
+    # No Popen context manager: its __exit__ makes an untimed wait, which must not follow failed cleanup.
+    process = popen(command, start_new_session=os.name != 'nt')
+    try:
+        return process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stopped = _stop_owned_tree(process, runner)
+        tree = 'owned process tree stopped' if stopped else 'owned process tree termination unconfirmed'
+        print(f'BOUNDED-VERDICT: FAILED (deadline {timeout}s; {tree})', file=sys.stderr, flush=True)
+        return 124
+    except KeyboardInterrupt:
+        stopped = _stop_owned_tree(process, runner)
+        tree = 'owned process tree stopped' if stopped else 'owned process tree termination unconfirmed'
+        print(f'BOUNDED-VERDICT: INTERRUPTED ({tree})', file=sys.stderr, flush=True)
+        return 130
 
 
 class _FakeProcess:

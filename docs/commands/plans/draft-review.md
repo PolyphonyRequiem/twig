@@ -26,7 +26,7 @@ transaction on the shared connection and commits it, so it can contend with
 concurrent local writers. The source issues no row inserts, updates or deletes on
 this path: it does not read or create a proposal file, alter export state or
 journal audit fields, import, authorize or apply. It is classified
-`mutates: none` on that basis and issues no Azure DevOps work request.
+`mutates: none` on that basis for work-item, draft and journal data, and does not fetch remote work-item data.
 
 Before reading, REVIEW resolves the checkout's bound publication origin, which
 acquires that identity's access token. When the cached token is expired or

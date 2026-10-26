@@ -2046,7 +2046,25 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             startDir.ShouldNotBe(CanonicalPathResolver.Resolve(startDir).Path,
                 "the control must actually enter through an alias (lexical on Windows, symbolic on Unix)");
             WorktreeAnchorDetector.TryDetect(_repoRoot, out var directAnchor, out _).ShouldBeTrue();
-            anchor.ShouldBe(directAnchor, "aliased and direct entry must discover the same physical Git anchor");
+            anchor.WorktreeRoot.ShouldBe(directAnchor.WorktreeRoot,
+                "aliased and direct entry must discover the same physical worktree root");
+            foreach (var (aliasedDirectory, directDirectory) in new[]
+            {
+                (anchor.GitCommonDir, directAnchor.GitCommonDir),
+                (anchor.WorktreeGitDir, directAnchor.WorktreeGitDir),
+            })
+            {
+                Directory.Exists(aliasedDirectory).ShouldBeTrue();
+                Directory.Exists(directDirectory).ShouldBeTrue();
+                var aliasedResolution = CanonicalPathResolver.Resolve(aliasedDirectory);
+                var directResolution = CanonicalPathResolver.Resolve(directDirectory);
+                aliasedResolution.Refusal.ShouldBeNull();
+                directResolution.Refusal.ShouldBeNull();
+                aliasedResolution.Path.ShouldNotBeNull();
+                directResolution.Path.ShouldNotBeNull();
+                aliasedResolution.Path.ShouldBe(directResolution.Path,
+                    "Git metadata directory spellings may differ but must name the same physical directory");
+            }
         }
         await _config.SaveSplitAsync(_paths);
         using var workspaceStore = new SqliteCacheStore($"Data Source={_paths.DbPath}");

@@ -55,7 +55,7 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
     }
 
     private async Task RunParserProcessAsync(ProcessStartInfo start, string root, TimeSpan timeout,
-        Action<int, string, string> verify, Action? deleteOwnedRoot = null)
+        Action<int, string, string> verify, Action? deleteOwnedRoot = null, Action? observeIdentity = null)
     {
         var clock = Stopwatch.StartNew();
         var phase = "startup";
@@ -70,15 +70,17 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
             stdout = process.StandardOutput.ReadToEndAsync();
             stderr = process.StandardError.ReadToEndAsync();
             using var deadline = new CancellationTokenSource(timeout);
-            phase = "identity";
-            var identityStarted = clock.ElapsedMilliseconds;
-            WriteProcessIdentity();
-            diagnostics.WriteLine($"gh-help phase=identity elapsedMs={clock.ElapsedMilliseconds} "
-                + $"phaseElapsedMs={clock.ElapsedMilliseconds - identityStarted}");
+            var waitStarted = clock.Elapsed;
             phase = "wait";
             try
             {
                 await process.WaitForExitAsync(deadline.Token);
+                var waitElapsed = clock.Elapsed - waitStarted;
+                deadline.Token.ThrowIfCancellationRequested();
+                if (waitElapsed >= timeout)
+                    throw new OperationCanceledException("Parser process wait exceeded its deadline.", deadline.Token);
+                diagnostics.WriteLine($"gh-help phase=wait elapsedMs={clock.ElapsedMilliseconds} "
+                    + $"waitElapsedMs={waitElapsed.TotalMilliseconds}");
             }
             catch (OperationCanceledException timedOut)
             {
@@ -126,6 +128,17 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
         {
             try
             {
+                var terminalPhase = phase;
+                phase = "identity-after-process-wait";
+                var identityStarted = clock.ElapsedMilliseconds;
+                if (observeIdentity is null)
+                    WriteProcessIdentity();
+                else
+                    observeIdentity();
+                diagnostics.WriteLine($"gh-help phase={phase} elapsedMs={clock.ElapsedMilliseconds} "
+                    + $"phaseElapsedMs={clock.ElapsedMilliseconds - identityStarted} "
+                    + $"processTerminalPhase={terminalPhase} processTerminalElapsedMs={identityStarted}");
+                phase = terminalPhase;
                 WriteParserDiagnostics();
             }
             finally
@@ -169,10 +182,17 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
 
         void WriteProcessIdentity()
         {
+            if (process is null)
+            {
+                diagnostics.WriteLine("gh-help identityUnavailable=process-not-started");
+                return;
+            }
             try
             {
-                var executable = process!.MainModule?.FileName;
+                var executable = process.MainModule?.FileName;
                 diagnostics.WriteLine($"gh-help pid={process.Id} startUtc={process.StartTime.ToUniversalTime():O} executable={executable}");
+                if (executable is null)
+                    diagnostics.WriteLine("gh-help identityUnavailable=observed-image-unavailable-after-wait");
                 if (executable is not null)
                 {
                     using var image = File.OpenRead(executable);
@@ -242,6 +262,31 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ParserTimeout_SlowIdentityObserver_CannotTurnOverDeadlineChildIntoSuccess()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var start = OperatingSystem.IsWindows()
+            ? BoundedProcessRunner.CreateStartInfo("ping", ["-n", "3", "127.0.0.1"], [])
+            : BoundedProcessRunner.CreateStartInfo("sleep", ["2"], []);
+        start.WorkingDirectory = root;
+        var observerCalled = false;
+        var verificationCalled = false;
+        var failure = await Record.ExceptionAsync(() => RunParserProcessAsync(start, root,
+            TimeSpan.FromMilliseconds(250), (_, _, _) => verificationCalled = true,
+            observeIdentity: () =>
+            {
+                observerCalled = true;
+                Thread.Sleep(TimeSpan.FromSeconds(4));
+            }));
+
+        failure.ShouldBeAssignableTo<OperationCanceledException>();
+        observerCalled.ShouldBeTrue();
+        verificationCalled.ShouldBeFalse("a slow observer must not hide expiration behind an already-exited child");
+        Directory.Exists(root).ShouldBeFalse();
     }
 
     [Fact]

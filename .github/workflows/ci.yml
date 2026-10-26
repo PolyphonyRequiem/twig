@@ -54,6 +54,8 @@ jobs:
         with:
           fetch-depth: 0
           filter: tree:0
+      - name: Bounded-wrapper cleanup selftest (synthetic processes only)
+        run: python tools/run-bounded.py --selftest
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json

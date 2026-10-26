@@ -121,11 +121,17 @@ public sealed class RecoverableDraftEditingTests : IAsyncLifetime
         CaptureJson("retain-request" + suffix, JsonSerializer.Serialize(request, TwigJsonContext.Default.DraftRetainRequest));
     }
 
+    // The stale-input cases are split by fault family only because one theory is an
+    // indivisible release-candidate host partition, bounded at ten cases.
     [HostMigrationTheory]
     [InlineData("generation", "draft-cas-conflict")]
     [InlineData("baseline", "revision-conflict")]
     [InlineData("observed", "revision-conflict")]
     [InlineData("snapshot", "revision-conflict")]
+    public Task ProductionRetainRefusesStaleDraftOrRevisionInputsWithoutDiscardingIntentOrWritingJournal(string fault, string code)
+        => AssertProductionRetainRefusesStaleInputAsync(fault, code);
+
+    [HostMigrationTheory]
     [InlineData("origin", "authority-invalidated")]
     [InlineData("identity", "authority-invalidated")]
     [InlineData("key", "authority-invalidated")]
@@ -133,7 +139,10 @@ public sealed class RecoverableDraftEditingTests : IAsyncLifetime
     [InlineData("native-evidence", "metadata-unavailable")]
     [InlineData("native-process", "metadata-stale")]
     [InlineData("pending", "capture-unavailable")]
-    public async Task ProductionRetainRefusesStaleInputsWithoutDiscardingIntentOrWritingJournal(string fault, string code)
+    public Task ProductionRetainRefusesStaleAuthorityOrCaptureInputsWithoutDiscardingIntentOrWritingJournal(string fault, string code)
+        => AssertProductionRetainRefusesStaleInputAsync(fault, code);
+
+    private async Task AssertProductionRetainRefusesStaleInputAsync(string fault, string code)
     {
         var runtime = await SeedAsync();
         var module = Module(runtime);

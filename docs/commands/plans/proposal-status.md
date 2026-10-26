@@ -57,6 +57,28 @@ Status never mutates the journal. If the digest has moved because the file
 was re-edited, re-run `proposal preview` to import the current row before
 consulting status.
 
+### Retained capture paths and directory aliases
+
+A native draft capture retains the file's canonical physical path: every
+symlink or junction component is resolved before the row is written, so a
+capture made through an aliased checkout or proposals directory records the
+file it actually wrote.
+
+Rows retained by earlier builds may hold an alias spelling instead. Status
+still reads them: the retained path is resolved and contained inside the
+workspace, then compared with the file's canonical path. A file overwritten
+under an aliased row is reported as a replacement, whichever spelling you pass.
+These rows are read in place — status never rewrites a retained path or
+changes a digest. Matching paths do not bypass the origin, revision, or
+fingerprint checks that follow.
+
+A retained or requested path is refused, with a named reason, when it resolves
+outside the workspace, when a component cannot be inspected, or when link
+resolution exceeds the depth limit (a link loop). Only genuinely missing
+trailing segments are tolerated. A legacy row cannot prove where its file
+physically was when captured, so re-capturing a draft whose row retains an old
+alias spelling is refused rather than silently rebinding that history.
+
 ## Examples
 
 Human status for a previewed but not-yet-applied proposal:

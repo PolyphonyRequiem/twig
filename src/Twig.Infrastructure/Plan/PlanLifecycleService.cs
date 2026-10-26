@@ -868,7 +868,14 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         if (_journal is not Persistence.SqlitePlanJournalRepository native)
             return new() { Code = "draft-capture-missing-evidence", Path = string.Empty,
                 Message = "The native local capture observation store is unavailable." };
-        if (!native.SourcePathComparer.Equals(journal.SourcePath, sourcePath))
+        // Both sides pass the same containment resolution: a capture recorded through a
+        // checkout alias (a junction, or macOS /var -> /private/var) stays readable, while a
+        // retained path that resolves outside the workspace or to a different file is refused.
+        var retained = TryResolveInsideWorkspace(journal.SourcePath);
+        if (retained.Error is { } retainedError)
+            return new() { Code = "draft-capture-stale", Path = string.Empty,
+                Message = "The retained native capture source path is not usable in this workspace: " + retainedError };
+        if (!native.SourcePathComparer.Equals(retained.AbsolutePath, sourcePath))
             return new() { Code = "draft-capture-stale", Path = string.Empty,
                 Message = "The file is not at the retained native capture source path." };
         if (_origin is not { } origin)
@@ -901,9 +908,9 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         string? currentDigest,
         CancellationToken ct)
     {
-        var journaled = await _journal
-            .GetDigestsBySourcePathAsync(absolutePath, ct)
-            .ConfigureAwait(false);
+        var journaled = _journal is Persistence.SqlitePlanJournalRepository native
+            ? JournaledDigestsForPhysicalPath(native, absolutePath, ct)
+            : await _journal.GetDigestsBySourcePathAsync(absolutePath, ct).ConfigureAwait(false);
         if (journaled is not { Count: > 0 })
             return null;
 
@@ -929,6 +936,49 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             SupersededDigests = superseded,
             CurrentDigestJournaled = currentJournaled,
         };
+    }
+
+    /// <summary>
+    /// Digests journaled for the physical file at <paramref name="absolutePath"/>, in
+    /// <c>previewed_at, digest</c> order. Exact source-path rows always count. A native draft
+    /// capture recorded through a checkout alias (before captures retained the canonical path)
+    /// counts only when its retained path still resolves inside the workspace to this same
+    /// file; a retained path that is invalid, unresolvable or outside the workspace is skipped,
+    /// never merged. Journal rows are never rewritten. Cost is proportional to the number of
+    /// distinct captured paths, each resolved against the filesystem once per call — the
+    /// resolution cache deliberately does not outlive this call, because a link can be
+    /// retargeted between calls.
+    /// </summary>
+    private IReadOnlyList<string> JournaledDigestsForPhysicalPath(
+        Persistence.SqlitePlanJournalRepository native,
+        string absolutePath,
+        CancellationToken ct)
+    {
+        var resolved = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var digests = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidate in native.GetSourcePathCandidates(absolutePath))
+        {
+            if (!native.SourcePathComparer.Equals(candidate.SourcePath, absolutePath))
+            {
+                if (!resolved.TryGetValue(candidate.SourcePath, out var samePhysicalFile))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var containment = TryResolveInsideWorkspace(candidate.SourcePath);
+                    samePhysicalFile = containment.Error is null
+                        && native.SourcePathComparer.Equals(containment.AbsolutePath, absolutePath);
+                    resolved[candidate.SourcePath] = samePhysicalFile;
+                }
+
+                if (!samePhysicalFile)
+                    continue;
+            }
+
+            if (seen.Add(candidate.Digest))
+                digests.Add(candidate.Digest);
+        }
+
+        return digests;
     }
 
     private static PlanValidationIssue ReplacementIssue(PlanSourceReplacement replacement)
@@ -1596,90 +1646,20 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         if (string.IsNullOrWhiteSpace(file))
             return new Containment(null, "File path is required.");
 
-        string full;
-        try
-        {
-            full = ResolveFinalPath(Path.GetFullPath(file));
-        }
-        catch (Exception ex)
-        {
-            return new Containment(null, $"Invalid file path: {ex.Message}");
-        }
+        var resolvedFile = CanonicalPathResolver.Resolve(file);
+        if (resolvedFile.Reason is { } fileRefusal)
+            return new Containment(null, $"Invalid file path: {fileRefusal}");
 
-        var root = ResolveFinalPath(Path.GetFullPath(_paths.RepoRoot));
+        var resolvedRoot = CanonicalPathResolver.Resolve(_paths.RepoRoot);
+        if (resolvedRoot.Reason is { } rootRefusal)
+            return new Containment(null, $"Workspace root could not be resolved: {rootRefusal}");
+
+        var full = resolvedFile.Path!;
+        var root = resolvedRoot.Path!;
         if (!IsInside(root, full))
             return new Containment(null, $"File '{file}' is outside the workspace root '{root}'.");
 
         return new Containment(full, null);
-    }
-
-    /// <summary>
-    /// Resolves every path component to its real target, walking symlinks one directory
-    /// segment at a time. A symlinked intermediate directory that points outside the
-    /// workspace must not slip past containment just because the FINAL segment is not
-    /// itself a link — <see cref="File.ResolveLinkTarget(string, bool)"/> alone only
-    /// follows the leaf. Missing segments are preserved as-is so callers can still
-    /// error-report a not-yet-created plan file. Purely managed APIs: portable across
-    /// Windows, macOS, and Linux.
-    /// </summary>
-    private static string ResolveFinalPath(string absolute)
-        => ResolveComponents(absolute, depth: 0);
-
-    private const int MaxSymlinkDepth = 40;
-
-    private static string ResolveComponents(string absolute, int depth)
-    {
-        if (depth > MaxSymlinkDepth)
-            return absolute;
-
-        absolute = Path.GetFullPath(absolute);
-        var root = Path.GetPathRoot(absolute) ?? string.Empty;
-        if (string.IsNullOrEmpty(root))
-            root = Path.DirectorySeparatorChar.ToString();
-
-        var rel = absolute.Length > root.Length ? absolute[root.Length..] : string.Empty;
-        var parts = rel.Split(
-            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-            StringSplitOptions.RemoveEmptyEntries);
-
-        var current = root;
-        for (var i = 0; i < parts.Length; i++)
-        {
-            current = Path.Combine(current, parts[i]);
-
-            string? link = null;
-            try
-            {
-                if (File.Exists(current))
-                    link = File.ResolveLinkTarget(current, returnFinalTarget: false)?.FullName;
-                else if (Directory.Exists(current))
-                    link = Directory.ResolveLinkTarget(current, returnFinalTarget: false)?.FullName;
-                else
-                {
-                    // Missing segment: preserve the remainder verbatim so callers still
-                    // get a stable absolute path for error reporting.
-                    for (var j = i + 1; j < parts.Length; j++)
-                        current = Path.Combine(current, parts[j]);
-                    return current;
-                }
-            }
-            catch (IOException) { link = null; }
-            catch (UnauthorizedAccessException) { link = null; }
-
-            if (link is null) continue;
-
-            if (!Path.IsPathRooted(link))
-            {
-                var parent = Path.GetDirectoryName(current) ?? current;
-                link = Path.GetFullPath(Path.Combine(parent, link));
-            }
-
-            // Recurse so symlinks whose target still contains symlinked components
-            // (or points at another symlink) resolve fully before we continue walking.
-            current = ResolveComponents(link, depth + 1);
-        }
-
-        return current;
     }
 
     private static StringComparison PathComparison =>

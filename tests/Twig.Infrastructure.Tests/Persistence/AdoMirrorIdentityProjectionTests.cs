@@ -103,8 +103,10 @@ public sealed class AdoMirrorIdentityProjectionTests : IDisposable
     [Fact]
     public async Task UnsyncedRevision_IsRejectedWithoutCreatingMirrorOrDurableIdentity()
     {
-        await Should.ThrowAsync<InvalidOperationException>(
-            () => _mirror.SaveAsync(new WorkItemBuilder(7, "Never synced").Build()));
+        var unsynced = new WorkItemBuilder(7, "Never synced").WithRevision(0).Build();
+        unsynced.Revision.ShouldBe(0);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => _mirror.SaveAsync(unsynced));
 
         CountRows("main.work_items").ShouldBe(0);
         CountRows("pending.external_identities").ShouldBe(0);

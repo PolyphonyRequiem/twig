@@ -796,6 +796,40 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         return Task.FromResult<IReadOnlyList<string>>(digests);
     }
 
+    internal readonly record struct SourcePathCandidate(string SourcePath, string Digest, string PreviewedAt);
+
+    /// <summary>
+    /// Journal rows that could have been recorded for <paramref name="sourcePath"/>: the exact
+    /// source-path matches, plus every native draft capture, whose retained path may name the
+    /// same physical file through a link. Only path, digest and preview time are read — never
+    /// journal bodies — ordered by <c>previewed_at, digest</c> exactly like
+    /// <see cref="GetDigestsBySourcePathAsync"/>.
+    /// </summary>
+    internal IReadOnlyList<SourcePathCandidate> GetSourcePathCandidates(string sourcePath)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourcePath);
+
+        using var bindingOperation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = $"""
+            SELECT DISTINCT source_path, digest, previewed_at
+            FROM proposal_journals
+            WHERE source_path COLLATE {SourcePathCollationName} = @source
+               OR draft_capture_json IS NOT NULL
+            ORDER BY previewed_at, digest;
+            """;
+        cmd.Parameters.AddWithValue("@source", sourcePath);
+
+        var candidates = new List<SourcePathCandidate>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            candidates.Add(new SourcePathCandidate(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+
+        return candidates;
+    }
+
     private IReadOnlyList<PlanJournalOperation> ReadOperations(string digest)
     {
         var receipts = ReadReceipts(digest);

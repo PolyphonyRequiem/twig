@@ -656,6 +656,440 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ruleProvider.ReceivedCalls().ShouldBeEmpty();
     }
 
+    // Defends against: a draft captured under a checkout root reached through a directory
+    // alias (macOS /var -> /private/var, a Windows junction) being reported as moved by
+    // status, which resolves every path component before comparing with the retained path.
+    [Fact]
+    public async Task Status_DraftCapturedThroughAliasedCheckoutRoot_ReachesOriginCheck()
+    {
+        var alias = Path.Combine(Path.GetTempPath(), $"twig-plan-alias-{Guid.NewGuid():N}");
+        CreateDirectoryAlias(alias, _repoRoot);
+        try
+        {
+            var journal = await CaptureDraftAsync(alias, Path.Combine(alias, ".twig", "proposals"));
+            journal.SourcePath.ShouldNotStartWith(alias, Case.Insensitive, "new captures retain the canonical path");
+            var legacy = Path.GetFullPath(Path.Combine(alias, ".twig", "proposals", Path.GetFileName(journal.SourcePath)));
+            RetainLegacySpelling(journal.Digest, legacy, journal.SourcePath);
+            var origin = UnavailableOrigin();
+
+            var result = (await BuildService(origin: origin).StatusAsync(legacy)).ShouldNotBeNull();
+
+            result.Found.ShouldBeTrue();
+            result.Issues.ShouldHaveSingleItem().Message
+                .ShouldBe("Native capture origin is unavailable or changed: Current principal is unavailable.");
+            await origin.Received(1).GetOriginAsync(Arg.Any<CancellationToken>());
+            RetainedSourcePath(journal.Digest).ShouldBe(legacy, "status must not rewrite the retained row");
+        }
+        finally
+        {
+            RemoveDirectoryAlias(alias);
+        }
+    }
+
+    // Defends against: path resolution turning a copy at a different inside path into a match.
+    [Fact]
+    public async Task Status_DraftCopiedToDifferentInsidePath_RefusesBeforeOriginCheck()
+    {
+        var journal = await CaptureDraftAsync(_repoRoot, Path.Combine(_repoRoot, ".twig", "proposals"));
+        var copy = Path.Combine(_repoRoot, ".twig", "elsewhere", Path.GetFileName(journal.SourcePath));
+        Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+        File.Copy(journal.SourcePath, copy);
+        var origin = UnavailableOrigin();
+
+        var result = (await BuildService(origin: origin).StatusAsync(copy)).ShouldNotBeNull();
+
+        result.Issues.ShouldHaveSingleItem().Message.ShouldBe("The file is not at the retained native capture source path.");
+        origin.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    // Defends against: a retained path recorded through an alias that leads outside the
+    // workspace being accepted because the inside copy has the same digest.
+    [Fact]
+    public async Task Status_RetainedPathAliasEscapingWorkspace_RefusesBeforeOriginCheck()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), $"twig-plan-outside-{Guid.NewGuid():N}");
+        var alias = Path.Combine(Path.GetTempPath(), $"twig-plan-alias-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outside);
+        CreateDirectoryAlias(alias, outside);
+        try
+        {
+            var journal = await CaptureDraftAsync(_repoRoot, alias);
+            var inside = Path.Combine(_repoRoot, ".twig", "proposals", Path.GetFileName(journal.SourcePath));
+            Directory.CreateDirectory(Path.GetDirectoryName(inside)!);
+            File.Copy(journal.SourcePath, inside);
+            var origin = UnavailableOrigin();
+
+            var result = (await BuildService(origin: origin).StatusAsync(inside)).ShouldNotBeNull();
+
+            var message = result.Issues.ShouldHaveSingleItem().Message;
+            message.ShouldStartWith("The retained native capture source path is not usable in this workspace: ");
+            message.ShouldContain("is outside the workspace root");
+            origin.ReceivedCalls().ShouldBeEmpty();
+        }
+        finally
+        {
+            RemoveDirectoryAlias(alias);
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    // Defends against: a retained path whose link was retargeted still being treated as
+    // the location of the file captured through it.
+    [Fact]
+    public async Task Status_RetainedPathLinkRetargeted_RefusesBeforeOriginCheck()
+    {
+        var first = Path.Combine(_repoRoot, "first");
+        var second = Path.Combine(_repoRoot, "second");
+        var link = Path.Combine(_repoRoot, "proposals-link");
+        Directory.CreateDirectory(first);
+        Directory.CreateDirectory(second);
+        CreateDirectoryAlias(link, first);
+        try
+        {
+            var journal = await CaptureDraftAsync(_repoRoot, link);
+            var captured = Path.Combine(first, Path.GetFileName(journal.SourcePath));
+            File.Exists(captured).ShouldBeTrue("the capture must have been written through the link");
+            RetainLegacySpelling(journal.Digest, Path.GetFullPath(Path.Combine(link, Path.GetFileName(journal.SourcePath))), journal.SourcePath);
+            RemoveDirectoryAlias(link);
+            CreateDirectoryAlias(link, second);
+            var origin = UnavailableOrigin();
+
+            var result = (await BuildService(origin: origin).StatusAsync(captured)).ShouldNotBeNull();
+
+            result.Issues.ShouldHaveSingleItem().Message.ShouldBe("The file is not at the retained native capture source path.");
+            origin.ReceivedCalls().ShouldBeEmpty();
+        }
+        finally
+        {
+            RemoveDirectoryAlias(link);
+        }
+    }
+
+    // Defends against: AB#832 replacement detection going blind for a draft captured through a
+    // checkout alias, because status looks the resolved path up while the row retains the alias.
+    // The overwrite is then reported as a plan that was never previewed.
+    [Fact]
+    public async Task Status_DraftCapturedThroughAliasThenOverwritten_ReportsReplacement()
+    {
+        var alias = Path.Combine(Path.GetTempPath(), $"twig-plan-alias-{Guid.NewGuid():N}");
+        CreateDirectoryAlias(alias, _repoRoot);
+        try
+        {
+            var journal = await CaptureDraftAsync(alias, Path.Combine(alias, ".twig", "proposals"));
+            File.WriteAllText(journal.SourcePath, BatchOnlyPlan(workItemId: 831, expectedRev: 7, state: "Closed"));
+
+            var status = (await BuildService().StatusAsync(journal.SourcePath)).ShouldNotBeNull();
+
+            status.Found.ShouldBeFalse();
+            var replacement = status.Replacement.ShouldNotBeNull();
+            replacement.SupersededDigests.ShouldBe([journal.Digest]);
+            replacement.CurrentDigestJournaled.ShouldBeFalse();
+            replacement.CurrentDigest.ShouldNotBe(journal.Digest);
+            RetainedSourcePath(journal.Digest).ShouldBe(journal.SourcePath, "status must not rewrite the retained row");
+        }
+        finally
+        {
+            RemoveDirectoryAlias(alias);
+        }
+    }
+
+    // Defends against: replacement detection going blind for a row retained by the pre-canonical
+    // writer, which stored Path.GetFullPath of the alias spelling. New captures are canonical, so
+    // only the legacy fallback can find this row; the fixture rewrites one test-owned row only.
+    [Fact]
+    public async Task Status_LegacyRawAliasRowThenOverwritten_ReportsReplacementThroughAliasAndCanonical()
+    {
+        var real = Path.Combine(_repoRoot, "real-proposals");
+        var link = Path.Combine(_repoRoot, "proposals-link");
+        Directory.CreateDirectory(real);
+        CreateDirectoryAlias(link, real);
+        try
+        {
+            var journal = await CaptureDraftAsync(_repoRoot, link);
+            var canonical = journal.SourcePath;
+            var legacy = Path.GetFullPath(Path.Combine(link, Path.GetFileName(canonical)));
+            RetainLegacySpelling(journal.Digest, legacy, canonical);
+            File.WriteAllText(canonical, BatchOnlyPlan(workItemId: 831, expectedRev: 7, state: "Closed"));
+
+            foreach (var spelling in new[] { legacy, canonical })
+            {
+                var status = (await BuildService().StatusAsync(spelling)).ShouldNotBeNull(spelling);
+
+                status.Found.ShouldBeFalse(spelling);
+                var replacement = status.Replacement.ShouldNotBeNull(spelling);
+                replacement.SupersededDigests.ShouldBe([journal.Digest]);
+                replacement.CurrentDigestJournaled.ShouldBeFalse();
+            }
+            RetainedSourcePath(journal.Digest).ShouldBe(legacy, "status must not rewrite the retained row");
+        }
+        finally
+        {
+            RemoveDirectoryAlias(link);
+        }
+    }
+
+    // Defends against: alias-tolerant replacement detection attributing a capture to a different
+    // physical file that a retargeted link now reaches. Different bytes are written at the new
+    // target, so no journal exists for them and only a false attribution could produce a result.
+    [Fact]
+    public async Task Status_FileReachedThroughRetargetedCaptureLink_IsNotAttributedTheCapture()
+    {
+        var first = Path.Combine(_repoRoot, "first");
+        var second = Path.Combine(_repoRoot, "second");
+        var link = Path.Combine(_repoRoot, "proposals-link");
+        Directory.CreateDirectory(first);
+        Directory.CreateDirectory(second);
+        CreateDirectoryAlias(link, first);
+        try
+        {
+            var journal = await CaptureDraftAsync(_repoRoot, link);
+            File.Exists(Path.Combine(first, Path.GetFileName(journal.SourcePath)))
+                .ShouldBeTrue("the capture must have been written through the link");
+            RemoveDirectoryAlias(link);
+            CreateDirectoryAlias(link, second);
+            var other = Path.Combine(second, Path.GetFileName(journal.SourcePath));
+            File.WriteAllText(other, BatchOnlyPlan(workItemId: 831, expectedRev: 7, state: "Closed"));
+
+            var status = await BuildService().StatusAsync(other);
+
+            status.ShouldBeNull("nothing was journaled for the file the link now reaches");
+        }
+        finally
+        {
+            RemoveDirectoryAlias(link);
+        }
+    }
+
+    // Defends against: a new capture retaining the link path instead of the file it was written
+    // to, so an identical copy reached after the link is retargeted inherits the capture.
+    // Rows captured before canonical retention lack the physical path and cannot be re-proven.
+    [Fact]
+    public async Task Status_SameBytesReachedThroughRetargetedCaptureLink_RefusesBeforeOriginCheck()
+    {
+        var first = Path.Combine(_repoRoot, "first");
+        var second = Path.Combine(_repoRoot, "second");
+        var link = Path.Combine(_repoRoot, "proposals-link");
+        Directory.CreateDirectory(first);
+        Directory.CreateDirectory(second);
+        CreateDirectoryAlias(link, first);
+        try
+        {
+            var journal = await CaptureDraftAsync(_repoRoot, link);
+            var captured = Path.Combine(first, Path.GetFileName(journal.SourcePath));
+            File.Exists(captured).ShouldBeTrue("the capture must have been written through the link");
+            journal.SourcePath.ShouldBe(CanonicalPathResolver.Resolve(captured).Path, "a new capture retains the physical file, not the link spelling");
+            RemoveDirectoryAlias(link);
+            CreateDirectoryAlias(link, second);
+            var copy = Path.Combine(second, Path.GetFileName(journal.SourcePath));
+            File.Copy(captured, copy);
+            var origin = UnavailableOrigin();
+
+            var result = (await BuildService(origin: origin).StatusAsync(copy)).ShouldNotBeNull();
+
+            result.Issues.ShouldHaveSingleItem().Message.ShouldBe("The file is not at the retained native capture source path.");
+            origin.ReceivedCalls().ShouldBeEmpty();
+        }
+        finally
+        {
+            RemoveDirectoryAlias(link);
+        }
+    }
+
+    // Defends against: a link loop past the depth cap being returned as the raw spelling and
+    // then judged as an ordinary contained path.
+    [Fact]
+    public async Task Status_PathThroughLinkLoop_RefusesWithNamedLinkDepthReason()
+    {
+        var (a, b) = CreateLinkLoop();
+        try
+        {
+            var file = Path.Combine(a, "plan.json");
+            CanonicalPathResolver.Resolve(file).Refusal.ShouldBe(CanonicalPathResolver.RefusalKind.LinkDepthExceeded);
+
+            var status = (await BuildService().StatusAsync(file)).ShouldNotBeNull();
+
+            status.Found.ShouldBeFalse();
+            status.Issues.ShouldContain(i => i.Message.StartsWith("Invalid file path: link resolution exceeded"));
+        }
+        finally
+        {
+            RemoveLink(a);
+            RemoveLink(b);
+        }
+    }
+
+    // Defends against: a capture retaining an unresolved spelling when its proposal directory
+    // cannot be resolved to a physical location.
+    [Fact]
+    public async Task Capture_ProposalDirectoryThroughLinkLoop_RefusesInsteadOfRetainingRawPath()
+    {
+        var (a, b) = CreateLinkLoop();
+        try
+        {
+            var ex = await Should.ThrowAsync<InvalidOperationException>(
+                () => CaptureDraftAsync(_repoRoot, Path.Combine(a, "proposals")));
+
+            ex.Message.ShouldStartWith("Capture refuses an unresolvable proposal directory: link resolution exceeded");
+        }
+        finally
+        {
+            RemoveLink(a);
+            RemoveLink(b);
+        }
+    }
+
+    // Defends against: the typed resolver refusing a not-yet-created proposal location, which
+    // only genuinely missing segments may pass through.
+    [Fact]
+    public void CanonicalResolver_MissingSegmentsBelowAlias_KeepRemainderUnderPhysicalTarget()
+    {
+        var real = Path.Combine(_repoRoot, "real-proposals");
+        var link = Path.Combine(_repoRoot, "proposals-alias");
+        Directory.CreateDirectory(real);
+        CreateDirectoryAlias(link, real);
+        try
+        {
+            var resolved = CanonicalPathResolver.Resolve(Path.Combine(link, "not-yet", "draft.json"));
+
+            resolved.Refusal.ShouldBeNull();
+            resolved.Path.ShouldBe(Path.Combine(CanonicalPathResolver.Resolve(real).Path!, "not-yet", "draft.json"));
+        }
+        finally
+        {
+            RemoveDirectoryAlias(link);
+        }
+    }
+
+    // Defends against: a segment that exists but cannot be inspected being treated as a plain,
+    // unlinked directory (the old resolver swallowed the error and kept walking).
+    [UninspectableSegmentFact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public void CanonicalResolver_UninspectableSegment_RefusesInsteadOfReturningRawPath()
+    {
+        var locked = Path.Combine(_repoRoot, "locked");
+        Directory.CreateDirectory(Path.Combine(locked, "inner"));
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            var resolved = CanonicalPathResolver.Resolve(Path.Combine(locked, "inner", "plan.json"));
+
+            resolved.Refusal.ShouldBe(CanonicalPathResolver.RefusalKind.InaccessibleSegment);
+            resolved.Path.ShouldBeNull();
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    private sealed class UninspectableSegmentFactAttribute : FactAttribute
+    {
+        public UninspectableSegmentFactAttribute()
+        {
+            if (OperatingSystem.IsWindows())
+                Skip = "An owner-inaccessible directory needs a privileged ACL edit on Windows; this edge is exercised on Unix.";
+            else if (Environment.UserName == "root")
+                Skip = "root bypasses POSIX search permission, so an inaccessible segment cannot be produced.";
+        }
+    }
+
+    private (string A, string B) CreateLinkLoop()
+    {
+        var a = Path.Combine(_repoRoot, "loop-a");
+        var b = Path.Combine(_repoRoot, "loop-b");
+        CreateDirectoryAlias(a, b);
+        CreateDirectoryAlias(b, a);
+        return (a, b);
+    }
+
+    private static void RemoveLink(string link)
+    {
+        // A looping link fails Directory.Exists on Unix, so test the link itself, never its target.
+        if (new FileInfo(link).LinkTarget is null) return;
+        if (OperatingSystem.IsWindows()) Directory.Delete(link);
+        else File.Delete(link);
+    }
+
+    private async Task<PlanJournal> CaptureDraftAsync(string checkoutRoot, string proposalDirectory)
+    {
+        var repository = new SqliteWorkItemRepository(_store, _mapper);
+        await repository.SaveAsync(_mapper.Map(new WorkItemSnapshot
+        {
+            Id = 42, Revision = 3, Title = "baseline", TypeName = "FixtureType", State = "FixtureState",
+            Fields = new Dictionary<string, string?> { ["Fixture.Field"] = "old" },
+        }));
+        var snapshot = (await repository.GetSnapshotByIdAsync(42))!;
+        var draft = RecoverableWorkItemDraft.Create(
+            new QualifiedWorkItemKey(checkoutRoot, "fixture-connection", "fixture-binding", 42), 3)
+            .SetField("Fixture.Field", "old", "intent");
+        (await new SqliteRecoverableWorkItemDraftStore(_store).TrySaveAsync(draft, null)).ShouldBeTrue();
+        var journal = await new SqliteDraftProposalCaptureStore(_store).CaptureAsync(
+            draft, snapshot, await new FixtureOrigin(checkoutRoot).GetOriginAsync(),
+            new PlanWorkspace { Organization = "acme", Project = "cache" }, proposalDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(journal.SourcePath)!);
+        await File.WriteAllTextAsync(journal.SourcePath, journal.CanonicalJson);
+        return journal;
+    }
+
+    private static IPlanOriginProvider UnavailableOrigin()
+    {
+        var origin = Substitute.For<IPlanOriginProvider>();
+        origin.GetOriginAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Current principal is unavailable."));
+        return origin;
+    }
+
+    // Simulates a row written by the pre-canonical capture writer, which retained
+    // Path.GetFullPath of the alias spelling. Rewrites exactly one test-owned row.
+    private void RetainLegacySpelling(string digest, string legacy, string canonical)
+    {
+        using (var command = _store.GetConnection().CreateCommand())
+        {
+            command.CommandText = "UPDATE pending.proposal_journals SET source_path=@legacy WHERE digest=@digest;";
+            command.Parameters.AddWithValue("@legacy", legacy);
+            command.Parameters.AddWithValue("@digest", digest);
+            command.ExecuteNonQuery().ShouldBe(1);
+        }
+        RetainedSourcePath(digest).ShouldBe(legacy);
+        string.Equals(legacy, canonical, StringComparison.OrdinalIgnoreCase).ShouldBeFalse("precondition: the retained spelling differs from the canonical path");
+        CanonicalPathResolver.Resolve(legacy).Path.ShouldBe(canonical, "precondition: the legacy spelling names the same physical file");
+    }
+
+    private string RetainedSourcePath(string digest)
+    {
+        using var command = _store.GetConnection().CreateCommand();
+        command.CommandText = "SELECT source_path FROM pending.proposal_journals WHERE digest=@digest;";
+        command.Parameters.AddWithValue("@digest", digest);
+        return (string)command.ExecuteScalar()!;
+    }
+
+    private static void RemoveDirectoryAlias(string alias)
+    {
+        // Removes only the link itself; a non-recursive delete never enters the target.
+        if (Directory.Exists(alias) && new DirectoryInfo(alias).LinkTarget is not null)
+            Directory.Delete(alias);
+    }
+
+    private static void CreateDirectoryAlias(string alias, string target)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateSymbolicLink(alias, target);
+            return;
+        }
+        // A directory symlink needs elevation or Developer Mode on Windows; a junction does not.
+        using var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            ArgumentList = { "/d", "/c", "mklink", "/J", alias, target },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        })!;
+        var output = mklink.StandardOutput.ReadToEnd() + mklink.StandardError.ReadToEnd();
+        mklink.WaitForExit(10_000).ShouldBeTrue("mklink /J did not exit");
+        mklink.ExitCode.ShouldBe(0, output);
+    }
+
     // Defends against: an apply proceeding with nobody on record as having released it.
     // A cancel or defer is exactly this shape — the reviewer never produced an authorization —
     // so this is also the test that "cancel/defer never applies".

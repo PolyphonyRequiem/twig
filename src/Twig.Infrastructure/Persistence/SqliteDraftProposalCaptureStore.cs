@@ -71,7 +71,13 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
                 + string.Join("; ", parsed.Issues.Select(issue => issue.Message)));
         var capture = new DraftProposalCapture(evidenceFingerprint is null ? 1 : 2, expectedDraft,
             expectedSnapshot.Revision, origin, operationId, parsed.Digest, evidenceFingerprint);
-        var sourcePath = Path.Combine(Path.GetFullPath(proposalDirectory), $"draft-{parsed.Digest}.json");
+        // Retain the physical location, not the spelling: a capture written through a link or
+        // junction must stay attributed to the file it was written to, even if the link is later
+        // retargeted to a directory holding identical bytes.
+        var proposalLocation = CanonicalPathResolver.Resolve(proposalDirectory);
+        if (proposalLocation.Reason is { } locationRefusal)
+            throw new InvalidOperationException("Capture refuses an unresolvable proposal directory: " + locationRefusal);
+        var sourcePath = Path.Combine(proposalLocation.Path!, $"draft-{parsed.Digest}.json");
 
         using var operation = store.AcquireOperation();
         if (store.ActiveTransaction is not null)

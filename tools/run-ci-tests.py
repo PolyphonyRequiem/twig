@@ -37,6 +37,15 @@ HOST_CLASSES = {
     "Twig.Cli.Tests.Browser.BrowserEditingModuleTests",
     "Twig.Cli.Tests.Browser.BrowserReadModuleTests",
     "Twig.Cli.Tests.Browser.BrowserReviewModuleTests",
+    "Twig.Cli.Tests.Browser.BrowserDiscussionModuleTests",
+    "Twig.Cli.Tests.Browser.BrowserExplicitBenchCompositionTests",
+    "Twig.Cli.Tests.Browser.NativeFixtureExportTests",
+    "Twig.Cli.Tests.Browser.RecoverableDraftEditingTests",
+    "Twig.Cli.Tests.Commands.BenchDiscussionCommandTests",
+    "Twig.Cli.Tests.Commands.BenchDiscussionParserBaselineTests",
+    "Twig.Cli.Tests.Commands.DraftCaptureCommandTests",
+    "Twig.Cli.Tests.Commands.DraftCommandTests",
+    "Twig.Cli.Tests.Commands.DraftEditingProductionCliTests",
 }
 MAX_CLI_CASES = 200
 MAX_HOST_CASES = 10

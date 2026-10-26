@@ -1588,6 +1588,33 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ConnectionCheck(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionCheckCommand>().ExecuteAsync(output, ct);
 
+    /// <summary>Observe a GitHub repository's immutable identity and current local selection. Writes no target state. Example: twig provider discover github --host github.com --repository owner/repo -o json.</summary>
+    /// <param name="host">Required bare lowercase GitHub host. No remote/config inference.</param>
+    /// <param name="repository">Required owner/name lookup locator, not durable identity.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    /// <param name="ct">Cancellation token; no target selection or remote mutation.</param>
+    [Command("provider discover github")]
+    public Task<int> ProviderDiscoverGitHub(string? host = null, string? repository = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default) =>
+        services.GetRequiredService<ProviderSetupCommand>().DiscoverAsync("github", host, repository, output, ct);
+
+    /// <summary>Bind the freshly observed GitHub identity locally using strict attachment CAS. Example: twig provider bind github --host github.com --repository owner/repo --expected-owner-id O_id --expected-repository-id R_id --expected-attachment-revision 0. Does not change provider config or remote permissions.</summary>
+    /// <param name="host">Required bare lowercase host from discovery.</param>
+    /// <param name="repository">Required owner/name locator for a fresh fixed-query lookup.</param>
+    /// <param name="expectedOwnerId">Required exact opaque owner ID from discovery.</param>
+    /// <param name="expectedRepositoryId">Required exact opaque repository ID from discovery.</param>
+    /// <param name="expectedAttachmentRevision">Required nonnegative revision from discovery, including detached tombstones; no force bypass.</param>
+    /// <param name="replaceBinding">Exact current binding ID from discovery; required when changing attached identity or host.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    /// <param name="ct">Cancellation token; durable row precedes atomic local pointer replacement.</param>
+    [Command("provider bind github")]
+    public Task<int> ProviderBindGitHub(string? host = null, string? repository = null,
+        string? expectedOwnerId = null, string? expectedRepositoryId = null,
+        long? expectedAttachmentRevision = null, string? replaceBinding = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default) =>
+        services.GetRequiredService<ProviderSetupCommand>().BindAsync("github", host, repository, expectedOwnerId,
+            expectedRepositoryId, expectedAttachmentRevision, replaceBinding, output, ct);
+
     /// <summary>Report how the active provider implements each relationship kind (native, emulated or unsupported), where emulated data is stored, and its runtime availability. Read-only; kinds without probe evidence report unknown/not-probed.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection capabilities")]
@@ -2022,6 +2049,11 @@ internal static class GroupedHelp
         "connection status",
         "connection check",
         "connection capabilities",
+        "provider",
+        "provider discover",
+        "provider discover github",
+        "provider bind",
+        "provider bind github",
         "connection migrate",
         "connection pin",
         "connection unpin",

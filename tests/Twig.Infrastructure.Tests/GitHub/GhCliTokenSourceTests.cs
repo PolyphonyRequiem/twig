@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Shouldly;
 using Twig.Infrastructure.GitHub;
 using Xunit;
@@ -7,6 +8,54 @@ namespace Twig.Infrastructure.Tests.GitHub;
 public sealed class GhCliTokenSourceTests
 {
     private const string Secret = "gho_SECRETtoken123";
+
+    [Fact]
+    public async Task ProductionArguments_AreAcceptedByInstalledGhHelp_WithoutCredentialLookup()
+    {
+        var runner = new FakeRunner(new(BoundedProcessOutcome.Exited, 0, Secret));
+        (await new GhCliTokenSource(runner, "github.com", "twig-parser-fixture")
+            .GetTokenAsync(default)).ShouldBe(Secret);
+        var call = runner.Calls.Single();
+        var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var start = BoundedProcessRunner.CreateStartInfo(call.FileName,
+                [.. call.Arguments, "--help"], runner.ExcludedEnvironment);
+            foreach (var key in new[] { "GH_CONFIG_DIR", "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "TWIG_USER_HOME" })
+                start.Environment[key] = root;
+            start.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
+            start.Environment["GH_PROMPT_DISABLED"] = "1";
+            start.Environment.Remove("TWIG_TELEMETRY_ENDPOINT");
+            using var process = Process.Start(start)
+                ?? throw new InvalidOperationException("GitHub CLI parser did not start.");
+            process.StandardInput.Close();
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try
+            {
+                await process.WaitForExitAsync(deadline.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                throw;
+            }
+            var output = await stdout.WaitAsync(TimeSpan.FromSeconds(5));
+            var error = await stderr.WaitAsync(TimeSpan.FromSeconds(5));
+            process.ExitCode.ShouldBe(0, error);
+            output.ShouldContain("--hostname");
+            output.ShouldContain("--user");
+            output.ShouldNotContain(Secret);
+            Directory.GetFileSystemEntries(root).ShouldBeEmpty("help must not initialize credential configuration");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 
     [Fact]
     public async Task Success_RunsGhAuthTokenWithArgumentArrayAndBounds_AndCachesInMemory()
@@ -20,7 +69,7 @@ public sealed class GhCliTokenSourceTests
         runner.Calls.Count.ShouldBe(1);
         var call = runner.Calls[0];
         call.FileName.ShouldBe("gh");
-        call.Arguments.ShouldBe(["auth", "token", "--hostname", "github.com", "--user", "selected-account", "--no-refresh"]);
+        call.Arguments.ShouldBe(["auth", "token", "--hostname", "github.com", "--user", "selected-account"]);
         runner.ExcludedEnvironment.ShouldBe(["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]);
         call.Timeout.ShouldBe(GhCliTokenSource.Timeout);
         call.Timeout.ShouldBeLessThanOrEqualTo(TimeSpan.FromSeconds(30));

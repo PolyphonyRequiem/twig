@@ -580,6 +580,16 @@ internal static class CommandExamples
             "twig connection capabilities                 Show how the active provider implements each relationship kind",
             "twig connection capabilities --output json   Emit implementation, storage and availability per kind for agents",
         ],
+        ["provider discover github"] =
+        [
+            "twig provider discover github --host github.com --repository owner/repo    Observe identity without binding",
+            "twig provider discover github --host github.com --repository owner/repo -o json    Capture expected IDs and revision",
+        ],
+        ["provider bind github"] =
+        [
+            "twig provider bind github --host github.com --repository owner/repo --expected-owner-id O_id --expected-repository-id R_id --expected-attachment-revision 0    Bind the expected observation",
+            "twig provider bind github --host github.com --repository owner/repo --expected-owner-id O_id --expected-repository-id R_id --expected-attachment-revision 4 --replace-binding <current-binding-id> -o json    Explicitly replace a selected identity",
+        ],
         ["connection migrate"] =
         [
             "twig connection migrate --identity work --method aad --output json  Preview explicit legacy AAD import and host/store blockers",

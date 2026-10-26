@@ -22,7 +22,7 @@ internal sealed class GitHubBoundTargetResolver(
         if (!read.IsSuccess)
             throw new InvalidDataException(read.Error);
         if (read.Value.Envelope is not { State: ProviderTargetAttachmentState.Attached, BindingId: { } id })
-            throw new InvalidDataException("provider-target-unbound: discover and explicitly bind a GitHub repository before reading.");
+            throw new InvalidDataException("provider-target-unbound: run `twig provider discover github --host <host> --repository <owner/name>`, then `twig provider bind github` with the observed expected IDs and attachment revision before reading.");
         var binding = await bindings.FindByIdAsync(id, ct).ConfigureAwait(false);
         if (!binding.IsSuccess)
             throw new InvalidDataException(binding.Error);

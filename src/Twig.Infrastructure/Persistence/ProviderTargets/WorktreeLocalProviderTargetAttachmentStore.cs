@@ -46,6 +46,24 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
 
     private async Task<Result<VersionedProviderTargetAttachment>> ReadInternalAsync(CancellationToken ct)
     {
+        var observation = await ReadObservationWithRevisionAsync(paths, ct).ConfigureAwait(false);
+        if (!observation.IsSuccess)
+            return observation;
+        if (observation.Value.Envelope?.BindingId is { } bindingId)
+        {
+            var binding = await bindings.FindByIdAsync(bindingId, ct).ConfigureAwait(false);
+            if (!binding.IsSuccess)
+                return Result.Fail<VersionedProviderTargetAttachment>(binding.Error);
+            if (binding.Value is null)
+                return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.BindingMissing);
+        }
+        return observation;
+    }
+
+    /// <summary>Observe the worktree pointer only; does not validate binding authority or open the registry.</summary>
+    internal static async Task<Result<VersionedProviderTargetAttachment>> ReadObservationWithRevisionAsync(
+        TwigPaths paths, CancellationToken ct = default)
+    {
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(paths.TwigDir))
             return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.WorktreeUnavailable);
@@ -74,20 +92,11 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
         if (!TryReadEnvelope(document, out var envelope))
             return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.InvalidDocument);
 
-        var liveFingerprint = GetLiveFingerprint();
+        var liveFingerprint = GetLiveFingerprint(paths);
         if (!liveFingerprint.IsSuccess)
             return Result.Fail<VersionedProviderTargetAttachment>(liveFingerprint.Error);
         if (!string.Equals(envelope!.WorktreeFingerprint, liveFingerprint.Value, StringComparison.Ordinal))
             return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.WorktreeFingerprintMismatch);
-
-        if (envelope.BindingId is { } bindingId)
-        {
-            var binding = await bindings.FindByIdAsync(bindingId, ct).ConfigureAwait(false);
-            if (!binding.IsSuccess)
-                return Result.Fail<VersionedProviderTargetAttachment>(binding.Error);
-            if (binding.Value is null)
-                return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.BindingMissing);
-        }
 
         return Result.Ok(new VersionedProviderTargetAttachment(envelope, envelope.Revision));
     }
@@ -141,7 +150,7 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
                     return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.BindingMismatch);
             }
 
-            var liveFingerprint = GetLiveFingerprint();
+            var liveFingerprint = GetLiveFingerprint(paths);
             if (!liveFingerprint.IsSuccess)
                 return Result.Fail<ProviderTargetAttachmentWriteOutcome>(liveFingerprint.Error);
 
@@ -242,7 +251,7 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
         }
     }
 
-    private Result<string> GetLiveFingerprint()
+    private static Result<string> GetLiveFingerprint(TwigPaths paths)
     {
         if (!WorktreeAnchorDetector.TryDetect(paths.StartDir ?? paths.TwigDir, out var anchor, out _))
             return Result.Fail<string>(ProviderTargetAttachmentFailures.WorktreeUnavailable);

@@ -82,7 +82,7 @@ to a binding, and Twig never falls back to ADO.
 `github.account` is a **user-local** preference in `.twig/config`, never a shared
 repository coordinate in `twig.json`. It explicitly selects a GitHub CLI account
 for that host; it does not change another user's selection. The token
-source uses `gh auth token --hostname <host> --user <account> --no-refresh` without changing the
+source uses `gh auth token --hostname <host> --user <account>` without changing the
 CLI's active account or asking it to refresh stored credentials. Token environment overrides are removed only from the child
 process; the caller's environment and stored credentials are unchanged. Twig does
 not persist the returned token, request new scopes, or infer an authenticated
@@ -90,13 +90,22 @@ actor or granted permissions from this account-selection string. No account is
 assumed when the setting is missing.
 
 Repository discovery is a fixed read-only observation, not a binding operation.
-The adapter and composition support explicit-account reads; the two-step
-discovery/bind command UX is a separate increment, not a command available in this
-cut. An existing bound repository rename is accepted when both immutable IDs
+Use [`provider discover github`](provider-discover-github.md), then
+[`provider bind github`](provider-bind-github.md) with the exact observed IDs and
+attachment revision. Neither command changes provider configuration. An existing bound repository rename is accepted when both immutable IDs
 match. A transfer to a different owner or replacement repository at the same slug
 is refused and requires explicit rediscovery/rebinding. Reads do not silently
 refresh binding metadata. Twig-owned OAuth sign-in is also required before 1.0;
 this GitHub CLI credential source is the first supported source, not its replacement.
+
+For setup, choose an already signed-in GitHub CLI account explicitly with
+`twig config github.account <login>`. Run discovery and bind using explicit
+`--host` and `--repository` values, then select normal reads separately:
+`twig config github.host github.com`, `twig config github.repository owner/repo`,
+and `twig config provider github`. These settings do not enroll an account,
+grant remote permissions, initialize a GitHub item store, or migrate existing ADO
+seeds/context. Fresh GitHub-only initialization and complete read/write integration
+are separate delivery requirements, not consequences of binding a target.
 
 Bound reads capture the attachment revision, binding ID, and immutable target
 identity, then recheck them after the complete snapshot and relationship fetch.

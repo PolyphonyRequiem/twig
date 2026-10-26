@@ -40,7 +40,7 @@ internal sealed class GhCliTokenSource(IBoundedProcessRunner runner, string host
                 return raced;
 
             var result = await runner.RunAsync(
-                "gh", ["auth", "token", "--hostname", host, "--user", account, "--no-refresh"], Timeout, MaxOutputChars, ct,
+                "gh", ["auth", "token", "--hostname", host, "--user", account], Timeout, MaxOutputChars, ct,
                 ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]).ConfigureAwait(false);
 
             var problem = result.Outcome switch

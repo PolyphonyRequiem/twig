@@ -200,6 +200,10 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConnectionListCommand>();
         services.AddSingleton<ConnectionStatusCommand>();
         services.AddSingleton<ConnectionCheckCommand>();
+        services.AddSingleton(sp => new ProviderSetupCommand(
+            () => sp.GetRequiredService<GitHubProviderSetupService>(),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+            sp.GetService<ITelemetryClient>()));
         services.AddSingleton(sp => new ConnectionCapabilitiesCommand(
             () => sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>(),
             sp.GetRequiredService<OutputFormatterFactory>(),

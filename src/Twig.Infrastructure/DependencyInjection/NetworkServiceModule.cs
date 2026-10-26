@@ -268,6 +268,22 @@ public static class NetworkServiceModule
             sp.GetRequiredService<GitHubWorkspaceScope>().Host,
             sp.GetRequiredService<TwigConfiguration>().GitHubAccount));
         services.TryAddSingleton<GitHubBoundTargetResolver>();
+        services.TryAddSingleton(sp => new GitHubProviderSetupService(
+            () => sp.GetRequiredService<IProviderTargetBindingStore>(),
+            () => sp.GetRequiredService<Twig.Infrastructure.Persistence.ProviderTargets.IProviderTargetAttachmentStore>(),
+            async ct =>
+            {
+                var observation = await Twig.Infrastructure.Persistence.ProviderTargets.WorktreeLocalProviderTargetAttachmentStore
+                    .ReadObservationWithRevisionAsync(sp.GetRequiredService<TwigPaths>(), ct).ConfigureAwait(false);
+                if (!observation.IsSuccess)
+                    throw new InvalidDataException(observation.Error);
+                return observation.Value;
+            },
+            scope => GitHubReadOnlyAuthHandler.CreateClient(
+                new GhCliTokenSource(
+                    sp.GetRequiredService<IBoundedProcessRunner>(), scope.Host,
+                    sp.GetRequiredService<TwigConfiguration>().GitHubAccount),
+                scope.GraphQlEndpoint, sp.GetService<GitHubTransportOverride>()?.CreateHandler())));
         services.TryAddSingleton(sp =>
         {
             var scope = sp.GetRequiredService<GitHubWorkspaceScope>();

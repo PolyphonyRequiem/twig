@@ -1,9 +1,16 @@
 using System.Buffers;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using Twig.Domain.Common;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Plan;
 
@@ -32,6 +39,10 @@ public sealed partial class PlanLifecycleService
             return RefuseSettlement("Original digest/operation is not journaled.");
         if (kind != PlanOutcomeKind.Superseded && (replacementDigest is not null || replacementOpId is not null))
             return RefuseSettlement("Replacement selectors are only valid for supersession.");
+        if (kind == PlanOutcomeKind.RejectedCreateFamily)
+            return await ReconcileRejectedCreateFamilyAsync(
+                file, confirmedDigest, opId, parsed.Plan, journal, row, operation, authorization!, ct)
+                .ConfigureAwait(false);
         if (row.OutcomeReceipt is { } existing)
             return existing.Kind == kind && existing.ReplacementDigest == replacementDigest
                 && existing.ReplacementOpId == replacementOpId
@@ -111,6 +122,192 @@ public sealed partial class PlanLifecycleService
             return RefuseSettlement("Native settlement lost its durable CAS fence. Execution admission or other evidence won; reload without replaying.");
         return new PlanReconciliationResult { Settled = true, Receipt = receipt };
     }
+
+    private async Task<PlanReconciliationResult> ReconcileRejectedCreateFamilyAsync(
+        string file, string digest, string opId, PlanDefinition plan, PlanJournal journal,
+        PlanJournalOperation row, PlanOperationDefinition operation, ProposalAuthorization authorization,
+        CancellationToken ct)
+    {
+        if (operation is not PublishSeedOperation seed)
+            return RefuseSettlement("Rejected-create-family evidence can settle only the original publish-seed operation.");
+        if (_publishIdMap is null)
+            return RefuseSettlement("The original publish-id map repository is unavailable; preserve the unknown outcome.");
+        if (row.OutcomeReceipt is { } existing)
+        {
+            if (journal.Origin is null
+                || existing.Digest != digest || existing.OpId != opId
+                || existing.RequestJson != row.RequestJson
+                || existing.Origin != journal.Origin || existing.AuthorizingOrigin != journal.Origin
+                || !RejectedCreateFamilyReceiptValidator.IsValid(existing, seed.StagedIdentity))
+                return RefuseSettlement("The existing rejected-create-family receipt is not bound to this immutable journal operation; preserve the original journal and local intent.");
+
+            PublishIntent? settledIntent;
+            try { settledIntent = await _publishIntent!.GetIntentAsync(seed.StagedIdentity, ct).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            { return RefuseSettlement("The original publish intent is unavailable for receipt binding: " + ex.Message); }
+            if (settledIntent is null || settledIntent.Identity != seed.StagedIdentity
+                || settledIntent.PublishedId is not null
+                || existing.PublishIntentRecordedAt
+                    != settledIntent.RecordedAt.ToString("o", CultureInfo.InvariantCulture))
+                return RefuseSettlement("The existing rejected-create-family receipt does not match the original durable publish intent.");
+
+            return new PlanReconciliationResult { Settled = true, Receipt = existing };
+        }
+        if (journal.Origin is null || row.State is not (PlanOperationState.Failed or PlanOperationState.Indeterminate)
+            || row.StartedAt is null || row.AppliedAt is not null || row.VerifiedAt is not null
+            || row.ResultJson is not null)
+            return RefuseSettlement("Rejected-create-family reconciliation requires the original failed or indeterminate publish attempt with no positive outcome.");
+
+        if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var failure))
+            return RefuseSettlement("A stable originating worktree is required for rejected-create-family reconciliation: " + failure);
+
+        IDisposable fence;
+        try { fence = ConnectionOperationGate.Acquire(anchor.WorktreeRoot, exclusive: true); }
+        catch (InvalidOperationException ex) { return RefuseSettlement(ex.Message); }
+        using (fence)
+        {
+            PlanOrigin current;
+            try { current = await _origin!.GetOriginAsync(ct).ConfigureAwait(false); }
+            catch (InvalidOperationException ex) { return RefuseSettlement(ex.Message); }
+            if (current != journal.Origin || current.WorktreeRoot != anchor.WorktreeRoot)
+                return RefuseSettlement("The original proposal authority or attached worktree changed; negative evidence cannot acquire a different actor.");
+
+            PublishIntent? intent;
+            try { intent = await _publishIntent!.GetIntentAsync(seed.StagedIdentity, ct).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            { return RefuseSettlement("The exact durable publish intent is unavailable: " + ex.Message); }
+            if (intent is null || intent.Identity != seed.StagedIdentity || intent.PublishedId is not null
+                || intent.CompletedAt is not null)
+                return RefuseSettlement("The exact original open publish intent is missing or already has a positive outcome.");
+            var recordedAt = intent.RecordedAt.ToString("o", CultureInfo.InvariantCulture);
+            if (await _publishIdMap.GetNewIdAsync(seed.StagedIdentity, ct).ConfigureAwait(false) is not null)
+                return RefuseSettlement("A positive publish-id map already exists; rejected-family evidence cannot override it.");
+
+            using var registry = new SqliteSystemWorktreeRegistry(_systemRegistryPath, TimeProvider.System);
+            Result<PlanReconciliationResult> settled;
+            try
+            {
+                settled = await registry.ExecuteWithConnectionRemoteWriteSnapshotAsync(
+                    current.WorktreeFingerprint,
+                    async snapshot =>
+                    {
+                        var family = new List<RejectedCreateFamilyProofMember>();
+                        var expectedCorrelation = new SeedPublishCorrelation(seed.StagedIdentity, intent.RecordedAt);
+                        foreach (var member in snapshot.Members)
+                        {
+                            var nativeIntent = member.History.Intent;
+                            var correlation = nativeIntent.Request.SeedCorrelation;
+                            if (correlation?.Identity != seed.StagedIdentity)
+                            {
+                                if (nativeIntent.Request.EffectKind == "workitem-create"
+                                    && (ConnectionRemoteWriteAdmission.SeedCreateHasDescriptionCorrelation(
+                                            nativeIntent.Request.Payload, expectedCorrelation)
+                                        || ConnectionRemoteWriteAdmission.SeedCreateHasCorrelation(
+                                            nativeIntent.Request.Payload, expectedCorrelation.Tag)))
+                                    return Result.Fail<PlanReconciliationResult>(
+                                        "A native create carries the original staged identity marker without matching structured correlation; preserve the unknown outcome.");
+                                continue;
+                            }
+                            if (nativeIntent.Request.EffectKind != "workitem-create"
+                                || correlation.IntentRecordedAt.ToString("o", CultureInfo.InvariantCulture) != recordedAt)
+                                return Result.Fail<PlanReconciliationResult>(
+                                    "The exact staged identity has a native create outside the original intent correlation; preserve the unknown outcome.");
+                            if (nativeIntent.RequestDigest != ConnectionRemoteWriteAdmission.RequestDigest(
+                                    nativeIntent.Origin, nativeIntent.Request)
+                                || nativeIntent.Fingerprint != current.WorktreeFingerprint
+                                || nativeIntent.Origin.Operation.WorktreeFingerprint != current.WorktreeFingerprint
+                                || !PlanOriginMatches(current, nativeIntent.Origin)
+                                || nativeIntent.Request.Method != "POST"
+                                || !Uri.TryCreate(nativeIntent.Request.Target, UriKind.Absolute, out var target)
+                                || !ConnectionRemoteWriteAdmission.IsWithinAuthority(nativeIntent.Origin, target)
+                                || ConnectionRemoteWriteAdmission.SeedCreateTitle(nativeIntent.Request.Payload) != intent.Title
+                                || ConnectionRemoteWriteAdmission.SeedCreateType(nativeIntent.Request.Target) != intent.TypeName
+                                || !(ConnectionRemoteWriteAdmission.SeedCreateHasDescriptionCorrelation(
+                                         nativeIntent.Request.Payload, correlation)
+                                     || ConnectionRemoteWriteAdmission.SeedCreateHasCorrelation(
+                                         nativeIntent.Request.Payload, correlation.Tag)))
+                                return Result.Fail<PlanReconciliationResult>(
+                                    "A native create in the exact correlation family does not match the original intent, request, or authority.");
+
+                            var history = member.History;
+                            if (history.Receipt is not { } nativeReceipt
+                                || nativeReceipt.Kind != "rejected"
+                                || history.Observations.Count != 1
+                                || nativeReceipt.ObservationId != history.Observations[0].ObservationId
+                                || nativeReceipt.IntentId != nativeIntent.IntentId
+                                || nativeReceipt.RequestDigest != nativeIntent.RequestDigest
+                                || !ConnectionRemoteWriteAdmission.SameAuthority(
+                                    nativeReceipt.AuthorizingOrigin, nativeIntent.Origin)
+                                || ConnectionRemoteWriteAdmission.ClassifyAcknowledgement(
+                                    nativeIntent.Request, history.Observations[0].Response) != "rejected")
+                                return Result.Fail<PlanReconciliationResult>(
+                                    "Every admitted create in the exact correlation family must have one classifier-backed definitive rejection; an unknown or positive sibling remains unresolved.");
+                            var observation = history.Observations[0];
+                            if (observation.ObservedAt < nativeIntent.AdmittedAt
+                                || nativeReceipt.RecordedAt < observation.ObservedAt)
+                                return Result.Fail<PlanReconciliationResult>(
+                                    "Native rejection chronology is inconsistent; preserve the original unknown outcome.");
+                            family.Add(new(member.Sequence, nativeIntent, observation, nativeReceipt));
+                        }
+
+                        if (family.Count == 0)
+                            return Result.Fail<PlanReconciliationResult>(
+                                "No admitted native create belongs to the exact staged identity and recorded-at correlation.");
+
+                        var proof = new RejectedCreateFamilyProof(
+                            1, snapshot.SnapshotId, snapshot.Fingerprint, snapshot.HighWaterSequence,
+                            seed.StagedIdentity.ToString(), recordedAt, seed.ExpectedFingerprint,
+                            intent.Title, intent.TypeName, family);
+                        var receipt = new PlanOutcomeReceipt
+                        {
+                            ReceiptId = Guid.NewGuid().ToString("N"),
+                            Digest = digest,
+                            OpId = opId,
+                            Kind = PlanOutcomeKind.RejectedCreateFamily,
+                            RequestJson = row.RequestJson,
+                            Origin = journal.Origin,
+                            AuthorizingOrigin = current,
+                            Authorization = authorization,
+                            EvidenceJson = JsonSerializer.Serialize(
+                                proof, TwigJsonContext.Default.RejectedCreateFamilyProof),
+                            PublishIdentity = seed.StagedIdentity,
+                            PublishIntentRecordedAt = recordedAt,
+                        };
+                        if (!RejectedCreateFamilyReceiptValidator.IsValid(
+                                receipt, seed.StagedIdentity, recordedAt))
+                            return Result.Fail<PlanReconciliationResult>(
+                                "The complete native family failed negative receipt validation; the original outcome remains unknown.");
+                        var appended = await _journal.TryAppendRejectedCreateFamilyReceiptAsync(
+                            receipt, row.State, row.ResultJson, seed.StagedIdentity, intent.RecordedAt, ct)
+                            .ConfigureAwait(false);
+                        return appended
+                            ? Result.Ok(new PlanReconciliationResult { Settled = true, Receipt = receipt })
+                            : Result.Fail<PlanReconciliationResult>(
+                                "The local receipt/intent CAS lost or no longer matches the exact open publish intent; reload without replaying.");
+                    }, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException
+                or JsonException or SqliteException)
+            {
+                return RefuseSettlement("Rejected-create-family evidence could not be atomically captured and settled: " + ex.Message);
+            }
+            if (!settled.IsSuccess) return RefuseSettlement(settled.Error);
+            return settled.Value;
+        }
+    }
+
+    private static bool PlanOriginMatches(PlanOrigin planOrigin, ResolvedConnectionBinding nativeOrigin)
+        => planOrigin.WorktreeFingerprint == nativeOrigin.Operation.WorktreeFingerprint
+            && planOrigin.ConnectionRef == nativeOrigin.Binding.ConnectionRef
+            && planOrigin.BindingId == nativeOrigin.Binding.BindingId
+            && planOrigin.BindingRevision == nativeOrigin.Binding.Revision
+            && planOrigin.IdentityId == nativeOrigin.Identity.IdentityId
+            && planOrigin.Method == nativeOrigin.Identity.Method
+            && planOrigin.CredentialRef == nativeOrigin.Identity.CredentialRef
+            && planOrigin.TenantId == nativeOrigin.Identity.TenantId
+            && planOrigin.ObjectId == nativeOrigin.Identity.ObjectId
+            && planOrigin.Issuer == nativeOrigin.Identity.Issuer;
 
     private async Task<string?> ValidateOriginAsync(PlanOrigin? expected, CancellationToken ct)
     {

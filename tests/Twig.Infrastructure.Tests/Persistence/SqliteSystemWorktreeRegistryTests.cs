@@ -1,6 +1,7 @@
 using Shouldly;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Twig.Domain.Common;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Serialization;
@@ -70,6 +71,85 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
         using var read = db.CreateCommand();
         read.CommandText = "SELECT intent_json FROM connection_remote_write_intents WHERE intent_id='historical-create'";
         (await read.ExecuteScalarAsync()).ShouldBe(historicalJson);
+    }
+
+    [Fact]
+    public async Task RejectedFamilySnapshot_HoldsNativeAdmissionUntilItsHighWaterIsCaptured()
+    {
+        var path = Path.Combine(_dir, "snapshot-admission.db");
+        using var registry = new SqliteSystemWorktreeRegistry(path, TimeProvider.System);
+        using var contender = new SqliteSystemWorktreeRegistry(path, TimeProvider.System);
+        var origin = PublicationOrigin();
+        (await registry.EnsureBindingConnectionAsync(
+            origin.Binding.ConnectionRef, origin.Operation.Organization, origin.Operation.Project, CancellationToken.None))
+            .IsSuccess.ShouldBeTrue();
+        (await registry.UpsertWorktreeAsync(
+            origin.Operation.WorktreeFingerprint, origin.Binding.ConnectionRef, origin.WorktreeRoot))
+            .IsSuccess.ShouldBeTrue();
+        var registeredAt = DateTimeOffset.UtcNow;
+        (await registry.InsertIdentityAsync(new IdentityRow(
+            origin.Identity.IdentityId, origin.Identity.Name, origin.Identity.TenantId,
+            origin.Identity.ObjectId, origin.Identity.Issuer, origin.Identity.AuthorityHost,
+            origin.Identity.CredentialRef, origin.Identity.AccountName, registeredAt, registeredAt,
+            origin.Identity.Method, origin.Identity.AdoPrincipalId, origin.Identity.AdoAuthority))).IsSuccess.ShouldBeTrue();
+        (await registry.InsertOrGetBindingAsync(new BindingRow(
+            origin.Binding.BindingId, origin.Binding.ConnectionRef, origin.Binding.IdentityId,
+            origin.Binding.Revision, registeredAt, registeredAt))).IsSuccess.ShouldBeTrue();
+        (await registry.UpsertDefaultBindingAsync(new DefaultBindingRow(
+            origin.Binding.ConnectionRef, origin.Binding.BindingId, origin.Binding.Revision, registeredAt)))
+            .IsSuccess.ShouldBeTrue();
+        var contenderWorktree = await contender.FindWorktreeAsync(origin.Operation.WorktreeFingerprint);
+        contenderWorktree.IsSuccess.ShouldBeTrue(contenderWorktree.Error);
+        contenderWorktree.Value.ShouldNotBeNull();
+
+        var captured = new TaskCompletionSource<ConnectionRemoteWriteFamilySnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshotTask = registry.ExecuteWithConnectionRemoteWriteSnapshotAsync(
+            origin.Operation.WorktreeFingerprint,
+            async snapshot =>
+            {
+                captured.SetResult(snapshot);
+                await release.Task.ConfigureAwait(false);
+                return Result.Ok(snapshot.HighWaterSequence);
+            });
+        try
+        {
+            var snapshot = await captured.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            snapshot.HighWaterSequence.ShouldBe(0);
+
+            var request = new ConnectionRemoteWriteRequest(
+                "workitem-create", "POST",
+                "https://dev.azure.com/fixture/Work/_apis/wit/workitems/$Task",
+                "[]", null);
+            var intent = new ConnectionRemoteWriteIntent(
+                1, Guid.NewGuid().ToString("N"),
+                ConnectionRemoteWriteAdmission.RequestDigest(origin, request),
+                origin.Operation.WorktreeFingerprint, origin, request, DateTimeOffset.UtcNow);
+            var admissionTask = Task.Factory.StartNew(
+                () => contender.BeginConnectionRemoteWriteAsync(intent),
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
+            var completedBeforeRelease = await Task.WhenAny(admissionTask, Task.Delay(TimeSpan.FromMilliseconds(150)));
+
+            release.SetResult();
+            var capturedHighWater = await snapshotTask.WaitAsync(TimeSpan.FromSeconds(5));
+            capturedHighWater.IsSuccess.ShouldBeTrue(capturedHighWater.Error);
+            capturedHighWater.Value.ShouldBe(0);
+            completedBeforeRelease.ShouldNotBe(admissionTask,
+                "a concurrent registry writer must not enter the snapshot's captured family");
+
+            var admitted = await admissionTask.WaitAsync(TimeSpan.FromSeconds(5));
+            admitted.IsSuccess.ShouldBeTrue(admitted.Error);
+            var afterAdmission = await registry.ExecuteWithConnectionRemoteWriteSnapshotAsync(
+                origin.Operation.WorktreeFingerprint,
+                snapshot => Task.FromResult(Result.Ok(snapshot.HighWaterSequence)));
+            afterAdmission.IsSuccess.ShouldBeTrue(afterAdmission.Error);
+            afterAdmission.Value.ShouldBe(1);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
     }
 
     [Fact]

@@ -113,6 +113,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ConnectionRemoteWriteObservation))]
 [JsonSerializable(typeof(ConnectionRemoteWriteReceipt))]
 [JsonSerializable(typeof(ConnectionRemoteWriteHistory))]
+[JsonSerializable(typeof(RejectedCreateFamilyProof))]
+[JsonSerializable(typeof(RejectedCreateFamilyProofMember))]
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection))]
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection[]))]
 [JsonSerializable(typeof(SeedPublishCorrelation))]

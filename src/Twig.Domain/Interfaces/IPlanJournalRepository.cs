@@ -1,5 +1,6 @@
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Interfaces;
 
@@ -58,6 +59,19 @@ public interface IPlanJournalRepository
         PlanOutcomeReceipt receipt,
         PlanOperationState expectedState,
         string? expectedResultJson,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically appends a validated rejected-create-family receipt and fences the exact
+    /// still-open publish intent it names. The existing receipt row is the durable negative
+    /// disposition; no intent timestamp or published id is rewritten.
+    /// </summary>
+    Task<bool> TryAppendRejectedCreateFamilyReceiptAsync(
+        PlanOutcomeReceipt receipt,
+        PlanOperationState expectedState,
+        string? expectedResultJson,
+        StagedIdentity identity,
+        DateTimeOffset recordedAt,
         CancellationToken ct = default);
 
     /// <summary>

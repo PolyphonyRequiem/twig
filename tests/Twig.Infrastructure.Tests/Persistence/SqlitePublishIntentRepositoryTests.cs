@@ -118,6 +118,59 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task RecordIntent_DoesNotTreatAnUnvalidatedRejectedKindAsSettledEvidence()
+    {
+        var identity = StagedIdentity.New();
+        var original = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
+        InsertUnvalidatedReceipt(identity, original.RecordedAt, "RejectedCreateFamily");
+
+        var repeated = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
+
+        repeated.RecordedAt.ShouldBe(original.RecordedAt);
+        var persisted = await _repo.GetIntentAsync(identity);
+        persisted.ShouldNotBeNull();
+        persisted.RecordedAt.ShouldBe(original.RecordedAt);
+        persisted.PublishedId.ShouldBeNull();
+        persisted.IsOpen.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetIntent_RemainsReadableAndGetOpenIntentsKeepsAnUnvalidatedRejectedKindOpen()
+    {
+        var rejectedIdentity = StagedIdentity.New();
+        var unknownIdentity = StagedIdentity.New();
+        var rejected = await _repo.RecordIntentAsync(rejectedIdentity, "Rejected seed", "Task");
+        var unknown = await _repo.RecordIntentAsync(unknownIdentity, "Unknown seed", "Task");
+        InsertUnvalidatedReceipt(rejectedIdentity, rejected.RecordedAt, "RejectedCreateFamily");
+
+        var open = await _repo.GetOpenIntentsAsync();
+
+        open.Count.ShouldBe(2);
+        open.ShouldContain(intent => intent.Identity == rejectedIdentity);
+        open.ShouldContain(intent => intent.Identity == unknownIdentity);
+        (await _repo.GetIntentAsync(rejectedIdentity)).ShouldNotBeNull();
+        open.ShouldContain(intent => intent.RecordedAt == unknown.RecordedAt);
+        open.ShouldContain(intent => intent.RecordedAt == rejected.RecordedAt);
+    }
+
+    [Fact]
+    public async Task GetOpenIntents_StillExcludesExactReadbackAndSupersededSettlements()
+    {
+        var readbackIdentity = StagedIdentity.New();
+        var supersededIdentity = StagedIdentity.New();
+        var unknownIdentity = StagedIdentity.New();
+        var readback = await _repo.RecordIntentAsync(readbackIdentity, "Read back seed", "Task");
+        var superseded = await _repo.RecordIntentAsync(supersededIdentity, "Superseded seed", "Task");
+        await _repo.RecordIntentAsync(unknownIdentity, "Unknown seed", "Task");
+        InsertUnvalidatedReceipt(readbackIdentity, readback.RecordedAt, "Readback");
+        InsertUnvalidatedReceipt(supersededIdentity, superseded.RecordedAt, "Superseded");
+
+        var open = await _repo.GetOpenIntentsAsync();
+
+        open.Select(intent => intent.Identity).ShouldBe([unknownIdentity]);
+    }
+
+    [Fact]
     public async Task GetIntent_ForAnUnrecordedIdentity_ReturnsNull()
     {
         var stored = await _repo.GetIntentAsync(StagedIdentity.New());
@@ -170,5 +223,26 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
         {
             try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
         }
+    }
+
+    private void InsertUnvalidatedReceipt(StagedIdentity identity, DateTimeOffset recordedAt, string kind)
+    {
+        using var operation = _store.AcquireOperation();
+        using var command = _store.GetConnection().CreateCommand();
+        command.Transaction = _store.ActiveTransaction;
+        command.CommandText = """
+            INSERT INTO proposal_receipts
+                (digest, op_id, receipt_id, kind, publish_identity, publish_intent_recorded_at, receipt_json, created_at)
+            VALUES
+                (@digest, @op, @receipt, @kind, @identity, @recordedAt, '{}', @createdAt);
+            """;
+        command.Parameters.AddWithValue("@digest", Guid.NewGuid().ToString("N"));
+        command.Parameters.AddWithValue("@op", Guid.NewGuid().ToString("N"));
+        command.Parameters.AddWithValue("@receipt", Guid.NewGuid().ToString("N"));
+        command.Parameters.AddWithValue("@kind", kind);
+        command.Parameters.AddWithValue("@identity", identity.ToString());
+        command.Parameters.AddWithValue("@recordedAt", recordedAt.ToString("o"));
+        command.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToString("o"));
+        command.ExecuteNonQuery();
     }
 }

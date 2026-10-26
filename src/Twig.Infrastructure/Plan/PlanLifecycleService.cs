@@ -79,6 +79,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
     private readonly TimeProvider _clock;
     private readonly PlanProcessRuleGate _ruleGate;
+    private readonly string _systemRegistryPath;
     private readonly ChangeProposalReviewModelBuilder _reviewModel;
     private readonly ISessionSteeringModeProvider _steering;
     private readonly DeclaredPolicyLoader _policyLoader;
@@ -148,7 +149,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IWorkItemSnapshotReader? providerSnapshots = null,
         IWorkItemDiscussionReader? discussionReader = null,
         IWorkItemDiscussionWriter? discussionWriter = null,
-        DiscussionAppendAdmission? discussionAdmission = null)
+        DiscussionAppendAdmission? discussionAdmission = null,
+        string? systemRegistryPath = null)
     {
         _parser = parser;
         _journal = journal;
@@ -160,6 +162,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _revisionBound = revisionBound;
         _publishIntent = publishIntent;
         _origin = origin;
+        _systemRegistryPath = systemRegistryPath ?? Path.Combine(
+            Twig.Infrastructure.Auth.ConnectionBindingService.ResolveUserHome(), "system.db");
 
         _config = config;
         _paths = paths;
@@ -196,6 +200,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _config = config;
         _paths = paths;
         _clock = TimeProvider.System;
+        _systemRegistryPath = string.Empty;
         _ruleGate = new PlanProcessRuleGate(rules: null);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo)
         {

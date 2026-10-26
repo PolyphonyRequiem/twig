@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Net.Http;
 using NSubstitute;
@@ -145,11 +146,15 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         IWorkItemDiscussionReader? discussionReader = null,
         IWorkItemDiscussionWriter? discussionWriter = null,
         DiscussionAppendAdmission? discussionAdmission = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        string? systemRegistryPath = null,
+        string? startDir = null)
     {
         var provider = timeProvider ?? (clock is null
             ? TimeProvider.System
             : new FakeClock(clock.Value));
+        var paths = startDir is null ? _paths : new TwigPaths(
+            _paths.TwigDir, _paths.ConfigPath, _paths.DbPath, startDir);
         return new PlanLifecycleService(
             new PlanDocumentParser(),
             journal ?? _journal,
@@ -165,7 +170,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             _publishIdMap,
             _publishIntent,
             _config,
-            _paths,
+            paths,
             provider,
             new StubSteering(() => { _steeringResolutions++; return _steeringMode; }),
             origin ?? new FixtureOrigin(_repoRoot),
@@ -174,7 +179,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             providerSnapshots: providerSnapshots,
             discussionReader: discussionReader,
             discussionWriter: discussionWriter,
-            discussionAdmission: discussionAdmission);
+            discussionAdmission: discussionAdmission,
+            systemRegistryPath: systemRegistryPath);
     }
 
     [Fact]
@@ -1985,6 +1991,368 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         apply.Operations[0].State.ShouldBe(PlanOperationState.Failed);
         apply.Operations[0].Error!.ShouldContain("fingerprint drift");
         _seedPublish.CallCount.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(false, true, false)]
+    public async Task Reconcile_RejectedCreateFamily_RequiresEveryMatchingSiblingToBeRejected(
+        bool secondMemberMatchesOriginalIntent, bool secondMemberRejected, bool secondMemberHasStructuredCorrelation)
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000041"));
+        InitializeGitRepository(_repoRoot);
+        await _config.SaveSplitAsync(_paths);
+        using var workspaceStore = new SqliteCacheStore($"Data Source={_paths.DbPath}");
+        var workspaceJournal = new SqlitePlanJournalRepository(workspaceStore);
+        var file = WritePlan(PublishSeedPlan(identity, expectedFingerprint: "fixture-seed"));
+        var registryPath = Path.Combine(_repoRoot, "rejected-family-system.db");
+        var worktreeRoot = _repoRoot;
+        var planService = BuildService(
+            journal: workspaceJournal, origin: new FixtureOrigin(worktreeRoot),
+            systemRegistryPath: registryPath, startDir: worktreeRoot);
+        var validation = await planService.ValidateAsync(file);
+        validation.IsValid.ShouldBeTrue();
+        var digest = validation.Digest!;
+        var origin = await new FixtureOrigin(worktreeRoot).GetOriginAsync();
+        (await workspaceJournal.ImportAsync(validation.Plan!, validation.CanonicalJson!, digest, file,
+            DateTimeOffset.UtcNow, origin: origin)).ShouldNotBeNull();
+        var operation = (await workspaceJournal.GetAsync(digest))!.Operations.Single();
+        var now = DateTimeOffset.UtcNow;
+        (await workspaceJournal.TryTransitionOperationAsync(digest, operation.OpId,
+            PlanOperationState.Planned, PlanOperationState.Confirmed, now)).ShouldBeTrue();
+        (await workspaceJournal.TryTransitionOperationAsync(digest, operation.OpId,
+            PlanOperationState.Confirmed, PlanOperationState.Applying, now)).ShouldBeTrue();
+        await workspaceJournal.SaveOperationErrorAsync(digest, operation.OpId, "Original create outcome is unknown.",
+            PlanOperationState.Indeterminate, now);
+
+        var workspaceIntents = new SqlitePublishIntentRepository(workspaceStore);
+        var intent = await workspaceIntents.RecordIntentAsync(identity, "Rejected family seed", "Task");
+        var independentIdentity = StagedIdentity.New();
+        var independentIntent = await workspaceIntents.RecordIntentAsync(
+            independentIdentity, "Independent seed", "Task");
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>()).Returns(intent);
+
+        using var native = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
+        (await native.EnsureBindingConnectionAsync(origin.ConnectionRef, "acme", "cache", CancellationToken.None))
+            .IsSuccess.ShouldBeTrue();
+        (await native.UpsertWorktreeAsync(origin.WorktreeFingerprint, origin.ConnectionRef, origin.WorktreeRoot))
+            .IsSuccess.ShouldBeTrue();
+        var registeredAt = DateTimeOffset.UtcNow;
+        (await native.InsertIdentityAsync(new IdentityRow(
+            origin.IdentityId, "fixture", origin.TenantId, origin.ObjectId, origin.Issuer,
+            "login.microsoftonline.com", origin.CredentialRef, null, registeredAt, registeredAt,
+            origin.Method))).IsSuccess.ShouldBeTrue();
+        (await native.InsertOrGetBindingAsync(new BindingRow(
+            origin.BindingId, origin.ConnectionRef, origin.IdentityId, origin.BindingRevision,
+            registeredAt, registeredAt))).IsSuccess.ShouldBeTrue();
+
+        var correlation = new SeedPublishCorrelation(identity, intent.RecordedAt);
+        var payload = "[{\"op\":\"add\",\"path\":\"/fields/System.Title\",\"value\":\"Rejected family seed\"},"
+            + "{\"op\":\"add\",\"path\":\"/fields/System.Description\",\"value\":\""
+            + correlation.DescriptionMarkerHtml + "\"}]";
+        var request = new ConnectionRemoteWriteRequest(
+            "workitem-create",
+            "POST",
+            "https://dev.azure.com/acme/cache/_apis/wit/workitems/$Task?api-version=7.1",
+            payload,
+            null,
+            correlation);
+        var binding = new ResolvedConnectionBinding(
+            new IdentityBinding(origin.BindingId, origin.ConnectionRef, origin.IdentityId, origin.BindingRevision),
+            new AuthenticationIdentity(origin.IdentityId, "fixture", origin.TenantId, origin.ObjectId,
+                origin.Issuer, "login.microsoftonline.com", origin.CredentialRef, null, origin.Method),
+            origin.WorktreeRoot,
+            origin.SelectionSource,
+            origin.SelectionRevision,
+            new ConnectionOperationSnapshot(
+                "acme", "cache", "", origin.WorktreeFingerprint, origin.AttachmentRevision,
+                "/fixture/config", "/fixture/preferences", "ascii", "default"));
+        ConnectionRemoteWriteAdmission.SeedCreateTitle(request.Payload).ShouldBe(intent.Title);
+        ConnectionRemoteWriteAdmission.SeedCreateType(request.Target).ShouldBe(intent.TypeName);
+        ConnectionRemoteWriteAdmission.SeedCreateHasDescriptionCorrelation(request.Payload, correlation).ShouldBeTrue();
+        ConnectionRemoteWriteAdmission.IsWithinAuthority(binding, new Uri(request.Target)).ShouldBeTrue();
+        for (var index = 0; index < 2; index++)
+        {
+            var memberCorrelation = index == 1 && !secondMemberMatchesOriginalIntent
+                ? new SeedPublishCorrelation(identity, intent.RecordedAt.AddTicks(1))
+                : correlation;
+            var memberRequest = request with
+            {
+                SeedCorrelation = index == 1 && !secondMemberHasStructuredCorrelation
+                    ? null
+                    : memberCorrelation,
+            };
+            var nativeIntent = new ConnectionRemoteWriteIntent(
+                1, Guid.NewGuid().ToString("N"),
+                ConnectionRemoteWriteAdmission.RequestDigest(binding, memberRequest),
+                origin.WorktreeFingerprint, binding, memberRequest, now.AddSeconds(index));
+            (await native.BeginConnectionRemoteWriteAsync(nativeIntent)).IsSuccess.ShouldBeTrue();
+
+            var response = new ConnectionRemoteWriteResponse(
+                index == 1 && !secondMemberRejected ? 500 : 400,
+                "{\"typeKey\":\"WorkItemFieldInvalidException\",\"requestId\":\"fixture-" + index + "\"}",
+                "fixture-" + index,
+                null);
+            var kind = ConnectionRemoteWriteAdmission.ClassifyAcknowledgement(memberRequest, response);
+            kind.ShouldBe(index == 1 && !secondMemberRejected ? null : "rejected",
+                "the existing native classifier must prove each member's actual response classification");
+            var observation = new ConnectionRemoteWriteObservation(
+                1, Guid.NewGuid().ToString("N"), nativeIntent.IntentId, nativeIntent.RequestDigest,
+                response, now.AddSeconds(index + 1));
+            var nativeReceipt = kind is null ? null : new ConnectionRemoteWriteReceipt(
+                1, Guid.NewGuid().ToString("N"), nativeIntent.IntentId, nativeIntent.RequestDigest, kind,
+                observation.ObservationId,
+                JsonSerializer.Serialize(response, Twig.Infrastructure.Serialization.TwigJsonContext.Default.ConnectionRemoteWriteResponse),
+                binding, null, null, now.AddSeconds(index + 1));
+            (await native.ObserveConnectionRemoteWriteAsync(nativeIntent, observation, nativeReceipt)).IsSuccess.ShouldBeTrue();
+        }
+
+        var histories = await native.ReadConnectionRemoteWritesAsync(origin.WorktreeFingerprint);
+        histories.IsSuccess.ShouldBeTrue();
+        histories.Value.Count.ShouldBe(2);
+        histories.Value[0].Receipt?.Kind.ShouldBe("rejected");
+        histories.Value[0].Observations.ShouldHaveSingleItem();
+        histories.Value[1].Observations.ShouldHaveSingleItem();
+        histories.Value.All(history =>
+            history.Intent.Fingerprint == origin.WorktreeFingerprint
+            && history.Intent.Request.EffectKind == request.EffectKind
+            && history.Intent.Request.Method == request.Method
+            && history.Intent.Request.Target == request.Target
+            && history.Intent.Origin.Binding.BindingId == origin.BindingId
+            && history.Intent.Origin.Binding.ConnectionRef == origin.ConnectionRef
+            && history.Intent.Origin.Binding.IdentityId == origin.IdentityId
+            && (history.Intent.Request.SeedCorrelation is { } captured
+                ? captured.Identity == identity
+                : history.Intent.Request.EffectKind == "workitem-create"))
+            .ShouldBeTrue("both native creates must be in the exact staged identity family");
+        var secondHistory = histories.Value[1];
+        if (secondMemberHasStructuredCorrelation)
+            secondHistory.Intent.Request.SeedCorrelation!.IntentRecordedAt.ShouldBe(
+                secondMemberMatchesOriginalIntent ? intent.RecordedAt : intent.RecordedAt.AddTicks(1));
+        else
+        {
+            secondHistory.Intent.Request.SeedCorrelation.ShouldBeNull();
+            ConnectionRemoteWriteAdmission.SeedCreateHasDescriptionCorrelation(
+                secondHistory.Intent.Request.Payload, correlation).ShouldBeTrue(
+                "the unstructured sibling still carries the exact original staged identity marker");
+        }
+        ConnectionRemoteWriteAdmission.ClassifyAcknowledgement(
+            secondHistory.Intent.Request, secondHistory.Observations[0].Response)
+            .ShouldBe(secondMemberRejected ? "rejected" : null);
+        var unknown = (await workspaceJournal.GetAsync(digest))!.Operations.Single();
+        unknown.State.ShouldBe(PlanOperationState.Indeterminate);
+        unknown.OutcomeReceipt.ShouldBeNull();
+        (await workspaceIntents.GetIntentAsync(identity))!.IsOpen.ShouldBeTrue();
+
+        if (secondMemberMatchesOriginalIntent && secondMemberRejected)
+        {
+            ExecuteJournalSql(workspaceStore, """
+                CREATE TEMP TRIGGER fail_rejected_family_receipt
+                BEFORE INSERT ON pending.proposal_receipts
+                WHEN NEW.kind = 'RejectedCreateFamily'
+                BEGIN SELECT RAISE(ABORT, 'simulated local receipt write failure'); END;
+                """);
+            var interrupted = await planService.ReconcileAsync(
+                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
+                Authorize(digest) with { Rationale = "Verify failed local disposition remains unresolved." });
+            interrupted.Settled.ShouldBeFalse();
+            (await workspaceJournal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
+            (await workspaceIntents.GetIntentAsync(identity))!.IsOpen.ShouldBeTrue();
+            ExecuteJournalSql(workspaceStore, "DROP TRIGGER fail_rejected_family_receipt;");
+        }
+
+        var result = await planService.ReconcileAsync(
+            file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
+            Authorize(digest) with { Rationale = "Test the bounded rejected create-family reconciliation." });
+
+        if (!secondMemberMatchesOriginalIntent || !secondMemberRejected)
+        {
+            result.Settled.ShouldBeFalse();
+            result.Receipt.ShouldBeNull();
+            (await workspaceJournal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
+            (await workspaceIntents.GetIntentAsync(identity))!.IsOpen.ShouldBeTrue();
+            (await workspaceIntents.GetOpenIntentsAsync()).ShouldContain(open => open.Identity == identity);
+            return;
+        }
+
+        result.Settled.ShouldBeTrue(
+            $"a complete valid rejected create family should reconcile the original unknown proposal; refusal: {result.Error}");
+        result.Receipt.ShouldNotBeNull();
+        var validReceipt = result.Receipt!;
+        validReceipt.Kind.ShouldBe(PlanOutcomeKind.RejectedCreateFamily);
+        var storedReceiptJson = JsonSerializer.Serialize(
+            validReceipt, Twig.Infrastructure.Serialization.TwigJsonContext.Default.PlanOutcomeReceipt);
+        var persistedProof = JsonSerializer.Deserialize(validReceipt.EvidenceJson,
+            Twig.Infrastructure.Serialization.TwigJsonContext.Default.RejectedCreateFamilyProof);
+        persistedProof.ShouldNotBeNull();
+        var validProof = persistedProof!;
+        var originalOrigin = validReceipt.Origin!;
+        var changedOrigin = originalOrigin with
+        {
+            SelectionSource = originalOrigin.SelectionSource + "-tampered",
+        };
+        var changedRecordedAt = intent.RecordedAt.AddTicks(1);
+        var changedRecordedAtText = changedRecordedAt.ToString("o", CultureInfo.InvariantCulture);
+        var changedMembers = validProof.Members.Select(member =>
+        {
+            var originalCorrelation = member.Intent.Request.SeedCorrelation!;
+            var changedCorrelation = originalCorrelation with { IntentRecordedAt = changedRecordedAt };
+            var changedRequest = member.Intent.Request with
+            {
+                Payload = member.Intent.Request.Payload.Replace(
+                    originalCorrelation.DescriptionMarkerHtml,
+                    changedCorrelation.DescriptionMarkerHtml,
+                    StringComparison.Ordinal),
+                SeedCorrelation = changedCorrelation,
+            };
+            var changedRequestDigest = ConnectionRemoteWriteAdmission.RequestDigest(
+                member.Intent.Origin, changedRequest);
+            return member with
+            {
+                Intent = member.Intent with
+                {
+                    Request = changedRequest,
+                    RequestDigest = changedRequestDigest,
+                },
+                Observation = member.Observation with { RequestDigest = changedRequestDigest },
+                Receipt = member.Receipt with { RequestDigest = changedRequestDigest },
+            };
+        }).ToArray();
+        var changedRecordedAtReceipt = validReceipt with
+        {
+            PublishIntentRecordedAt = changedRecordedAtText,
+            EvidenceJson = JsonSerializer.Serialize(
+                validProof with
+                {
+                    PublishIntentRecordedAt = changedRecordedAtText,
+                    Members = changedMembers,
+                },
+                Twig.Infrastructure.Serialization.TwigJsonContext.Default.RejectedCreateFamilyProof),
+        };
+        var tamperedReceipts = new[]
+        {
+            validReceipt with { Digest = digest + "-tampered" },
+            validReceipt with { OpId = operation.OpId + "-tampered" },
+            validReceipt with
+            {
+                RequestJson = validReceipt.RequestJson[..^1] + ",\"unexpected\":true}",
+            },
+            validReceipt with { Origin = changedOrigin, AuthorizingOrigin = changedOrigin },
+            changedRecordedAtReceipt,
+        };
+        foreach (var tamperedReceipt in tamperedReceipts)
+        {
+            RejectedCreateFamilyReceiptValidator.IsValid(tamperedReceipt, identity).ShouldBeTrue(
+                "the proof remains valid so the test isolates binding to the immutable journal row");
+            var tamperedJson = JsonSerializer.Serialize(
+                tamperedReceipt, Twig.Infrastructure.Serialization.TwigJsonContext.Default.PlanOutcomeReceipt);
+            ExecuteJournalSql(workspaceStore, $"""
+                UPDATE pending.proposal_receipts SET receipt_json = '{tamperedJson.Replace("'", "''", StringComparison.Ordinal)}'
+                WHERE digest = '{digest}' AND op_id = '{operation.OpId}';
+                """);
+            (await workspaceJournal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBe(tamperedReceipt);
+
+            var tamperedResult = await planService.ReconcileAsync(
+                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
+                Authorize(digest) with { Rationale = "Reject a receipt not bound to its original journal row." });
+            tamperedResult.Settled.ShouldBeFalse(
+                "idempotent reconciliation must not settle from receipt JSON that differs from its immutable journal row");
+            tamperedResult.Receipt.ShouldBeNull();
+
+            ExecuteJournalSql(workspaceStore, $"""
+                UPDATE pending.proposal_receipts SET receipt_json = '{storedReceiptJson.Replace("'", "''", StringComparison.Ordinal)}'
+                WHERE digest = '{digest}' AND op_id = '{operation.OpId}';
+                """);
+        }
+        var malformedReceipt = validReceipt with
+        {
+            EvidenceJson = JsonSerializer.Serialize(
+                validProof with { Members = [null!] },
+                Twig.Infrastructure.Serialization.TwigJsonContext.Default.RejectedCreateFamilyProof),
+        };
+        RejectedCreateFamilyReceiptValidator.IsValid(malformedReceipt, identity).ShouldBeFalse(
+            "a malformed nested proof must be rejected, not crash a diagnostic or admission read");
+        var closedIntent = await workspaceIntents.GetIntentAsync(identity);
+        closedIntent.ShouldNotBeNull();
+        closedIntent.RecordedAt.ShouldBe(intent.RecordedAt);
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => workspaceIntents.RecordIntentAsync(identity, "Rejected family seed", "Task"));
+        var requestAfterSettlement = request;
+        var nativeHistoryBeforeReuse = (await native.ReadConnectionRemoteWritesAsync(origin.WorktreeFingerprint)).Value;
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => ConnectionRemoteWriteAdmission.BeginWithWorkspaceStoreAsync(
+                registryPath, binding, requestAfterSettlement, workspaceStore));
+        (await native.ReadConnectionRemoteWritesAsync(origin.WorktreeFingerprint)).Value.Count
+            .ShouldBe(nativeHistoryBeforeReuse.Count, "a settled identity must be refused before a new native intent is admitted");
+        (await workspaceIntents.GetIntentAsync(identity)).ShouldNotBeNull(
+            "the closed disposition must not make the historical intent unreadable");
+
+        var laterIdentity = StagedIdentity.New();
+        var laterIntent = await workspaceIntents.RecordIntentAsync(
+            laterIdentity, "Later independent seed", "Task");
+        var laterCorrelation = new SeedPublishCorrelation(laterIdentity, laterIntent.RecordedAt);
+        var laterRequest = request with
+        {
+            Payload = "[{\"op\":\"add\",\"path\":\"/fields/System.Title\",\"value\":\"Later independent seed\"},"
+                + "{\"op\":\"add\",\"path\":\"/fields/System.Description\",\"value\":\""
+                + laterCorrelation.DescriptionMarkerHtml + "\"}]",
+            SeedCorrelation = laterCorrelation,
+        };
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => ConnectionRemoteWriteAdmission.BeginWithWorkspaceStoreAsync(
+                registryPath, binding, laterRequest with { EffectKind = "workitem-patch", Method = "PATCH" }, workspaceStore));
+        (await native.ReadConnectionRemoteWritesAsync(origin.WorktreeFingerprint)).Value.Count
+            .ShouldBe(nativeHistoryBeforeReuse.Count, "seed correlation must not authorize a different mutation kind");
+        var laterAdmission = await ConnectionRemoteWriteAdmission.BeginWithWorkspaceStoreAsync(
+            registryPath, binding, laterRequest, workspaceStore);
+        laterAdmission.ShouldNotBeNull();
+        var historiesAfterIndependentAdmission =
+            (await native.ReadConnectionRemoteWritesAsync(origin.WorktreeFingerprint)).Value;
+        historiesAfterIndependentAdmission.Count.ShouldBe(nativeHistoryBeforeReuse.Count + 1);
+        historiesAfterIndependentAdmission[^1].Intent.Request.SeedCorrelation!.Identity.ShouldBe(laterIdentity);
+        var remainingOpen = await workspaceIntents.GetOpenIntentsAsync();
+        remainingOpen.Count.ShouldBe(2);
+        remainingOpen.ShouldContain(open =>
+            open.Identity == independentIdentity && open.RecordedAt == independentIntent.RecordedAt);
+        remainingOpen.ShouldContain(open =>
+            open.Identity == laterIdentity && open.RecordedAt == laterIntent.RecordedAt);
+        remainingOpen.ShouldNotContain(open => open.Identity == identity);
+    }
+
+    private static string FindGitRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+            if (Directory.Exists(Path.Combine(directory.FullName, ".git"))
+                || File.Exists(Path.Combine(directory.FullName, ".git")))
+                return directory.FullName;
+        throw new InvalidOperationException("The test checkout root could not be located.");
+    }
+
+    private static void InitializeGitRepository(string path)
+    {
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git", "init -q")
+        {
+            WorkingDirectory = path,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        }) ?? throw new InvalidOperationException("Could not start git init for the isolated admission fixture.");
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(5_000) || process.ExitCode != 0)
+            throw new InvalidOperationException($"Could not initialize isolated worktree: {stdout}{stderr}");
+    }
+
+    private static void ExecuteJournalSql(SqliteCacheStore store, string sql)
+    {
+        using var command = store.GetConnection().CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
     }
 
     // ── seed publish: map-based recovery (no republish) ────────────────────

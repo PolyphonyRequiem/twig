@@ -2236,6 +2236,33 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         (await _repo.GetLatestUnresolvedAsync())!.Digest.ShouldBe(planB.Digest);
     }
 
+    [Fact]
+    public async Task GetUnresolved_KeepsAProposalOpenForAnUnvalidatedRejectedFamilyReceipt()
+    {
+        var plan = BuildLinkPlan();
+        var origin = NewOrigin("unvalidated-negative");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/unvalidated-negative.json",
+            Now(), origin: origin);
+        var operation = (await _repo.GetAsync(plan.Digest))!.Operations.ShouldHaveSingleItem();
+        var rawReceipt = NewReadbackReceipt(plan.Digest, operation.OpId, operation.RequestJson, origin) with
+        {
+            Kind = PlanOutcomeKind.RejectedCreateFamily,
+            EvidenceJson = "{}",
+        };
+        InsertReceiptRow(rawReceipt);
+
+        var diagnostic = (await _repo.GetAsync(plan.Digest))!.Operations.ShouldHaveSingleItem();
+        diagnostic.OutcomeReceipt.ShouldNotBeNull();
+        diagnostic.OutcomeReceipt!.Kind.ShouldBe(PlanOutcomeKind.RejectedCreateFamily);
+        diagnostic.OutcomeReceipt.EvidenceJson.ShouldBe("{}");
+
+        var unresolved = await _repo.GetUnresolvedAsync();
+
+        unresolved.Select(journal => journal.Digest).ShouldBe([plan.Digest]);
+        var latest = (await _repo.GetLatestUnresolvedAsync()).ShouldNotBeNull();
+        latest!.Digest.ShouldBe(plan.Digest);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -2423,6 +2450,29 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             PublishIdentity = null,
             PublishIntentRecordedAt = null,
         };
+
+    private void InsertReceiptRow(PlanOutcomeReceipt receipt)
+    {
+        using var bindingOperation = _store.AcquireOperation();
+        using var command = _store.GetConnection().CreateCommand();
+        command.Transaction = _store.ActiveTransaction;
+        command.CommandText = """
+            INSERT INTO proposal_receipts
+                (digest, op_id, receipt_id, kind, publish_identity, publish_intent_recorded_at, receipt_json, created_at)
+            VALUES
+                (@digest, @opId, @receiptId, @kind, @identity, @recordedAt, @json, @createdAt);
+            """;
+        command.Parameters.AddWithValue("@digest", receipt.Digest);
+        command.Parameters.AddWithValue("@opId", receipt.OpId);
+        command.Parameters.AddWithValue("@receiptId", receipt.ReceiptId);
+        command.Parameters.AddWithValue("@kind", receipt.Kind.ToString());
+        command.Parameters.AddWithValue("@identity", (object?)receipt.PublishIdentity?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("@recordedAt", (object?)receipt.PublishIntentRecordedAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("@json", JsonSerializer.Serialize(
+            receipt, Twig.Infrastructure.Serialization.TwigJsonContext.Default.PlanOutcomeReceipt));
+        command.Parameters.AddWithValue("@createdAt", Now().ToString("o"));
+        command.ExecuteNonQuery();
+    }
 
     private static PlanFixture BuildTwoOpPlan()
     {

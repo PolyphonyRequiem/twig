@@ -2,10 +2,11 @@ using System.Diagnostics;
 using Shouldly;
 using Twig.Infrastructure.GitHub;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Twig.Infrastructure.Tests.GitHub;
 
-public sealed class GhCliTokenSourceTests
+public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
 {
     private const string Secret = "gho_SECRETtoken123";
 
@@ -18,20 +19,39 @@ public sealed class GhCliTokenSourceTests
         var call = runner.Calls.Single();
         var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
+        var clock = Stopwatch.StartNew();
+        var phase = "startup";
+        Process? process = null;
+        Task<string>? stdout = null, stderr = null;
         try
         {
             var start = BoundedProcessRunner.CreateStartInfo(call.FileName,
                 [.. call.Arguments, "--help"], runner.ExcludedEnvironment);
-            foreach (var key in new[] { "GH_CONFIG_DIR", "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "TWIG_USER_HOME" })
-                start.Environment[key] = root;
+            foreach (var (key, directory) in new[]
+            {
+                ("HOME", "home"), ("USERPROFILE", "home"), ("TWIG_USER_HOME", "twig"),
+                ("GH_CONFIG_DIR", "gh-config"), ("XDG_CONFIG_HOME", "xdg-config"),
+                ("XDG_CACHE_HOME", "xdg-cache"), ("XDG_STATE_HOME", "xdg-state"),
+                ("XDG_DATA_HOME", "xdg-data"), ("APPDATA", "appdata"), ("LOCALAPPDATA", "localappdata"),
+            })
+            {
+                var path = Path.Combine(root, directory);
+                Directory.CreateDirectory(path);
+                start.Environment[key] = path;
+            }
+            start.WorkingDirectory = start.Environment["HOME"]!;
             start.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
+            start.Environment["GH_NO_EXTENSION_UPDATE_NOTIFIER"] = "1";
             start.Environment["GH_PROMPT_DISABLED"] = "1";
+            start.Environment["GH_TELEMETRY"] = "disabled";
+            start.Environment["DO_NOT_TRACK"] = "1";
             start.Environment.Remove("TWIG_TELEMETRY_ENDPOINT");
-            using var process = Process.Start(start)
+            process = Process.Start(start)
                 ?? throw new InvalidOperationException("GitHub CLI parser did not start.");
             process.StandardInput.Close();
-            var stdout = process.StandardOutput.ReadToEndAsync();
-            var stderr = process.StandardError.ReadToEndAsync();
+            stdout = process.StandardOutput.ReadToEndAsync();
+            stderr = process.StandardError.ReadToEndAsync();
+            phase = "wait";
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             try
             {
@@ -39,23 +59,93 @@ public sealed class GhCliTokenSourceTests
             }
             catch (OperationCanceledException)
             {
+                WriteParserDiagnostics();
                 process.Kill(entireProcessTree: true);
                 await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
                 throw;
             }
+            phase = "drain";
             var output = await stdout.WaitAsync(TimeSpan.FromSeconds(5));
             var error = await stderr.WaitAsync(TimeSpan.FromSeconds(5));
-            process.ExitCode.ShouldBe(0, error);
+            phase = "assert";
+            process.ExitCode.ShouldBe(0);
             output.ShouldContain("--hostname");
             output.ShouldContain("--user");
             output.ShouldNotContain(Secret);
-            Directory.GetFileSystemEntries(root).ShouldBeEmpty("help must not initialize credential configuration");
+            error.ShouldNotContain(Secret);
+            ParserCredentialConfigurationFiles(root).ShouldBeEmpty(
+                "help must not initialize credential configuration; non-credential state directories are permitted");
+        }
+        finally
+        {
+            WriteParserDiagnostics();
+            process?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+
+        void WriteParserDiagnostics()
+        {
+            diagnostics.WriteLine(
+                $"gh-help phase={phase} elapsedMs={clock.ElapsedMilliseconds} started={process is not null} "
+                + $"exited={process?.HasExited} exitCode={(process?.HasExited == true ? (int?)process.ExitCode : null)} "
+                + $"stdoutStatus={stdout?.Status} stdoutChars={(stdout?.IsCompletedSuccessfully == true ? (int?)stdout.Result.Length : null)} "
+                + $"stderrStatus={stderr?.Status} stderrChars={(stderr?.IsCompletedSuccessfully == true ? (int?)stderr.Result.Length : null)}");
+            diagnostics.WriteLine("gh-help ownedFiles=" + string.Join(",",
+                Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                    .Take(40).Select(file => Path.GetRelativePath(root, file))));
+        }
+    }
+
+    [Fact]
+    public void ParserIsolation_AllowsNonCredentialState()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
+        var state = Path.Combine(root, "home", ".local", "state", "gh");
+        Directory.CreateDirectory(state);
+        try
+        {
+            File.WriteAllText(Path.Combine(state, "device-id"), "fixture-device-id");
+            ParserCredentialConfigurationFiles(root).ShouldBeEmpty();
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Theory]
+    [InlineData("gh-config", "", "hosts.yml")]
+    [InlineData("gh-config", "", "config.yml")]
+    [InlineData("xdg-config", "gh", "hosts.yml")]
+    [InlineData("appdata", "GitHub CLI", "config.yml")]
+    [InlineData("home", ".config", "hosts.yml")]
+    [InlineData("xdg-state", "gh", "hosts.yml")]
+    public void ParserIsolation_DetectsCredentialConfiguration(string directory, string child, string name)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, directory, child);
+        Directory.CreateDirectory(path);
+        try
+        {
+            var file = Path.Combine(path, name);
+            File.WriteAllText(file, "fixture-only");
+            ParserCredentialConfigurationFiles(root).ShouldBe([file]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static IEnumerable<string> ParserCredentialConfigurationFiles(string root) =>
+        Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Where(file =>
+        {
+            var name = Path.GetFileName(file);
+            var directory = Path.GetRelativePath(root, file).Split(Path.DirectorySeparatorChar)[0];
+            return directory is "gh-config" or "xdg-config" or "appdata"
+                || string.Equals(name, "hosts.yml", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "config.yml", StringComparison.OrdinalIgnoreCase);
+        });
 
     [Fact]
     public async Task Success_RunsGhAuthTokenWithArgumentArrayAndBounds_AndCachesInMemory()

@@ -272,6 +272,11 @@ public sealed class ConnectionBindingReadTests : IAsyncLifetime
             var decoded = JwtAccessTokenInspector.TryDecode(bearer);
             if (decoded?.ObjectId != allowedPrincipal)
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("{\"message\":\"Principal cannot read the corporate project\"}", Encoding.UTF8, "application/json") });
+            if (request.RequestUri!.AbsolutePath.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
+            {
+                var connectionData = "{\"authenticatedUser\":{\"id\":\"" + allowedPrincipal + "\",\"providerDisplayName\":\"Fixture reader\"},\"instanceId\":\"b0b0b0b0-0008-4000-8000-000000000008\"}";
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(connectionData, Encoding.UTF8, "application/json") });
+            }
             if (request.RequestUri!.AbsolutePath.Contains("/workitems", StringComparison.Ordinal))
             {
                 var body = "{\"id\":42,\"rev\":1,\"fields\":{\"System.Title\":\"Corporate-only release plan\",\"System.WorkItemType\":\"Task\",\"System.State\":\"To Do\",\"System.AreaPath\":\"Corporate\",\"System.IterationPath\":\"Corporate\"},\"relations\":[]}";

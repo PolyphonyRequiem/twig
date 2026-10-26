@@ -106,7 +106,49 @@ public sealed class CommandExampleParameterDriftTests
             + string.Join("\n", failures));
     }
 
-    private sealed record CommandSignature(int PositionalCount, IReadOnlySet<string> Options);
+    /// <summary>
+    /// Deterministic controls for the shell-operator cut and boolean arity. Each case pins a
+    /// way the cut could turn a real drift into a false green.
+    /// </summary>
+    [Theory]
+    // Valid shell redirection: the operator and its target never reach argv.
+    [InlineData("twig probe --ids 42 --proposal-only > repair.json", 0)]
+    // A boolean takes no value, so a stray word before the redirection is a real positional.
+    [InlineData("twig probe --ids 42 --proposal-only bogus > repair.json", 1)]
+    // A QUOTED operator is a literal argument value, not a shell operator; the cut must not
+    // hide the genuine extra positional that follows it.
+    [InlineData("twig probe --ids \">\" extra", 1)]
+    [InlineData("twig probe \">\"", 1)]
+    [InlineData("twig probe --proposal-only \"|\" extra", 2)]
+    public void ShellOperatorCut_AndBooleanArity_CountOnlyRealPositionals(string invocation, int expected)
+    {
+        var signature = new CommandSignature(
+            PositionalCount: 0,
+            Options: new HashSet<string>(StringComparer.Ordinal) { "ids", "proposal-only" },
+            BooleanOptions: new HashSet<string>(StringComparer.Ordinal) { "proposal-only" });
+
+        CountPositionals(Tokenize(invocation, "probe"), signature).ShouldBe(expected);
+    }
+
+    /// <summary>
+    /// Boolean arity comes from the reflected signature, not from a name list: the real
+    /// <c>policy reconcile</c> declares <c>--proposal-only</c> as a switch and <c>--ids</c>
+    /// as a valued option.
+    /// </summary>
+    [Fact]
+    public void BooleanArity_IsReflectedFromTheRealCommandSignature()
+    {
+        var reconcile = DiscoverCommands()["policy reconcile"];
+
+        reconcile.BooleanOptions.ShouldContain("proposal-only");
+        reconcile.Options.ShouldContain("ids");
+        reconcile.BooleanOptions.ShouldNotContain("ids");
+    }
+
+    private sealed record CommandSignature(
+        int PositionalCount,
+        IReadOnlySet<string> Options,
+        IReadOnlySet<string> BooleanOptions);
 
     /// <summary>
     /// Longest declared command name that the invocation begins with, so an example under a
@@ -165,6 +207,7 @@ public sealed class CommandExampleParameterDriftTests
 
             var positional = 0;
             var options = new HashSet<string>(StringComparer.Ordinal);
+            var booleans = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var p in method.GetParameters())
             {
@@ -178,10 +221,14 @@ public sealed class CommandExampleParameterDriftTests
                 }
 
                 // ConsoleAppFramework exposes non-[Argument] parameters as --kebab-case options.
-                options.Add(ToKebabCase(p.Name!));
+                var option = ToKebabCase(p.Name!);
+                options.Add(option);
+                // ConsoleAppFramework binds a bool option as a switch that consumes no value.
+                if (p.ParameterType == typeof(bool))
+                    booleans.Add(option);
             }
 
-            result[commandName] = new CommandSignature(positional, options);
+            result[commandName] = new CommandSignature(positional, options, booleans);
         }
 
         return result;
@@ -234,8 +281,8 @@ public sealed class CommandExampleParameterDriftTests
 
     /// <summary>
     /// Bare shell operators. The shell consumes the operator and its target before argv is
-    /// built, so neither reaches the command. Matched as WHOLE tokens only, so a placeholder
-    /// such as <c>&lt;digest&gt;</c> remains an ordinary value.
+    /// built, so neither reaches the command. Matched only as WHOLE, UNQUOTED tokens: a
+    /// placeholder such as <c>&lt;digest&gt;</c> and a quoted <c>"&gt;"</c> stay ordinary values.
     /// </summary>
     private static readonly HashSet<string> ShellOperators =
         new(StringComparer.Ordinal) { ">", ">>", "<", "2>", "2>>", "|", "&&", "||", ";" };
@@ -243,34 +290,36 @@ public sealed class CommandExampleParameterDriftTests
     private static string[] Tokenize(string invocation, string commandName)
     {
         var all = SplitRespectingQuotes(invocation);
-        // Without this cut, `--proposal-only > repair.json` reads as a boolean consuming
-        // '>' as its value and 'repair.json' as a positional the command never receives.
-        var operatorAt = Array.FindIndex(all, ShellOperators.Contains);
+        // Without this cut, `--proposal-only > repair.json` would count 'repair.json' as a
+        // positional the command never receives.
+        var operatorAt = Array.FindIndex(all, t => !t.Quoted && ShellOperators.Contains(t.Text));
         if (operatorAt >= 0)
             all = all[..operatorAt];
         // Drop "twig" plus the command's own words ("link parent" == 2 words).
         var skip = 1 + commandName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
-        return all.Length <= skip ? [] : all[skip..];
+        return all.Length <= skip ? [] : [.. all[skip..].Select(t => t.Text)];
     }
 
-    private static string[] SplitRespectingQuotes(string s)
+    private static (string Text, bool Quoted)[] SplitRespectingQuotes(string s)
     {
-        var tokens = new List<string>();
+        var tokens = new List<(string, bool)>();
         var current = new System.Text.StringBuilder();
         var inQuotes = false;
+        var quoted = false;
 
         foreach (var c in s)
         {
-            if (c == '"') { inQuotes = !inQuotes; continue; }
+            if (c == '"') { inQuotes = !inQuotes; quoted = true; continue; }
             if (c == ' ' && !inQuotes)
             {
-                if (current.Length > 0) { tokens.Add(current.ToString()); current.Clear(); }
+                if (current.Length > 0 || quoted) { tokens.Add((current.ToString(), quoted)); current.Clear(); }
+                quoted = false;
                 continue;
             }
             current.Append(c);
         }
 
-        if (current.Length > 0) tokens.Add(current.ToString());
+        if (current.Length > 0 || quoted) tokens.Add((current.ToString(), quoted));
         return [.. tokens];
     }
 
@@ -297,6 +346,11 @@ public sealed class CommandExampleParameterDriftTests
                 continue;
             }
 
+            // A reflected bool option is a switch, and `--name=value` carries its own value;
+            // neither consumes the next token, so a stray word after one stays a positional.
+            if (token.Contains('=') || IsBooleanOption(token, signature))
+                continue;
+
             // Consume a following value only when one is present and is not itself a flag.
             if (i + 1 < tokens.Length && !IsFlag(tokens[i + 1]))
                 i++;
@@ -312,6 +366,9 @@ public sealed class CommandExampleParameterDriftTests
     /// </summary>
     private static bool IsFlag(string token) =>
         token.StartsWith('-') && token.Length > 1;
+
+    private static bool IsBooleanOption(string token, CommandSignature signature) =>
+        token.StartsWith("--", StringComparison.Ordinal) && signature.BooleanOptions.Contains(token[2..]);
 
     private static IEnumerable<string> ExtractFlags(string[] tokens) =>
         tokens.Where(t => t.StartsWith("--", StringComparison.Ordinal))

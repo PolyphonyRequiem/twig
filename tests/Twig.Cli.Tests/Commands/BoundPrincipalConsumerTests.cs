@@ -369,7 +369,7 @@ public sealed class BoundPrincipalConsumerTests : IAsyncLifetime
             var account = Encoding.UTF8.GetString(Convert.FromBase64String(header.Parameter!))[1..];
             if (account != First && account != Second) return Reply(HttpStatusCode.Unauthorized, new { message = "Unknown fixture account" });
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.OK, new { authenticatedUser = new { id = account == First ? "11111111-1111-1111-1111-111111111111" : "22222222-2222-2222-2222-222222222222", providerDisplayName = "Alex Reader" } });
+                return Reply(HttpStatusCode.OK, new { authenticatedUser = new { id = account == First ? "11111111-1111-1111-1111-111111111111" : "22222222-2222-2222-2222-222222222222", providerDisplayName = "Alex Reader" }, instanceId = "b0b0b0b0-0001-4000-8000-000000000001" });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Alex Reader", emailAddress = MissingCanonicalIdentity ? null : account });
             var project = path.Contains("/Personal/", StringComparison.Ordinal) ? "Personal" : "Work";

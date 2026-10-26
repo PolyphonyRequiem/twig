@@ -496,7 +496,7 @@ public sealed class PatConnectionBindingReadTests : IAsyncLifetime
                     AttestationFailure.Malformed => Reply(HttpStatusCode.OK, "{not json " + pat),
                     _ => principal is null
                         ? Reply(HttpStatusCode.Unauthorized, "{\"message\":\"PAT rejected\"}")
-                        : Reply(HttpStatusCode.OK, BuildConnectionData(principal)),
+                        : Reply(HttpStatusCode.OK, BuildConnectionData(principal, path)),
                 };
             }
 
@@ -519,9 +519,24 @@ public sealed class PatConnectionBindingReadTests : IAsyncLifetime
             return Reply(HttpStatusCode.OK, "{\"count\":0,\"value\":[]}");
         }
 
-        private static string BuildConnectionData(PatPrincipalRecord principal) =>
-            "{\"authenticatedUser\":{\"id\":\"" + principal.PrincipalId
-            + "\",\"providerDisplayName\":\"" + principal.DisplayName + "\"}}";
+        // Each simulated organization is one durable ADO resource: its scope id is stable
+        // across calls and distinct from every other organization's. An unmodelled
+        // organization gets no scope, so it cannot silently borrow another's.
+        private static readonly Dictionary<string, string> InstanceIdByOrganization = new(StringComparer.Ordinal)
+        {
+            ["fixture"] = "b0b0b0b0-0004-4000-8000-000000000004",
+            ["other-fixture"] = "b0b0b0b0-0004-4000-8000-0000000000f4",
+        };
+
+        private static string BuildConnectionData(PatPrincipalRecord principal, string path)
+        {
+            var organization = path.TrimStart('/').Split('/')[0];
+            var scope = InstanceIdByOrganization.TryGetValue(organization, out var instanceId)
+                ? ",\"instanceId\":\"" + instanceId + "\""
+                : string.Empty;
+            return "{\"authenticatedUser\":{\"id\":\"" + principal.PrincipalId
+                + "\",\"providerDisplayName\":\"" + principal.DisplayName + "\"}" + scope + "}";
+        }
 
         private static string BuildWorkItem(PatPrincipalRecord principal, int id)
         {

@@ -465,7 +465,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
             var aad = header?.Scheme == "Bearer" && JwtAccessTokenInspector.TryDecode(header.Parameter)?.ObjectId == Principal;
             if (request.RequestUri!.AbsolutePath.EndsWith("connectionData", StringComparison.Ordinal))
                 return Response(pat ? HttpStatusCode.OK : HttpStatusCode.Forbidden,
-                    "{\"authenticatedUser\":{\"id\":\"" + Principal + "\",\"providerDisplayName\":\"Fixture actor\"}}");
+                    "{\"authenticatedUser\":{\"id\":\"" + Principal + "\",\"providerDisplayName\":\"Fixture actor\"},\"instanceId\":\"b0b0b0b0-0007-4000-8000-000000000007\"}");
             if (request.RequestUri.AbsolutePath.Contains("/workitems", StringComparison.Ordinal))
             {
                 WorkRequests++;

@@ -152,7 +152,7 @@ This is a native read foundation for Epic #1172, not an installed Copilot extens
 ### Read one discussion page
 
 ```powershell
-twig bench discussion --stdin -o json < request.json
+Get-Content -Raw request.json | twig bench discussion --stdin -o json
 ```
 
 `--stdin` is required. The command reads one strict version-1 JSON request through

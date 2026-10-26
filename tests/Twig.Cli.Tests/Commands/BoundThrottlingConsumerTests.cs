@@ -241,7 +241,7 @@ public sealed class BoundThrottlingConsumerTests : IAsyncLifetime
             }
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.OK, JsonSerializer.Serialize(new { authenticatedUser = new { id = principal, providerDisplayName = "Same harmless label" } }));
+                return Reply(HttpStatusCode.OK, JsonSerializer.Serialize(new { authenticatedUser = new { id = principal, providerDisplayName = "Same harmless label" }, instanceId = "b0b0b0b0-0003-4000-8000-000000000003" }));
             if (principal != Actor && principal != Sibling)
                 return Reply(HttpStatusCode.Forbidden, "{\"message\":\"Unrecognized principal\"}");
             if (!path.Contains("/_apis/wit/workitems", StringComparison.Ordinal))

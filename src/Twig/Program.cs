@@ -933,6 +933,43 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> LinkUnrelate([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().UnrelateAsync(targetId, id, output, ct);
 
+    /// <summary>Create an explicit Twig-local Related link between two live local work items.</summary>
+    /// <param name="sourceLocalId">Canonical lowercase GUIDv7 identity of the source local item.</param>
+    /// <param name="targetLocalId">Canonical lowercase GUIDv7 identity of the target local item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link local related")]
+    public async Task<int> LinkLocalRelated(
+        [Argument] string sourceLocalId,
+        [Argument] string targetLocalId,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<LocalRelationshipCommand>()
+            .AddRelatedAsync(sourceLocalId, targetLocalId, output, ct);
+
+    /// <summary>Remove an existing Twig-local Related link without contacting the provider.</summary>
+    /// <param name="sourceLocalId">Canonical lowercase GUIDv7 identity of one local endpoint.</param>
+    /// <param name="targetLocalId">Canonical lowercase GUIDv7 identity of the other local endpoint.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link local unrelate")]
+    public async Task<int> LinkLocalUnrelate(
+        [Argument] string sourceLocalId,
+        [Argument] string targetLocalId,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<LocalRelationshipCommand>()
+            .UnrelateAsync(sourceLocalId, targetLocalId, output, ct);
+
+    /// <summary>List Twig-local Related links touching a local work item, without contacting the provider.</summary>
+    /// <param name="localId">Canonical lowercase GUIDv7 identity of the local work item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link local list")]
+    public async Task<int> LinkLocalList(
+        [Argument] string localId,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<LocalRelationshipCommand>()
+            .ListAsync(localId, output, ct);
+
     /// <summary>Remove a non-hierarchy link (predecessor, successor, or related) from a work item.</summary>
     /// <param name="linkType">Link type to remove: predecessor, successor, or related.</param>
     /// <param name="targetId">Work item ID at the other end of the link.</param>
@@ -1990,6 +2027,9 @@ internal static class GroupedHelp
         "link successor",
         "link related",
         "link unrelate",
+        "link local related",
+        "link local unrelate",
+        "link local list",
         "link unlink",
         "link artifact",
 

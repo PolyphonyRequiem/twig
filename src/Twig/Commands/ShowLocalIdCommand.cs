@@ -18,6 +18,7 @@ namespace Twig.Commands;
 internal sealed class ShowLocalIdCommand(
     IProviderWorkItemReadService? providerWorkItemReadService,
     RendererFactory rendererFactory,
+    LocalRelationshipService localRelationshipService,
     ITelemetryClient? telemetryClient = null,
     TextWriter? stderrWriter = null,
     IWorkItemProvider? provider = null)
@@ -64,9 +65,13 @@ internal sealed class ShowLocalIdCommand(
         else
         {
             ProviderWorkItemReadResult? result;
+            IReadOnlyList<LocalRelationship> localRelationships;
             try
             {
                 result = await providerWorkItemReadService.ReadByLocalIdAsync(localId, ct);
+                localRelationships = result is null
+                    ? []
+                    : await localRelationshipService.GetLocalOnlyRelatedAsync(result.Local.Id, ct);
             }
             catch (OperationCanceledException)
             {
@@ -89,7 +94,7 @@ internal sealed class ShowLocalIdCommand(
             }
             else
             {
-                WriteCanonicalRead(result, provider?.Capabilities);
+                WriteCanonicalRead(result, provider?.Capabilities, localRelationships);
                 exitCode = 0;
             }
         }
@@ -98,7 +103,10 @@ internal sealed class ShowLocalIdCommand(
         return exitCode;
     }
 
-    private static void WriteCanonicalRead(ProviderWorkItemReadResult result, ProviderCapabilityDescriptor? descriptor)
+    private static void WriteCanonicalRead(
+        ProviderWorkItemReadResult result,
+        ProviderCapabilityDescriptor? descriptor,
+        IReadOnlyList<LocalRelationship> localRelationships)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -133,6 +141,19 @@ internal sealed class ShowLocalIdCommand(
                 {
                     writer.WriteString("origin", origin);
                 }
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteStartArray("localRelationships");
+            foreach (var relationship in localRelationships)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("kind", LinkKindNames.ToStableName(relationship.Kind));
+                writer.WriteString("source", relationship.Source.ToString());
+                writer.WriteString("target", relationship.Target.ToString());
+                writer.WriteString("origin", "twig-local");
+                writer.WriteString("storage", "local-only");
+                writer.WriteString("publication", "not-applicable");
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();

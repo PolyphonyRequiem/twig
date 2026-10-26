@@ -258,6 +258,21 @@ internal static class CommandExamples
             "twig link unrelate 615          Remove the related link to #615",
             "twig link unrelate 615 --id 619  Remove #619's related link to #615",
         ],
+        ["link local related"] =
+        [
+            "twig link local related <source-local-guid> <target-local-guid>  Store an explicit local-only Related link",
+            "twig link local related <source-local-guid> <target-local-guid> -o json  Emit the local relationship as JSON",
+        ],
+        ["link local unrelate"] =
+        [
+            "twig link local unrelate <source-local-guid> <target-local-guid>  Remove a local-only Related link without provider access",
+            "twig link local unrelate <source-local-guid> <target-local-guid> -o json  Emit the removal result as JSON",
+        ],
+        ["link local list"] =
+        [
+            "twig link local list <local-guid>         List Twig-local Related links touching an item",
+            "twig link local list <local-guid> -o json  Emit provenance and publication metadata as JSON",
+        ],
         ["link unlink"] =
         [
             "twig link unlink predecessor 65   Remove the predecessor link to #65",

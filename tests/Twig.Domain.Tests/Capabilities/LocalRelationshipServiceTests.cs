@@ -15,6 +15,13 @@ public sealed class LocalRelationshipServiceTests
             new(LinkKind.PredecessorSuccessor, CapabilityImplementation.Emulated, EmulationStorage.LocalWithProviderProjection),
             new(LinkKind.Related, CapabilityImplementation.Emulated, EmulationStorage.LocalOnly),
         ]);
+    private static readonly ProviderCapabilityDescriptor ProjectingRelated = new(
+        "test-projection",
+        [
+            new(LinkKind.ParentChild, CapabilityImplementation.Emulated, EmulationStorage.LocalOnly),
+            new(LinkKind.PredecessorSuccessor, CapabilityImplementation.Emulated, EmulationStorage.LocalOnly),
+            new(LinkKind.Related, CapabilityImplementation.Emulated, EmulationStorage.LocalWithProviderProjection),
+        ]);
 
     private readonly FakeRepository _repo = new();
     private readonly LocalRelationshipService _service;
@@ -34,6 +41,86 @@ public sealed class LocalRelationshipServiceTests
         _repo.Rows.ShouldBeEmpty();
         if (kind == LinkKind.Related)
             result.ReasonCode.ShouldBe(RelationshipRoute.UnsupportedReason);
+    }
+
+    [Fact]
+    public async Task AddLocalOnly_RequiresUnsupportedDeclarationAndMarksNoPublication()
+    {
+        var added = await _service.AddLocalOnlyAsync(
+            ProviderCapabilityCatalog.GitHub, Id(1), Id(2), LinkKind.Related);
+
+        added.Status.ShouldBe(LocalRelationshipStatus.Added);
+        added.Route.Kind.ShouldBe(RelationshipRouteKind.LocalOnly);
+        added.Relationship!.Storage.ShouldBe(EmulationStorage.LocalOnly);
+        added.Relationship.Publication.ShouldBe(PublicationState.NotApplicable);
+        added.Relationship.Origin.ShouldBe(RelationshipOrigin.TwigLocal);
+
+        var native = await _service.AddLocalOnlyAsync(
+            ProviderCapabilityCatalog.Ado, Id(3), Id(4), LinkKind.Related);
+        native.Status.ShouldBe(LocalRelationshipStatus.NotLocalOnly);
+        native.ReasonCode.ShouldBe(RelationshipRoute.LocalOnlyRequiresUnsupportedReason);
+
+        var emulated = await _service.AddLocalOnlyAsync(Emulating, Id(5), Id(6), LinkKind.Related);
+        emulated.Status.ShouldBe(LocalRelationshipStatus.NotLocalOnly);
+        emulated.ReasonCode.ShouldBe(RelationshipRoute.LocalOnlyRequiresUnsupportedReason);
+
+        var nonRelationship = await _service.AddLocalOnlyAsync(
+            ProviderCapabilityCatalog.GitHub, Id(7), Id(8), LinkKind.Artifact);
+        nonRelationship.Status.ShouldBe(LocalRelationshipStatus.NotLocalOnly);
+        nonRelationship.ReasonCode.ShouldBe(RelationshipRoute.NotARelationshipReason);
+        _repo.Rows.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task AddLocalOnly_RejectsAnExistingEdgeWithDifferentStorage()
+    {
+        await _service.AddAsync(ProjectingRelated, Id(1), Id(2), LinkKind.Related);
+
+        var localOnly = await _service.AddLocalOnlyAsync(
+            ProviderCapabilityCatalog.GitHub, Id(1), Id(2), LinkKind.Related);
+
+        localOnly.Status.ShouldBe(LocalRelationshipStatus.StorageMismatch);
+        localOnly.Relationship!.Storage.ShouldBe(EmulationStorage.LocalWithProviderProjection);
+        localOnly.Relationship.Publication.ShouldBe(PublicationState.Pending);
+    }
+
+    [Fact]
+    public async Task EmulatedOperations_PreserveExistingStorageRoutingBehavior()
+    {
+        await _service.AddLocalOnlyAsync(ProviderCapabilityCatalog.GitHub, Id(1), Id(2), LinkKind.Related);
+
+        var existing = await _service.AddAsync(Emulating, Id(1), Id(2), LinkKind.Related);
+        existing.Status.ShouldBe(LocalRelationshipStatus.AlreadyPresent);
+
+        var removed = await _service.RemoveAsync(Emulating, Id(1), Id(2), LinkKind.Related);
+        removed.Status.ShouldBe(LocalRelationshipStatus.Removed);
+    }
+
+    [Fact]
+    public async Task RemoveLocalOnly_DoesNotRequireProviderAndRefusesProjectedEdges()
+    {
+        await _service.AddLocalOnlyAsync(ProviderCapabilityCatalog.GitHub, Id(1), Id(2), LinkKind.Related);
+        var removed = await _service.RemoveLocalOnlyAsync(Id(2), Id(1), LinkKind.Related);
+        removed.Status.ShouldBe(LocalRelationshipStatus.Removed);
+        removed.Relationship!.IsDeleted.ShouldBeTrue();
+
+        await _service.AddAsync(Emulating, Id(3), Id(4), LinkKind.PredecessorSuccessor);
+        var wrongRoute = await _service.RemoveLocalOnlyAsync(Id(3), Id(4), LinkKind.PredecessorSuccessor);
+        wrongRoute.Status.ShouldBe(LocalRelationshipStatus.StorageMismatch);
+        wrongRoute.Relationship!.IsDeleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetLocalOnlyRelated_ReturnsOnlyLiveLocalOnlyRelatedEdges()
+    {
+        await _service.AddLocalOnlyAsync(ProviderCapabilityCatalog.GitHub, Id(1), Id(2), LinkKind.Related);
+        await _service.AddAsync(Emulating, Id(1), Id(3), LinkKind.Related);
+        await _service.RemoveLocalOnlyAsync(Id(1), Id(2), LinkKind.Related);
+
+        (await _service.GetLocalOnlyRelatedAsync(Id(1))).Select(edge => edge.Target).ShouldBe([Id(3)]);
+
+        await _service.AddLocalOnlyAsync(ProviderCapabilityCatalog.GitHub, Id(1), Id(4), LinkKind.Related);
+        (await _service.GetLocalOnlyRelatedAsync(Id(1))).Select(edge => edge.Target).ShouldBe([Id(3), Id(4)]);
     }
 
     [Fact]

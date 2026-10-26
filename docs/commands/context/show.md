@@ -30,6 +30,14 @@ provider's snapshot, both endpoints belong to that provider, and the provider's
 capability descriptor declares the relationship kind native. Otherwise `origin`
 is omitted (unknown), never guessed from the legacy cache or a default catalog.
 
+The separate `localRelationships` array contains explicit local-only Related
+edges attached to the same local GUIDv7 identity. Its endpoints are local
+identities, and each row is labelled `origin: "twig-local"`,
+`storage: "local-only"`, and `publication: "not-applicable"`. These rows are
+not merged into or translated as provider `relationships`. Use
+[`link local list`](../links/link-local-list.md) to read them without a
+provider snapshot or active provider identity.
+
 ## Synopsis
 
 ```

@@ -13,6 +13,12 @@ internal enum LocalRelationshipStatus
     /// <summary>The kind is not emulated for this provider; route it natively or refuse it.</summary>
     NotEmulated,
 
+    /// <summary>The explicit local-only route is only available for an unsupported kind.</summary>
+    NotLocalOnly,
+
+    /// <summary>An edge exists, but it is stored under a different relationship route.</summary>
+    StorageMismatch,
+
     Invalid,
     Conflict,
 }
@@ -24,8 +30,9 @@ internal sealed record LocalRelationshipResult(
     string? ReasonCode = null);
 
 /// <summary>
-/// Writes Twig-local relationships, and only for kinds the provider declares as emulated.
-/// It never acts as a fallback for a native kind.
+/// Writes Twig-local relationships. Emulated writes require an emulated declaration; explicit
+/// local-only writes require an unsupported declaration. Neither route is a fallback for native
+/// or unavailable provider capabilities.
 /// </summary>
 internal sealed class LocalRelationshipService(ILocalRelationshipRepository repository, TimeProvider? clock = null)
 {
@@ -41,12 +48,41 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
         var route = RelationshipRouting.Decide(descriptor, kind);
         if (route.Kind != RelationshipRouteKind.Emulated)
             return new(LocalRelationshipStatus.NotEmulated, null, route, route.ReasonCode);
+        return await AddWithRouteAsync(source, target, kind, route, requireMatchingStorage: false, ct: ct)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<LocalRelationshipResult> AddLocalOnlyAsync(
+        ProviderCapabilityDescriptor descriptor, LocalWorkItemId source, LocalWorkItemId target, LinkKind kind,
+        CancellationToken ct = default)
+    {
+        var route = RelationshipRouting.DecideExplicitLocalOnly(descriptor, kind);
+        if (route.Kind != RelationshipRouteKind.LocalOnly)
+            return new(LocalRelationshipStatus.NotLocalOnly, null, route, route.ReasonCode);
+        return await AddWithRouteAsync(source, target, kind, route, requireMatchingStorage: true, ct: ct)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<LocalRelationshipResult> AddWithRouteAsync(
+        LocalWorkItemId source,
+        LocalWorkItemId target,
+        LinkKind kind,
+        RelationshipRoute route,
+        bool requireMatchingStorage,
+        CancellationToken ct)
+    {
         if (source == target)
             return new(LocalRelationshipStatus.Invalid, null, route, SelfEdgeReason);
 
         (source, target) = LocalRelationship.Normalize(kind, source, target);
 
         var existing = await repository.GetAsync(source, target, kind, ct).ConfigureAwait(false);
+        if (requireMatchingStorage
+            && existing is not null
+            && (existing.Storage != route.Storage
+                || route.Storage == EmulationStorage.LocalOnly
+                    && existing.Publication != PublicationState.NotApplicable))
+            return new(LocalRelationshipStatus.StorageMismatch, existing, route);
         if (existing is { IsDeleted: false })
             return new(LocalRelationshipStatus.AlreadyPresent, existing, route);
 
@@ -63,7 +99,9 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
             target,
             kind,
             route.Storage,
-            route.Storage == EmulationStorage.LocalWithProviderProjection ? PublicationState.Pending : PublicationState.NotApplicable,
+            route.Storage == EmulationStorage.LocalWithProviderProjection
+                ? PublicationState.Pending
+                : PublicationState.NotApplicable,
             Revision: 0,
             CreatedAt: now,
             UpdatedAt: now);
@@ -81,10 +119,34 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
         var route = RelationshipRouting.Decide(descriptor, kind);
         if (route.Kind != RelationshipRouteKind.Emulated)
             return new(LocalRelationshipStatus.NotEmulated, null, route, route.ReasonCode);
+        return await RemoveByRouteAsync(source, target, kind, route, requireMatchingStorage: false, ct: ct)
+            .ConfigureAwait(false);
+    }
 
+    public Task<LocalRelationshipResult> RemoveLocalOnlyAsync(
+        LocalWorkItemId source, LocalWorkItemId target, LinkKind kind, CancellationToken ct = default)
+    {
+        var route = new RelationshipRoute(RelationshipRouteKind.LocalOnly, EmulationStorage.LocalOnly, null);
+        return RemoveByRouteAsync(source, target, kind, route, requireMatchingStorage: true, ct: ct);
+    }
+
+    private async Task<LocalRelationshipResult> RemoveByRouteAsync(
+        LocalWorkItemId source,
+        LocalWorkItemId target,
+        LinkKind kind,
+        RelationshipRoute route,
+        bool requireMatchingStorage,
+        CancellationToken ct)
+    {
         (source, target) = LocalRelationship.Normalize(kind, source, target);
 
         var existing = await repository.GetAsync(source, target, kind, ct).ConfigureAwait(false);
+        if (requireMatchingStorage
+            && existing is not null
+            && (existing.Storage != route.Storage
+                || route.Storage == EmulationStorage.LocalOnly
+                    && existing.Publication != PublicationState.NotApplicable))
+            return new(LocalRelationshipStatus.StorageMismatch, existing, route);
         if (existing is null or { IsDeleted: true })
             return new(LocalRelationshipStatus.NotPresent, existing, route);
 
@@ -92,5 +154,18 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
         return write.Status == LocalRelationshipWriteStatus.Written
             ? new(LocalRelationshipStatus.Removed, write.Current, route)
             : new(LocalRelationshipStatus.Conflict, write.Current, route);
+    }
+
+    public async Task<IReadOnlyList<LocalRelationship>> GetLocalOnlyRelatedAsync(
+        LocalWorkItemId itemId, CancellationToken ct = default)
+    {
+        var edges = await repository.GetForItemsAsync([itemId], includeDeleted: false, ct).ConfigureAwait(false);
+        return edges
+            .Where(edge => edge.Kind == LinkKind.Related
+                && edge.Storage == EmulationStorage.LocalOnly
+                && edge.Publication == PublicationState.NotApplicable)
+            .OrderBy(edge => edge.Source.ToString(), StringComparer.Ordinal)
+            .ThenBy(edge => edge.Target.ToString(), StringComparer.Ordinal)
+            .ToArray();
     }
 }

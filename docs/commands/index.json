@@ -592,6 +592,30 @@
     "path": "links/link-artifact.md"
   },
   {
+    "command": "link local list",
+    "group": "links",
+    "summary": "List Twig-local Related links touching a local work item.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "links/link-local-list.md"
+  },
+  {
+    "command": "link local related",
+    "group": "links",
+    "summary": "Add an explicit Twig-local Related link between two local work items.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "links/link-local-related.md"
+  },
+  {
+    "command": "link local unrelate",
+    "group": "links",
+    "summary": "Remove an existing Twig-local Related link without provider access.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "links/link-local-unrelate.md"
+  },
+  {
     "command": "link parent",
     "group": "links",
     "summary": "Set the parent of the active (or targeted) work item.",

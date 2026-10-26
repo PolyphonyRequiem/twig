@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Browser;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
@@ -73,6 +74,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<ShowLocalIdCommand>(sp => new ShowLocalIdCommand(
             sp.GetService<IProviderWorkItemReadService>(),
             sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+            sp.GetRequiredService<LocalRelationshipService>(),
             sp.GetService<ITelemetryClient>(),
             sp.GetService<TextWriter>(),
             sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>()));
@@ -130,6 +132,20 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedViewCommand>();
         services.AddSingleton<SeedLinkCommand>();
         services.AddSingleton<LinkCommand>();
+        services.AddSingleton<LocalRelationshipCommand>(sp => new LocalRelationshipCommand(
+            sp.GetRequiredService<ILocalWorkItemStore>(),
+            sp.GetRequiredService<LocalRelationshipService>(),
+            () =>
+            {
+                var providerKind = sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind();
+                return ProviderCapabilityCatalog.TryGet(providerKind, out var descriptor)
+                    ? descriptor
+                    : throw new InvalidOperationException(
+                        $"provider-capabilities-unavailable: no capability declaration is registered for '{providerKind}'.");
+            },
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+            sp.GetService<ITelemetryClient>(),
+            sp.GetService<TextWriter>()));
         services.AddSingleton<ArtifactLinkCommand>();
         services.AddSingleton<SeedChainCommand>();
         services.AddSingleton<SeedValidateCommand>();

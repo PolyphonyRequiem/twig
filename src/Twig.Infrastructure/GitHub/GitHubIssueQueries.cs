@@ -7,9 +7,11 @@ namespace Twig.Infrastructure.GitHub;
 /// </summary>
 internal static class GitHubIssueQueries
 {
+    public const string RepositoryDiscovery = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id nameWithOwner owner { id login } } }";
+
     public const string Snapshot = """
         query($id: ID!) { node(id: $id) { __typename id ... on Issue {
-          number title state body url issueType { name } parent { id } milestone { title } repository { nameWithOwner }
+          number title state body url issueType { name } parent { id } milestone { title } repository { id nameWithOwner owner { id } }
         } } }
         """;
 

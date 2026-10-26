@@ -11,6 +11,53 @@ public sealed class GitHubReadOnlyAuthHandlerTests
 {
     private const string Token = "gho_SECRETtoken123";
     private static readonly Uri Endpoint = new("https://api.github.com/graphql");
+    private const string DiscoveryQuery = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id nameWithOwner owner { id login } } }";
+
+    [Fact]
+    public async Task FixedRepositoryDiscovery_IsAdmitted()
+    {
+        var h = new Harness();
+        using var response = await h.SendAsync(HttpMethod.Post, Endpoint.ToString(),
+            Body(DiscoveryQuery, new { owner = "owner", name = "repo" }));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        h.Tokens.Calls.ShouldBe(1);
+        h.Network.Requests.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"owner":"owner"}""")]
+    [InlineData("""{"owner":"owner","name":null}""")]
+    [InlineData("""{"owner":"owner","name":7}""")]
+    [InlineData("""{"owner":"owner","name":"repo","id":"extra"}""")]
+    [InlineData("""{"owner":"owner","owner":"other","name":"repo"}""")]
+    [InlineData("""{"owner":"owner/other","name":"repo"}""")]
+    [InlineData("""{"owner":"owner","name":".."}""")]
+    [InlineData("""{"owner":null,"name":"repo"}""")]
+    [InlineData("""{"owner":"owner","name":"repo","name":"other"}""")]
+    [InlineData("""{"owner":"owner","name":" repo"}""")]
+    public async Task InvalidDiscoveryVariables_RefusedBeforeToken(string variables)
+    {
+        var h = new Harness();
+        var body = "{\"query\":" + JsonSerializer.Serialize(DiscoveryQuery) + ",\"variables\":" + variables + "}";
+        await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(
+            () => h.SendAsync(HttpMethod.Post, Endpoint.ToString(), body));
+        h.Tokens.Calls.ShouldBe(0);
+        h.Network.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(" ")]
+    [InlineData(" mutation { viewer { login } }")]
+    public async Task ModifiedDiscoveryDocument_IsRefusedBeforeToken(string suffix)
+    {
+        var h = new Harness();
+        await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(() => h.SendAsync(
+            HttpMethod.Post, Endpoint.ToString(),
+            Body(DiscoveryQuery + suffix, new { owner = "owner", name = "repo" })));
+        h.Tokens.Calls.ShouldBe(0);
+        h.Network.Requests.ShouldBeEmpty();
+    }
 
     private static string Body(string query, object variables) =>
         JsonSerializer.Serialize(new Dictionary<string, object> { ["query"] = query, ["variables"] = variables });

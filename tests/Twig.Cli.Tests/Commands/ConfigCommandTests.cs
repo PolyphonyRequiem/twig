@@ -43,6 +43,26 @@ public class ConfigCommandTests : IDisposable
         result.ShouldBe(0);
     }
 
+    [Theory]
+    [InlineData("human")]
+    [InlineData("json")]
+    [InlineData("minimal")]
+    public async Task Config_GitHubAccount_RoundTripsExplicitSelection(string format)
+    {
+        var config = new TwigConfiguration();
+        var command = new ConfigCommand(config, _paths, _formatterFactory);
+        var (written, _) = await StdoutCapture.RunAsync(() =>
+            command.ExecuteAsync("github.account", "selected-account", outputFormat: format));
+        written.ShouldBe(0);
+        (await TwigConfiguration.LoadSplitAsync(_paths)).GitHubAccount.ShouldBe("selected-account");
+        (await File.ReadAllTextAsync(_paths.RepoConfigPath)).ShouldNotContain("selected-account");
+        (await File.ReadAllTextAsync(_paths.ConfigPath)).ShouldContain("selected-account");
+        var (read, output) = await StdoutCapture.RunAsync(() =>
+            command.ExecuteAsync("github.account", outputFormat: format));
+        read.ShouldBe(0);
+        output.ShouldContain("selected-account");
+    }
+
     [Fact]
     public async Task Config_Read_UnknownKey_ReturnsError()
     {

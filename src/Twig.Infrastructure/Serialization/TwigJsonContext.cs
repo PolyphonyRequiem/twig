@@ -40,6 +40,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(GitHubIssueGraphQlRequest))]
+[JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(GitHubIssueGraphQlResponse))]
 [JsonSerializable(typeof(GitHubIssueAssignee[]))]
 // ADO REST DTOs (EPIC-006)

@@ -67,6 +67,9 @@ public sealed class TwigConfiguration
     [JsonPropertyName("github")]
     public GitHubConfig? GitHub { get => RepoCoords.GitHub; set => RepoCoords.GitHub = value; }
 
+    /// <summary>User-local GitHub CLI account selector; not an authenticated actor or permission grant.</summary>
+    public string? GitHubAccount { get => UserPrefs.GitHubAccount; set => UserPrefs.GitHubAccount = value; }
+
     /// <summary>The team used for iteration requests when no explicit team is configured.</summary>
     public static string ResolveTeam(string project, string? team)
         => string.IsNullOrWhiteSpace(team) ? $"{project} Team" : team;
@@ -478,6 +481,7 @@ public sealed class TwigConfiguration
             "seed.staledays" => ConfigScope.Repo,
             "git.branchpattern" or "git.project" or "git.repository" => ConfigScope.Repo,
             "github.host" or "github.repository" => ConfigScope.Repo,
+            "github.account" => ConfigScope.User,
             "workspace.workinglevel" or "workspace.sprints" => ConfigScope.Repo,
             "auth.method" => ConfigScope.User,
             "user.displayname" or "user.email" => ConfigScope.User,
@@ -575,6 +579,8 @@ public sealed class TwigConfiguration
                 return (GitHub?.Host ?? "", true);
             case "github.repository":
                 return (GitHub?.Repository ?? "", true);
+            case "github.account":
+                return (GitHubAccount ?? "", true);
             case "workspace.working_level":
                 return (Workspace.WorkingLevel ?? "", true);
             case "workspace.sprints":
@@ -714,6 +720,12 @@ public sealed class TwigConfiguration
                 if (gitHubRepository is null)
                     return false;
                 (GitHub ??= new GitHubConfig()).Repository = gitHubRepository;
+                return true;
+            case "github.account":
+                if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsWhiteSpace)
+                    || value.Any(char.IsControl) || value.StartsWith('-'))
+                    return false;
+                GitHubAccount = value;
                 return true;
             case "display.fillratethreshold":
                 if (double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold >= 0.0 && threshold <= 1.0)
@@ -982,6 +994,9 @@ public sealed class ProfilePinConfig
 /// </summary>
 public sealed class TwigUserConfig
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? GitHubAccount { get; set; }
+
     // Persist only explicit choices. Nullable stored members distinguish an
     // absent preference from one deliberately set to today's default value.
     private AuthConfig _auth = new();
@@ -1018,7 +1033,7 @@ public sealed class TwigUserConfig
     internal TrackingConfig? StoredTracking { get => _tracking.HasOverride ? _tracking : null; set => _tracking = value ?? new(); }
 
     internal bool HasOverrides => StoredAuth is not null || StoredDisplay is not null
-        || StoredUser is not null || StoredTracking is not null;
+        || StoredUser is not null || StoredTracking is not null || GitHubAccount is not null;
 
     /// <summary>
     /// AB#3296 PR-3: this field is hydrated at bootstrap from the SQLite

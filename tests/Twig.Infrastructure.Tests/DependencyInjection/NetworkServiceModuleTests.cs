@@ -14,6 +14,7 @@ using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Plan;
+using Twig.Infrastructure.Tests.GitHub;
 using Twig.Infrastructure;
 using Xunit;
 
@@ -122,11 +123,14 @@ public sealed class NetworkServiceModuleTests
     [Fact]
     public async Task WorkItemProvider_GitHubSettingWithScope_ResolvesGitHubThroughReadOnlyGate()
     {
+        using var target = new GitHubTargetFixture();
+        await target.BindAsync();
         var tokens = new GitHub.GitHubReadOnlyAuthHandlerTests.FakeTokenSource();
         var transport = new GitHub.GitHubWorkItemProviderTests.RecordingTransport();
         using var provider = BuildWithProvider("github", new GitHubConfig { Host = "github.com", Repository = "new/repo" },
             services =>
             {
+                target.Register(services);
                 services.AddSingleton<IGitHubTokenSource>(tokens);
                 services.AddSingleton(new GitHubTransportOverride(() => transport));
             });
@@ -151,6 +155,8 @@ public sealed class NetworkServiceModuleTests
     [Fact]
     public async Task PlanLifecycle_GitHubCompositionReviewsNativeFactsAndRefusesSettlementWithoutWrites()
     {
+        using var target = new GitHubTargetFixture();
+        await target.BindAsync();
         var tokens = new GitHub.GitHubReadOnlyAuthHandlerTests.FakeTokenSource();
         var transport = new GitHub.GitHubWorkItemProviderTests.RecordingTransport();
         var root = Path.Combine(Path.GetTempPath(), $"twig-github-policy-{Guid.NewGuid():N}");
@@ -165,6 +171,7 @@ public sealed class NetworkServiceModuleTests
         try
         {
             var services = new ServiceCollection();
+            target.Register(services);
             services.AddSingleton(config);
             services.AddSingleton<IGitHubTokenSource>(tokens);
             services.AddSingleton(new GitHubTransportOverride(() => transport));

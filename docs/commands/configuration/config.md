@@ -72,10 +72,37 @@ existing manifests. User input is trimmed and case-insensitive; Twig stores only
 the canonical tokens `ado` and `github`. A non-canonical or unknown value already
 stored in the manifest is rejected rather than guessed.
 
-In the provider-selection increment, only the ADO adapter is registered. Selecting
-`github` therefore fails closed with `provider-unavailable:`; Twig does not fall
-back to ADO. Provider selection alone does not enable GitHub requests or writes.
-GitHub remains unavailable until its separate read-only transport is included.
+GitHub reads require a valid provider-target attachment referencing the durable
+registry's immutable owner and repository node IDs at the configured API origin.
+`github.host` and `github.repository` supply a host and discovery locator, not
+identity authority. Existing slug-only configuration is **unbound** and refused
+before credential acquisition or HTTP; it is never silently enrolled or promoted
+to a binding, and Twig never falls back to ADO.
+
+`github.account` is a **user-local** preference in `.twig/config`, never a shared
+repository coordinate in `twig.json`. It explicitly selects a GitHub CLI account
+for that host; it does not change another user's selection. The token
+source uses `gh auth token --hostname <host> --user <account> --no-refresh` without changing the
+CLI's active account or asking it to refresh stored credentials. Token environment overrides are removed only from the child
+process; the caller's environment and stored credentials are unchanged. Twig does
+not persist the returned token, request new scopes, or infer an authenticated
+actor or granted permissions from this account-selection string. No account is
+assumed when the setting is missing.
+
+Repository discovery is a fixed read-only observation, not a binding operation.
+The adapter and composition support explicit-account reads; the two-step
+discovery/bind command UX is a separate increment, not a command available in this
+cut. An existing bound repository rename is accepted when both immutable IDs
+match. A transfer to a different owner or replacement repository at the same slug
+is refused and requires explicit rediscovery/rebinding. Reads do not silently
+refresh binding metadata. Twig-owned OAuth sign-in is also required before 1.0;
+this GitHub CLI credential source is the first supported source, not its replacement.
+
+Bound reads capture the attachment revision, binding ID, and immutable target
+identity, then recheck them after the complete snapshot and relationship fetch.
+Detaching, rebinding, or detaching and reattaching during that fetch refuses the
+result before a local item identity is written. An explicit metadata-only locator
+update does not change target selection and does not invalidate the read.
 
 ```
 $ twig config provider

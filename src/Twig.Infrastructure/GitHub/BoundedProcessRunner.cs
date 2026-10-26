@@ -26,7 +26,8 @@ internal interface IBoundedProcessRunner
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
         int maxOutputChars,
-        CancellationToken ct);
+        CancellationToken ct,
+        IReadOnlyList<string>? excludedEnvironmentVariables = null);
 }
 
 internal sealed class BoundedProcessRunner : IBoundedProcessRunner
@@ -36,19 +37,10 @@ internal sealed class BoundedProcessRunner : IBoundedProcessRunner
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
         int maxOutputChars,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<string>? excludedEnvironmentVariables = null)
     {
-        var startInfo = new ProcessStartInfo(fileName)
-        {
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-        };
-        foreach (var argument in arguments)
-            startInfo.ArgumentList.Add(argument);
+        var startInfo = CreateStartInfo(fileName, arguments, excludedEnvironmentVariables);
 
         Process? process;
         try
@@ -64,37 +56,68 @@ internal sealed class BoundedProcessRunner : IBoundedProcessRunner
 
         using (process)
         {
-            try { process.StandardInput.Close(); } catch (IOException) { }
+            return await RunStartedAsync(process, timeout, maxOutputChars, ct).ConfigureAwait(false);
+        }
+    }
 
-            var stderrDrain = DrainAsync(process.StandardError);
-            var stdoutRead = ReadBoundedAsync(process.StandardOutput, maxOutputChars);
+    internal static ProcessStartInfo CreateStartInfo(
+        string fileName, IReadOnlyList<string> arguments, IReadOnlyList<string>? excludedEnvironmentVariables)
+    {
+        var startInfo = new ProcessStartInfo(fileName)
+        {
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+        };
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+        ExcludeEnvironmentVariables(startInfo, excludedEnvironmentVariables);
+        return startInfo;
+    }
 
-            // Pipe reads are not reliably cancellable on every platform, so one deadline races
-            // the work rather than being passed into the reads.
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var expiry = Task.Delay(timeout, deadline.Token);
-            try
+    internal static void ExcludeEnvironmentVariables(ProcessStartInfo startInfo, IReadOnlyList<string>? variables)
+    {
+        if (variables is not null)
+            foreach (var variable in variables)
+                startInfo.Environment.Remove(variable);
+    }
+
+    private static async Task<BoundedProcessResult> RunStartedAsync(
+        Process process, TimeSpan timeout, int maxOutputChars, CancellationToken ct)
+    {
+        try { process.StandardInput.Close(); } catch (IOException) { }
+
+        var stderrDrain = DrainAsync(process.StandardError);
+        var stdoutRead = ReadBoundedAsync(process.StandardOutput, maxOutputChars);
+
+        // Pipe reads are not reliably cancellable on every platform, so one deadline races
+        // the work rather than being passed into the reads.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var expiry = Task.Delay(timeout, deadline.Token);
+        try
+        {
+            if (await Task.WhenAny(stdoutRead, expiry).ConfigureAwait(false) != stdoutRead)
+                return TimedOut(process, ct);
+
+            var (text, overflowed) = await stdoutRead.ConfigureAwait(false);
+            if (overflowed)
             {
-                if (await Task.WhenAny(stdoutRead, expiry).ConfigureAwait(false) != stdoutRead)
-                    return TimedOut(process, ct);
-
-                var (text, overflowed) = await stdoutRead.ConfigureAwait(false);
-                if (overflowed)
-                {
-                    Kill(process);
-                    return new BoundedProcessResult(BoundedProcessOutcome.OutputLimitExceeded, -1, string.Empty);
-                }
-
-                var exit = Task.WhenAll(stderrDrain, process.WaitForExitAsync(CancellationToken.None));
-                if (await Task.WhenAny(exit, expiry).ConfigureAwait(false) != exit)
-                    return TimedOut(process, ct);
-
-                return new BoundedProcessResult(BoundedProcessOutcome.Exited, process.ExitCode, text);
+                Kill(process);
+                return new BoundedProcessResult(BoundedProcessOutcome.OutputLimitExceeded, -1, string.Empty);
             }
-            finally
-            {
-                deadline.Cancel();
-            }
+
+            var exit = Task.WhenAll(stderrDrain, process.WaitForExitAsync(CancellationToken.None));
+            if (await Task.WhenAny(exit, expiry).ConfigureAwait(false) != exit)
+                return TimedOut(process, ct);
+
+            return new BoundedProcessResult(BoundedProcessOutcome.Exited, process.ExitCode, text);
+        }
+        finally
+        {
+            deadline.Cancel();
         }
     }
 

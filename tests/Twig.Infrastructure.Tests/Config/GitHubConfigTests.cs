@@ -21,6 +21,9 @@ public sealed class GitHubConfigTests : IDisposable
     [InlineData("github.repository")]
     public void Keys_AreRepoScoped(string key) => TwigConfiguration.GetConfigScope(key).ShouldBe(ConfigScope.Repo);
 
+    [Fact]
+    public void Account_IsUserScoped() => TwigConfiguration.GetConfigScope("github.account").ShouldBe(ConfigScope.User);
+
     [Theory]
     [InlineData("github.com", "github.com")]
     [InlineData("GitHub.Com", "github.com")]
@@ -50,6 +53,19 @@ public sealed class GitHubConfigTests : IDisposable
         config.SetValue("github.host", input).ShouldBeFalse();
 
         config.GitHub.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" selected-account")]
+    [InlineData("two accounts")]
+    [InlineData("--account")]
+    [InlineData("account\nname")]
+    public void SetValue_MalformedAccount_IsRejectedWithoutChangingExistingSelection(string input)
+    {
+        var config = new TwigConfiguration { GitHubAccount = "selected-account" };
+        config.SetValue("github.account", input).ShouldBeFalse();
+        config.GitHubAccount.ShouldBe("selected-account");
     }
 
     [Theory]
@@ -112,6 +128,25 @@ public sealed class GitHubConfigTests : IDisposable
         => GitHubWorkspaceScope.TryCreate(null, out _, out _).ShouldBeFalse();
 
     [Fact]
+    public async Task SharedManifestCannotSelectOrReplaceUserCredentialAccount()
+    {
+        var paths = new TwigPaths(
+            Path.Combine(_dir, ".twig"), Path.Combine(_dir, ".twig", "config"),
+            Path.Combine(_dir, ".twig", "twig.db"), _dir);
+        Directory.CreateDirectory(paths.TwigDir);
+        await File.WriteAllTextAsync(paths.RepoConfigPath, """
+            {"organization":"o","project":"p","githubAccount":"repo-selected",
+             "github":{"host":"github.com","repository":"owner/name","account":"repo-selected"}}
+            """);
+        (await TwigConfiguration.LoadSplitAsync(paths)).GitHubAccount.ShouldBeNull();
+        var config = new TwigConfiguration { GitHubAccount = "user-selected" };
+        await config.SaveUserAsync(paths.ConfigPath);
+
+        (await TwigConfiguration.LoadSplitAsync(paths)).GitHubAccount.ShouldBe("user-selected");
+        TwigConfiguration.LoadSplit(paths).GitHubAccount.ShouldBe("user-selected");
+    }
+
+    [Fact]
     public async Task RepoManifest_OmitsGitHubWhenUnset_AndRoundTripsWhenSet()
     {
         var paths = new TwigPaths(
@@ -127,10 +162,16 @@ public sealed class GitHubConfigTests : IDisposable
         config.SetValue("provider", "github").ShouldBeTrue();
         config.SetValue("github.host", "github.com").ShouldBeTrue();
         config.SetValue("github.repository", "owner/name").ShouldBeTrue();
+        config.SetValue("github.account", "selected-account").ShouldBeTrue();
         await config.SaveRepoAsync(paths.RepoConfigPath);
+        await config.SaveUserAsync(paths.ConfigPath);
+        (await File.ReadAllTextAsync(paths.RepoConfigPath)).ShouldNotContain("selected-account");
+        (await File.ReadAllTextAsync(paths.ConfigPath)).ShouldContain("selected-account");
 
         var loaded = await TwigConfiguration.LoadSplitAsync(paths);
         loaded.GitHub!.Host.ShouldBe("github.com");
         loaded.GitHub.Repository.ShouldBe("owner/name");
+        loaded.GitHubAccount.ShouldBe("selected-account");
+        loaded.GetValue("github.account").ShouldBe(("selected-account", true));
     }
 }

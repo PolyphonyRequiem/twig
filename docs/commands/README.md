@@ -26,6 +26,13 @@ and updates.
 | Group | Command | Summary | Stability | Mutates |
 |---|---|---|---|---|
 | [Plans](plans/README.md) | [`twig draft show`](plans/draft-show.md) | Inspect existing native recoverable intent; may CAS observation/conflict metadata, never applies. | experimental | `local` |
+| [Plans](plans/README.md) | [`twig draft open`](plans/draft-open.md) | Open the shared recoverable native draft for a published item via an explicit Bench; records served evidence locally, never publishes. | experimental | `local` |
+| [Plans](plans/README.md) | [`twig draft stage`](plans/draft-stage.md) | Stage an exact ordered field batch from stdin into the recoverable native draft by CAS; never writes pending changes or ADO. | experimental | `local` |
+| [Plans](plans/README.md) | [`twig draft retain`](plans/draft-retain.md) | Retain staged native draft intent as a local proposal journal capture; never exports, authorizes, or applies. | experimental | `local` |
+| [Plans](plans/README.md) | [`twig draft review`](plans/draft-review.md) | Review the exact effects of a retained native draft capture by digest against cached evidence; never authorizes or applies. | experimental | `none` |
+| [Plans](plans/README.md) | [`twig draft capture`](plans/draft-capture.md) | Legacy: capture inspected native draft intent to the local journal and export a proposal file; never authorizes or applies. | experimental | `local` |
+| [Plans](plans/README.md) | [`twig policy assess`](plans/policy-assess.md) | Assess cached compliance of named items against the declared repository policy, with bounded repair alternatives. | experimental | `none` |
+| [Plans](plans/README.md) | [`twig policy reconcile`](plans/policy-reconcile.md) | Render one explicitly selected policy repair as a native proposal on stdout; review and apply remain separate. | experimental | `none` |
 | [Getting Started](getting-started/README.md) | [`twig init`](getting-started/init.md) | Initialize a new Twig workspace at the current git-worktree root. | stable | `local` |
 | [Getting Started](getting-started/README.md) | [`twig refresh`](getting-started/refresh.md) | Deprecated alias for `twig sync --pull-only` — refresh the local cache from Azure DevOps. | stable | `local` |
 | [Getting Started](getting-started/README.md) | [`twig sync`](getting-started/sync.md) | Flush pending changes to Azure DevOps then refresh the local cache. | stable | `ado` |

@@ -800,6 +800,62 @@
     "path": "plans/draft-show.md"
   },
   {
+    "command": "draft open",
+    "group": "plans",
+    "summary": "Open the shared recoverable native draft for a published item via an explicit Bench; records served evidence locally, never publishes.",
+    "stability": "experimental",
+    "mutates": "local",
+    "path": "plans/draft-open.md"
+  },
+  {
+    "command": "draft stage",
+    "group": "plans",
+    "summary": "Stage an exact ordered field batch from stdin into the recoverable native draft by CAS; never writes pending changes or ADO.",
+    "stability": "experimental",
+    "mutates": "local",
+    "path": "plans/draft-stage.md"
+  },
+  {
+    "command": "draft retain",
+    "group": "plans",
+    "summary": "Retain staged native draft intent as a local proposal journal capture; never exports, authorizes, or applies.",
+    "stability": "experimental",
+    "mutates": "local",
+    "path": "plans/draft-retain.md"
+  },
+  {
+    "command": "draft review",
+    "group": "plans",
+    "summary": "Review the exact effects of a retained native draft capture by digest against cached evidence; never authorizes or applies.",
+    "stability": "experimental",
+    "mutates": "none",
+    "path": "plans/draft-review.md"
+  },
+  {
+    "command": "draft capture",
+    "group": "plans",
+    "summary": "Legacy: capture inspected native draft intent to the local journal and export a proposal file; never authorizes or applies.",
+    "stability": "experimental",
+    "mutates": "local",
+    "path": "plans/draft-capture.md"
+  },
+  {
+    "command": "policy assess",
+    "group": "plans",
+    "summary": "Assess cached compliance of named items against the declared repository policy, with bounded repair alternatives.",
+    "stability": "experimental",
+    "mutates": "none",
+    "path": "plans/policy-assess.md"
+  },
+  {
+    "command": "policy reconcile",
+    "group": "plans",
+    "summary": "Render one explicitly selected policy repair as a native proposal on stdout; review and apply remain separate.",
+    "stability": "experimental",
+    "mutates": "none",
+    "path": "plans/policy-reconcile.md"
+  },
+  {
     "command": "plan apply",
     "group": "plans",
     "summary": "Deprecated alias for `proposal apply`.",

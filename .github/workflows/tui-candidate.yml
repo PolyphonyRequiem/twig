@@ -10,7 +10,7 @@ jobs:
   windows-gh-parser-diagnostic:
     name: Windows installed-gh parser diagnostic (non-candidate)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
     env:
@@ -44,7 +44,7 @@ jobs:
         run: python tools/run-bounded.py --timeout 120 -- dotnet restore tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --nologo
 
       - name: Build Infrastructure test producer and consumer
-        run: python tools/run-bounded.py --timeout 120 -- dotnet build tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-restore -f net11.0 -m:1 --nologo
+        run: python tools/run-bounded.py --timeout 120 -- dotnet build tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-restore -f net11.0 '-m:1' --nologo
 
       - name: Parser fact alone, attempt 1
         env:

@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using Shouldly;
 using Twig.Infrastructure.GitHub;
 using Xunit;
@@ -19,80 +21,295 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
         var call = runner.Calls.Single();
         var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var clock = Stopwatch.StartNew();
-        var phase = "startup";
-        Process? process = null;
-        Task<string>? stdout = null, stderr = null;
-        try
+        var start = BoundedProcessRunner.CreateStartInfo(call.FileName,
+            [.. call.Arguments, "--help"], runner.ExcludedEnvironment);
+        foreach (var (key, directory) in new[]
         {
-            var start = BoundedProcessRunner.CreateStartInfo(call.FileName,
-                [.. call.Arguments, "--help"], runner.ExcludedEnvironment);
-            foreach (var (key, directory) in new[]
-            {
-                ("HOME", "home"), ("USERPROFILE", "home"), ("TWIG_USER_HOME", "twig"),
-                ("GH_CONFIG_DIR", "gh-config"), ("XDG_CONFIG_HOME", "xdg-config"),
-                ("XDG_CACHE_HOME", "xdg-cache"), ("XDG_STATE_HOME", "xdg-state"),
-                ("XDG_DATA_HOME", "xdg-data"), ("APPDATA", "appdata"), ("LOCALAPPDATA", "localappdata"),
-            })
-            {
-                var path = Path.Combine(root, directory);
-                Directory.CreateDirectory(path);
-                start.Environment[key] = path;
-            }
-            start.WorkingDirectory = start.Environment["HOME"]!;
-            start.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
-            start.Environment["GH_NO_EXTENSION_UPDATE_NOTIFIER"] = "1";
-            start.Environment["GH_PROMPT_DISABLED"] = "1";
-            start.Environment["GH_TELEMETRY"] = "disabled";
-            start.Environment["DO_NOT_TRACK"] = "1";
-            start.Environment.Remove("TWIG_TELEMETRY_ENDPOINT");
-            process = Process.Start(start)
-                ?? throw new InvalidOperationException("GitHub CLI parser did not start.");
-            process.StandardInput.Close();
-            stdout = process.StandardOutput.ReadToEndAsync();
-            stderr = process.StandardError.ReadToEndAsync();
-            phase = "wait";
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            try
-            {
-                await process.WaitForExitAsync(deadline.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                WriteParserDiagnostics();
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
-                throw;
-            }
-            phase = "drain";
-            var output = await stdout.WaitAsync(TimeSpan.FromSeconds(5));
-            var error = await stderr.WaitAsync(TimeSpan.FromSeconds(5));
-            phase = "assert";
-            process.ExitCode.ShouldBe(0);
+            ("HOME", "home"), ("USERPROFILE", "home"), ("TWIG_USER_HOME", "twig"),
+            ("GH_CONFIG_DIR", "gh-config"), ("XDG_CONFIG_HOME", "xdg-config"),
+            ("XDG_CACHE_HOME", "xdg-cache"), ("XDG_STATE_HOME", "xdg-state"),
+            ("XDG_DATA_HOME", "xdg-data"), ("APPDATA", "appdata"), ("LOCALAPPDATA", "localappdata"),
+        })
+        {
+            var path = Path.Combine(root, directory);
+            Directory.CreateDirectory(path);
+            start.Environment[key] = path;
+        }
+        start.WorkingDirectory = start.Environment["HOME"]!;
+        start.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
+        start.Environment["GH_NO_EXTENSION_UPDATE_NOTIFIER"] = "1";
+        start.Environment["GH_PROMPT_DISABLED"] = "1";
+        start.Environment["GH_TELEMETRY"] = "disabled";
+        start.Environment["DO_NOT_TRACK"] = "1";
+        start.Environment.Remove("TWIG_TELEMETRY_ENDPOINT");
+        await RunParserProcessAsync(start, root, TimeSpan.FromSeconds(10), (exitCode, output, error) =>
+        {
+            exitCode.ShouldBe(0);
             output.ShouldContain("--hostname");
             output.ShouldContain("--user");
             output.ShouldNotContain(Secret);
             error.ShouldNotContain(Secret);
             ParserCredentialConfigurationFiles(root).ShouldBeEmpty(
                 "help must not initialize credential configuration; non-credential state directories are permitted");
+        });
+    }
+
+    private async Task RunParserProcessAsync(ProcessStartInfo start, string root, TimeSpan timeout,
+        Action<int, string, string> verify, Action? deleteOwnedRoot = null, Action? observeIdentity = null)
+    {
+        var clock = Stopwatch.StartNew();
+        var phase = "startup";
+        Process? process = null;
+        Task<string>? stdout = null, stderr = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            process = Process.Start(start)
+                ?? throw new InvalidOperationException("GitHub CLI parser did not start.");
+            process.StandardInput.Close();
+            stdout = process.StandardOutput.ReadToEndAsync();
+            stderr = process.StandardError.ReadToEndAsync();
+            using var deadline = new CancellationTokenSource(timeout);
+            var waitStarted = clock.Elapsed;
+            phase = "wait";
+            try
+            {
+                await process.WaitForExitAsync(deadline.Token);
+                var waitElapsed = clock.Elapsed - waitStarted;
+                deadline.Token.ThrowIfCancellationRequested();
+                if (waitElapsed >= timeout)
+                    throw new OperationCanceledException("Parser process wait exceeded its deadline.", deadline.Token);
+                diagnostics.WriteLine($"gh-help phase=wait elapsedMs={clock.ElapsedMilliseconds} "
+                    + $"waitElapsedMs={waitElapsed.TotalMilliseconds}");
+            }
+            catch (OperationCanceledException timedOut)
+            {
+                WriteParserDiagnostics();
+                phase = "reap";
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                    await Task.WhenAll(stdout, stderr).WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception reapFailure)
+                {
+                    diagnostics.WriteLine("gh-help ownedCleanup=uncertain reason=exit-or-pipe-reap-failed");
+                    throw new AggregateException("Parser timed out and owned-process reaping failed.", timedOut, reapFailure);
+                }
+                throw;
+            }
+            phase = "drain";
+            string output, error;
+            try
+            {
+                output = await stdout.WaitAsync(TimeSpan.FromSeconds(5));
+                error = await stderr.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException drainFailure)
+            {
+                phase = "drain-incomplete";
+                diagnostics.WriteLine("gh-help ownedCleanup=uncertain reason=redirected-pipes-not-closed-after-root-exit");
+                throw new TimeoutException(
+                    "Parser root exited but redirected pipes did not close within the drain deadline. "
+                    + "Owned descendant cleanup is uncertain; root exit does not prove descendant termination.",
+                    drainFailure);
+            }
+            phase = "assert";
+            verify(process.ExitCode, output, error);
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
         }
         finally
         {
-            WriteParserDiagnostics();
-            process?.Dispose();
-            Directory.Delete(root, recursive: true);
+            try
+            {
+                var terminalPhase = phase;
+                phase = "identity-after-process-wait";
+                var identityStarted = clock.ElapsedMilliseconds;
+                if (observeIdentity is null)
+                    WriteProcessIdentity();
+                else
+                    observeIdentity();
+                diagnostics.WriteLine($"gh-help phase={phase} elapsedMs={clock.ElapsedMilliseconds} "
+                    + $"phaseElapsedMs={clock.ElapsedMilliseconds - identityStarted} "
+                    + $"processTerminalPhase={terminalPhase} processTerminalElapsedMs={identityStarted}");
+                phase = terminalPhase;
+                WriteParserDiagnostics();
+            }
+            finally
+            {
+                process?.Dispose();
+                try
+                {
+                    if (deleteOwnedRoot is null)
+                        Directory.Delete(root, recursive: true);
+                    else
+                        deleteOwnedRoot();
+                }
+                catch (Exception cleanupFailure) when (primaryFailure is not null)
+                {
+                    throw new AggregateException("Parser failed and owned-directory cleanup also failed.",
+                        primaryFailure, cleanupFailure);
+                }
+            }
         }
 
         void WriteParserDiagnostics()
         {
-            diagnostics.WriteLine(
-                $"gh-help phase={phase} elapsedMs={clock.ElapsedMilliseconds} started={process is not null} "
-                + $"exited={process?.HasExited} exitCode={(process?.HasExited == true ? (int?)process.ExitCode : null)} "
-                + $"stdoutStatus={stdout?.Status} stdoutChars={(stdout?.IsCompletedSuccessfully == true ? (int?)stdout.Result.Length : null)} "
-                + $"stderrStatus={stderr?.Status} stderrChars={(stderr?.IsCompletedSuccessfully == true ? (int?)stderr.Result.Length : null)}");
-            diagnostics.WriteLine("gh-help ownedFiles=" + string.Join(",",
-                Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                    .Take(40).Select(file => Path.GetRelativePath(root, file))));
+            try
+            {
+                WriteProcessStatus();
+                diagnostics.WriteLine(
+                    $"gh-help phase={phase} elapsedMs={clock.ElapsedMilliseconds} started={process is not null} "
+                    + $"exited={process?.HasExited} exitCode={(process?.HasExited == true ? (int?)process.ExitCode : null)} "
+                    + $"stdoutStatus={stdout?.Status} stdoutChars={(stdout?.IsCompletedSuccessfully == true ? (int?)stdout.Result.Length : null)} "
+                    + $"stderrStatus={stderr?.Status} stderrChars={(stderr?.IsCompletedSuccessfully == true ? (int?)stderr.Result.Length : null)}");
+                diagnostics.WriteLine("gh-help ownedFiles=" + string.Join(",",
+                    Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                        .Take(40).Select(file => Path.GetRelativePath(root, file))));
+            }
+            catch (Exception error) when (error is Win32Exception or InvalidOperationException
+                or IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                diagnostics.WriteLine($"gh-help diagnosticsUnavailable={error.GetType().Name}");
+            }
+        }
+
+        void WriteProcessIdentity()
+        {
+            if (process is null)
+            {
+                diagnostics.WriteLine("gh-help identityUnavailable=process-not-started");
+                return;
+            }
+            try
+            {
+                var executable = process.MainModule?.FileName;
+                diagnostics.WriteLine($"gh-help pid={process.Id} startUtc={process.StartTime.ToUniversalTime():O} executable={executable}");
+                if (executable is null)
+                    diagnostics.WriteLine("gh-help identityUnavailable=observed-image-unavailable-after-wait");
+                if (executable is not null)
+                {
+                    using var image = File.OpenRead(executable);
+                    diagnostics.WriteLine($"gh-help executableSha256={Convert.ToHexString(SHA256.HashData(image))} "
+                        + $"fileVersion={FileVersionInfo.GetVersionInfo(executable).FileVersion}");
+                }
+            }
+            catch (Exception error) when (error is Win32Exception or InvalidOperationException
+                or IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                diagnostics.WriteLine($"gh-help identityUnavailable={error.GetType().Name}");
+            }
+        }
+
+        void WriteProcessStatus()
+        {
+            if (process is null)
+                return;
+            try
+            {
+                process.Refresh();
+                diagnostics.WriteLine($"gh-help pid={process.Id} cpuMs={process.TotalProcessorTime.TotalMilliseconds} "
+                    + $"threads={process.Threads.Count}");
+            }
+            catch (Exception error) when (error is Win32Exception or InvalidOperationException or NotSupportedException)
+            {
+                diagnostics.WriteLine($"gh-help statusUnavailable={error.GetType().Name}");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ParserTimeout_ReapsRealOwnedChild_AndPreservesTimeoutWhenCleanupFails(bool cleanupFails)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var start = OperatingSystem.IsWindows()
+            ? BoundedProcessRunner.CreateStartInfo("ping", ["-n", "30", "127.0.0.1"], [])
+            : BoundedProcessRunner.CreateStartInfo("sleep", ["30"], []);
+        start.WorkingDirectory = root;
+        var cleanupFailure = new IOException("fixture-owned directory is unavailable");
+        var clock = Stopwatch.StartNew();
+        try
+        {
+            var failure = await Record.ExceptionAsync(() => RunParserProcessAsync(start, root,
+                TimeSpan.FromMilliseconds(250), (_, _, _) => Assert.Fail("The slow child must time out."),
+                cleanupFails ? () => throw cleanupFailure : null));
+
+            clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(15));
+            if (cleanupFails)
+            {
+                var aggregate = failure.ShouldBeOfType<AggregateException>();
+                aggregate.InnerExceptions.Count.ShouldBe(2);
+                aggregate.InnerExceptions[0].ShouldBeAssignableTo<OperationCanceledException>();
+                aggregate.InnerExceptions[1].ShouldBeSameAs(cleanupFailure);
+            }
+            else
+            {
+                failure.ShouldBeAssignableTo<OperationCanceledException>();
+                Directory.Exists(root).ShouldBeFalse("reaping must precede deletion of the child's working directory");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ParserTimeout_SlowIdentityObserver_CannotTurnOverDeadlineChildIntoSuccess()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var start = OperatingSystem.IsWindows()
+            ? BoundedProcessRunner.CreateStartInfo("ping", ["-n", "3", "127.0.0.1"], [])
+            : BoundedProcessRunner.CreateStartInfo("sleep", ["2"], []);
+        start.WorkingDirectory = root;
+        var observerCalled = false;
+        var verificationCalled = false;
+        var failure = await Record.ExceptionAsync(() => RunParserProcessAsync(start, root,
+            TimeSpan.FromMilliseconds(250), (_, _, _) => verificationCalled = true,
+            observeIdentity: () =>
+            {
+                observerCalled = true;
+                Thread.Sleep(TimeSpan.FromSeconds(4));
+            }));
+
+        failure.ShouldBeAssignableTo<OperationCanceledException>();
+        observerCalled.ShouldBeTrue();
+        verificationCalled.ShouldBeFalse("a slow observer must not hide expiration behind an already-exited child");
+        Directory.Exists(root).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ParserCleanupFailure_AfterRealChildSuccess_IsNotSuppressed()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "twig-gh-parser-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var start = OperatingSystem.IsWindows()
+            ? BoundedProcessRunner.CreateStartInfo("cmd", ["/d", "/c", "exit", "0"], [])
+            : BoundedProcessRunner.CreateStartInfo("/bin/sh", ["-c", "exit 0"], []);
+        start.WorkingDirectory = root;
+        var cleanupFailure = new IOException("fixture-owned directory is unavailable");
+        try
+        {
+            var failure = await Record.ExceptionAsync(() => RunParserProcessAsync(start, root,
+                TimeSpan.FromSeconds(10), (code, _, _) => code.ShouldBe(0),
+                () => throw cleanupFailure));
+
+            failure.ShouldBeSameAs(cleanupFailure);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
         }
     }
 

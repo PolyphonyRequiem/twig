@@ -26,7 +26,7 @@ twig connection pin --binding <binding-id> [--confirm <digest>] [-o <format>]
 twig connection unpin [--confirm <digest>] [-o <format>]
 twig connection default --binding <binding-id> [--confirm <digest>] [-o <format>]
 twig connection writes [-o <format>]
-twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis> [-o <format>]
+twig connection reconcile-write --intent <id> --confirm <digest> --rationale <basis> [-o <format>]
 ```
 
 ## Behavior
@@ -121,8 +121,12 @@ leases disappear. `connection writes` lists original identities, exact request
 digests, response observations and append-only outcome receipts. Inspection never
 replays a write; clearing a pending note does not settle its unknown remote POST.
 
-`connection reconcile-write` requires the exact digest, original registered
-identity ID and truthful rationale. It uses original-actor read-only evidence
+`connection reconcile-write` requires the exact digest and truthful evidence
+rationale. It resolves the current connection and requires the original
+binding, principal and admitted generation; no caller-supplied authorizer or
+Human/Model steering label is accepted. New receipts retain that native
+connection provenance without claiming a signer, and historical receipts remain
+readable unchanged. It uses original-actor read-only evidence
 collection: an exhausted work-item revision test and the exact immutable first
 post-CAS revision can establish the requested effect. A later matching current
 value, matching comment text/actor, an expired lease or rationale alone cannot.

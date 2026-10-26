@@ -21,7 +21,7 @@ internal sealed class ConnectionWritesCommand(
     ITelemetryClient? telemetry = null)
 {
     public async Task<int> ExecuteAsync(bool reconcile, string? intent = null, string? confirm = null,
-        string? authorize = null, string? rationale = null,
+        string? rationale = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
@@ -29,9 +29,9 @@ internal sealed class ConnectionWritesCommand(
         try
         {
             if (reconcile && (string.IsNullOrWhiteSpace(intent) || string.IsNullOrWhiteSpace(confirm)
-                || string.IsNullOrWhiteSpace(authorize) || string.IsNullOrWhiteSpace(rationale)))
+                || string.IsNullOrWhiteSpace(rationale)))
             {
-                Console.Error.WriteLine(formatters.GetFormatter(output).FormatError("--intent, --confirm, --authorize and --rationale are required. Inspect 'twig connection writes' first; only native original-actor evidence can settle an uncertain write."));
+                Console.Error.WriteLine(formatters.GetFormatter(output).FormatError("--intent, --confirm and --rationale are required. Inspect 'twig connection writes' first; only native original-actor evidence can settle an uncertain write."));
                 return exit = 2;
             }
             var normalized = OutputFormats.Normalize(output);
@@ -41,7 +41,7 @@ internal sealed class ConnectionWritesCommand(
                 return exit = 2;
             }
             IReadOnlyList<ConnectionRemoteWriteInspection> reports = reconcile
-                ? [await reconciliation.ReconcileAsync(configuration, paths, intent!, confirm!, authorize!, rationale!, ct).ConfigureAwait(false)]
+                ? [await reconciliation.ReconcileAsync(configuration, paths, intent!, confirm!, rationale!, ct).ConfigureAwait(false)]
                 : await reconciliation.InspectAsync(configuration, paths, ct).ConfigureAwait(false);
             if (normalized is "json" or "json-full" or "json-compact")
             {

@@ -17,7 +17,7 @@ internal interface IConnectionRemoteWriteReconciliationService
 {
     Task<IReadOnlyList<ConnectionRemoteWriteInspection>> InspectAsync(TwigConfiguration configuration, TwigPaths paths, CancellationToken ct = default);
     Task<ConnectionRemoteWriteInspection> ReconcileAsync(TwigConfiguration configuration, TwigPaths paths,
-        string intentId, string confirmedDigest, string authorizer, string rationale, CancellationToken ct = default);
+        string intentId, string confirmedDigest, string rationale, CancellationToken ct = default);
 }
 
 /// <summary>Read-only evidence collection and native append-only settlement; it never repeats a remote mutation.</summary>
@@ -52,11 +52,10 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
     }
 
     public async Task<ConnectionRemoteWriteInspection> ReconcileAsync(TwigConfiguration configuration, TwigPaths paths,
-        string intentId, string confirmedDigest, string authorizer, string rationale, CancellationToken ct = default)
+        string intentId, string confirmedDigest, string rationale, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(intentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(confirmedDigest);
-        ArgumentException.ThrowIfNullOrWhiteSpace(authorizer);
         ArgumentException.ThrowIfNullOrWhiteSpace(rationale);
         if (!WorktreeAnchorDetector.TryDetect(paths.StartDir ?? paths.TwigDir, out var anchor, out var failure))
             throw new InvalidOperationException("remote-write-worktree-required: " + failure);
@@ -70,8 +69,8 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
         var intent = history.Intent;
         if (intent.RequestDigest != confirmedDigest || intent.RequestDigest != ConnectionRemoteWriteAdmission.RequestDigest(intent.Origin, intent.Request))
             throw new InvalidOperationException("remote-write-digest-mismatch: confirm the exact immutable native request; no receipt was written.");
-        if (!ConnectionRemoteWriteAdmission.SameAuthority(current, intent.Origin) || authorizer != intent.Origin.Identity.IdentityId)
-            return Report(history, ["remote-write-authority-mismatch: authorization must identify the original registered identity id, with its unchanged binding/principal/admitted generation. No current or display-name actor can adopt this intent."]);
+        if (!ConnectionRemoteWriteAdmission.SameAuthority(current, intent.Origin))
+            return Report(history, ["remote-write-authority-mismatch: reconciliation requires the original binding/principal/admitted generation. Another actor cannot adopt this intent."]);
         if (history.Receipt is not null)
         {
             if (intent.Request.EffectKind != "workitem-create" || intent.Request.SeedCorrelation is not { } settledCorrelation
@@ -83,7 +82,7 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
             finally { (cleanupProvider as IDisposable)?.Dispose(); }
         }
         if (intent.Request.SeedCorrelation is not null && intent.Request.EffectKind == "workitem-create")
-            return await ReconcilePublishedSeedAsync(history, current, configuration, paths, authorizer, rationale, ct).ConfigureAwait(false);
+            return await ReconcilePublishedSeedAsync(history, current, configuration, paths, rationale, ct).ConfigureAwait(false);
         if (!TryRevisionFence(intent.Request, out var expectedRevision))
             return Report(history, ["remote-write-attribution-unavailable: lost unrevisioned POST/DELETE or unsupported mutation has no server-issued attributable outcome. Matching text, actor or current state is not proof that the original request cannot still complete. Preserve this intent; there is no force, automatic replay, retirement or expiry."]);
 
@@ -111,7 +110,7 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
                 return Report(history, ["remote-write-effect-unproved: the immutable first post-CAS revision does not establish this exact requested effect. A newer successful mutation or matching current state cannot settle it."]);
             var receipt = new ConnectionRemoteWriteReceipt(1, Guid.NewGuid().ToString("N"), intent.IntentId,
                 intent.RequestDigest, "exhausted-cas-readback", null, effect.RootElement.GetRawText(), current,
-                authorizer, rationale, DateTimeOffset.UtcNow);
+                null, rationale, DateTimeOffset.UtcNow);
             var appended = await _registry.AppendConnectionRemoteWriteReceiptAsync(intent, receipt, ct).ConfigureAwait(false);
             if (!appended.IsSuccess) throw new InvalidOperationException(appended.Error);
             return Report(history with { Receipt = receipt }, []);
@@ -123,7 +122,7 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
 
     private async Task<ConnectionRemoteWriteInspection> ReconcilePublishedSeedAsync(ConnectionRemoteWriteHistory history,
         ResolvedConnectionBinding current, TwigConfiguration configuration, TwigPaths paths,
-        string authorizer, string rationale, CancellationToken ct)
+        string rationale, CancellationToken ct)
     {
         var intent = history.Intent;
         var correlation = intent.Request.SeedCorrelation!;
@@ -183,7 +182,7 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
             var receipt = new ConnectionRemoteWriteReceipt(1, Guid.NewGuid().ToString("N"), intent.IntentId,
                 intent.RequestDigest, "native-published-seed-readback", null,
                 SeedReceiptEvidence(publishedIntent, id, descriptionOrigin ? correlation.DescriptionMarkerText : correlation.Tag, descriptionOrigin, creation.RootElement), current,
-                authorizer, rationale, DateTimeOffset.UtcNow);
+                null, rationale, DateTimeOffset.UtcNow);
             var appended = await _registry.AppendConnectionRemoteWriteReceiptAsync(intent, receipt, ct).ConfigureAwait(false);
             if (!appended.IsSuccess) throw new InvalidOperationException(appended.Error);
             return descriptionOrigin

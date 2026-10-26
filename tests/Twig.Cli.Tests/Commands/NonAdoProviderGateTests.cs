@@ -43,21 +43,30 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     private readonly List<ServiceProvider> _runtimes = [];
     private HttpClient _http = null!;
     private ConnectionBindingService _bindings = null!;
+    private SqliteSystemWorktreeRegistry _systemRegistry = null!;
     private string Home => Path.Combine(_temp, "home");
 
     public Task InitializeAsync()
     {
         _http = new HttpClient(_transport);
         _bindings = new ConnectionBindingService(Home, patHttpClient: _http);
+        _systemRegistry = new SqliteSystemWorktreeRegistry(_bindings.RegistryPath, TimeProvider.System);
         return Task.CompletedTask;
     }
 
     public Task DisposeAsync()
     {
         foreach (var runtime in _runtimes) runtime.Dispose();
+        _systemRegistry.Dispose();
         _bindings.Dispose();
         _http.Dispose();
-        SqliteConnection.ClearAllPools();
+        using var pool = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _bindings.RegistryPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            DefaultTimeout = 30,
+        }.ToString());
+        SqliteConnection.ClearPool(pool);
         Directory.Delete(_temp, recursive: true);
         return Task.CompletedTask;
     }
@@ -90,6 +99,7 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
                 .ShouldBeOfType<TwigConfigurationException>().Message.ShouldStartWith(code + ":");
             output.ToString().ShouldBeEmpty();
         }
+
         else
         {
             (await new TwigCommands(runtime).BenchDiscussion(true, "json")).ShouldBe(1);
@@ -100,6 +110,27 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IWorkItemDiscussionReader>());
         constructions.ShouldBe(0);
         _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task TargetBindingComposition_UsesOnlyFixtureHomeRegistry()
+    {
+        var runtime = await AttachAsync("github", gitProject: "Project");
+        var identity = new GitHubRepositoryTarget("O_fixture_isolation", "R_fixture_isolation")
+            .ToIdentity(new Uri("https://api.github.com/graphql"));
+        var attached = await runtime.GetRequiredService<Twig.Infrastructure.Persistence.ProviderTargets.ProviderTargetAttachmentService>()
+            .AttachAsync(identity, "fixture/isolation", null, 0);
+
+        attached.IsSuccess.ShouldBeTrue(attached.Error);
+        _bindings.RegistryPath.ShouldBe(Path.Combine(Home, "system.db"));
+        Path.GetFullPath(_bindings.RegistryPath).ShouldStartWith(Path.GetFullPath(_temp) + Path.DirectorySeparatorChar);
+        var stored = await _systemRegistry.FindByIdentityAsync(identity);
+        stored.IsSuccess.ShouldBeTrue(stored.Error);
+        stored.Value.ShouldNotBeNull("target binding must be written to the same owned home as identity bindings");
+        stored.Value.Id.ShouldBe(attached.Value.Binding.Id);
+        runtime.GetRequiredService<IConnectionBindingService>().ShouldBeSameAs(_bindings);
+        runtime.GetRequiredService<ISystemWorktreeRegistry>().ShouldBeSameAs(_systemRegistry);
+        runtime.GetRequiredService<IProviderTargetBindingStore>().ShouldBeSameAs(_systemRegistry);
     }
 
     [Fact]
@@ -734,6 +765,7 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     {
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddConnectionServices(config, paths.TwigDir, paths.StartDir);
+        services.AddSingleton<ISystemWorktreeRegistry>(_systemRegistry);
         services.AddSingleton(paths);
         services.AddSingleton(_http);
         services.AddTwigNetworkServices(config, resolvedGitProject: gitProject);

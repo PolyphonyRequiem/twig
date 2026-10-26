@@ -142,6 +142,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Preservation v17 primary and publication regressions
+        if: matrix.rid == 'win-x64'
         shell: python
         env:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/preservation-v17/trace
@@ -185,7 +186,7 @@ jobs:
               assert all(counters[k] == str(count) for k in ("total", "executed", "passed"))
               assert all(counters[k] == "0" for k in ("failed", "error", "timeout", "aborted", "notExecuted", "passedButRunAborted"))
       - name: Preserve preservation v17 regression results
-        if: always()
+        if: always() && matrix.rid == 'win-x64'
         uses: actions/upload-artifact@v4
         with:
           name: twig-preservation-v17-${{ matrix.rid }}

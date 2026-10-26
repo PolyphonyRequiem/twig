@@ -522,8 +522,9 @@ Preservation migration is an explicit internal capability, not an automatic
 workspace upgrade or a new user-facing migration command. It retains local work,
 context and navigation, requires restore-qualified workspace-local backups under
 `.twig/backups`, and refuses unclassified data rather than discarding originals.
-CI exercises the primary migration and retained-publication recovery separately
-on each supported platform; this does not authorize migration of existing stores.
+CI qualifies native host-inventory migration and retained-publication recovery on
+Windows; macOS lacks that admission and Linux can refuse inaccessible `/proc` handles.
+Normal cross-platform gates remain; these checks never authorize existing-store migration.
 
 ## Next Topics
 

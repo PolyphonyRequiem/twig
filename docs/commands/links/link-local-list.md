@@ -15,6 +15,8 @@ GUIDv7 identity:
 twig link local list <local-guid> [-o human|json|minimal]
 ```
 
+## Behavior
+
 `-o ids` is not supported because this format emits numeric work-item IDs,
 while these endpoints are local GUIDv7 identities.
 
@@ -42,3 +44,10 @@ twig link local list 019a0000-0000-7000-8000-000000000001 -o json
 With `-o minimal`, each edge is one tab-separated row containing source ID,
 target ID, kind, origin, storage, and publication state. An item with no local
 Related edges returns an empty list.
+
+## Exit codes
+
+- `0` — the list was read, including an empty list.
+- `1` — the local relationship store could not be read.
+- `2` — the local ID is not a canonical lowercase GUIDv7 identity, or the
+  output format is not `human`, `json`, or `minimal` (including `-o ids`).

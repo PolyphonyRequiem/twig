@@ -8,6 +8,8 @@ mutates: local
 
 # `twig provider bind github`
 
+## Behavior
+
 Bind an expected [discovery observation](provider-discover-github.md) to this
 worktree. Twig repeats the fixed lookup and compares both opaque IDs exactly,
 then commits a durable target row before CAS-replacing the local pointer.
@@ -43,9 +45,20 @@ columns as discovery plus the resulting binding ID and attachment revision.
 Its `bindingValidated` value is `true` after the normal binding-store checks and
 successful local commit; discovery's pointer-only observation is never treated as
 binding authority.
-Exit codes are `0` for a committed local selection, `1` for identity/CAS/storage/
-credential failure, and `2` for invalid usage. A late pointer-write failure may
-leave a recoverable unreferenced row; rediscover before retrying.
+
+## Exit codes
+
+- `0` — the local selection was committed.
+- `1` — identity, CAS, storage or credential failure: the fresh lookup does not
+  match the expected IDs, the attachment revision or `--replace-binding` is
+  stale, the lookup or credential is unavailable, or the local commit fails.
+  A late pointer-write failure may leave a recoverable unreferenced row;
+  rediscover before retrying.
+- `2` — invalid usage: a missing `--host`, `--repository`, expected ID or
+  attachment revision, a negative revision, a malformed `--replace-binding`, or
+  an output format other than `human`, `json` or `minimal`.
+
+## Scope
 
 This command changes neither `provider`, `github.host`, `github.repository`, nor
 ADO bindings. Choose normal-read configuration explicitly with `twig config`

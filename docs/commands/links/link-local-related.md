@@ -15,6 +15,8 @@ using two canonical lowercase local GUIDv7 identities:
 twig link local related <source-local-guid> <target-local-guid> [-o human|json|minimal]
 ```
 
+## Behavior
+
 Both identities must resolve to live local work-item records. The active
 provider's static declaration must say that Related is `unsupported`. A native,
 emulated, unavailable, or unknown capability is not a reason to create a local
@@ -46,6 +48,16 @@ An existing edge is reported as `already-present` without changing its local
 revision. Self-links, malformed identities, missing or deleted local items,
 non-unsupported provider declarations, and concurrent-write conflicts are
 reported as errors. No provider write or synchronization occurs.
+
+## Exit codes
+
+- `0` — the edge was added, or was already present.
+- `1` — a local item is missing or deleted, the provider does not declare
+  Related `unsupported`, the edge is a self-link, exists under a different
+  storage route, or changed concurrently, or the local store failed. Nothing is
+  changed.
+- `2` — an identity is not a canonical lowercase GUIDv7, or the output format is
+  not `human`, `json`, or `minimal`.
 
 See [`link local list`](./link-local-list.md) and
 [`link local unrelate`](./link-local-unrelate.md).

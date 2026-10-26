@@ -8,6 +8,8 @@ mutates: none
 
 # `twig provider discover github`
 
+## Behavior
+
 Observe the immutable owner and repository node IDs using one fixed read-only
 GraphQL lookup. Discovery reports the API origin, current locator, attachment
 revision and current binding ID, without creating target rows or replacing the
@@ -37,8 +39,17 @@ JSON emits one source-generated report. Minimal columns are provider, API origin
 owner ID, repository ID, locator, attachment revision, current binding ID and
 result binding ID (empty for discovery), and binding-validated boolean (`false`
 for discovery). `--help` describes the options.
-Exit codes are `0` for a report, `1` for discovery/storage/credential failure,
-and `2` for invalid usage.
+
+## Exit codes
+
+- `0` — the observation report was written.
+- `1` — discovery, storage or credential failure: the lookup is unavailable,
+  private or incomplete, the request is refused, the explicit `github.account`
+  credential is unavailable, or the local pointer cannot be read.
+- `2` — invalid usage: a missing or malformed `--host` or `--repository`, or an
+  output format other than `human`, `json` or `minimal`.
+
+## Binding the observation
 
 Use all the observed values in [`provider bind github`](provider-bind-github.md).
 An absent attachment has revision `0`; a detached attachment retains its tombstone

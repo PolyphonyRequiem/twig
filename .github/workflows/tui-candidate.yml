@@ -2,6 +2,15 @@ name: Native TUI candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Select the normal candidate run or the approved dependency transfer.
+        required: true
+        type: choice
+        options:
+          - candidate
+          - nuget-dependency-transfer
+        default: candidate
   push:
     branches: [planning/tui-aot-epic]
 
@@ -10,6 +19,7 @@ permissions:
 
 jobs:
   candidate:
+    if: github.event_name == 'push' || inputs.operation == 'candidate'
     name: candidate (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
     environment: release
@@ -167,3 +177,24 @@ jobs:
             artifacts/trace-311/
             artifacts/test-logs/ci/
           if-no-files-found: ignore
+
+  nuget-dependency-transfer:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'nuget-dependency-transfer'
+    name: Approved .NET dependency transfer
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download and verify the exact approved packages
+        run: python tools/nuget-transfer.py --output-dir artifacts/nuget-transfer --source-sha "$GITHUB_SHA"
+      - name: Preserve packages and independent receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-nuget-transfer-${{ github.sha }}-10.0.14-11.0.0-rc.3.26522.148-win-x64-11.0.0-rc.3.26522.148
+          path: artifacts/nuget-transfer/
+          if-no-files-found: error
+          retention-days: 1

@@ -26,7 +26,15 @@ transaction on the shared connection and commits it, so it can contend with
 concurrent local writers. The source issues no row inserts, updates or deletes on
 this path: it does not read or create a proposal file, alter export state or
 journal audit fields, import, authorize or apply. It is classified
-`mutates: none` on that basis; it is not a remote read.
+`mutates: none` on that basis and issues no Azure DevOps work request.
+
+Before reading, REVIEW resolves the checkout's bound publication origin, which
+acquires that identity's access token. When the cached token is expired or
+absent, this deletes the stale per-credential token file, refreshes it through
+the bound refresh credential (a request to the identity's sign-in authority) and
+stores the renewed tokens. Those are credential-cache effects, not work-item,
+draft, journal or Bench changes. Opening the local cache also applies any
+outstanding schema upgrade, as every command that reads the cache does.
 
 Freshness means the captured intent matches available cached native evidence
 during validation. It is not a remote observation or a lease. Human output

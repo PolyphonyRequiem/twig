@@ -11,7 +11,9 @@ import { createDiscussionPost } from "./discussion-post.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, readNativeDiscussion, nativeDiscussionPost, nativeEditing, handoffSession, conversationSession, workbench = false }) {
+export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft,
+    readNativeDiscussion, nativeDiscussionPost, readNativeAttachments, nativeEditing, handoffSession, conversationSession,
+    workbench = false }) {
     const token = randomBytes(32).toString("base64url");
     const editing = createEditingBridge({ adapter: nativeEditing, workspacePath });
     const handoff = createSessionHandoff({ session: handoffSession });
@@ -22,10 +24,19 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     let discussionTarget = null;
     let discussionController = null;
     let discussionIdle = Promise.resolve();
+    let attachmentTarget = null;
+    let attachmentController = null;
+    let attachmentIdle = Promise.resolve();
+    const attachmentDownloads = new Map();
     function invalidateDiscussion() {
         discussionPost.invalidate();
         discussionTarget = null;
         discussionController?.abort();
+    }
+    function invalidateAttachments() {
+        attachmentTarget = null;
+        attachmentDownloads.clear();
+        attachmentController?.abort();
     }
     function invalidateEditing() {
         selectionGeneration++;
@@ -33,6 +44,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         editing.invalidate();
         handoff.invalidate();
         invalidateDiscussion();
+        invalidateAttachments();
     }
     const state = {
         observation: null,
@@ -276,6 +288,11 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 target: { ...structuredClone(editingTarget), origin: structuredClone(detail.origin), benchName: detail.benchName },
                 context: null, cursor: null, pageHandle: null,
             } : null;
+            attachmentTarget = readNativeAttachments && detail.itemKey.workItemId > 0 &&
+                detail.membership.selected === true && !detail.membership.seed ? {
+                handle: randomBytes(32).toString("base64url"),
+                target: { ...structuredClone(editingTarget), origin: structuredClone(detail.origin), benchName: detail.benchName },
+            } : null;
             return detail;
         } finally {
             state.controller = null;
@@ -336,6 +353,117 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
     };
 
+    const readAttachments = async (body, response) => {
+        const captured = attachmentTarget;
+        if (state.closed || !captured || body.targetHandle !== captured.handle)
+            throw new HttpError(409, "Attachment selection is no longer current; reload qualified detail.");
+        if (state.busy || editing.busy || handoff.busy)
+            throw new HttpError(409, "A native operation is already in progress.");
+        const controller = new AbortController();
+        attachmentController = state.controller = controller;
+        state.busy = true;
+        let release;
+        attachmentIdle = new Promise(resolve => { release = resolve; });
+        const disconnected = () => { if (!response.writableEnded) controller.abort(); };
+        response.once("close", disconnected);
+        attachmentDownloads.clear();
+        try {
+            const result = await readNativeAttachments({
+                target: captured.target, action: "inventory", workspacePath, signal: controller.signal,
+            });
+            if (state.closed || controller.signal.aborted || captured !== attachmentTarget)
+                throw new HttpError(409, "Attachment read was canceled or superseded; no inventory was accepted.");
+            if (result.status === "refused") {
+                if (result.code === "authority-invalidated") invalidateAttachments();
+                return { status: "refused", code: result.code };
+            }
+            if (result.status !== "inventory" || !Array.isArray(result.attachments))
+                throw new HttpError(502, "Attachment inventory response was invalid.");
+            const attachments = [];
+            for (const entry of result.attachments) {
+                const downloadHandle = randomBytes(32).toString("base64url");
+                attachmentDownloads.set(downloadHandle, {
+                    target: captured, id: entry.id, revision: result.context.workItemRevision, entry,
+                    expiresAt: Date.now() + 5 * 60 * 1000,
+                });
+                attachments.push({ ...entry, downloadHandle });
+            }
+            return { status: "inventory", attachments };
+        } catch (error) {
+            if (error instanceof HttpError) throw error;
+            if (error instanceof ExecutableError) throw new HttpError(502, error.message, { code: error.code });
+            throw new HttpError(502, "Attachment inventory unavailable; no attachment was accepted.");
+        } finally {
+            response.removeListener("close", disconnected);
+            if (attachmentController === controller) {
+                attachmentController = state.controller = null;
+                state.busy = false;
+            }
+            release();
+        }
+    };
+
+    const downloadAttachment = async (handle, request, response) => {
+        if (!readNativeAttachments || state.closed || !attachmentTarget)
+            throw new HttpError(409, "Attachment selection is no longer current; reload qualified detail.");
+        if (request.headers["sec-fetch-site"] !== "same-origin")
+            throw new HttpError(403, "Attachment downloads require a same-origin browser request.");
+        if (request.headers.range) throw new HttpError(416, "Partial attachment downloads are not supported.");
+        if (state.busy || editing.busy || handoff.busy)
+            throw new HttpError(409, "A native operation is already in progress.");
+        const record = attachmentDownloads.get(handle);
+        attachmentDownloads.delete(handle);
+        if (!record || record.expiresAt < Date.now() || record.target !== attachmentTarget)
+            throw new HttpError(409, "Attachment download handle is expired or no longer current.");
+
+        const controller = new AbortController();
+        attachmentController = state.controller = controller;
+        state.busy = true;
+        let release;
+        attachmentIdle = new Promise(resolve => { release = resolve; });
+        const disconnected = () => { if (!response.writableEnded) controller.abort(); };
+        request.once("aborted", disconnected);
+        response.once("close", disconnected);
+        try {
+            const result = await readNativeAttachments({
+                target: record.target.target, action: "download",
+                entry: { id: record.id, revision: record.revision },
+                workspacePath, signal: controller.signal,
+            });
+            if (state.closed || controller.signal.aborted || record.target !== attachmentTarget)
+                throw new HttpError(409, "Attachment download was canceled or superseded; no bytes were accepted.");
+            if (result.status === "refused") {
+                if (result.code === "authority-invalidated") invalidateAttachments();
+                throw new HttpError(409, "Attachment download refused (" + result.code + ").");
+            }
+            if (result.status !== "download" || result.attachment.id !== record.id ||
+                result.attachment.fileName !== record.entry.fileName ||
+                !Buffer.isBuffer(result.content) || result.content.length !== result.contentLength)
+                throw new HttpError(502, "Attachment download response was invalid; no bytes were sent.");
+            const mediaType = safeMediaType(result.contentType);
+            response.writeHead(200, {
+                "Content-Type": mediaType,
+                "Content-Disposition": attachmentDisposition(result.attachment.fileName),
+                "Content-Length": String(result.contentLength),
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            });
+            response.end(result.content);
+        } catch (error) {
+            if (error instanceof HttpError) throw error;
+            if (error instanceof ExecutableError) throw new HttpError(502, error.message, { code: error.code });
+            throw new HttpError(502, "Attachment download unavailable; no bytes were sent.");
+        } finally {
+            request.removeListener("aborted", disconnected);
+            response.removeListener("close", disconnected);
+            if (attachmentController === controller) {
+                attachmentController = state.controller = null;
+                state.busy = false;
+            }
+            release();
+        }
+    };
+
     const server = createServer((request, response) => {
         void routeRequest(request, response).catch((error) => {
             if (!response.headersSent) {
@@ -387,6 +515,13 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             return;
         }
 
+        const downloadMatch = workbench && request.method === "GET"
+            ? /^\/api\/attachment-download\/([A-Za-z0-9_-]{43})$/.exec(request.url) : null;
+        if (downloadMatch) {
+            await downloadAttachment(downloadMatch[1], request, response);
+            return;
+        }
+
         if (!hasValidToken(request, token)) {
             sendJson(response, 401, { error: "Canvas instance authorization is required." });
             return;
@@ -416,7 +551,9 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         const handoffRoute = workbench && request.url === "/api/handoff";
         const discussionRoute = workbench && request.url === "/api/discussion";
         const discussionPostRoute = workbench && request.url === "/api/discussion-post";
-        if (request.method !== "POST" || (!contextRoute && !editingRoute && !handoffRoute && !discussionRoute && !discussionPostRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
+        const attachmentsRoute = workbench && request.url === "/api/attachments";
+        if (request.method !== "POST" || (!contextRoute && !editingRoute && !handoffRoute && !discussionRoute &&
+            !discussionPostRoute && !attachmentsRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
             sendJson(response, 404, { error: "Unknown Twig companion route." });
             return;
         }
@@ -427,7 +564,9 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
 
         // Only the editing intent route admits the native 256KiB request-sized payload.
-        const body = await readJsonBody(request, editingRoute ? 262144 : discussionPostRoute ? 131072 : handoffRoute ? 16384 : MAX_REQUEST_BYTES, contextRoute || editingRoute || handoffRoute || discussionRoute || discussionPostRoute);
+        const body = await readJsonBody(request, editingRoute ? 262144 : discussionPostRoute ? 131072 :
+            handoffRoute ? 16384 : MAX_REQUEST_BYTES,
+            contextRoute || editingRoute || handoffRoute || discussionRoute || discussionPostRoute || attachmentsRoute);
         if (contextRoute) {
             if (body.action !== "refresh" || Object.keys(body).length !== 1)
                 throw new HttpError(400, "Expected only an explicit conversation context refresh; linkage and destinations cannot be supplied.");
@@ -458,6 +597,23 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                     "Discussion post refused or outcome unknown. Inspect the native journal; no retry." :
                     "Discussion proposal preparation refused. Read qualified discussion again; no comment was posted.");
             } finally { state.busy = false; }
+            return;
+        }
+        if (attachmentsRoute) {
+            const keys = Object.keys(body).sort().join(",");
+            if (body.action === "invalidate" && keys === "action,targetHandle" &&
+                typeof body.targetHandle === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.targetHandle)) {
+                if (body.targetHandle === attachmentTarget?.handle) {
+                    invalidateAttachments();
+                    await attachmentIdle;
+                }
+                sendJson(response, 200, { invalidated: true });
+            } else if (body.action === "inventory" && keys === "action,targetHandle" &&
+                typeof body.targetHandle === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.targetHandle)) {
+                sendJson(response, 200, await readAttachments(body, response));
+            } else {
+                throw new HttpError(400, "Expected explicit attachment inventory or target invalidation with opaque handles only.");
+            }
             return;
         }
         if (discussionRoute) {
@@ -530,7 +686,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 sendJson(response, 200, { benchObservation: await refreshBench() });
             } else if (body.action === "detail" && isWorkItemId(body.workItemId)) {
                 const detail = await loadBenchDetail(body.workItemId);
-                sendJson(response, 200, { benchDetail: detail, discussionTargetHandle: discussionTarget?.handle ?? null });
+                sendJson(response, 200, { benchDetail: detail, discussionTargetHandle: discussionTarget?.handle ?? null,
+                    attachmentTargetHandle: attachmentTarget?.handle ?? null });
             } else {
                 sendJson(response, 400, { error: "Expected a saved Bench name or ID, or a refresh action." });
             }
@@ -566,7 +723,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             invalidateEditing();
             clearDraft();
             state.controller?.abort();
-            closing = Promise.all([closeServer(server), editing.awaitIdle(), discussionIdle, discussionPost.awaitIdle()]).then(() => undefined);
+            closing = Promise.all([closeServer(server), editing.awaitIdle(), discussionIdle,
+                discussionPost.awaitIdle(), attachmentIdle]).then(() => undefined);
             return closing;
         },
     };
@@ -628,6 +786,27 @@ function hasValidToken(request, token) {
 function sendJson(response, status, value) {
     response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
     response.end(JSON.stringify(value));
+}
+
+function safeMediaType(contentType) {
+    const type = typeof contentType === "string" ? contentType.split(";", 1)[0].trim() : "";
+    if (!/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(type))
+        throw new HttpError(502, "Attachment content type is invalid; no bytes were sent.");
+    return type.toLowerCase();
+}
+
+function attachmentDisposition(fileName) {
+    if (typeof fileName !== "string" || !fileName.trim() || fileName.length > 255 ||
+        fileName === "." || fileName === ".." || /[/\\\u0000-\u001f\u007f-\u009f]/.test(fileName))
+        throw new HttpError(502, "Attachment filename is invalid; no bytes were sent.");
+    const fallback = [...fileName].map(character =>
+        /^[\x20-\x7e]$/.test(character) && !/["\\;]/.test(character) ? character : "_").join("");
+    let encoded;
+    try {
+        encoded = encodeURIComponent(fileName).replace(/[!'()*]/g,
+            character => "%" + character.charCodeAt(0).toString(16).toUpperCase());
+    } catch { throw new HttpError(502, "Attachment filename is invalid; no bytes were sent."); }
+    return `attachment; filename="${fallback || "attachment"}"; filename*=UTF-8''${encoded}`;
 }
 
 function setSecurityHeaders(response) {

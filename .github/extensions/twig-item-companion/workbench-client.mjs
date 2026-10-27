@@ -119,8 +119,9 @@ export const workbenchClient = `
     }
     function showSelection(row) {
       const discussionRevoked = discussionClient.leave();
+      const attachmentsRevoked = attachmentClient.leave();
       handoffClient.leave();
-      const revoked = Promise.all([editingClient.leave(), discussionRevoked]);
+      const revoked = Promise.all([editingClient.leave(), discussionRevoked, attachmentsRevoked]);
       revoked.catch((error) => {
         benchStatus.textContent = "Native selection revocation failed: " + error.message;
         benchStatus.classList.add("error");
@@ -153,7 +154,7 @@ export const workbenchClient = `
         pair(facts, "Pending marker", member.pending + " (not effective local values)");
         pair(facts, "Parent ID", member.parentId ?? "Not carried");
       }
-      const seam = "Raw cached summary only. No revision or editing authority is exported by this Bench contract. Full native form/draft detail is unavailable here; opening it must not retarget the shared current Bench.";
+      const seam = "Raw cached summary only. This Bench contract exports no revision or editing authority. Full native form/draft detail is unavailable here; attachment reads revalidate their own qualified item revision and never retarget the shared current Bench.";
       const detailNote = text("p", seam, "muted");
       const source = document.createElement("details");
       source.classList.add("bench-disclosure");
@@ -253,6 +254,7 @@ export const workbenchClient = `
         editingClient.mount(benchSelection, detail);
         handoffClient.mount(benchSelection, detail);
         discussionClient.mount(benchSelection, result.discussionTargetHandle);
+        attachmentClient.mount(benchSelection, result.attachmentTargetHandle);
       } catch (error) {
         if (stale(job)) return;
         note.textContent = seam + " Explicit-Bench detail failed: " + (error instanceof Error ? error.message : "unavailable") + ".";
@@ -270,6 +272,10 @@ export const workbenchClient = `
     function returnToBench() {
       void discussionClient.leave().catch(() => {
         benchStatus.textContent = "Discussion read cancellation failed; no further discussion read was requested.";
+        benchStatus.classList.add("error");
+      });
+      void attachmentClient.leave().catch(() => {
+        benchStatus.textContent = "Attachment read cancellation failed; no further attachment read was requested.";
         benchStatus.classList.add("error");
       });
       handoffClient.leave();
@@ -410,7 +416,7 @@ export const workbenchClient = `
       benchStatus.textContent = "Reading native cache; no sync or current-Bench change.";
       try {
         handoffClient.leave();
-        await Promise.all([editingClient.leave(), discussionClient.leave()]);
+        await Promise.all([editingClient.leave(), discussionClient.leave(), attachmentClient.leave()]);
         const result = await request("/api/bench", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action, bench }),

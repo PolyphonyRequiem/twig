@@ -187,6 +187,9 @@ public static class CommandRegistrationModule
             sp.GetService<Stream>()));
         services.AddSingleton<BenchDiscussionCommand>(sp => new BenchDiscussionCommand(
             sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<BrowserDiscussionModule>()));
+        services.AddSingleton<BrowserAttachmentModule>();
+        services.AddSingleton<BenchAttachmentCommand>(sp => new BenchAttachmentCommand(
+            sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<BrowserAttachmentModule>()));
         services.AddSingleton<BenchDetailCommand>();
         services.AddSingleton<DraftCommand>();
         services.AddSingleton<DraftSaveCommand>();

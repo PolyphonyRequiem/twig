@@ -77,6 +77,13 @@ internal static class AdoApiVersions
     internal const string WorkItemComments = "7.1-preview.4";
 
     /// <summary>
+    /// <c>_apis/wit/attachments</c> — attachment metadata and binary content. GA
+    /// <c>7.1</c>: the item relations and attachment download routes use the stable
+    /// work-item tracking contract; binary responses are validated independently.
+    /// </summary>
+    internal const string WorkItemAttachments = "7.1";
+
+    /// <summary>
     /// <c>_apis/wit/workitemtypes</c> — the project-scoped type list. GA <c>7.1</c>:
     /// carries <c>name</c>, <c>referenceName</c>, <c>color</c>, <c>icon</c> and
     /// <c>isDisabled</c>, which is everything the type resolution needs.

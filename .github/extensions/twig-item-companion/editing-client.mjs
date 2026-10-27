@@ -23,9 +23,9 @@ export function createEditingClient({ document, request, text }) {
         const box = document.createElement("section");
         box.append(text("h3", "Local draft editing"));
         box.append(text("p", "OPEN may acquire native metadata and persist local observations. STAGE records local intent only. Explicit RETAIN captures staged native intent locally, not unsent input or authorization. No Save, apply or publication. Installed native support is not yet qualified."));
-        const open = text("button", "Open native draft");
+        const open = text("button", "Open local draft (not published)");
         open.type = "button";
-        const stage = text("button", "Stage local changes");
+        const stage = text("button", "Stage local draft only");
         stage.type = "button";
         const retain = text("button", "Retain staged draft");
         retain.type = "button";

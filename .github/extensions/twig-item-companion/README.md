@@ -1,15 +1,17 @@
 # Twig item companion
 
-This project-scoped Copilot canvas is the first read-only UI slice for Twig. It loads
-one item through `twig bench detail <id> --document -o json` from the current
-session workspace and displays the native version-2 detail document. It does not
+This project-scoped Copilot extension provides cached item detail and a named-Bench
+workbench. Detail and ordinary browsing remain read-only; the workbench also exposes
+two explicit local-draft actions backed by Twig's native editing bridge. It does not
 read Twig's SQLite files or call an ADO/GitHub API directly.
 
-The item companion intentionally does not edit, save, authorize, apply, post discussion,
-upload/download attachments, or infer relationship coverage. The CLI remains the
-authority for workspace admission and detail reads. Twig must be available as
-`twig` on the extension process's `PATH`; see *Executable admission* below for how
-each canvas pins and checks it.
+The item-detail canvas remains read-only. The workbench can explicitly open a local
+draft and stage allowlisted field intent, but neither action saves, authorizes, applies,
+publishes, posts discussion, uploads/downloads attachments, or infers relationship
+coverage. OPEN may persist local observation metadata. The CLI remains the authority
+for workspace admission, target qualification and local draft transactions. Twig must
+be available as `twig` on the extension process's `PATH`; see *Executable admission*
+below for how each canvas pins and checks it.
 
 No dependencies are bundled. The Copilot runtime supplies
 `@github/copilot-sdk/extension`. Local checks use Node's built-in test runner:
@@ -161,6 +163,29 @@ The documented links are therefore not a qualified private-brief handoff replace
 The full desktop experience remains a limitation, not a claim of completion.
 No link launch, reload or installed-host qualification has been performed for this
 fallback.
+
+## Explicit SDK workbench draft actions (source only, not host-qualified)
+
+The registered `twig-workbench` canvas exposes `open_local_draft` and
+`stage_local_draft` as explicit SDK actions. Browsing, refresh, detail display and
+action declaration never OPEN or STAGE. OPEN first reads the selected member's
+qualified Bench detail, then explicitly opens its native local draft; its result
+labels whether local observation metadata was committed. STAGE accepts only the
+current server-held capture plus exact logical workspace/item, Bench, identity,
+draft-generation and revision preconditions and bounded field changes. Caller
+preconditions are compare-and-swap checks, not authority. The server does not expose
+the opaque capture handle, and mismatches, conflicts, stale origin, unsupported
+fields or a missing capture are refused before native STAGE. The transient OPEN
+capture is qualified by logical workspace/item, Bench and identity and held only by
+the live server instance. Reopening a panel or replacing the provider requires an
+explicit new OPEN; it does not recover a server-held capture through `instanceId`.
+Durable local draft intent remains in Twig's native workspace store.
+
+Both results explicitly report local-only effects, `authorized: false`,
+`published: false` and `canApply: false`. They do not touch the proposal journal,
+perform work HTTP, Save, publish, authorize, apply or invoke a signer. This source
+slice has not been activated or qualified in a registered Copilot host; current
+installed-host and user-store behavior must not be inferred from these tests.
 
 ## Explicit workbench editing bridge (source only, not host-qualified)
 

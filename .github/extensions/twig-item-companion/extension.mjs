@@ -128,7 +128,7 @@ function asCanvasError(error) {
 const workbenchCanvas = createCanvas({
     id: "twig-workbench",
     displayName: "Twig workbench",
-    description: "Browse a named native Bench without switching context. Explicit OPEN/STAGE can update local drafts; never Save, apply or publish.",
+    description: "Browse a named native Bench and explicitly open or stage local drafts; no automatic edits, Save, apply or publication.",
     actions: [
         {
             name: "load_bench",
@@ -157,6 +157,67 @@ const workbenchCanvas = createCanvas({
                 catch (error) { throw asCanvasError(error); }
             },
         },
+        {
+            name: "open_local_draft",
+            description: "Explicitly open one selected Bench member's native local draft. May persist local observation metadata; returns local effects and never publishes, authorizes or applies.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    workItemId: { type: "integer", minimum: 1, maximum: 2147483647 },
+                },
+                required: ["workItemId"],
+                additionalProperties: false,
+            },
+            handler: async (ctx) => {
+                const instance = workbenchInstances.get(ctx.instanceId);
+                if (!instance) throw new CanvasError("canvas_not_open", "Open the Twig workbench before opening a local draft.");
+                try { return await instance.openLocalDraft(ctx.input.workItemId); }
+                catch (error) { throw asCanvasError(error); }
+            },
+        },
+        {
+            name: "stage_local_draft",
+            description: "Explicitly stage allowlisted field changes into the current server-held local draft only. Exact logical-target and revision preconditions are required; never publishes, authorizes or applies.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    expectedItemKey: {
+                        type: "object", additionalProperties: false,
+                        required: ["checkoutRoot", "connectionId", "bindingId", "workItemId"],
+                        properties: {
+                            checkoutRoot: { type: "string", minLength: 1, maxLength: 4096 },
+                            connectionId: { type: "string", minLength: 1, maxLength: 512 },
+                            bindingId: { type: "string", minLength: 1, maxLength: 512 },
+                            workItemId: { type: "integer", minimum: 1, maximum: 2147483647 },
+                        },
+                    },
+                    expectedBenchId: { type: "string", pattern: "^[1-9][0-9]{0,18}$" },
+                    expectedIdentityId: { type: "string", minLength: 1, maxLength: 512 },
+                    expectedGeneration: { type: "string", pattern: "^(0|[1-9][0-9]{0,18})$" },
+                    expectedBaselineRevision: { type: "string", pattern: "^[1-9][0-9]{0,18}$" },
+                    expectedObservedRevision: { type: "string", pattern: "^[1-9][0-9]{0,18}$" },
+                    changes: {
+                        type: "array", minItems: 1, maxItems: 128,
+                        items: {
+                            type: "object", additionalProperties: false, required: ["fieldRef", "proposedValue"],
+                            properties: {
+                                fieldRef: { type: "string", minLength: 1, maxLength: 512 },
+                                proposedValue: { anyOf: [{ type: "string", maxLength: 262144 }, { type: "null" }] },
+                            },
+                        },
+                    },
+                },
+                required: ["expectedItemKey", "expectedBenchId", "expectedIdentityId", "expectedGeneration",
+                    "expectedBaselineRevision", "expectedObservedRevision", "changes"],
+                additionalProperties: false,
+            },
+            handler: async (ctx) => {
+                const instance = workbenchInstances.get(ctx.instanceId);
+                if (!instance) throw new CanvasError("canvas_not_open", "Open the Twig workbench before staging a local draft.");
+                try { return await instance.stageLocalDraft(ctx.input); }
+                catch (error) { throw asCanvasError(error); }
+            },
+        },
     ],
     open: async (ctx) => {
         if (!session?.workspacePath) {
@@ -172,7 +233,7 @@ const workbenchCanvas = createCanvas({
                 nativeEditing: createNativeEditingAdapter({ executable }), handoffSession: session, workbench: true });
             workbenchInstances.set(ctx.instanceId, instance);
         }
-        return { url: instance.url, title: "Twig workbench", status: "Cached browsing; local draft OPEN/STAGE are explicit and require installed native support" };
+        return { url: instance.url, title: "Twig workbench", status: "Cached browsing; explicit local draft actions are not published" };
     },
     onClose: async (ctx) => {
         const instance = workbenchInstances.get(ctx.instanceId);

@@ -52,6 +52,8 @@ export function createEditingBridge({ adapter, workspacePath }) {
             canRetain: !document.hasConflicts && document.changes.length > 0 &&
                 document.changes.every(change => change.baselineValue !== change.proposedValue),
             hasConflicts: document.hasConflicts,
+            generation: document.generation,
+            baselineRevision: document.baselineRevision,
             observedRevision: document.observedRevision,
             editors: editableControls(document),
             changes: document.changes, conflicts: document.conflicts,
@@ -122,9 +124,55 @@ export function createEditingBridge({ adapter, workspacePath }) {
                 if (result.document?.nativeContext.identityId !== target.identityId) {
                     throw new Error("Native OPEN identity changed; outcome is unknown. Retain input and reopen.");
                 }
-                capture = { handle: randomBytes(32).toString("base64url"), document: result.document };
+                capture = { handle: randomBytes(32).toString("base64url"), document: result.document,
+                    targetKey: targetKey(target) };
                 return view(result);
             }, target);
+        },
+        async stageExpected(body) {
+            const refused = (message) => ({
+                status: "refused", committed: false, canStage: false,
+                error: { code: "draft-precondition", message, recovery: "Explicitly open the current local draft and review its origin before retrying." },
+            });
+            const expectedKeys = ["changes", "expectedBaselineRevision", "expectedBenchId", "expectedGeneration",
+                "expectedIdentityId", "expectedItemKey", "expectedObservedRevision"];
+            if (!body || Object.keys(body).sort().join(",") !== expectedKeys.join(",") ||
+                !body.expectedItemKey || Object.keys(body.expectedItemKey).sort().join(",") !==
+                    ["bindingId", "checkoutRoot", "connectionId", "workItemId"].join(",") ||
+                !Number.isInteger(body.expectedItemKey.workItemId) || body.expectedItemKey.workItemId <= 0) {
+                return refused("Exact draft preconditions and changes are required; reopen the current draft.");
+            }
+            if (!capture) return refused("No current server-held draft capture exists; explicitly open the local draft.");
+            const document = capture.document;
+            const context = document.nativeContext;
+            const expectedTargetKey = targetKey({
+                expectedKey: body.expectedItemKey, bench: body.expectedBenchId, identityId: body.expectedIdentityId,
+            });
+            const sameItemKey = ["checkoutRoot", "connectionId", "bindingId", "workItemId"]
+                .every((key) => body.expectedItemKey[key] === context.itemKey[key]);
+            if (capture.targetKey !== expectedTargetKey || !sameItemKey ||
+                body.expectedBenchId !== context.benchId || body.expectedIdentityId !== context.identityId ||
+                body.expectedGeneration !== document.generation ||
+                body.expectedBaselineRevision !== document.baselineRevision ||
+                body.expectedObservedRevision !== document.observedRevision) {
+                return refused("The workspace, Bench, item, identity, draft generation or revision changed; explicitly reopen and review the local draft.");
+            }
+            if (document.hasConflicts) return refused("Native revision drift/conflicts require explicit reopen or reconciliation.");
+            const request = {
+                version: 1, nativeContext: context, generation: document.generation,
+                baselineRevision: document.baselineRevision, observedRevision: document.observedRevision,
+                changes: body.changes,
+            };
+            try {
+                serializeStageRequest(request);
+            } catch (error) {
+                return refused(error instanceof Error ? error.message : "Draft changes are invalid.");
+            }
+            const allowed = editableControls(document);
+            if (request.changes.some((change) => !allowed.some((field) => field.fieldRef === change.fieldRef))) {
+                return refused("The native form does not expose every requested field as a supported editable control.");
+            }
+            return this.stage({ captureHandle: capture.handle, changes: body.changes });
         },
         async stage(body) {
             if (!body || Object.keys(body).sort().join(",") !== "captureHandle,changes" ||
@@ -151,7 +199,9 @@ export function createEditingBridge({ adapter, workspacePath }) {
                 }
                 validateEditingResult(result, { action: "stage", exitCode: 0,
                     expectedContext: document.nativeContext, expectedRequest: request });
-                capture = { handle: randomBytes(32).toString("base64url"), document: result.document };
+                capture = { handle: randomBytes(32).toString("base64url"), document: result.document,
+                    targetKey: targetKey({ expectedKey: document.nativeContext.itemKey,
+                        bench: document.nativeContext.benchId, identityId: document.nativeContext.identityId }) };
                 return view(result);
             }, { expectedKey: document.nativeContext.itemKey, bench: document.nativeContext.benchId,
                 identityId: document.nativeContext.identityId });

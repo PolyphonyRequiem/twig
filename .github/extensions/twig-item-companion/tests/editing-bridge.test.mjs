@@ -181,7 +181,8 @@ test("explicit OPEN/STAGE keep context/counters server-held and rotate single-us
     const opened = await bridge.open(target);
     assert.equal(opened.captureHandle.length, 43);
     assert.equal(opened.nativeContext, undefined);
-    assert.equal(opened.generation, undefined);
+    assert.equal(opened.generation, "9007199254740993");
+    assert.equal(opened.baselineRevision, "17");
     assert.deepEqual(opened.editors.map(field => field.fieldRef), ["System.Title"]);
     const changes = [{ fieldRef: "System.Title", proposedValue: "" }];
     const staged = await bridge.stage({ captureHandle: opened.captureHandle, changes });

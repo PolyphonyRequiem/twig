@@ -564,7 +564,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var result = await BuildService().ApplyAsync(journal.SourcePath, journal.Digest);
 
         result.Failed.ShouldBeTrue();
-        result.Error!.ShouldContain("Draft-captured proposals are local inspection only");
+        result.Error!.ShouldContain("Draft-captured proposals require the separate native Save path");
         var retained = (await _journal.GetAsync(journal.Digest))!;
         retained.State.ShouldBe(PlanOperationState.Planned);
         retained.ConfirmedAt.ShouldBeNull();

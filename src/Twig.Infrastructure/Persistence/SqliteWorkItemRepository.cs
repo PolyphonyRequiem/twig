@@ -17,11 +17,13 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     private readonly SqliteCacheStore _store;
     private readonly WorkItemMapper _mapper;
     private readonly AdoMirrorIdentityProjection? _projection;
+    private readonly PreservedWorkspaceState _preserved;
 
     public SqliteWorkItemRepository(SqliteCacheStore store, WorkItemMapper mapper)
     {
         _store = store;
         _mapper = mapper;
+        _preserved = new(store);
     }
 
     /// <summary>
@@ -51,7 +53,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
 
         using var reader = cmd.ExecuteReader();
@@ -69,7 +71,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
 
         using var reader = cmd.ExecuteReader();
@@ -94,7 +96,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             cmd.Parameters.AddWithValue(paramNames[i], idList[i]);
         }
 
-        cmd.CommandText = $"SELECT * FROM work_items WHERE id IN ({string.Join(',', paramNames)});";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE id IN ({string.Join(',', paramNames)});";
 
         var items = ReadAll(cmd);
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
@@ -105,7 +107,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY CASE WHEN id < 0 THEN 1 ELSE 0 END, CASE WHEN id >= 0 THEN type END, CASE WHEN id >= 0 THEN title END, ABS(id);";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE parent_id = @parentId ORDER BY CASE WHEN id < 0 THEN 1 ELSE 0 END, CASE WHEN id >= 0 THEN type END, CASE WHEN id >= 0 THEN title END, ABS(id);";
         cmd.Parameters.AddWithValue("@parentId", parentId);
 
         var items = ReadAll(cmd);
@@ -117,7 +119,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE parent_id IS NULL AND id > 0 ORDER BY type, title;";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE parent_id IS NULL AND id > 0 ORDER BY type, title;";
 
         var items = ReadAll(cmd);
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
@@ -128,7 +130,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT * FROM work_items WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} = @path;";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} = @path;";
         cmd.Parameters.AddWithValue("@path", iterationPath.Value);
 
         var items = ReadAll(cmd);
@@ -151,7 +153,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             cmd.Parameters.AddWithValue(paramNames[i], iterationPaths[i].Value);
         }
 
-        cmd.CommandText = $"SELECT * FROM work_items WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} IN ({string.Join(", ", paramNames)});";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} IN ({string.Join(", ", paramNames)});";
 
         var items = ReadAll(cmd);
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
@@ -162,7 +164,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT * FROM work_items WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} = @path AND COALESCE(assigned_to_unique_name, assigned_to) = @assignee COLLATE NOCASE;";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} = @path AND COALESCE(assigned_to_unique_name, assigned_to) = @assignee COLLATE NOCASE;";
         cmd.Parameters.AddWithValue("@path", iterationPath.Value);
         cmd.Parameters.AddWithValue("@assignee", assignee);
 
@@ -180,7 +182,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             using var bindingOperation = _store.AcquireOperation();
             var conn = _store.GetConnection();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
+            cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE id = @id;";
             cmd.Parameters.AddWithValue("@id", currentId.Value);
 
             using var reader = cmd.ExecuteReader();
@@ -202,7 +204,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE title LIKE '%' || @pattern || '%' COLLATE NOCASE;";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE title LIKE '%' || @pattern || '%' COLLATE NOCASE;";
         cmd.Parameters.AddWithValue("@pattern", pattern);
 
         var items = ReadAll(cmd);
@@ -215,7 +217,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT * FROM work_items WHERE is_dirty = 1;";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE is_dirty = 1;";
 
         var items = ReadAll(cmd);
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
@@ -226,7 +228,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE is_seed = 1;";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE is_seed = 1;";
 
         var items = ReadAll(cmd);
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
@@ -237,7 +239,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM work_items WHERE id = @id;";
+        cmd.CommandText = $"SELECT COUNT(*) FROM {_preserved.Items} WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
         var count = Convert.ToInt32(cmd.ExecuteScalar());
         return Task.FromResult(count > 0);
@@ -248,12 +250,12 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT DISTINCT w.parent_id
-            FROM work_items w
+            FROM {_preserved.Items} w
             WHERE w.parent_id IS NOT NULL
               AND w.parent_id > 0
-              AND NOT EXISTS (SELECT 1 FROM work_items p WHERE p.id = w.parent_id);
+              AND NOT EXISTS (SELECT 1 FROM {_preserved.Items} p WHERE p.id = w.parent_id);
             """;
 
         var ids = new List<int>();
@@ -267,35 +269,22 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task SaveAsync(WorkItem workItem, CancellationToken ct = default)
     {
-        if (_projection is not null)
+        if (_projection is not null || _preserved.IsActive)
             return SaveProjectedAsync([workItem], ct);
-
-        using var bindingOperation = _store.AcquireOperation();
+        using var operation = _store.AcquireOperation();
         SaveWorkItem(_store.GetConnection(), workItem, _store.ActiveTransaction);
         return Task.CompletedTask;
     }
 
     public Task SaveBatchAsync(IEnumerable<WorkItem> workItems, CancellationToken ct = default)
     {
-        if (_projection is not null)
+        if (_projection is not null || _preserved.IsActive)
             return SaveProjectedAsync(workItems, ct);
-
-        using var bindingOperation = _store.AcquireOperation();
-        var conn = _store.GetConnection();
-        using var tx = conn.BeginTransaction();
-        try
-        {
-            foreach (var item in workItems)
-            {
-                SaveWorkItem(conn, item, tx);
-            }
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
+        using var operation = _store.AcquireOperation();
+        using var transaction = _store.GetConnection().BeginTransaction();
+        foreach (var item in workItems)
+            SaveWorkItem(_store.GetConnection(), item, transaction);
+        transaction.Commit();
         return Task.CompletedTask;
     }
 
@@ -303,7 +292,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     {
         using var bindingOperation = _store.AcquireOperation();
         var items = workItems.ToArray();
-        var resourceScope = await _projection!.PrepareAsync(items, ct).ConfigureAwait(false);
+        var resourceScope = _projection is null ? null : await _projection.PrepareAsync(items, ct).ConfigureAwait(false);
         var conn = _store.GetConnection();
         var ambient = _store.ActiveTransaction;
         using var owned = ambient is null ? conn.BeginTransaction() : null;
@@ -319,7 +308,14 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             foreach (var item in items)
             {
                 SaveWorkItem(conn, item, tx);
-                if (_projection.ShouldProject(item))
+                if (_preserved.IsActive)
+                {
+                    if (item.IsSeed)
+                        await _preserved.SaveSeedAsync(item.Id, ct).ConfigureAwait(false);
+                    else
+                        _preserved.DeleteSeed(item.Id);
+                }
+                if (_projection?.ShouldProject(item) == true)
                 {
                     await _projection.ProjectAsync(
                         item,
@@ -368,18 +364,22 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     public Task DeleteByIdAsync(int id, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
+        if (id < 0 && _preserved.IsActive) _preserved.RemapPublishedReferences(id);
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = "DELETE FROM work_items WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
         cmd.ExecuteNonQuery();
+        write.Complete(seeds: true);
         return Task.CompletedTask;
     }
 
     public Task RemapParentIdAsync(int oldParentId, int newParentId, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -387,27 +387,32 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         cmd.Parameters.AddWithValue("@newParentId", newParentId);
         cmd.Parameters.AddWithValue("@oldParentId", oldParentId);
         cmd.ExecuteNonQuery();
+        write.Complete(seeds: true);
         return Task.CompletedTask;
     }
 
     public Task EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
 
         if (keepIds.Count == 0)
         {
             // Empty keep set — delete everything
             using var cmd = conn.CreateCommand();
+            cmd.Transaction = _store.ActiveTransaction;
             cmd.CommandText = "DELETE FROM work_items;";
             cmd.ExecuteNonQuery();
+            write.Complete(seeds: true);
             return Task.CompletedTask;
         }
 
         if (keepIds.Count > 900)
         {
             // Large keep set — use a temp table to avoid SQLite parameter limit (999)
-            using var tx = conn.BeginTransaction();
+            using var owned = _store.ActiveTransaction is null ? conn.BeginTransaction() : null;
+            var tx = _store.ActiveTransaction ?? owned!;
             try
             {
                 using (var createCmd = conn.CreateCommand())
@@ -440,19 +445,21 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
                     deleteCmd.ExecuteNonQuery();
                 }
 
-                tx.Commit();
+                owned?.Commit();
             }
             catch
             {
-                tx.Rollback();
+                owned?.Rollback();
                 throw;
             }
 
+            write.Complete(seeds: true);
             return Task.CompletedTask;
         }
 
         // Standard path — parameterized IN clause
         using var delCmd = conn.CreateCommand();
+        delCmd.Transaction = _store.ActiveTransaction;
         var paramNames = new string[keepIds.Count];
         var i = 0;
         foreach (var id in keepIds)
@@ -465,6 +472,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
         delCmd.CommandText = $"DELETE FROM work_items WHERE id NOT IN ({string.Join(", ", paramNames)});";
         delCmd.ExecuteNonQuery();
+        write.Complete(seeds: true);
 
         return Task.CompletedTask;
     }
@@ -488,12 +496,14 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     public Task ClearDirtyFlagAsync(int id, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = "UPDATE work_items SET is_dirty = 0 WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
         cmd.ExecuteNonQuery();
+        write.Complete(seeds: true);
         return Task.CompletedTask;
     }
 
@@ -525,7 +535,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             }
         }
 
-        cmd.CommandText = $"SELECT * FROM work_items WHERE {string.Join(" OR ", clauses)};";
+        cmd.CommandText = $"SELECT * FROM {_preserved.Items} WHERE {string.Join(" OR ", clauses)};";
 
         var items = ReadAll(cmd);
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
@@ -536,12 +546,12 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT
                 COUNT(*),
                 MAX(last_synced_at),
                 MIN(last_synced_at)
-            FROM work_items;
+            FROM {_preserved.Items};
             """;
 
         using var reader = cmd.ExecuteReader();
@@ -619,7 +629,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return items;
     }
 
-    private static WorkItemSnapshot MapRowToSnapshot(SqliteDataReader reader)
+    internal static WorkItemSnapshot MapRowToSnapshot(SqliteDataReader reader)
     {
         var seedCreatedAtStr = reader.IsDBNull(reader.GetOrdinal("seed_created_at"))
             ? null

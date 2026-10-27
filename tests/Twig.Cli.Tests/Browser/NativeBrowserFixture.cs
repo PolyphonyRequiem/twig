@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NSubstitute;
 using Shouldly;
 using Twig.Browser;
@@ -98,6 +99,20 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         Transitions = new ConnectionBindingTransitionService(Home, Bindings);
     }
 
+    internal async Task OpenExistingAsync()
+    {
+        var root = Path.Combine(_temp, "checkout");
+        var probe = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), new TwigConfiguration(), root);
+        probe = new TwigPaths(probe.TwigDir, probe.ConfigPath, probe.DbPath, root, Path.Combine(Home, "display.json"));
+        Configuration = await TwigConfiguration.LoadSplitAsync(probe);
+        Paths = TwigPaths.BuildPaths(probe.TwigDir, Configuration, root);
+        Paths = new TwigPaths(Paths.TwigDir, Paths.ConfigPath, Paths.DbPath, root, Path.Combine(Home, "display.json"));
+        _http = new HttpClient(Transport);
+        Bindings = new ConnectionBindingService(Home, Substitute.For<ITokenRefresher>(), patHttpClient: _http);
+        ActorBinding = (await Bindings.ResolveAsync(Configuration, Paths)).Binding;
+        Transitions = new ConnectionBindingTransitionService(Home, Bindings);
+    }
+
     internal TwigPaths CurrentPaths()
     {
         var paths = TwigPaths.BuildPaths(Paths.TwigDir, Configuration, Paths.StartDir);
@@ -112,6 +127,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         services.AddSingleton<IConnectionBindingService>(Bindings);
         services.AddConnectionServices(Configuration, paths.TwigDir, paths.StartDir);
         services.AddSingleton(paths);
+        services.RemoveAll<ISystemWorktreeRegistry>();
         services.AddSingleton<ISystemWorktreeRegistry>(_ => new SqliteSystemWorktreeRegistry(Path.Combine(Home, "system.db"), TimeProvider.System));
         services.AddSingleton(_http);
         services.AddTwigNetworkServices(Configuration);

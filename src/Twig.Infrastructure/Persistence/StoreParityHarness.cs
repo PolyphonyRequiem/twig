@@ -7,7 +7,8 @@ using Twig.Domain.ValueObjects;
 
 namespace Twig.Infrastructure.Persistence;
 
-internal sealed class StoreParityHarness(SqliteCacheStore store, string? adoResourceScope = null)
+internal sealed class StoreParityHarness(
+    SqliteCacheStore store, string? adoResourceScope = null, bool preserveOpaqueContext = false)
 {
     private const int ReportFormatVersion = 1;
 
@@ -50,7 +51,18 @@ internal sealed class StoreParityHarness(SqliteCacheStore store, string? adoReso
                      WHERE p.old_id < 0 AND (p.staged_identity IS NULL OR NOT EXISTS (
                          SELECT 1 FROM pending.staged_identities AS s
                          WHERE s.staged_identity = p.staged_identity AND s.alias = p.old_id
-                     )));
+                     )))
+                  + (SELECT COUNT(*) FROM pending.seed_local_identities AS m
+                     LEFT JOIN pending.local_work_items AS l ON l.local_id=m.local_id
+                     LEFT JOIN pending.staged_identities AS s ON s.staged_identity=m.staged_identity
+                     WHERE l.local_id IS NULL OR s.staged_identity IS NULL OR m.local_id=m.staged_identity)
+                  + (SELECT COUNT(*) FROM pending.seed_work_items AS w
+                     LEFT JOIN pending.seed_local_identities AS m ON m.staged_identity=w.staged_identity
+                     LEFT JOIN pending.local_work_items AS l ON l.local_id=w.local_id
+                     LEFT JOIN pending.staged_identities AS s ON s.staged_identity=w.staged_identity
+                     WHERE m.local_id IS NULL OR m.local_id<>w.local_id
+                        OR l.local_id IS NULL OR l.deleted_at IS NOT NULL
+                        OR s.alias<>w.id OR s.staged_identity IS NULL);
                 """)
             : 0;
         var relationshipInventoryCovered =
@@ -81,16 +93,17 @@ internal sealed class StoreParityHarness(SqliteCacheStore store, string? adoReso
         var unknownKeys = schemaMatches
             ? Count(connection, transaction, """
                 SELECT
-                    (SELECT COUNT(*) FROM main.context
-                     WHERE key NOT IN (
-                        'active_work_item_id', 'area_tree_fetched_at', 'area_tree_json',
-                        'last_refreshed_at', 'nav_history_cursor', 'workspace_mode'
-                     ))
-                  + (SELECT COUNT(*) FROM main.metadata
+                    (SELECT COUNT(*) FROM main.metadata
                      WHERE key NOT IN ('binding_generation', 'process_configuration_data', 'schema_version')
                        AND key NOT LIKE 'draft-served-evidence:%');
                 """)
             : 0;
+        if (schemaMatches && !preserveOpaqueContext)
+            unknownKeys += Count(connection, transaction, """
+                SELECT COUNT(*) FROM main.context WHERE key NOT IN (
+                    'active_work_item_id', 'area_tree_fetched_at', 'area_tree_json',
+                    'last_refreshed_at', 'nav_history_cursor', 'workspace_mode');
+                """);
 
         if (adoResourceScope is not null)
             _ = new ExternalWorkItemIdentity(AdoMirrorIdentityProjection.ProviderKind, adoResourceScope, "0");
@@ -181,6 +194,7 @@ internal sealed class StoreParityHarness(SqliteCacheStore store, string? adoReso
             "pending.pending_changes" => codes.Where(code =>
                 code == "dirty-pending-inconsistent" || code.StartsWith("orphan-pending-", StringComparison.Ordinal)),
             "pending.staged_identities" or "pending.seed_links" or "pending.publish_id_map"
+                or "pending.seed_local_identities" or "pending.seed_work_items"
                 => codes.Where(code => code == "seed-identity-inconsistent"),
             "pending.local_work_items" or "pending.local_relationships"
                 => codes.Where(code => code == "tombstone-revision-invalid"),

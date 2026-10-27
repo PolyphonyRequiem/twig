@@ -518,6 +518,14 @@ or work-item payloads. CI uploads these boundaries even on failure. This is diag
 evidence, not a larger timeout or a correction for a latency failure. The deterministic
 harness regression is `python tools/test-verify-build.py`.
 
+Preservation migration is an explicit internal capability, not an automatic
+workspace upgrade or a new user-facing migration command. It retains local work,
+context and navigation, requires restore-qualified workspace-local backups under
+`.twig/backups`, and refuses unclassified data rather than discarding originals.
+CI qualifies native host-inventory migration and retained-publication recovery on
+Windows; macOS lacks that admission and Linux can refuse inaccessible `/proc` handles.
+Normal cross-platform gates remain; these checks never authorize existing-store migration.
+
 ## Next Topics
 
 - **[Architecture Overview](docs/architecture/overview.md)** — how twig is built: layered design, project structure, key constraints

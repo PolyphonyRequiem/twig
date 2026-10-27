@@ -65,6 +65,15 @@ internal static class PreservationInventory
         new(DurableSchema, "recoverable_work_item_drafts",
             ["checkout_root", "connection_id", "binding_id", "work_item_id", "generation", "draft_json",
              "updated_at"]),
+        new(DurableSchema, "seed_work_items",
+            ["local_id", "id", "type", "title", "state", "parent_id", "assigned_to", "assigned_to_unique_name",
+             "iteration_path", "area_path", "revision", "is_seed", "seed_created_at", "staged_identity",
+             "fields_json", "is_dirty", "last_synced_at"]),
+        new(DurableSchema, "seed_local_identities", ["staged_identity", "local_id"]),
+        new(DurableSchema, "workspace_context", ["key", "value"]),
+        new(DurableSchema, "workspace_navigation_history", ["id", "work_item_id", "visited_at"]),
+        new(DurableSchema, "preservation_migrations",
+            ["intent_id", "slot", "source_generation", "source_digest", "state", "coverage_version", "backup_directory"]),
     ];
 
     private static readonly HashSet<string> ContextKeys = new(StringComparer.Ordinal)
@@ -108,6 +117,13 @@ internal static class PreservationInventory
 
                 sets.Add(new PreservationRowSet($"{table.Schema}.{table.Table}", table));
             }
+            sets.Add(new PreservationRowSet("mirror.navigation-sequence",
+                new(MirrorSchema, "sqlite_sequence", ["name", "seq"]), "name = 'navigation_history'"));
+            sets.Add(new PreservationRowSet("pending.workspace-navigation-sequence",
+                new(DurableSchema, "sqlite_sequence", ["name", "seq"]), "name = 'workspace_navigation_history'"));
+            sets.Add(new PreservationRowSet("pending.preservation-migration-history",
+                Tables.Single(table => table.Schema == DurableSchema && table.Table == "preservation_migrations"),
+                "slot IS NULL"));
 
             return sets;
         }

@@ -33,6 +33,32 @@ public sealed class SqlitePublishIdMapRepository : IPublishIdMapRepository
 
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
+        var preserved = new PreservedWorkspaceState(_store);
+        if (preserved.HasRetainedIdentity(identity))
+        {
+            using var owned = _store.ActiveTransaction is null ? conn.BeginTransaction() : null;
+            var transaction = _store.ActiveTransaction ?? owned!;
+            var evidence = preserved.RequireCompatiblePublication(identity, newId, transaction)
+                ?? throw new InvalidOperationException("preservation-publication-evidence-invalid: retained ownership changed before its publication fence.");
+            if (alias?.Value != evidence.Alias)
+                throw new InvalidOperationException("preservation-publication-evidence-invalid: retained alias changed before publication.");
+            if (evidence.MappedId is null)
+            {
+                using var insert = conn.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = """
+                    INSERT INTO pending.publish_id_map(old_id,new_id,published_at,staged_identity)
+                    VALUES(@alias,@newId,@at,@identity);
+                    """;
+                insert.Parameters.AddWithValue("@alias", evidence.Alias);
+                insert.Parameters.AddWithValue("@newId", newId);
+                insert.Parameters.AddWithValue("@at", DateTimeOffset.UtcNow.ToString("o"));
+                insert.Parameters.AddWithValue("@identity", identity.ToString());
+                insert.ExecuteNonQuery();
+            }
+            owned?.Commit();
+            return;
+        }
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """

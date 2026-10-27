@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 18;
+    internal const int DurableSchemaVersion = 19;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -496,7 +496,7 @@ public sealed class SqliteCacheStore : IDisposable
 
     private void RefuseIncompatiblePreservationUpgrade(int from, SqliteTransaction? transaction = null)
     {
-        if (from != 17)
+        if (from is not (17 or 18))
             return;
         using var command = _connection.CreateCommand();
         command.Transaction = transaction;
@@ -507,9 +507,9 @@ public sealed class SqliteCacheStore : IDisposable
             """;
         if (Convert.ToInt32(command.ExecuteScalar()) != 0)
             throw new InvalidOperationException(
-                "preservation-upgrade-blocked: this v17 workspace retains a preservation intent whose original coverage and fingerprint must remain readable. " +
-                "Continue using the compatible v17 Twig; cancel a preparing intent there before upgrading. " +
-                "Upgrading active or rolled-back v17 intents is not supported; rollback does not release that retained intent. " +
+                $"preservation-upgrade-blocked: this v{from} workspace retains a preservation intent whose original coverage and fingerprint must remain readable. " +
+                $"Continue using the compatible v{from} Twig; cancel a preparing intent there before upgrading. " +
+                $"Upgrading active or rolled-back v{from} intents is not supported; rollback does not release that retained intent. " +
                 "No durable schema, intent or backup was rewritten.");
     }
 
@@ -1004,6 +1004,35 @@ public sealed class SqliteCacheStore : IDisposable
 
         [18] = $"""
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN execution_admission_json TEXT NULL;
+            """,
+
+        [19] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.review_observations (
+                digest TEXT NOT NULL REFERENCES proposal_journals(digest),
+                fingerprint TEXT NOT NULL,
+                model_version INTEGER NOT NULL,
+                origin_json TEXT NOT NULL,
+                model_json TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+                PRIMARY KEY (digest, fingerprint)
+            );
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.review_assessments (
+                digest TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK(revision > 0),
+                caller TEXT NOT NULL,
+                surface TEXT NOT NULL,
+                section TEXT NOT NULL,
+                operation_id TEXT NULL,
+                text TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                supersedes_revision INTEGER NULL,
+                PRIMARY KEY (digest, fingerprint, revision),
+                FOREIGN KEY (digest, fingerprint) REFERENCES review_observations(digest, fingerprint),
+                FOREIGN KEY (digest, fingerprint, supersedes_revision)
+                    REFERENCES review_assessments(digest, fingerprint, revision)
+            );
             """,
 
     };

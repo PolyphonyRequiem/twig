@@ -708,6 +708,34 @@ navigation. Closing/restarting loses in-memory handles, not the durable native
 journal. Inspect that journal after uncertainty; do not infer safe retry from a
 missing UI receipt. Installed-app/live-provider qualification remains separate.
 
+### Durable review assessment foundation (#1194)
+
+The native persistence foundation retains a separate review observation and
+append-only feedback history in `pending.db` (durable schema 19). Its key combines
+the exact proposal digest with a fingerprint of the complete native review-model
+JSON and native origin. This **observation fingerprint is not the proposal digest**
+and grants no authority. Changed context under the same proposal digest creates
+a distinct, initially unreviewed observation; old feedback is not migrated.
+Retention accepts the native-built model only, checks journal workspace, origin
+and complete ordered operation identity, and keeps the original capture time.
+
+Feedback records preserve literal text, reported caller/surface, section, optional
+exact operation identity, native recording time and explicit supersession.
+Caller labels are not authenticated reviewer identities. Supersession retains the
+old record and is limited to the same reported caller, surface and scope; this is
+history scoping, not identity proof. Every append requires the expected observation
+revision. A stale writer receives a conflict and current history, not a successful
+overwrite; resubmission must be explicit. The history does not compute a collective
+review disposition or decide multi-reviewer/acceptance-with-concerns policy.
+
+This increment adds **no canvas feedback controls or CLI entry point yet**.
+It does not post ADO Discussion, send feedback to a session, grant authorization,
+change readiness, or touch the proposal's authorization-time `review_model_json`.
+Canvas integration is a separate increment. The new tables join the preservation
+inventory; upgrading a v17/v18 workspace with a retained preservation intent is
+refused before schema/history changes, so its original fingerprint and recovery
+artifacts remain readable by the compatible binary.
+
 Qualification on base `9bf9372e3f7acbd65798527dff4cb77408ee1ba4` used the exact
 reviewed executable/test blobs: eight `node --check` children passed in one
 60-second bounded command, then one 60-second bounded command ran exactly

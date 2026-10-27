@@ -20,13 +20,13 @@ public sealed class PreservationInventoryRegistryTests
                 .Select(table => table.Table)
                 .ToHashSet(StringComparer.Ordinal);
             var actualTables = ReadTables(connection, schema);
-            actualTables.ShouldBe(expectedTables);
+            actualTables.Order(StringComparer.Ordinal).ShouldBe(expectedTables.Order(StringComparer.Ordinal));
         }
 
         foreach (var table in PreservationInventory.AllTables)
         {
-            ReadColumns(connection, table.Schema, table.Table)
-                .ShouldBe(table.Columns.ToHashSet(StringComparer.Ordinal));
+            ReadColumns(connection, table.Schema, table.Table).Order(StringComparer.Ordinal)
+                .ShouldBe(table.Columns.Order(StringComparer.Ordinal));
         }
 
         PreservationInventory.AllRowSets

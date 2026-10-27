@@ -62,6 +62,32 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore
 
+      - name: Durable review assessment and preservation inventory regression
+        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SqliteReviewAssessmentRepositoryTests|FullyQualifiedName~PreservationInventoryRegistryTests" --logger "trx;LogFileName=review-assessments.trx" --results-directory artifacts/test-logs/ci/review-assessments
+
+      - name: Verify durable review assessment execution
+        shell: python
+        run: |
+          import xml.etree.ElementTree as ET
+          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+          root = ET.parse("artifacts/test-logs/ci/review-assessments/review-assessments.trx").getroot()
+          results = root.findall(".//t:UnitTestResult", ns)
+          counters = root.find(".//t:Counters", ns)
+          assert counters is not None
+          assert len(results) == len({r.attrib["testId"] for r in results}) == 32
+          assert all(r.attrib["outcome"] == "Passed" for r in results)
+          assert all(counters.attrib[key] == "32" for key in ("total", "executed", "passed"))
+          assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted", "notExecuted"))
+          assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
+
+      - name: Preserve durable review assessment results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-review-assessments-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/review-assessments/
+          if-no-files-found: warn
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

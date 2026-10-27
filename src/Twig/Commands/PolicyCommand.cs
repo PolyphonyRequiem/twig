@@ -158,8 +158,6 @@ internal sealed class PolicyCommand(
                 var evidence = finding.Evidence;
                 if (evidence.ParentId is { } parent)
                     output.WriteLine($"  Parent: #{parent} ({evidence.ParentType}); item type: {evidence.ItemType}; allowed: {string.Join(", ", evidence.AllowedValues)}");
-                if (evidence.Field is { } field)
-                    output.WriteLine($"  Field: {field}; labels: {string.Join(", ", evidence.Labels)}; item type: {evidence.ItemType}; allowed: {string.Join(", ", evidence.AllowedValues)}");
                 if (evidence.Edges.Count > 0)
                     output.WriteLine($"  Dependencies: {string.Join(", ", evidence.Edges.Select(e => $"#{e.From} -> #{e.To}"))}");
                 if (evidence.MissingIds.Count > 0)

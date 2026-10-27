@@ -3,6 +3,8 @@
 > **Status:** Implemented for ADO v1 proposals and provider-observed v2 preview decisions; provider-v2 apply remains blocked, AB#1169/#1189.
 > **Domain:** Declared, repository-owned work-management policy evaluated natively in the
 > change-proposal path.
+> **Pre-1.0 revision:** AB#1215 removes `label-applicability`. Post-1.0 Epic #1216
+> will define the broader policy, process and rules engine together with the user.
 > **Settled by:** Epic #1169 Phase 0 rulings D1–D5 (approved by Daniel), Idea #615
 > (declared policy engine, closed into Spec #727 / Task #732), the existing
 > `PlanProcessRuleGate` (AB#673/#720/#721/#803/#881).
@@ -39,13 +41,16 @@ host judgment, with rationale.
 
 This design does not introduce a policy DSL. The file selects
 from a **fixed set of rule kinds** implemented in Twig and supplies their data (type names,
-label prefixes, limits). There are no expressions, conditions, or user-defined code. A new
+limits). There are no expressions, conditions, or user-defined code. A new
 kind of rule is a Twig code change with tests, reviewed like any other.
+Whether that boundary still holds is an open design question for Epic #1216, not
+an extension made by this pre-1.0 revision.
 
 ## Inventory
 
 Category key: **Native** — enforced by Twig; **Existing** — already enforced before #1169;
-**Host** — judgment, stays with the reviewer/host skill; **Out** — owned elsewhere.
+**Host** — judgment, stays with the reviewer/host skill; **Out** — owned elsewhere;
+**Deferred** — intentionally not shipped, to be redesigned post-1.0.
 
 The inventory below uses an anonymized reference service, SampleService. Its conventions
 are examples, not built-in policy or authority over Twig's design. Source names identify
@@ -55,8 +60,8 @@ reference documents, not dependencies required to configure or use Twig.
 |---|---|---|---|---|
 | 1 | A Task's parent must be a User Story or Bug (type constraint on parent links) | `relationships.md` *Type constraints* | Native | `parent-type` rule kind |
 | 2 | No self-dependency, duplicate dependency, or dependency cycle within scope | `relationships.md` *Validate within scope* | Native | `dependency-integrity` rule kind |
-| 3 | `orchestration:` labels only on User Story / Bug, one value | `task-creation.md` *Orchestration and execution* | Native | `label-applicability` rule kind |
-| 4 | `execution:` labels only on Task, one value; labels do not inherit | `task-creation.md` *Orchestration and execution* | Native | `label-applicability` rule kind (evaluated per item, never inherited) |
+| 3 | `orchestration:` labels only on User Story / Bug, one value | `task-creation.md` *Orchestration and execution* | Deferred | Epic #1216: redesign label/tag policy from scratch; the former rule kind was misaligned and removed before 1.0 |
+| 4 | `execution:` labels only on Task, one value; labels do not inherit | `task-creation.md` *Orchestration and execution* | Deferred | Epic #1216: redesign label/tag policy from scratch, including applicability and inheritance semantics |
 | 5 | Close-gate fields must be supplied with the Done transition | `closeout.md`, `enforcement.md` | Existing | `PlanProcessRuleGate`; unavailable rules block writes and surface as blocking preview decisions |
 | 6 | Unknown/unverifiable state is distinct from violated | `enforcement.md` | Native | `unavailable` outcome, blocking (D3) |
 | 7 | Exact digest, expected revision, journaled apply | `publication.md`, `enforcement.md` | Existing | proposal digest, revision guards, journal |
@@ -81,7 +86,7 @@ published items, rather than interpreting an empty proposal as evidence of compl
 ```sh
 twig policy assess --ids 42,43 -o json
 twig policy reconcile --ids 42,43 --evidence <evidenceDigest> --finding f1 --strategy reparent --parent 43 -o json
-twig policy reconcile --ids 42 --evidence <evidenceDigest> --finding f1 --strategy remove-labels -o json --proposal-only > repair.json
+twig policy reconcile --ids 42 --evidence <evidenceDigest> --finding f1 --strategy detach-parent -o json --proposal-only > repair.json
 twig proposal preview --file repair.json -o json
 # Review the proposal and apply through the ordinary digest-bound proposal lifecycle.
 # After apply: refresh the affected items and their links, then assess the same scope again.
@@ -99,13 +104,13 @@ MCP integration remains withdrawn.
 
 The assessment names its exact `scope`, `freshness: cached`, item revisions, sync timestamps,
 and link verification timestamps. It is **not a live or whole-board compliance claim**.
-Scope is 1–200 explicit positive IDs. Parent/label rules assess those IDs, with supporting
+Scope is 1–200 explicit positive IDs. Parent rules assess those IDs, with supporting
 parent observations; they do not certify out-of-scope children, including children of a
 retyped parent. Dependency integrity examines their incident cached dependency component
 (both source and target directions), reports acquired IDs as `dependencyScope`, and is
 capped by the rule's `maxNodes`, a hard 1,000-item ceiling, and 4,000 physical relations.
 A limit, missing item/type/sync observation, local
-modification, absent label field, or unverified link set preserves an `EvidenceUnavailable`
+modification or unverified link set preserves an `EvidenceUnavailable`
 finding. An explicitly observed empty/null field or verified empty link set is different
 from missing evidence. Missing/empty policy declarations cannot certify compliance.
 
@@ -130,7 +135,7 @@ and both pre/post types are unchanged; a parent type change is not downgraded me
 both the old and new types are disallowed.
 
 Findings carry a typed `code`, rule/item identity and structured `evidence`: parent/type,
-labels/field, cycle edges, counts or missing IDs. Strategy generation consumes those facts,
+cycle edges, counts or missing IDs. Strategy generation consumes those facts,
 **never parses `Reason` prose**. Warning enforcement does not turn a current violation into
 compliance. Definite violations remain visible alongside unavailable evidence.
 
@@ -139,10 +144,6 @@ The fixed strategies are intentionally bounded, not a DSL:
 * `parent-type`: explicitly detach the disallowed parent, or choose `reparent` with a
   caller-supplied allowed parent. Include that parent and its ancestry in the assessed
   scope. Hierarchy cycles and incomplete ancestry refuse. No parent target is guessed.
-* `label-applicability`: remove the declared prefix's labels while retaining unrelated
-  labels; for exclusivity, explicitly select which observed label to retain. No label
-  priority is inferred. At most 32 alternatives are shown with `strategiesTruncated`
-  when there are more; evidence is not truncated by this presentation limit.
 * `dependency-integrity`: remove an explicitly selected self-link, duplicated dependency
   (all occurrences, not an inferred choice to retain one), or witnessed cycle edge.
   Mirrored predecessor/successor observations are one
@@ -153,6 +154,9 @@ The fixed strategies are intentionally bounded, not a DSL:
   ordinary cache assessments certify only the observed logical graph. Native strict
   `remove-link` removes all matching occurrences in one revision-fenced PATCH, consistent
   with its existing absence readback contract.
+
+At most 32 alternatives are shown with `strategiesTruncated` when there are more;
+evidence is not truncated by this presentation limit.
 
 Every selection requires the assessment's `evidenceDigest` and its finding/strategy IDs.
 Reconciliation reacquires the policy and cached facts, rejects stale choices, projects the
@@ -230,11 +234,7 @@ over every related item.
   "rules": [
     { "id": "task-parent", "kind": "parent-type",
       "childType": "Task", "allowedParentTypes": ["User Story", "Bug"] },
-    { "id": "dependencies", "kind": "dependency-integrity", "maxNodes": 200 },
-    { "id": "orchestration-label", "kind": "label-applicability",
-      "prefix": "orchestration:", "allowedTypes": ["User Story", "Bug"], "exclusive": true },
-    { "id": "execution-label", "kind": "label-applicability",
-      "prefix": "execution:", "allowedTypes": ["Task"], "exclusive": true }
+    { "id": "dependencies", "kind": "dependency-integrity", "maxNodes": 200 }
   ]
 }
 ```
@@ -244,10 +244,10 @@ over every related item.
 * **Unreadable or malformed file, unknown kind, unsupported version, duplicate id** — one
   blocking `unavailable` decision with rule id `policy-load`. A team that declared policy
   must not lose it silently to a typo (D3).
-* Type and label comparisons are case-insensitive. ADO labels are read from `System.Tags`
-  (semicolon-separated) unless a rule sets `field`. Provider-v2 reads use typed string-list
-  observations; a scalar v2 label overlay containing a semicolon is `unavailable`, never
-  split into inferred labels.
+* Type comparisons are case-insensitive.
+* `label-applicability` is no longer a supported kind. A policy file still declaring it
+  produces the same blocking `policy-load` error as any unknown kind. Proposals in that
+  repository remain blocked until the obsolete rule is deleted; no such live file is known.
 * Every rule accepts `"enforcement": "refuse"` (default) or `"warn"`. A `warn` rule reports a
   violation as a non-blocking `warn` decision; `unavailable` stays blocking regardless.
 * Preview retains its cached observation semantics. Initial apply and every new write use
@@ -284,12 +284,6 @@ For v2, only provider-native relationships from snapshots explicitly marked comp
 evidence; incomplete or unreadable graph facts, or a search exceeding `maxNodes`, yield
 `unavailable`. A complete empty graph is distinct from an unavailable graph.
 
-**`label-applicability`** — evaluates items whose label field the proposal sets (a `batch`
-writing the field, or a published seed carrying it). A label with `prefix` on a type outside
-`allowedTypes` is a violation; with `exclusive`, more than one value of the prefix is a
-contradiction that requires resolving intent. Refuse only when the post-change violations are
-not a subset of the pre-change ones (D4).
-
 ## Process-rule gate change (D3)
 
 `PlanProcessRuleGate` previously returned *permit* when the process rule set could not be
@@ -304,6 +298,11 @@ explicitly by registering `EmptyProcessRuleProvider.Instance` (or any provider r
 empty rule set), which permits.
 
 ## Boundaries
+
+* **#1216** defines the post-1.0 policy, process and rules engine with the user:
+  declared transition rules with field conditions, the fixed-kinds/not-a-DSL boundary,
+  label/tag rules redesigned from scratch, process-agnostic ADO/GitHub behavior,
+  and reuse of assess/reconcile. None is added by the removal in #1215.
 
 * **#1171** audits historical policy/process work and journal reconciliation. #1169 does not
   re-close, re-scope or reassign #726, #674, #727 or #850.

@@ -6,8 +6,8 @@ namespace Twig.Domain.Services.Policy;
 /// <remarks>
 /// <para>
 /// Not a DSL. Every rule is one of a fixed set of kinds implemented in Twig; the policy file
-/// supplies only their data — type names, label prefixes, limits. Twig code names no type,
-/// label or field, which keeps the engine process-agnostic: the team that owns the process
+/// supplies only their data — type names and limits. Twig code names no type,
+/// which keeps the engine process-agnostic: the team that owns the process
 /// owns the declaration.
 /// </para>
 /// <para>
@@ -57,9 +57,6 @@ public static class DeclaredPolicyRuleKinds
     /// <summary><see cref="DependencyIntegrityRule"/>.</summary>
     public const string DependencyIntegrity = "dependency-integrity";
 
-    /// <summary><see cref="LabelApplicabilityRule"/>.</summary>
-    public const string LabelApplicability = "label-applicability";
-
     /// <summary>Pseudo-kind for a policy file that could not be loaded.</summary>
     public const string PolicyLoad = "policy-load";
 }
@@ -96,29 +93,4 @@ public sealed record DependencyIntegrityRule : DeclaredPolicyRule
     /// <see cref="PolicyOutcome.Unavailable"/> rather than an unbounded walk.
     /// </summary>
     public int MaxNodes { get; init; } = DefaultMaxNodes;
-}
-
-/// <summary>
-/// Labels beginning with <see cref="Prefix"/> apply only to <see cref="AllowedTypes"/>; with
-/// <see cref="Exclusive"/>, an item carries at most one value of the prefix.
-/// </summary>
-public sealed record LabelApplicabilityRule : DeclaredPolicyRule
-{
-    /// <summary>Default label field.</summary>
-    public const string DefaultField = "System.Tags";
-
-    /// <inheritdoc />
-    public override string Kind => DeclaredPolicyRuleKinds.LabelApplicability;
-
-    /// <summary>Label prefix, compared case-insensitively.</summary>
-    public required string Prefix { get; init; }
-
-    /// <summary>Types that may carry a label with this prefix. Non-empty.</summary>
-    public required IReadOnlyList<string> AllowedTypes { get; init; }
-
-    /// <summary>When true, more than one value of the prefix on one item is a violation.</summary>
-    public bool Exclusive { get; init; }
-
-    /// <summary>Semicolon-separated label field.</summary>
-    public string Field { get; init; } = DefaultField;
 }

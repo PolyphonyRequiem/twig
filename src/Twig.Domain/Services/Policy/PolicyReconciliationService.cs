@@ -87,31 +87,6 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
                 });
             projectedSnapshot.Parents[item.Id] = selection.ParentId;
         }
-        else if (finding.Code is PolicyFindingCode.LabelType or PolicyFindingCode.ExclusiveLabels)
-        {
-            var field = finding.Evidence.Field!;
-            var rule = (LabelApplicabilityRule)policy.Rules.Single(r => r.Id == finding.RuleId);
-            var labels = DeclaredPolicyEvaluator.SplitTags(item.Fields[field]);
-            var retained = false;
-            var kept = new List<string>();
-            foreach (var label in labels)
-            {
-                if (!label.StartsWith(rule.Prefix, StringComparison.OrdinalIgnoreCase))
-                    kept.Add(label);
-                else if (!retained && Names.Equals(label, strategy.RetainLabel))
-                {
-                    kept.Add(label);
-                    retained = true;
-                }
-            }
-            var value = string.Join("; ", kept);
-            operations.Add(new BatchOperation
-            {
-                Id = "repair-labels", WorkItemId = item.Id, ExpectedRevision = item.Revision,
-                Fields = new Dictionary<string, string?> { [field] = value },
-            });
-            projectedSnapshot.Fields[item.Id] = new(StringComparer.OrdinalIgnoreCase) { [field] = value };
-        }
         else if (strategy.RemoveEdge is { } edge)
         {
             var source = snapshot.RawLinks.First(l => Normalize(l) == edge);
@@ -150,7 +125,6 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
         prior.RuleId == after.RuleId && prior.Code == after.Code && prior.WorkItemId == after.WorkItemId
         && prior.Evidence.ParentId == after.Evidence.ParentId
         && prior.Evidence.Count >= after.Evidence.Count
-        && after.Evidence.Labels.All(label => prior.Evidence.Labels.Contains(label, Names))
         && after.Evidence.Edges.All(prior.Evidence.Edges.Contains);
 
     private async Task<Snapshot> CaptureAsync(DeclaredPolicy policy, IReadOnlyList<int> ids, CancellationToken ct)
@@ -321,36 +295,6 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
                                 new() { Id = "reparent", RequiresParentId = true, Description = "Choose an explicit allowed parent from the assessed scope." },
                             ]);
                 }
-                else if (rule is LabelApplicabilityRule labelRule)
-                {
-                    if (!item.Fields.ContainsKey(labelRule.Field))
-                    {
-                        Unavailable(rule, id, $"Field '{labelRule.Field}' is absent, not verified empty.", id);
-                        continue;
-                    }
-                    var tags = DeclaredPolicyEvaluator.SplitTags(
-                        snapshot.Field(id, labelRule.Field, item.Fields[labelRule.Field]));
-                    var prefixed = tags.Where(t => t.StartsWith(labelRule.Prefix, StringComparison.OrdinalIgnoreCase))
-                        .Order(Names).ThenBy(t => t, StringComparer.Ordinal).ToArray();
-                    var evidence = new PolicyFindingEvidence
-                    {
-                        ItemType = item.Type.Value, Field = labelRule.Field, Labels = prefixed,
-                        AllowedValues = labelRule.AllowedTypes,
-                    };
-                    var remove = new PolicyRepairStrategy
-                    {
-                        Id = "remove-labels", Description = $"Remove all '{labelRule.Prefix}' labels; retain unrelated labels.",
-                    };
-                    if (prefixed.Length > 0 && !labelRule.AllowedTypes.Contains(item.Type.Value, Names))
-                        Add(rule, PolicyFindingCode.LabelType, id, "Labels are not applicable to the current type.", evidence, [remove]);
-                    if (labelRule.Exclusive && prefixed.Length > 1)
-                        Add(rule, PolicyFindingCode.ExclusiveLabels, id, "Multiple exclusive labels are present.", evidence,
-                            new[] { remove }.Concat(prefixed.Distinct(Names).Select((label, index) => new PolicyRepairStrategy
-                            {
-                                Id = $"retain-label-{index + 1}", RetainLabel = label,
-                                Description = $"Retain '{label}' and remove the other '{labelRule.Prefix}' labels.",
-                            })));
-                }
                 else
                     Unavailable(rule, id, $"Unsupported rule kind '{rule.Kind}'.");
             }
@@ -415,8 +359,6 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
             {
                 case ParentTypeRule p:
                     Part(p.ChildType); foreach (var t in p.AllowedParentTypes) Part(t); break;
-                case LabelApplicabilityRule l:
-                    Part(l.Field); Part(l.Prefix); Part(l.Exclusive); foreach (var t in l.AllowedTypes) Part(t); break;
                 case DependencyIntegrityRule d: Part(d.MaxNodes); break;
             }
             Part("end-rule");
@@ -431,7 +373,7 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
             Part(snapshot.Parents.GetValueOrDefault(id, item.ParentId));
             foreach (var field in item.Fields.OrderBy(k => k.Key, StringComparer.Ordinal))
             {
-                Part(field.Key); Part(snapshot.Field(id, field.Key, field.Value));
+                Part(field.Key); Part(field.Value);
             }
             Part("end-item");
         }
@@ -446,9 +388,6 @@ internal sealed class PolicyReconciliationService(IWorkItemRepository items, IWo
         public IReadOnlyList<int> Scope { get; } = scope;
         public Dictionary<int, WorkItem> Cached { get; } = [];
         public Dictionary<int, int?> Parents { get; } = [];
-        public Dictionary<int, Dictionary<string, string?>> Fields { get; } = [];
-        public string? Field(int id, string field, string? fallback) =>
-            Fields.TryGetValue(id, out var fields) ? fields.GetValueOrDefault(field, fallback) : fallback;
         public List<WorkItemLink> RawLinks { get; } = [];
         public Dictionary<int, DateTimeOffset> Verified { get; } = [];
         public HashSet<int> GraphNodes { get; } = [];

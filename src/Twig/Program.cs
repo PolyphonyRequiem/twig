@@ -1661,11 +1661,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         services.GetRequiredService<ProviderSetupCommand>().BindAsync("github", host, repository, expectedOwnerId,
             expectedRepositoryId, expectedAttachmentRevision, replaceBinding, output, ct);
 
-    /// <summary>Report how the active provider implements each relationship kind (native, emulated or unsupported), where emulated data is stored, and its runtime availability. Read-only; kinds without probe evidence report unknown/not-probed.</summary>
+    /// <summary>Report relationship implementation and availability for the active provider. Optionally discover GitHub schema support; this is a read-only authenticated GraphQL query and does not report repository value catalogs or process rules.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="githubSchema">Discover GitHub Issue fields, states and relationship schema. Requires the active GitHub provider; does not discover issue-type, label, assignee or milestone values.</param>
     [Command("connection capabilities")]
-    public async Task<int> ConnectionCapabilities(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionCapabilitiesCommand>().ExecuteAsync(output, ct);
+    public async Task<int> ConnectionCapabilities(
+        string output = OutputFormatterFactory.DefaultFormat,
+        bool githubSchema = false,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionCapabilitiesCommand>().ExecuteAsync(output, githubSchema, ct);
 
     /// <summary>Preview or apply a versioned legacy migration. Activation requires explicit identity mapping, verified principal evidence and actual legacy host/store closure. No force, publish, discard or process-kill path.</summary>
     /// <param name="identity">Explicit registered identity alias, or alias to enroll from the chosen legacy method. Never inferred from global login.</param>

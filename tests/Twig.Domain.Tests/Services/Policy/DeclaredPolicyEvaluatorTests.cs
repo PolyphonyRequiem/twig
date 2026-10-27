@@ -13,13 +13,11 @@ using Xunit;
 namespace Twig.Domain.Tests.Services.Policy;
 
 /// <summary>
-/// Declared work-management rules (AB#1169). Type and label names below are test
+/// Declared work-management rules (AB#1169). Type names below are test
 /// data supplied by a policy file; the evaluator itself names none.
 /// </summary>
 public sealed class DeclaredPolicyEvaluatorTests
 {
-    private const string Tags = "System.Tags";
-
     private readonly Dictionary<int, WorkItem> _cache = [];
     private readonly IWorkItemRepository _items = Substitute.For<IWorkItemRepository>();
     private readonly IWorkItemLinkRepository _links = Substitute.For<IWorkItemLinkRepository>();
@@ -43,11 +41,10 @@ public sealed class DeclaredPolicyEvaluatorTests
             });
     }
 
-    private WorkItem Cache(int id, WorkItemType type, int? parent = null, string? tags = null)
+    private WorkItem Cache(int id, WorkItemType type, int? parent = null)
     {
         var builder = new WorkItemBuilder(id, $"item {id}").AsType(type);
         if (parent is { } p) builder.WithParent(p);
-        if (tags is not null) builder.WithField(Tags, tags);
         var item = builder.Build();
         _cache[id] = item;
         return item;
@@ -76,11 +73,6 @@ public sealed class DeclaredPolicyEvaluatorTests
     private static readonly ParentTypeRule TaskUnderIssue = new()
     {
         Id = "task-parent", ChildType = "Task", AllowedParentTypes = ["Issue"],
-    };
-
-    private static readonly LabelApplicabilityRule Priority = new()
-    {
-        Id = "priority-labels", Prefix = "priority:", AllowedTypes = ["Issue"], Exclusive = true,
     };
 
     private static readonly DependencyIntegrityRule Deps = new() { Id = "deps" };
@@ -312,60 +304,6 @@ public sealed class DeclaredPolicyEvaluatorTests
     }
 
     [Fact]
-    public async Task Labels_NewLabelOnDisallowedType_Refuses()
-    {
-        Cache(1, WorkItemType.Task);
-
-        var d = (await Evaluate(Policy(Priority), Plan(Batch("b", 1, (Tags, "priority:high"))))).ShouldHaveSingleItem();
-
-        d.Outcome.ShouldBe(PolicyOutcome.Refuse);
-        d.Reason.ShouldContain("priority:high");
-    }
-
-    [Fact]
-    public async Task Labels_SecondExclusiveValue_Refuses()
-    {
-        Cache(1, WorkItemType.Issue, tags: "priority:high");
-
-        var d = (await Evaluate(Policy(Priority),
-            Plan(Batch("b", 1, (Tags, "priority:high; priority:low"))))).ShouldHaveSingleItem();
-
-        d.Outcome.ShouldBe(PolicyOutcome.Refuse);
-        d.Reason.ShouldContain("at most one");
-    }
-
-    [Fact]
-    public async Task Labels_PreExistingViolationNotWorsened_WarnsOnly_D4()
-    {
-        Cache(1, WorkItemType.Task, tags: "priority:high");
-
-        var d = (await Evaluate(Policy(Priority),
-            Plan(Batch("b", 1, (Tags, "priority:high; other"))))).ShouldHaveSingleItem();
-
-        d.Outcome.ShouldBe(PolicyOutcome.Warn);
-        d.Reason.ShouldContain("Pre-existing");
-    }
-
-    [Fact]
-    public async Task Labels_TypeChangeIntoDisallowedType_Refuses()
-    {
-        Cache(1, WorkItemType.Issue, tags: "priority:high");
-
-        var d = (await Evaluate(Policy(Priority),
-            Plan(Batch("b", 1, ("System.WorkItemType", "Task"))))).ShouldHaveSingleItem();
-
-        d.Outcome.ShouldBe(PolicyOutcome.Refuse);
-    }
-
-    [Fact]
-    public async Task Labels_UncachedItem_IsUnavailable()
-    {
-        var d = (await Evaluate(Policy(Priority), Plan(Batch("b", 7, (Tags, "priority:high"))))).ShouldHaveSingleItem();
-
-        d.Outcome.ShouldBe(PolicyOutcome.Unavailable);
-    }
-
-    [Fact]
     public async Task Dependencies_SelfLink_Refuses()
     {
         var d = (await Evaluate(Policy(Deps), Plan(Link("a", 1, "successor", 1)))).ShouldHaveSingleItem();
@@ -435,8 +373,9 @@ public sealed class DeclaredPolicyEvaluatorTests
     public async Task V1Decisions_AreUnchangedWhenProviderSnapshotReaderIsRegistered()
     {
         Cache(1, WorkItemType.Task);
-        var plan = Plan(Batch("labels", 1, (Tags, "priority:high")));
-        var policy = Policy(Priority);
+        Cache(2, WorkItemType.Epic);
+        var plan = Plan(Link("parent", 1, "parent", 2));
+        var policy = Policy(TaskUnderIssue);
         var reader = Substitute.For<IWorkItemSnapshotReader>();
 
         var withoutProvider = await new DeclaredPolicyEvaluator(_items, _links).EvaluateAsync(policy, plan);
@@ -447,16 +386,16 @@ public sealed class DeclaredPolicyEvaluatorTests
     }
 
     [Fact]
-    public async Task ProviderLabels_UnavailableSnapshotBlocksInsteadOfTreatingItAsEmpty()
+    public async Task ProviderParent_UnavailableSnapshotBlocksInsteadOfTreatingItAsEmpty()
     {
         var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_offline");
         var reader = Substitute.For<IWorkItemSnapshotReader>();
         reader.FetchSnapshotAsync(identity, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<ProviderWorkItemSnapshot>(new HttpRequestException("offline")));
-        var operation = ProviderBatch("labels", identity, ("System.Tags", "priority:high"));
+        var operation = ProviderBatch("retype", identity, ("System.WorkItemType", "Task"));
 
         var decision = (await new DeclaredPolicyEvaluator(_items, null, reader)
-            .EvaluateAsync(Policy(Priority), ProviderPlan(operation))).ShouldHaveSingleItem();
+            .EvaluateAsync(Policy(TaskUnderIssue), ProviderPlan(operation))).ShouldHaveSingleItem();
 
         decision.Outcome.ShouldBe(PolicyOutcome.Unavailable);
         decision.ProviderIdentity.ShouldBe(identity);
@@ -465,43 +404,34 @@ public sealed class DeclaredPolicyEvaluatorTests
     }
 
     [Fact]
-    public async Task ProviderLabels_UseTypedObservedFactsAndExplainPreviewOnlyDecision()
+    public async Task ProviderParent_UsesTypedObservedFactsAndExplainsPreviewOnlyDecision()
     {
         var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_issue");
+        var parent = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_parent");
         var reader = Substitute.For<IWorkItemSnapshotReader>();
         reader.FetchSnapshotAsync(identity, Arg.Any<CancellationToken>())
-            .Returns(ProviderSnapshot(identity, "Task", ["bug"]));
-        var operation = ProviderBatch("labels", identity, ("System.Tags", "priority:high"));
+            .Returns(ProviderSnapshot(identity, "Task", []));
+        reader.FetchSnapshotAsync(parent, Arg.Any<CancellationToken>())
+            .Returns(ProviderSnapshot(parent, "Epic", []));
+        var operation = new ProviderMutationOperation
+        {
+            Id = "parent",
+            OperationKind = PlanOperationKind.AddLink,
+            Target = ProviderTarget(identity),
+            Other = ProviderReference(parent),
+            Relation = "parent",
+        };
 
         var decision = (await new DeclaredPolicyEvaluator(_items, null, reader)
-            .EvaluateAsync(Policy(Priority), ProviderPlan(operation))).ShouldHaveSingleItem();
+            .EvaluateAsync(Policy(TaskUnderIssue), ProviderPlan(operation))).ShouldHaveSingleItem();
 
         decision.Outcome.ShouldBe(PolicyOutcome.Refuse);
-        decision.OpId.ShouldBe("labels");
+        decision.OpId.ShouldBe("parent");
         decision.WorkItemId.ShouldBeNull();
         decision.ProviderIdentity.ShouldBe(identity);
         decision.Reason.ShouldContain("I_issue");
         decision.Reason.ShouldContain("Observed at preview");
         decision.Reason.ShouldContain("not exact-revision apply authority");
-    }
-
-    [Fact]
-    public async Task ProviderLabels_DistinguishKnownEmptyOverlayFromAmbiguousScalar()
-    {
-        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_issue");
-        var evaluator = new DeclaredPolicyEvaluator(_items, null, providerSnapshots: null);
-
-        var empty = (await evaluator.EvaluateAsync(
-            Policy(Priority), ProviderPlan(ProviderBatch("clear", identity, ("System.Tags", null)))))
-            .ShouldHaveSingleItem();
-        var ambiguous = (await evaluator.EvaluateAsync(
-            Policy(Priority), ProviderPlan(ProviderBatch("ambiguous", identity, ("System.Tags", "priority:a;priority:b")))))
-            .ShouldHaveSingleItem();
-
-        empty.Outcome.ShouldBe(PolicyOutcome.Permit);
-        empty.Reason.ShouldContain("Observed at preview");
-        ambiguous.Outcome.ShouldBe(PolicyOutcome.Unavailable);
-        ambiguous.Reason.ShouldContain("without splitting a provider value");
     }
 
     [Theory]

@@ -26,8 +26,8 @@ public sealed class PolicyCommandTests : IDisposable
     private readonly ITelemetryClient _telemetry = Substitute.For<ITelemetryClient>();
     private readonly PolicyCommand _command;
     private const string PolicyJson = """
-        {"version":1,"rules":[{"id":"label","kind":"label-applicability",
-        "prefix":"mode:","allowedTypes":["Leaf"],"exclusive":true}]}
+        {"version":1,"rules":[{"id":"parent","kind":"parent-type",
+        "childType":"Leaf","allowedParentTypes":["Container"]}]}
         """;
 
     public PolicyCommandTests()
@@ -48,15 +48,21 @@ public sealed class PolicyCommandTests : IDisposable
         Directory.Delete(_root, true);
     }
 
-    private async Task Cache(string tags)
+    private async Task Cache(bool hasParent = true)
     {
         var item = new WorkItem
         {
             Id = 1, Type = WorkItemType.Parse("Leaf").Value, LastSyncedAt = DateTimeOffset.UnixEpoch,
+            ParentId = hasParent ? 2 : null,
         };
-        item.UpdateField("System.Tags", tags);
         item.MarkSynced(5);
         await _items.SaveAsync(item);
+        var parent = new WorkItem
+        {
+            Id = 2, Type = WorkItemType.Parse("Other").Value, LastSyncedAt = DateTimeOffset.UnixEpoch,
+        };
+        parent.MarkSynced(5);
+        await _items.SaveAsync(parent);
     }
 
     [Theory]
@@ -67,7 +73,7 @@ public sealed class PolicyCommandTests : IDisposable
     [InlineData("json-compact")]
     public async Task Assess_FormatsClearlyIdentifyScopeAndNoncompliance(string format)
     {
-        await Cache("mode:a; mode:b");
+        await Cache();
         (await _command.AssessAsync("1", format)).ShouldBe(1);
         _stderr.ToString().ShouldBeEmpty();
         var text = _stdout.ToString();
@@ -81,16 +87,16 @@ public sealed class PolicyCommandTests : IDisposable
                 .Select(limit => limit.GetString()).ShouldContain(
                     "Parent rules do not certify out-of-scope children, including children of a retyped parent.");
             var finding = document.RootElement.GetProperty("findings")[0];
-            finding.GetProperty("code").GetString().ShouldBe("ExclusiveLabels");
-            finding.GetProperty("evidence").GetProperty("labels").GetArrayLength().ShouldBe(2);
+            finding.GetProperty("code").GetString().ShouldBe("ParentType");
+            finding.GetProperty("evidence").GetProperty("parentId").GetInt32().ShouldBe(2);
         }
-        else text.ShouldContain("retain-label");
+        else text.ShouldContain("detach-parent");
     }
 
     [Fact]
     public async Task CompliantPositiveControl_ExitsZero()
     {
-        await Cache("");
+        await Cache(hasParent: false);
         (await _command.AssessAsync("1", "json")).ShouldBe(0);
         using var document = JsonDocument.Parse(_stdout.ToString());
         document.RootElement.GetProperty("compliant").GetBoolean().ShouldBeTrue();
@@ -122,31 +128,31 @@ public sealed class PolicyCommandTests : IDisposable
     [Fact]
     public async Task Reconcile_ProposalOnlyIsAcceptedByNativeParser_AndDoesNotAlterItemOrJournal()
     {
-        await Cache("mode:a; mode:b; untouched");
+        await Cache();
         (await _command.AssessAsync("1", "json")).ShouldBe(1);
         using var assessment = JsonDocument.Parse(_stdout.ToString());
         var root = assessment.RootElement;
         _stdout.GetStringBuilder().Clear();
         var exit = await _command.ReconcileAsync("1", root.GetProperty("evidenceDigest").GetString()!,
-            "f1", "retain-label-2", null, "json", proposalOnly: true);
+            "f1", "detach-parent", null, "json", proposalOnly: true);
         exit.ShouldBe(0, _stderr.ToString());
         var proposal = new PlanDocumentParser().Parse(_stdout.ToString());
         proposal.IsValid.ShouldBeTrue();
         proposal.Plan!.Operations.Count.ShouldBe(1);
-        (await _items.GetByIdAsync(1))!.Fields["System.Tags"].ShouldBe("mode:a; mode:b; untouched");
+        (await _items.GetByIdAsync(1))!.ParentId.ShouldBe(2);
         (await new SqlitePlanJournalRepository(_store).GetAsync(proposal.Digest!)).ShouldBeNull();
     }
 
     [Fact]
     public async Task Reconcile_EnvelopeContainsProjectedEvidenceAndNativeProposal()
     {
-        await Cache("mode:a; mode:b");
+        await Cache();
         var assessment = await new PolicyReconciliationService(_items, _links).AssessAsync(
-            new DeclaredPolicy { Rules = [new LabelApplicabilityRule
+            new DeclaredPolicy { Rules = [new ParentTypeRule
             {
-                Id = "label", Prefix = "mode:", AllowedTypes = ["Leaf"], Exclusive = true,
+                Id = "parent", ChildType = "Leaf", AllowedParentTypes = ["Container"],
             }] }, [1]);
-        (await _command.ReconcileAsync("1", assessment.EvidenceDigest, "f1", "remove-labels", null, "json")).ShouldBe(0);
+        (await _command.ReconcileAsync("1", assessment.EvidenceDigest, "f1", "detach-parent", null, "json")).ShouldBe(0);
         using var result = JsonDocument.Parse(_stdout.ToString());
         result.RootElement.GetProperty("projected").GetProperty("compliant").GetBoolean().ShouldBeTrue();
         result.RootElement.GetProperty("before").GetProperty("compliant").GetBoolean().ShouldBeFalse();
@@ -156,8 +162,8 @@ public sealed class PolicyCommandTests : IDisposable
     [Fact]
     public async Task Reconcile_StaleSelection_EmitsNoProposalOnlyBytes()
     {
-        await Cache("mode:a; mode:b");
-        (await _command.ReconcileAsync("1", "old-evidence", "f1", "remove-labels", null, "json", true)).ShouldBe(1);
+        await Cache();
+        (await _command.ReconcileAsync("1", "old-evidence", "f1", "detach-parent", null, "json", true)).ShouldBe(1);
         _stdout.ToString().ShouldBeEmpty();
         using var error = JsonDocument.Parse(_stderr.ToString());
         error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("changed");

@@ -6,7 +6,7 @@ and journaled apply remain separate.
 
 ```bash
 twig policy reconcile --ids 42,43 --evidence <digest> --finding f1 --strategy reparent --parent 43
-twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy remove-labels -o json --proposal-only > repair.json
+twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy detach-parent -o json --proposal-only > repair.json
 ```
 
 ## Flags
@@ -25,8 +25,14 @@ twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy remov
 Reconcile reloads the declared policy, re-evaluates cached evidence and
 requires it to match `--evidence`. It projects the selected strategy and
 validates the result with the canonical proposal parser. It requires a
-configured connection for the proposal workspace. Parent targets, retained
-labels and dependency edges are never inferred.
+configured connection for the proposal workspace. Parent targets and dependency edges
+are never inferred. Supported repairs detach or reparent a disallowed parent, or remove
+an explicitly selected self-dependency, duplicate dependency or witnessed cycle edge.
+Label repair strategies are no longer supported.
+
+A policy file still declaring `label-applicability` fails closed as a policy-load error:
+proposals remain blocked until the obsolete rule is deleted. Label/tag policy redesign
+and the broader engine definition are deferred to post-1.0 Epic #1216.
 
 The proposal is written only to stdout. Reconcile performs no cache, journal or
 ADO writes (`mutates: none`) and creates no proposal file of its own. Shell

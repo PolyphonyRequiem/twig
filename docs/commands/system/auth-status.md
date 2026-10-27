@@ -20,7 +20,7 @@ twig connection status [-o <format>]
 twig auth identities [-o <format>]
 twig connection list [--org <organization> --project <project>] [-o <format>]
 twig connection check [-o <format>]
-twig connection capabilities [-o <format>]
+twig connection capabilities [--github-schema] [-o <format>]
 twig connection migrate --identity <alias> [--method aad|pat] [--confirm <digest>] [-o <format>]
 twig connection pin --binding <binding-id> [--confirm <digest>] [-o <format>]
 twig connection unpin [--confirm <digest>] [-o <format>]
@@ -194,6 +194,23 @@ provider that offers no probe evidence reports `unknown` with reason
 `not-probed`. The command is read-only, performs no work-item mutation and does
 not enable emulation. It returns `1` when no provider can be resolved or the
 provider's evidence is invalid.
+
+With an active GitHub provider, `--github-schema` explicitly performs a fixed,
+read-only authenticated GraphQL query and adds host schema metadata to the
+report. It lists the `Issue` type, supported field names and GraphQL types,
+the `IssueState` enum, and which relationship fields are present. It does not
+enumerate repository-specific issue types, labels, assignees or milestones.
+The option is rejected for other providers; their process metadata remains on
+their existing provider-specific command surfaces.
+
+Schema support is distinct from relationship availability: a field present in
+the host schema does not prove that the current credential can read a particular
+work item. A successfully discovered missing field or state type is reported as
+`unsupported`; denied discovery is `unavailable`, and incomplete or failed
+discovery is `unknown`. Process and field rules are explicitly reported as
+`unsupported` for GitHub, not as empty rule lists. GitHub schema metadata is
+provider data, not an ADO process configuration or domain policy. Without
+`--github-schema`, this command keeps its existing no-network behavior.
 
 ## Exit codes and failure modes
 

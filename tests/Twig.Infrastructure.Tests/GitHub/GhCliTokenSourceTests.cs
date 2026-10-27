@@ -85,18 +85,31 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
             catch (OperationCanceledException timedOut)
             {
                 WriteParserDiagnostics();
-                phase = "reap";
                 try
                 {
-                    if (!process.HasExited)
-                        process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
-                    await Task.WhenAll(stdout, stderr).WaitAsync(TimeSpan.FromSeconds(5));
+                    if (OperatingSystem.IsWindows())
+                    {
+                        phase = "timeout-before-reap";
+                        diagnostics.WriteLine($"gh-help phase={phase} elapsedMs={clock.ElapsedMilliseconds}");
+                        WriteProcessIdentity();
+                        WriteThreadWaitEvidence();
+                    }
                 }
-                catch (Exception reapFailure)
+                finally
                 {
-                    diagnostics.WriteLine("gh-help ownedCleanup=uncertain reason=exit-or-pipe-reap-failed");
-                    throw new AggregateException("Parser timed out and owned-process reaping failed.", timedOut, reapFailure);
+                    phase = "reap";
+                    try
+                    {
+                        if (!process.HasExited)
+                            process.Kill(entireProcessTree: true);
+                        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                        await Task.WhenAll(stdout, stderr).WaitAsync(TimeSpan.FromSeconds(5));
+                    }
+                    catch (Exception reapFailure)
+                    {
+                        diagnostics.WriteLine("gh-help ownedCleanup=uncertain reason=exit-or-pipe-reap-failed");
+                        throw new AggregateException("Parser timed out and owned-process reaping failed.", timedOut, reapFailure);
+                    }
                 }
                 throw;
             }
@@ -192,7 +205,7 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
                 var executable = process.MainModule?.FileName;
                 diagnostics.WriteLine($"gh-help pid={process.Id} startUtc={process.StartTime.ToUniversalTime():O} executable={executable}");
                 if (executable is null)
-                    diagnostics.WriteLine("gh-help identityUnavailable=observed-image-unavailable-after-wait");
+                    diagnostics.WriteLine("gh-help identityUnavailable=observed-image-unavailable");
                 if (executable is not null)
                 {
                     using var image = File.OpenRead(executable);
@@ -204,6 +217,39 @@ public sealed class GhCliTokenSourceTests(ITestOutputHelper diagnostics)
                 or IOException or UnauthorizedAccessException or NotSupportedException)
             {
                 diagnostics.WriteLine($"gh-help identityUnavailable={error.GetType().Name}");
+            }
+        }
+
+        void WriteThreadWaitEvidence()
+        {
+            if (process is null)
+                return;
+            try
+            {
+                process.Refresh();
+                var threads = process.Threads;
+                diagnostics.WriteLine($"gh-help threadSnapshotCount={threads.Count} threadSnapshotLimit=32");
+                foreach (var thread in threads.Cast<ProcessThread>().Take(32))
+                {
+                    using (thread)
+                    {
+                        try
+                        {
+                            var state = thread.ThreadState;
+                            diagnostics.WriteLine($"gh-help threadId={thread.Id} state={state} "
+                                + $"waitReason={(state == System.Diagnostics.ThreadState.Wait ? thread.WaitReason.ToString() : "not-waiting")}");
+                        }
+                        catch (Exception error) when (error is Win32Exception or InvalidOperationException
+                            or NotSupportedException)
+                        {
+                            diagnostics.WriteLine($"gh-help threadEvidenceUnavailable={error.GetType().Name}");
+                        }
+                    }
+                }
+            }
+            catch (Exception error) when (error is Win32Exception or InvalidOperationException or NotSupportedException)
+            {
+                diagnostics.WriteLine($"gh-help threadSnapshotUnavailable={error.GetType().Name}");
             }
         }
 

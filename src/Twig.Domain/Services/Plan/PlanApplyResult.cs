@@ -35,4 +35,10 @@ public sealed record PlanApplyResult
     /// per-operation failures live on <see cref="PlanJournalOperation.Error"/>.
     /// </summary>
     public string? Error { get; init; }
+
+    /// <summary>Native capture settlement, distinct from the verified remote operation.</summary>
+    internal string? DraftSettlement { get; init; }
+
+    /// <summary>Why local draft intent was retained after a verified remote operation.</summary>
+    internal string? DraftSettlementError { get; init; }
 }

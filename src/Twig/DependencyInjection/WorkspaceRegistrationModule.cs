@@ -47,6 +47,7 @@ internal static class WorkspaceRegistrationModule
         {
             var paths = TwigPaths.BuildPaths(twigDir, config, startDir);
             if (!(args.Count > 0 && args[0] == "provider")
+                && !(args.Count >= 2 && args[0] == "workspace" && args[1] == "migrate")
                 && !(args.Count >= 2 && args[0] == "connection" && args[1] is "migrate" or "pin" or "unpin" or "default")
                 && Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
             {

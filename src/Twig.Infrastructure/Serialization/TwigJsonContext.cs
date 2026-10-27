@@ -107,6 +107,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ConnectionMigrationRecord))]
 [JsonSerializable(typeof(MirrorAdmissionDocument))]
 [JsonSerializable(typeof(PreservationBackupManifest))]
+[JsonSerializable(typeof(PreservationMigrationReport))]
 [JsonSerializable(typeof(ConnectionMigrationPreview))]
 [JsonSerializable(typeof(ConnectionBindingTransitionPreview))]
 [JsonSerializable(typeof(ConnectionBindingTransitionRecord))]

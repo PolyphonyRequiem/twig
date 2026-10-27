@@ -15,6 +15,16 @@ namespace Twig.Infrastructure.Persistence;
 internal sealed record PreservationMigrationResult(
     string State, string Digest, string BackupDirectory, string? IntentId = null);
 
+internal sealed record PreservationMigrationMovement(string Source, string Destination, long Rows, string Effect);
+
+internal sealed record PreservationMigrationReport(
+    PreservationMigrationResult Migration,
+    bool CanApply,
+    PreservationMigrationMovement[] Movements,
+    string[] UnsupportedWork,
+    string[] RollbackPreconditions,
+    string[] NextSteps);
+
 internal sealed record PreservationBackupManifest(
     int Version, string Generation, string SourceDigest, int MirrorVersion, int DurableVersion,
     string SnapshotDirectory, StoreParityClassReport[] Classes);
@@ -50,6 +60,63 @@ internal sealed class PreservationMigrationService(
         var report = InspectSource();
         var digest = Digest(generation, report.Classes);
         return new("preview", digest, BackupDirectory(digest));
+    }
+
+    internal PreservationMigrationReport Describe(PreservationMigrationResult? result = null)
+    {
+        using var operation = store.AcquireOperation();
+        var prior = store.ActiveTransaction;
+        using var transaction = prior is null ? store.GetConnection().BeginTransaction(deferred: true) : null;
+        if (transaction is not null) store.ActiveTransaction = transaction;
+        try
+        {
+            var preview = result ?? Preview();
+            var source = InspectSource();
+            var sourceChanged = preview.State == "preparing"
+                && Digest(RequireGeneration(), source.Classes) != preview.Digest;
+            string[] unsupported = sourceChanged
+                ? ["preservation-source-changed: new local work changed the retained preparation; cancel that exact intent and review again."]
+                : [];
+            using var seeds = Command();
+            seeds.CommandText = "SELECT COUNT(*) FROM main.work_items WHERE is_seed=1;";
+            var seedCount = Convert.ToInt64(seeds.ExecuteScalar(), CultureInfo.InvariantCulture);
+            long Rows(string name) => source.Classes.Single(entry => entry.ClassName == name).RowCount
+                ?? throw new InvalidOperationException("preservation-source-unverified: a source row count is unavailable.");
+            var movements = new List<PreservationMigrationMovement>
+            {
+                new("main.work_items (seeds)", "pending.seed_work_items", seedCount, "copy full payload; retain original"),
+                new("seed staged identities", "pending.seed_local_identities", seedCount, "mint independent local identities"),
+                new("main.context", "pending.workspace_context", Rows("main.context"), "copy all opaque context; retain original"),
+                new("main.navigation_history", "pending.workspace_navigation_history", Rows("main.navigation_history"), "copy exact IDs, timestamps, order and cursor"),
+                new("main navigation sequence", "pending navigation sequence", Rows("mirror.navigation-sequence"), "preserve allocator position"),
+            };
+            movements.AddRange(source.Classes
+                .Where(entry => entry.ClassName.StartsWith("pending.", StringComparison.Ordinal)
+                    && !OwnedClasses.Contains(entry.ClassName))
+                .Select(entry => new PreservationMigrationMovement(entry.ClassName, entry.ClassName,
+                    entry.RowCount ?? throw new InvalidOperationException("preservation-source-unverified: durable inventory is unavailable."),
+                    "retain existing durable evidence unchanged")));
+            return new(preview, !sourceChanged && (preview.State is "preview" or "preparing"), movements.ToArray(), unsupported,
+                [
+                    "The original admitted ADO generation must remain selected.",
+                    $"The reviewed write-coverage matrix must remain version {PreservationWriteCoverage.Version}.",
+                    "Original and retained seed, context, navigation and sequence values must still match.",
+                    "Protected workspace-local backups and originals are retained; rollback never deletes them.",
+                ],
+                sourceChanged
+                    ? [$"Cancel the stale preparation without deleting work: twig workspace migrate --cancel-intent {preview.IntentId} --confirm {preview.Digest}",
+                        "Run twig workspace migrate again to review the changed source."]
+                    : preview.State == "active"
+                    ? [$"Return to original readers: twig workspace migrate --rollback --confirm {preview.Digest}"]
+                    : preview.State is "preview" or "preparing"
+                        ? [
+                            "Review every movement and rollback precondition. No provider publication or pending flush is performed.",
+                            $"Explicitly authorize this cutover: twig workspace migrate --confirm {preview.Digest}",
+                            "An interrupted preparation resumes only with its original digest; changed work requires explicit cancellation and a fresh review.",
+                        ]
+                        : ["This intent is terminal; inspect the retained originals and history before further work."]);
+        }
+        finally { store.ActiveTransaction = prior; }
     }
 
     internal async Task<PreservationMigrationResult> ApplyAsync(string confirmedDigest, CancellationToken ct = default)

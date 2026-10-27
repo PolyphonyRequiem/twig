@@ -5,6 +5,8 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
+/// <summary>Opt-in host diagnostic; expected native failures are not portable regression guarantees.</summary>
+[Trait("Category", "Integration")]
 public sealed class SqliteBackupPathProbeTests
 {
     [Fact]
@@ -48,7 +50,7 @@ public sealed class SqliteBackupPathProbeTests
         else
             longResult.Error.ShouldBe(0, "The path-length hypothesis was not reproduced on this host/layout.");
 
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() && longPath.Length >= 260 && shortPath.Length < 260)
         {
             try
             {
@@ -59,6 +61,12 @@ public sealed class SqliteBackupPathProbeTests
             {
                 File.WriteAllLines(report, evidence);
             }
+        }
+        else
+        {
+            evidence.Add("windows-longpath-vfs-qualified=not-tested;target-path-length-condition-not-reproduced");
+            File.WriteAllLines(report, evidence);
+            Console.WriteLine(evidence[^1]);
         }
     }
 

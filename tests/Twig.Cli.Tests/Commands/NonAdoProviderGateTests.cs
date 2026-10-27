@@ -843,6 +843,31 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
             return Task.CompletedTask;
         }
 
+        public Task<ProviderRevisionToken> AddLinkAtRevisionAsync(
+            int sourceId, string relationType, int targetId,
+            ProviderRevisionPrecondition expected, CancellationToken ct = default)
+        {
+            Record(nameof(AddLinkAtRevisionAsync));
+            var next = Interlocked.Increment(ref _revision);
+            return Task.FromResult(new ProviderRevisionToken(next.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        public Task<ProviderRevisionToken> RemoveLinkAtRevisionAsync(
+            int sourceId, string relationType, int targetId,
+            ProviderRevisionPrecondition expected, CancellationToken ct = default)
+        {
+            Record(nameof(RemoveLinkAtRevisionAsync));
+            var next = Interlocked.Increment(ref _revision);
+            return Task.FromResult(new ProviderRevisionToken(next.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        public Task DeleteAtRevisionAsync(
+            int id, ProviderRevisionPrecondition expected, CancellationToken ct = default)
+        {
+            Record(nameof(DeleteAtRevisionAsync));
+            return Task.CompletedTask;
+        }
+
         public Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
         {
             Record(nameof(AddLinkAsync));

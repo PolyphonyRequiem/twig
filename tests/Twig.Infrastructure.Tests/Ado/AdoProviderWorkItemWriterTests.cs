@@ -23,9 +23,10 @@ public sealed class AdoProviderWorkItemWriterTests
         [new FieldChange("System.State", OldValue: null, NewValue: "Doing")];
 
     private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
+    private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
     private readonly AdoProviderWorkItemWriter _writer;
 
-    public AdoProviderWorkItemWriterTests() => _writer = new AdoProviderWorkItemWriter(_ado);
+    public AdoProviderWorkItemWriterTests() => _writer = new AdoProviderWorkItemWriter(_ado, _revisionBound);
 
     private static ProviderRevisionPrecondition Ado(string token)
         => new(ProviderCapabilityCatalog.AdoProviderKind, new ProviderRevisionToken(token));
@@ -129,6 +130,116 @@ public sealed class AdoProviderWorkItemWriterTests
         ex.ShouldNotBeOfType<ProviderRevisionPreconditionRefusedException>();
         _ado.ReceivedCalls().ShouldHaveSingleItem();
     }
+
+    public static TheoryData<string, string?, string?, ProviderRevisionPreconditionRefusal> StrictRefusals()
+    {
+        var cases = new TheoryData<string, string?, string?, ProviderRevisionPreconditionRefusal>();
+        foreach (var operation in new[] { "add", "remove", "delete" })
+        {
+            cases.Add(operation, null, null, ProviderRevisionPreconditionRefusal.Missing);
+            cases.Add(operation, "github", "7", ProviderRevisionPreconditionRefusal.ForeignProvider);
+            cases.Add(operation, "ado", "07", ProviderRevisionPreconditionRefusal.MalformedToken);
+            cases.Add(operation, "ado", "0", ProviderRevisionPreconditionRefusal.MalformedToken);
+        }
+        return cases;
+    }
+
+    [Theory]
+    [MemberData(nameof(StrictRefusals))]
+    public async Task StrictMutation_InvalidPrecondition_RefusesBeforeTransport(
+        string operation, string? provider, string? token, ProviderRevisionPreconditionRefusal reason)
+    {
+        var expected = provider is null ? null
+            : new ProviderRevisionPrecondition(provider, new ProviderRevisionToken(token!));
+
+        var ex = await Should.ThrowAsync<ProviderRevisionPreconditionRefusedException>(
+            () => StrictMutationAsync(operation, expected!, CancellationToken.None));
+
+        ex.Reason.ShouldBe(reason);
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("remove")]
+    public async Task StrictLink_CanonicalPrecondition_PreservesArgumentsAndWrittenRevision(string operation)
+    {
+        _revisionBound.AddLinkAtRevisionAsync(42, "relation", 43, 7, Arg.Any<CancellationToken>()).Returns(8);
+        _revisionBound.RemoveLinkAtRevisionAsync(42, "relation", 43, 7, Arg.Any<CancellationToken>()).Returns(8);
+        _revisionBound.ClearReceivedCalls();
+        using var cts = new CancellationTokenSource();
+
+        var written = operation == "add"
+            ? await _writer.AddLinkAtRevisionAsync(42, "relation", 43, Ado("7"), cts.Token)
+            : await _writer.RemoveLinkAtRevisionAsync(42, "relation", 43, Ado("7"), cts.Token);
+
+        written.Value.ShouldBe("8");
+        var call = _revisionBound.ReceivedCalls().ShouldHaveSingleItem();
+        call.GetMethodInfo().Name.ShouldBe(operation == "add"
+            ? nameof(IRevisionBoundAdoWorkItemService.AddLinkAtRevisionAsync)
+            : nameof(IRevisionBoundAdoWorkItemService.RemoveLinkAtRevisionAsync));
+        call.GetArguments().ShouldBe(new object[] { 42, "relation", 43, 7, cts.Token });
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task StrictDelete_CanonicalPrecondition_PreservesArguments()
+    {
+        using var cts = new CancellationTokenSource();
+
+        await _writer.DeleteAtRevisionAsync(42, Ado("7"), cts.Token);
+
+        await _revisionBound.Received(1).DeleteAtRevisionAsync(42, 7, cts.Token);
+        _revisionBound.ReceivedCalls().ShouldHaveSingleItem();
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("remove")]
+    [InlineData("delete")]
+    public async Task StrictMutation_Conflict_PropagatesWithoutRetry(string operation)
+    {
+        var conflict = new AdoConflictException(8, "conflict");
+        _revisionBound.AddLinkAtRevisionAsync(42, "relation", 43, 7, Arg.Any<CancellationToken>())
+            .ThrowsAsync(conflict);
+        _revisionBound.RemoveLinkAtRevisionAsync(42, "relation", 43, 7, Arg.Any<CancellationToken>())
+            .ThrowsAsync(conflict);
+        _revisionBound.DeleteAtRevisionAsync(42, 7, Arg.Any<CancellationToken>()).ThrowsAsync(conflict);
+        _revisionBound.ClearReceivedCalls();
+
+        var ex = await Should.ThrowAsync<AdoConflictException>(
+            () => StrictMutationAsync(operation, Ado("7"), CancellationToken.None));
+
+        ex.ShouldBeSameAs(conflict);
+        _revisionBound.ReceivedCalls().ShouldHaveSingleItem();
+        _ado.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("remove")]
+    public async Task StrictLink_MissingWrittenRevision_IsIndeterminateNotPretransportRefusal(string operation)
+    {
+        _revisionBound.AddLinkAtRevisionAsync(42, "relation", 43, 7, Arg.Any<CancellationToken>()).Returns(0);
+        _revisionBound.RemoveLinkAtRevisionAsync(42, "relation", 43, 7, Arg.Any<CancellationToken>()).Returns(0);
+        _revisionBound.ClearReceivedCalls();
+
+        await Should.ThrowAsync<FormatException>(
+            () => StrictMutationAsync(operation, Ado("7"), CancellationToken.None));
+
+        _revisionBound.ReceivedCalls().ShouldHaveSingleItem();
+    }
+
+    private Task StrictMutationAsync(string operation, ProviderRevisionPrecondition expected, CancellationToken ct)
+        => operation switch
+        {
+            "add" => _writer.AddLinkAtRevisionAsync(42, "relation", 43, expected, ct),
+            "remove" => _writer.RemoveLinkAtRevisionAsync(42, "relation", 43, expected, ct),
+            "delete" => _writer.DeleteAtRevisionAsync(42, expected, ct),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation)),
+        };
 
     // ── codec ───────────────────────────────────────────────────────────────
 

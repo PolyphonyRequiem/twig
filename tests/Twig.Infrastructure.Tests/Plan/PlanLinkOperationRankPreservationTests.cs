@@ -61,7 +61,7 @@ public sealed class PlanLinkOperationRankPreservationTests
             (_, _) => Task.FromResult(new SeedPublishResult { Status = SeedPublishStatus.Error }));
 
         _executor = new PlanOperationExecutor(
-            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions, publisher);
+            AdoWriterFixture.Wrap(_ado, _revisionBound), AdoWriterFixture.Codec, _fieldDefinitions, publisher);
     }
 
     public static TheoryData<string> Relations() => new()

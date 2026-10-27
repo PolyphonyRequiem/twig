@@ -32,7 +32,6 @@ internal sealed class PlanOperationExecutor
 {
     private readonly IProviderWorkItemWriter _adoService;
     private readonly IProviderRevisionCodec _revisionCodec;
-    private readonly IRevisionBoundAdoWorkItemService _revisionBound;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly PlanSeedPublisher _seedPublisher;
     private readonly IWorkItemRepository? _workItemRepo;
@@ -49,7 +48,6 @@ internal sealed class PlanOperationExecutor
     internal PlanOperationExecutor(
         IProviderWorkItemWriter adoService,
         IProviderRevisionCodec revisionCodec,
-        IRevisionBoundAdoWorkItemService revisionBound,
         IFieldDefinitionStore fieldDefinitionStore,
         SeedPublishOrchestrator seedPublish,
         IWorkItemRepository workItemRepo,
@@ -65,7 +63,6 @@ internal sealed class PlanOperationExecutor
         : this(
             adoService,
             revisionCodec,
-            revisionBound,
             fieldDefinitionStore,
             new PlanSeedPublisher(
                 adoService,
@@ -93,7 +90,6 @@ internal sealed class PlanOperationExecutor
     internal PlanOperationExecutor(
         IProviderWorkItemWriter adoService,
         IProviderRevisionCodec revisionCodec,
-        IRevisionBoundAdoWorkItemService revisionBound,
         IFieldDefinitionStore fieldDefinitionStore,
         PlanSeedPublisher seedPublisher,
         IWorkItemDiscussionWriter? discussionWriter = null,
@@ -102,7 +98,6 @@ internal sealed class PlanOperationExecutor
     {
         _adoService = adoService;
         _revisionCodec = revisionCodec;
-        _revisionBound = revisionBound;
         _fieldDefinitionStore = fieldDefinitionStore;
         _seedPublisher = seedPublisher;
         _discussionWriter = discussionWriter;
@@ -211,8 +206,10 @@ internal sealed class PlanOperationExecutor
         if (!LinkTypeMapper.TryResolve(add.Relation, out var adoRelation))
             return PlanExecutionResult.Failure($"Unsupported relation '{add.Relation}'.");
 
-        var newRev = await _revisionBound.AddLinkAtRevisionAsync(
-            add.WorkItemId, adoRelation, add.OtherId, add.ExpectedRevision, ct).ConfigureAwait(false);
+        var expected = _revisionCodec.FromCacheRevision(add.ExpectedRevision);
+        var written = await _adoService.AddLinkAtRevisionAsync(
+            add.WorkItemId, adoRelation, add.OtherId, expected, ct).ConfigureAwait(false);
+        var newRev = _revisionCodec.ToCacheRevision(written);
         return PlanExecutionResult.Success(SerializeRevision(newRev), newRev);
     }
 
@@ -221,14 +218,17 @@ internal sealed class PlanOperationExecutor
         if (!LinkTypeMapper.TryResolve(remove.Relation, out var adoRelation))
             return PlanExecutionResult.Failure($"Unsupported relation '{remove.Relation}'.");
 
-        var newRev = await _revisionBound.RemoveLinkAtRevisionAsync(
-            remove.WorkItemId, adoRelation, remove.OtherId, remove.ExpectedRevision, ct).ConfigureAwait(false);
+        var expected = _revisionCodec.FromCacheRevision(remove.ExpectedRevision);
+        var written = await _adoService.RemoveLinkAtRevisionAsync(
+            remove.WorkItemId, adoRelation, remove.OtherId, expected, ct).ConfigureAwait(false);
+        var newRev = _revisionCodec.ToCacheRevision(written);
         return PlanExecutionResult.Success(SerializeRevision(newRev), newRev);
     }
 
     private async Task<PlanExecutionResult> ExecuteDeleteAsync(DeleteOperation delete, CancellationToken ct)
     {
-        await _revisionBound.DeleteAtRevisionAsync(delete.WorkItemId, delete.ExpectedRevision, ct)
+        var expected = _revisionCodec.FromCacheRevision(delete.ExpectedRevision);
+        await _adoService.DeleteAtRevisionAsync(delete.WorkItemId, expected, ct)
             .ConfigureAwait(false);
         return PlanExecutionResult.Success(SerializeDeleted(delete.WorkItemId));
     }

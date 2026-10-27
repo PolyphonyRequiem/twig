@@ -25,11 +25,13 @@ namespace Twig.Infrastructure.Tests.Ado;
 /// </remarks>
 internal static class AdoWriterFixture
 {
-    public static IProviderWorkItemWriter Wrap(IAdoWorkItemService ado)
+    public static IProviderWorkItemWriter Wrap(
+        IAdoWorkItemService ado, IRevisionBoundAdoWorkItemService? revisionBound = null)
     {
         ado.PatchAsync(default, default!, default, default)
             .ReturnsForAnyArgs(ci => Task.FromResult(ci.ArgAt<int>(2) + 1));
-        return new AdoProviderWorkItemWriter(ado);
+        return new AdoProviderWorkItemWriter(ado,
+            revisionBound ?? Substitute.For<IRevisionBoundAdoWorkItemService>());
     }
 
     /// <summary>The single ADO revision codec.</summary>

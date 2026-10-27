@@ -180,7 +180,7 @@ public sealed class DraftSaveCommandTests : IDisposable
         var config = new TwigConfiguration { Organization = workspace.Organization, Project = workspace.Project };
         var twig = Directory.CreateDirectory(Path.Combine(directory, ".twig")).FullName;
         var lifecycle = new PlanLifecycleService(new PlanDocumentParser(), new SqlitePlanJournalRepository(cache),
-            pending, fields, new AdoProviderWorkItemWriter(ado), AdoProviderRevisionCodec.Instance, bound, seed,
+            pending, fields, new AdoProviderWorkItemWriter(ado, bound), AdoProviderRevisionCodec.Instance, bound, seed,
             repository, links, Substitute.For<IStagedIdentityRegistry>(), mapping, intents, config,
             new TwigPaths(twig, Path.Combine(twig, "config"), Path.Combine(directory, "twig.db"), directory),
             TimeProvider.System, origins, rules, unit, systemRegistryPath: Path.Combine(directory, "system.db"));

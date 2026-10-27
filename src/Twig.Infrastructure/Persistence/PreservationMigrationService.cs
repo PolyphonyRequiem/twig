@@ -319,8 +319,12 @@ internal sealed class PreservationMigrationService(
     }
 
     private void RequirePristineTarget()
+        => RequirePristineTarget(store);
+
+    private static void RequirePristineTarget(SqliteCacheStore target)
     {
-        using var command = Command();
+        using var command = target.GetConnection().CreateCommand();
+        command.Transaction = target.ActiveTransaction;
         command.CommandText = """
             SELECT EXISTS(SELECT 1 FROM pending.seed_local_identities)
                 OR EXISTS(SELECT 1 FROM pending.seed_work_items)
@@ -406,6 +410,7 @@ internal sealed class PreservationMigrationService(
         }
         using var restored = new SqliteCacheStore(
             BackupConnectionString(Path.Combine(restore, "mirror.db"), SqliteOpenMode.ReadWrite));
+        RequirePristineTarget(restored);
         var report = new StoreParityHarness(restored, resourceScope, preserveOpaqueContext: true).Inspect();
         if (!report.IsConsistent || Digest(manifest.Generation, report.Classes) != manifest.SourceDigest)
             throw new InvalidOperationException("preservation-backup-parity-failed: restore-qualified content does not match the reviewed source.");

@@ -333,7 +333,12 @@ public sealed class SqliteCacheStore : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = "SELECT 1 FROM pending.sqlite_master WHERE type='table' AND name='preservation_migrations';";
         if (command.ExecuteScalar() is null) return;
-        command.CommandText = "SELECT 1 FROM pending.preservation_migrations LIMIT 1;";
+        command.CommandText = """
+            SELECT 1 WHERE EXISTS(SELECT 1 FROM pending.preservation_migrations WHERE state <> 'cancelled' OR slot IS NOT NULL)
+                OR EXISTS(SELECT 1 FROM pending.seed_local_identities) OR EXISTS(SELECT 1 FROM pending.seed_work_items)
+                OR EXISTS(SELECT 1 FROM pending.workspace_context) OR EXISTS(SELECT 1 FROM pending.workspace_navigation_history)
+                OR EXISTS(SELECT 1 FROM pending.sqlite_sequence WHERE name='workspace_navigation_history');
+            """;
         if (command.ExecuteScalar() is not null)
             throw new InvalidOperationException("mirror-local-work-present: a preservation intent owns this generation. No mirror rebuild is permitted; retain the originals and resume with the compatible Twig version.");
     }

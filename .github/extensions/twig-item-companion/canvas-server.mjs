@@ -157,6 +157,47 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         return loadBench(state.benchObservation.benchId, captureBench(state.benchObservation));
     };
 
+    const localDraftOutcome = (result, action) => ({
+        status: result.status,
+        committed: result.committed,
+        ...(result.itemKey ? { itemKey: result.itemKey } : {}),
+        ...(result.benchId ? { benchId: result.benchId } : {}),
+        ...(result.identityId ? { identityId: result.identityId } : {}),
+        ...(result.generation ? { generation: result.generation } : {}),
+        ...(result.baselineRevision ? { baselineRevision: result.baselineRevision } : {}),
+        ...(result.observedRevision ? { observedRevision: result.observedRevision } : {}),
+        hasConflicts: result.hasConflicts === true,
+        canStage: result.canStage === true,
+        editableFields: (result.editors || []).map(({ fieldRef, label, value }) => ({ fieldRef, label, value })),
+        effects: {
+            localOnly: true,
+            observationCommitted: action === "open" && result.status === "opened" && result.committed === true,
+            stagedChanges: structuredClone(result.changes || []),
+            conflicts: structuredClone(result.conflicts || []),
+        },
+        authorized: false,
+        published: false,
+        canApply: false,
+        ...(result.error ? { error: result.error } : {}),
+    });
+
+    const openLocalDraft = async (workItemId) => {
+        if (!workbench) throw new Error("Local draft editing is available only in the Twig workbench.");
+        if (!Number.isInteger(workItemId) || workItemId <= 0) throw new Error("A positive work item ID is required.");
+        await loadBenchDetail(workItemId);
+        const target = editingTarget;
+        const result = await editing.open(target);
+        return localDraftOutcome(result, "open");
+    };
+
+    const stageLocalDraft = async (preconditions) => {
+        if (!workbench) throw new Error("Local draft editing is available only in the Twig workbench.");
+        if (state.busy || state.closed || !editingTarget)
+            throw new Error("Load current qualified Bench detail before explicitly staging a local draft.");
+        const result = await editing.stageExpected(preconditions);
+        return localDraftOutcome(result, "stage");
+    };
+
     const loadBenchDetail = async (workItemId) => {
         if (editing.busy) throw new HttpError(409, "A native editing operation is already in progress.");
         invalidateEditing();
@@ -417,6 +458,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         loadBench,
         refreshBench,
         loadBenchDetail,
+        openLocalDraft,
+        stageLocalDraft,
         inspectDraft,
         close: async () => {
             if (closing) return closing;

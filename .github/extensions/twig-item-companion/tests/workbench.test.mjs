@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { Script, createContext } from "node:vm";
 import test from "node:test";
@@ -8,6 +9,7 @@ import { createNativeBenchReader } from "../native-bench.mjs";
 import { createNativeBenchDetailReader } from "../native-bench-detail.mjs";
 import { renderPage } from "../render.mjs";
 import { createNativeDiscussionReader } from "../native-discussion.mjs";
+import { createNativeEditingAdapter } from "../native-editing.mjs";
 import { discussionTarget, discussionPage, discussionRefusal, childHarness } from "./discussion-fixture.mjs";
 import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 import { mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
@@ -594,7 +596,7 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE/RETAIN only on explic
         row42(ui).listeners.click();
         await ui.settled();
         assert.equal(nativeCalls.length, 0, "initial render, Bench read and automatic cache detail never OPEN/STAGE");
-        find("Open native draft").listeners.click();
+        find("Open local draft (not published)").listeners.click();
         await ui.settled();
         assert.deepEqual(nativeCalls.map(call => call.action), ["open"]);
         assert.deepEqual(nativeCalls[0].input.expectedKey, detail.itemKey);
@@ -602,7 +604,7 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE/RETAIN only on explic
         assert.ok(editor, "real rendered client exposes the admitted text input");
         editor.value = "Explicit draft text";
         editor.listeners.input();
-        find("Stage local changes").listeners.click();
+        find("Stage local draft only").listeners.click();
         await ui.settled();
         assert.deepEqual(nativeCalls.map(call => call.action), ["open", "stage"]);
         assert.deepEqual(nativeCalls[1].input.request.nativeContext, nativeDocument.nativeContext);
@@ -613,14 +615,14 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE/RETAIN only on explic
         const emptyEditor = descendants(ui.nodes.get("#bench-selection")).find(node => node.listeners.input && !node.listeners.change);
         emptyEditor.value = "";
         emptyEditor.listeners.input();
-        find("Stage local changes").listeners.click();
+        find("Stage local draft only").listeners.click();
         await ui.settled();
         assert.equal(nativeCalls[2].input.request.changes[0].proposedValue, "");
         assert.equal(nativeCalls[2].input.request.generation, "9007199254740994");
         const clear = descendants(ui.nodes.get("#bench-selection")).find(node => node.type === "checkbox");
         clear.checked = true;
         clear.listeners.change();
-        find("Stage local changes").listeners.click();
+        find("Stage local draft only").listeners.click();
         await ui.settled();
         assert.equal(nativeCalls[3].input.request.changes[0].proposedValue, null);
         assert.equal(nativeCalls[3].input.request.generation, "9007199254740995");
@@ -1066,11 +1068,83 @@ test("workbench styling is scoped and follows the common rules without changing 
     }
 });
 
-test("actual extension wiring registers both canvases and routes workbench actions to its owned server", async () => {
-    const calls = [], admitted = [];
+test("actual extension actions explicitly open and stage a local draft through the owned server bridge", async () => {
+    const calls = [], nativeCalls = [], admitted = [];
+    const memberDetail = structuredClone(detailFixture);
+    Object.assign(memberDetail, {
+        benchName: fixture.browser.benchName, observation: "raw-mirror",
+        origin: { ...fixture.browser.origin }, layoutStatus: "unavailable", layoutSource: "twig-fallback",
+        membership: { selected: true, seed: false, pending: true },
+        completeness: { sourceComplete: false, sourceChildCount: null, cachedChildCount: 0,
+            parentCached: null, linksVerified: false, reasons: ["source-unknown", "cache-only"] },
+    });
+    memberDetail.benchId = fixture.browser.benchId;
+    memberDetail.document.processId = "twig.fallback";
+    let conflictOnOpen = false;
+    let staleOriginOnStage = false;
+    let nativeDocument = {
+        nativeContext: {
+            itemKey: memberDetail.itemKey,
+            externalIdentity: { providerKind: "ado", resourceScope: "fixture-resource", nativeId: "42" },
+            benchId: memberDetail.benchId, benchName: memberDetail.benchName, benchContentsDigest: "digest",
+            identityId: memberDetail.identityId, bindingRevision: "1", selectionSource: "checkout",
+            selectionRevision: "1", attachmentRevision: "1", storageGeneration: null,
+            originDigest: "origin", evidenceDigest: "evidence",
+        },
+        generation: "9007199254740993", baselineRevision: "17", observedRevision: "17", currentRevision: "17",
+        hasConflicts: false, changes: [], conflicts: [],
+        systemControls: memberDetail.document.systemControls, pages: memberDetail.document.pages,
+        fields: [{ fieldRef: "System.Title", editable: true }],
+        authorized: false, serverFinalAuthority: true,
+    };
+    const nativeEditing = createNativeEditingAdapter({
+        executable: fakeExecutable(),
+        realpath: async value => value,
+        launch(executable, args, options, callback) {
+            const action = args[1];
+            const input = new EventEmitter();
+            const child = new EventEmitter();
+            const call = { action, args, input: null };
+            nativeCalls.push(call);
+            child.stdin = input;
+            child.pid = 123;
+            input.end = value => { call.input = value; };
+            queueMicrotask(() => {
+                const document = structuredClone(nativeDocument);
+                let result;
+                if (action === "open") {
+                    if (conflictOnOpen) {
+                        document.observedRevision = document.currentRevision = "18";
+                        document.hasConflicts = true;
+                        document.conflicts = [{ fieldRef: "System.Title", baselineValue: "Read-only fixture",
+                            proposedValue: "Local intent", observedValue: "External change" }];
+                    }
+                    result = { version: 1, status: "opened", committed: true, document };
+                } else {
+                    const request = JSON.parse(call.input);
+                    if (staleOriginOnStage) {
+                        result = { version: 1, status: "refused", committed: false,
+                            error: { code: "origin-changed", message: "The captured origin changed.",
+                                recovery: "Explicitly reopen the local draft." } };
+                    } else {
+                        document.generation = (BigInt(request.generation) + BigInt(request.changes.length)).toString();
+                        document.changes = request.changes.map(change => ({ ...change, baselineValue: "Read-only fixture" }));
+                        nativeDocument = structuredClone(document);
+                        result = { version: 1, status: "staged", committed: true, document };
+                    }
+                }
+                const exitCode = result.status === "refused" ? 1 : 0;
+                const error = exitCode ? Object.assign(new Error("Native editing refusal."), { code: exitCode }) : null;
+                callback(error, JSON.stringify(result), "");
+                child.emit("close", exitCode, null);
+            });
+            return child;
+        },
+    });
     let declarations;
     const source = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
     const context = createContext({
+        Error,
         CanvasError: class extends Error { constructor(code, message) { super(message); this.code = code; } },
         createCanvas: (declaration) => declaration,
         joinSession: async (config) => { declarations = config.canvases; return { workspacePath }; },
@@ -1079,12 +1153,12 @@ test("actual extension wiring registers both canvases and routes workbench actio
         admitTwigExecutable: async ({ canvas }) => { admitted.push(canvas); return fakeExecutable(); },
         createNativeDetailReader: () => { throw new Error("Detail should not be read by a workbench action"); },
         createNativeBenchReader: () => reader(fixture, calls),
-        createNativeBenchDetailReader: () => async () => { throw new Error("Bench detail should not be read by a workbench action"); },
+        createNativeBenchDetailReader: () => async ({ workItemId }) => {
+            calls.push({ action: "bench-detail", workItemId });
+            return structuredClone(memberDetail);
+        },
         createNativeDiscussionReader: () => async () => { throw new Error("Browsing must not read online discussion"); },
-        createNativeEditingAdapter: () => ({
-            open: async () => { throw new Error("Browsing must not OPEN a draft"); },
-            stage: async () => { throw new Error("Browsing must not STAGE intent"); },
-        }),
+        createNativeEditingAdapter: () => nativeEditing,
     });
     // Only SDK/import boundaries are replaced; the production declaration and callbacks run unchanged.
     const script = source.replace(/^import .*;$/gm, "");
@@ -1098,9 +1172,126 @@ test("actual extension wiring registers both canvases and routes workbench actio
         assert.deepEqual(admitted, ["workbench"], "reopening an instance does not re-admit");
         const loaded = await workbench.actions.find((action) => action.name === "load_bench").handler(ctx);
         assert.deepEqual(loaded, fixture.browser);
+        assert.deepEqual(nativeCalls, [], "Bench reads never OPEN or STAGE a local draft");
+        const openAction = workbench.actions.find(action => action.name === "open_local_draft");
+        const stageAction = workbench.actions.find(action => action.name === "stage_local_draft");
+        assert.ok(openAction && stageAction, "both explicit local draft actions are registered");
+        assert.deepEqual(JSON.parse(JSON.stringify(openAction.inputSchema)), {
+            type: "object", properties: { workItemId: { type: "integer", minimum: 1, maximum: 2147483647 } },
+            required: ["workItemId"], additionalProperties: false,
+        });
+        assert.equal(stageAction.inputSchema.additionalProperties, false);
+        assert.deepEqual(nativeCalls, [], "declaring actions does not acquire native draft state");
+        const openedDraft = await openAction.handler({ ...ctx, input: { workItemId: 42 } });
+        assert.deepEqual(nativeCalls.map(call => call.action), ["open"]);
+        assert.equal(openedDraft.status, "opened");
+        assert.equal(openedDraft.effects.observationCommitted, true);
+        assert.equal(openedDraft.effects.localOnly, true);
+        assert.equal(openedDraft.generation, "9007199254740993");
+        assert.equal(openedDraft.baselineRevision, "17");
+        assert.equal(openedDraft.hasConflicts, false);
+        assert.equal(openedDraft.canStage, true);
+        assert.equal(openedDraft.authorized, false);
+        assert.equal(openedDraft.published, false);
+        assert.equal(openedDraft.canApply, false);
+        assert.equal(openedDraft.captureHandle, undefined);
+        assert.equal(openedDraft.nativeContext, undefined);
+        const expected = {
+            expectedItemKey: openedDraft.itemKey,
+            expectedBenchId: openedDraft.benchId,
+            expectedIdentityId: openedDraft.identityId,
+            expectedGeneration: openedDraft.generation,
+            expectedBaselineRevision: openedDraft.baselineRevision,
+            expectedObservedRevision: openedDraft.observedRevision,
+            changes: [{ fieldRef: "System.Title", proposedValue: "Explicit local value" }],
+        };
+        const mismatchCases = [
+            { expectedItemKey: { ...expected.expectedItemKey, checkoutRoot: "C:\\other\\twig" } },
+            { expectedItemKey: { ...expected.expectedItemKey, connectionId: "other-connection" } },
+            { expectedItemKey: { ...expected.expectedItemKey, bindingId: "other-binding" } },
+            { expectedItemKey: { ...expected.expectedItemKey, workItemId: 43 } },
+            { expectedBenchId: "8" },
+            { expectedIdentityId: "other-identity" },
+            { expectedGeneration: "1" },
+            { expectedBaselineRevision: "18" },
+            { expectedObservedRevision: "18" },
+            { changes: [] },
+            { changes: [
+                { fieldRef: "System.Title", proposedValue: "first value" },
+                { fieldRef: "system.title", proposedValue: "duplicate field" },
+            ] },
+            { changes: [{ fieldRef: "Custom.Unsupported", proposedValue: "not editable" }] },
+        ];
+        for (const mismatch of mismatchCases) {
+            const refusal = await stageAction.handler({ ...ctx, input: { ...expected, ...mismatch } });
+            assert.equal(refusal.status, "refused");
+            assert.equal(refusal.committed, false);
+            assert.equal(refusal.authorized, false);
+            assert.equal(refusal.published, false);
+            assert.equal(refusal.canApply, false);
+            assert.equal(nativeCalls.filter(call => call.action === "stage").length, 0);
+        }
+        const stagedDraft = await stageAction.handler({ ...ctx, input: expected });
+        assert.equal(stagedDraft.status, "staged");
+        assert.equal(stagedDraft.committed, true);
+        assert.equal(stagedDraft.effects.localOnly, true);
+        assert.deepEqual(stagedDraft.effects.stagedChanges, [
+            { fieldRef: "System.Title", proposedValue: "Explicit local value", baselineValue: "Read-only fixture" },
+        ]);
+        assert.equal(stagedDraft.captureHandle, undefined);
+        assert.deepEqual(nativeCalls.map(call => call.action), ["open", "stage"]);
+        const stagedRequest = JSON.parse(nativeCalls[1].input);
+        assert.deepEqual(stagedRequest.nativeContext, nativeDocument.nativeContext);
+        assert.equal(stagedRequest.generation, "9007199254740993");
+
+        await workbench.actions.find(action => action.name === "load_bench").handler(ctx);
+        const beforeStaleStage = nativeCalls.filter(call => call.action === "stage").length;
+        await assert.rejects(stageAction.handler({ ...ctx, input: expected }));
+        assert.equal(nativeCalls.filter(call => call.action === "stage").length, beforeStaleStage,
+            "refresh revokes the server-held capture and stale preconditions cannot restage it");
+
+        const originDraft = await openAction.handler({ ...ctx, input: { workItemId: 42 } });
+        staleOriginOnStage = true;
+        const originRefusal = await stageAction.handler({ ...ctx, input: {
+            expectedItemKey: originDraft.itemKey, expectedBenchId: originDraft.benchId,
+            expectedIdentityId: originDraft.identityId, expectedGeneration: originDraft.generation,
+            expectedBaselineRevision: originDraft.baselineRevision,
+            expectedObservedRevision: originDraft.observedRevision,
+            changes: [{ fieldRef: "System.Title", proposedValue: "Changed origin value" }],
+        } });
+        assert.equal(originRefusal.status, "refused");
+        assert.equal(originRefusal.committed, false);
+        assert.equal(originRefusal.canStage, false);
+        assert.equal(originRefusal.published, false);
+        staleOriginOnStage = false;
+
+        conflictOnOpen = true;
+        const conflictDraft = await openAction.handler({ ...ctx, input: { workItemId: 42 } });
+        assert.equal(conflictDraft.status, "opened");
+        assert.equal(conflictDraft.hasConflicts, true);
+        assert.equal(conflictDraft.canStage, false);
+        const beforeConflictStage = nativeCalls.filter(call => call.action === "stage").length;
+        const conflictRefusal = await stageAction.handler({ ...ctx, input: {
+            expectedItemKey: conflictDraft.itemKey, expectedBenchId: conflictDraft.benchId,
+            expectedIdentityId: conflictDraft.identityId, expectedGeneration: conflictDraft.generation,
+            expectedBaselineRevision: conflictDraft.baselineRevision,
+            expectedObservedRevision: conflictDraft.observedRevision,
+            changes: [{ fieldRef: "System.Title", proposedValue: "Conflicting local value" }],
+        } });
+        assert.equal(conflictRefusal.status, "refused");
+        assert.equal(nativeCalls.filter(call => call.action === "stage").length, beforeConflictStage,
+            "revision conflicts are refused before invoking the native adapter");
         const html = await (await fetch(opened.url)).text();
         assert.match(html, /Twig workbench/);
-        assert.equal(calls.length, 1);
+        const stagesBeforeReconnect = nativeCalls.filter(call => call.action === "stage").length;
+        await workbench.onClose(ctx);
+        await workbench.open(ctx);
+        await assert.rejects(stageAction.handler({ ...ctx, input: expected }));
+        assert.equal(nativeCalls.filter(call => call.action === "stage").length, stagesBeforeReconnect,
+            "a replacement provider instance cannot reuse the prior in-memory capture");
+        assert.equal(calls.filter(call => call.args).length, 2, "Bench loads only read twice");
+        assert.deepEqual(calls.filter(call => call.action === "bench-detail").map(call => call.workItemId), [42, 42, 42],
+            "each explicit OPEN re-reads qualified detail");
     } finally { await workbench.onClose(ctx); }
     await assert.rejects(workbench.actions[0].handler(ctx), /Open the Twig workbench/);
 });

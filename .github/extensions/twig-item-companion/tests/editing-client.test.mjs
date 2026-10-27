@@ -19,7 +19,13 @@ class Element {
 }
 const descendants = node => [node, ...node.children.flatMap(descendants)];
 const flattened = node => descendants(node).map(child => child.textContent).join("\n");
-const button = (root, label) => descendants(root).find(node => node.tag === "button" && node.textContent === label);
+const button = (root, label) => {
+    const currentLabel = ({
+        "Open native draft": "Open local draft (not published)",
+        "Stage local changes": "Stage local draft only",
+    })[label] ?? label;
+    return descendants(root).find(node => node.tag === "button" && node.textContent === currentLabel);
+};
 const input = root => descendants(root).find(node => node.tag === "textarea");
 const detail = (override = {}) => ({
     itemKey: { checkoutRoot: "fixture", connectionId: "connection", bindingId: "binding", workItemId: 42 },
@@ -56,6 +62,8 @@ test("mount/navigation never OPEN/STAGE; explicit inputs use text and send only 
     const h = harness(body => ({ editing: editing(body.action === "stage" ? "staged" : "opened") }));
     h.mount(detail());
     assert.equal(h.calls.length, 0);
+    assert.ok(button(h.root, "Open local draft (not published)"));
+    assert.ok(button(h.root, "Stage local draft only"));
     await h.click("Open native draft");
     h.type("<script>inert</script>");
     await h.click("Stage local changes");

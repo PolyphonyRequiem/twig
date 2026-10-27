@@ -12,6 +12,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Policy;
+using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.GitHub;
 
 
@@ -725,6 +726,61 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             return TopLevelApplyFailure(confirmedDigest,
                 "Draft-captured proposals are local inspection only; native Save consumption is not enabled.");
 
+        return await ApplyPreparedAsync(parsed, journal, pending, authorization, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Native retained-draft consumption. Callers must supply ordinary digest-bound
+    /// authorization; this seam supplies no host-authenticated click attribution.
+    /// No proposal file is exported or substituted for the captured intent.
+    /// </summary>
+    internal async Task<PlanApplyResult> ApplyCapturedDraftAsync(
+        string confirmedDigest, ProposalAuthorization? authorization, CancellationToken ct = default)
+    {
+        if (_previewOnly || _executor is null || _origin is null
+            || _journal is not SqlitePlanJournalRepository journals)
+            return TopLevelApplyFailure(confirmedDigest, "This composition cannot consume native draft captures.");
+        var origin = await _origin.GetOriginAsync(ct).ConfigureAwait(false);
+        var (journal, issue) = await journals.ReadCaptureForConsumptionAsync(confirmedDigest, origin, ct)
+            .ConfigureAwait(false);
+        if (journal is null || issue is not null)
+            return TopLevelApplyFailure(confirmedDigest,
+                issue?.Message ?? "No retained native draft capture exists for this digest.");
+        var parsed = AttachWorkspaceMismatchIfAny(_parser.Parse(journal.CanonicalJson));
+        if (!parsed.IsValid || parsed.Plan is null || parsed.Plan.Version != 1
+            || parsed.Digest != confirmedDigest)
+            return TopLevelApplyFailure(confirmedDigest, "The retained native draft proposal is invalid for this workspace.");
+        var pending = await _pendingReader.GetAllChangesAsync(ct).ConfigureAwait(false);
+        if (pending.Count > 0)
+            return TopLevelApplyFailure(confirmedDigest, $"Refusing to apply while {pending.Count} pending change(s) are staged.");
+        var result = await ApplyPreparedAsync(parsed, journal, pending, authorization, ct).ConfigureAwait(false);
+        if (!result.Failed)
+        {
+            try
+            {
+                var settlement = await journals.SettleVerifiedCaptureAsync(confirmedDigest, ct).ConfigureAwait(false);
+                result = result with { DraftSettlement = settlement.Status, DraftSettlementError = settlement.Error };
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or JsonException or InvalidDataException)
+            {
+                result = result with
+                {
+                    DraftSettlement = "retained",
+                    DraftSettlementError = "Remote operations are verified, but local draft settlement failed. "
+                        + "Inspect the native journal and retained draft; do not replay the mutation. " + ex.Message,
+                };
+            }
+        }
+        return result;
+    }
+
+    private async Task<PlanApplyResult> ApplyPreparedAsync(
+        PlanValidationResult parsed, PlanJournal journal, IReadOnlyList<PendingChangeDetail> pending,
+        ProposalAuthorization? authorization, CancellationToken ct)
+    {
+        if (parsed.Plan is null || parsed.Digest is null)
+            throw new InvalidOperationException("Apply requires a validated proposal.");
+        var confirmedDigest = parsed.Digest;
         if (journal.Operations.Any(static row => row.OutcomeReceipt is not null))
             return TopLevelApplyFailure(confirmedDigest, "Proposal contains an explicit native outcome receipt; settled intents cannot be applied or resumed.");
         var originError = await ValidateOriginAsync(journal.Origin, ct).ConfigureAwait(false);
@@ -1232,10 +1288,22 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
             // Persist Applying BEFORE the ADO call — the transition is the durable evidence
             // that the operation was attempted.
-            var moved = await _journal.TryTransitionOperationAsync(
-                digest, row.OpId,
-                PlanOperationState.Confirmed, PlanOperationState.Applying,
-                _clock.GetUtcNow(), ct).ConfigureAwait(false);
+            bool moved;
+            if (journal?.DraftCapture is not null)
+            {
+                if (_journal is not SqlitePlanJournalRepository captures || journal.Origin is null)
+                    return StepResult.NeedsRefresh("Native captured-draft admission is unavailable.");
+                var admission = await captures.TryStartCapturedOperationAsync(
+                    digest, row.OpId, journal.Origin, _clock.GetUtcNow(), ct).ConfigureAwait(false);
+                if (admission.Error is not null)
+                    return StepResult.NeedsRefresh(admission.Error);
+                moved = admission.Started;
+            }
+            else
+                moved = await _journal.TryTransitionOperationAsync(
+                    digest, row.OpId,
+                    PlanOperationState.Confirmed, PlanOperationState.Applying,
+                    _clock.GetUtcNow(), ct).ConfigureAwait(false);
             if (!moved)
             {
                 // Another actor advanced this row while we were choosing — reload and

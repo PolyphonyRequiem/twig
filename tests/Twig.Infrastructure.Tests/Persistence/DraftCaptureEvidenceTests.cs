@@ -11,6 +11,7 @@ using Twig.Domain.Services;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
@@ -32,6 +33,227 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
     private static PlanWorkspace Workspace => new() { Organization = "scope", Project = "project" };
     private string ConnectionString => $"Data Source={Path.Combine(_directory, "twig.db")};Pooling=False";
     public DraftCaptureEvidenceTests() => Directory.CreateDirectory(_directory);
+
+    [Fact]
+    public async Task NativeConsumptionUsesExactCaptureAndSettlesOnlyAfterAuthoritativeReadback()
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await new SqliteDraftProposalCaptureStore(cache).CaptureQualifiedAsync(
+            draft, snapshot, Origin, Workspace, Path.Combine(_directory, "proposals"),
+            SqliteDraftCaptureEvidenceStore.Fingerprint(evidence));
+        File.Exists(journal.SourcePath).ShouldBeFalse();
+        var (lifecycle, ado, _) = ConsumptionService(cache, snapshot);
+
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+
+        result.Failed.ShouldBeFalse(result.Error);
+        result.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+        result.DraftSettlement.ShouldBe("settled", result.DraftSettlementError);
+        result.DraftSettlementError.ShouldBeNull();
+        var settled = (await new SqliteRecoverableWorkItemDraftStore(cache).GetAsync(Key)).ShouldNotBeNull();
+        settled.Generation.ShouldBe(draft.Generation + 1);
+        settled.BaselineRevision.ShouldBe(6);
+        settled.ObservedRevision.ShouldBe(6);
+        settled.Changes.ShouldBeEmpty();
+        File.Exists(journal.SourcePath).ShouldBeFalse();
+        await ado.Received(1).PatchAsync(42, Arg.Is<IReadOnlyList<FieldChange>>(changes =>
+            changes.Count == 1 && changes[0].FieldName == "System.Title" && changes[0].NewValue == "intent"),
+            5, Arg.Any<CancellationToken>());
+        await ado.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+
+        var repeated = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        repeated.Failed.ShouldBeFalse();
+        repeated.DraftSettlement.ShouldBe("settled");
+        await ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>());
+        await ado.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("missing-authorization")]
+    [InlineData("wrong-digest")]
+    [InlineData("stale-draft")]
+    [InlineData("origin")]
+    public async Task NativeConsumptionRefusesBeforeAnyEffect(string fault)
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await CaptureAsync(cache, draft, snapshot, evidence);
+        var (lifecycle, ado, _) = ConsumptionService(cache, snapshot, fault == "origin" ? Origin with { BindingId = "other" } : null);
+        if (fault == "stale-draft")
+            (await new SqliteRecoverableWorkItemDraftStore(cache).TrySaveAsync(
+                draft.SetField("System.Title", "baseline", "new intent"), draft.Generation)).ShouldBeTrue();
+        var authorization = fault == "missing-authorization" ? null
+            : Authorization(fault == "wrong-digest" ? new string('a', 64) : journal.Digest);
+
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, authorization);
+
+        result.Failed.ShouldBeTrue();
+        result.Error.ShouldNotBeNullOrWhiteSpace();
+        ado.ReceivedCalls().ShouldBeEmpty();
+        var retained = (await new SqlitePlanJournalRepository(cache).GetAsync(journal.Digest)).ShouldNotBeNull();
+        retained.AuthorizationMode.ShouldBeNull();
+        retained.Operations.Single().State.ShouldBe(PlanOperationState.Planned);
+    }
+
+    [Fact]
+    public async Task NativeConsumptionRechecksDraftAtExecutionBoundary()
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await CaptureAsync(cache, draft, snapshot, evidence);
+        var (lifecycle, ado, revisionBound) = ConsumptionService(cache, snapshot);
+        var drafts = new SqliteRecoverableWorkItemDraftStore(cache);
+        revisionBound.FetchAtRevisionAsync(42, 5, Arg.Any<CancellationToken>()).Returns(async _ =>
+        {
+            var current = (await drafts.GetAsync(Key))!;
+            if (current.Generation == draft.Generation)
+                (await drafts.TrySaveAsync(draft.SetField("System.Title", "baseline", "newer"), draft.Generation)).ShouldBeTrue();
+            return snapshot;
+        });
+
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+
+        result.Failed.ShouldBeTrue();
+        result.Error.ShouldNotBeNull().ShouldContain("Draft generation");
+        ado.ReceivedCalls().ShouldBeEmpty();
+        (await new SqlitePlanJournalRepository(cache).GetAsync(journal.Digest))!
+            .Operations.Single().State.ShouldBe(PlanOperationState.Confirmed);
+        (await drafts.GetAsync(Key))!.Changes.Single().ProposedValue.ShouldBe("newer");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeConsumptionRetainsNewerIntentOrUnknownEffects(bool unknown)
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await CaptureAsync(cache, draft, snapshot, evidence);
+        var (lifecycle, ado, _) = ConsumptionService(cache, snapshot);
+        var drafts = new SqliteRecoverableWorkItemDraftStore(cache);
+        if (unknown)
+            ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns<Task<Twig.Domain.Aggregates.WorkItem>>(
+                _ => throw new HttpRequestException("Readback unavailable"));
+        else
+            ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+                .Returns(async _ =>
+                {
+                    (await drafts.TrySaveAsync(draft.SetField("System.Title", "baseline", "newer"), draft.Generation)).ShouldBeTrue();
+                    return 6;
+                });
+
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+
+        result.Failed.ShouldBe(unknown);
+        result.Operations.Single().State.ShouldBe(unknown ? PlanOperationState.Indeterminate : PlanOperationState.Verified);
+        result.DraftSettlement.ShouldBe(unknown ? null : "retained");
+        var retained = (await drafts.GetAsync(Key))!;
+        retained.Changes.Single().ProposedValue.ShouldBe(unknown ? "intent" : "newer");
+        retained.BaselineRevision.ShouldBe(5);
+        var repeated = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        repeated.Failed.ShouldBe(unknown);
+        await ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>());
+    }
+
+    private static ProposalAuthorization Authorization(string digest) => new()
+    {
+        Digest = digest, Mode = ProposalAuthorizationMode.Human,
+        AuthorizerIdentity = "fixture operator, not host authentication", AuthorizedAt = DateTimeOffset.UtcNow,
+    };
+
+    [Fact]
+    public async Task NativeConsumptionReportsLocalSettlementFailureWithoutLosingVerifiedRemoteOutcome()
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await CaptureAsync(cache, draft, snapshot, evidence);
+        Execute(cache, """
+            CREATE TEMP TRIGGER fail_settlement BEFORE UPDATE ON pending.recoverable_work_item_drafts
+            BEGIN SELECT RAISE(FAIL, 'fixture settlement storage failure'); END;
+            """);
+        var (lifecycle, ado, _) = ConsumptionService(cache, snapshot);
+
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+
+        result.Failed.ShouldBeFalse();
+        result.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        result.DraftSettlement.ShouldBe("retained");
+        result.DraftSettlementError.ShouldNotBeNull().ShouldContain("do not replay");
+        (await new SqliteRecoverableWorkItemDraftStore(cache).GetAsync(Key))!.Changes.ShouldBe(draft.Changes);
+        cache.ActiveTransaction.ShouldBeNull();
+        await ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeConsumptionRecoversAttemptedRowsWithoutReplayingOrClearingNewerIntent(bool applied)
+    {
+        using var cache = new SqliteCacheStore(ConnectionString);
+        var (draft, snapshot, evidence) = await SeedAsync(cache);
+        var journal = await CaptureAsync(cache, draft, snapshot, evidence);
+        var journals = new SqlitePlanJournalRepository(cache);
+        var row = journal.Operations.Single();
+        var timestamp = DateTimeOffset.UtcNow.AddMinutes(-10);
+        (await journals.TryTransitionOperationAsync(journal.Digest, row.OpId,
+            PlanOperationState.Planned, PlanOperationState.Confirmed, timestamp)).ShouldBeTrue();
+        (await journals.TryTransitionOperationAsync(journal.Digest, row.OpId,
+            PlanOperationState.Confirmed, PlanOperationState.Applying, timestamp)).ShouldBeTrue();
+        if (applied)
+            (await journals.TryRecordAppliedAsync(journal.Digest, row.OpId, "{\"rev\":6}", timestamp)).ShouldBeTrue();
+        var newer = draft.SetField("System.Title", "baseline", "newer during interruption");
+        (await new SqliteRecoverableWorkItemDraftStore(cache).TrySaveAsync(newer, draft.Generation)).ShouldBeTrue();
+        var (lifecycle, ado, _) = ConsumptionService(cache, snapshot);
+
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+
+        result.Failed.ShouldBeFalse(result.Error);
+        result.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        result.DraftSettlement.ShouldBe("retained");
+        result.DraftSettlementError.ShouldNotBeNull().ShouldContain("newer local intent");
+        await ado.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await ado.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+        (await new SqliteRecoverableWorkItemDraftStore(cache).GetAsync(Key))!.Changes
+            .ShouldBe(newer.Changes);
+    }
+
+    private (PlanLifecycleService Lifecycle, IAdoWorkItemService Ado, IRevisionBoundAdoWorkItemService Bound)
+        ConsumptionService(SqliteCacheStore cache, WorkItemSnapshot before, PlanOrigin? currentOrigin = null)
+    {
+        var repository = new SqliteWorkItemRepository(cache, new WorkItemMapper());
+        var pending = new SqlitePendingChangeStore(cache);
+        var ado = Substitute.For<IAdoWorkItemService>();
+        var writer = AdoWriterFixture.Wrap(ado);
+        ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(new WorkItemMapper().Map(before with
+        { Revision = 6, Title = "intent" }));
+        var bound = Substitute.For<IRevisionBoundAdoWorkItemService>();
+        bound.FetchAtRevisionAsync(42, 5, Arg.Any<CancellationToken>()).Returns(before);
+        var fields = Substitute.For<IFieldDefinitionStore>();
+        var unit = new SqliteUnitOfWork(cache);
+        var links = Substitute.For<ISeedLinkRepository>();
+        var mapping = Substitute.For<IPublishIdMapRepository>();
+        var intents = Substitute.For<IPublishIntentRepository>();
+        var seed = new SeedPublishOrchestrator(repository, ado, links, Substitute.For<IWorkItemLinkRepository>(),
+            mapping, Substitute.For<ISeedPublishRulesProvider>(), unit, new BacklogOrderer(ado, fields),
+            pending, intents, Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
+        var steering = Substitute.For<ISessionSteeringModeProvider>();
+        steering.Resolve().Returns(SessionSteeringMode.HumanSteered);
+        var origin = Substitute.For<IPlanOriginProvider>();
+        origin.GetOriginAsync(Arg.Any<CancellationToken>()).Returns(currentOrigin ?? Origin);
+        var rules = Substitute.For<IProcessRuleProvider>();
+        rules.GetRulesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<ProcessRule>());
+        var twig = Path.Combine(_directory, ".twig");
+        Directory.CreateDirectory(twig);
+        return (new PlanLifecycleService(new PlanDocumentParser(), new SqlitePlanJournalRepository(cache),
+            pending, fields, writer, AdoWriterFixture.Codec, bound, seed, repository, links,
+            Substitute.For<IStagedIdentityRegistry>(), mapping, intents,
+            new TwigConfiguration { Organization = Workspace.Organization, Project = Workspace.Project },
+            new TwigPaths(twig, Path.Combine(twig, "config"), Path.Combine(_directory, "twig.db"), _directory),
+            TimeProvider.System, steering, origin, rules, unit,
+            systemRegistryPath: Path.Combine(_directory, "system.db")), ado, bound);
+    }
 
     [Theory]
     [InlineData(false)]

@@ -647,6 +647,29 @@ the recovery authority, not the canvas's in-memory receipt. Inspect it before
 authorizing any new attempt after uncertainty. Synthetic Node/HTTP/SDK tests are
 not installed-app or live-provider qualification.
 
+### Native captured-draft consumption foundation (#1200)
+
+The internal `PlanLifecycleService.ApplyCapturedDraftAsync` consumes the exact
+retained digest and canonical journal bytes without exporting a file or creating
+an unbound replacement proposal. It shares ordinary digest-bound authorization,
+current-origin, policy, process-rule, revision-bound execution and authoritative
+readback with proposal Apply. The generic file Apply path still refuses captures.
+
+Immediately before the first write, a single native transaction revalidates the
+exact draft generation/effects and served metadata evidence, then wins the existing
+`Confirmed` to `Applying` CAS. After verified readback, settlement advances only
+that unchanged draft to an empty baseline at the observed revision. Newer edits,
+pending work, unavailable clean readback and uncertain remote effects retain intent.
+Remote operation verification and local draft settlement are separate outcomes;
+recovery never reissues an already attempted mutation.
+
+This is an internal native foundation, not a new CLI command or enabled canvas
+Save route. No SDK action, loopback request or caller-entered identity supplies
+host-authenticated click attribution. One-click Save remains unavailable until
+that product requirement has a supported authority surface. These tests exercise
+real native SQLite/lifecycle/ADO-adapter composition with external transport
+substituted; they do not qualify installed-host attribution.
+
 Qualification on base `9bf9372e3f7acbd65798527dff4cb77408ee1ba4` used the exact
 reviewed executable/test blobs: eight `node --check` children passed in one
 60-second bounded command, then one 60-second bounded command ran exactly

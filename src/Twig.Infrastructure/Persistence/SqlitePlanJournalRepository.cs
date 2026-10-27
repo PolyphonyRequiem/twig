@@ -138,8 +138,16 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         }
     }
 
-    internal async Task<(PlanJournal? Journal, PlanValidationIssue? Issue)> ReadCaptureForReviewAsync(
+    internal Task<(PlanJournal? Journal, PlanValidationIssue? Issue)> ReadCaptureForReviewAsync(
         string digest, PlanOrigin origin, CancellationToken ct)
+        => ReadCaptureAsync(digest, origin, forConsumption: false, ct);
+
+    internal Task<(PlanJournal? Journal, PlanValidationIssue? Issue)> ReadCaptureForConsumptionAsync(
+        string digest, PlanOrigin origin, CancellationToken ct)
+        => ReadCaptureAsync(digest, origin, forConsumption: true, ct);
+
+    private async Task<(PlanJournal? Journal, PlanValidationIssue? Issue)> ReadCaptureAsync(
+        string digest, PlanOrigin origin, bool forConsumption, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
         ArgumentNullException.ThrowIfNull(origin);
@@ -170,6 +178,9 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             if (journal.Origin is null || journal.Origin != capture.Origin)
                 return (journal, new() { Code = "draft-capture-invalid", Path = string.Empty,
                     Message = "The retained journal origin does not match its native capture." });
+            if (journal.Origin != origin)
+                return (journal, new() { Code = "draft-capture-stale", Path = string.Empty,
+                    Message = "The current native origin does not match the retained draft capture." });
 
             var parsed = new PlanDocumentParser().Parse(journal.CanonicalJson);
             if (!parsed.IsValid || parsed.Plan is null
@@ -179,14 +190,107 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 return (journal, new() { Code = "draft-capture-invalid", Path = string.Empty,
                     Message = "The retained proposal bytes, digest, workspace or native capture binding disagree." });
 
-            var issue = await CaptureIssueInTransactionAsync(journal, origin, ct).ConfigureAwait(false);
+            // Once execution started, recovery must inspect the existing row rather than
+            // demand the pre-write draft/cache still exist. It never issues a second write.
+            var needsCurrent = !forConsumption || journal.Operations.Any(static row =>
+                row.State is PlanOperationState.Planned or PlanOperationState.Confirmed);
+            var issue = needsCurrent
+                ? await CaptureIssueInTransactionAsync(journal, origin, ct).ConfigureAwait(false) : null;
             transaction.Commit();
-            return (journal, issue);
+            return (journal, forConsumption && issue?.Code == "draft-capture-inspection-only" ? null : issue);
         }
         finally
         {
             _store.ActiveTransaction = null;
         }
+    }
+
+    internal async Task<(bool Started, string? Error)> TryStartCapturedOperationAsync(
+        string digest, string opId, PlanOrigin origin, DateTimeOffset timestamp, CancellationToken ct)
+    {
+        using var operation = _store.AcquireOperation();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Captured-draft admission cannot nest a transaction.");
+        using var transaction = _store.GetConnection().BeginTransaction(deferred: false);
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            var journal = await GetAsync(digest, ct).ConfigureAwait(false);
+            var parsed = journal is null ? null : new PlanDocumentParser().Parse(journal.CanonicalJson);
+            if (journal?.DraftCapture is not { } capture || journal.Origin != origin
+                || capture.Origin != origin || parsed?.Plan is null || !parsed.IsValid
+                || parsed.CanonicalJson != journal.CanonicalJson || parsed.Digest != digest
+                || parsed.Plan.Workspace != journal.Workspace
+                || !CaptureMatchesProposal(parsed.Plan, digest, capture)
+                || capture.OperationId != opId || journal.AuthorizedAt is null
+                || journal.AuthorizationMode is null || string.IsNullOrWhiteSpace(journal.AuthorizerIdentity))
+                return (false, "The authorized retained draft capture or its native origin is invalid.");
+            var row = journal.Operations.Single();
+            if (row.State != PlanOperationState.Confirmed)
+                return (false, null);
+            var issue = await CaptureIssueInTransactionAsync(journal, origin, ct).ConfigureAwait(false);
+            if (issue.Code != "draft-capture-inspection-only")
+                return (false, issue.Message);
+            var started = await TryTransitionOperationAsync(digest, opId,
+                PlanOperationState.Confirmed, PlanOperationState.Applying, timestamp, ct).ConfigureAwait(false);
+            transaction.Commit();
+            return (started, null);
+        }
+        finally { _store.ActiveTransaction = null; }
+    }
+
+    internal async Task<(string Status, string? Error)> SettleVerifiedCaptureAsync(string digest, CancellationToken ct)
+    {
+        using var operation = _store.AcquireOperation();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Captured-draft settlement cannot nest a transaction.");
+        using var transaction = _store.GetConnection().BeginTransaction(deferred: false);
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            var journal = await GetAsync(digest, ct).ConfigureAwait(false);
+            if (journal?.DraftCapture is not { } capture || journal.State != PlanOperationState.Verified
+                || journal.Operations.Count != 1 || journal.Operations[0].State != PlanOperationState.Verified
+                || journal.Operations[0].OutcomeReceipt is not null)
+                return ("retained", "Only a verified native captured operation can settle its draft.");
+            var parsed = new PlanDocumentParser().Parse(journal.CanonicalJson);
+            if (!parsed.IsValid || parsed.Plan is null || parsed.Digest != digest
+                || parsed.CanonicalJson != journal.CanonicalJson || journal.Origin != capture.Origin
+                || parsed.Plan.Workspace != journal.Workspace
+                || !CaptureMatchesProposal(parsed.Plan, digest, capture))
+                return ("retained", "The verified journal no longer binds the exact captured draft; local intent was retained.");
+            var result = journal.Operations[0].ResultJson;
+            using var evidence = result is null ? null : JsonDocument.Parse(result);
+            if (evidence is null || !evidence.RootElement.TryGetProperty("revision", out var value)
+                || !value.TryGetInt32(out var revision) || revision <= capture.CurrentRevision)
+                return ("retained", "Verified readback has no advanced revision; local intent was retained.");
+            var drafts = new SqliteRecoverableWorkItemDraftStore(_store);
+            var current = await drafts.GetAsync(capture.Draft.ItemKey, ct).ConfigureAwait(false);
+            var nextGeneration = checked(capture.Draft.Generation + 1);
+            if (current is not null && current.Generation == nextGeneration
+                && current.BaselineRevision == revision && current.ObservedRevision == revision
+                && current.Changes.Count == 0 && current.Conflicts.Count == 0)
+                return ("settled", null);
+            if (current is null || JsonSerializer.Serialize(current, TwigJsonContext.Default.RecoverableWorkItemDraft)
+                != JsonSerializer.Serialize(capture.Draft, TwigJsonContext.Default.RecoverableWorkItemDraft))
+                return ("retained", "The remote operation is verified, but newer local intent was retained unchanged.");
+            var snapshot = await new SqliteWorkItemRepository(_store, new Twig.Domain.Services.WorkItemMapper())
+                .GetSnapshotByIdAsync(capture.Draft.ItemKey.WorkItemId, ct).ConfigureAwait(false);
+            if (snapshot is null || snapshot.Revision != revision || snapshot.IsDirty)
+                return ("retained", "The remote operation is verified, but its clean readback is not cached; local intent was retained.");
+            using var pending = _store.GetConnection().CreateCommand();
+            pending.Transaction = transaction;
+            pending.CommandText = "SELECT EXISTS(SELECT 1 FROM pending.pending_changes WHERE work_item_id=@id);";
+            pending.Parameters.AddWithValue("@id", capture.Draft.ItemKey.WorkItemId);
+            if (Convert.ToInt64(pending.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+                return ("retained", "The remote operation is verified, but newer pending work protects this draft.");
+            var settled = new RecoverableWorkItemDraft(capture.Draft.ItemKey, revision, revision, nextGeneration, [], []);
+            if (!await drafts.TrySaveAsync(settled, capture.Draft.Generation, ct).ConfigureAwait(false))
+                return ("retained", "Draft settlement lost its generation fence; local intent was retained.");
+            transaction.Commit();
+            return ("settled", null);
+        }
+        finally { _store.ActiveTransaction = null; }
     }
 
     private async Task<PlanValidationIssue> CaptureIssueInTransactionAsync(

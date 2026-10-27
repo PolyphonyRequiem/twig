@@ -56,6 +56,8 @@ jobs:
           filter: tree:0
       - name: Bounded-wrapper cleanup selftest (synthetic processes only)
         run: python tools/run-bounded.py --selftest
+      - name: TRX selector coverage selftest (offline)
+        run: python tools/verify-trx.py --selftest
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -69,28 +71,13 @@ jobs:
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/native-apply.test.mjs .github/extensions/twig-item-companion/tests/proposal-canvas.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs .github/extensions/twig-item-companion/tests/native-executable.test.mjs .github/extensions/twig-item-companion/tests/native-executable-source.test.mjs
 
       - name: Native captured-draft and digest-apply regression
-        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeConsumption|FullyQualifiedName~Apply_DraftCapturedJournal_RefusesBeforeConfirmation" --logger "trx;LogFileName=native-save.trx" --results-directory artifacts/test-logs/ci/native-save
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeConsumption|FullyQualifiedName~Apply_DraftCapturedJournal_RefusesBeforeConfirmation" --logger "trx;LogFileName=native-save.trx" --results-directory artifacts/test-logs/ci/native-save
 
       - name: Explicit workbench Save gesture and native transport regression
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/editing-client.test.mjs .github/extensions/twig-item-companion/tests/editing-bridge.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs
 
       - name: Explicit Save command production composition regression
-        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~DraftSaveCommandTests" --logger "trx;LogFileName=explicit-save.trx" --results-directory artifacts/test-logs/ci/explicit-save
-
-      - name: Verify explicit Save execution
-        shell: python
-        run: |
-          import xml.etree.ElementTree as ET
-          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
-          root = ET.parse("artifacts/test-logs/ci/explicit-save/explicit-save.trx").getroot()
-          results = root.findall(".//t:UnitTestResult", ns)
-          counters = root.find(".//t:Counters", ns)
-          assert counters is not None
-          assert len(results) == len({r.attrib["testId"] for r in results}) == 8
-          assert all(r.attrib["outcome"] == "Passed" for r in results)
-          assert all(counters.attrib[key] == "8" for key in ("total", "executed", "passed"))
-          assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted", "notExecuted"))
-          assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~DraftSaveCommandTests" --logger "trx;LogFileName=explicit-save.trx" --results-directory artifacts/test-logs/ci/explicit-save
 
       - name: Preserve explicit Save results
         if: always()
@@ -99,22 +86,6 @@ jobs:
           name: twig-explicit-save-${{ matrix.rid }}
           path: artifacts/test-logs/ci/explicit-save/
           if-no-files-found: warn
-
-      - name: Verify native captured-draft execution
-        shell: python
-        run: |
-          import xml.etree.ElementTree as ET
-          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
-          root = ET.parse("artifacts/test-logs/ci/native-save/native-save.trx").getroot()
-          results = root.findall(".//t:UnitTestResult", ns)
-          counters = root.find(".//t:Counters", ns)
-          assert counters is not None
-          assert len(results) == len({r.attrib["testId"] for r in results}) == 11
-          assert any("Apply_DraftCapturedJournal_RefusesBeforeConfirmation" in r.attrib["testName"] for r in results)
-          assert all(r.attrib["outcome"] == "Passed" for r in results)
-          assert all(counters.attrib[key] == "11" for key in ("total", "executed", "passed"))
-          assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted"))
-          assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
 
       - name: Preserve native captured-draft results
         if: always()
@@ -127,32 +98,26 @@ jobs:
       - name: GitHub credential parser isolation regression
         env:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/gh-parser/trace
-        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GhCliTokenSourceTests" --logger "trx;LogFileName=gh-parser.trx" --results-directory artifacts/test-logs/ci/gh-parser
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GhCliTokenSourceTests" --logger "trx;LogFileName=gh-parser.trx" --results-directory artifacts/test-logs/ci/gh-parser
 
       - name: GitHub native relationship proposal regression
         shell: python
         run: |
-          import pathlib, subprocess, sys, xml.etree.ElementTree as ET
+          import pathlib, subprocess, sys
           base = pathlib.Path("artifacts/test-logs/ci/github-native")
           base.mkdir(parents=True, exist_ok=True)
           groups = [
-              ("links", ["ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints"], 6),
+              ("links", ["ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints"]),
               ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "DigestMismatch",
-                             "ObservationToken", "JournalRejects"], 9),
-              ("recovery", ["UncertainOrContradictoryResponse", "DeniedReadback", "CrashRecovery"], 7),
+                             "ObservationToken", "JournalRejects"]),
+              ("recovery", ["UncertainOrContradictoryResponse", "DeniedReadback", "CrashRecovery"]),
           ]
-          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
-          for label, methods, expected in groups:
+          for label, methods in groups:
               selector = "|".join(f"FullyQualifiedName~GitHubNativeRelationshipTests.{m}" for m in methods)
-              subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "60", "--",
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--",
                               "dotnet", "vstest", "tests/Twig.Infrastructure.Tests/bin/Debug/net11.0/Twig.Infrastructure.Tests.dll",
                               f"/TestCaseFilter:{selector}", f"/Logger:trx;LogFileName={label}.trx",
                               f"/ResultsDirectory:{base}"], check=True)
-              root = ET.parse(base / f"{label}.trx").getroot()
-              results = root.findall(".//t:UnitTestResult", ns)
-              assert len(results) == len({r.attrib["executionId"] for r in results}) == expected
-              assert all(r.attrib["outcome"] == "Passed" for r in results)
-              assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
 
       - name: Preserve GitHub native relationship results
         if: always()
@@ -163,23 +128,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Rejected-create-family kernel regression
-        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Reconcile_RejectedCreateFamily_RequiresEveryMatchingSiblingToBeRejected|FullyQualifiedName~Reconcile_RejectedCreateFamily_AliasedWorktreePreservesExactAuthority|FullyQualifiedName~GetOpenIntents_StillExcludesExactReadbackAndSupersededSettlements|FullyQualifiedName~GetUnresolved_KeepsAProposalOpenForAnUnvalidatedRejectedFamilyReceipt" --logger "trx;LogFileName=rejected-create-family.trx" --results-directory artifacts/test-logs/ci/rejected-create-family
-
-      - name: Verify rejected-create-family execution
-        shell: python
-        run: |
-          import xml.etree.ElementTree as ET
-          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
-          root = ET.parse("artifacts/test-logs/ci/rejected-create-family/rejected-create-family.trx").getroot()
-          results = root.findall(".//t:UnitTestResult", ns)
-          counters = root.find(".//t:Counters", ns)
-          assert counters is not None
-          assert len(results) == len({r.attrib["executionId"] for r in results}) == 10
-          assert len({r.attrib["testId"] for r in results}) == 10
-          assert all(r.attrib["outcome"] == "Passed" for r in results)
-          assert all(counters.attrib[key] == "10" for key in ("total", "executed", "passed"))
-          assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted"))
-          assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Reconcile_RejectedCreateFamily_RequiresEveryMatchingSiblingToBeRejected|FullyQualifiedName~Reconcile_RejectedCreateFamily_AliasedWorktreePreservesExactAuthority|FullyQualifiedName~GetOpenIntents_StillExcludesExactReadbackAndSupersededSettlements|FullyQualifiedName~GetUnresolved_KeepsAProposalOpenForAnUnvalidatedRejectedFamilyReceipt" --logger "trx;LogFileName=rejected-create-family.trx" --results-directory artifacts/test-logs/ci/rejected-create-family
 
       - name: Preserve rejected-create-family results
         if: always()
@@ -191,7 +140,7 @@ jobs:
 
       - name: Windows GitHub parser retained concurrency regression
         if: matrix.rid == 'win-x64'
-        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeReceiptRoundTripsSelectorDiscriminatorsAndRetainsExactCaptureFence|FullyQualifiedName~TwoStoreRace_RetirementVsAdmission_ExactlyOneWins|FullyQualifiedName~SchemaRebuild_DirtyFlagMissing_StillRefusesOnSeedRow|FullyQualifiedName~ProductionArguments_AreAcceptedByInstalledGhHelp_WithoutCredentialLookup" --logger "trx;LogFileName=gh-parser-overlap.trx" --results-directory artifacts/test-logs/ci/gh-parser-overlap
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeReceiptRoundTripsSelectorDiscriminatorsAndRetainsExactCaptureFence|FullyQualifiedName~TwoStoreRace_RetirementVsAdmission_ExactlyOneWins|FullyQualifiedName~SchemaRebuild_DirtyFlagMissing_StillRefusesOnSeedRow|FullyQualifiedName~ProductionArguments_AreAcceptedByInstalledGhHelp_WithoutCredentialLookup" --logger "trx;LogFileName=gh-parser-overlap.trx" --results-directory artifacts/test-logs/ci/gh-parser-overlap
 
       - name: Preserve GitHub parser diagnostics
         if: always()
@@ -203,31 +152,8 @@ jobs:
             artifacts/test-logs/ci/gh-parser-overlap/
           if-no-files-found: warn
 
-      # Includes 112 actor/handler cases within 204 captured-read and consumer cases; the
-      # schema-admission additions contribute three cases (one fact and two theory cases).
       - name: GitHub captured-read session and authenticated actor regression
-        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubCapturedReadSessionTests|FullyQualifiedName~GitHubAuthenticatedActorReaderTests|FullyQualifiedName~GitHubReadOnlyAuthHandlerTests|FullyQualifiedName~ProviderTargetBindingCompositionTests|FullyQualifiedName~GitHubWorkItemProviderTests" --logger "trx;LogFileName=github-actor.trx" --results-directory artifacts/test-logs/ci/github-actor
-
-      - name: Verify GitHub captured-read and actor execution
-        shell: python
-        run: |
-          import collections
-          import xml.etree.ElementTree as ET
-          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
-          root = ET.parse("artifacts/test-logs/ci/github-actor/github-actor.trx").getroot()
-          results = root.findall(".//t:UnitTestResult", ns)
-          definitions = root.findall(".//t:UnitTest", ns)
-          counters = root.find(".//t:Counters", ns)
-          assert counters is not None
-          assert len(results) == len(definitions) == len({r.attrib["executionId"] for r in results}) == 204
-          assert len({r.attrib["testId"] for r in results}) == 204
-          assert {d.attrib["id"] for d in definitions} == {r.attrib["testId"] for r in results}
-          groups = collections.Counter(d.find("t:TestMethod", ns).attrib["className"] for d in definitions)
-          assert groups == {"Twig.Infrastructure.Tests.GitHub.GitHubCapturedReadSessionTests": 29, "Twig.Infrastructure.Tests.GitHub.GitHubAuthenticatedActorReaderTests": 39, "Twig.Infrastructure.Tests.GitHub.GitHubReadOnlyAuthHandlerTests": 73, "Twig.Infrastructure.Tests.GitHub.ProviderTargetBindingCompositionTests": 15, "Twig.Infrastructure.Tests.GitHub.GitHubWorkItemProviderTests": 48}
-          assert all(r.attrib["outcome"] == "Passed" for r in results)
-          assert all(counters.attrib[key] == "204" for key in ("total", "executed", "passed"))
-          assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted", "notExecuted"))
-          assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubCapturedReadSessionTests|FullyQualifiedName~GitHubAuthenticatedActorReaderTests|FullyQualifiedName~GitHubReadOnlyAuthHandlerTests|FullyQualifiedName~ProviderTargetBindingCompositionTests|FullyQualifiedName~GitHubWorkItemProviderTests" --logger "trx;LogFileName=github-actor.trx" --results-directory artifacts/test-logs/ci/github-actor
 
       - name: Preserve GitHub captured-read and authenticated actor results
         if: always()
@@ -243,7 +169,7 @@ jobs:
         env:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/preservation-v17/trace
         run: |
-          import os, pathlib, subprocess, sys, xml.etree.ElementTree as ET
+          import os, pathlib, subprocess, sys
           base = pathlib.Path("artifacts/test-logs/ci/preservation-v17")
           base.mkdir(parents=True, exist_ok=True)
           owned_temp = (base / "owned-temp").resolve()
@@ -253,35 +179,34 @@ jobs:
                       "ExactRepeatKeepsFirstEvidenceAndContradictionsLeaveWholeStandingUnchanged",
                       "KnownMappingWithUnsettledIntentRefusesBeforeCreateOrIntentRewrite",
                       "StaleNegativeSaveCannotRecreateACompletedRetainedSeed"]
-          groups = [("rich", "PreservationMigrationTests", ["SuccessfulMigrationPreservesSeedAndStandingThroughProductionReadersAfterReopen"], 1),
-                    ("ordinary", "RetainedPublicationTests", ordinary, 4)]
+          groups = [("rich", "PreservationMigrationTests", ["SuccessfulMigrationPreservesSeedAndStandingThroughProductionReadersAfterReopen"]),
+                    ("ordinary", "RetainedPublicationTests", ordinary)]
           for label, method in [("map", "CrashAfterPublishMapKeepsKnownOutcomeAndStableIdentity"),
                                 ("binding", "CrashAfterIdentityBindingKeepsKnownOutcomeAndStableIdentity"),
                                 ("delete", "CrashAfterPayloadDeletionKeepsKnownOutcomeAndStableIdentity")]:
-              groups.append((label, "RetainedPublicationTests", [method], 1))
+              groups.append((label, "RetainedPublicationTests", [method]))
           groups += [
-              ("backup-owned-rows", "PreservationBackupProofTests", ["CoherentBackupOwnedRowsCannotBeCertifiedOrActivated", "RetainedManifestIsRevalidatedAgainstOwnedBackupRowsBeforeActivation"], 3),
-              ("cancelled-history", "PreservationSchemaRebuildTests", ["CancelledSlotNullHistoryAllowsSchema15ScratchCloneRebuild"], 1),
-              ("source-backup", "PreservationMigrationTests", ["SourceWriterAfterBackupPreventsActivationWithoutDiscardingItsChange", "BackupCopyCorruptionBlocksCertificationAndActivation"], 2),
-              ("writers-generation", "PreservationMigrationTests", ["UnclassifiedTargetWriterIsRefusedWithoutClearingEitherView", "GenerationRaceAtActivationPreservesOriginalAdmissionAndPreparingIntent", "BackupFailureBlocksActivationAndCanResumeWithoutDeletingOriginals"], 3),
-              ("cancel-local", "PreservationMigrationTests", ["FailedPreparationCanBeExplicitlyCancelledAndReviewedAgainAfterOrdinaryEdits", "LocalWritesRemainReversibleAndGenerationChangingTransitionIsBlockedBeforeIntent"], 2),
-              ("reader-provenance", "PreservationMigrationTests", ["ActualReadersUseRetainedTablesAndRollbackRefusesDivergentOriginals", "ActualSeedReadersUseRetainedPayloadWithoutOriginalSeed"], 2),
-              ("composition", "PreservationMigrationTests", ["SeedEditsAndLocalPublicationCompositionKeepIndependentStableLocalIdentity"], 1),
-              ("interruption", "PreservationMigrationTests", ["InterruptedPreparationKeepsCurrentViewAndResumesOriginalIntent"], 4),
-              ("corruption", "PreservationMigrationTests", ["PayloadRejectedByExistingReaderCannotActivateAndRemainsUnmodified"], 4),
-              ("execution-admission", "PreservationMigrationTests", ["ExecutionAdmissionWriterIsFingerprintedBeforeActivationAndRetainedThroughRollback"], 2),
-              ("guided-preservation", "WorkspaceMigrationCommandTests", ["ProductionCommandReportsMovementThenExplicitlyCutsOverAndRollsBack"], 1),
-              ("guided-recovery", "WorkspaceMigrationCommandTests", ["InterruptedPreparationReportsIntentAndRequiresExactCancellationBeforeRereview"], 1),
-              ("guided-refusals", "WorkspaceMigrationCommandTests", ["InvalidMutationArgumentsRefuseBeforeResolvingStorage", "ColdScopeRequiresOneDurableObservationRatherThanAnInMemoryWarmup", "UnadmittedStorageRefusesBeforeOpeningOrRebuildingOriginals", "ProviderTargetRefusesWithoutOpeningAdoStorageOrCallingTheProvider"], 6),
+              ("backup-owned-rows", "PreservationBackupProofTests", ["CoherentBackupOwnedRowsCannotBeCertifiedOrActivated", "RetainedManifestIsRevalidatedAgainstOwnedBackupRowsBeforeActivation"]),
+              ("cancelled-history", "PreservationSchemaRebuildTests", ["CancelledSlotNullHistoryAllowsSchema15ScratchCloneRebuild"]),
+              ("source-backup", "PreservationMigrationTests", ["SourceWriterAfterBackupPreventsActivationWithoutDiscardingItsChange", "BackupCopyCorruptionBlocksCertificationAndActivation"]),
+              ("writers-generation", "PreservationMigrationTests", ["UnclassifiedTargetWriterIsRefusedWithoutClearingEitherView", "GenerationRaceAtActivationPreservesOriginalAdmissionAndPreparingIntent", "BackupFailureBlocksActivationAndCanResumeWithoutDeletingOriginals"]),
+              ("cancel-local", "PreservationMigrationTests", ["FailedPreparationCanBeExplicitlyCancelledAndReviewedAgainAfterOrdinaryEdits", "LocalWritesRemainReversibleAndGenerationChangingTransitionIsBlockedBeforeIntent"]),
+              ("reader-provenance", "PreservationMigrationTests", ["ActualReadersUseRetainedTablesAndRollbackRefusesDivergentOriginals", "ActualSeedReadersUseRetainedPayloadWithoutOriginalSeed"]),
+              ("composition", "PreservationMigrationTests", ["SeedEditsAndLocalPublicationCompositionKeepIndependentStableLocalIdentity"]),
+              ("interruption", "PreservationMigrationTests", ["InterruptedPreparationKeepsCurrentViewAndResumesOriginalIntent"]),
+              ("corruption", "PreservationMigrationTests", ["PayloadRejectedByExistingReaderCannotActivateAndRemainsUnmodified"]),
+              ("execution-admission", "PreservationMigrationTests", ["ExecutionAdmissionWriterIsFingerprintedBeforeActivationAndRetainedThroughRollback"]),
+              ("guided-preservation", "WorkspaceMigrationCommandTests", ["ProductionCommandReportsMovementThenExplicitlyCutsOverAndRollsBack"]),
+              ("guided-recovery", "WorkspaceMigrationCommandTests", ["InterruptedPreparationReportsIntentAndRequiresExactCancellationBeforeRereview"]),
+              ("guided-refusals", "WorkspaceMigrationCommandTests", ["InvalidMutationArgumentsRefuseBeforeResolvingStorage", "ColdScopeRequiresOneDurableObservationRatherThanAnInMemoryWarmup", "UnadmittedStorageRefusesBeforeOpeningOrRebuildingOriginals", "ProviderTargetRefusesWithoutOpeningAdoStorageOrCallingTheProvider"]),
           ]
           for case in ["preparing-slot", "active-slot", "rolled-back-slot", "unknown-slot-null", "cancelled-slot", "cancelled-retained-target"]:
-              groups.append((f"owning-history-{case}", "PreservationSchemaRebuildTests", ["OwningOrUnknownIntentAndRetainedTargetsRefuseSchemaRebuild"], 1))
-          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
-          for label, cls, methods, count in groups:
+              groups.append((f"owning-history-{case}", "PreservationSchemaRebuildTests", ["OwningOrUnknownIntentAndRetainedTargetsRefuseSchemaRebuild"]))
+          for label, cls, methods in groups:
               selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.{cls}.{m}" for m in methods)
               if label.startswith("owning-history-"):
                   selector += "&DisplayName~" + label.removeprefix("owning-history-")
-              args = [sys.executable, "tools/run-bounded.py", "--timeout", "60", "--", "dotnet", "test",
+              args = [sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
                       "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "-f", "net11.0", "--no-build", "--no-restore",
                       "--filter", selector, "--logger", f"trx;LogFileName={label}.trx", "--results-directory", str(base)]
               with (base / f"{label}.log").open("w", encoding="utf-8") as log:
@@ -289,17 +214,6 @@ jobs:
               print((base / f"{label}.log").read_text(encoding="utf-8"), flush=True)
               if code:
                   raise SystemExit(code)
-              root = ET.parse(base / f"{label}.trx").getroot()
-              defs, results = root.findall(".//t:UnitTest", ns), root.findall(".//t:UnitTestResult", ns)
-              counters = root.find(".//t:Counters", ns).attrib
-              assert len(defs) == len(results) == len({r.attrib["testId"] for r in results}) == len({r.attrib["executionId"] for r in results}) == count
-              assert {d.attrib["id"] for d in defs} == {r.attrib["testId"] for r in results}
-              assert {d.find("t:TestMethod", ns).attrib["name"] for d in defs} == set(methods)
-              assert all(d.find("t:TestMethod", ns).attrib["className"] == f"Twig.Cli.Tests.Commands.{cls}" for d in defs)
-              assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
-              assert all(r.attrib["outcome"] == "Passed" for r in results)
-              assert all(counters[k] == str(count) for k in ("total", "executed", "passed"))
-              assert all(counters[k] == "0" for k in ("failed", "error", "timeout", "aborted", "notExecuted", "passedButRunAborted"))
       - name: Preserve preservation v17 regression results
         if: always() && matrix.rid == 'win-x64'
         uses: actions/upload-artifact@v4

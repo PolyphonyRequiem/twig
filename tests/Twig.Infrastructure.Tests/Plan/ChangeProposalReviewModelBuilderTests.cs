@@ -368,7 +368,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
     {
         var decisions = new PolicyDecision[]
         {
-            new() { RuleId = "label", Kind = "label-applicability", Outcome = PolicyOutcome.Warn, Reason = "Existing violation is not worsened.", WorkItemId = 742, OpId = "op-1" },
+            new() { RuleId = "parent", Kind = "parent-type", Outcome = PolicyOutcome.Warn, Reason = "Existing violation is not worsened.", WorkItemId = 742, OpId = "op-1" },
             new() { RuleId = "parent", Kind = "parent-type", Outcome = PolicyOutcome.Refuse, Reason = "The parent type is not allowed.", WorkItemId = 729, OpId = "op-2", ProviderIdentity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_729") },
         };
 

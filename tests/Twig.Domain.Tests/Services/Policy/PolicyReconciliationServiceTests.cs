@@ -40,10 +40,9 @@ public sealed class PolicyReconciliationServiceTests
                 .Select(edge => edge.SourceId).Distinct().Order().Take(ci.Arg<int>()).ToArray());
     }
 
-    private void Cache(int id, string tags = "")
+    private void Cache(int id)
     {
         var item = new WorkItem { Id = id, Type = WorkItemType.Task, LastSyncedAt = DateTimeOffset.UnixEpoch };
-        item.UpdateField("System.Tags", tags);
         item.MarkSynced(1);
         _cache[id] = item;
     }
@@ -87,42 +86,21 @@ public sealed class PolicyReconciliationServiceTests
     [Fact]
     public async Task ObservationChangesDuringRendering_RefusesEvenWhenInitialDigestMatches()
     {
-        Cache(1, "mode:a; mode:b");
-        var policy = new DeclaredPolicy
-        {
-            Rules = [new LabelApplicabilityRule
-            {
-                Id = "labels", Prefix = "mode:", AllowedTypes = ["Task"], Exclusive = true,
-            }],
-        };
-        var assessment = await _service.AssessAsync(policy, [1]);
+        Cache(1);
+        _edges.Add(new(1, 1, LinkTypes.Successor));
+        var assessment = await _service.AssessAsync(Policy, [1]);
         var loads = 0;
         _items.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
-                if (++loads == 2) Cache(1, "mode:c");
+                if (++loads == 2) _cache[1].MarkSynced(2);
                 return (IReadOnlyList<WorkItem>)new[] { _cache[1] };
             });
-        var result = await _service.ProposeAsync(policy, [1],
-            new(assessment.EvidenceDigest, "f1", "remove-labels"), Workspace);
+        var finding = assessment.Findings.ShouldHaveSingleItem();
+        var result = await _service.ProposeAsync(Policy, [1],
+            new(assessment.EvidenceDigest, finding.Id, finding.Strategies.Single().Id), Workspace);
         result.CanPropose.ShouldBeFalse();
         result.Error.ShouldNotBeNull().ShouldContain("while rendering");
-    }
-
-    [Fact]
-    public async Task FieldOverlayUsesCaseInsensitiveReferenceNamesAcrossAllRules()
-    {
-        Cache(1, "mode:a; mode:b; mode:special");
-        var rule = new LabelApplicabilityRule
-        {
-            Id = "labels", Prefix = "mode:", AllowedTypes = ["Task"], Exclusive = true, Field = "system.tags",
-        };
-        var policy = new DeclaredPolicy { Rules = [rule, rule with { Id = "second", Field = "SYSTEM.TAGS" }] };
-        var assessment = await _service.AssessAsync(policy, [1]);
-        var result = await _service.ProposeAsync(policy, [1],
-            new(assessment.EvidenceDigest, "f1", "remove-labels"), Workspace);
-        result.CanPropose.ShouldBeTrue(result.Error);
-        result.Projected!.Compliant.ShouldBeTrue();
     }
 
     [Fact]
@@ -134,28 +112,4 @@ public sealed class PolicyReconciliationServiceTests
         assessment.Findings.Single().Code.ShouldBe(PolicyFindingCode.EvidenceUnavailable);
     }
 
-    [Fact]
-    public async Task DuplicateLabelTokens_AgreeWithNativeEnforcement_AndRetainExactlyOne()
-    {
-        Cache(1, "mode:a; mode:A; untouched; untouched");
-        var policy = new DeclaredPolicy
-        {
-            Rules = [new LabelApplicabilityRule
-            {
-                Id = "labels", Prefix = "mode:", AllowedTypes = ["Task"], Exclusive = true,
-            }],
-        };
-        var assessment = await _service.AssessAsync(policy, [1]);
-        var finding = assessment.Findings.Single();
-        finding.Code.ShouldBe(PolicyFindingCode.ExclusiveLabels);
-        var choice = finding.Strategies.Single(s => s.RetainLabel is not null);
-        var result = await _service.ProposeAsync(policy, [1],
-            new(assessment.EvidenceDigest, finding.Id, choice.Id), Workspace);
-        result.CanPropose.ShouldBeTrue(result.Error);
-        var batch = result.Proposal!.Operations.Single().ShouldBeOfType<BatchOperation>();
-        batch.Fields["System.Tags"].ShouldBe("mode:a; untouched; untouched");
-        result.Projected!.Compliant.ShouldBeTrue();
-        (await new DeclaredPolicyEvaluator(_items, _links).EvaluateAsync(policy, result.Proposal))
-            .Any(d => d.IsBlocking).ShouldBeFalse();
-    }
 }

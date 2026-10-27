@@ -22,10 +22,6 @@ public sealed class PolicyReconciliationTests : IDisposable
     {
         Id = "parent", ChildType = "Leaf", AllowedParentTypes = ["Container"],
     };
-    private static readonly LabelApplicabilityRule Label = new()
-    {
-        Id = "labels", Prefix = "mode:", AllowedTypes = ["Leaf"], Exclusive = true,
-    };
     private static readonly DependencyIntegrityRule Dependencies = new() { Id = "dependencies" };
 
     public PolicyReconciliationTests()
@@ -63,7 +59,7 @@ public sealed class PolicyReconciliationTests : IDisposable
     {
         await Cache(1, parent: 2);
         await Cache(2, "Container");
-        var result = await _service.AssessAsync(Policy(Parent, Label, Dependencies), [1]);
+        var result = await _service.AssessAsync(Policy(Parent, Dependencies), [1]);
         result.Compliant.ShouldBeTrue();
         result.Complete.ShouldBeTrue();
         result.Scope.ShouldBe([1]);
@@ -72,13 +68,11 @@ public sealed class PolicyReconciliationTests : IDisposable
         result.Items.Single(i => i.WorkItemId == 1).LinksVerifiedAt.ShouldNotBeNull();
     }
 
-    [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public async Task MissingFieldOrUnverifiedEmptyLinks_IsUnavailable(bool includeTags, bool verifiedLinks)
+    [Fact]
+    public async Task UnverifiedEmptyLinks_IsUnavailable()
     {
-        await Cache(1, includeTags: includeTags, verifiedLinks: verifiedLinks);
-        var result = await _service.AssessAsync(Policy(Label, Dependencies), [1]);
+        await Cache(1, verifiedLinks: false);
+        var result = await _service.AssessAsync(Policy(Dependencies), [1]);
         result.Status.ShouldBe("unavailable");
         result.Compliant.ShouldBeFalse();
         result.Findings.ShouldContain(f => f.Code == PolicyFindingCode.EvidenceUnavailable);
@@ -101,7 +95,7 @@ public sealed class PolicyReconciliationTests : IDisposable
         await Cache(1, parent: 2);
         await Cache(2, "Other");
         await Cache(3, "Container");
-        var policy = Policy(Parent, Label, Dependencies);
+        var policy = Policy(Parent, Dependencies);
         var assessment = await _service.AssessAsync(policy, [1, 3]);
         var finding = assessment.Findings.ShouldHaveSingleItem();
         finding.Evidence.ParentId.ShouldBe(2);
@@ -148,33 +142,16 @@ public sealed class PolicyReconciliationTests : IDisposable
     }
 
     [Fact]
-    public async Task Labels_RetainExplicitValue_PreservesUnrelatedLabels_AndLeavesOtherFindingsVisible()
-    {
-        await Cache(1, tags: "mode:a; unrelated; mode:b");
-        await Cache(2, "Other", tags: "mode:c");
-        var policy = Policy(Label);
-        var assessment = await _service.AssessAsync(policy, [1, 2]);
-        var exclusive = assessment.Findings.Single(f => f.Code == PolicyFindingCode.ExclusiveLabels);
-        var chosen = exclusive.Strategies.Single(s => s.RetainLabel == "mode:b");
-        var result = await Repair(policy, [1, 2], assessment, exclusive.Id, chosen.Id);
-        result.CanPropose.ShouldBeTrue(result.Error);
-        result.Projected!.Status.ShouldBe("noncompliant", "one repair is not a whole-scope compliance claim");
-        var batch = result.Proposal!.Operations.Single().ShouldBeOfType<BatchOperation>();
-        batch.Fields["System.Tags"].ShouldBe("unrelated; mode:b");
-        var decisions = await new DeclaredPolicyEvaluator(_items, _links).EvaluateAsync(policy, result.Proposal);
-        decisions.Any(d => d.IsBlocking).ShouldBeFalse();
-    }
-
-    [Fact]
     public async Task WarnRule_ViolationIsStillNoncompliance_AndCanBeRepaired()
     {
-        await Cache(1, "Other", tags: "mode:a; untouched");
-        var policy = Policy(Label with { Enforcement = PolicyEnforcement.Warn });
+        await Cache(1, parent: 2);
+        await Cache(2, "Other");
+        var policy = Policy(Parent with { Enforcement = PolicyEnforcement.Warn });
         var assessment = await _service.AssessAsync(policy, [1]);
         assessment.Compliant.ShouldBeFalse();
-        var result = await Repair(policy, [1], assessment, assessment.Findings.Single().Id, "remove-labels");
+        var result = await Repair(policy, [1], assessment, assessment.Findings.Single().Id, "detach-parent");
         result.Projected!.Compliant.ShouldBeTrue();
-        result.Proposal!.Operations.Single().ShouldBeOfType<BatchOperation>().Fields["System.Tags"].ShouldBe("untouched");
+        result.Proposal!.Operations.Single().ShouldBeOfType<RemoveLinkOperation>().OtherId.ShouldBe(2);
     }
 
     [Fact]
@@ -305,22 +282,29 @@ public sealed class PolicyReconciliationTests : IDisposable
     [Fact]
     public async Task ChangedObservationOrPolicy_RefusesOldChoice()
     {
-        await Cache(1, "Other", tags: "mode:a");
-        var policy = Policy(Label);
+        await Cache(1, parent: 2);
+        await Cache(2, "Other");
+        var policy = Policy(Parent);
         var before = await _service.AssessAsync(policy, [1]);
         var finding = before.Findings.Single();
-        await Cache(1, "Other", tags: "mode:b");
-        (await Repair(policy, [1], before, finding.Id, "remove-labels")).Error.ShouldNotBeNull().ShouldContain("changed");
-        await Cache(1, "Other", tags: "mode:a");
-        (await Repair(Policy(Label with { Prefix = "different:" }), [1], before, finding.Id, "remove-labels"))
+        await Cache(1, parent: 3);
+        (await Repair(policy, [1], before, finding.Id, "detach-parent")).Error.ShouldNotBeNull().ShouldContain("changed");
+        await Cache(1, parent: 2);
+        (await Repair(Policy(Parent with { AllowedParentTypes = ["Different"] }), [1], before, finding.Id, "detach-parent"))
             .Error.ShouldNotBeNull().ShouldContain("changed");
     }
 
     [Fact]
     public async Task AlternativesAreBoundedAndExplicitlyMarked()
     {
-        await Cache(1, tags: string.Join("; ", Enumerable.Range(1, 50).Select(i => $"mode:{i}")));
-        var result = await _service.AssessAsync(Policy(Label), [1]);
+        for (var id = 1; id <= 50; id++)
+        {
+            await Cache(id);
+            await _links.SaveLinksAsync(id,
+                [new(id, id == 50 ? 1 : id + 1, LinkTypes.Successor),
+                 new(id, id == 1 ? 50 : id - 1, LinkTypes.Predecessor)]);
+        }
+        var result = await _service.AssessAsync(Policy(Dependencies), [1]);
         var finding = result.Findings.Single();
         finding.Strategies.Count.ShouldBe(PolicyReconciliationService.MaxStrategies);
         finding.StrategiesTruncated.ShouldBeTrue();

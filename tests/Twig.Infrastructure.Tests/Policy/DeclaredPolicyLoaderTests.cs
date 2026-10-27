@@ -56,22 +56,37 @@ public sealed class DeclaredPolicyLoaderTests
               // comments are allowed
               "version": 1,
               "rules": [
-                { "id": "p", "kind": "parent-type", "childType": "Task", "allowedParentTypes": ["Issue"] },
-                { "id": "d", "kind": "dependency-integrity", "maxNodes": 50 },
-                { "id": "l", "kind": "label-applicability", "prefix": "priority:", "allowedTypes": ["Issue"], "exclusive": true, "enforcement": "warn" }
+                { "id": "p", "kind": "parent-type", "childType": "Task", "allowedParentTypes": ["Issue"], "enforcement": "warn" },
+                { "id": "d", "kind": "dependency-integrity", "maxNodes": 50 }
               ]
             }
             """);
 
         result.Failure.ShouldBeNull();
         var rules = result.Policy.ShouldNotBeNull().Rules;
-        rules.Count.ShouldBe(3);
+        rules.Count.ShouldBe(2);
         rules[0].ShouldBeOfType<ParentTypeRule>().AllowedParentTypes.ShouldBe(["Issue"]);
+        rules[0].Enforcement.ShouldBe(PolicyEnforcement.Warn);
         rules[1].ShouldBeOfType<DependencyIntegrityRule>().MaxNodes.ShouldBe(50);
-        var label = rules[2].ShouldBeOfType<LabelApplicabilityRule>();
-        label.Exclusive.ShouldBeTrue();
-        label.Enforcement.ShouldBe(PolicyEnforcement.Warn);
-        label.Field.ShouldBe(LabelApplicabilityRule.DefaultField);
+    }
+
+    [Fact]
+    public void RemovedLabelApplicability_IsBlockingPolicyLoadError()
+    {
+        var result = DeclaredPolicyLoader.Parse("""
+            { "version": 1, "rules": [
+              { "id": "legacy-labels", "kind": "label-applicability", "prefix": "priority:",
+                "allowedTypes": ["Issue"], "exclusive": true }
+            ] }
+            """);
+
+        result.Policy.ShouldBeNull();
+        var failure = result.Failure.ShouldNotBeNull();
+        failure.Kind.ShouldBe(DeclaredPolicyRuleKinds.PolicyLoad);
+        failure.Outcome.ShouldBe(PolicyOutcome.Unavailable);
+        failure.IsBlocking.ShouldBeTrue();
+        failure.Reason.ShouldContain("unknown kind 'label-applicability'");
+        failure.Reason.ShouldContain("supported kinds: parent-type, dependency-integrity.");
     }
 
     [Theory]

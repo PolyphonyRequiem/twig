@@ -140,7 +140,7 @@ internal sealed class PolicyFreshnessFixture : IDisposable
         Native.Mutations.ShouldBeEmpty();
     }
 
-    public async Task CacheAsync(int id, string type)
+    public async Task CacheAsync(int id, string type, int? parent = null)
     {
         // Deliberately independent cache facts are the point of the stale-mirror cases.
         var item = new WorkItem
@@ -148,6 +148,7 @@ internal sealed class PolicyFreshnessFixture : IDisposable
             Id = id,
             Title = $"item-{id}",
             Type = Twig.Domain.ValueObjects.WorkItemType.Parse(type).Value,
+            ParentId = parent,
         };
         item.ChangeState("Open");
         item.MarkSynced(1);
@@ -276,10 +277,10 @@ internal sealed class PolicyFreshnessFixture : IDisposable
         row.ExecutionAdmission.ShouldBeNull();
     }
 
-    public void Labels(bool allow = true) => File.WriteAllText(PolicyPath, $$"""
+    public void Policy(bool allow = true) => File.WriteAllText(PolicyPath, $$"""
         { "version": 1, "rules": [
-          { "id": "labels", "kind": "label-applicability", "prefix": "scope:",
-            "allowedTypes": ["{{(allow ? "Child" : "Other")}}"] },
+          { "id": "parents", "kind": "parent-type", "childType": "AllowedParent",
+            "allowedParentTypes": ["{{(allow ? "AllowedParent" : "Other")}}"] },
           { "id": "dependencies", "kind": "dependency-integrity", "maxNodes": 8 }
         ] }
         """);
@@ -294,6 +295,17 @@ internal sealed class PolicyFreshnessFixture : IDisposable
     public static string Batch(string id, int item) => $$"""
         { "id": "{{id}}", "kind": "batch", "workItemId": {{item}}, "expectedRevision": 1,
           "fields": { "System.Tags": "scope:x" } }
+        """;
+
+    public async Task PrepareParentTailAsync(int item)
+    {
+        Native.Parent(item, 2);
+        await CacheAsync(item, "Child", parent: 2);
+    }
+
+    public static string Retype(string id, int item) => $$"""
+        { "id": "{{id}}", "kind": "batch", "workItemId": {{item}}, "expectedRevision": 1,
+          "fields": { "System.WorkItemType": "AllowedParent" } }
         """;
 
     public static string Link(string relation = "successor") => $$"""
@@ -435,6 +447,15 @@ internal sealed class PolicyFreshnessTransport : HttpMessageHandler
         ["rel"] = "System.LinkTypes.Dependency-Forward",
         ["url"] = $"https://dev.azure.com/acme/_apis/wit/workItems/{target}",
     });
+    public void Parent(int child, int parent)
+    {
+        Relations(child).Add(new JsonObject
+        {
+            ["rel"] = "System.LinkTypes.Hierarchy-Reverse",
+            ["url"] = $"https://dev.azure.com/acme/_apis/wit/workItems/{parent}",
+        });
+        _revisionOne[child] = (JsonObject)_items[child].DeepClone();
+    }
     public void PolicyRelationships(int id, string evidence, bool parent = false)
     {
         if (evidence == "missing")

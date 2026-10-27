@@ -1710,13 +1710,10 @@ abstract Twig.Domain.Services.Policy.DeclaredPolicyRule.<Clone>$() -> Twig.Domai
 abstract Twig.Domain.Services.Policy.DeclaredPolicyRule.Kind.get -> string!
 const Twig.Domain.Services.Policy.DeclaredPolicy.SupportedVersion = 1 -> int
 const Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.DependencyIntegrity = "dependency-integrity" -> string!
-const Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.LabelApplicability = "label-applicability" -> string!
 const Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.ParentType = "parent-type" -> string!
 const Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.PolicyLoad = "policy-load" -> string!
 const Twig.Domain.Services.Policy.DependencyIntegrityRule.DefaultMaxNodes = 200 -> int
-const Twig.Domain.Services.Policy.LabelApplicabilityRule.DefaultField = "System.Tags" -> string!
 override sealed Twig.Domain.Services.Policy.DependencyIntegrityRule.Equals(Twig.Domain.Services.Policy.DeclaredPolicyRule? other) -> bool
-override sealed Twig.Domain.Services.Policy.LabelApplicabilityRule.Equals(Twig.Domain.Services.Policy.DeclaredPolicyRule? other) -> bool
 override sealed Twig.Domain.Services.Policy.ParentTypeRule.Equals(Twig.Domain.Services.Policy.DeclaredPolicyRule? other) -> bool
 override Twig.Domain.Services.Policy.DeclaredPolicy.Equals(object? obj) -> bool
 override Twig.Domain.Services.Policy.DeclaredPolicy.GetHashCode() -> int
@@ -1729,11 +1726,6 @@ override Twig.Domain.Services.Policy.DependencyIntegrityRule.Equals(object? obj)
 override Twig.Domain.Services.Policy.DependencyIntegrityRule.GetHashCode() -> int
 override Twig.Domain.Services.Policy.DependencyIntegrityRule.Kind.get -> string!
 override Twig.Domain.Services.Policy.DependencyIntegrityRule.ToString() -> string!
-override Twig.Domain.Services.Policy.LabelApplicabilityRule.<Clone>$() -> Twig.Domain.Services.Policy.LabelApplicabilityRule!
-override Twig.Domain.Services.Policy.LabelApplicabilityRule.Equals(object? obj) -> bool
-override Twig.Domain.Services.Policy.LabelApplicabilityRule.GetHashCode() -> int
-override Twig.Domain.Services.Policy.LabelApplicabilityRule.Kind.get -> string!
-override Twig.Domain.Services.Policy.LabelApplicabilityRule.ToString() -> string!
 override Twig.Domain.Services.Policy.ParentTypeRule.<Clone>$() -> Twig.Domain.Services.Policy.ParentTypeRule!
 override Twig.Domain.Services.Policy.ParentTypeRule.Equals(object? obj) -> bool
 override Twig.Domain.Services.Policy.ParentTypeRule.GetHashCode() -> int
@@ -1748,8 +1740,6 @@ static Twig.Domain.Services.Policy.DeclaredPolicyRule.operator !=(Twig.Domain.Se
 static Twig.Domain.Services.Policy.DeclaredPolicyRule.operator ==(Twig.Domain.Services.Policy.DeclaredPolicyRule? left, Twig.Domain.Services.Policy.DeclaredPolicyRule? right) -> bool
 static Twig.Domain.Services.Policy.DependencyIntegrityRule.operator !=(Twig.Domain.Services.Policy.DependencyIntegrityRule? left, Twig.Domain.Services.Policy.DependencyIntegrityRule? right) -> bool
 static Twig.Domain.Services.Policy.DependencyIntegrityRule.operator ==(Twig.Domain.Services.Policy.DependencyIntegrityRule? left, Twig.Domain.Services.Policy.DependencyIntegrityRule? right) -> bool
-static Twig.Domain.Services.Policy.LabelApplicabilityRule.operator !=(Twig.Domain.Services.Policy.LabelApplicabilityRule? left, Twig.Domain.Services.Policy.LabelApplicabilityRule? right) -> bool
-static Twig.Domain.Services.Policy.LabelApplicabilityRule.operator ==(Twig.Domain.Services.Policy.LabelApplicabilityRule? left, Twig.Domain.Services.Policy.LabelApplicabilityRule? right) -> bool
 static Twig.Domain.Services.Policy.ParentTypeRule.operator !=(Twig.Domain.Services.Policy.ParentTypeRule? left, Twig.Domain.Services.Policy.ParentTypeRule? right) -> bool
 static Twig.Domain.Services.Policy.ParentTypeRule.operator ==(Twig.Domain.Services.Policy.ParentTypeRule? left, Twig.Domain.Services.Policy.ParentTypeRule? right) -> bool
 static Twig.Domain.Services.Policy.PolicyDecision.operator !=(Twig.Domain.Services.Policy.PolicyDecision? left, Twig.Domain.Services.Policy.PolicyDecision? right) -> bool
@@ -1776,17 +1766,6 @@ Twig.Domain.Services.Policy.DependencyIntegrityRule.DependencyIntegrityRule() ->
 Twig.Domain.Services.Policy.DependencyIntegrityRule.Equals(Twig.Domain.Services.Policy.DependencyIntegrityRule? other) -> bool
 Twig.Domain.Services.Policy.DependencyIntegrityRule.MaxNodes.get -> int
 Twig.Domain.Services.Policy.DependencyIntegrityRule.MaxNodes.init -> void
-Twig.Domain.Services.Policy.LabelApplicabilityRule
-Twig.Domain.Services.Policy.LabelApplicabilityRule.AllowedTypes.get -> System.Collections.Generic.IReadOnlyList<string!>!
-Twig.Domain.Services.Policy.LabelApplicabilityRule.AllowedTypes.init -> void
-Twig.Domain.Services.Policy.LabelApplicabilityRule.Equals(Twig.Domain.Services.Policy.LabelApplicabilityRule? other) -> bool
-Twig.Domain.Services.Policy.LabelApplicabilityRule.Exclusive.get -> bool
-Twig.Domain.Services.Policy.LabelApplicabilityRule.Exclusive.init -> void
-Twig.Domain.Services.Policy.LabelApplicabilityRule.Field.get -> string!
-Twig.Domain.Services.Policy.LabelApplicabilityRule.Field.init -> void
-Twig.Domain.Services.Policy.LabelApplicabilityRule.LabelApplicabilityRule() -> void
-Twig.Domain.Services.Policy.LabelApplicabilityRule.Prefix.get -> string!
-Twig.Domain.Services.Policy.LabelApplicabilityRule.Prefix.init -> void
 Twig.Domain.Services.Policy.ParentTypeRule
 Twig.Domain.Services.Policy.ParentTypeRule.AllowedParentTypes.get -> System.Collections.Generic.IReadOnlyList<string!>!
 Twig.Domain.Services.Policy.ParentTypeRule.AllowedParentTypes.init -> void

@@ -202,7 +202,8 @@ jobs:
             artifacts/test-logs/ci/gh-parser-overlap/
           if-no-files-found: warn
 
-      # Includes the existing 109 actor/handler cases within 201 captured-read and consumer cases.
+      # Includes 112 actor/handler cases within 204 captured-read and consumer cases; the
+      # schema-admission additions contribute three cases (one fact and two theory cases).
       - name: GitHub captured-read session and authenticated actor regression
         run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubCapturedReadSessionTests|FullyQualifiedName~GitHubAuthenticatedActorReaderTests|FullyQualifiedName~GitHubReadOnlyAuthHandlerTests|FullyQualifiedName~ProviderTargetBindingCompositionTests|FullyQualifiedName~GitHubWorkItemProviderTests" --logger "trx;LogFileName=github-actor.trx" --results-directory artifacts/test-logs/ci/github-actor
 
@@ -217,13 +218,13 @@ jobs:
           definitions = root.findall(".//t:UnitTest", ns)
           counters = root.find(".//t:Counters", ns)
           assert counters is not None
-          assert len(results) == len(definitions) == len({r.attrib["executionId"] for r in results}) == 201
-          assert len({r.attrib["testId"] for r in results}) == 201
+          assert len(results) == len(definitions) == len({r.attrib["executionId"] for r in results}) == 204
+          assert len({r.attrib["testId"] for r in results}) == 204
           assert {d.attrib["id"] for d in definitions} == {r.attrib["testId"] for r in results}
           groups = collections.Counter(d.find("t:TestMethod", ns).attrib["className"] for d in definitions)
-          assert groups == {"Twig.Infrastructure.Tests.GitHub.GitHubCapturedReadSessionTests": 29, "Twig.Infrastructure.Tests.GitHub.GitHubAuthenticatedActorReaderTests": 39, "Twig.Infrastructure.Tests.GitHub.GitHubReadOnlyAuthHandlerTests": 70, "Twig.Infrastructure.Tests.GitHub.ProviderTargetBindingCompositionTests": 15, "Twig.Infrastructure.Tests.GitHub.GitHubWorkItemProviderTests": 48}
+          assert groups == {"Twig.Infrastructure.Tests.GitHub.GitHubCapturedReadSessionTests": 29, "Twig.Infrastructure.Tests.GitHub.GitHubAuthenticatedActorReaderTests": 39, "Twig.Infrastructure.Tests.GitHub.GitHubReadOnlyAuthHandlerTests": 73, "Twig.Infrastructure.Tests.GitHub.ProviderTargetBindingCompositionTests": 15, "Twig.Infrastructure.Tests.GitHub.GitHubWorkItemProviderTests": 48}
           assert all(r.attrib["outcome"] == "Passed" for r in results)
-          assert all(counters.attrib[key] == "201" for key in ("total", "executed", "passed"))
+          assert all(counters.attrib[key] == "204" for key in ("total", "executed", "passed"))
           assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted", "notExecuted"))
           assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
 

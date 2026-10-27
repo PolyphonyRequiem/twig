@@ -11,6 +11,22 @@ internal static class GitHubIssueQueries
 
     public const string RepositoryDiscovery = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id nameWithOwner owner { id login } } }";
 
+    public const string SchemaMetadata = """
+        query {
+          issue: __type(name: "Issue") {
+            kind name
+            fields(includeDeprecated: true) {
+              name
+              type { kind name ofType { kind name ofType { kind name ofType { kind name } } } }
+            }
+          }
+          issueState: __type(name: "IssueState") {
+            kind name
+            enumValues(includeDeprecated: true) { name }
+          }
+        }
+        """;
+
     public const string Snapshot = """
         query($id: ID!) { node(id: $id) { __typename id ... on Issue {
           number title state body url issueType { name } parent { id } milestone { title } repository { id nameWithOwner owner { id } }
@@ -49,6 +65,8 @@ internal static class GitHubIssueQueries
     public static bool TryMatch(string document, out bool paginated)
     {
         paginated = PaginatedDocuments.Contains(document);
-        return paginated || string.Equals(document, Snapshot, StringComparison.Ordinal);
+        return paginated
+            || string.Equals(document, Snapshot, StringComparison.Ordinal)
+            || string.Equals(document, SchemaMetadata, StringComparison.Ordinal);
     }
 }

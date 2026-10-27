@@ -1082,7 +1082,7 @@
   {
     "command": "connection capabilities",
     "group": "system",
-    "summary": "Report the active provider's declared relationship capabilities and probe evidence without enabling emulation.",
+    "summary": "Report relationship capabilities and runtime availability; optionally discover GitHub schema support without enumerating repository values.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/auth-status.md"

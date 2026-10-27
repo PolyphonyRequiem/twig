@@ -37,10 +37,11 @@ internal sealed class ConnectionCapabilitiesCommand(
 
     public async Task<int> ExecuteAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
+        bool includeGitHubSchema = false,
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(outputFormat, ct).ConfigureAwait(false);
+        var exitCode = await ExecuteCoreAsync(outputFormat, includeGitHubSchema, ct).ConfigureAwait(false);
         try
         {
             TelemetryHelper.TrackCommand(telemetryClient, "connection capabilities",
@@ -54,7 +55,7 @@ internal sealed class ConnectionCapabilitiesCommand(
         return exitCode;
     }
 
-    private async Task<int> ExecuteCoreAsync(string outputFormat, CancellationToken ct)
+    private async Task<int> ExecuteCoreAsync(string outputFormat, bool includeGitHubSchema, CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -75,11 +76,28 @@ internal sealed class ConnectionCapabilitiesCommand(
             return 1;
         }
 
+        if (includeGitHubSchema
+            && provider.Capabilities.ProviderKind != ProviderCapabilityCatalog.GitHubProviderKind)
+        {
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "The --github-schema option requires the active GitHub provider. ADO process metadata remains available through 'twig process'.");
+            return 2;
+        }
+
         CapabilityReport report;
+        ProviderSchemaMetadata? schema = null;
         try
         {
             var evidence = await provider.ProbeCapabilitiesAsync(ct).ConfigureAwait(false);
             report = CapabilityReport.Create(provider.Capabilities, evidence);
+            if (includeGitHubSchema)
+            {
+                if (provider is not IProviderSchemaMetadataReader schemaReader)
+                    throw new InvalidOperationException("The GitHub provider does not expose schema metadata.");
+                schema = await schemaReader.DiscoverSchemaMetadataAsync(ct).ConfigureAwait(false);
+                if (schema.ProviderKind != provider.Capabilities.ProviderKind)
+                    throw new InvalidDataException("Schema metadata does not match the active provider.");
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -87,16 +105,16 @@ internal sealed class ConnectionCapabilitiesCommand(
             return 1;
         }
 
-        Render(report, outputFormat);
+        Render(report, outputFormat, schema);
         return 0;
     }
 
-    private void Render(CapabilityReport report, string outputFormat)
+    private void Render(CapabilityReport report, string outputFormat, ProviderSchemaMetadata? schema)
     {
         var normalized = OutputFormats.Normalize(outputFormat);
         if (normalized is "json" or "json-full" or "json-compact")
         {
-            Console.Out.WriteLine(ToJson(report));
+            Console.Out.WriteLine(ToJson(report, schema));
             return;
         }
 
@@ -105,6 +123,11 @@ internal sealed class ConnectionCapabilitiesCommand(
         {
             foreach (var entry in report.Relationships)
                 nodes.Add(new RenderNode.Text(string.Join('\t', Cells(entry))));
+            if (schema is not null)
+            {
+                foreach (var row in SchemaRows(schema))
+                    nodes.Add(new RenderNode.Text(string.Join('\t', row)));
+            }
         }
         else
         {
@@ -115,6 +138,30 @@ internal sealed class ConnectionCapabilitiesCommand(
                 var storage = entry.Storage == EmulationStorage.None ? string.Empty : $" storage={cells[2]}";
                 var reason = entry.ReasonCode is null ? string.Empty : $" ({entry.ReasonCode})";
                 nodes.Add(new RenderNode.Text($"  {cells[0],-22} {cells[1],-12}{storage} availability={cells[3]}{reason}"));
+            }
+            if (schema is not null)
+            {
+                nodes.Add(new RenderNode.Text($"GitHub schema metadata: {SchemaAvailabilityToken(schema.Availability)}"
+                    + (schema.ReasonCode is null ? string.Empty : $" ({schema.ReasonCode})")));
+                foreach (var item in schema.Types)
+                    nodes.Add(new RenderNode.Text($"  type {item.Name}: {SchemaSupportToken(item.Support)}"
+                        + (item.ReasonCode is null ? string.Empty : $" ({item.ReasonCode})")));
+                nodes.Add(new RenderNode.Text($"  states {schema.States.Name}: {SchemaSupportToken(schema.States.Support)}"
+                    + (schema.States.Values.Count == 0 ? string.Empty : $" [{string.Join(", ", schema.States.Values)}]")
+                    + (schema.States.ReasonCode is null ? string.Empty : $" ({schema.States.ReasonCode})")));
+                nodes.Add(new RenderNode.Text("  fields:"));
+                foreach (var field in schema.Fields)
+                    nodes.Add(new RenderNode.Text($"    {field.Name}: {field.TypeName ?? "unknown"} "
+                        + SchemaSupportToken(field.Support)
+                        + (field.ReasonCode is null ? string.Empty : $" ({field.ReasonCode})")));
+                nodes.Add(new RenderNode.Text("  schema relationships:"));
+                foreach (var relationship in schema.Relationships)
+                    nodes.Add(new RenderNode.Text($"    {LinkKindTokens.ToToken(relationship.Kind)}: "
+                        + $"{SchemaSupportToken(relationship.Support)} fields=[{string.Join(", ", relationship.Fields)}]"
+                        + (relationship.ReasonCode is null ? string.Empty : $" ({relationship.ReasonCode})")));
+                nodes.Add(new RenderNode.Text($"  process rules: {SchemaSupportToken(schema.Rules.Process)} "
+                    + $"({schema.Rules.ProcessReasonCode}); field rules: {SchemaSupportToken(schema.Rules.Fields)} "
+                    + $"({schema.Rules.FieldsReasonCode})"));
             }
         }
 
@@ -130,7 +177,7 @@ internal sealed class ConnectionCapabilitiesCommand(
         entry.ReasonCode ?? string.Empty,
     ];
 
-    internal static string ToJson(CapabilityReport report)
+    internal static string ToJson(CapabilityReport report, ProviderSchemaMetadata? schema = null)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -158,9 +205,119 @@ internal sealed class ConnectionCapabilitiesCommand(
             }
 
             writer.WriteEndArray();
+            if (schema is not null)
+                WriteSchema(writer, schema);
             writer.WriteEndObject();
         }
 
         return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteSchema(Utf8JsonWriter writer, ProviderSchemaMetadata schema)
+    {
+        writer.WriteStartObject("schema");
+        writer.WriteString("availability", SchemaAvailabilityToken(schema.Availability));
+        WriteNullableString(writer, "reason", schema.ReasonCode);
+        writer.WriteStartArray("types");
+        foreach (var item in schema.Types)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("name", item.Name);
+            writer.WriteString("support", SchemaSupportToken(item.Support));
+            WriteNullableString(writer, "reason", item.ReasonCode);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteStartArray("fields");
+        foreach (var item in schema.Fields)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("name", item.Name);
+            WriteNullableString(writer, "type", item.TypeName);
+            writer.WriteString("support", SchemaSupportToken(item.Support));
+            WriteNullableString(writer, "reason", item.ReasonCode);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteStartObject("states");
+        writer.WriteString("name", schema.States.Name);
+        writer.WriteString("support", SchemaSupportToken(schema.States.Support));
+        writer.WriteStartArray("values");
+        foreach (var value in schema.States.Values)
+            writer.WriteStringValue(value);
+        writer.WriteEndArray();
+        WriteNullableString(writer, "reason", schema.States.ReasonCode);
+        writer.WriteEndObject();
+        writer.WriteStartArray("relationships");
+        foreach (var item in schema.Relationships)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("kind", LinkKindTokens.ToToken(item.Kind));
+            writer.WriteString("support", SchemaSupportToken(item.Support));
+            writer.WriteStartArray("fields");
+            foreach (var field in item.Fields)
+                writer.WriteStringValue(field);
+            writer.WriteEndArray();
+            WriteNullableString(writer, "reason", item.ReasonCode);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteStartObject("rules");
+        writer.WriteStartObject("process");
+        writer.WriteString("support", SchemaSupportToken(schema.Rules.Process));
+        writer.WriteString("reason", schema.Rules.ProcessReasonCode);
+        writer.WriteEndObject();
+        writer.WriteStartObject("fields");
+        writer.WriteString("support", SchemaSupportToken(schema.Rules.Fields));
+        writer.WriteString("reason", schema.Rules.FieldsReasonCode);
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+    }
+
+    private static IReadOnlyList<string[]> SchemaRows(ProviderSchemaMetadata schema)
+    {
+        var rows = new List<string[]>
+        {
+            new[] { "schema", schema.ProviderKind, string.Empty, SchemaAvailabilityToken(schema.Availability), schema.ReasonCode ?? string.Empty },
+        };
+        rows.AddRange(schema.Types.Select(item =>
+            new[] { "type", item.Name, string.Empty, SchemaSupportToken(item.Support), item.ReasonCode ?? string.Empty }));
+        rows.AddRange(schema.Fields.Select(item =>
+            new[] { "field", item.Name, item.TypeName ?? string.Empty, SchemaSupportToken(item.Support), item.ReasonCode ?? string.Empty }));
+        rows.Add(new[] { "state", schema.States.Name, string.Join(",", schema.States.Values),
+            SchemaSupportToken(schema.States.Support), schema.States.ReasonCode ?? string.Empty });
+        rows.AddRange(schema.Relationships.Select(item =>
+            new[] { "schema-relationship", LinkKindTokens.ToToken(item.Kind), string.Join(",", item.Fields),
+                SchemaSupportToken(item.Support), item.ReasonCode ?? string.Empty }));
+        rows.Add(new[] { "rule", "process", string.Empty, SchemaSupportToken(schema.Rules.Process), schema.Rules.ProcessReasonCode });
+        rows.Add(new[] { "rule", "fields", string.Empty, SchemaSupportToken(schema.Rules.Fields), schema.Rules.FieldsReasonCode });
+        return rows;
+    }
+
+    private static string SchemaAvailabilityToken(ProviderSchemaDiscoveryAvailability availability) =>
+        availability switch
+        {
+            ProviderSchemaDiscoveryAvailability.Available => "available",
+            ProviderSchemaDiscoveryAvailability.Unavailable => "unavailable",
+            ProviderSchemaDiscoveryAvailability.Unknown => "unknown",
+            _ => throw new UnreachableException($"Unhandled schema availability: {availability}"),
+        };
+
+    private static string SchemaSupportToken(ProviderSchemaElementSupport support) =>
+        support switch
+        {
+            ProviderSchemaElementSupport.Supported => "supported",
+            ProviderSchemaElementSupport.Unsupported => "unsupported",
+            ProviderSchemaElementSupport.Unknown => "unknown",
+            _ => throw new UnreachableException($"Unhandled schema support: {support}"),
+        };
+
+    private static void WriteNullableString(Utf8JsonWriter writer, string property, string? value)
+    {
+        if (value is null)
+            writer.WriteNull(property);
+        else
+            writer.WriteString(property, value);
     }
 }

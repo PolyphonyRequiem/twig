@@ -2,7 +2,7 @@
 
 This project-scoped Copilot extension provides cached item detail and a named-Bench
 workbench. Detail and ordinary browsing remain read-only; the workbench also exposes
-two explicit local-draft actions backed by Twig's native editing bridge. A separate
+explicit local draft open/stage/retain and a separate human Save backed by Twig's native bridge. A separate
 proposal-review canvas provides explicit acquisition and digest-bound authorization/Apply. It does not
 read Twig's SQLite files or call an ADO/GitHub API directly.
 
@@ -30,7 +30,7 @@ path, never a bare `twig` name. Reopening the same instance does not re-admit;
 a new instance does.
 
 Each canvas declares only the native capabilities it uses (item: detail and draft
-show; workbench: Bench browse/detail, discussion and draft open/stage/retain;
+show; workbench: Bench browse/detail, discussion and draft open/stage/retain/save;
 review: proposal preview/apply). Before a capability's first use, the instance runs
 `<command> --help` on the pinned path and requires that the usage line names that
 command and that its `Options:` section declares each flag the canvas will pass as
@@ -229,7 +229,8 @@ require explicit reopen. Disconnect/close aborts owned work; the busy latch stay
 held until adapter closure, and unknown outcomes are retained in server state.
 Panel close also awaits bridge idle after disconnect, rather than mistaking
 closed HTTP connections for completed native cleanup.
-No Save, apply, authorization or publication route is added.
+OPEN and STAGE do not authorize or publish. The separate explicit Save route below
+is the only workbench action that consumes a retained draft.
 
 OPEN is explicit and may acquire metadata and persist local evidence/draft
 observations; it is not a read-only/cache-only detail fallback. STAGE sends one
@@ -283,8 +284,8 @@ The source-authored `createNativeEditingAdapter().retain({request, workspacePath
 signal})` invokes only `twig draft retain --stdin -o json`. The adapter is qualified
 offline, not installed-host enabled. The explicit browser/server bridge described
 below is qualified offline through the real rendered client and HTTP routes with
-a fake native adapter, not live native RETAIN composition. No Save or
-semantic-review action is wired.
+a fake native adapter, not live native RETAIN composition. Retention itself does
+not authorize or save; the distinct Save action is described below.
 
 Bridge qualification passed 49 focused cases and a deduplicated 120-case union:
 119 passed, zero failures/cancellations and one existing opt-in native integration
@@ -663,12 +664,49 @@ pending work, unavailable clean readback and uncertain remote effects retain int
 Remote operation verification and local draft settlement are separate outcomes;
 recovery never reissues an already attempted mutation.
 
-This is an internal native foundation, not a new CLI command or enabled canvas
-Save route. No SDK action, loopback request or caller-entered identity supplies
-host-authenticated click attribution. One-click Save remains unavailable until
-that product requirement has a supported authority surface. These tests exercise
-real native SQLite/lifecycle/ADO-adapter composition with external transport
-substituted; they do not qualify installed-host attribution.
+This foundation supplies no click or authenticated individual attribution. The
+explicit action below adds its caller without changing the native gates. Foundation
+tests exercise real native SQLite/lifecycle/ADO-adapter composition with external
+transport substituted; they do not qualify installed-host attribution.
+
+### Explicit human Save (#1200 clarified contract)
+
+After RETAIN, the workbench displays the exact native capture digest, operation and
+nullable effects. **Save exact retained capture (publish)** is a separate action,
+disabled while input is unsent, stale, busy or uncertain. Only its trusted browser
+click handler authors a digest-bound Human authorization record. Synthetic `.click()`,
+mount, navigation, reload, review and SDK actions do not call Save. No Save SDK
+action or agent-facing method is exported.
+
+The browser sends that record and a single-use opaque handle. The server supplies
+the unchanged retained digest, captured caller account and fixed surface to
+`twig draft save --stdin -o json`; it accepts no replacement effects or proposal
+file. The CLI strictly reads one bounded request through EOF, compares caller
+account with current native admission and forwards the UI's authorization unchanged
+to `ApplyCapturedDraftAsync`. It never constructs Human authorization from its own
+account, steering mode, a supplied person's name or the loopback bearer token.
+
+Attribution says `workbench-ui-user (individual identity unverified)`, with the
+admitted native caller account recorded separately and `hostAttested:false`.
+This is UI/process separation, **not authenticated individual identity or
+cryptographic click attestation**. Browser `isTrusted` rejects ordinary scripted
+clicks; neither that flag, the record's strings, its timestamp nor a bearer token
+proves identity to the native process. The transport is not an authorization
+service against a compromised/local caller able to forge requests. An agent must
+not synthesize the record or invoke Save on a human's behalf. Daniel's clarification
+removed the previously inferred SDK-attestation prerequisite, not the independent
+authorization invariant or these truthful-attribution limits.
+
+The held handle is consumed before native execution and revoked on target changes.
+The same pinned, bounded, serialized native runner is used for open/stage/retain/save.
+Only authoritative Verified operation coverage **and** successful local draft
+settlement produce `saved`/exit 0. Verified effects with retained local intent remain
+`verified-draft-retained`/exit 1; uncertain effects stay `not-verified`/exit 1.
+The panel displays native operation/readback evidence and settlement errors as inert
+text, never replays automatically, and holds uncertain outcomes across same-process
+navigation. Closing/restarting loses in-memory handles, not the durable native
+journal. Inspect that journal after uncertainty; do not infer safe retry from a
+missing UI receipt. Installed-app/live-provider qualification remains separate.
 
 Qualification on base `9bf9372e3f7acbd65798527dff4cb77408ee1ba4` used the exact
 reviewed executable/test blobs: eight `node --check` children passed in one

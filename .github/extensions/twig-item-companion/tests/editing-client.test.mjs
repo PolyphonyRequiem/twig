@@ -302,3 +302,63 @@ test("known RETAIN refusal consumes handle but permits explicit reopen without c
     assert.equal(button(h.root, "Retain staged draft").disabled, true);
     assert.equal(input(h.root).value, "unsent after refusal");
 });
+
+test("Save requires a distinct trusted UI gesture over the visible exact receipt, never synthetic clicks or an agent action", async () => {
+    const h = harness(body => ({ editing: body.action === "retain"
+        ? { ...captureOutcome(), canSave: true, saveHandle: "held-save" }
+        : body.action === "save" ? { status: "saved", committed: true, canSave: false }
+        : editing(body.action === "stage" ? "staged" : "opened") }));
+    h.mount(detail());
+    const save = () => button(h.root, "Save exact retained capture (publish)");
+    assert.equal(save().disabled, true);
+    await h.click("Open native draft");
+    h.type("retained intent");
+    await h.click("Stage local changes");
+    await h.click("Retain staged draft");
+    assert.equal(save().disabled, false);
+    assert.match(flattened(h.root), /Digest: a{64}/);
+    await h.click("Save exact retained capture (publish)");
+    save().listeners.click({ isTrusted: false });
+    await settle();
+    assert.equal(h.calls.length, 3);
+    save().listeners.click({ isTrusted: true });
+    await settle();
+    const sent = h.calls.at(-1);
+    assert.deepEqual(Object.keys(sent).sort(), ["action", "authorization", "saveHandle"]);
+    assert.equal(sent.saveHandle, "held-save");
+    assert.equal(sent.authorization.digest, "a".repeat(64));
+    assert.equal(sent.authorization.mode, 0);
+    assert.match(sent.authorization.authorizerIdentity, /individual identity unverified/);
+    assert.ok(Number.isFinite(Date.parse(sent.authorization.authorizedAt)));
+    assert.equal(save().disabled, true);
+    assert.match(flattened(h.root), /Saved: native effects verified/);
+    assert.match(flattened(h.root), /Digest: a{64}/, "the capture remains visible after Save");
+    save().listeners.click({ isTrusted: true });
+    assert.equal(h.calls.length, 4, "one gesture cannot rearm or replay");
+    assert.equal(h.client.save, undefined, "no agent-side Save API");
+});
+
+test("Save refuses newer unsent input and uncertainty stays held across navigation", async () => {
+    for (const failure of [false, true]) {
+        const h = harness(body => {
+            if (body.action === "save") throw new Error("Missing acknowledgement");
+            return { editing: body.action === "retain" ? { ...captureOutcome(), canSave: true, saveHandle: "held" }
+                : editing(body.action === "stage" ? "staged" : "opened") };
+        });
+        h.mount(detail());
+        await h.click("Open native draft");
+        h.type("staged");
+        await h.click("Stage local changes");
+        await h.click("Retain staged draft");
+        if (!failure) h.type("new unsent");
+        button(h.root, "Save exact retained capture (publish)").listeners.click({ isTrusted: true });
+        await settle();
+        assert.equal(h.calls.length, failure ? 4 : 3);
+        if (failure) {
+            assert.match(flattened(h.root), /Missing acknowledgement/);
+            await h.client.leave();
+            h.mount(detail());
+            assert.equal(button(h.root, "Open native draft").disabled, true);
+        } else assert.match(flattened(h.root), /new unsent/);
+    }
+});

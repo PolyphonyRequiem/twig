@@ -129,7 +129,7 @@ function asCanvasError(error) {
 const workbenchCanvas = createCanvas({
     id: "twig-workbench",
     displayName: "Twig workbench",
-    description: "Browse a named native Bench and explicitly open or stage local drafts; no automatic edits, Save, apply or publication.",
+    description: "Browse a named native Bench and explicitly open or stage local drafts. Publishing Save is a separate human-only panel gesture, never an SDK action or automatic effect.",
     actions: [
         {
             name: "load_bench",
@@ -234,7 +234,7 @@ const workbenchCanvas = createCanvas({
                 nativeEditing: createNativeEditingAdapter({ executable }), handoffSession: session, workbench: true });
             workbenchInstances.set(ctx.instanceId, instance);
         }
-        return { url: instance.url, title: "Twig workbench", status: "Cached browsing; explicit local draft actions are not published" };
+        return { url: instance.url, title: "Twig workbench", status: "Cached browsing and local drafts; separate human Save can publish through native gates" };
     },
     onClose: async (ctx) => {
         const instance = workbenchInstances.get(ctx.instanceId);

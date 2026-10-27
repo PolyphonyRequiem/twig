@@ -22,13 +22,15 @@ export function createEditingClient({ document, request, text }) {
         current = session;
         const box = document.createElement("section");
         box.append(text("h3", "Local draft editing"));
-        box.append(text("p", "OPEN may acquire native metadata and persist local observations. STAGE records local intent only. Explicit RETAIN captures staged native intent locally, not unsent input or authorization. No Save, apply or publication. Installed native support is not yet qualified."));
+        box.append(text("p", "OPEN may persist native observations. STAGE records local intent only. RETAIN captures staged changes locally without authorization. Save is a separate explicit human gesture that publishes only the displayed retained capture through native authorization, journal and readback gates. Caller/surface attribution is not authenticated individual identity. Installed-host support is not yet qualified."));
         const open = text("button", "Open local draft (not published)");
         open.type = "button";
         const stage = text("button", "Stage local draft only");
         stage.type = "button";
         const retain = text("button", "Retain staged draft");
         retain.type = "button";
+        const save = text("button", "Save exact retained capture (publish)");
+        save.type = "button";
         const receipt = document.createElement("section");
         const retainHint = text("p", "Retain captures only staged native changes, not unsent input.");
         const status = text("p", "Not opened. Unsupported control types remain read-only; native eligibility is final.");
@@ -46,6 +48,8 @@ export function createEditingClient({ document, request, text }) {
             stage.disabled = inFlight || session.stale || !session.canStage || !session.handle || !intent.size;
             retain.disabled = inFlight || session.stale || session.inspectFirst || !session.canRetain ||
                 !session.handle || intent.size > 0;
+            save.disabled = inFlight || current !== session || session.stale || session.inspectFirst ||
+                !session.canSave || !session.saveHandle || intent.size > 0;
             retainHint.textContent = intent.size ? "Stage unsent input first; Retain captures only staged native draft."
                 : "Retain captures only staged native changes, not unsent input.";
             discard.hidden = !session.stale;
@@ -90,25 +94,31 @@ export function createEditingClient({ document, request, text }) {
             }
             if (!(editing.editors || []).length) fields.append(text("p", "No supported editable native controls. Other fields and contributions remain read-only."));
         }
-        async function perform(action) {
+        async function perform(action, authorization) {
             if (inFlight || current !== session) return;
             if (session.inspectFirst) return;
             if (action === "stage" && (session.stale || !session.canStage || !session.handle || !intent.size)) return;
             if (action === "retain" && (session.stale || !session.canRetain || !session.handle || intent.size)) return;
+            if (action === "save" && (save.disabled || !authorization)) return;
+            const saveHandle = session.saveHandle;
             const submitted = [...intent].map(([fieldRef, proposedValue]) => ({ fieldRef, proposedValue }));
-            if (action === "retain") retainedItem.inspectFirst = true;
+            if (action === "retain" || action === "save") retainedItem.inspectFirst = true;
             inFlight = true;
             open.disabled = true;
             session.canStage = false;
             session.canRetain = false;
+            session.canSave = false;
+            session.saveHandle = null;
             renderIntent();
             status.textContent = action === "open" ? "Opening native draft explicitly..." :
-                action === "stage" ? "Staging local intent explicitly..." : "Retaining staged native draft explicitly...";
-            receipt.replaceChildren();
+                action === "stage" ? "Staging local intent explicitly..." :
+                    action === "save" ? "Saving exact retained capture; waiting for native verification..." : "Retaining staged native draft explicitly...";
+            if (action !== "save") receipt.replaceChildren();
             try {
                 const result = await request("/api/editing", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(action === "open" ? { action } :
+                        action === "save" ? { action, saveHandle, authorization } :
                         action === "stage" ? { action, captureHandle: session.handle, changes: submitted } :
                             { action, captureHandle: session.handle }),
                 });
@@ -117,8 +127,10 @@ export function createEditingClient({ document, request, text }) {
                 session.handle = editing.captureHandle || null;
                 session.canStage = editing.canStage === true;
                 session.canRetain = editing.canRetain === true;
+                session.canSave = editing.canSave === true;
+                session.saveHandle = editing.saveHandle || null;
                 session.inspectFirst = editing.inspectFirst === true;
-                if (action === "retain" || session.inspectFirst) retainedItem.inspectFirst = session.inspectFirst;
+                if (action === "retain" || action === "save" || session.inspectFirst) retainedItem.inspectFirst = session.inspectFirst;
                 if (editing.status === "opened" || editing.status === "staged") {
                     session.revision = editing.observedRevision;
                     session.stale = intent.size > 0 && retainedItem.revision !== null &&
@@ -142,14 +154,28 @@ export function createEditingClient({ document, request, text }) {
                             "\nProposed: " + display(effect, "proposedValue")));
                     }
                     receipt.append(text("p", "Byte integrity only; native-reported effects. Origin coverage: " +
-                        value.originCoverage + ". No full origin, authorization, Save or apply."));
+                        value.originCoverage + ". Receipt alone does not authorize or apply. Save authorizes only this exact digest; the native gates remain final."));
                 }
                 status.textContent = editing.status === "opened" || editing.status === "staged"
                     ? editing.status + (editing.hasConflicts ? ": native drift/conflicts; reopen or reconcile before staging." : ": local draft only, not saved or published.")
                     : (editing.status || "unknown") + ": " + (editing.error?.message || "Native outcome unavailable.") +
                         " Retain input; explicitly reopen. Do not retry automatically.";
                 if (editing.status === "retained") status.textContent =
-                    "Captured locally, not authorized or applied. Reopen explicitly before further editing.";
+                    "Captured locally, not authorized or applied. Review the exact effects and digest before Save. Reopen instead to edit further.";
+                if (editing.status === "saved") status.textContent =
+                    "Saved: native effects verified and captured draft settled. Reopen before further editing. Caller/surface recorded; individual identity not authenticated.";
+                if (editing.status === "verified-draft-retained") status.textContent =
+                    "Remote effects verified but local draft retained. Do not replay. Inspect the native journal and local settlement error.";
+                if (editing.native) {
+                    for (const row of editing.native.operations || [])
+                        receipt.append(text("pre", [row.opId, row.state, row.error, row.warning, row.resultJson]
+                            .filter(value => value !== null && value !== undefined).join("\n")));
+                    for (const issue of [editing.native.error, editing.native.draftSettlementError])
+                        if (issue) receipt.append(text("p", issue));
+                    if (Object.keys(editing.native.unsettledAcknowledgments || {}).length)
+                        receipt.append(text("pre", "Unsettled acknowledgments (inspect, never replay):\n" +
+                            JSON.stringify(editing.native.unsettledAcknowledgments)));
+                }
                 if (session.inspectFirst) status.textContent =
                     (editing.status || "unknown") + (editing.committed === true ? ": native commit reported. " : ": ") +
                     (editing.recovery || "Inspect the local proposal journal before deciding any new capture.") +
@@ -160,9 +186,11 @@ export function createEditingClient({ document, request, text }) {
                 session.handle = null;
                 session.canStage = false;
                 session.canRetain = false;
-                if (action === "retain") retainedItem.inspectFirst = session.inspectFirst = true;
+                session.canSave = false;
+                session.saveHandle = null;
+                if (action === "retain" || action === "save") retainedItem.inspectFirst = session.inspectFirst = true;
                 status.textContent = "Unavailable/unknown: " + (error instanceof Error ? error.message : "Native editing failed.") +
-                    (action === "retain" ? " Inspect the local proposal journal before deciding any new capture. " +
+                    (action === "retain" || action === "save" ? " Inspect the local proposal journal before deciding any new capture. " +
                         "Reopening does not clear this hold. Unsent input retained; no automatic retry."
                         : " Input retained; explicitly reopen before any further staging.");
                 status.setAttribute("role", "alert");
@@ -176,6 +204,17 @@ export function createEditingClient({ document, request, text }) {
         open.addEventListener("click", () => void perform("open"));
         stage.addEventListener("click", () => void perform("stage"));
         retain.addEventListener("click", () => void perform("retain"));
+        save.addEventListener("click", event => {
+            if (event?.isTrusted !== true || save.disabled || current !== session) return;
+            const digest = session.editing?.receipt?.digest;
+            if (typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest)) return;
+            void perform("save", {
+                digest, mode: 0,
+                authorizerIdentity: "workbench-ui-user (individual identity unverified)",
+                rationale: "Explicit Save gesture; caller/surface attribution only, not host-attested identity.",
+                authorizedAt: new Date().toISOString(),
+            });
+        });
         discard.addEventListener("click", () => {
             if (inFlight || current !== session || !session.stale) return;
             intent.clear();
@@ -185,7 +224,7 @@ export function createEditingClient({ document, request, text }) {
             renderIntent();
             status.textContent = "Stale input explicitly discarded. Enter reconciled intent against the current native observation.";
         });
-        box.append(open, stage, retain, retainHint, status, fields, receipt, retained, discard);
+        box.append(open, stage, retain, save, retainHint, status, fields, receipt, retained, discard);
         target.append(box);
         renderIntent();
     }

@@ -12,6 +12,11 @@ internal static class CommandExamples
     /// </summary>
     internal static Dictionary<string, string[]> Examples { get; } = new(StringComparer.Ordinal)
     {
+        ["draft save"] =
+        [
+            "twig draft save --stdin -o json  Forward the separate UI's exact explicit Save authorization; not an agent approval action",
+            "twig draft review <retained-digest> -o json  Inspect without authorizing or applying; do not invoke Save from review alone",
+        ],
         ["bench discussion"] =
         [
             "twig bench discussion --stdin -o json       Read one page from an explicit qualified item/Bench JSON request through EOF",

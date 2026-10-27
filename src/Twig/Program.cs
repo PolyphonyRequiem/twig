@@ -1264,6 +1264,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<DraftEditingCommand>().RetainAsync(stdin, output, ct);
 
+    /// <summary>Consume the exact retained capture following a separate explicit workbench Save gesture; never recapture or export.</summary>
+    /// <param name="stdin">Read the separate UI's strict authorization record through EOF; required. No replacement file, effects, identity selection or self-generated approval.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal; ids is unsupported.</param>
+    /// <param name="ct">Cancellation token; uncertain effects are never automatically replayed.</param>
+    [Command("draft save")]
+    public async Task<int> DraftSave(bool stdin = false,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<DraftSaveCommand>().ExecuteAsync(stdin, output, ct);
+
     /// <summary>Review the exact effects of one retained native capture without exporting or changing its journal.</summary>
     /// <param name="digest">Lowercase 64-character SHA-256 digest returned by <c>draft retain</c>; omitted values produce a usage refusal. No proposal file or path is read.</param>
     /// <param name="output">-o, Output format: human (default) shows exact nullable field effects and freshness/authority limits; minimal shows digest and effect count; json emits the closed review envelope.</param>
@@ -2014,6 +2023,7 @@ internal static class GroupedHelp
         "draft open",
         "draft stage",
         "draft retain",
+        "draft save",
         "draft review",
         "draft capture",
         "bench browser",

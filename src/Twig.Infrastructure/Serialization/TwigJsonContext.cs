@@ -273,6 +273,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(CanvasDetailExport))]
 [JsonSerializable(typeof(DraftStageRequest))]
 [JsonSerializable(typeof(DraftRetainRequest))]
+[JsonSerializable(typeof(DraftSaveRequest))]
 [JsonSerializable(typeof(DraftRetainedCapture))]
 [JsonSerializable(typeof(DraftCaptureReview))]
 [JsonSerializable(typeof(DraftCaptureReviewWorkspace))]

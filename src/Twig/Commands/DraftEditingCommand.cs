@@ -87,6 +87,9 @@ internal sealed class DraftEditingCommand(CommandContext ctx, Func<RecoverableDr
     internal static Task<DraftRetainRequest> ReadRetainRequestAsync(Stream input, CancellationToken ct)
         => ReadRequestAsync(input, StrictInputJson.DraftRetainRequest, ct);
 
+    internal static Task<DraftSaveRequest> ReadSaveRequestAsync(Stream input, CancellationToken ct)
+        => ReadRequestAsync(input, StrictInputJson.DraftSaveRequest, ct);
+
     private static async Task<T> ReadRequestAsync<T>(Stream input, JsonTypeInfo<T> type, CancellationToken ct)
         where T : class
     {

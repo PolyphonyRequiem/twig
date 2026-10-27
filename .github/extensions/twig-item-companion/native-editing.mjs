@@ -3,6 +3,7 @@ import { realpath as nodeRealpath } from "node:fs/promises";
 import path from "node:path";
 import { serializeStageRequest, serializeRetainRequest, validateEditingResult, validateRetainResult } from "./editing-document.mjs";
 import { requireAdmitted } from "./native-executable.mjs";
+import { createNativeDraftSaver } from "./native-save.mjs";
 
 // A transport failure cannot prove that a submitted local mutation rolled back.
 export class NativeEditingTransportError extends Error {
@@ -172,6 +173,12 @@ export function createNativeEditingAdapter(options = {}) {
     const { realpath = nodeRealpath } = options;
     const invoke = createNativeCommandRunner(options);
     return {
+        save: createNativeDraftSaver(invoke, async (workspacePath, checkoutRoot) => {
+            if (!nonempty(workspacePath)) throw new Error("An explicit Save workspace is required.");
+            const cwd = await realpath(workspacePath);
+            if (!samePath(checkoutRoot, cwd)) throw new Error("Save checkout differs from the retained native capture.");
+            return cwd;
+        }),
         async open({ workItemId, bench, workspacePath, expectedKey, identityId, signal }) {
             signal?.throwIfAborted();
             if (!Number.isInteger(workItemId) || workItemId <= 0 || workItemId > 2147483647 ||

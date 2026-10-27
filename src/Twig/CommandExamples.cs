@@ -693,7 +693,7 @@ internal static class CommandExamples
         ["policy reconcile"] =
         [
             "twig policy reconcile --ids 42,43 --evidence <digest> --finding f1 --strategy reparent --parent 43    Project an explicitly selected repair.",
-            "twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy remove-labels -o json --proposal-only > repair.json    Author a native proposal; preview and authorize separately.",
+            "twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy detach-parent -o json --proposal-only > repair.json    Author a native proposal; preview and authorize separately.",
         ],
         ["proposal preview"] =
         [

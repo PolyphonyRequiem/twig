@@ -69,7 +69,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             var found = rule switch
             {
                 ParentTypeRule r => EvaluateParentType(r, context),
-                LabelApplicabilityRule r => EvaluateLabels(r, context),
                 DependencyIntegrityRule r => await EvaluateDependenciesAsync(r, plan, facts, ct).ConfigureAwait(false),
                 _ => [Decide(rule, PolicyOutcome.Unavailable, $"Rule kind '{rule.Kind}' is not supported by this Twig build.")],
             };
@@ -89,7 +88,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             var found = rule switch
             {
                 ParentTypeRule r => await EvaluateProviderParentTypeAsync(r, state, ct).ConfigureAwait(false),
-                LabelApplicabilityRule r => await EvaluateProviderLabelsAsync(r, state, ct).ConfigureAwait(false),
                 DependencyIntegrityRule r => await EvaluateProviderDependenciesAsync(r, state, ct).ConfigureAwait(false),
                 _ => [Decide(rule, PolicyOutcome.Unavailable, $"Rule kind '{rule.Kind}' is not supported by this Twig build.")],
             };
@@ -158,71 +156,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             ? findings
             : [ProviderDecide(rule, PolicyOutcome.Permit,
                 $"{judged} new {rule.ChildType} parent edge(s) checked; all parents are of an allowed type.")];
-    }
-
-    private static async Task<List<PolicyDecision>> EvaluateProviderLabelsAsync(
-        LabelApplicabilityRule rule, ProviderProposalState state, CancellationToken ct)
-    {
-        var findings = new List<PolicyDecision>();
-        var judged = 0;
-        foreach (var target in state.LabelTargets(rule.Field))
-        {
-            judged++;
-            var postTags = await state.PostTagsAsync(target.Identity, rule.Field).ConfigureAwait(false);
-            if (postTags is null)
-            {
-                findings.Add(ProviderDecide(rule, PolicyOutcome.Unavailable,
-                    $"Label facts for {Format(target.Identity)} are unavailable or cannot be represented "
-                    + $"without splitting a provider value. {state.SnapshotFailure(target.Identity)}",
-                    target.Identity, target.OpId));
-                continue;
-            }
-
-            if (!postTags.Any(t => HasPrefix(t, rule.Prefix)))
-                continue;
-
-            var postType = await state.PostTypeAsync(target.Identity).ConfigureAwait(false);
-            if (postType is null)
-            {
-                findings.Add(ProviderDecide(rule, PolicyOutcome.Unavailable,
-                    $"Cannot determine the type of {Format(target.Identity)} carrying '{rule.Prefix}' labels.",
-                    target.Identity, target.OpId, unavailableDetail: state.SnapshotFailure(target.Identity)));
-                continue;
-            }
-
-            var after = LabelViolations(rule, postType, postTags);
-            if (after.Count == 0)
-                continue;
-
-            var preTags = await state.PreTagsAsync(target.Identity, rule.Field).ConfigureAwait(false);
-            var preType = await state.PreTypeAsync(target.Identity).ConfigureAwait(false);
-            if (preTags is null || preType is null)
-            {
-                findings.Add(ProviderDecide(rule, PolicyOutcome.Unavailable,
-                    $"Cannot determine whether the policy violation on {Format(target.Identity)} "
-                    + $"was already present before this proposal. {state.SnapshotFailure(target.Identity)}",
-                    target.Identity, target.OpId));
-                continue;
-            }
-
-            var before = LabelViolations(rule, preType, preTags);
-            var added = after.Where(v => !before.ContainsKey(v.Key)).ToList();
-            if (added.Count == 0)
-            {
-                findings.Add(ProviderDecide(rule, PolicyOutcome.Warn,
-                    $"Pre-existing, not worsened by this proposal: {string.Join("; ", after.Values)}.",
-                    target.Identity, target.OpId));
-                continue;
-            }
-
-            foreach (var violation in added)
-                findings.Add(ProviderDecide(rule, Violation(rule), violation.Value, target.Identity, target.OpId));
-        }
-
-        return findings.Count > 0
-            ? findings
-            : [ProviderDecide(rule, PolicyOutcome.Permit,
-                $"{judged} provider-observed item(s) with changed labels or type checked for '{rule.Prefix}' labels.")];
     }
 
     private static async Task<List<PolicyDecision>> EvaluateProviderDependenciesAsync(
@@ -344,8 +277,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
 
     private readonly record struct ProviderRetypedItem(ExternalWorkItemIdentity Identity, string OpId);
 
-    private readonly record struct ProviderLabelTarget(ExternalWorkItemIdentity Identity, string OpId);
-
     private readonly record struct ProviderDependencyAdd(
         ExternalWorkItemIdentity From,
         ExternalWorkItemIdentity To,
@@ -399,22 +330,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
                 && operation.Other?.ExternalIdentity == parent
                 && Names.Equals(operation.Relation, ParentRelation));
 
-        public IEnumerable<ProviderLabelTarget> LabelTargets(string field)
-        {
-            var yielded = new HashSet<ExternalWorkItemIdentity>();
-            foreach (var operation in plan.Operations.OfType<ProviderMutationOperation>())
-            {
-                if (operation.OperationKind != PlanOperationKind.Batch || operation.Fields is null)
-                    continue;
-
-                if (operation.Fields.Keys.Any(k => Names.Equals(k, field) || Names.Equals(k, TypeField))
-                    && yielded.Add(operation.Target.Item.ExternalIdentity))
-                {
-                    yield return new(operation.Target.Item.ExternalIdentity, operation.Id);
-                }
-            }
-        }
-
         public IEnumerable<ProviderDependencyAdd> DependencyAdds()
         {
             foreach (var operation in plan.Operations.OfType<ProviderMutationOperation>())
@@ -458,33 +373,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
                 && value.Value is TextValue text && !string.IsNullOrWhiteSpace(text.Value)
                     ? text.Value : null;
         }
-
-        public async Task<string?> PreTypeAsync(ExternalWorkItemIdentity identity)
-        {
-            var snapshot = await SnapshotAsync(identity).ConfigureAwait(false);
-            return snapshot is not null && TryGetField(snapshot.Fields, TypeField, out var value)
-                && value.Value is TextValue text && !string.IsNullOrWhiteSpace(text.Value)
-                    ? text.Value : null;
-        }
-
-        public async Task<IReadOnlyList<string>?> PostTagsAsync(
-            ExternalWorkItemIdentity identity, string field)
-        {
-            if (TryGetOverlay(identity, field, out var overlay))
-            {
-                if (overlay is null)
-                    return [];
-                if (overlay.Contains(';'))
-                    return null;
-                return overlay.Length == 0 ? [] : [overlay];
-            }
-
-            return ReadTags(await SnapshotAsync(identity).ConfigureAwait(false), field);
-        }
-
-        public async Task<IReadOnlyList<string>?> PreTagsAsync(
-            ExternalWorkItemIdentity identity, string field) =>
-            ReadTags(await SnapshotAsync(identity).ConfigureAwait(false), field);
 
         public async Task<ProviderWorkItemSnapshot?> SnapshotAsync(
             ExternalWorkItemIdentity identity)
@@ -563,22 +451,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             }
 
             return found;
-        }
-
-        private static IReadOnlyList<string>? ReadTags(
-            ProviderWorkItemSnapshot? snapshot, string field)
-        {
-            if (snapshot is null || !TryGetField(snapshot.Fields, field, out var value))
-                return null;
-
-            return value.Value switch
-            {
-                StringListValue list => list.Values,
-                NullValue => [],
-                TextValue text when !text.Value.Contains(';') =>
-                    text.Value.Length == 0 ? [] : [text.Value],
-                _ => null,
-            };
         }
 
         private static bool TryGetField(FieldValues fields, string name, out FieldValue value)
@@ -738,73 +610,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             : [Decide(rule, PolicyOutcome.Permit, $"{judged} new {rule.ChildType} parent edge(s) checked; all parents are of an allowed type.")];
     }
 
-    private static List<PolicyDecision> EvaluateLabels(LabelApplicabilityRule rule, ProposalState state)
-    {
-        var findings = new List<PolicyDecision>();
-        var judged = 0;
-        foreach (var target in state.LabelTargets(rule.Field))
-        {
-            judged++;
-            var postTags = state.PostTags(target.Id, rule.Field);
-            var postType = state.PostType(target.Id);
-            if (!postTags.Any(t => HasPrefix(t, rule.Prefix)))
-                continue;
-
-            if (postType is null || (!target.IsNewSeed && !state.IsKnown(target.Id)))
-            {
-                findings.Add(Decide(rule, PolicyOutcome.Unavailable,
-                    $"Cannot check '{rule.Prefix}' labels on #{target.Id}: its current state is not cached; refresh it with 'twig show {target.Id} --refresh'.",
-                    target.Id, target.OpId));
-                continue;
-            }
-
-            var after = LabelViolations(rule, postType, postTags);
-            if (after.Count == 0)
-                continue;
-
-            var before = target.IsNewSeed
-                ? new Dictionary<string, string>()
-                : LabelViolations(rule, state.PreType(target.Id)!, state.PreTags(target.Id, rule.Field));
-            var added = after.Where(v => !before.ContainsKey(v.Key)).ToList();
-            if (added.Count == 0)
-            {
-                findings.Add(Decide(rule, PolicyOutcome.Warn,
-                    $"Pre-existing, not worsened by this proposal: {string.Join("; ", after.Values)}.",
-                    target.Id, target.OpId));
-                continue;
-            }
-
-            foreach (var violation in added)
-                findings.Add(Decide(rule, Violation(rule), violation.Value, target.Id, target.OpId));
-        }
-
-        return findings.Count > 0
-            ? findings
-            : [Decide(rule, PolicyOutcome.Permit, $"{judged} item(s) with changed labels or type checked for '{rule.Prefix}' labels.")];
-    }
-
-    private static Dictionary<string, string> LabelViolations(
-        LabelApplicabilityRule rule, string type, IReadOnlyList<string> tags)
-    {
-        var violations = new Dictionary<string, string>(StringComparer.Ordinal);
-        var prefixed = tags.Where(t => HasPrefix(t, rule.Prefix)).ToList();
-        if (!rule.AllowedTypes.Contains(type, Names))
-        {
-            foreach (var tag in prefixed)
-                violations[$"type:{tag.ToLowerInvariant()}"] =
-                    $"label '{tag}' is not allowed on {type}; '{rule.Prefix}' labels apply to: {string.Join(", ", rule.AllowedTypes)}";
-        }
-
-        if (rule.Exclusive && prefixed.Count > 1)
-        {
-            var key = string.Join("|", prefixed.Select(t => t.ToLowerInvariant()).Order(StringComparer.Ordinal));
-            violations[$"exclusive:{key}"] =
-                $"at most one '{rule.Prefix}' label is allowed, found: {string.Join(", ", prefixed)}";
-        }
-
-        return violations;
-    }
-
     private async Task<List<PolicyDecision>> EvaluateDependenciesAsync(
         DependencyIntegrityRule rule, PlanDefinition plan, ExecutionFacts? facts, CancellationToken ct)
     {
@@ -904,9 +709,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
         return null;
     }
 
-    private static bool HasPrefix(string tag, string prefix) =>
-        tag.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
-
     private static PolicyOutcome Violation(DeclaredPolicyRule rule) =>
         rule.Enforcement == PolicyEnforcement.Warn ? PolicyOutcome.Warn : PolicyOutcome.Refuse;
 
@@ -928,16 +730,9 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             ProviderIdentity = providerIdentity,
         };
 
-    internal static IReadOnlyList<string> SplitTags(string? value) =>
-        string.IsNullOrWhiteSpace(value)
-            ? []
-            : value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
     private readonly record struct ParentEdge(int ChildId, int ParentId, string OpId);
 
     private readonly record struct ParentRetype(int ParentId, string OpId);
-
-    private readonly record struct LabelTarget(int Id, string OpId, bool IsNewSeed);
 
     private sealed class ExecutionFacts(IExecutionPolicyFactReader reader)
     {
@@ -1062,17 +857,12 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             return new ProposalState(plan, cached, seeds, published);
         }
 
-        public bool IsKnown(int id) => id < 0 ? _seeds.ContainsKey(id) : _cached.ContainsKey(id);
-
         private WorkItem? Find(int id) =>
             id < 0 ? _seeds.GetValueOrDefault(id) : _cached.GetValueOrDefault(id);
 
         public string? PreType(int id) => Find(id)?.Type.Value is { Length: > 0 } t ? t : null;
 
         public int? PreParent(int id) => Find(id)?.ParentId;
-
-        public IReadOnlyList<string> PreTags(int id, string field) =>
-            Find(id) is { } item && item.Fields.TryGetValue(field, out var v) ? SplitTags(v) : [];
 
         public string? PostType(int id)
         {
@@ -1091,25 +881,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             }
 
             return touched ? (string.IsNullOrWhiteSpace(overlay) ? null : overlay) : PreType(id);
-        }
-
-        public IReadOnlyList<string> PostTags(int id, string field)
-        {
-            string? overlay = null;
-            var touched = false;
-            foreach (var batch in _plan.Operations.OfType<BatchOperation>().Where(b => b.WorkItemId == id))
-            {
-                foreach (var f in batch.Fields)
-                {
-                    if (Names.Equals(f.Key, field))
-                    {
-                        overlay = f.Value;
-                        touched = true;
-                    }
-                }
-            }
-
-            return touched ? SplitTags(overlay) : PreTags(id, field);
         }
 
         public IEnumerable<ParentRetype> RetypedParents()
@@ -1201,24 +972,6 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             _ => 0,
         };
 
-        public IEnumerable<LabelTarget> LabelTargets(string field)
-        {
-            var yielded = new HashSet<int>();
-            foreach (var batch in _plan.Operations.OfType<BatchOperation>())
-            {
-                if (batch.Fields.Keys.Any(k => Names.Equals(k, field) || Names.Equals(k, TypeField))
-                    && yielded.Add(batch.WorkItemId))
-                {
-                    yield return new LabelTarget(batch.WorkItemId, batch.Id, IsNewSeed: false);
-                }
-            }
-
-            foreach (var (seedId, opId) in _publishedSeedOps)
-            {
-                if (yielded.Add(seedId))
-                    yield return new LabelTarget(seedId, opId, IsNewSeed: true);
-            }
-        }
     }
 
     /// <summary>Dependency edges: verified cached links, plus proposed adds, minus proposed removes.</summary>

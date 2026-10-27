@@ -8,8 +8,6 @@ namespace Twig.Domain.Services.Policy;
 internal enum PolicyFindingCode
 {
     ParentType,
-    LabelType,
-    ExclusiveLabels,
     SelfDependency,
     DuplicateDependency,
     DependencyCycle,
@@ -25,8 +23,6 @@ internal sealed record PolicyFindingEvidence
     public string? ItemType { get; init; }
     public int? ParentId { get; init; }
     public string? ParentType { get; init; }
-    public string? Field { get; init; }
-    public IReadOnlyList<string> Labels { get; init; } = [];
     public IReadOnlyList<string> AllowedValues { get; init; } = [];
     public IReadOnlyList<PolicyDependencyEdge> Edges { get; init; } = [];
     public IReadOnlyList<int> MissingIds { get; init; } = [];
@@ -39,7 +35,6 @@ internal sealed record PolicyRepairStrategy
     public required string Id { get; init; }
     public required string Description { get; init; }
     public bool RequiresParentId { get; init; }
-    public string? RetainLabel { get; init; }
     public PolicyDependencyEdge? RemoveEdge { get; init; }
 }
 
@@ -70,7 +65,7 @@ internal sealed record PolicyAssessment
     public required IReadOnlyList<PolicyItemEvidence> Items { get; init; }
     public required IReadOnlyList<PolicyFinding> Findings { get; init; }
     public string Freshness => "cached";
-    public string ComplianceBasis => "parent/label rules over named scope; dependency rules over the incident cached component in dependencyScope";
+    public string ComplianceBasis => "parent rules over named scope; dependency rules over the incident cached component in dependencyScope";
     public IReadOnlyList<string> EvidenceLimits =>
     [
         "Not live or whole-board certification; refresh and reassess after apply.",

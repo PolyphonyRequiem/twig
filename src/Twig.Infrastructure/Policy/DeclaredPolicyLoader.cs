@@ -142,16 +142,8 @@ public sealed class DeclaredPolicyLoader(string policyPath)
                 Id = id,
                 MaxNodes = OptionalPositiveInt(element, "maxNodes", where) ?? DependencyIntegrityRule.DefaultMaxNodes,
             },
-            DeclaredPolicyRuleKinds.LabelApplicability => new LabelApplicabilityRule
-            {
-                Id = id,
-                Prefix = RequiredString(element, "prefix", where),
-                AllowedTypes = RequiredStrings(element, "allowedTypes", where),
-                Exclusive = OptionalBool(element, "exclusive", where) ?? false,
-                Field = OptionalString(element, "field", where) ?? LabelApplicabilityRule.DefaultField,
-            },
             _ => throw new PolicyFormatException(
-                $"{where} has unknown kind '{kind}'; supported kinds: {DeclaredPolicyRuleKinds.ParentType}, {DeclaredPolicyRuleKinds.DependencyIntegrity}, {DeclaredPolicyRuleKinds.LabelApplicability}."),
+                $"{where} has unknown kind '{kind}'; supported kinds: {DeclaredPolicyRuleKinds.ParentType}, {DeclaredPolicyRuleKinds.DependencyIntegrity}."),
         };
 
         return rule with { Enforcement = enforcement };
@@ -194,18 +186,6 @@ public sealed class DeclaredPolicyLoader(string policyPath)
         if (items.Count == 0)
             throw new PolicyFormatException($"{where} property '{name}' must not be empty.");
         return items;
-    }
-
-    private static bool? OptionalBool(JsonElement element, string name, string where)
-    {
-        if (!element.TryGetProperty(name, out var value))
-            return null;
-        return value.ValueKind switch
-        {
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            _ => throw new PolicyFormatException($"{where} property '{name}' must be true or false."),
-        };
     }
 
     private static int? OptionalPositiveInt(JsonElement element, string name, string where)

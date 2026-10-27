@@ -52,8 +52,9 @@ public sealed class PolicyFreshnessSafetyTests(ITestOutputHelper output)
     {
         using var fixture = new PolicyFreshnessFixture(output.WriteLine);
         await fixture.InitializeAsync();
-        fixture.Labels();
-        var digest = await fixture.PreviewAsync(PolicyFreshnessFixture.Batch("tail", 1));
+        fixture.Policy();
+        await fixture.PrepareParentTailAsync(1);
+        var digest = await fixture.PreviewAsync(PolicyFreshnessFixture.Retype("tail", 1));
         await fixture.PauseAsync(digest, itemId: 1);
         var history = fixture.History(digest);
         await ChangePolicyAsync(fixture, policy);
@@ -72,9 +73,10 @@ public sealed class PolicyFreshnessSafetyTests(ITestOutputHelper output)
     {
         using var fixture = new PolicyFreshnessFixture();
         await fixture.InitializeAsync();
-        fixture.Labels();
+        fixture.Policy();
+        await fixture.PrepareParentTailAsync(3);
         var digest = await fixture.PreviewAsync(
-            PolicyFreshnessFixture.Link(), PolicyFreshnessFixture.Batch("tail", 3));
+            PolicyFreshnessFixture.Link(), PolicyFreshnessFixture.Retype("tail", 3));
         await fixture.PauseAsync(digest, itemId: 3, completed: 1);
         fixture.Native.Revision(1).ShouldBe(2);
         var history = fixture.History(digest);
@@ -96,12 +98,13 @@ public sealed class PolicyFreshnessSafetyTests(ITestOutputHelper output)
     {
         using var fixture = new PolicyFreshnessFixture();
         await fixture.InitializeAsync();
-        fixture.Labels();
+        fixture.Policy();
+        await fixture.PrepareParentTailAsync(3);
         var digest = await fixture.PreviewAsync(
-            PolicyFreshnessFixture.Batch("first", 1), PolicyFreshnessFixture.Batch("tail", 3));
+            PolicyFreshnessFixture.Batch("first", 1), PolicyFreshnessFixture.Retype("tail", 3));
         fixture.Native.AfterMutation = id =>
         {
-            if (id == 1 && changePolicy) fixture.Labels(allow: false);
+            if (id == 1 && changePolicy) fixture.Policy(allow: false);
         };
 
         var result = await fixture.ApplyAsync(digest);
@@ -122,7 +125,7 @@ public sealed class PolicyFreshnessSafetyTests(ITestOutputHelper output)
     {
         using var fixture = new PolicyFreshnessFixture();
         await fixture.InitializeAsync();
-        fixture.Labels();
+        fixture.Policy();
         var digest = await fixture.PreviewAsync(PolicyFreshnessFixture.Link());
         fixture.Native.NativeFailure = evidence == "empty" ? null : evidence;
         fixture.Native.Reads.Clear();
@@ -153,7 +156,7 @@ public sealed class PolicyFreshnessSafetyTests(ITestOutputHelper output)
     {
         using var fixture = new PolicyFreshnessFixture();
         await fixture.InitializeAsync();
-        fixture.Labels();
+        fixture.Policy();
         var digest = await fixture.PreviewAsync(PolicyFreshnessFixture.Link());
         fixture.Native.Edge(2, 1);
         fixture.Native.Revision(1).ShouldBe(1);
@@ -175,9 +178,10 @@ public sealed class PolicyFreshnessSafetyTests(ITestOutputHelper output)
     {
         using var fixture = new PolicyFreshnessFixture();
         await fixture.InitializeAsync();
-        fixture.Labels();
+        fixture.Policy();
+        await fixture.PrepareParentTailAsync(3);
         var digest = await fixture.PreviewAsync(
-            PolicyFreshnessFixture.Batch("first", 1), PolicyFreshnessFixture.Batch("tail", 3));
+            PolicyFreshnessFixture.Batch("first", 1), PolicyFreshnessFixture.Retype("tail", 3));
         await fixture.PauseAsync(digest, itemId: 1);
         var history = fixture.History(digest);
         var proven = state is "stale-proven" or "applied-proven";
@@ -230,7 +234,7 @@ public sealed class PolicyFreshnessSafetyTests(ITestOutputHelper output)
     {
         using var fixture = new PolicyFreshnessFixture(output.WriteLine);
         await fixture.InitializeAsync();
-        fixture.Labels();
+        fixture.Policy();
         var digest = await fixture.PreviewAsync(
             PolicyFreshnessFixture.Batch("first", 3), PolicyFreshnessFixture.Link());
         await fixture.PauseAsync(digest, itemId: 3);
@@ -329,7 +333,7 @@ public sealed class PolicyFreshnessSafetyTests(ITestOutputHelper output)
 
     private static async Task ChangePolicyAsync(PolicyFreshnessFixture fixture, string policy)
     {
-        if (policy == "blocking") fixture.Labels(allow: false);
+        if (policy == "blocking") fixture.Policy(allow: false);
         if (policy == "invalid") File.WriteAllText(fixture.PolicyPath, """{"version":1,"rules":""");
         var loaded = await new DeclaredPolicyLoader(fixture.PolicyPath).LoadAsync();
         if (policy == "invalid") loaded.Failure.ShouldNotBeNull();

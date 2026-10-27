@@ -156,6 +156,7 @@ public sealed class NetworkServiceModuleTests
     public async Task PlanLifecycle_GitHubCompositionReviewsNativeFactsAndRefusesSettlementWithoutWrites()
     {
         using var target = new GitHubTargetFixture();
+        using var store = new Twig.Infrastructure.Persistence.SqliteCacheStore("Data Source=:memory:");
         await target.BindAsync();
         var tokens = new GitHub.GitHubReadOnlyAuthHandlerTests.FakeTokenSource();
         var transport = new GitHub.GitHubWorkItemProviderTests.RecordingTransport();
@@ -172,6 +173,7 @@ public sealed class NetworkServiceModuleTests
         {
             var services = new ServiceCollection();
             target.Register(services);
+            services.AddSingleton(store);
             services.AddSingleton(config);
             services.AddSingleton<IGitHubTokenSource>(tokens);
             services.AddSingleton(new GitHubTransportOverride(() => transport));
@@ -187,8 +189,8 @@ public sealed class NetworkServiceModuleTests
             Directory.CreateDirectory(root);
             await File.WriteAllTextAsync(Path.Combine(root, "twig.policy.json"), """
                 { "version": 1, "rules": [
-                  { "id": "priority", "kind": "label-applicability",
-                    "prefix": "priority:", "allowedTypes": ["Issue"] }
+                  { "id": "parents", "kind": "parent-type",
+                    "childType": "Task", "allowedParentTypes": ["Issue"] }
                 ] }
                 """);
             var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_caseSensitive");
@@ -196,12 +198,12 @@ public sealed class NetworkServiceModuleTests
             await File.WriteAllTextAsync(file, PlanDocumentWriter.Write(new PlanDefinition
             {
                 Version = 2,
-                Workspace = new PlanWorkspace { Organization = "testorg", Project = "testproj" },
+                Workspace = new PlanWorkspace { Organization = "github.com", Project = "new/repo" },
                 Operations =
                 [
                     new ProviderMutationOperation
                     {
-                        Id = "provider-label",
+                        Id = "provider-retype",
                         OperationKind = PlanOperationKind.Batch,
                         Target = new ProviderWorkItemMutationTarget
                         {
@@ -212,7 +214,23 @@ public sealed class NetworkServiceModuleTests
                             },
                             ExpectedProviderRevision = new ProviderRevisionToken("opaque-preview-token"),
                         },
-                        Fields = new Dictionary<string, string?> { ["System.Tags"] = "priority:high" },
+                        Fields = new Dictionary<string, string?> { ["System.WorkItemType"] = "Task" },
+                    },
+                    new ProviderMutationOperation
+                    {
+                        Id = "provider-parent-retype",
+                        OperationKind = PlanOperationKind.Batch,
+                        Target = new ProviderWorkItemMutationTarget
+                        {
+                            Item = new ProviderWorkItemReference
+                            {
+                                LocalId = LocalWorkItemId.New(),
+                                ExternalIdentity = new ExternalWorkItemIdentity(
+                                    "github", "https://api.github.com", "I_parent"),
+                            },
+                            ExpectedProviderRevision = new ProviderRevisionToken("opaque-parent-token"),
+                        },
+                        Fields = new Dictionary<string, string?> { ["System.WorkItemType"] = "Epic" },
                     },
                     new ProviderMutationOperation
                     {
@@ -243,7 +261,8 @@ public sealed class NetworkServiceModuleTests
             var preview = await lifecycle.PreviewAsync(file);
 
             preview.CanApply.ShouldBeFalse();
-            preview.ReviewModel.ShouldNotBeNull();
+            preview.ReviewModel.ShouldNotBeNull(
+                $"{preview}; issues: {string.Join("; ", preview.Issues.Select(issue => issue.Message))}");
             var decision = preview.ReviewModel!.PolicyDecisions.ShouldHaveSingleItem();
             decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Refuse);
             decision.ProviderIdentity.ShouldBe(identity);
@@ -275,9 +294,10 @@ public sealed class NetworkServiceModuleTests
             var apply = await lifecycle.ApplyAsync(file, digest, authorization);
             apply.Failed.ShouldBeTrue();
             (apply.Error ?? throw new InvalidOperationException("Expected apply to explain its refusal."))
-                .ShouldContain("review-only");
+                .ShouldContain("cannot be applied by this lifecycle");
+            apply.Error.ShouldContain("No confirmation, authorization, journal mutation, or provider operation was attempted.");
             var reconcile = await lifecycle.ReconcileAsync(
-                file, digest, "provider-label", PlanOutcomeKind.Retired, authorization);
+                file, digest, "provider-retype", PlanOutcomeKind.Retired, authorization);
             reconcile.Settled.ShouldBeFalse();
             (reconcile.Error ?? throw new InvalidOperationException("Expected reconciliation to explain its refusal."))
                 .ShouldContain("review-only");

@@ -227,11 +227,11 @@ published items explicitly:
 
 ```bash
 twig policy assess --ids 42,43 -o json
-twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy remove-labels -o json --proposal-only > repair.json
+twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy detach-parent -o json --proposal-only > repair.json
 twig proposal preview --file repair.json -o json
 ```
 
-Choose the finding and strategy from the assessment; parent targets and retained labels or
+Choose the finding and strategy from the assessment; parent targets and
 dependency edges are never guessed. Assessment reports cached evidence, unavailable checks
 and bounded alternatives, not live or whole-board certification.
 Dependency scope includes incident cached sources in both directions; contradictory
@@ -241,6 +241,11 @@ authorization and journaled apply
 remain separate. Refresh and reassess after apply; successful writes alone do not prove
 compliance. See the [policy contract](docs/specs/declared-policy-decisions.spec.md#current-state-assessment-and-reconciliation)
 for supported strategies, evidence limits and exit codes.
+
+Supported declared rules are `parent-type` and `dependency-integrity`; close-gate safety
+and blocking `unavailable` decisions remain in force. `label-applicability` was removed
+before 1.0. A policy file still declaring it fails to load and blocks proposals until the
+obsolete rule is deleted. Broader policy, process and rules design is deferred to Epic #1216.
 
 ### Native full-screen TUI
 

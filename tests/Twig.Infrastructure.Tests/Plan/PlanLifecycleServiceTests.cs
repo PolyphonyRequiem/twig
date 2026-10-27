@@ -340,17 +340,17 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 identity,
                 RevisionToken: null,
                 FieldValues.Empty
-                    .Set("System.WorkItemType", new TextValue("Task"))
-                    .Set("System.Tags", new StringListValue(["bug"])),
-                Relationships: [],
+                    .Set("System.WorkItemType", new TextValue("Task")),
+                Relationships: [new ProviderWorkItemRelationship(identity,
+                    new ExternalWorkItemIdentity("github", "https://api.github.com", "I_blocked"),
+                    Twig.Domain.Enums.LinkKind.PredecessorSuccessor)],
                 RelationshipsComplete: true));
         await File.WriteAllTextAsync(_paths.PolicyPath, """
             { "version": 1, "rules": [
-              { "id": "priority", "kind": "label-applicability",
-                "prefix": "priority:", "allowedTypes": ["Issue"] }
+              { "id": "dependencies", "kind": "dependency-integrity" }
             ] }
             """);
-        var source = WritePlan(ProviderBatchPlanSource(identity));
+        var source = WritePlan(ProviderDependencyPlanSource(identity));
 
         var result = await BuildService(providerSnapshots: reader).PreviewAsync(source);
 
@@ -5026,7 +5026,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         });
     }
 
-    private static string ProviderBatchPlanSource(ExternalWorkItemIdentity identity) =>
+    private static string ProviderDependencyPlanSource(ExternalWorkItemIdentity identity) =>
         PlanDocumentWriter.Write(new PlanDefinition
         {
             Version = 2,
@@ -5035,8 +5035,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             [
                 new ProviderMutationOperation
                 {
-                    Id = "provider-label",
-                    OperationKind = PlanOperationKind.Batch,
+                    Id = "provider-dependency",
+                    OperationKind = PlanOperationKind.AddLink,
                     Target = new ProviderWorkItemMutationTarget
                     {
                         Item = new ProviderWorkItemReference
@@ -5046,7 +5046,13 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                         },
                         ExpectedProviderRevision = new ProviderRevisionToken("opaque-revision"),
                     },
-                    Fields = new Dictionary<string, string?> { ["System.Tags"] = "priority:high" },
+                    Other = new ProviderWorkItemReference
+                    {
+                        LocalId = LocalWorkItemId.New(),
+                        ExternalIdentity = new ExternalWorkItemIdentity(
+                            "github", "https://api.github.com", "I_blocked"),
+                    },
+                    Relation = "successor",
                 },
             ],
         });

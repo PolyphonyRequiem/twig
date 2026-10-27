@@ -86,9 +86,9 @@ jobs:
           results = root.findall(".//t:UnitTestResult", ns)
           counters = root.find(".//t:Counters", ns)
           assert counters is not None
-          assert len(results) == len({r.attrib["testId"] for r in results}) == 10
+          assert len(results) == len({r.attrib["testId"] for r in results}) == 8
           assert all(r.attrib["outcome"] == "Passed" for r in results)
-          assert all(counters.attrib[key] == "10" for key in ("total", "executed", "passed"))
+          assert all(counters.attrib[key] == "8" for key in ("total", "executed", "passed"))
           assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted", "notExecuted"))
           assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
 

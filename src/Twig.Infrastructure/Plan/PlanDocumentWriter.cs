@@ -148,6 +148,8 @@ public static class PlanDocumentWriter
                 when op.Relation is not null && op.Other is not null && op.Fields is null:
                 writer.WriteString("relation", op.Relation);
                 WriteProviderReference(writer, "other", op.Other);
+                if (op.Concurrency != "exact-revision")
+                    writer.WriteString("concurrency", op.Concurrency);
                 break;
             case PlanOperationKind.Delete when op.Relation is null && op.Other is null && op.Fields is null:
                 break;

@@ -1168,6 +1168,18 @@ public sealed class PlanCommand(
             ["authority"] = RenderCell.String(origin.Authority),
             ["adoPrincipalId"] = NullableStringCell(origin.AdoPrincipalId),
         };
+        if (origin.ProviderAuthority is { } provider)
+            obj["providerAuthority"] = new RenderCell(provider.ActorId, new RenderValue.Object(
+                new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["providerKind"] = RenderCell.String(provider.Target.ProviderKind),
+                    ["resourceScope"] = RenderCell.String(provider.Target.ResourceScope),
+                    ["descriptorKind"] = RenderCell.String(provider.Target.DescriptorKind),
+                    ["descriptorValue"] = RenderCell.String(provider.Target.DescriptorValue),
+                    ["actorId"] = RenderCell.String(provider.ActorId),
+                    ["credentialAccount"] = RenderCell.String(provider.CredentialAccount),
+                    ["endpoint"] = RenderCell.String(provider.Endpoint),
+                }));
         return new RenderCell($"identity={origin.IdentityId}", new RenderValue.Object(obj));
     }
 

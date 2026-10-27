@@ -25,7 +25,7 @@ public sealed class GitHubWorkItemProviderTests
         var snapshot = await provider.FetchSnapshotAsync(Identity);
 
         snapshot.Identity.ShouldBe(Identity);
-        snapshot.RevisionToken.ShouldBeNull();
+        snapshot.RevisionToken.ShouldNotBeNull().Value.ShouldStartWith("github-observed:");
         snapshot.Fields["System.Title"].Value.ShouldBe(new TextValue("Issue title"));
         snapshot.Fields["System.State"].Value.ShouldBe(new TextValue("OPEN"));
         snapshot.Fields["System.WorkItemType"].Value.ShouldBe(new TextValue("Bug"));

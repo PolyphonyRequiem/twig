@@ -59,6 +59,7 @@ public sealed class PlanDocumentParser
     private const string PropNativeId = "nativeId";
     private const string PropExpectedProviderRevision = "expectedProviderRevision";
     private const string PropOther = "other";
+    private const string PropConcurrency = "concurrency";
 
     private const string KindBatch = "batch";
     private const string KindAddLink = "add-link";
@@ -110,7 +111,7 @@ public sealed class PlanDocumentParser
 
     private static readonly FrozenSet<string> ProviderLinkProperties = new[]
     {
-        PropId, PropKind, PropTarget, PropRelation, PropOther,
+        PropId, PropKind, PropTarget, PropRelation, PropOther, PropConcurrency,
     }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> ProviderDeleteProperties = new[]
@@ -420,6 +421,15 @@ public sealed class PlanDocumentParser
                 var linkTarget = ReadProviderTarget(op, path, issues);
                 var relation = ReadRequiredNonEmptyString(op, PropRelation, $"{path}/{PropRelation}", issues);
                 var other = ReadProviderReference(op, PropOther, $"{path}/{PropOther}", issues);
+                var concurrency = op.TryGetProperty(PropConcurrency, out _)
+                    ? ReadRequiredNonEmptyString(op, PropConcurrency, $"{path}/{PropConcurrency}", issues)
+                    : "exact-revision";
+                if (concurrency is not ("exact-revision" or "observed-non-atomic"))
+                    issues.Add(new PlanValidationIssue
+                    {
+                        Code = PlanValidationCodes.EmptyString, Path = $"{path}/{PropConcurrency}",
+                        Message = "Concurrency must be exact-revision or observed-non-atomic.",
+                    });
                 if (relation is not null && !ValidRelations.Contains(relation))
                 {
                     issues.Add(new PlanValidationIssue
@@ -438,6 +448,7 @@ public sealed class PlanDocumentParser
                     Target = linkTarget,
                     Relation = relation,
                     Other = other,
+                    Concurrency = concurrency ?? "exact-revision",
                 };
 
             case KindDelete:

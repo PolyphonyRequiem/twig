@@ -73,6 +73,39 @@ jobs:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/gh-parser/trace
         run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GhCliTokenSourceTests" --logger "trx;LogFileName=gh-parser.trx" --results-directory artifacts/test-logs/ci/gh-parser
 
+      - name: GitHub native relationship proposal regression
+        shell: python
+        run: |
+          import pathlib, subprocess, sys, xml.etree.ElementTree as ET
+          base = pathlib.Path("artifacts/test-logs/ci/github-native")
+          base.mkdir(parents=True, exist_ok=True)
+          groups = [
+              ("links", ["ProductionComposition_AuthorizesJournalsWritesAndReadsBackBothEndpoints"], 6),
+              ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "MissingOrWrongDigestAuthorization",
+                             "ObservationToken", "JournalRejects"], 9),
+              ("recovery", ["UncertainOrContradictoryResponse", "DeniedReadback", "CrashRecovery"], 7),
+          ]
+          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+          for label, methods, expected in groups:
+              selector = "|".join(f"FullyQualifiedName~GitHubNativeRelationshipTests.{m}" for m in methods)
+              subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "60", "--",
+                              "dotnet", "vstest", "tests/Twig.Infrastructure.Tests/bin/Debug/net11.0/Twig.Infrastructure.Tests.dll",
+                              f"/TestCaseFilter:{selector}", f"/Logger:trx;LogFileName={label}.trx",
+                              f"/ResultsDirectory:{base}"], check=True)
+              root = ET.parse(base / f"{label}.trx").getroot()
+              results = root.findall(".//t:UnitTestResult", ns)
+              assert len(results) == len({r.attrib["executionId"] for r in results}) == expected
+              assert all(r.attrib["outcome"] == "Passed" for r in results)
+              assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
+
+      - name: Preserve GitHub native relationship results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-github-native-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/github-native/
+          if-no-files-found: warn
+
       - name: Rejected-create-family kernel regression
         run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Reconcile_RejectedCreateFamily_RequiresEveryMatchingSiblingToBeRejected|FullyQualifiedName~Reconcile_RejectedCreateFamily_AliasedWorktreePreservesExactAuthority|FullyQualifiedName~GetOpenIntents_StillExcludesExactReadbackAndSupersededSettlements|FullyQualifiedName~GetUnresolved_KeepsAProposalOpenForAnUnvalidatedRejectedFamilyReceipt" --logger "trx;LogFileName=rejected-create-family.trx" --results-directory artifacts/test-logs/ci/rejected-create-family
 

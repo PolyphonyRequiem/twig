@@ -13,6 +13,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Policy;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.GitHub;
 
 
 namespace Twig.Infrastructure.Plan;
@@ -65,6 +66,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly IPlanJournalRepository _journal;
     private readonly IPendingChangeReader _pendingReader;
     private readonly PlanOperationExecutor? _executor;
+    private readonly GitHubNativeRelationshipService? _nativeRelationships;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly ISeedLinkRepository? _seedLinkRepo;
     private readonly IStagedIdentityRegistry? _stagedRegistry;
@@ -194,7 +196,9 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IWorkItemRepository workItemRepo,
         TwigConfiguration config,
         TwigPaths paths,
-        IWorkItemSnapshotReader providerSnapshots)
+        IWorkItemSnapshotReader providerSnapshots,
+        GitHubNativeRelationshipService? nativeRelationships = null,
+        ISessionSteeringModeProvider? steering = null)
     {
         _parser = parser;
         _journal = journal;
@@ -210,10 +214,12 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             CapabilityDescriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(
                 config.ResolveWorkItemProviderKind(), out var capabilityDescriptor) ? capabilityDescriptor : null,
         };
-        _steering = new UnresolvedSessionSteeringModeProvider();
+        _steering = steering ?? new UnresolvedSessionSteeringModeProvider();
         _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
         _policyEvaluator = new DeclaredPolicyEvaluator(workItemRepo, links: null, providerSnapshots);
-        _previewOnly = true;
+        _nativeRelationships = nativeRelationships;
+        _origin = nativeRelationships;
+        _previewOnly = nativeRelationships is null;
     }
 
     /// <inheritdoc />
@@ -317,14 +323,14 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
         var pending = await _pendingReader.GetAllChangesAsync(ct).ConfigureAwait(false);
 
-        if (parsed.Plan.Version == 2)
+        if (parsed.Plan.Version == 2 && !SupportsProviderPlan(parsed.Plan))
         {
             var providerPolicyDecisions = await EvaluateDeclaredPolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
             var blocker = new PlanValidationIssue
             {
                 Code = PlanValidationCodes.UnsupportedApplyVersion,
                 Path = "/version",
-                Message = "Plan version 2 is valid and reviewable, but provider-identity operations remain non-applicable until exact-revision authority is available.",
+                Message = "Provider operations require exact-revision authority unless every operation is a supported GitHub relationship explicitly choosing observed-non-atomic concurrency.",
             };
             PlanValidationIssue[] blockedIssues = [.. parsed.Issues, blocker];
             return new PlanPreviewResult
@@ -342,7 +348,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             };
         }
 
-        if (_previewOnly)
+        if (_previewOnly || (_nativeRelationships is not null && parsed.Plan.Version != 2))
         {
             var issue = new PlanValidationIssue
             {
@@ -677,12 +683,13 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 confirmedDigest,
                 parsed.Issues.Count > 0 ? parsed.Issues[0].Message : "Plan is invalid.");
 
-        if (_previewOnly || _executor is null)
+        if (_previewOnly || (_executor is null && _nativeRelationships is null))
             return TopLevelApplyFailure(
                 confirmedDigest,
                 "This provider composition is review-only. No confirmation, authorization, journal mutation, or provider operation was attempted.");
 
-        if (parsed.Plan.Version == 2)
+        if ((parsed.Plan.Version == 2 && !SupportsProviderPlan(parsed.Plan))
+            || (_nativeRelationships is not null && parsed.Plan.Version != 2))
             return TopLevelApplyFailure(
                 confirmedDigest,
                 "Plan version 2 is reviewable but cannot be applied by this lifecycle. No confirmation, authorization, journal mutation, or provider operation was attempted.");
@@ -1306,7 +1313,9 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 return await ResumeFromObservedRowAsync(digest, row.OpId, opDef, carry, ct).ConfigureAwait(false);
             }
 
-            var applyResult = await _executor!.ExecuteAsync(opDef, ct).ConfigureAwait(false);
+            var applyResult = _nativeRelationships is not null && opDef is ProviderMutationOperation providerOperation
+                ? await _nativeRelationships.ExecuteAsync(providerOperation, journal?.Origin, ct).ConfigureAwait(false)
+                : await _executor!.ExecuteAsync(opDef, ct).ConfigureAwait(false);
 
             // Applied / MappedPublish: atomic Applying → Applied+result. Failed: terminal
             // Failed. Indeterminate: readback while still Applying — a proven effect still
@@ -1425,7 +1434,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
-        var outcome = await _executor!.ReadbackAsync(opDef, default, ct).ConfigureAwait(false);
+        var outcome = await ReadbackOperationAsync(digest, opDef, default, ct).ConfigureAwait(false);
         if (outcome.Ok)
         {
             // Atomic Applying → Applied with the readback's canonical result. The readback
@@ -1549,7 +1558,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
-        var outcome = await _executor!.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
+        var outcome = await ReadbackOperationAsync(digest, opDef, applyResult, ct).ConfigureAwait(false);
         if (outcome.Ok)
         {
             // The executor could not classify, so its ResultJson is null; the readback that
@@ -1587,7 +1596,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
-        var outcome = await _executor!.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
+        var outcome = await ReadbackOperationAsync(digest, opDef, applyResult, ct).ConfigureAwait(false);
         outcome = outcome with { ResultJson = ComposeReadbackEvidence(applyResult.ResultJson, outcome.ResultJson) };
         if (outcome.Ok)
         {
@@ -1873,12 +1882,29 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         }
     }
 
+    private bool SupportsProviderPlan(PlanDefinition plan) =>
+        _nativeRelationships is not null && plan.Operations.Count > 0
+        && plan.Operations.All(GitHubNativeRelationshipService.Supports);
+
+    private async Task<PlanReadbackOutcome> ReadbackOperationAsync(
+        string digest, PlanOperationDefinition operation, PlanExecutionResult applied, CancellationToken ct)
+    {
+        if (_nativeRelationships is not null && operation is ProviderMutationOperation provider)
+        {
+            var journal = await _journal.GetAsync(digest, ct).ConfigureAwait(false);
+            return await _nativeRelationships.ReadbackAsync(provider, journal?.Origin, ct).ConfigureAwait(false);
+        }
+        return await _executor!.ReadbackAsync(operation, applied, ct).ConfigureAwait(false);
+    }
+
     private PlanValidationResult AttachWorkspaceMismatchIfAny(PlanValidationResult parsed)
     {
         if (parsed.Plan is null) return parsed;
         var ws = parsed.Plan.Workspace;
-        if (string.Equals(ws.Organization, _config.Organization, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(ws.Project, _config.Project, StringComparison.OrdinalIgnoreCase))
+        var organization = _nativeRelationships is not null ? _config.GitHub?.Host : _config.Organization;
+        var project = _nativeRelationships is not null ? _config.GitHub?.Repository : _config.Project;
+        if (string.Equals(ws.Organization, organization, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(ws.Project, project, StringComparison.OrdinalIgnoreCase))
             return parsed;
 
         var mismatch = new PlanValidationIssue
@@ -1887,7 +1913,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             Path = "/workspace",
             Message =
                 $"Plan workspace {ws.Organization}/{ws.Project} does not match active workspace "
-                + $"{_config.Organization}/{_config.Project}.",
+                + $"{organization}/{project}.",
         };
         return new PlanValidationResult
         {

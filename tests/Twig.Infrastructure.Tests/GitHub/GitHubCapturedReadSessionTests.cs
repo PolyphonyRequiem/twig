@@ -44,7 +44,7 @@ public sealed class GitHubCapturedReadSessionTests
         session.Target.AttachmentRevision.ShouldBe(11);
         session.Target.WorktreeFingerprint.ShouldBe("observed-worktree-fingerprint");
         snapshot.Identity.ShouldBe(fixture.Issue);
-        snapshot.RevisionToken.ShouldBeNull();
+        snapshot.RevisionToken.ShouldNotBeNull().Value.ShouldStartWith("github-observed:");
         snapshot.RelationshipsComplete.ShouldBeTrue();
         fixture.Tokens.Calls.ShouldBe(1);
         fixture.Network.Requests.Count.ShouldBe(13);

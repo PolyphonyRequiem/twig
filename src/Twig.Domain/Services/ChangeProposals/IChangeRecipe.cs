@@ -11,8 +11,8 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// or mutate member — so "invoking a template cannot mutate ADO" is a property of the
 /// contract itself, not a runtime check a future implementation could bypass. A caller that
 /// wants to apply a rendered proposal must take it through the ordinary
-/// validate → preview → authorize → apply lifecycle, which is where the digest gate and the
-/// authorization record live.
+/// validate → preview → confirm → apply lifecycle, which is where the canonical digest check
+/// is enforced.
 /// </para>
 /// <para>
 /// <b>Rendering identity.</b> An implementation MUST be a pure function of its inputs and

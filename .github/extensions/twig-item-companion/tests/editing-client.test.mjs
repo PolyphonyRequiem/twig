@@ -324,12 +324,8 @@ test("Save requires a distinct trusted UI gesture over the visible exact receipt
     save().listeners.click({ isTrusted: true });
     await settle();
     const sent = h.calls.at(-1);
-    assert.deepEqual(Object.keys(sent).sort(), ["action", "authorization", "saveHandle"]);
+    assert.deepEqual(Object.keys(sent).sort(), ["action", "saveHandle"]);
     assert.equal(sent.saveHandle, "held-save");
-    assert.equal(sent.authorization.digest, "a".repeat(64));
-    assert.equal(sent.authorization.mode, 0);
-    assert.match(sent.authorization.authorizerIdentity, /individual identity unverified/);
-    assert.ok(Number.isFinite(Date.parse(sent.authorization.authorizedAt)));
     assert.equal(save().disabled, true);
     assert.match(flattened(h.root), /Saved: native effects verified/);
     assert.match(flattened(h.root), /Digest: a{64}/, "the capture remains visible after Save");

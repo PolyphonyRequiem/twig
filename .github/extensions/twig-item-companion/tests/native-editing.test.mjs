@@ -102,24 +102,19 @@ function savedResult() {
         operations: [{ opId: capture.operationId, ordinal: 0, state: "Verified", error: null,
             warning: null, resultJson: '{"revision":18}' }] };
 }
-test("Save uses the same pinned bounded runner and forwards UI-authored authorization, never a proposal file", async () => {
+test("Save uses the same pinned bounded runner and sends only the retained digest context, never a proposal file", async () => {
     const native = savedResult();
     const executable = fakeExecutable();
     const h = harness(native, 0, { executable });
     const capture = retainedResult().capture;
-    const authorization = { digest: capture.digest, mode: 0,
-        authorizerIdentity: "workbench-ui-user (individual identity unverified)",
-        rationale: "Explicit Save gesture; caller/surface attribution only, not host-attested identity.",
-        authorizedAt: "2026-10-27T12:00:00.000Z" };
-    const saved = await h.adapter.save({ capture, authorization, workspacePath });
+    const saved = await h.adapter.save({ capture, workspacePath });
     assert.deepEqual(saved, native);
     assert.deepEqual(h.calls[0].args, ["draft", "save", "--stdin", "-o", "json"]);
     assert.equal(h.calls[0].exe, FAKE_TWIG);
     assert.deepEqual(executable.prepared, ["draft-save"]);
     const request = JSON.parse(h.calls[0].writes[0].value);
-    assert.deepEqual(request.authorization, authorization);
     assert.equal(request.callerIdentity, capture.nativeContext.identityId);
-    assert.deepEqual(Object.keys(request).sort(), ["authorization", "callerIdentity", "digest", "surface", "version"]);
+    assert.deepEqual(Object.keys(request).sort(), ["callerIdentity", "digest", "surface", "version"]);
     assert.equal(h.calls[0].eof, true);
 });
 
@@ -654,7 +649,7 @@ test("editing wiring remains explicit; only a separate trusted browser Save can 
     assert.match(client, /stage\.addEventListener\("click", \(\) => void perform\("stage"\)\)/);
     assert.match(client, /save\.addEventListener\("click", event =>/);
     assert.match(client, /event\?\.isTrusted !== true/);
-    assert.match(bridge, /validateSaveAuthorization\(body\.authorization, held\.capture\.digest\)/);
+    assert.doesNotMatch(bridge, /body\.authorization|validateSaveAuthorization/);
     assert.doesNotMatch(client, /innerHTML|setInterval|setTimeout/);
 });
 

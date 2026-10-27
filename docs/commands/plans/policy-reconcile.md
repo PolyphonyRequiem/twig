@@ -1,8 +1,8 @@
 # `twig policy reconcile`
 
 Render one explicitly selected repair from a current policy assessment as a
-native proposal. It authors the proposal only; review, confirmation,
-authorization and journaled apply remain separate.
+native proposal. It authors the proposal only; review, digest confirmation,
+and journaled apply remain separate.
 
 ```bash
 twig policy reconcile --ids 42,43 --evidence <digest> --finding f1 --strategy reparent --parent 43
@@ -33,7 +33,7 @@ ADO writes (`mutates: none`) and creates no proposal file of its own. Shell
 redirection such as `> repair.json` is the caller's choice. JSON output
 without `--proposal-only` returns `canPropose`, `digest`, the before and
 projected assessments, and the proposal. Then use `twig proposal preview` and
-`twig proposal apply` with the reviewed digest and explicit authorization;
+`twig proposal apply` with the reviewed digest;
 refresh and reassess after apply, since a successful write alone does not prove
 compliance.
 

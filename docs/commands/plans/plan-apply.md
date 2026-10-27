@@ -21,7 +21,6 @@ indefinitely, but grouped help and documentation lead with `proposal`.
 
 ```
 twig plan apply --file <path> --confirm <digest>
-                [--authorize <identity>] [--rationale <text>]
                 [-o human|json|minimal]
 ```
 
@@ -39,14 +38,12 @@ twig plan apply --file <path> --confirm <digest>
 | `--version` | flag | — | Print the twig version and exit. |
 |`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`--confirm`|string|_none_|Lowercase-hex SHA-256 digest of the canonical proposal bytes. Must match exactly.|
-|`--authorize`|string|_none_|Identity authorizing this apply. Recorded in the journal audit trail; without it the apply is refused.|
-|`--rationale`|string|_none_|Optional reason for authorizing this apply, recorded alongside the authorization.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
 
 ## Behavior
 
 Alias only. See [`proposal apply`](proposal-apply.md#behavior) for the full
-behavior contract — digest gate, authorization semantics, per-operation
+behavior contract — digest gate, per-operation
 journal writes, and the all-or-nothing exit rule.
 
 ## Examples
@@ -55,16 +52,16 @@ Equivalent invocations:
 
 ```console
 $ twig plan apply --file .twig/proposals/close-1234.json \
-      --confirm 3f9c…a1b7 --authorize "Daniel Green"
+      --confirm 3f9c…a1b7
 $ twig proposal apply --file .twig/proposals/close-1234.json \
-      --confirm 3f9c…a1b7 --authorize "Daniel Green"
+      --confirm 3f9c…a1b7
 ```
 
 Machine output for an agent script:
 
 ```console
 $ twig plan apply --file .twig/proposals/close-1234.json \
-      --confirm 3f9c…a1b7 --authorize wayfinder-bot -o json
+      --confirm 3f9c…a1b7 -o json
 { "digest": "3f9c…a1b7", "failed": false, "operations": [ /* rows */ ] }
 ```
 
@@ -73,7 +70,7 @@ $ twig plan apply --file .twig/proposals/close-1234.json \
 |Condition|Result|
 |---|---|
 |Every operation reached the Verified terminal state.|`0`|
-|One or more operations failed, digest did not match, or authorization gate refused.|`1`|
+|One or more operations failed, or digest did not match.|`1`|
 |`--file` or `--confirm` omitted.|`2`|
 
 ## See also

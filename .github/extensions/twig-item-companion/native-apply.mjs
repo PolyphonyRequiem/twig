@@ -7,11 +7,9 @@ const text = (value, limit) => typeof value === "string" && value.trim().length 
 
 export function validateApplyRequest(input, observation) {
     const keys = record(input) ? Object.keys(input).sort().join(",") : "";
-    if (!["authorize,captureId,confirm", "authorize,captureId,confirm,rationale"].includes(keys) ||
-        !text(input.authorize, 512) || !text(input.captureId, 128) ||
-        typeof input.confirm !== "string" || !/^[a-f0-9]{64}$/.test(input.confirm) ||
-        (Object.hasOwn(input, "rationale") && !text(input.rationale, 2048))) {
-        throw new Error("Apply requires the retained captureId, exact confirm digest and explicit authorizer; only an optional rationale is accepted.");
+    if (keys !== "captureId,confirm" || !text(input.captureId, 128) ||
+        typeof input.confirm !== "string" || !/^[a-f0-9]{64}$/.test(input.confirm)) {
+        throw new Error("Apply requires only the retained captureId and exact confirm digest.");
     }
     const envelope = observation?.retained?.envelope;
     if (!envelope || input.captureId !== observation.expected.captureId ||
@@ -66,10 +64,7 @@ export function createNativeProposalApplier(options = {}) {
             throw new Error("Apply checkout or physical proposal file changed since acquisition.");
         }
         signal?.throwIfAborted();
-        const args = ["proposal", "apply", "--file", file, "--confirm", request.confirm,
-            "--authorize", request.authorize];
-        if (request.rationale !== undefined) args.push("--rationale", request.rationale);
-        args.push("-o", "json");
+        const args = ["proposal", "apply", "--file", file, "--confirm", request.confirm, "-o", "json"];
         return invoke("proposal-apply", args, cwd, signal, undefined,
             { digest: request.confirm, operations: observation.retained.envelope.reviewModel.operations }, validateApplyResult);
     };

@@ -3,7 +3,7 @@
 This project-scoped Copilot extension provides cached item detail and a named-Bench
 workbench. Detail and ordinary browsing remain read-only; the workbench also exposes
 explicit local draft open/stage/retain and a separate human Save backed by Twig's native bridge. A separate
-proposal-review canvas provides explicit acquisition and digest-bound authorization/Apply. It does not
+proposal-review canvas provides explicit acquisition and a human digest-bound Accept/Apply action. It does not
 read Twig's SQLite files or call an ADO/GitHub API directly.
 
 The item-detail canvas remains read-only. The workbench can explicitly open a local
@@ -590,10 +590,9 @@ malformed evidence, while the reader explicitly accepts a valid empty list.
 
 Eight parser-admitted proposals passed through the production review builder and
 serializer with a fake repository; the candidate accepted all eight serialized
-models. The same acceptance harness against the baseline failed first on missing
-Brief authorization-choice evidence; this is not proof of six provider refusals.
-The temporary Infrastructure test-project build passed with six SourceLink
-warnings, not a supported-solution build. These receipts are not full CLI, HTTP,
+models. The temporary Infrastructure test-project build passed with six SourceLink
+warnings, not a supported-solution build.
+These receipts are not full CLI, HTTP,
 SQLite, installed-host or origin-authority qualification. The capture-only
 `draft retain` contract is separate and supplies no semantic review or full
 origin; this consumer does not acquire or interpret it.
@@ -604,18 +603,18 @@ loopback state restores the same observation while this provider instance lives;
 provider restart or a fresh panel starts empty, not with invented durable recovery.
 Retained file/revision/readiness freshness is unknown until another explicit
 acquisition. A failed replacement clears old success. Close aborts the owned child
-and suppresses late publication. Acquisition and view controls do not invoke the
-separate authorization/Apply action below; workbench Save remains separate scope.
+and suppresses late publication. Acquisition and view controls do not apply a
+proposal; workbench Save remains separate scope.
 
-### Separate explicit proposal Apply (#1201)
+### Human-only proposal Accept/Apply (#1212)
 
-After acquiring and reviewing one executable, unblocked native preview, use the
-separate **Authorize and apply** form or `apply_review` SDK action. The action
-requires `{captureId, confirm, authorize}` with an optional `rationale`. It accepts
-no caller-selected file, replacement observation or workspace. The form requires
-fresh consent, an explicitly entered authorizer and re-entered digest; replacing
-the capture clears these inputs. Acquisition, favorable assessments, Details,
-Show retained observation, reload and open never authorize or apply.
+After acquiring and reviewing one executable, unblocked native preview, a person
+may use the canvas's **Accept and apply** form. There is no `apply_review` SDK
+action, authorizer field, steering mode, or rationale input. The form accepts only
+the retained capture ID and exact digest from that observation; it also requires
+the person's explicit consent checkbox. Replacing the capture clears that consent.
+Acquisition, favorable assessments, Details, Show retained observation, reload
+and open never apply.
 
 The server binds the request to its retained capture and digest, rejects pending
 changes/blockers/non-executable review, and consumes each submitted capture once.
@@ -624,15 +623,15 @@ uses the same pinned executable admission and owned-process supervision as local
 editing. It invokes only:
 
 ```text
-twig proposal apply --file <retained-physical-file> --confirm <retained-digest> --authorize <explicit-identity> [--rationale <text>] -o json
+twig proposal apply --file <retained-physical-file> --confirm <retained-digest> -o json
 ```
 
-The authorizer is a journal identity supplied explicitly by the caller, not proof
-of an authenticated human. Native mode-specific authorization, current digest,
-origin, revision, policy and journal gates remain authoritative. Review does not
-export full binding/identity origin, so this action makes no stronger continuity
-claim. Review model version alone does not grant proposal executability; native
-Apply also rejects unsupported proposal document versions.
+This server route is reachable through the human review page, not an SDK action.
+Native current-digest, origin, revision, policy and journal gates remain
+authoritative. The review model is transient and no approval snapshot or
+authorizer identity is written to the journal. Existing historical audit rows
+remain readable. Review model version alone does not grant proposal
+executability; native Apply also rejects unsupported proposal document versions.
 
 Only native exit zero with the exact complete operation coverage, every row
 `Verified`, no failure/error and no unsettled acknowledgments is shown as verified.
@@ -645,16 +644,16 @@ ownership; closing aborts owned work and suppresses late results.
 Iframe reload retains the reviewed observation and Apply outcome while that
 provider lives. Provider restart starts empty; the durable native journal remains
 the recovery authority, not the canvas's in-memory receipt. Inspect it before
-authorizing any new attempt after uncertainty. Synthetic Node/HTTP/SDK tests are
-not installed-app or live-provider qualification.
+any new attempt after uncertainty. Synthetic Node/HTTP tests are not
+installed-app or live-provider qualification.
 
 ### Native captured-draft consumption foundation (#1200)
 
 The internal `PlanLifecycleService.ApplyCapturedDraftAsync` consumes the exact
 retained digest and canonical journal bytes without exporting a file or creating
-an unbound replacement proposal. It shares ordinary digest-bound authorization,
-current-origin, policy, process-rule, revision-bound execution and authoritative
-readback with proposal Apply. The generic file Apply path still refuses captures.
+an unbound replacement proposal. It shares digest confirmation, current-origin,
+policy, process-rule, revision-bound execution and authoritative readback with
+proposal Apply. The generic file Apply path still refuses captures.
 
 Immediately before the first write, a single native transaction revalidates the
 exact draft generation/effects and served metadata evidence, then wins the existing
@@ -672,30 +671,24 @@ transport substituted; they do not qualify installed-host attribution.
 ### Explicit human Save (#1200 clarified contract)
 
 After RETAIN, the workbench displays the exact native capture digest, operation and
-nullable effects. **Save exact retained capture (publish)** is a separate action,
-disabled while input is unsent, stale, busy or uncertain. Only its trusted browser
-click handler authors a digest-bound Human authorization record. Synthetic `.click()`,
-mount, navigation, reload, review and SDK actions do not call Save. No Save SDK
-action or agent-facing method is exported.
+nullable effects. **Save exact retained capture (publish)** is a separate human
+action, disabled while input is unsent, stale, busy or uncertain. Only its trusted
+browser click handler invokes Save; it collects no authorizer identity, mode or
+rationale. Synthetic `.click()`, mount, navigation, reload, review and SDK actions
+do not call Save. No Save SDK action or agent-facing method is exported.
 
-The browser sends that record and a single-use opaque handle. The server supplies
-the unchanged retained digest, captured caller account and fixed surface to
+The browser sends only a single-use opaque handle. The server supplies the unchanged
+retained digest, captured caller account and fixed surface to
 `twig draft save --stdin -o json`; it accepts no replacement effects or proposal
 file. The CLI strictly reads one bounded request through EOF, compares caller
-account with current native admission and forwards the UI's authorization unchanged
-to `ApplyCapturedDraftAsync`. It never constructs Human authorization from its own
-account, steering mode, a supplied person's name or the loopback bearer token.
+account with current native admission and passes the exact retained digest to
+`ApplyCapturedDraftAsync`. No authorizer identity or approval snapshot is recorded.
 
-Attribution says `workbench-ui-user (individual identity unverified)`, with the
-admitted native caller account recorded separately and `hostAttested:false`.
-This is UI/process separation, **not authenticated individual identity or
-cryptographic click attestation**. Browser `isTrusted` rejects ordinary scripted
-clicks; neither that flag, the record's strings, its timestamp nor a bearer token
-proves identity to the native process. The transport is not an authorization
-service against a compromised/local caller able to forge requests. An agent must
-not synthesize the record or invoke Save on a human's behalf. Daniel's clarification
-removed the previously inferred SDK-attestation prerequisite, not the independent
-authorization invariant or these truthful-attribution limits.
+The CLI compares the captured caller account with the current native admission;
+this is not authenticated attribution to an individual. Browser `isTrusted`
+keeps ordinary scripted clicks from invoking the UI handler, but it is not a
+security credential. Save remains a human-only UI action; the server-held handle
+and native digest/origin/journal checks are authoritative.
 
 The held handle is consumed before native execution and revoked on target changes.
 The same pinned, bounded, serialized native runner is used for open/stage/retain/save.

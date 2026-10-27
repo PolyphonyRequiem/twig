@@ -153,7 +153,7 @@ public sealed class StateCommand(
                     "'twig state' writes System.State alone, so it can never carry these fields. "
                     + "Stage them in the same operation as the transition — a change-proposal "
                     + "'batch' op setting System.State plus the fields above — then apply it with "
-                    + "'twig proposal apply --confirm <digest> --authorize <identity>'.");
+                    + "'twig proposal apply --confirm <digest>'.");
                 return 1;
 
             case StateTransitionOutcome.ProcessRulesUnavailable x:

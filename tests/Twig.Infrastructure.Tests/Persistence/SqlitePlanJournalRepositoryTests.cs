@@ -1774,76 +1774,6 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task RecordAuthorization_PersistsEveryAuditFieldAndReadsBack()
-    {
-        var plan = BuildTwoOpPlan();
-        var previewedAt = Now();
-        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/p.json", previewedAt);
-
-        var authorizedAt = DateTimeOffset.Parse("2026-08-27T12:34:56Z").ToUniversalTime();
-        var authorization = new ProposalAuthorization
-        {
-            Digest = plan.Digest,
-            Mode = ProposalAuthorizationMode.Model,
-            AuthorizerIdentity = "twig-agent",
-            Rationale = "Blockers cleared; operations match the ticket.",
-            AuthorizedAt = authorizedAt,
-        };
-
-        await _repo.RecordAuthorizationAsync(plan.Digest, authorization, """{"model":"twig.change-proposal.review"}""");
-
-        var journal = (await _repo.GetAsync(plan.Digest)).ShouldNotBeNull();
-        journal.AuthorizationMode.ShouldBe(ProposalAuthorizationMode.Model);
-        journal.AuthorizerIdentity.ShouldBe("twig-agent");
-        journal.Rationale.ShouldBe("Blockers cleared; operations match the ticket.");
-        journal.ReviewModelJson.ShouldBe("""{"model":"twig.change-proposal.review"}""");
-        journal.AuthorizedAt.ShouldBe(authorizedAt);
-
-        // The proposal itself is untouched: canonical_json is what was authorized, and the
-        // review model is stored beside it rather than over it.
-        journal.CanonicalJson.ShouldBe(plan.CanonicalJson);
-        journal.Digest.ShouldBe(plan.Digest);
-    }
-
-    [Fact]
-    public async Task RecordAuthorization_IsWriteOnce_SoAResumedApplyCannotRewriteHistory()
-    {
-        // Defends against: an apply resumed after a crash overwriting the authorization that
-        // actually released the proposal with the moment someone restarted the run — which
-        // would erase the only record of who authorized the mutation.
-        var plan = BuildTwoOpPlan();
-        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/p.json", Now());
-
-        var first = new ProposalAuthorization
-        {
-            Digest = plan.Digest,
-            Mode = ProposalAuthorizationMode.Human,
-            AuthorizerIdentity = "Daniel Green",
-            Rationale = "original",
-            AuthorizedAt = DateTimeOffset.Parse("2026-08-27T09:00:00Z").ToUniversalTime(),
-        };
-        await _repo.RecordAuthorizationAsync(plan.Digest, first, """{"first":true}""");
-
-        await _repo.RecordAuthorizationAsync(
-            plan.Digest,
-            first with
-            {
-                Mode = ProposalAuthorizationMode.Model,
-                AuthorizerIdentity = "someone-else",
-                Rationale = "resumed",
-                AuthorizedAt = DateTimeOffset.Parse("2026-08-27T18:00:00Z").ToUniversalTime(),
-            },
-            """{"second":true}""");
-
-        var journal = (await _repo.GetAsync(plan.Digest)).ShouldNotBeNull();
-        journal.AuthorizationMode.ShouldBe(ProposalAuthorizationMode.Human);
-        journal.AuthorizerIdentity.ShouldBe("Daniel Green");
-        journal.Rationale.ShouldBe("original");
-        journal.ReviewModelJson.ShouldBe("""{"first":true}""");
-        journal.AuthorizedAt.ShouldBe(first.AuthorizedAt);
-    }
-
     [Theory]
     [InlineData("preparing")]
     [InlineData("active")]
@@ -1914,8 +1844,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 var repository = new SqlitePlanJournalRepository(store);
                 var origin = NewOrigin("historical-v17");
                 var journal = await repository.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/legacy.json", Now(), origin: origin);
-                await repository.RecordAuthorizationAsync(plan.Digest, NewAuthorization(plan.Digest),
-                    """{ "legacy": "spacing and audit bytes are retained" }""");
+                WriteLegacyAudit(store, plan.Digest, "human", "legacy reviewer", "legacy rationale",
+                    """{ "legacy": "spacing and audit bytes are retained" }""", "2026-08-27T09:00:00Z");
                 var operation = journal.Operations[0];
                 (await repository.TryAppendReceiptAsync(
                     NewRetiredReceipt(plan.Digest, operation.OpId, operation.RequestJson, origin),
@@ -1975,7 +1905,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 var repository = new SqlitePlanJournalRepository(store);
                 var plan = BuildTwoOpPlan();
                 await repository.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/legacy.json", Now());
-                await repository.RecordAuthorizationAsync(plan.Digest, NewAuthorization(plan.Digest), """{ "raw": "legacy" }""");
+                WriteLegacyAudit(store, plan.Digest, "human", "legacy reviewer", "legacy rationale",
+                    """{ "raw": "legacy" }""", "2026-08-27T09:00:00Z");
                 using var prepare = store.GetConnection().CreateCommand();
                 prepare.CommandText = """
                     UPDATE pending.proposal_journals SET execution_admission_json='  unversioned retained bytes  ';
@@ -2038,7 +1969,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         var plan = BuildTwoOpPlan();
         var origin = NewOrigin("admission-rollback");
         await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
-        await _repo.RecordAuthorizationAsync(plan.Digest, NewAuthorization(plan.Digest), """{"historical":true}""");
+        WriteLegacyAudit(_store, plan.Digest, "human", "legacy reviewer", "legacy rationale",
+            """{"historical":true}""", "2026-08-27T09:00:00Z");
         var before = ReadAuditBytes(plan.Digest);
         await using (var transaction = await new SqliteUnitOfWork(_store).BeginAsync())
         {
@@ -2192,13 +2124,13 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecutionAdmission_PreservesLegacyAuditAndRefusesLaterSignerInsertion()
+    public async Task ExecutionAdmission_PreservesLegacyAuditAndLeavesNewRowsWithoutLegacyAudit()
     {
         var plan = BuildTwoOpPlan();
         var origin = NewOrigin("legacy-audit");
         await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
-        var legacy = NewAuthorization(plan.Digest);
-        await _repo.RecordAuthorizationAsync(plan.Digest, legacy, """{"legacy":"exact bytes"}""");
+        WriteLegacyAudit(_store, plan.Digest, "human", "legacy reviewer", "legacy rationale",
+            """{"legacy":"exact bytes"}""", "2026-08-27T09:00:00Z");
         var before = ReadAuditBytes(plan.Digest);
         (await _repo.RecordExecutionAdmissionAsync(new PlanExecutionAdmission
         {
@@ -2213,7 +2145,6 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             Digest = another.Digest, Origin = origin, RecordedAt = Now(),
         })).ShouldBe(PlanAdmissionRecordResult.Recorded);
         var admissionBytes = ReadAdmissionJson(another.Digest).ShouldNotBeNull();
-        await _repo.RecordAuthorizationAsync(another.Digest, NewAuthorization(another.Digest), """{"invented":true}""");
         var retained = (await _repo.GetAsync(another.Digest))!;
         retained.AuthorizationMode.ShouldBeNull();
         retained.AuthorizerIdentity.ShouldBeNull();
@@ -2221,36 +2152,21 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         ReadAdmissionJson(another.Digest).ShouldBe(admissionBytes);
     }
 
-    [Theory]
-    [InlineData("authorizer_identity")]
-    [InlineData("rationale")]
-    [InlineData("review_model_json")]
-    [InlineData("authorized_at")]
-    public async Task LegacyAuthorizationRecorderCannotOverwritePartialHistoricalAudit(string column)
+    [Fact]
+    public async Task LegacyAuditValuesRemainReadableWithoutAnAuthorizationWriter()
     {
         var plan = BuildTwoOpPlan();
         var origin = NewOrigin("partial-legacy");
         await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
-        using (var command = _store.GetConnection().CreateCommand())
-        {
-            command.CommandText = column switch
-            {
-                "authorizer_identity" => "UPDATE proposal_journals SET authorizer_identity=@value WHERE digest=@digest;",
-                "rationale" => "UPDATE proposal_journals SET rationale=@value WHERE digest=@digest;",
-                "review_model_json" => "UPDATE proposal_journals SET review_model_json=@value WHERE digest=@digest;",
-                "authorized_at" => "UPDATE proposal_journals SET authorized_at=@value WHERE digest=@digest;",
-                _ => throw new ArgumentOutOfRangeException(nameof(column)),
-            };
-            command.Parameters.AddWithValue("@digest", plan.Digest);
-            command.Parameters.AddWithValue("@value", column == "authorized_at"
-                ? "2026-08-27T11:22:33.0000000+00:00" : "retained partial historical bytes");
-            command.ExecuteNonQuery().ShouldBe(1);
-        }
-        var before = ReadAuditBytes(plan.Digest);
+        WriteLegacyAudit(_store, plan.Digest, "human", "historical reviewer", "historical rationale",
+            """{"historical":"review model"}""", "2026-08-27T11:22:33Z");
 
-        await _repo.RecordAuthorizationAsync(plan.Digest, NewAuthorization(plan.Digest), """{"replacement":true}""");
-
-        ReadAuditBytes(plan.Digest).ShouldBe(before);
+        var journal = (await _repo.GetAsync(plan.Digest)).ShouldNotBeNull();
+        journal.AuthorizationMode.ShouldBe(ProposalAuthorizationMode.Human);
+        journal.AuthorizerIdentity.ShouldBe("historical reviewer");
+        journal.Rationale.ShouldBe("historical rationale");
+        journal.ReviewModelJson.ShouldBe("""{"historical":"review model"}""");
+        journal.AuthorizedAt.ShouldBe(DateTimeOffset.Parse("2026-08-27T11:22:33Z"));
         ReadAdmissionJson(plan.Digest).ShouldBeNull();
     }
 
@@ -2260,6 +2176,31 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         command.CommandText = "SELECT execution_admission_json FROM proposal_journals WHERE digest=@digest;";
         command.Parameters.AddWithValue("@digest", digest);
         return command.ExecuteScalar() as string;
+    }
+
+    private static void WriteLegacyAudit(
+        SqliteCacheStore store,
+        string digest,
+        string mode,
+        string identity,
+        string rationale,
+        string reviewModelJson,
+        string authorizedAt)
+    {
+        using var command = store.GetConnection().CreateCommand();
+        command.CommandText = """
+            UPDATE proposal_journals
+            SET authorization_mode=@mode, authorizer_identity=@identity, rationale=@rationale,
+                review_model_json=@reviewModelJson, authorized_at=@authorizedAt
+            WHERE digest=@digest;
+            """;
+        command.Parameters.AddWithValue("@mode", mode);
+        command.Parameters.AddWithValue("@identity", identity);
+        command.Parameters.AddWithValue("@rationale", rationale);
+        command.Parameters.AddWithValue("@reviewModelJson", reviewModelJson);
+        command.Parameters.AddWithValue("@authorizedAt", authorizedAt);
+        command.Parameters.AddWithValue("@digest", digest);
+        command.ExecuteNonQuery().ShouldBe(1);
     }
 
     private string[] ReadAuditBytes(string digest)

@@ -139,7 +139,7 @@ public sealed class PlanToolsTests
     {
         var (sut, lifecycle, _) = BuildSut();
 
-        var result = await sut.PlanApply("plan.json", confirmed: false, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: false, confirmedDigest: ValidDigest);
 
         result.IsError.ShouldBe(true);
         GetError(result).Code.ShouldBe(McpErrorCode.ConfirmationRequired);
@@ -151,7 +151,7 @@ public sealed class PlanToolsTests
     {
         var (sut, lifecycle, _) = BuildSut();
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: "", authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: "");
 
         result.IsError.ShouldBe(true);
         GetError(result).Code.ShouldBe(McpErrorCode.InvalidInput);
@@ -167,7 +167,7 @@ public sealed class PlanToolsTests
     {
         var (sut, lifecycle, _) = BuildSut();
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: digest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: digest);
 
         result.IsError.ShouldBe(true);
         GetError(result).Code.ShouldBe(McpErrorCode.InvalidInput);
@@ -178,7 +178,7 @@ public sealed class PlanToolsTests
     public async Task Apply_HappyPath_ForwardsExactDigestAndReturnsResult()
     {
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -186,7 +186,7 @@ public sealed class PlanToolsTests
                 Failed = false,
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
 
         result.IsError.ShouldBeNull();
         var data = ParseData(result);
@@ -202,7 +202,7 @@ public sealed class PlanToolsTests
         // must reach the caller AND must not flip failed/IsError — an agent that treats a
         // warning as a failure would re-drive a mutation that already succeeded.
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -217,7 +217,7 @@ public sealed class PlanToolsTests
                 Failed = false,
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
 
         result.IsError.ShouldBeNull();
         var data = ParseData(result);
@@ -236,7 +236,7 @@ public sealed class PlanToolsTests
         // revisions, per-field classifications, missing-field names — never the ADO
         // field bodies. Field values live only in the raw `result` payload.
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -255,7 +255,7 @@ public sealed class PlanToolsTests
                 Failed = false,
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
 
         result.IsError.ShouldBeNull();
         var data = ParseData(result);
@@ -284,13 +284,12 @@ public sealed class PlanToolsTests
             SampleVerifiedOp() with { ResultJson = batchEvidence },
             SampleVerifiedOp() with { Ordinal = 1, OpId = "delete", Kind = PlanOperationKind.Delete, State = PlanOperationState.Indeterminate, ResultJson = deleteEvidence },
         ];
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult { Digest = ValidDigest, Failed = true, Operations = operations });
         lifecycle.StatusAsync("plan.json", Arg.Any<CancellationToken>())
             .Returns(new PlanStatusResult { Found = true, Digest = ValidDigest, State = PlanOperationState.Failed, Operations = operations });
 
-        var applied = ParseData(await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest,
-            authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest));
+        var applied = ParseData(await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest));
         var status = ParseData(await sut.PlanStatus("plan.json")).GetProperty("status");
         foreach (var result in new[] { applied, status })
         {
@@ -314,7 +313,7 @@ public sealed class PlanToolsTests
         // to a terminal. ExpectedRevision falls back to RequestJson so the authored bound
         // survives.
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -333,7 +332,7 @@ public sealed class PlanToolsTests
                 Failed = false,
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
 
         result.IsError.ShouldBeNull();
         var data = ParseData(result);
@@ -354,7 +353,7 @@ public sealed class PlanToolsTests
         // post-op readback. Surfacing it as ObservedRevision would let a caller mistake
         // the ACK for proof the effect landed at that revision.
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -369,7 +368,7 @@ public sealed class PlanToolsTests
                 Failed = false,
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
 
         result.IsError.ShouldBeNull();
         var data = ParseData(result);
@@ -385,7 +384,7 @@ public sealed class PlanToolsTests
         var (sut, lifecycle, _) = BuildSut();
         var appliedAt = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
         var startedAt = appliedAt.AddSeconds(-1);
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -419,7 +418,7 @@ public sealed class PlanToolsTests
                 Error = "One or more operations failed.",
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
 
         // 🔴 Failure MUST carry the full journal payload (digest, failed:true, error,
         //   per-operation state/timings/errors) AND set the transport-level IsError
@@ -473,7 +472,7 @@ public sealed class PlanToolsTests
         //   only CallToolResult.IsError to gate fail-fast and captures the text
         //   content as StepResult.Error — proving both properties in one wire test.
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -493,8 +492,6 @@ public sealed class PlanToolsTests
                     ["file"] = "plan.json",
                     ["confirmed"] = true,
                     ["confirmedDigest"] = ValidDigest,
-                    ["authorizerIdentity"] = "Test Authorizer",
-                    ["authorizationDigest"] = ValidDigest,
                 }),
                 new StepNode(1, "twig_plan_status", new Dictionary<string, object?>
                 {
@@ -540,8 +537,6 @@ public sealed class PlanToolsTests
                 (string)args["file"]!,
                 (bool)args["confirmed"]!,
                 (string)args["confirmedDigest"]!,
-                (string)args["authorizerIdentity"]!,
-                (string)args["authorizationDigest"]!,
                 workspace: workspaceOverride,
                 ct: ct),
             "twig_plan_status" => await tools.PlanStatus(
@@ -826,7 +821,6 @@ public sealed class PlanToolsTests
             Path.GetTempPath(), TestConnection.Org, TestConnection.Project));
         services.AddSingleton(Substitute.For<IContextStore>());
         services.AddSingleton(Substitute.For<IWorkItemRepository>());
-        services.AddSingleton<ISessionSteeringModeProvider>(new UnresolvedSessionSteeringModeProvider());
         services.AddSingleton(TimeProvider.System);
 
         var provider = services.BuildServiceProvider();
@@ -853,16 +847,14 @@ public sealed class PlanToolsTests
 
         var result = await sut.PlanReconcile(
             file: "plan.json", confirmed: false, confirmedDigest: ValidDigest, operationId: "op-1",
-            outcome: "retire", authorizerIdentity: "author",
-            authorizationDigest: ValidDigest, rationale: "ok",
+            outcome: "retire",
             replacementDigest: null, replacementOperationId: null,
             workspace: null, verbose: false, ct: default);
 
         result.IsError.ShouldBe(true);
         await lifecycle.DidNotReceive().ReconcileAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
-            Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-            Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -872,16 +864,14 @@ public sealed class PlanToolsTests
 
         var result = await sut.PlanReconcile(
             file: "plan.json", confirmed: true, confirmedDigest: ValidDigest, operationId: "op-1",
-            outcome: "destroy", authorizerIdentity: "author",
-            authorizationDigest: ValidDigest, rationale: "ok",
+            outcome: "destroy",
             replacementDigest: null, replacementOperationId: null,
             workspace: null, verbose: false, ct: default);
 
         result.IsError.ShouldBe(true);
         await lifecycle.DidNotReceive().ReconcileAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
-            Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-            Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -891,16 +881,14 @@ public sealed class PlanToolsTests
 
         var result = await sut.PlanReconcile(
             file: "plan.json", confirmed: true, confirmedDigest: ValidDigest, operationId: "op-1",
-            outcome: "supersede", authorizerIdentity: "author",
-            authorizationDigest: ValidDigest, rationale: "replaced",
+            outcome: "supersede",
             replacementDigest: null, replacementOperationId: null,
             workspace: null, verbose: false, ct: default);
 
         result.IsError.ShouldBe(true);
         await lifecycle.DidNotReceive().ReconcileAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
-            Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-            Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -912,14 +900,12 @@ public sealed class PlanToolsTests
         lifecycle
             .ReconcileAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
-                Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanReconciliationResult { Settled = false, Receipt = null, Error = "digest mismatch" });
 
         var result = await sut.PlanReconcile(
             file: "plan.json", confirmed: true, confirmedDigest: ValidDigest, operationId: "op-1",
-            outcome: "retire", authorizerIdentity: "author",
-            authorizationDigest: ValidDigest, rationale: "ok",
+            outcome: "retire",
             replacementDigest: null, replacementOperationId: null,
             workspace: null, verbose: false, ct: default);
 

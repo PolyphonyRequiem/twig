@@ -1,10 +1,30 @@
-# Change Proposal — authorization, terminal/text fallback, and audit record (T4, AB#743)
+# Historical Change Proposal — authorization and audit record (T4, AB#743)
 
 **Work Item:** #743 (Task, parent Spec #729 — "Change Recipe and Change Proposal")
 **Type:** Implementation record + one settled deferral
-**Status:** ⬛ Settled
+**Status:** Historical implementation record; superseded by the current product decision below
 **Predecessor:** AB#742 (T3, commit `25fa1455`) — the Change Recipe seam, the immutable
 `ChangeProposal`, and the canonical semantic review model this ticket consumes.
+
+---
+
+## Current product decision — AB#1212
+
+This update supersedes the operational behavior described in the historical record below.
+The proposal review page remains a view of operations, values, preconditions, blockers and
+the digest, and keeps its explicit human **Accept/Apply** action bound to that exact digest.
+There is no separate authorizer sign-off, no authorizer identity or steering-mode input, and
+no new approval-audit capture of who applied or what review model was shown. CLI apply uses
+`twig proposal apply --confirm <digest>`; a changed proposal still refuses the old digest.
+
+The review model is transient preview/canvas data, not a persisted approval snapshot. Existing
+SQLite audit columns and historic rows are preserved and remain readable; no columns or rows
+are dropped, rewritten, or backfilled.
+
+---
+
+The following sections preserve the original AB#743 design and implementation record. They
+describe the historical behavior before AB#1212 and are not current apply instructions.
 
 ---
 

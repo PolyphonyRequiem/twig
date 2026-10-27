@@ -4,7 +4,7 @@ Executed 2026-08-31 against `dev.azure.com/PolyphonyRequiem` / `Twig-Reference-S
 under AB#847. This is a dated historical capture; the offline gate later proves the
 committed evidence bundle is internally consistent rather than re-establishing current ADO
 truth. Every mutation below went through the native Twig proposal surface
-(`twig proposal validate` → `preview` → `apply --confirm <digest> --authorize <identity>`)
+(`twig proposal validate` → `preview` → `apply --confirm <digest>`)
 except the one step the native contract cannot express, which is called out explicitly.
 
 Binary: `twig 0.91.6-alpha.0.8`.

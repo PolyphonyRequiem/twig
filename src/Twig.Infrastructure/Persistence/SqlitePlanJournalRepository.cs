@@ -222,9 +222,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 || parsed.CanonicalJson != journal.CanonicalJson || parsed.Digest != digest
                 || parsed.Plan.Workspace != journal.Workspace
                 || !CaptureMatchesProposal(parsed.Plan, digest, capture)
-                || capture.OperationId != opId || journal.AuthorizedAt is null
-                || journal.AuthorizationMode is null || string.IsNullOrWhiteSpace(journal.AuthorizerIdentity))
-                return (false, "The authorized retained draft capture or its native origin is invalid.");
+                || capture.OperationId != opId)
+                return (false, "The retained draft capture or its native origin is invalid.");
             var row = journal.Operations.Single();
             if (row.State != PlanOperationState.Confirmed)
                 return (false, null);
@@ -347,9 +346,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         command.CommandText = """
             UPDATE pending.proposal_journals SET error=@error
             WHERE digest=@digest AND draft_capture_json IS NOT NULL AND state='Planned'
-                AND confirmed_at IS NULL AND authorization_mode IS NULL
-                AND authorizer_identity IS NULL AND rationale IS NULL
-                AND review_model_json IS NULL AND authorized_at IS NULL
+                AND confirmed_at IS NULL
                 AND execution_admission_json IS NULL;
             """;
         command.Parameters.AddWithValue("@digest", digest);
@@ -764,8 +761,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         var completedAt = reader.IsDBNull(8) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(8));
         var error = reader.IsDBNull(9) ? null : reader.GetString(9);
 
-        // Every audit column is nullable by design (durable migration [9]). NULL here means the
-        // row predates authorization recording — never that the apply was unauthorized.
+        // Hydrate the legacy audit values so historic journal rows remain readable. New applies
+        // do not populate these fields.
         var authorizationMode = ProposalAuthorization.ModeFromWire(reader.IsDBNull(10) ? null : reader.GetString(10));
         var authorizerIdentity = reader.IsDBNull(11) ? null : reader.GetString(11);
         var rationale = reader.IsDBNull(12) ? null : reader.GetString(12);
@@ -1110,44 +1107,6 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         return Task.FromResult(result);
     }
 
-    public Task RecordAuthorizationAsync(
-        string digest,
-        ProposalAuthorization authorization,
-        string reviewModelJson,
-        CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(digest);
-        ArgumentNullException.ThrowIfNull(authorization);
-        ArgumentException.ThrowIfNullOrEmpty(reviewModelJson);
-
-        using var bindingOperation = _store.AcquireOperation();
-        var conn = _store.GetConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.Transaction = _store.ActiveTransaction;
-        // Preserve even partial historical audit bytes; admission never grants permission
-        // to insert a caller signer later.
-        cmd.CommandText = """
-            UPDATE proposal_journals
-            SET authorization_mode = @mode,
-                authorizer_identity = @identity,
-                rationale = @rationale,
-                review_model_json = @reviewModel,
-                authorized_at = @authorizedAt
-            WHERE digest = @digest AND authorization_mode IS NULL
-              AND authorizer_identity IS NULL AND rationale IS NULL
-              AND review_model_json IS NULL AND authorized_at IS NULL
-              AND execution_admission_json IS NULL;
-            """;
-        cmd.Parameters.AddWithValue("@digest", digest);
-        cmd.Parameters.AddWithValue("@mode", ProposalAuthorization.ModeToWire(authorization.Mode));
-        cmd.Parameters.AddWithValue("@identity", authorization.AuthorizerIdentity);
-        cmd.Parameters.AddWithValue("@rationale", (object?)authorization.Rationale ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@reviewModel", reviewModelJson);
-        cmd.Parameters.AddWithValue("@authorizedAt", FormatTimestamp(authorization.AuthorizedAt));
-        cmd.ExecuteNonQuery();
-        return Task.CompletedTask;
-    }
-
     /// <summary>
     /// The single lifecycle guard: a conditional UPDATE that succeeds only when the row is still
     /// in <paramref name="fromState"/> AND is not already terminal
@@ -1475,18 +1434,18 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         ArgumentException.ThrowIfNullOrEmpty(receipt.RequestJson);
         ArgumentException.ThrowIfNullOrEmpty(receipt.EvidenceJson);
         ArgumentNullException.ThrowIfNull(receipt.AuthorizingOrigin);
-        ArgumentNullException.ThrowIfNull(receipt.Authorization);
-        ArgumentException.ThrowIfNullOrEmpty(receipt.Authorization.AuthorizerIdentity);
         if (receipt.Kind == PlanOutcomeKind.RejectedCreateFamily
             ? dispositionIdentity is null || dispositionRecordedAt is null
                 || !RejectedCreateFamilyReceiptValidator.IsValid(receipt, dispositionIdentity,
                     dispositionRecordedAt.Value.ToString("o", CultureInfo.InvariantCulture))
             : dispositionIdentity is not null || dispositionRecordedAt is not null)
             return false;
-        if (receipt.Authorization.Digest != receipt.Digest
-            || string.IsNullOrWhiteSpace(receipt.Authorization.Rationale)
-            || !Enum.IsDefined(receipt.Authorization.Mode)
-            || !ReceiptEvidenceMatches(receipt, expectedResultJson))
+        if (receipt.Authorization is { } authorization
+            && (authorization.Digest != receipt.Digest
+                || string.IsNullOrWhiteSpace(authorization.Rationale)
+                || !Enum.IsDefined(authorization.Mode)))
+            return false;
+        if (!ReceiptEvidenceMatches(receipt, expectedResultJson))
             return false;
 
         // One settlement per op. The PRIMARY KEY (digest, op_id) in migration [12] makes a

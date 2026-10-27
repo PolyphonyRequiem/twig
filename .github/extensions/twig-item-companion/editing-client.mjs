@@ -94,12 +94,12 @@ export function createEditingClient({ document, request, text }) {
             }
             if (!(editing.editors || []).length) fields.append(text("p", "No supported editable native controls. Other fields and contributions remain read-only."));
         }
-        async function perform(action, authorization) {
+        async function perform(action) {
             if (inFlight || current !== session) return;
             if (session.inspectFirst) return;
             if (action === "stage" && (session.stale || !session.canStage || !session.handle || !intent.size)) return;
             if (action === "retain" && (session.stale || !session.canRetain || !session.handle || intent.size)) return;
-            if (action === "save" && (save.disabled || !authorization)) return;
+            if (action === "save" && (save.disabled || !session.saveHandle)) return;
             const saveHandle = session.saveHandle;
             const submitted = [...intent].map(([fieldRef, proposedValue]) => ({ fieldRef, proposedValue }));
             if (action === "retain" || action === "save") retainedItem.inspectFirst = true;
@@ -118,7 +118,7 @@ export function createEditingClient({ document, request, text }) {
                 const result = await request("/api/editing", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(action === "open" ? { action } :
-                        action === "save" ? { action, saveHandle, authorization } :
+                        action === "save" ? { action, saveHandle } :
                         action === "stage" ? { action, captureHandle: session.handle, changes: submitted } :
                             { action, captureHandle: session.handle }),
                 });
@@ -145,7 +145,7 @@ export function createEditingClient({ document, request, text }) {
                 if (editing.status === "opened" || editing.status === "staged") renderFields(editing);
                 if (editing.receipt) {
                     const value = editing.receipt;
-                    receipt.append(text("h4", "Native capture receipt (not semantic review or authorization)"));
+                    receipt.append(text("h4", "Native capture receipt (not semantic review or applied outcome)"));
                     receipt.append(text("p", "Digest: " + value.digest), text("p", "Operation: " + value.operationId));
                     const display = (effect, key) => !Object.hasOwn(effect, key) ? "(absent / unknown)" :
                         effect[key] === null ? "(null)" : effect[key] === "" ? '(empty text "")' : effect[key];
@@ -154,16 +154,16 @@ export function createEditingClient({ document, request, text }) {
                             "\nProposed: " + display(effect, "proposedValue")));
                     }
                     receipt.append(text("p", "Byte integrity only; native-reported effects. Origin coverage: " +
-                        value.originCoverage + ". Receipt alone does not authorize or apply. Save authorizes only this exact digest; the native gates remain final."));
+                        value.originCoverage + ". Receipt alone does not apply. Explicit Save applies only this exact digest; native checks remain final."));
                 }
                 status.textContent = editing.status === "opened" || editing.status === "staged"
                     ? editing.status + (editing.hasConflicts ? ": native drift/conflicts; reopen or reconcile before staging." : ": local draft only, not saved or published.")
                     : (editing.status || "unknown") + ": " + (editing.error?.message || "Native outcome unavailable.") +
                         " Retain input; explicitly reopen. Do not retry automatically.";
                 if (editing.status === "retained") status.textContent =
-                    "Captured locally, not authorized or applied. Review the exact effects and digest before Save. Reopen instead to edit further.";
+                    "Captured locally, not applied. Review the exact effects and digest before explicit Save. Reopen instead to edit further.";
                 if (editing.status === "saved") status.textContent =
-                    "Saved: native effects verified and captured draft settled. Reopen before further editing. Caller/surface recorded; individual identity not authenticated.";
+                    "Saved: native effects verified and captured draft settled. Reopen before further editing.";
                 if (editing.status === "verified-draft-retained") status.textContent =
                     "Remote effects verified but local draft retained. Do not replay. Inspect the native journal and local settlement error.";
                 if (editing.native) {
@@ -206,14 +206,7 @@ export function createEditingClient({ document, request, text }) {
         retain.addEventListener("click", () => void perform("retain"));
         save.addEventListener("click", event => {
             if (event?.isTrusted !== true || save.disabled || current !== session) return;
-            const digest = session.editing?.receipt?.digest;
-            if (typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest)) return;
-            void perform("save", {
-                digest, mode: 0,
-                authorizerIdentity: "workbench-ui-user (individual identity unverified)",
-                rationale: "Explicit Save gesture; caller/surface attribution only, not host-attested identity.",
-                authorizedAt: new Date().toISOString(),
-            });
+            void perform("save");
         });
         discard.addEventListener("click", () => {
             if (inFlight || current !== session || !session.stale) return;

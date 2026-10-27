@@ -102,7 +102,7 @@ internal static class CommandHelpReference
         output.WriteLine("Check the structure: twig proposal validate --file proposal.json -o json");
         output.WriteLine("Validate parses and computes the digest; it makes no ADO calls or journal writes.");
         output.WriteLine("A valid structure does not prove that the seed exists or that its fingerprint is current.");
-        output.WriteLine("Preview imports the local journal and presents review/blockers; it does not authorize or apply.");
+        output.WriteLine("Preview imports the local journal and presents review/blockers; it does not apply.");
         output.WriteLine("Apply requires the previewed exact digest and native authorization, then checks live preconditions.");
         output.WriteLine("Do not edit a previewed file; changed intent needs a fresh file and operation id.");
         var version = typeof(CommandHelpReference).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
@@ -112,4 +112,3 @@ internal static class CommandHelpReference
         output.WriteLine($"Versioned reference: https://github.com/{CompanionStartup.ResolveRepoSlug()}/blob/{reference}/docs/commands/plans/README.md");
     }
 }
-

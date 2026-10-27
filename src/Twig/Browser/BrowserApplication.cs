@@ -450,7 +450,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
         LeaveItem();
         CloseDetail(); var capture = _capture; var module = _runtime.Services.GetRequiredService<BrowserReviewModule>();
         Start(token => module.OpenAsync(file, capture, token), result =>
-        { _review = result.Value; _screen = "review"; _reviewFull = false; _top = 0; _message = "Read-only Review · D details / B brief · Esc back · never applies or authorizes"; }, reply, requestCt: requestCt);
+        { _review = result.Value; _screen = "review"; _reviewFull = false; _top = 0; _message = "Read-only Review · D details / B brief · Esc back · never applies changes"; }, reply, requestCt: requestCt);
         _openingScreen = _busy;
     }
     private void ReviewGesture(bool? full, Action? after = null, TaskCompletionSource<BrowserIntentResult>? reply = null, CancellationToken requestCt = default)
@@ -1050,7 +1050,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
             "Benches: n creates empty without switching; Enter selects; d/Delete reviews deletion. Default is protected. Nonempty deletion requires its captured name. All native origin, settings and contents protections remain; pending work is never deleted.",
             "R refreshes the local Bench, expanded item or focused item's cache; S explicitly syncs only the selected/expanded/focused item. Lowercase s on the Bench pulls its saved selectors and permitted relationship context, protecting pending work. Navigation, item viewing, configuration entry, expansion and refresh never implicitly sync.",
             "E edits in the same rendered item layout, with the selected field highlighted. Enter opens an inline input; Tab retains the field and selects the next served field. Ctrl+S stages one local batch. Ctrl+D explicitly discards unsaved buffers. Esc preserves them; leaving the editor restores the focused item's viewport, and another Esc returns to the Bench. Unsupported document controls remain identified below the item. Nothing is published from this browser.",
-            "Proposal Review is separate from View item and is read only: D details, B brief, Esc back. It never applies or authorizes a proposal. Origin invalidation clears prior content; Ctrl+R explicitly reconnects. q closes unless an unsaved edit buffer must be retained."
+            "Proposal Review is separate from View item and is read only: D details, B brief, Esc back. It never applies a proposal. Origin invalidation clears prior content; Ctrl+R explicitly reconnects. q closes unless an unsaved edit buffer must be retained."
         };
         for (var i = 0; i < sections.Length; i++) { Add(rows, "help:" + i, sections[i]); Add(rows, "help-gap:" + i, ""); }
     }

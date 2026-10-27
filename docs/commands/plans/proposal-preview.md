@@ -36,7 +36,7 @@ twig proposal preview --file <path> [--full] [--expect-digest <digest>] [--inter
 |`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`. The rendering opt-in requires `json`.|
 |`--full`|flag|`false`|Expand description bodies from the captured review. JSON is always exact.|
-|`--interactive`|flag|`false`|Opt into a human-terminal Details/Back/Cancel review loop. Never authorizes or applies.|
+|`--interactive`|flag|`false`|Opt into a human-terminal Details/Back/Cancel review loop. Never applies.|
 |`--include-rendering`|flag|`false`|With JSON, include presentation version 1 (`brief` and `full`) rendered by native Twig from the same observation.|
 |`--width`|integer|`unbounded / 120`|Presentation width; omitted human output is unbounded, while an included JSON frame defaults to 120. Explicit values are inclusive 20..400.|
 |`--color`|string|`never`|Presentation color mode: `always` or `never`; OMP requests `always` unless `NO_COLOR` requires `never`.|
@@ -48,7 +48,8 @@ Delegates to `IPlanLifecycleService.PreviewAsync`. Human output is a compact, gr
 of material effects, warnings and blockers, without approval choices or sign-off instructions.
 The human projection omits the generic title, digest, workspace, operation identities,
 preconditions and provenance; structured `json`/`minimal` output retains those exact fields,
-including authorization choices, for hosts and separate apply authorization.
+for hosts. The review model is transient preview data; application requires the exact digest
+shown by preview.
 
 - **Canonical digest.** Recomputed exactly as validate reports it; this is
   the value the caller will pass to `proposal apply --confirm`.
@@ -81,11 +82,11 @@ The OMP presenter's single `twig_proposal_render` call invokes the native presen
 twig proposal preview --file <absolute-file> -o json --include-rendering --width 100 --color always
 ```
 
-The envelope keeps the existing digest, `canApply`, issues, operations, pending changes and `reviewModel`; the additive presentation is version 1 and contains brief/full frames from the same single observation. Hosts must retain the structured result and exact workspace/digest, not parse ANSI. The interactive `twig_proposal_render({file,workspace?,full?})` tool switches retained frames without another preview. Closing or viewing details is never approval or apply. Feature support is proven by response validation; no minimum native version is pinned here.
+The envelope keeps the existing digest, `canApply`, issues, operations, pending changes and `reviewModel`; the additive presentation is version 1 and contains brief/full frames from the same single observation. Hosts must retain the structured result and exact workspace/digest, not parse ANSI. The interactive `twig_proposal_render({file,workspace?,full?})` tool switches retained frames without another preview. Closing or viewing details never applies a proposal. Feature support is proven by response validation; no minimum native version is pinned here.
 
 OMP shows the retained native frames inside a rounded, scrollable, theme-colored **read-only** window. Its header and controls stay visible in narrow terminals; the native preview is sized for the window's inner width instead of wrapping a second time. The window adds no new approval action or rendering authority.
 
-If the OMP companion or tool is unavailable before a call, use the ordinary complete structured/plain review and disclose the fallback; a direct CLI preview is allowed only for that pre-call fallback. If a call begins but its response is incompatible, failed or truncated, stop the affected authorization and report the failure; do not recover by ANSI parsing, another preview, tree-set, sync or apply.
+If the OMP companion or tool is unavailable before a call, use the ordinary complete structured/plain review and disclose the fallback; a direct CLI preview is allowed only for that pre-call fallback. If a call begins but its response is incompatible, failed or truncated, stop the affected review and report the failure; do not recover by ANSI parsing, another preview, tree-set, sync or apply.
 
 ### Review density and observations
 
@@ -109,7 +110,7 @@ If the OMP companion or tool is unavailable before a call, use the ordinary comp
 - `--interactive` requires human output and TTY input **and** output. `Details`
   (`d`) expands, `Back` (`b`) returns to brief, and `Cancel` (`c`) or EOF closes
   review. Invalid input does nothing. All views reuse one captured observation;
-  none refresh, authorize or apply. Without the flag, preview never prompts.
+  none refresh or apply. Without the flag, preview never prompts.
 - Terminal output uses Twig type badges and configured icons. State text remains
   neutral on unknown terminal backgrounds; old/new colors have measured contrast
   against the owned field-block background. With the default `--color never`,
@@ -118,7 +119,7 @@ If the OMP companion or tool is unavailable before a call, use the ordinary comp
 
 ## Examples
 
-Review before authorization (commands only; the digest and effects depend on the file):
+Review before applying (commands only; the digest and effects depend on the file):
 
 ```bash
 twig proposal preview --file .twig/proposals/close-1234.json

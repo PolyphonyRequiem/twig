@@ -107,30 +107,6 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         try { Directory.Delete(_repoRoot, recursive: true); } catch (IOException) { }
     }
 
-    /// <summary>
-    /// The steering mode the authorization gate sees. Defaults to human-steered, which is the
-    /// fail-closed production answer; AFK tests set it explicitly.
-    /// </summary>
-    private SessionSteeringMode _steeringMode = SessionSteeringMode.HumanSteered;
-    private int _steeringResolutions;
-
-    private sealed class StubSteering(Func<SessionSteeringMode> read) : ISessionSteeringModeProvider
-    {
-        public SessionSteeringMode Resolve() => read();
-    }
-
-    /// <summary>
-    /// A well-formed authorization bound to <paramref name="digest"/>, in whichever mode the
-    /// current steering requires. Tests that exercise the gate itself build their own instead.
-    /// </summary>
-    private ProposalAuthorization Authorize(string digest) => new()
-    {
-        Digest = digest,
-        Mode = ProposalAuthorizationGate.RequiredMode(_steeringMode),
-        AuthorizerIdentity = "Test Authorizer",
-        AuthorizedAt = DateTimeOffset.UnixEpoch,
-    };
-
     private sealed class FixtureOrigin(string root) : IPlanOriginProvider
     {
         public Task<PlanOrigin> GetOriginAsync(CancellationToken ct = default) => Task.FromResult(
@@ -172,7 +148,6 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             _config,
             paths,
             provider,
-            new StubSteering(() => { _steeringResolutions++; return _steeringMode; }),
             origin ?? new FixtureOrigin(_repoRoot),
             _ruleProvider,
             Substitute.For<IUnitOfWork>(),
@@ -320,7 +295,6 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         result.CanApply.ShouldBeFalse();
         result.Issues.ShouldContain(issue => issue.Code == PlanValidationCodes.UnsupportedApplyVersion);
         result.ReviewModel.ShouldNotBeNull();
-        result.ReviewModel!.AuthorizationChoices.ShouldBe(["revise", "decline"]);
         result.ReviewModel.Blockers.ShouldContain(blocker =>
             blocker.Kind == "issue" && blocker.Detail.Contains(PlanValidationCodes.UnsupportedApplyVersion));
         var reviewedTarget = result.ReviewModel.Operations.Single().Target.ProviderWorkItem;
@@ -470,7 +444,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
 
-        var apply = await svc.ApplyAsync(file, "0000000000000000000000000000000000000000000000000000000000000000", Authorize("0000000000000000000000000000000000000000000000000000000000000000"));
+        var apply = await svc.ApplyAsync(file, "0000000000000000000000000000000000000000000000000000000000000000");
 
         apply.Failed.ShouldBeTrue();
         apply.Error!.ShouldContain("does not match confirmed digest");
@@ -492,7 +466,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 new PendingChangeDetail(1, 42, "note", null, "x", null, "x", DateTimeOffset.UtcNow, null),
             }));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Error!.ShouldContain("pending change");
@@ -506,7 +480,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         // Compute the digest without importing the journal.
         var digest = (await svc.ValidateAsync(file)).Digest!;
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var error = apply.Error ?? throw new InvalidOperationException("Expected the apply to report an error.");
@@ -514,13 +488,13 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Apply_V2RefusesBeforeConfirmationAuthorizationJournalPendingOrProviderAccess()
+    public async Task Apply_V2RefusesBeforeConfirmationJournalPendingOrProviderAccess()
     {
         var file = WritePlan(ProviderPlanSource());
         var journal = Substitute.For<IPlanJournalRepository>();
         var service = BuildService(journal: journal);
 
-        var result = await service.ApplyAsync(file, "unconfirmed-digest", authorization: null);
+        var result = await service.ApplyAsync(file, "unconfirmed-digest");
 
         result.Failed.ShouldBeTrue();
         var error = result.Error ?? throw new InvalidOperationException("Expected the apply to report an error.");
@@ -546,7 +520,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4,
             state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -554,12 +528,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         journalRow.State.ShouldBe(PlanOperationState.Verified);
     }
 
-    // ── apply: authorization gate (AB#743, Spec #729 §Authorization) ────────
+    // ── apply: digest confirmation without sign-off ─────────────────────────
 
-    /// <summary>
-    /// Arranges an applyable batch proposal and returns its file and digest. Every gate test
-    /// below shares it so a refusal cannot be confused with a proposal that was never viable.
-    /// </summary>
     private async Task<(string File, string Digest, PlanLifecycleService Service)> ApplyableProposal()
     {
         var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
@@ -571,10 +541,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         return (file, digest, svc);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Apply_DraftCapturedJournal_RefusesBeforeAuthorityOrConfirmation(bool supplyAuthorization)
+    [Fact]
+    public async Task Apply_DraftCapturedJournal_RefusesBeforeConfirmation()
     {
         var repository = new SqliteWorkItemRepository(_store, _mapper);
         await repository.SaveAsync(_mapper.Map(new WorkItemSnapshot
@@ -593,12 +561,10 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         await File.WriteAllTextAsync(journal.SourcePath, journal.CanonicalJson);
         journal.DraftCapture.ShouldNotBeNull();
 
-        var result = await BuildService().ApplyAsync(journal.SourcePath, journal.Digest,
-            supplyAuthorization ? Authorize(journal.Digest) : null);
+        var result = await BuildService().ApplyAsync(journal.SourcePath, journal.Digest);
 
         result.Failed.ShouldBeTrue();
         result.Error!.ShouldContain("Draft-captured proposals are local inspection only");
-        _steeringResolutions.ShouldBe(0);
         var retained = (await _journal.GetAsync(journal.Digest))!;
         retained.State.ShouldBe(PlanOperationState.Planned);
         retained.ConfirmedAt.ShouldBeNull();
@@ -656,7 +622,6 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         journal.State.ShouldBe(PlanOperationState.Planned);
         journal.ConfirmedAt.ShouldBeNull();
         journal.AuthorizationMode.ShouldBeNull();
-        _steeringResolutions.ShouldBe(0);
         _ado.ReceivedCalls().ShouldBeEmpty();
         _revisionBound.ReceivedCalls().ShouldBeEmpty();
         _ruleProvider.ReceivedCalls().ShouldBeEmpty();
@@ -1096,138 +1061,22 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         mklink.ExitCode.ShouldBe(0, output);
     }
 
-    // Defends against: an apply proceeding with nobody on record as having released it.
-    // A cancel or defer is exactly this shape — the reviewer never produced an authorization —
-    // so this is also the test that "cancel/defer never applies".
     [Fact]
-    public async Task Apply_WithNoAuthorization_RefusesAndTouchesNothing()
+    public async Task Apply_DigestOnlyConfirmation_SucceedsWithoutWritingAuditData()
     {
         var (file, digest, svc) = await ApplyableProposal();
 
-        var apply = await svc.ApplyAsync(file, digest, authorization: null);
+        var apply = await svc.ApplyAsync(file, digest);
 
-        apply.Failed.ShouldBeTrue();
-        apply.Error!.ShouldContain("no human sign-off");
-        apply.Operations.ShouldBeEmpty();
-
-        // Nothing was confirmed and no ADO call was made: the journal is still exactly where
-        // preview left it. A gate that refused only after confirming would have already
-        // claimed the proposal was released.
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
         var journal = (await _journal.GetAsync(digest))!;
-        journal.State.ShouldBe(PlanOperationState.Planned);
+        journal.State.ShouldBe(PlanOperationState.Verified);
         journal.AuthorizationMode.ShouldBeNull();
-        await _ado.DidNotReceiveWithAnyArgs().PatchAsync(default, default!, default, default);
-    }
-
-    // Defends against: replaying a sign-off from a different proposal. The digest is what an
-    // authorization means; without this the record authorizes whatever it is handed to.
-    [Fact]
-    public async Task Apply_WithSignOffBoundToADifferentDigest_FailsClosed()
-    {
-        var (file, digest, svc) = await ApplyableProposal();
-        var stale = Authorize("f".PadLeft(64, 'f'));
-
-        var apply = await svc.ApplyAsync(file, digest, stale);
-
-        apply.Failed.ShouldBeTrue();
-        apply.Error!.ShouldContain("bound to digest");
-        (await _journal.GetAsync(digest))!.State.ShouldBe(PlanOperationState.Planned);
-        await _ado.DidNotReceiveWithAnyArgs().PatchAsync(default, default!, default, default);
-    }
-
-    // Defends against: an AFK run being released by a record claiming a human signed it.
-    [Fact]
-    public async Task Apply_InAfkSession_RequiresAModelAuthorizationRecord()
-    {
-        _steeringMode = SessionSteeringMode.Afk;
-        var (file, digest, svc) = await ApplyableProposal();
-
-        var humanRecord = new ProposalAuthorization
-        {
-            Digest = digest,
-            Mode = ProposalAuthorizationMode.Human,
-            AuthorizerIdentity = "Daniel Green",
-            AuthorizedAt = DateTimeOffset.UnixEpoch,
-        };
-
-        var refused = await svc.ApplyAsync(file, digest, humanRecord);
-        refused.Failed.ShouldBeTrue();
-        refused.Error!.ShouldContain("model authorization");
-
-        var applied = await svc.ApplyAsync(file, digest, humanRecord with { Mode = ProposalAuthorizationMode.Model });
-        applied.Failed.ShouldBeFalse();
-    }
-
-    // Spec #729: an unresolvable steering mode takes the human-steered path. Defends against
-    // "we could not tell" being read as permission to run unattended.
-    [Fact]
-    public async Task Apply_WithUnresolvedSteering_FallsBackToHumanSteered()
-    {
-        _steeringMode = SessionSteeringMode.Unresolved;
-        var (file, digest, svc) = await ApplyableProposal();
-
-        var modelRecord = new ProposalAuthorization
-        {
-            Digest = digest,
-            Mode = ProposalAuthorizationMode.Model,
-            AuthorizerIdentity = "twig-agent",
-            AuthorizedAt = DateTimeOffset.UnixEpoch,
-        };
-
-        (await svc.ApplyAsync(file, digest, modelRecord)).Failed.ShouldBeTrue();
-        (await svc.ApplyAsync(file, digest, modelRecord with { Mode = ProposalAuthorizationMode.Human }))
-            .Failed.ShouldBeFalse();
-    }
-
-    // The audit obligation of T2 §5.3: an applied proposal carries the canonical model, the
-    // digest, the mode, the authorizer, and the rationale. Defends against an apply that
-    // mutates the board and leaves no reconstructable record of who released it or what they
-    // were shown.
-    [Fact]
-    public async Task Apply_RecordsTheFullAuditRow_IncludingWhatTheAuthorizerWasShown()
-    {
-        var (file, digest, svc) = await ApplyableProposal();
-        var authorizedAt = DateTimeOffset.Parse("2026-08-27T11:22:33Z").ToUniversalTime();
-
-        var apply = await svc.ApplyAsync(file, digest, new ProposalAuthorization
-        {
-            Digest = digest,
-            Mode = ProposalAuthorizationMode.Human,
-            AuthorizerIdentity = "Daniel Green",
-            Rationale = "Operations match the ticket.",
-            AuthorizedAt = authorizedAt,
-        });
-
-        apply.Failed.ShouldBeFalse();
-
-        var journal = (await _journal.GetAsync(digest))!;
-        journal.AuthorizationMode.ShouldBe(ProposalAuthorizationMode.Human);
-        journal.AuthorizerIdentity.ShouldBe("Daniel Green");
-        journal.Rationale.ShouldBe("Operations match the ticket.");
-        journal.AuthorizedAt.ShouldBe(authorizedAt);
-
-        // review_model_json is what the authorizer was SHOWN; canonical_json is what they
-        // AUTHORIZED. Both are present, and they are different documents.
-        var reviewModel = journal.ReviewModelJson.ShouldNotBeNull();
-        reviewModel.ShouldContain("\"model\":\"twig.change-proposal.review\"");
-        reviewModel.ShouldContain($"\"digest\":\"{digest}\"");
-        reviewModel.ShouldContain("\"operations\"");
-        reviewModel.ShouldNotBe(journal.CanonicalJson);
-        journal.CanonicalJson.ShouldNotContain("twig.change-proposal.review");
-    }
-
-    // Defends against: authorizing a proposal changing its identity. The review model embeds
-    // the digest and must never feed it, or an authorization would invalidate itself.
-    [Fact]
-    public async Task Apply_AuthorizationDoesNotAlterTheDigest()
-    {
-        var (file, digest, svc) = await ApplyableProposal();
-
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
-
-        apply.Failed.ShouldBeFalse();
-        apply.Digest.ShouldBe(digest);
-        (await svc.PreviewAsync(file)).Digest.ShouldBe(digest);
+        journal.AuthorizerIdentity.ShouldBeNull();
+        journal.Rationale.ShouldBeNull();
+        journal.ReviewModelJson.ShouldBeNull();
+        journal.AuthorizedAt.ShouldBeNull();
     }
 
     // ── apply: CAS conflict (batch) ─────────────────────────────────────────
@@ -1242,7 +1091,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
             .ThrowsAsyncForAnyArgs(new AdoConflictException(4, "test"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Failed);
@@ -1317,7 +1166,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(100, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Error.ShouldBeNull();
@@ -1361,7 +1210,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         digest.ShouldBe(PinnedBatchDigest);
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -1391,7 +1240,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 (BuildWorkItem(1, rev: 3),
                  new[] { new WorkItemLink(1, 9, "System.LinkTypes.Dependency-Forward") })));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -1407,7 +1256,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(5, Arg.Any<CancellationToken>())
             .ThrowsAsyncForAnyArgs(new AdoNotFoundException(5));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -1441,7 +1290,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         refreshed.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -1489,7 +1338,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         refreshed.UpdateField("System.Description", "<p>Alpha </p><p>Beta </p>");
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -1526,7 +1375,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         refreshed.UpdateField(field, PlanOperationExecutorTests.Ab851AdoStored);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var persisted = (await _journal.GetAsync(digest))!.Operations[0];
@@ -1559,7 +1408,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         else
             _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 5, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
         var status = (await svc.StatusAsync(file))!;
         apply.Failed.ShouldBe(readbackFails);
         status.Operations[0].ResultJson.ShouldBe(apply.Operations[0].ResultJson);
@@ -1586,7 +1435,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var digest = (await svc.PreviewAsync(file)).Digest!;
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("offline"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
         apply.Failed.ShouldBeTrue();
         var status = (await svc.StatusAsync(file))!;
         var row = status.Operations[0];
@@ -1607,7 +1456,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         setup.Writer.AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("connection lost after request"));
 
-        var first = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+        var first = await setup.Service.ApplyAsync(setup.File, setup.Digest);
 
         first.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
         var persisted = (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem();
@@ -1616,7 +1465,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         await setup.Reader.DidNotReceive().ReadDiscussionCommentAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
 
-        var resumed = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+        var resumed = await setup.Service.ApplyAsync(setup.File, setup.Digest);
 
         resumed.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
         await setup.Writer.Received(1).AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>());
@@ -1633,7 +1482,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 "45", "1", new DiscussionAuthor("author-1", "Reviewer"),
                 DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, false, setup.Body, "html")));
 
-        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -1657,7 +1506,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         setup.Reader.ReadDiscussionCommentAsync(42, "46", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<DiscussionComment?>(null));
 
-        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest);
 
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
         var persisted = (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem();
@@ -1692,7 +1541,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                     "html")));
         }
 
-        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest);
 
         var expectedState = mismatch == "wrong-receipt-target"
             ? PlanOperationState.Indeterminate
@@ -1716,7 +1565,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         else
             await setup.Benches.AddSelectorAsync(setup.BenchId, BenchSelector.ForItem(43));
 
-        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+        var apply = await setup.Service.ApplyAsync(setup.File, setup.Digest);
 
         apply.Failed.ShouldBeTrue();
         var expectedRefusal = changeIdentity
@@ -1742,11 +1591,11 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             });
 
         await Should.ThrowAsync<OperationCanceledException>(() => setup.Service.ApplyAsync(
-            setup.File, setup.Digest, Authorize(setup.Digest), cancellation.Token));
+            setup.File, setup.Digest, cancellation.Token));
 
         (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Applying);
         setup.Clock!.Advance(TimeSpan.FromMinutes(6));
-        var resumed = await setup.Service.ApplyAsync(setup.File, setup.Digest, Authorize(setup.Digest));
+        var resumed = await setup.Service.ApplyAsync(setup.File, setup.Digest);
         resumed.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
         (await _journal.GetAsync(setup.Digest))!.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Indeterminate);
         await setup.Writer.Received(1).AppendDiscussionCommentAsync(42, setup.Body, Arg.Any<CancellationToken>());
@@ -1794,7 +1643,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         await _journal.TryRecordAppliedAsync(digest, opId, original, timestamp);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 5, state: "Active"));
 
-        var result = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var result = await svc.ApplyAsync(file, digest);
         result.Failed.ShouldBeFalse();
         var row = (await svc.StatusAsync(file))!.Operations[0];
         using var document = JsonDocument.Parse(row.ResultJson!);
@@ -1835,7 +1684,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         refreshed.UpdateField("System.Description", "<P class='x'>Body</P>");
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -1875,7 +1724,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         refreshed.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -1897,7 +1746,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Doing"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Indeterminate);
@@ -1927,7 +1776,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -1957,7 +1806,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -1985,7 +1834,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Failed);
@@ -2245,8 +2094,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             }
             originProvider.GetOriginAsync(Arg.Any<CancellationToken>()).Returns(changed);
             var refused = await planService.ReconcileAsync(
-                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
-                Authorize(digest) with { Rationale = "Preserve the original exact authority." });
+                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily);
             refused.Settled.ShouldBeFalse();
             refused.Receipt.ShouldBeNull();
             refused.Error.ShouldBe(
@@ -2275,8 +2123,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 BEGIN SELECT RAISE(ABORT, 'simulated local receipt write failure'); END;
                 """);
             var interrupted = await planService.ReconcileAsync(
-                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
-                Authorize(digest) with { Rationale = "Verify failed local disposition remains unresolved." });
+                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily);
             interrupted.Settled.ShouldBeFalse();
             interrupted.Error.ShouldNotBeNull();
             interrupted.Error.ShouldContain("simulated local receipt write failure");
@@ -2286,8 +2133,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         }
 
         var result = await planService.ReconcileAsync(
-            file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
-            Authorize(digest) with { Rationale = "Test the bounded rejected create-family reconciliation." });
+            file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily);
 
         if (!secondMemberMatchesOriginalIntent || !secondMemberRejected)
         {
@@ -2383,8 +2229,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             (await workspaceJournal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBe(tamperedReceipt);
 
             var tamperedResult = await planService.ReconcileAsync(
-                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily,
-                Authorize(digest) with { Rationale = "Reject a receipt not bound to its original journal row." });
+                file, digest, operation.OpId, PlanOutcomeKind.RejectedCreateFamily);
             tamperedResult.Settled.ShouldBeFalse(
                 "idempotent reconciliation must not settle from receipt JSON that differs from its immutable journal row");
             tamperedResult.Receipt.ShouldBeNull();
@@ -2508,7 +2353,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -2532,7 +2377,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Failed);
@@ -2776,7 +2621,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         await _journal.ImportAsync(
             sibling.Plan!, sibling.CanonicalJson!, sibling.Digest!, sourcePath, DateTimeOffset.UnixEpoch.AddDays(1));
 
-        var apply = await svc.ApplyAsync(file, sibling.Digest!, Authorize(sibling.Digest!));
+        var apply = await svc.ApplyAsync(file, sibling.Digest!);
 
         apply.Failed.ShouldBeTrue();
         apply.Error.ShouldNotBeNull();
@@ -2939,7 +2784,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 3, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Indeterminate);
@@ -2974,7 +2819,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         await _journal.TryTransitionOperationAsync(digest, opId,
             PlanOperationState.Applied, PlanOperationState.Verified, DateTimeOffset.UtcNow);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -3004,7 +2849,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         svc = new PlanLifecycleService(
             new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _writer, AdoWriterFixture.Codec, _revisionBound,
             _seedPublish.Orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap,
-            _publishIntent, _config, _paths, boundClock, new StubSteering(() => _steeringMode), new FixtureOrigin(_repoRoot),
+            _publishIntent, _config, _paths, boundClock, new FixtureOrigin(_repoRoot),
             _ruleProvider, Substitute.For<IUnitOfWork>());
 
         var digest = (await svc.PreviewAsync(file)).Digest!;
@@ -3022,7 +2867,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 return Task.FromResult(BuildWorkItem(1, rev: 2, state: "Active"));
             });
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -3087,7 +2932,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 1, Arg.Any<CancellationToken>()).Returns(2);
         _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(1, rev: 2, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Error.ShouldBeNull();
@@ -3115,7 +2960,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         await _journal.TryTransitionOperationAsync(digest, opId,
             PlanOperationState.Confirmed, PlanOperationState.Applying, DateTimeOffset.UtcNow);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Error.ShouldNotBeNull();
@@ -3162,11 +3007,11 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var winner = svc.ApplyAsync(file, digest, Authorize(digest));
+        var winner = svc.ApplyAsync(file, digest);
         await patchStarted.Task; // winner has persisted Applying and is holding it
 
         // Loser runs against the same journal: observes fresh Applying held by winner.
-        var loser = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var loser = await svc.ApplyAsync(file, digest);
         loser.Failed.ShouldBeTrue();
         loser.Error!.ShouldContain("being applied");
 
@@ -3206,7 +3051,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -3266,7 +3111,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 return Task.FromResult(4);
             });
 
-        var result = await BuildService(journal: journal).ApplyAsync(file, digest, Authorize(digest));
+        var result = await BuildService(journal: journal).ApplyAsync(file, digest);
 
         casLost.ShouldBeTrue();
         result.Digest.ShouldBe(digest);
@@ -3306,7 +3151,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -3339,7 +3184,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -3367,7 +3212,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 BuildWorkItem(1, rev: 3),
                 new[] { new WorkItemLink(1, 9, "System.LinkTypes.Dependency-Forward") })));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -3396,7 +3241,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(5, Arg.Any<CancellationToken>())
             .ThrowsAsyncForAnyArgs(new AdoNotFoundException(5));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -3442,7 +3287,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _seedLinks.GetLinksForItemAsync(4242, Arg.Any<CancellationToken>())
             .Returns((IReadOnlyList<SeedLink>)Array.Empty<SeedLink>());
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -3472,7 +3317,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -3514,7 +3359,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var row = apply.Operations.ShouldHaveSingleItem();
@@ -3577,7 +3422,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -3618,7 +3463,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Done"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -3665,7 +3510,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Done"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -3698,7 +3543,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var row = apply.Operations.ShouldHaveSingleItem();
@@ -3745,7 +3590,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var row = apply.Operations.ShouldHaveSingleItem();
@@ -3794,7 +3639,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var row = apply.Operations.ShouldHaveSingleItem();
@@ -3839,7 +3684,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var row = apply.Operations.ShouldHaveSingleItem();
@@ -3875,7 +3720,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Done"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -3914,7 +3759,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         readback.UpdateField("Custom.Gated", "signed");
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -3982,7 +3827,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -4040,7 +3885,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -4092,7 +3937,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -4116,7 +3961,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 new ProcessRule(DoneCondition, [new RuleAction("copyValue", "Custom.Other", "filled")], IsDisabled: false),
             ]));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var row = apply.Operations.ShouldHaveSingleItem();
@@ -4148,7 +3993,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                     IsDisabled: false),
             ]));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations.ShouldHaveSingleItem().Error!.ShouldContain("Custom.Gated");
@@ -4175,7 +4020,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 new ProcessRule(DoneCondition, [new RuleAction("copyValue", "Custom.Gated", "filled")], IsDisabled: true),
             ]));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations.ShouldHaveSingleItem().Error!.ShouldContain("Custom.Gated");
@@ -4216,7 +4061,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 new ProcessRule(DoneCondition, [new RuleAction(actionType, "Custom.Gated", actionValue)], IsDisabled: false),
             ]));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations.ShouldHaveSingleItem().Error!.ShouldContain("Custom.Gated");
@@ -4259,7 +4104,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBe(!sourcePopulated);
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(
@@ -4319,7 +4164,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Done"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -4346,7 +4191,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 [new RuleAction("makeRequired", "Custom.Gated", null)],
                 IsDisabled: false)]));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Failed);
@@ -4367,7 +4212,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>())
             .ThrowsAsyncForAnyArgs(new HttpRequestException("temporary ADO failure"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Error!.ShouldContain("authoritative", Case.Insensitive);
@@ -4433,7 +4278,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         rev5.UpdateField("Custom.Gated", "signed");
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rev4, rev5);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.Count.ShouldBe(2);
@@ -4493,7 +4338,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Doing"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         apply.Operations.Count.ShouldBe(2);
@@ -4571,7 +4416,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         rev6.UpdateField("Custom.Gated", "signed");
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rev4, rev5, rev6);
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations.ShouldAllBe(operation => operation.State == PlanOperationState.Verified);
@@ -4621,7 +4466,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Done"));
         _ado.FetchAsync(99, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(99, rev: 8, state: "Done"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
@@ -4684,7 +4529,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
@@ -4730,7 +4575,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             BuildWorkItem(42, rev: 4, state: "Active"),  // op-1 readback: advanced 3→4 ✓
             BuildWorkItem(42, rev: 4, state: "Doing"));  // op-2 readback: rev NOT past 4
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue(); // header Failed — tail is not all-verified
         apply.Operations.Count.ShouldBe(3);
@@ -4772,7 +4617,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
             .ThrowsAsyncForAnyArgs(new AdoConflictException(serverRevision, "412"));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var row = apply.Operations[0];
@@ -4815,7 +4660,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 [new RuleAction("makeRequired", "Custom.Gated", null)],
                 IsDisabled: false)]));
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var row = apply.Operations[0];
@@ -5154,8 +4999,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     public async Task Preview_ReturnsTheCanonicalReviewModelBoundToTheSameDigest()
     {
         // Defends against: preview reporting a digest while the review model carries a
-        // different one. The reviewer authorizes what the MODEL describes but the apply gate
-        // checks the reported digest — if they can disagree, the authorization is meaningless.
+        // different one. Human Apply and CLI confirmation must bind to what the MODEL describes.
         var file = WritePlan(ValidPlanSource());
 
         var result = await BuildService().PreviewAsync(file);
@@ -5198,7 +5042,6 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
         result.CanApply.ShouldBeFalse();
         result.ReviewModel.ShouldNotBeNull();
-        result.ReviewModel!.AuthorizationChoices.ShouldNotContain("apply");
         result.ReviewModel.Blockers.ShouldContain(b => b.Kind == "pending" && b.WorkItemId == 42);
     }
 
@@ -5217,9 +5060,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         decision.IsBlocking.ShouldBeTrue();
         decision.RuleId.ShouldBe(Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.PolicyLoad);
         preview.ReviewModel.Blockers.ShouldContain(b => b.Kind == "policy" && b.Detail.Contains("not valid JSON"));
-        preview.ReviewModel.AuthorizationChoices.ShouldNotContain("apply");
 
-        var apply = await svc.ApplyAsync(file, preview.Digest!, authorization: null);
+        var apply = await svc.ApplyAsync(file, preview.Digest!);
 
         apply.Error.ShouldNotBeNull();
         apply.Error.ShouldContain("Declared policy refuses this proposal");
@@ -5255,9 +5097,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         decision.OpId.ShouldBe("op");
         decision.Reason.ShouldContain("Custom.Gated");
         model.Blockers.ShouldContain(b => b.Kind == "policy" && b.Detail.Contains("Custom.Gated"));
-        model.AuthorizationChoices.ShouldNotContain("apply");
 
-        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var apply = await svc.ApplyAsync(file, digest);
 
         apply.Failed.ShouldBeTrue();
         var operation = apply.Operations.ShouldHaveSingleItem();

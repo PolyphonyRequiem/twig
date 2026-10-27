@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import { serializeStageRequest, validateEditingResult, validateRetainResult } from "./editing-document.mjs";
-import { validateSaveAuthorization } from "./native-save.mjs";
 
 function editableControls(document) {
     const controls = [...document.systemControls];
@@ -114,16 +113,15 @@ export function createEditingBridge({ adapter, workspacePath }) {
         get retainOutcomes() { return structuredClone([...retainOutcomes.values()]); },
         async save(body) {
             if (active) throw new Error("A native editing operation is already in progress.");
-            if (!body || Object.keys(body).sort().join(",") !== "authorization,saveHandle" ||
+            if (!body || Object.keys(body).sort().join(",") !== "saveHandle" ||
                 !saveCapture || body.saveHandle !== saveCapture.handle || typeof adapter?.save !== "function")
                 throw new Error("Save requires this panel's current retained capture; no apply was started.");
             const held = saveCapture;
-            const authorization = validateSaveAuthorization(body.authorization, held.capture.digest);
             saveCapture = null;
             retainOutcomes.set(targetKey(held.target), { ...lastOutcome, canSave: false, saveHandle: null });
             const target = held.target;
             return run(async signal => {
-                const native = await adapter.save({ capture: held.capture, authorization, workspacePath, signal });
+                const native = await adapter.save({ capture: held.capture, workspacePath, signal });
                 return {
                     status: native.status, committed: native.verified, native,
                     inspectFirst: native.status !== "saved", canSave: false, saveHandle: null,

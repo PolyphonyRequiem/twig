@@ -131,12 +131,12 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         var olderDigest = (await lifecycle.PreviewAsync(olderFile)).Digest!;
         _transport.LoseNextPatchResponse = true;
         _transport.HideLostPatchReadback = true;
-        var unknown = await lifecycle.ApplyAsync(olderFile, olderDigest, Authorize(olderDigest));
+        var unknown = await lifecycle.ApplyAsync(olderFile, olderDigest);
         unknown.Failed.ShouldBeTrue();
         unknown.Operations.Single().State.ShouldBe(PlanOperationState.Indeterminate);
         var newerFile = await DefaultProposalAsync(secondPaths, "newer-default", "newer-op", 44, "Verified later unrelated work");
         var newerDigest = (await lifecycle.PreviewAsync(newerFile)).Digest!;
-        (await lifecycle.ApplyAsync(newerFile, newerDigest, Authorize(newerDigest))).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        (await lifecycle.ApplyAsync(newerFile, newerDigest)).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
         var journal = second.GetRequiredService<IPlanJournalRepository>();
         var olderBefore = (await journal.GetAsync(olderDigest))!;
         var mutations = _transport.Mutations;
@@ -167,7 +167,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         var lifecycle = first.GetRequiredService<IPlanLifecycleService>();
         var file = await FieldProposalAsync("default-history", "history-op", 44, 1, "Verified preserved actor history");
         var historicalDigest = (await lifecycle.PreviewAsync(file)).Digest!;
-        (await lifecycle.ApplyAsync(file, historicalDigest, Authorize(historicalDigest))).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        (await lifecycle.ApplyAsync(file, historicalDigest)).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
         var historyBytes = await File.ReadAllBytesAsync(file);
         var attachment = first.GetRequiredService<IPrimaryScopeAttachmentStore>();
         var versioned = (await attachment.ReadWithRevisionAsync()).Value;

@@ -103,10 +103,10 @@ discussion write.
   contact ADO, write a journal, verify that the seed exists, or establish that
   its fingerprint is current. The fictional example is structurally valid only.
 - **Preview** imports the local journal, reports pending changes and blockers,
-  and presents native review. It does not authorize or apply the proposal.
-- **Apply** requires the previewed exact digest and native authorization. It
+  and presents native review. It does not apply the proposal.
+- **Apply** requires the previewed exact digest. It
   checks live preconditions and records execution/readback in the journal.
-  Structural validity or a successful preview is not consent to publish.
+  The separate review page's human Apply action is also bound to that digest.
 
 ### Append one discussion comment
 
@@ -167,7 +167,7 @@ when no candidate exists. It refuses a missing or changed selected file rather
 than silently substituting an older proposal. A presenter uses the returned file
 and digest with `proposal preview --file <path> --expect-digest <digest> --interactive`
 to check the canonical digest before journal import or review rendering. These
-are presentation controls, not authorization or apply.
+are presentation controls, not apply.
 
 ### Explicit reconciliation and retirement
 
@@ -176,12 +176,12 @@ change historical execution states, delete its original file, or publish pending
 
 ```text
 twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> \
-  --outcome retire --authorize <identity> --rationale "Intent deliberately abandoned" -o json
+  --outcome retire -o json
 twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> \
-  --outcome readback --authorize <identity> --rationale "Verify acknowledged outcome" -o json
+  --outcome readback -o json
 twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> \
   --outcome supersede --replacement-digest <verified-digest> --replacement-operation <replacement-op> \
-  --authorize <identity> --rationale "Verified replacement establishes the original effect" -o json
+  -o json
 ```
 
 - **Retire** requires a never-admitted Planned/Confirmed operation. Retirement and
@@ -194,15 +194,16 @@ twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-
   under the same known authority. Unrelated success is not reconciliation.
 
 Every receipt binds the original digest, operation, expected request, captured origin,
-authorizing origin, digest-bound authorization/rationale and observed evidence.
+current native origin and observed evidence. Historic authorization fields, when present
+on older receipts, remain readable.
 Publish receipts also bind the exact durable intent identity and recording timestamp.
 Unknown/in-flight outcomes, active leases, missing evidence and mismatches stay blocked.
 `proposal status` exposes `origin` and each operation's separate `outcomeReceipt`;
 the historical `state` is never rewritten as `Verified`. Unknown legacy origin
 cannot silently adopt the current actor. A fresh proposal requires fresh operation
-identities and current preview/authorization. Plan JSON v1 supports six operation kinds, including `append-comment`. Version 2 uses provider-qualified identities and opaque
+identities and current preview/digest confirmation. Plan JSON v1 supports six operation kinds, including `append-comment`. Version 2 uses provider-qualified identities and opaque
 provider revision tokens for batch/link/delete proposals, but remains review-only:
-preview does not journal it and apply refuses it before authorization or provider
+preview does not journal it and apply refuses it before journal or provider
 access. Reconciliation is a separate native action.
 
 The MCP equivalent is `twig_proposal_reconcile`, including batch dispatch. It requires
@@ -227,7 +228,7 @@ authorizer and rationale. Its `settled` result is distinct from successful execu
 |[`proposal validate`](proposal-validate.md)|Validate proposal v1/v2 and report its digest; no provider calls.|none|
 |[`proposal preview`](proposal-preview.md)|Review v1/v2; v1 imports journal, while v2 is blocked without journal access.|local (v1)|
 |[`proposal latest`](README.md#latest-unresolved-proposal)|Select the latest unresolved workspace preview without mutation.|none|
-|[`proposal apply`](proposal-apply.md)|Apply v1 after digest confirmation and authorization; refuse v2 before journal or provider access.|ado (v1)|
+|[`proposal apply`](proposal-apply.md)|Apply v1 after digest confirmation; refuse v2 before journal or provider access.|ado (v1)|
 |[`proposal status`](proposal-status.md)|Show journal state for a proposal file.|none|
 |[`proposal reconcile`](README.md#explicit-reconciliation-and-retirement)|Append an evidence-backed outcome receipt without replay or historical-state rewrites.|local|
 |[`proposal seed`](proposal-seed.md)|Describe a staged seed for proposal authoring.|none|

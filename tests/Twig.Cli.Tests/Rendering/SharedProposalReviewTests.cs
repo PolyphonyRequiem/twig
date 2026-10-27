@@ -26,7 +26,7 @@ public sealed class SharedProposalReviewTests
         Operations = [new() { Ordinal = 0, OpId = "edit-child", Kind = "batch", Target = new() { WorkItemId = 2 }, Summary = "Edit child", Preconditions = [new() { Kind = "expectedRevision", Value = "4" }],
             Consequences = [new() { Kind = "field-set", Field = "System.Description", FieldLabel = "Description", To = Body, Before = new() { State = "value", Value = "old", Revision = 4 }, TextChange = ReviewTextChange.Measure("old", Body) },
                 new() { Kind = "field-clear", Field = "System.AssignedTo", FieldLabel = "Assigned to", Before = new() { State = "absent", Revision = 4 } }] }],
-        Blockers = [], AuthorizationChoices = ["apply", "revise", "decline"],
+        Blockers = [],
     };
 
     private static string Render(ChangeProposalReviewModel model, bool full = false, int width = 100, bool unicode = true, string icons = "unicode")
@@ -91,7 +91,7 @@ public sealed class SharedProposalReviewTests
                     Fields = new Dictionary<string, string?> { ["Custom.SupportPriority"] = null } },
             ],
         };
-        var model = await new ChangeProposalReviewModelBuilder(items, fields).BuildAsync(definition, "digest", [], [], true);
+        var model = await new ChangeProposalReviewModelBuilder(items, fields).BuildAsync(definition, "digest", [], []);
         var text = Render(model, full, 240);
         text.ShouldContain("Priority (Custom.BusinessPriority)");
         text.ShouldContain("Priority (Custom.SupportPriority)");
@@ -263,7 +263,7 @@ public sealed class SharedProposalReviewTests
         if (colored) brief.ShouldContain("\u001b[");
         else brief.ShouldNotContain("\u001b[");
         await lifecycle.Received(1).PreviewAsync("p.json", Arg.Any<CancellationToken>());
-        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default);
     }
 
     [Fact]
@@ -285,7 +285,7 @@ public sealed class SharedProposalReviewTests
         json.RootElement.GetProperty("presentation").ValueKind.ShouldBe(JsonValueKind.Null);
         json.RootElement.GetProperty("reviewModel").ValueKind.ShouldBe(JsonValueKind.Null);
         json.RootElement.GetProperty("issues")[0].GetProperty("code").GetString().ShouldBe(PlanValidationCodes.JsonInvalid);
-        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default);
     }
 
     [Theory]
@@ -301,7 +301,6 @@ public sealed class SharedProposalReviewTests
         var lifecycle = Substitute.For<IPlanLifecycleService>();
         var stderr = new StringWriter();
         var command = new PlanCommand(lifecycle, new(new HumanOutputFormatter()),
-            new UnresolvedSessionSteeringModeProvider(), TimeProvider.System,
             stdout: new StringWriter(), stderr: stderr);
 
         (await command.PreviewAsync("p.json", outputFormat, full: false, interactive: false,
@@ -339,7 +338,6 @@ public sealed class SharedProposalReviewTests
         review.GetProperty("operations")[0].GetProperty("consequences")[0].GetProperty("field").GetString().ShouldBe("System.Description");
         review.GetProperty("operations")[0].GetProperty("consequences")[0].GetProperty("to").GetString().ShouldBe(Body);
         review.GetProperty("operations")[1].GetProperty("consequences")[0].GetProperty("kind").GetString().ShouldBe("work-item-delete");
-        review.GetProperty("authorizationChoices").EnumerateArray().Select(c => c.GetString()).ShouldBe(model.AuthorizationChoices);
         review.GetProperty("blockers")[0].GetProperty("detail").GetString().ShouldBe("Resolve before applying");
     }
 
@@ -349,14 +347,14 @@ public sealed class SharedProposalReviewTests
         var lifecycle = Substitute.For<IPlanLifecycleService>();
         lifecycle.PreviewAsync("p.json", Arg.Any<CancellationToken>()).Returns(Preview(Model()));
         var output = new StringWriter();
-        var cmd = new PlanCommand(lifecycle, new(new HumanOutputFormatter()), new UnresolvedSessionSteeringModeProvider(), TimeProvider.System, stdout: output)
+        var cmd = new PlanCommand(lifecycle, new(new HumanOutputFormatter()), stdout: output)
         { IsReviewTerminal = () => true, ReviewInput = new StringReader("apply\ndetails\nback\ncancel\n") };
         (await cmd.PreviewAsync("p.json", "human", false, true, default)).ShouldBe(0);
         output.ToString().ShouldContain("EXACT description");
-        output.ToString().ShouldContain("No authorization or apply occurs here");
+        output.ToString().ShouldContain("Review closed. Not applied.");
         output.ToString().ShouldContain("Review closed. Not applied.");
         await lifecycle.Received(1).PreviewAsync("p.json", Arg.Any<CancellationToken>());
-        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default);
     }
 
     [Theory]
@@ -365,7 +363,7 @@ public sealed class SharedProposalReviewTests
     public async Task InteractiveRejectsNonHumanOrNonTerminal_BeforePreview(string format, bool terminal)
     {
         var lifecycle = Substitute.For<IPlanLifecycleService>();
-        var cmd = new PlanCommand(lifecycle, new(new HumanOutputFormatter()), new UnresolvedSessionSteeringModeProvider(), TimeProvider.System, stdout: new StringWriter(), stderr: new StringWriter())
+        var cmd = new PlanCommand(lifecycle, new(new HumanOutputFormatter()), stdout: new StringWriter(), stderr: new StringWriter())
         { IsReviewTerminal = () => terminal };
         (await cmd.PreviewAsync("p.json", format, false, true, default)).ShouldBe(2);
         await lifecycle.DidNotReceiveWithAnyArgs().PreviewAsync(default!, default);
@@ -376,12 +374,12 @@ public sealed class SharedProposalReviewTests
     {
         var lifecycle = Substitute.For<IPlanLifecycleService>();
         lifecycle.PreviewAsync("p.json", Arg.Any<CancellationToken>()).Returns(Preview(Model()));
-        var cmd = new PlanCommand(lifecycle, new(new HumanOutputFormatter()), new UnresolvedSessionSteeringModeProvider(), TimeProvider.System, stdout: new StringWriter())
+        var cmd = new PlanCommand(lifecycle, new(new HumanOutputFormatter()), stdout: new StringWriter())
         { IsReviewTerminal = () => true, ReviewInput = new StringReader("") };
         (await cmd.PreviewAsync("p.json", "human", false, true, default)).ShouldBe(0);
-        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default);
     }
 
-    private static PlanCommand Command(IPlanLifecycleService lifecycle, StringWriter output) => new(lifecycle, new(new HumanOutputFormatter()), new UnresolvedSessionSteeringModeProvider(), TimeProvider.System, stdout: output);
+    private static PlanCommand Command(IPlanLifecycleService lifecycle, StringWriter output) => new(lifecycle, new(new HumanOutputFormatter()), stdout: output);
     private static PlanPreviewResult Preview(ChangeProposalReviewModel model) => new() { Digest = model.Digest, CanApply = true, ReviewModel = model, Operations = [], Issues = [], PendingChanges = [] };
 }

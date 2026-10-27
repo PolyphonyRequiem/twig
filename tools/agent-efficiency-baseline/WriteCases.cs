@@ -537,7 +537,7 @@ internal static class WriteCases
                 new PlanDocumentParser(),
                 Journal, Pending, FieldDefinitions, Ado, RevisionBound, SeedPublish,
                 WorkItems, SeedLinks, StagedRegistry, PublishIdMap, PublishIntent,
-                Config, Paths, TimeProvider.System, new HumanSteering());
+                Config, Paths, TimeProvider.System);
         }
 
         public void StubField(string referenceName, string dataType, bool isIdentity = false)
@@ -564,14 +564,7 @@ internal static class WriteCases
             var preview = await Service.PreviewAsync(file).ConfigureAwait(false);
             var digest = preview.Digest
                 ?? throw new InvalidOperationException("Baseline fixture: preview did not produce a digest.");
-            var apply = await Service.ApplyAsync(file, digest,
-                new ProposalAuthorization
-                {
-                    Digest = digest,
-                    Mode = ProposalAuthorizationGate.RequiredMode(SessionSteeringMode.HumanSteered),
-                    AuthorizerIdentity = "Baseline Authorizer",
-                    AuthorizedAt = DateTimeOffset.UnixEpoch,
-                }).ConfigureAwait(false);
+            var apply = await Service.ApplyAsync(file, digest).ConfigureAwait(false);
 
             var journal = await Journal.GetAsync(digest).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Baseline fixture: journal row missing after apply.");
@@ -612,11 +605,6 @@ internal static class WriteCases
             Store.Dispose();
             Directory.Delete(RepoRoot, recursive: true);
         }
-    }
-
-    private sealed class HumanSteering : ISessionSteeringModeProvider
-    {
-        public SessionSteeringMode Resolve() => SessionSteeringMode.HumanSteered;
     }
 
     private sealed record OperationSnapshot(

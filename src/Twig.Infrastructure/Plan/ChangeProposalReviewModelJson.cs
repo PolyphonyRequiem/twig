@@ -9,11 +9,8 @@ namespace Twig.Infrastructure.Plan;
 /// The single serializer for the canonical semantic review model (design record T2 §4.1,
 /// <c>modelVersion</c> 1, with version 2 for discussion-append effects).
 /// <para>
-/// 🔴 <b>One writer, every consumer.</b> The MCP preview payload, and the
-/// <c>review_model_json</c> audit column written at authorization time, are produced here.
-/// A second writer would let "what the authorizer was shown" and "what the audit row records"
-/// drift apart silently — which is the one divergence an audit trail cannot tolerate, because
-/// nothing downstream could detect it.
+/// <b>One writer, every consumer.</b> Preview and browser review payloads are produced here,
+/// keeping the transient model shape consistent across human review surfaces.
 /// </para>
 /// <para>
 /// Written with <see cref="Utf8JsonWriter"/> directly rather than a serializer context: the
@@ -22,7 +19,7 @@ namespace Twig.Infrastructure.Plan;
 /// </para>
 /// <para>
 /// Every material entry is emitted in full — legacy and provider-qualified affected items,
-/// operations, preconditions, consequences, authorization choices and blockers are never
+/// operations, preconditions, consequences and blockers are never
 /// summarised or truncated. Dropping one would make the reviewer authorize a mutation they
 /// were never shown.
 /// </para>
@@ -42,7 +39,7 @@ public static class ChangeProposalReviewModelJson
         writer.WriteString("model", model.Model);
         writer.WriteNumber("modelVersion", model.ModelVersion);
 
-        // Verbatim. A renderer or serializer that recomputed this could bind an authorization to
+        // Verbatim. A renderer or serializer that recomputed this could bind an apply to
         // a digest the proposal never had.
         writer.WriteString("digest", model.Digest);
 
@@ -173,11 +170,6 @@ public static class ChangeProposalReviewModelJson
         }
         writer.WriteEndArray();
 
-        writer.WriteStartArray("authorizationChoices");
-        foreach (var choice in model.AuthorizationChoices)
-            writer.WriteStringValue(choice);
-        writer.WriteEndArray();
-
         writer.WriteStartArray("blockers");
         foreach (var blocker in model.Blockers)
         {
@@ -221,8 +213,8 @@ public static class ChangeProposalReviewModelJson
     }
 
     /// <summary>
-    /// Serializes the model as a standalone compact JSON document — the exact string persisted
-    /// in the journal's <c>review_model_json</c> column.
+    /// Serializes the model as a standalone compact JSON document for transient preview and
+    /// browser review payloads.
     /// </summary>
     public static string Serialize(ChangeProposalReviewModel model)
     {

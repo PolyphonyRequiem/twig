@@ -89,7 +89,7 @@ public sealed class DiscussionAppendPlanTests
             .Returns(Task.FromResult<IReadOnlyList<WorkItem>>([]));
 
         var model = await new ChangeProposalReviewModelBuilder(workItems)
-            .BuildAsync(parsed.Plan!, parsed.Digest!, [], [], canApply: true);
+            .BuildAsync(parsed.Plan!, parsed.Digest!, [], []);
 
         model.ModelVersion.ShouldBe(2);
         var operation = model.Operations.Single();
@@ -137,7 +137,7 @@ public sealed class DiscussionAppendPlanTests
             .Returns(Task.FromResult<IReadOnlyList<WorkItem>>([]));
 
         var model = await new ChangeProposalReviewModelBuilder(workItems)
-            .BuildAsync(definition, new string('a', 64), [], [], canApply: true);
+            .BuildAsync(definition, new string('a', 64), [], []);
 
         model.ModelVersion.ShouldBe(1);
         using var serialized = JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));

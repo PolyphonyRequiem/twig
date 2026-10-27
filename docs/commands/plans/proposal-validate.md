@@ -65,7 +65,7 @@ Save the file inside the active workspace, then run
 
 Validate checks structure, not seed existence or a live fingerprint. Preview
 writes the local journal and presents review without publication permission;
-apply requires the previewed exact digest and native authorization, and checks
+apply requires the previewed exact digest and checks
 live preconditions. See [the proposal authoring reference](README.md#author-a-minimal-seed-publication-proposal).
 
 

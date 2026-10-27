@@ -96,7 +96,7 @@ public sealed class IdentityChangeEligibilityConsumerTests : IAsyncLifetime
             PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
         var verified = await WriteFieldProposalAsync(runtime, "verified", "verified-op", 42, 1, "Freshly authorized title");
         var verifiedDigest = (await lifecycle.PreviewAsync(verified)).Digest!;
-        var applied = await lifecycle.ApplyAsync(verified, verifiedDigest, Authorize(verifiedDigest));
+        var applied = await lifecycle.ApplyAsync(verified, verifiedDigest);
         applied.Failed.ShouldBeFalse(applied.Error);
         applied.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
         await runtime.GetRequiredService<IPendingChangeStore>().AddChangeAsync(42, "field", "System.Title", "Freshly authorized title", "Edited title");
@@ -134,7 +134,7 @@ public sealed class IdentityChangeEligibilityConsumerTests : IAsyncLifetime
             .Select(j => j.Digest).ShouldBe(new[] { retiredDigest, orphanDigest }, ignoreOrder: true);
 
         var retire = await lifecycle.ReconcileAsync(retiredFile, retiredDigest, "retired-op",
-            PlanOutcomeKind.Retired, Authorize(retiredDigest));
+            PlanOutcomeKind.Retired);
         retire.Settled.ShouldBeTrue(retire.Error);
         (await inspector.InspectAsync(config, paths)).UnresolvedJournals
             .ShouldHaveSingleItem().Digest.ShouldBe(orphanDigest,
@@ -189,10 +189,10 @@ public sealed class IdentityChangeEligibilityConsumerTests : IAsyncLifetime
         var descriptor = (await lifecycle.DescribeSeedAsync(seedRow.Id))!;
         var seedPublish = await WriteSeedProposalAsync(runtime, "seed-publish", "seed-op", descriptor);
         var seedPublishDigest = (await lifecycle.PreviewAsync(seedPublish)).Digest!;
-        (await lifecycle.ApplyAsync(seedPublish, seedPublishDigest, Authorize(seedPublishDigest)))
+        (await lifecycle.ApplyAsync(seedPublish, seedPublishDigest))
             .Failed.ShouldBeFalse();
         (await lifecycle.ReconcileAsync(abandoned, abandonedDigest, "abandon-op",
-                PlanOutcomeKind.Retired, Authorize(abandonedDigest))).Settled.ShouldBeTrue();
+                PlanOutcomeKind.Retired)).Settled.ShouldBeTrue();
 
         var eligible = await inspector.InspectAsync(config, paths);
         eligible.PendingEdits.ShouldBeEmpty();
@@ -451,15 +451,6 @@ public sealed class IdentityChangeEligibilityConsumerTests : IAsyncLifetime
         }));
         return file;
     }
-
-    private static ProposalAuthorization Authorize(string digest) => new()
-    {
-        Digest = digest,
-        Mode = ProposalAuthorizationMode.Human,
-        AuthorizerIdentity = "Fixture scope owner",
-        Rationale = "Isolated eligibility consumer proof",
-        AuthorizedAt = DateTimeOffset.UtcNow,
-    };
 
     private sealed class PrincipalTransport : HttpMessageHandler
     {

@@ -35,8 +35,6 @@ namespace Twig.Commands;
 public sealed class PlanCommand(
     IPlanLifecycleService lifecycle,
     OutputFormatterFactory formatterFactory,
-    ISessionSteeringModeProvider steering,
-    TimeProvider clock,
     RendererFactory? rendererFactory = null,
     TextWriter? stdout = null,
     TextWriter? stderr = null,
@@ -163,22 +161,12 @@ public sealed class PlanCommand(
 
     /// <summary>
     /// Apply a proposal. Exit 0 when every operation reached
-    /// <see cref="PlanOperationState.Verified"/>; 1 when any operation failed, the
-    /// digest did not match, or the authorization gate refused; 2 when <c>--confirm</c> is
-    /// missing.
+    /// <see cref="PlanOperationState.Verified"/>; 1 when any operation failed or the
+    /// digest did not match; 2 when <c>--confirm</c> is missing.
     /// </summary>
-    /// <remarks>
-    /// A missing <c>--authorize</c> is deliberately <b>not</b> a usage error. It is an
-    /// authorization refusal, reported by the gate with the reason the session actually had —
-    /// which differs between a human-steered and a delegated session. Turning it into exit 2 would
-    /// tell the user they mistyped a command when what really happened is that nobody signed
-    /// the proposal off.
-    /// </remarks>
     public async Task<int> ApplyAsync(
         string? file,
         string? confirmedDigest,
-        string? authorizerIdentity,
-        string? rationale,
         string outputFormat,
         CancellationToken ct)
     {
@@ -193,33 +181,7 @@ public sealed class PlanCommand(
             return 2;
         }
 
-        // The mode is read from the session seam, never chosen by a flag: which authorization
-        // path applies is a property of how the session is steered, not something the caller
-        // may assert about itself. The digest the human confirmed IS the digest they signed
-        // off, so the two are bound to the same value here by construction.
-        //
-        // 🔴 The IDENTITY, unlike the mode, IS caller-asserted, and this is the site Spec #729
-        // §Authorization records as known non-compliant with its authorizer-separation
-        // invariant. --authorize is a free string checked only for non-blankness, while the
-        // production steering provider resolves Unresolved and therefore requires mode Human.
-        // So any caller — including an agent process whose own mutation is being gated — can
-        // mint a passing "human" authorization naming a human who never saw the digest, and
-        // the resulting audit row is byte-identical to a genuine sign-off. Observed live on
-        // 2026-08-29. Closing this needs a session/authorization contract that can demonstrate
-        // separation; Spec #729 deliberately defers that mechanism, so the gap is named here
-        // rather than papered over with a check this layer cannot actually perform.
-        var authorization = string.IsNullOrWhiteSpace(authorizerIdentity)
-            ? null
-            : new ProposalAuthorization
-            {
-                Digest = confirmedDigest!,
-                Mode = ProposalAuthorizationGate.RequiredMode(steering.Resolve()),
-                AuthorizerIdentity = authorizerIdentity!,
-                Rationale = string.IsNullOrWhiteSpace(rationale) ? null : rationale,
-                AuthorizedAt = clock.GetUtcNow(),
-            };
-
-        var result = await lifecycle.ApplyAsync(resolved, confirmedDigest!, authorization, ct);
+        var result = await lifecycle.ApplyAsync(resolved, confirmedDigest!, ct);
         RenderApply(result, outputFormat);
         return result.Failed ? 1 : 0;
     }
@@ -299,24 +261,17 @@ public sealed class PlanCommand(
     /// <summary>
     /// Settle a never-admitted operation as retired, by fresh readback, or as superseded by
     /// a Verified replacement. Native authority — never emits a Plan JSON op kind, never
-    /// rewrites the original execution lifecycle, appends an append-only receipt bound to
-    /// the original digest's authorizer. Exit 0 when the receipt was settled; 1 when the
-    /// lifecycle refused (bad digest, authorization gate, evidence mismatch); 2 for usage.
-    /// </summary>
-    /// <remarks>
-    /// Authorization follows the exact mode/clock/gate pattern as apply: the mode is read
-    /// from the session seam, the digest the caller confirms IS the digest they signed off,
-    /// and the identity is caller-asserted. The gate carries the same known
-    /// authorizer-separation gap documented on <see cref="ApplyAsync"/>.
+    /// rewrites the original execution lifecycle, and appends an append-only receipt bound to
+    /// the original digest and native origin. Exit 0 when the receipt was settled; 1 when the
+    /// lifecycle refused (bad digest or evidence mismatch); 2 for usage.
     /// </remarks>
     public async Task<int> ReconcileAsync(
         string? file, string? confirmedDigest, string? opId, string? outcome,
-        string? authorizerIdentity, string? rationale, string? replacementDigest,
-        string? replacementOpId, string outputFormat, CancellationToken ct)
+        string? replacementDigest, string? replacementOpId, string outputFormat, CancellationToken ct)
     {
         var started = Stopwatch.GetTimestamp();
-        var exitCode = await ReconcileCoreAsync(file, confirmedDigest, opId, outcome, authorizerIdentity,
-            rationale, replacementDigest, replacementOpId, outputFormat, ct);
+        var exitCode = await ReconcileCoreAsync(file, confirmedDigest, opId, outcome,
+            replacementDigest, replacementOpId, outputFormat, ct);
         try
         {
             telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
@@ -338,8 +293,7 @@ public sealed class PlanCommand(
 
     private async Task<int> ReconcileCoreAsync(
         string? file, string? confirmedDigest, string? opId, string? outcome,
-        string? authorizerIdentity, string? rationale, string? replacementDigest,
-        string? replacementOpId, string outputFormat, CancellationToken ct)
+        string? replacementDigest, string? replacementOpId, string outputFormat, CancellationToken ct)
     {
         if (!TryRequireFile(file, out var resolved, out var usageError))
         {
@@ -361,14 +315,6 @@ public sealed class PlanCommand(
             WriteUsage("proposal reconcile requires --outcome <retire|readback|supersede>.", outputFormat);
             return 2;
         }
-        if (string.IsNullOrWhiteSpace(rationale))
-        {
-            // Reconciliation never gets to be anonymous: the receipt is append-only durable
-            // evidence, so the authorizer's reason is a hard precondition rather than a
-            // decoration the way it is on apply.
-            WriteUsage("proposal reconcile requires --rationale <text> explaining why the outcome is being settled.", outputFormat);
-            return 2;
-        }
         if (kind == PlanOutcomeKind.Superseded)
         {
             if (string.IsNullOrWhiteSpace(replacementDigest) || string.IsNullOrWhiteSpace(replacementOpId))
@@ -383,23 +329,11 @@ public sealed class PlanCommand(
             return 2;
         }
 
-        var authorization = string.IsNullOrWhiteSpace(authorizerIdentity)
-            ? null
-            : new ProposalAuthorization
-            {
-                Digest = confirmedDigest!,
-                Mode = ProposalAuthorizationGate.RequiredMode(steering.Resolve()),
-                AuthorizerIdentity = authorizerIdentity!,
-                Rationale = rationale,
-                AuthorizedAt = clock.GetUtcNow(),
-            };
-
         var result = await lifecycle.ReconcileAsync(
             resolved,
             confirmedDigest!,
             opId!,
             kind,
-            authorization,
             string.IsNullOrWhiteSpace(replacementDigest) ? null : replacementDigest,
             string.IsNullOrWhiteSpace(replacementOpId) ? null : replacementOpId,
             ct);
@@ -540,12 +474,11 @@ public sealed class PlanCommand(
 
     /// <summary>
     /// Human preview output projects material effects, warnings and blockers from the canonical
-    /// model. It does not present approval controls; digest, workspace, operation identity,
-    /// preconditions, provenance and authorization choices remain in structured output and the
-    /// unchanged apply safeguards.
+    /// model. It does not present apply controls; digest, workspace, operation identity,
+    /// preconditions and provenance remain in structured output and the digest-bound apply
+    /// safeguards.
     /// <para>
-    /// Details and Back reuse the same captured review observation; neither authorizes nor
-    /// applies changes.
+    /// Details and Back reuse the same captured review observation; neither applies changes.
     /// </para>
     /// </summary>
     private IReadOnlyList<RenderNode> BuildPreviewHumanLines(PlanPreviewResult result, bool full)
@@ -666,9 +599,6 @@ public sealed class PlanCommand(
             $"proposal reconcile: settled  outcome={receipt.Kind}  opId={receipt.OpId}  digest={receipt.Digest}",
             Severity.Success));
         lines.Add(new RenderNode.Text($"  receiptId: {receipt.ReceiptId}"));
-        lines.Add(new RenderNode.Text(
-            $"  authorizer: {receipt.Authorization.AuthorizerIdentity} "
-            + $"(mode={ProposalAuthorization.ModeToWire(receipt.Authorization.Mode)})"));
         if (receipt.ReplacementDigest is not null || receipt.ReplacementOpId is not null)
             lines.Add(new RenderNode.Text(
                 $"  replacement: digest={receipt.ReplacementDigest ?? "(none)"} op={receipt.ReplacementOpId ?? "(none)"}"));
@@ -993,8 +923,8 @@ public sealed class PlanCommand(
     /// <summary>
     /// Projects the canonical semantic review model into render cells.
     /// <para>
-    /// Every material entry is emitted — operations, preconditions, consequences,
-    /// authorization choices and blockers are never summarised or truncated here, because a
+    /// Every material entry is emitted — operations, preconditions, consequences
+    /// and blockers are never summarised or truncated here, because a
     /// renderer that elides a material entry is a compliance failure rather than a display
     /// choice.
     /// </para>
@@ -1002,7 +932,7 @@ public sealed class PlanCommand(
     private static RenderCell ReviewModelCell(ChangeProposalReviewModel? model)
     {
         if (model is null) return new RenderCell("(none)", new RenderValue.Null());
-        // Same writer as MCP and audit. This adapter only converts JSON primitives to cells.
+        // Same writer as MCP JSON. This adapter only converts JSON primitives to cells.
         var serialized = Twig.Infrastructure.Plan.ChangeProposalReviewModelJson.Serialize(model);
         using var json = System.Text.Json.JsonDocument.Parse(serialized);
         // Minimal renders DisplayText; JSON keeps the same structured object value.
@@ -1185,8 +1115,7 @@ public sealed class PlanCommand(
 
     /// <summary>
     /// Projects a <see cref="PlanOutcomeReceipt"/> into render cells; null when no outcome
-    /// has been settled. Carries both origins and the exact authorization record so an
-    /// auditor can replay the gate decision from JSON alone.
+    /// has been settled. Carries both the proposal origin and current native origin.
     /// </summary>
     private static RenderCell ReceiptCell(PlanOutcomeReceipt? receipt)
     {
@@ -1201,16 +1130,17 @@ public sealed class PlanCommand(
             ["evidenceJson"] = RenderCell.String(receipt.EvidenceJson),
             ["origin"] = OriginCell(receipt.Origin),
             ["authorizingOrigin"] = OriginCell(receipt.AuthorizingOrigin),
-            ["authorization"] = AuthorizationCell(receipt.Authorization),
             ["replacementDigest"] = NullableStringCell(receipt.ReplacementDigest),
             ["replacementOpId"] = NullableStringCell(receipt.ReplacementOpId),
             ["publishIdentity"] = NullableStringCell(receipt.PublishIdentity?.ToString()),
             ["publishIntentRecordedAt"] = NullableStringCell(receipt.PublishIntentRecordedAt),
         };
+        if (receipt.Authorization is { } legacyAuthorization)
+            obj["authorization"] = LegacyAuthorizationCell(legacyAuthorization);
         return new RenderCell($"{receipt.Kind} {receipt.OpId}", new RenderValue.Object(obj));
     }
 
-    private static RenderCell AuthorizationCell(ProposalAuthorization authorization)
+    private static RenderCell LegacyAuthorizationCell(ProposalAuthorization authorization)
     {
         var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
@@ -1224,4 +1154,5 @@ public sealed class PlanCommand(
         };
         return new RenderCell(authorization.AuthorizerIdentity, new RenderValue.Object(obj));
     }
+
 }

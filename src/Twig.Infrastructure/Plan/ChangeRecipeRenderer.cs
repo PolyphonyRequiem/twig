@@ -24,7 +24,7 @@ namespace Twig.Infrastructure.Plan;
 /// <para>
 /// <b>This class cannot apply anything</b>, and neither can <see cref="IChangeRecipe"/>. A
 /// rendered proposal has to be taken through the ordinary lifecycle, where the digest gate and
-/// the authorization record live.
+/// confirmation check live.
 /// </para>
 /// </summary>
 public sealed class ChangeRecipeRenderer(PlanDocumentParser parser)

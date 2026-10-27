@@ -63,13 +63,7 @@ async function stageForRetain(h) {
         changes: [{ fieldRef: "System.Title", proposedValue: "" }] });
 }
 
-const saveAuthorization = digest => ({
-    digest, mode: 0, authorizerIdentity: "workbench-ui-user (individual identity unverified)",
-    rationale: "Explicit Save gesture; caller/surface attribution only, not host-attested identity.",
-    authorizedAt: "2026-10-27T12:00:00.000Z",
-});
-
-test("Save forwards the separate UI record unchanged against only the server-held capture, once", async () => {
+test("Save consumes only the server-held retained capture, once", async () => {
     const saves = [];
     const h = setup({ save: async input => {
         saves.push(input);
@@ -77,20 +71,17 @@ test("Save forwards the separate UI record unchanged against only the server-hel
     } });
     const staged = await stageForRetain(h);
     const held = await h.bridge.retain({ captureHandle: staged.captureHandle });
-    assert.equal(saves.length, 0, "retention does not authorize or save");
+    assert.equal(saves.length, 0, "retention does not save");
     assert.equal(held.canSave, true);
-    const authorization = saveAuthorization(held.receipt.digest);
-    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle,
-        authorization: { ...authorization, digest: "a".repeat(64) } }), /exact retained digest/);
-    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle, authorization, callerIdentity: "forged" }));
-    const saved = await h.bridge.save({ saveHandle: held.saveHandle, authorization });
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle, authorization: {} }));
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle, callerIdentity: "forged" }));
+    const saved = await h.bridge.save({ saveHandle: held.saveHandle });
     assert.equal(saved.status, "saved");
     assert.equal(saved.canSave, false);
     assert.equal(saved.inspectFirst, false);
-    assert.deepEqual(saves[0].authorization, authorization);
     assert.equal(saves[0].capture.digest, held.receipt.digest);
     assert.equal(saves[0].capture.nativeContext.identityId, h.target.identityId);
-    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle, authorization }), /current retained/);
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle }), /current retained/);
     assert.equal(saves.length, 1);
 });
 
@@ -99,13 +90,11 @@ test("unknown Save consumes its handle and holds its original qualified target a
     const h = setup({ save: async () => { saves++; throw new Error("Unknown Save"); } });
     const staged = await stageForRetain(h);
     const held = await h.bridge.retain({ captureHandle: staged.captureHandle });
-    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle,
-        authorization: saveAuthorization(held.receipt.digest) }), /Unknown Save/);
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle }), /Unknown Save/);
     const reopened = await h.bridge.open(h.target);
     assert.equal(reopened.inspectFirst, true);
     assert.equal(reopened.canSave, false);
-    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle,
-        authorization: saveAuthorization(held.receipt.digest) }));
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle }));
     assert.equal(saves, 1);
     assert.equal(h.calls.filter(call => call.action === "open").length, 1);
 });
@@ -378,16 +367,14 @@ test("protected workbench HTTP Save consumes only its held capture and is not an
             changes: [{ fieldRef: "System.Title", proposedValue: "" }] })).json();
         const retained = await (await h.post("/api/editing", { action: "retain",
             captureHandle: staged.editing.captureHandle })).json();
-        const body = { action: "save", saveHandle: retained.editing.saveHandle,
-            authorization: saveAuthorization(retained.editing.receipt.digest) };
+        const body = { action: "save", saveHandle: retained.editing.saveHandle };
         const denied = await h.post("/api/editing", body, { Authorization: "Bearer not-the-instance-token" });
         assert.equal(denied.status, 401);
         assert.equal(calls.length, 0);
         const response = await h.post("/api/editing", body);
         assert.equal(response.status, 200);
         assert.equal((await response.json()).editing.status, "saved");
-        assert.deepEqual(calls[0].authorization, body.authorization);
-        assert.equal(calls[0].capture.digest, body.authorization.digest);
+        assert.equal(calls[0].capture.digest, retained.editing.receipt.digest);
         assert.equal(h.server.save, undefined);
         assert.equal(h.server.saveLocalDraft, undefined);
         const replay = await h.post("/api/editing", body);

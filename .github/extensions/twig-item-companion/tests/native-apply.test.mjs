@@ -16,7 +16,7 @@ const nativePreview = () => ({
     operations: [{ ordinal: 0, id: "edit", kind: "Batch" }],
     reviewModel: {
         model: "twig.change-proposal.review", modelVersion: 1, digest, workspace,
-        rationale: null, affectedItems: [], blockers: [], authorizationChoices: ["authorize-and-apply"],
+        rationale: null, affectedItems: [], blockers: [],
         operations: [{ ordinal: 0, opId: "edit", kind: "batch", summary: "Change title",
             target: { workItemId: 42, stagedIdentity: null },
             preconditions: [{ kind: "expectedRevision", value: "7" }],
@@ -28,7 +28,7 @@ async function observe() {
         execFile(_exe, _args, _options, callback) { callback(null, JSON.stringify(nativePreview()), ""); },
     })({ input, workspacePath });
 }
-const request = (observation) => ({ captureId: observation.expected.captureId, confirm: digest, authorize: "Synthetic reviewer" });
+const request = (observation) => ({ captureId: observation.expected.captureId, confirm: digest });
 const receipt = () => ({ digest, failed: false, error: null,
     operations: [{ opId: "edit", ordinal: 0, kind: "Batch", state: "Verified", error: null, warning: null,
         resultJson: '{"revision":8}' }] });
@@ -54,28 +54,28 @@ function applier({ raw = receipt(), exit = 0, executable = fakeExecutable(), rea
 test("Apply reuses owned runner, pinned executable and exact native argv, never preview or a shell", async () => {
     const observation = await observe();
     const { apply, calls, executable } = applier();
-    const authority = { ...request(observation), rationale: "Reviewed the exact effects" };
-    const result = await apply({ input: authority, observation, workspacePath });
+    const result = await apply({ input: request(observation), observation, workspacePath });
     assert.equal(result.status, "verified");
     assert.deepEqual(result.native, receipt());
     assert.deepEqual(executable.prepared, ["proposal-apply"]);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].exe, FAKE_TWIG);
     assert.deepEqual(calls[0].args, ["proposal", "apply", "--file", path.join(workspacePath, input.file),
-        "--confirm", digest, "--authorize", authority.authorize, "--rationale", authority.rationale, "-o", "json"]);
+        "--confirm", digest, "-o", "json"]);
     assert.equal(calls[0].options.cwd, workspacePath);
     assert.equal(calls[0].options.shell, false);
     assert.equal(calls[0].options.maxBuffer, 4 * 1024 * 1024);
     assert.equal(calls[0].options.timeout, undefined, "owned-tree deadline, not direct-child timeout");
 });
 
-test("no caller-supplied path, foreign capture/digest, blank identity or blocked preview can launch Apply", async () => {
+test("no caller-supplied path, authorization fields, foreign capture/digest or blocked preview can launch Apply", async () => {
     const observation = await observe();
     const { apply, calls } = applier();
-    for (const authority of [{ ...request(observation), file: "other.json" }, { ...request(observation), authorize: "" },
-        { ...request(observation), authorize: "bad\0identity" }, { ...request(observation), rationale: "" },
+    for (const applyRequest of [{ ...request(observation), file: "other.json" },
+        { ...request(observation), authorize: "Synthetic reviewer" },
+        { ...request(observation), rationale: "Synthetic rationale" },
         { ...request(observation), confirm: "b".repeat(64) }, { ...request(observation), captureId: "foreign" }]) {
-        await assert.rejects(apply({ input: authority, observation, workspacePath }), /Apply/);
+        await assert.rejects(apply({ input: applyRequest, observation, workspacePath }), /Apply/);
     }
     for (const mutate of [
         (v) => { v.retained.envelope.canApply = false; },
@@ -139,7 +139,7 @@ async function panel(applyNativeProposal) {
     return { server, observation, headers, state, previews: () => previews };
 }
 
-test("HTTP acquisition/state are inert toward Apply; exact explicit authorization submits once and survives iframe reload", async () => {
+test("HTTP acquisition/state are inert toward Apply; exact digest-bound human Apply submits once and survives iframe reload", async () => {
     const native = applier();
     const { server, observation, headers, state, previews } = await panel(native.apply);
     try {
@@ -148,15 +148,16 @@ test("HTTP acquisition/state are inert toward Apply; exact explicit authorizatio
         await state();
         assert.equal(native.calls.length, 0);
         const url = new URL("/api/apply", server.url);
-        const authority = request(observation);
+        const applyRequest = request(observation);
         const send = (body, extra = {}) => fetch(url, { method: "POST", headers: { ...headers, ...extra }, body: JSON.stringify(body) });
-        assert.equal((await send(authority, { Origin: "https://untrusted.invalid" })).status, 403);
-        assert.equal((await send({ ...authority, captureId: "foreign" })).status, 400);
+        assert.equal((await send(applyRequest, { Origin: "https://untrusted.invalid" })).status, 403);
+        assert.equal((await send({ ...applyRequest, captureId: "foreign" })).status, 400);
+        assert.equal((await send({ ...applyRequest, confirm: "b".repeat(64) })).status, 400);
         assert.equal(native.calls.length, 0);
-        assert.equal((await send(authority)).status, 200);
+        assert.equal((await send(applyRequest)).status, 200);
         await fetch(server.url);
         assert.equal((await state()).applyAttempt.status, "verified");
-        assert.equal((await send(authority)).status, 400);
+        assert.equal((await send(applyRequest)).status, 400);
         assert.equal(native.calls.length, 1);
         assert.equal(previews(), 1);
     } finally { await server.close(); }

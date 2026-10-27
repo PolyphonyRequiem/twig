@@ -1,7 +1,7 @@
 ---
 command: proposal apply
 group: plans
-summary: Apply a proposal after digest confirmation and identity authorization.
+summary: Apply a proposal after digest confirmation.
 stability: stable
 mutates: ado
 ---
@@ -10,16 +10,15 @@ mutates: ado
 
 The only command in the plans group that writes to Azure DevOps. Apply
 consumes executable proposal v1 files, verifies the caller-supplied digest
-matches the current file digest exactly, verifies an identity has authorized
-the apply, and then runs each declared operation as a journalled row. A valid
+matches the current file digest exactly, and then runs each declared operation
+as a journalled row. A valid
 v2 proposal is refused before checking the supplied confirmation digest,
-journal access, pending-state reads, authorization, or provider calls.
+journal access, pending-state reads, or provider calls.
 
 ## Synopsis
 
 ```
 twig proposal apply --file <path> --confirm <digest>
-                    [--authorize <identity>] [--rationale <text>]
                     [-o human|json|minimal]
 ```
 
@@ -37,30 +36,27 @@ twig proposal apply --file <path> --confirm <digest>
 | `--version` | flag | — | Print the twig version and exit. |
 |`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`--confirm`|string|_none_|Lowercase-hex SHA-256 digest of the canonical proposal bytes. Must match exactly.|
-|`--authorize`|string|_none_|Identity authorizing this apply. Recorded in the journal audit trail; without it the apply is refused.|
-|`--rationale`|string|_none_|Optional reason for authorizing this apply, recorded alongside the authorization.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
 
 ## Behavior
 
 Delegates to `IPlanLifecycleService.ApplyAsync`
-(`src/Twig/Commands/PlanCommand.cs:92-129`). The command layer builds a
-`ProposalAuthorization` record binding the confirmed digest, the resolved
-authorization mode (from the session steering seam), the authorizer
-identity, an optional rationale, and the current UTC timestamp
-(`src/Twig/Commands/PlanCommand.cs:115-124`).
+(`src/Twig/Commands/PlanCommand.cs`). The caller-supplied digest is compared
+against the canonical digest recomputed from the current proposal file before
+the operation journal is confirmed or any provider mutation runs.
 
 - **Digest is a hard gate.** `--confirm` is required at the command layer;
   a mismatch against the current file digest is a lifecycle failure — you
   must re-preview (which recomputes the digest) and pass the new value.
 - **Version 2 is not executable.** Regardless of the supplied confirmation
   digest, the lifecycle refuses it before digest comparison, journal lookup or mutation,
-  pending-state inspection, authorization recording, or provider access. No v1
+  pending-state inspection, or provider access. No v1
   integer identity or revision is synthesized.
-- **Authorization is required, but its absence is not a usage error.** A
-  missing `--authorize` still returns exit 1, not 2: the gate resolves the
-  required mode from the session (HITL vs. AFK) and refuses with the reason
-  the session actually had (`src/Twig/Commands/PlanCommand.cs:85-91`).
+- **Digest confirmation is required.** A digest mismatch returns exit 1;
+  pass the exact digest from the preview of the current proposal.
+- **Review-page Apply remains human-only.** The browser review page's explicit
+  Apply action uses the digest from its retained review. The SDK exposes no
+  Apply action and the native lifecycle refuses a changed digest.
 - **Journal writes are the source of truth.** Every declared operation gets
   exactly one journal row keyed by digest and ordinal
   (`src/Twig.Domain/Services/Plan/PlanJournalOperation.cs:4-11`). Per-row
@@ -98,9 +94,7 @@ Human-in-the-loop apply after a fresh preview:
 $ twig proposal preview --file .twig/proposals/close-1234.json
 proposal: digest=3f9c…a1b7  canApply=true
 $ twig proposal apply --file .twig/proposals/close-1234.json \
-      --confirm 3f9c…a1b7 \
-      --authorize "Daniel Green" \
-      --rationale "Closing AB#1234 after tests green"
+      --confirm 3f9c…a1b7
 proposal: applied  ops=3 verified
 ```
 
@@ -108,7 +102,7 @@ Agent-scripted apply emitting per-operation journal outcomes as JSON:
 
 ```console
 $ twig proposal apply --file .twig/proposals/close-1234.json \
-      --confirm 3f9c…a1b7 --authorize wayfinder-bot -o json
+      --confirm 3f9c…a1b7 -o json
 { "digest": "3f9c…a1b7", "failed": false, "operations": [ /* rows */ ] }
 ```
 
@@ -126,7 +120,7 @@ bounded disposition and summary and never echo the raw `warning`/`error` bodies;
 |Condition|Result|
 |---|---|
 |Every operation reached the Verified terminal state.|`0`|
-|One or more operations failed, digest did not match, or authorization gate refused.|`1`|
+|One or more operations failed, or the digest did not match.|`1`|
 |`--file` or `--confirm` omitted.|`2`|
 
 ## See also

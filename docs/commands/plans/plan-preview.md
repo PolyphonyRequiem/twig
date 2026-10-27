@@ -39,7 +39,7 @@ twig plan preview --file <path> [--full] [--interactive] [--include-rendering --
 |`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`; native rendering requires `json`.|
 |`--full`|flag|`false`|Expand description bodies from the captured review. JSON is always exact.|
-|`--interactive`|flag|`false`|Opt into a human-terminal Details/Back/Cancel review loop. Never authorizes or applies.|
+|`--interactive`|flag|`false`|Opt into a human-terminal Details/Back/Cancel review loop. Never applies.|
 |`--include-rendering`|flag|`false`|Pass through the canonical proposal-preview presentation envelope.|
 |`--width`|integer|`unbounded / 120`|Presentation width; omitted human output is unbounded, while an included JSON frame defaults to 120. Explicit values are inclusive 20..400.|
 |`--color`|string|`never`|Presentation color mode: `always` or `never`; OMP requests `always` unless `NO_COLOR` requires `never`.|

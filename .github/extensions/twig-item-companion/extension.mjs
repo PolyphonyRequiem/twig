@@ -248,7 +248,7 @@ const workbenchCanvas = createCanvas({
 const reviewCanvas = createCanvas({
     id: "twig-proposal-review",
     displayName: "Twig proposal review",
-    description: "Review one retained native proposal, then separately authorize and apply that exact capture through native digest and journal gates.",
+    description: "Review one retained native proposal and expose a human-only digest-bound Apply action in the canvas.",
     actions: [{
         name: "acquire_review",
         description: "Explicitly preview one workspace proposal at its exact expected digest. May import a local journal row/update last-preview ordering. Reopen or show retained state to view it; no authorization or apply.",
@@ -270,24 +270,6 @@ const reviewCanvas = createCanvas({
             try { return await instance.acquire(ctx.input); }
             catch (error) { throw asCanvasError(error); }
         },
-    }, {
-        name: "apply_review",
-        description: "Separately authorize and apply the exact retained capture. Requires explicit authorization for these effects; never invoke from acquisition or assessment alone. Writes the tracker through native gates; no automatic retry.",
-        inputSchema: {
-            type: "object", additionalProperties: false, required: ["captureId", "confirm", "authorize"],
-            properties: {
-                captureId: { type: "string", minLength: 1, maxLength: 128 },
-                confirm: { type: "string", pattern: "^[a-f0-9]{64}$" },
-                authorize: { type: "string", minLength: 1, maxLength: 512 },
-                rationale: { type: "string", minLength: 1, maxLength: 2048 },
-            },
-        },
-        handler: async (ctx) => {
-            const instance = reviewInstances.get(ctx.instanceId);
-            if (!instance) throw new CanvasError("canvas_not_open", "Open and acquire Twig proposal review before explicit Apply.");
-            try { return await instance.apply(ctx.input); }
-            catch (error) { throw asCanvasError(error); }
-        },
     }],
     open: async (ctx) => {
         if (!session?.workspacePath) throw new CanvasError("workspace_unavailable", "Proposal review requires a project session with an admitted workspace.");
@@ -299,7 +281,7 @@ const reviewCanvas = createCanvas({
                 applyNativeProposal: createNativeProposalApplier({ executable }) });
             reviewInstances.set(ctx.instanceId, instance);
         }
-        return { url: instance.url, title: "Twig proposal review", status: "Explicit preview, then separate digest-bound authorization and native Apply" };
+        return { url: instance.url, title: "Twig proposal review", status: "Explicit preview, then human Accept/Apply bound to the reviewed digest" };
     },
     onClose: async (ctx) => {
         const instance = reviewInstances.get(ctx.instanceId);

@@ -86,7 +86,6 @@ export function retainProposalReview(rawJson, expected) {
     "unsupported model or reported identity mismatch");
     requireShape(nullableText(model.rationale) && Array.isArray(model.operations) &&
         model.operations.length === envelope.operations.length &&
-        Array.isArray(model.authorizationChoices) && model.authorizationChoices.every(nonempty) &&
         Array.isArray(model.blockers), "missing review coverage");
     requireShape(model.modelVersion === 1 ||
         model.operations.some((operation) => record(operation) && operation.kind === "append-comment"),
@@ -224,7 +223,7 @@ export function mountRetainedReview(root, rawJson, expected) {
     const heading = node("h1", "Retained proposal review - read only");
     const provenance = node("p", `${retained.provenance}. Capture: ${retained.captureId}; source: ${retained.sourceKind}.`);
     const identity = node("pre", `Reported workspace: ${model.workspace.organization} / ${model.workspace.project}\nReported digest: ${model.digest}`);
-    const warning = node("p", "No acquisition, refresh, authorization or apply is available here. canApply and policy outcomes grant no authority. Preview acquisition can write the local journal.");
+    const warning = node("p", "No acquisition or Apply is available in this read-only view. Preview acquisition can write the local journal.");
     const controls = node("div");
     const details = node("button", "Details");
     const back = node("button", "Back");
@@ -239,15 +238,13 @@ export function mountRetainedReview(root, rawJson, expected) {
         if (model.rationale) content.append(node("p", model.rationale));
         if (model.recipe != null) content.append(node("h2", "Recipe context (reported)"),
             node("pre", JSON.stringify(model.recipe, null, 2)));
-        content.append(node("h2", "Reported authorization choices (evidence only)"),
-            node("pre", JSON.stringify(model.authorizationChoices, null, 2)));
         content.append(node("h2", "Preview issues and blockers"));
         for (const issue of retained.envelope.issues) content.append(node("pre", JSON.stringify(issue, null, 2)));
         for (const blocker of model.blockers) content.append(node("pre", JSON.stringify(blocker, null, 2)));
         for (const decision of model.policyDecisions ?? []) content.append(node("pre", JSON.stringify(decision, null, 2)));
         content.append(node("h3", "Reported pending local changes"),
             node("pre", JSON.stringify(retained.envelope.pendingChanges, null, 2)));
-        if (!retained.envelope.issues.length && !model.blockers.length) content.append(node("p", "No blockers reported in this retained observation; not authorization."));
+        if (!retained.envelope.issues.length && !model.blockers.length) content.append(node("p", "No blockers reported in this retained observation."));
         content.append(node("h2", "Affected items (reported context)"), node("pre", JSON.stringify(model.affectedItems, null, 2)));
         content.append(node("h2", "Provider-qualified affected items (reported context)"),
             node("pre", JSON.stringify(model.providerAffectedItems ?? [], null, 2)));

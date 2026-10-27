@@ -18,13 +18,18 @@ partially rendering an append effect.
 
 This spec records the approved behavior. Feature documentation and executable tests describe the shipped command syntax; they must not advertise a capability before the real command path implements it.
 
+The review page remains a view plus a human Accept/Apply action bound to the exact
+displayed digest. Twig does not require separate authorizer sign-off or capture a new
+approval audit; the review model is transient preview data. Historic journal values
+remain readable.
+
 ## Shared facts, independent layout
 
 Extend `ChangeProposalReviewModel` and its existing builder. Do not create a competing proposal/diff authority. Existing `reviewModel` output remains the host contract; presentation styles or terminal cells must not leak into its semantic values.
 
 The review provides:
 
-- Exact proposal digest, workspace, ordered operations, preconditions, consequences, blockers and available authorization choices.
+- Exact proposal digest, workspace, ordered operations, preconditions, consequences and blockers.
 - Target identity/type/title/state and URL where known. Staged seeds retain their staged identity, with cached display title/type where available; no fabricated published ID.
 - A bounded, explicitly labeled hierarchy context derived from known cache relations. Context-only items must not be counted as mutation targets. Cycles or missing nodes cannot silently discard operations.
 - Field reference name and a readable display label, exact requested after value, and a before-value observation with its provenance. Unknown, known absent, empty string, and explicit clearing are different states.
@@ -37,14 +42,14 @@ Optional additive fields may retain model version 1 when old consumers remain sa
 ## Brief versus expanded review
 
 Every mode retains coverage of every material consequence and blocker. The structured model
-and JSON additionally retain available authorization choices, exact operation identities,
-preconditions and provenance; the human projection omits approval controls and machine
-bookkeeping rather than presenting them as review content. Apply continues to enforce them.
+and JSON additionally retain exact operation identities, preconditions and provenance; the
+human projection omits machine bookkeeping rather than presenting it as review content.
+Apply continues to enforce the exact digest and operation preconditions.
 
 Human review:
 
 1. Omits the generic Details title, digest and workspace lines. Those remain in structured output
-   for hosts and apply authorization.
+   for hosts; the canonical proposal digest remains the apply binding.
 2. Shows a recipe only when one exists and a rationale only when it is nonblank. Ad hoc and empty
    values are omitted rather than replaced with placeholders.
 3. Shows actual field/link/seed/delete effects and any material observation warning. Ordinals,
@@ -56,8 +61,8 @@ Human review:
    with detail access. No full body dump is required by default.
 7. Shows publication of a seed especially briefly: staged identity, title/type, target relationship
    and publication effect. It does not imitate edits on a nonexistent published item.
-8. Keeps delete/link consequences and blockers explicit without showing approval choices or
-   sign-off instructions. It does not replace a deletion with a neutral generic summary.
+8. Keeps delete/link consequences and blockers explicit. It does not replace a deletion with
+   a neutral generic summary.
 9. Retains a complete compact legend. Styling never substitutes for a textual effect.
 
 Expanded human review exposes the exact values available in the same review object. JSON retains
@@ -65,7 +70,7 @@ exact structured data regardless of human density. A detail request within a rev
 not silently fetch a different baseline. A fresh preview is a fresh cache observation, not a claim
 to historical immutability.
 
-Support explicit expanded invocation and a review-only interactive detail loop. Interactive review must be opt-in and guarded for TTY input/output; redirected output must not unexpectedly wait for input. Details/Back/Cancel do not apply changes. Existing explicit apply authorization remains separate and is not presented by this review panel.
+Support explicit expanded invocation and a review-only interactive detail loop. Interactive review must be opt-in and guarded for TTY input/output; redirected output must not unexpectedly wait for input. Details/Back/Cancel do not apply changes. The separate canvas human Apply action is bound to the retained digest; it is not exposed as an SDK/agent action.
 
 ## Terminal visual contract
 
@@ -86,11 +91,11 @@ Type/state appearance stays sourced once. Contrast is a foreground/background co
 
 A host parses the structured preview and retains its exact digest and review observation. It may render item headings with links and quote blocks, or use its own native cards. It does not parse ANSI, interpret terminal tree glyphs as data, or depend on Nerd Font availability in a chat client.
 
-An agent-written natural-language summary is additive, clearly identified, and derived from exact available fields. It cannot change metrics, claim missing values are known, suppress blockers, invent approval choices, or substitute its own digest.
+An agent-written natural-language summary is additive, clearly identified, and derived from exact available fields. It cannot change metrics, claim missing values are known, suppress blockers, or substitute its own digest.
 
-Before presenting an approval action the host must have delivered the required review coverage. Long messages must be split or expanded without silently dropping the last operations. Unknown schema versions, truncated data and failed delivery are errors, not implicit approval. A chat reply or button must correlate the authenticated actor and decision with this proposal; details is never an apply action.
+This host presenter is review-only: it does not collect an approval decision or expose an agent-triggered Apply action. Long messages must be split or expanded without silently dropping the last operations. Unknown schema versions, truncated data and failed delivery are errors, not a valid review. Details is never an apply action.
 
-Twig remains the sole mutation authority. Host authentication, authorization provenance, duplicate decisions and transport failures must not create a parallel apply engine. Existing lifecycle validation/journal guarantees are retained, not reimplemented by the presenter.
+Twig remains the sole mutation authority. Transport failures must not create a parallel apply engine. Existing lifecycle validation/journal guarantees are retained, not reimplemented by the presenter.
 
 ## Verification commands
 
@@ -120,4 +125,4 @@ unique labels stay compact. The metadata store itself is not rewritten.
 - Input tests cover details/back/cancel, unsupported versions, invalid input and noninteractive behavior without applying.
 - Public API/serialization metadata and command documentation match the implementation.
 - A host presenter reference is distributed alongside operational guidance, with exact values kept separate from optional agent summaries.
-- Existing proposal authorization, lifecycle and command regression suites pass. Verification records actual command output and limitations.
+- Proposal lifecycle, digest-bound human Apply, and command regression suites pass. Verification records actual command output and limitations.

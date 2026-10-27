@@ -21,7 +21,7 @@ function fixture() {
         reviewModel: {
             model: "twig.change-proposal.review", modelVersion: 1, digest, workspace: { ...workspace },
             rationale: "Native fixture, not authenticated host evidence", affectedItems: [], contextItems: [],
-            authorizationChoices: ["apply"], blockers: [{ kind: "unknown", workItemId: 42, detail: "Coverage unknown" }],
+            blockers: [{ kind: "unknown", workItemId: 42, detail: "Coverage unknown" }],
             operations: [{
                 ordinal: 0, opId: "op-0", kind: "batch", summary: "Exact field changes",
                 target: { workItemId: 42, stagedIdentity: null },
@@ -142,7 +142,7 @@ test("empty open/state/module are inert; explicit acquisition persists same obse
     } finally { await server.close(); }
 });
 
-test("protected state/module, cross-origin actions and unknown authorization routes never preview", async () => {
+test("protected state/module, cross-origin actions and malformed apply requests never preview", async () => {
     const calls = [], { server, headers } = await open(reader(calls));
     try {
         assert.equal((await fetch(new URL("/api/state", server.url))).status, 403);
@@ -259,7 +259,7 @@ test("rendered review page shares theme and nonce, has no automatic acquisition 
     assert.doesNotMatch(html, /node:|<textarea|setInterval\(|unsafe-eval|unsafe-inline/);
 });
 
-test("supported SDK declares a third canvas with inert open, explicit action and close cleanup", async () => {
+test("supported SDK declares a third canvas with acquisition only; human Apply stays in the review page", async () => {
     const source = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
     let declarations, options, creations = 0;
     const calls = [], admitted = [];
@@ -284,7 +284,7 @@ test("supported SDK declares a third canvas with inert open, explicit action and
     await new Script(`(async () => { ${source.replace(/^import .*;\r?\n/gm, "")} })()`).runInContext(context);
     const canvas = declarations.find((value) => value.id === "twig-proposal-review");
     assert.ok(canvas);
-    assert.deepEqual(Array.from(canvas.actions, (value) => value.name), ["acquire_review", "apply_review"]);
+    assert.deepEqual(Array.from(canvas.actions, (value) => value.name), ["acquire_review"]);
     assert.equal(canvas.actions[0].inputSchema.additionalProperties, false);
     assert.deepEqual(Array.from(canvas.actions[0].inputSchema.required), ["file", "digest", "workspace"]);
     await assert.rejects(canvas.actions[0].handler({ instanceId: "missing", input: input() }),
@@ -299,12 +299,8 @@ test("supported SDK declares a third canvas with inert open, explicit action and
     assert.deepEqual(calls, []);
     await canvas.actions[0].handler({ instanceId: "review", input: input() });
     assert.deepEqual(calls, [input()]);
-    const authority = { captureId: "capture", confirm: digest, authorize: "Synthetic reviewer" };
-    assert.equal(canvas.actions[1].inputSchema.additionalProperties, false);
-    await assert.rejects(canvas.actions[1].handler({ instanceId: "missing", input: authority }), { code: "canvas_not_open" });
-    await canvas.actions[1].handler({ instanceId: "review", input: authority });
     await canvas.onClose({ instanceId: "review" });
-    assert.deepEqual(calls, [input(), authority, "close"]);
+    assert.deepEqual(calls, [input(), "close"]);
 });
 
 test("Apply form is inert until separate consent and sends retained capture, not edited acquisition inputs", async () => {
@@ -323,8 +319,6 @@ test("Apply form is inert until separate consent and sends retained capture, not
     assert.equal(calls.length, 1, "no consent means no invocation");
     nodes.get("#proposal-file").value = "different.json";
     nodes.get("#proposal-digest").value = "b".repeat(64);
-    nodes.get("#apply-digest").value = digest;
-    nodes.get("#apply-authorizer").value = "Synthetic reviewer";
     nodes.get("#apply-consent").checked = true;
     submit();
     submit();
@@ -332,7 +326,7 @@ test("Apply form is inert until separate consent and sends retained capture, not
     assert.equal(calls.length, 2, "rapid repeat cannot submit twice");
     assert.equal(calls[1].route, "/api/apply");
     assert.deepEqual(JSON.parse(calls[1].options.body), {
-        captureId: observation.expected.captureId, confirm: digest, authorize: "Synthetic reviewer",
+        captureId: observation.expected.captureId, confirm: digest,
     });
     assert.match(nodes.get("#apply-outcome").textContent, /every declared operation Verified/);
     assert.ok(nodes.get("#apply-outcome").textContent.includes("<script>unsafe</script>"));
@@ -345,13 +339,9 @@ test("blocked previews and replaced captures never carry prior consent forward",
     let observation = first;
     const { nodes } = await client(async () => ({ observation, applyAvailable: true }));
     assert.equal(nodes.get("#apply-proposal").disabled, true, "model blockers refuse despite canApply=true");
-    nodes.get("#apply-authorizer").value = "Old reviewer";
-    nodes.get("#apply-digest").value = digest;
     nodes.get("#apply-consent").checked = true;
     observation = second;
     nodes.get("#retained-review").listeners.click();
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(nodes.get("#apply-authorizer").value, "");
-    assert.equal(nodes.get("#apply-digest").value, "");
     assert.equal(nodes.get("#apply-consent").checked, false);
 });

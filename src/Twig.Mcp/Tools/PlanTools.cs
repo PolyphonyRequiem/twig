@@ -2,7 +2,6 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
 using Twig.Mcp.Services;
@@ -35,15 +34,6 @@ public sealed class PlanTools(ConnectionResolver resolver)
 {
     /// <summary>SHA-256 in lowercase hex — exactly 64 [0-9a-f] characters.</summary>
     internal const string DigestPattern = "^[0-9a-f]{64}$";
-
-    private const string AuthorizerIdentityDescription =
-        "Authorizer for the native audit.";
-
-    private const string AuthorizationDigestDescription =
-        "Must equal confirmedDigest.";
-
-    private const string AuthorizationRationaleDescription =
-        "Optional audit rationale.";
 
     private const string PlanFileDescription =
         "Immutable v1 file: absolute/CWD-relative, inside this worktree.";
@@ -151,8 +141,7 @@ public sealed class PlanTools(ConnectionResolver resolver)
     // ── twig_proposal_apply (alias: twig_plan_apply) ────────────────
 
     [McpServerTool(Name = "twig_proposal_apply"), Description(
-        "Apply a plan. Requires confirmed:true, confirmedDigest matching current file digest exactly, "
-        + "and an authorization bound to that digest.")]
+        "Apply a proposal. Requires confirmed:true and confirmedDigest matching the current file digest exactly.")]
     public async Task<CallToolResult> PlanApply(
         [Description(PlanFileDescription)] string file,
         [Description(
@@ -161,9 +150,6 @@ public sealed class PlanTools(ConnectionResolver resolver)
         [Description(
             "Confirmed SHA-256 of current proposal bytes: 64 lowercase hex characters.")]
             string confirmedDigest,
-        [Description(AuthorizerIdentityDescription)] string authorizerIdentity,
-        [Description(AuthorizationDigestDescription)] string authorizationDigest,
-        [Description(AuthorizationRationaleDescription)] string? authorizationRationale = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -195,44 +181,14 @@ public sealed class PlanTools(ConnectionResolver resolver)
                 "(SHA-256 in canonical form).");
         }
 
-        if (string.IsNullOrWhiteSpace(authorizerIdentity))
-        {
-            return EnvelopeBuilder.Error(
-                McpErrorCode.InvalidInput,
-                "The 'authorizerIdentity' parameter is required. An apply is an authorized act and " +
-                "the journal must record who is answerable for it.");
-        }
-
-        if (!IsCanonicalDigest(authorizationDigest))
-        {
-            return EnvelopeBuilder.Error(
-                McpErrorCode.InvalidInput,
-                "The 'authorizationDigest' parameter must be exactly 64 lowercase hex characters " +
-                "(SHA-256 in canonical form).");
-        }
-
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
-
-        // Mode comes from the session seam, never from a tool argument: whether a model may
-        // authorize is a property of how the session is steered, and letting a caller assert it
-        // would let any client promote itself out of the human-steered path. The bound digest,
-        // by contrast, IS the caller's to state — that is what makes replaying a stale
-        // authorization a detectable refusal rather than an impossibility.
-        var authorization = new ProposalAuthorization
-        {
-            Digest = authorizationDigest,
-            Mode = ProposalAuthorizationGate.RequiredMode(ctx.Get<ISessionSteeringModeProvider>().Resolve()),
-            AuthorizerIdentity = authorizerIdentity,
-            Rationale = string.IsNullOrWhiteSpace(authorizationRationale) ? null : authorizationRationale,
-            AuthorizedAt = ctx.Get<TimeProvider>().GetUtcNow(),
-        };
 
         var result = await InvokeLifecycleAsync(
             ctx,
             ct,
-            static (svc, args, token) => svc.ApplyAsync(args.File, args.Digest, args.Authorization, token),
-            (File: file, Digest: confirmedDigest, Authorization: authorization));
+            static (svc, args, token) => svc.ApplyAsync(args.File, args.Digest, token),
+            (File: file, Digest: confirmedDigest));
         if (result.Error is { } error) return await error.Materialize(ctx, ct);
 
         // 🔴 Success and failure emit exactly the same JSON payload — digest, failed,
@@ -264,15 +220,11 @@ public sealed class PlanTools(ConnectionResolver resolver)
         [Description(
             "Confirmed SHA-256 of current proposal bytes: 64 lowercase hex characters.")]
             string confirmedDigest,
-        [Description(AuthorizerIdentityDescription)] string authorizerIdentity,
-        [Description(AuthorizationDigestDescription)] string authorizationDigest,
-        [Description(AuthorizationRationaleDescription)] string? authorizationRationale = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
         => PlanApply(
-            file, confirmed, confirmedDigest, authorizerIdentity, authorizationDigest,
-            authorizationRationale, workspace, verbose, ct);
+            file, confirmed, confirmedDigest, workspace, verbose, ct);
 
     // ── twig_proposal_status (alias: twig_plan_status) ──────────────
 
@@ -450,10 +402,6 @@ public sealed class PlanTools(ConnectionResolver resolver)
         [Description(
             "retire: never-admitted intent; readback: proven outcome; supersede: Verified replacement of the original effect.")]
             string outcome,
-        [Description(AuthorizerIdentityDescription)] string authorizerIdentity,
-        [Description(AuthorizationDigestDescription)] string authorizationDigest,
-        [Description("Required settlement rationale, recorded in the receipt.")]
-            string rationale,
         [Description("Verified replacement SHA-256; supersede only.")]
             string? replacementDigest = null,
         [Description("Verified replacement operation id; supersede only.")]
@@ -480,32 +428,11 @@ public sealed class PlanTools(ConnectionResolver resolver)
                 "The 'confirmedDigest' parameter must be exactly 64 lowercase hex characters "
                 + "(SHA-256 in canonical form).");
         }
-        if (!IsCanonicalDigest(authorizationDigest))
-        {
-            return EnvelopeBuilder.Error(
-                McpErrorCode.InvalidInput,
-                "The 'authorizationDigest' parameter must be exactly 64 lowercase hex characters "
-                + "(SHA-256 in canonical form).");
-        }
-        if (string.IsNullOrWhiteSpace(authorizerIdentity))
-        {
-            return EnvelopeBuilder.Error(
-                McpErrorCode.InvalidInput,
-                "The 'authorizerIdentity' parameter is required. A reconcile receipt names who is "
-                + "answerable for the settlement.");
-        }
         if (string.IsNullOrWhiteSpace(operationId))
         {
             return EnvelopeBuilder.Error(
                 McpErrorCode.InvalidInput,
                 "The 'operationId' parameter is required and must name the original journalled operation.");
-        }
-        if (string.IsNullOrWhiteSpace(rationale))
-        {
-            return EnvelopeBuilder.Error(
-                McpErrorCode.InvalidInput,
-                "The 'rationale' parameter is required. An append-only receipt without a reason "
-                + "is refused.");
         }
         if (!TryParseOutcome(outcome, out var kind))
         {
@@ -539,23 +466,13 @@ public sealed class PlanTools(ConnectionResolver resolver)
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var authorization = new ProposalAuthorization
-        {
-            Digest = authorizationDigest,
-            Mode = ProposalAuthorizationGate.RequiredMode(ctx.Get<ISessionSteeringModeProvider>().Resolve()),
-            AuthorizerIdentity = authorizerIdentity,
-            Rationale = rationale,
-            AuthorizedAt = ctx.Get<TimeProvider>().GetUtcNow(),
-        };
-
         var result = await InvokeLifecycleAsync(
             ctx,
             ct,
             static (svc, args, token) => svc.ReconcileAsync(
-                args.File, args.Digest, args.OpId, args.Kind, args.Authorization,
+                args.File, args.Digest, args.OpId, args.Kind,
                 args.ReplacementDigest, args.ReplacementOpId, token),
             (File: file, Digest: confirmedDigest, OpId: operationId, Kind: kind,
-             Authorization: (ProposalAuthorization?)authorization,
              ReplacementDigest: string.IsNullOrWhiteSpace(replacementDigest) ? null : replacementDigest,
              ReplacementOpId: string.IsNullOrWhiteSpace(replacementOperationId) ? null : replacementOperationId));
         if (result.Error is { } error) return await error.Materialize(ctx, ct);

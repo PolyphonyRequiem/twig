@@ -49,7 +49,7 @@ ADO work items have a real **State** (`twig state <name>`), governed by the proc
 type whose process makes a field required in the Done state it refuses instead of emitting a
 PATCH ADO would reject. Close by staging the transition and those fields in **one**
 change-proposal `batch` op, applying it with
-`twig proposal apply --confirm <digest> --authorize <identity>`, then re-reading with
+`twig proposal apply --confirm <digest>`, then re-reading with
 `twig show <id> --refresh`.
 
 ## These tags may not exist yet

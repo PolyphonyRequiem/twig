@@ -60,7 +60,7 @@ the transition rather than emitting a PATCH that ADO would reject
 (`src/Twig/Commands/StateCommand.cs:147-157`). The error message explicitly
 directs you to stage the transition as a change-proposal `batch` op
 carrying `System.State` plus the missing fields, then apply it with
-`twig proposal apply --confirm <digest> --authorize <identity>`. `twig state`
+`twig proposal apply --confirm <digest>`. `twig state`
 is not the mechanism for closing a gated type.
 
 ## Examples
@@ -95,7 +95,7 @@ Custom.VerificationMode in that state, and 'Bug' supplies no value for them.
 'twig state' writes System.State alone, so it can never carry these fields.
 Stage them in the same operation as the transition — a change-proposal 'batch'
 op setting System.State plus the fields above — then apply it with
-'twig proposal apply --confirm <digest> --authorize <identity>'.
+'twig proposal apply --confirm <digest>'.
 ```
 
 ## Exit codes and failure modes

@@ -140,8 +140,8 @@ Add a `twig note` at each meaningful checkpoint — not just at completion:
    so ADO's rule engine rejects it — and under `bypassRules` it would be worse, closing the
    item with its gate fields silently empty.
 2. **It writes the wrong way.** `twig state` PATCHes ADO directly. Board mutations on
-   published items belong in the change-proposal journal, where they get a confirmed digest,
-   an authorization bound to it, and an audit row. A direct push leaves no journal row.
+   published items belong in the change-proposal journal, where they are bound to a confirmed
+   digest and tracked in the operation journal. A direct push leaves no journal row.
 
 Close through the plan path instead. When a task's work is verified (code works, tests pass):
 
@@ -150,8 +150,8 @@ Close through the plan path instead. When a task's work is verified (code works,
    together: `System.State` set to the Done-category state, plus every close-gate field the
    connected process declares for the type. One operation, one revision hop, one journal
    entry — the fields must ride *with* the transition, never before or after it
-3. Apply it with `twig proposal apply --confirm <digest> --authorize <identity>` (`twig plan
-   apply` is a retained deprecated alias). Agents with the workflow skills invoke
+3. Apply it with `twig proposal apply --confirm <digest>` (`twig plan apply` is a retained
+   deprecated alias). Agents with the workflow skills invoke
    `/ado-publish` for this step, or `/closeout` for the whole close
 4. Verify with `twig show <id> --refresh` that the state actually moved
 5. **Then** mark the corresponding todo completed, and proceed to the next task
@@ -195,10 +195,9 @@ The ADO state transition is the source of truth, not the todo list. If you mark 
 has to clean up. Notes during implementation create an auditable trail. Summaries written
 before `git push` and the close-out create a false sense of completion.
 
-Routing the close through the plan path is what makes the transition *auditable*: a digest
-the human confirmed, an authorization bound to that exact digest, and a journal row recording
-what landed. A direct `twig state Done` has none of those, which is why it is no longer the
-prescribed mechanism.
+Routing the close through the plan path binds the mutation to the exact digest supplied at
+apply time and records each operation's outcome in the journal. A direct `twig state Done`
+has neither guarantee, which is why it is no longer the prescribed mechanism.
 
 ## MCP availability
 

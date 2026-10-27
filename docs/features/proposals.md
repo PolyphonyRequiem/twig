@@ -1,7 +1,7 @@
 # Change proposals
 
 The change-proposal path is how an author's intent becomes a reviewed,
-auditable work-item mutation. A **proposal** is an immutable JSON declaration
+journal-tracked work-item mutation. A **proposal** is an immutable JSON declaration
 identified by the SHA-256 digest of its canonical bytes. Version 1 retains the
 existing ADO mutation lifecycle `validate → preview → apply --confirm <digest>`.
 Version 2 adds provider-qualified identities and opaque provider revision
@@ -12,18 +12,15 @@ shapes see the [plans command group](../commands/plans/README.md).
 
 ## Why the workflow looks like this
 
-Every version 1 apply eventually calls a PATCH against ADO. Two things have to be true
-before that happens: someone (or something) has to have _looked at exactly
-this mutation_ and said yes, and the record of that sign-off has to survive
-long enough for a later reader to reconstruct what happened. The proposal
-path is built around both of those constraints:
+Every version 1 apply eventually calls a PATCH against ADO. The proposal path
+binds that mutation to the exact canonical proposal digest and records the
+operation outcomes for recovery:
 
 - The proposal file is **declarative and stateless.** All execution state
   lives in the **journal**, keyed on the digest.
 - The digest is a **cryptographic identity for the intent.** It is stable
-  across reformatting, so "signing" a proposal cannot silently accept a
-  reworded one, and re-editing the file after preview invalidates any
-  authorization already collected.
+  across reformatting, and re-editing the file after preview invalidates the
+  prior confirmation.
 - Apply is an **all-or-nothing exit** across per-operation rows. Partial
   success still returns exit 1; the journal preserves per-row outcomes so a
   caller can see exactly which operation stalled.
@@ -47,8 +44,7 @@ recipe reference, and a free-text rationale. Every member is `init`-only on a
 ## Schema versions and identity binding
 
 Version 1 is the existing proposal contract. Its integer `workItemId` and
-`expectedRevision` fields, canonical bytes, digests, and authorization behavior
-are unchanged.
+`expectedRevision` fields, canonical bytes and digest contract are unchanged.
 
 Version 2 replaces integer target aliases with an explicit binding between a
 Twig-local identity and a provider-qualified identity. Its mutation target is
@@ -87,9 +83,8 @@ does not import v2 into the journal or execute it: preview returns the complete
 identity-aware review with `canApply=false` and a
 `plan.unsupported_apply_version` blocker, and apply refuses immediately after
 parsing a valid document, before checking the confirmation digest. That refusal
-precedes journal access or mutation, pending-state reads, authorization
-recording, and provider calls.
-Consequently, version 2 cannot inherit v1 integer identities or v1 authorization
+precedes journal access or mutation, pending-state reads, and provider calls.
+Consequently, version 2 cannot inherit v1 integer identities or v1 execution
 semantics by conversion, and no existing v1 document or digest is rewritten.
 
 ## The lifecycle
@@ -105,7 +100,7 @@ semantics by conversion, and no existing v1 document or digest is rewritten.
                     │                  pending changes snapshot
                     │                  canApply gate evaluated
                     ▼
-    twig proposal apply --confirm <digest> --authorize <identity>
+    twig proposal apply --confirm <digest>
                     │
                     ▼
             per-operation loop
@@ -170,7 +165,7 @@ distance. A missing baseline yields no invented change count.
 `--full` exposes available source values with terminal controls escaped. JSON
 is always exact regardless of human density. Explicit `--interactive` adds a
 TTY-only Details/Back/Cancel loop over the same captured observation; it never
-refreshes, authorizes or applies. Ordinary preview never waits for input.
+refreshes or applies. Ordinary preview never waits for input.
 See [preview flags and behavior](../commands/plans/proposal-preview.md) and the
 [shared review contract](../specs/shared-proposal-review.md) for host obligations.
 
@@ -263,63 +258,29 @@ Twig does not infer their rendering or repair malformed HTML. For example,
 Even an inserted space before an inline closing tag at the end of a paragraph is
 conservatively refused. These boundaries can still produce an `Indeterminate`
 readback; they are not permission to ignore HTML fields or repeat a write blindly.
-Revision, authorization, clear, scalar, and unavailable-readback checks are unchanged.
+Revision, clear, scalar, and unavailable-readback checks are unchanged.
 
 ## The digest, in detail
 
-The digest has three jobs, and picking any of them apart from the others
-breaks the model:
+The digest has two jobs:
 
 1. **Content identity.** It is the SHA-256 of the exact bytes
-   `preview` and `validate` will produce again on the same file. Nothing
-   learned after parse — an ADO revision returned from a PATCH, an id
-   allocated by publish, a readback warning — ever enters the digest
+   `preview` and `validate` produce for the same file. Nothing learned after
+   parse — an ADO revision returned from a PATCH, an id allocated by publish,
+   or a readback warning — enters the digest
    (`src/Twig.Domain/Services/ChangeProposals/ChangeProposal.cs:20-25`).
-2. **Authorization binding.** The digest a caller passes to
-   `--confirm` is the digest that was authorized. `ProposalAuthorization`
-   carries the digest independently
-   (`src/Twig.Domain/Services/ChangeProposals/ProposalAuthorization.cs:40-65`)
-   so a sign-off cannot be replayed against a proposal the authorizer
-   never saw.
-3. **Journal key.** Every journal row is keyed on the digest
+2. **Journal key.** Every journal row is keyed on the digest
    (`src/Twig.Domain/Services/Plan/PlanJournal.cs:12-14`), so a later
-   reader can go from a proposal file to its execution record without any
+   reader can go from a proposal file to its execution record without an
    intermediate lookup.
 
-Because the digest carries all three roles, **editing the file after
-signing invalidates the signature by construction.** There is no way to
-"forgive" a whitespace tweak between preview and apply: the recomputed
-digest will differ, the digest gate will refuse, and the caller must
-re-preview to obtain the new digest and re-collect an authorization.
-
-## Authorization binding
-
-`twig proposal apply --authorize <identity>` records _who_ authorized the
-apply and — via the session steering seam — _in what mode_. The mode is
-resolved from the session, never from a flag
-(`src/Twig/Commands/PlanCommand.cs:111-124`):
-
-- A **human-steered** session (`SessionSteeringMode` unresolved) requires
-  a `ProposalAuthorizationMode.Human` authorization.
-- An **AFK-steered** session requires a `ProposalAuthorizationMode.Model`
-  authorization
-  (`src/Twig.Domain/Services/ChangeProposals/ProposalAuthorizationGate.cs:44-47`).
-
-The gate is a pure evaluation with no I/O and no permissive default
-(`src/Twig.Domain/Services/ChangeProposals/ProposalAuthorizationGate.cs:15-47`):
-a missing authorization, an authorization bound to a different digest, an
-authorization in the wrong mode, and an authorization naming no authorizer
-all fail closed. A missing `--authorize` is therefore not a usage error —
-it returns exit 1, not 2 — because at the command layer it looks
-identical to any other refusal
-(`src/Twig/Commands/PlanCommand.cs:85-91`). The user did not mistype a
-command; nobody signed the proposal off.
-
-`Human` vs. `Model` is deliberately **not** the same vocabulary as the
-session steering enum, and is deliberately **not** part of the digest.
-Steering can change or be resolved late; "a human signed this" and "a
-model signed this" are audit facts about one apply that must never move
-afterwards (`src/Twig.Domain/Services/ChangeProposals/ProposalAuthorization.cs:3-13`).
+At apply time the caller must supply the digest shown by preview. A canonical
+content change makes the old digest mismatch and the apply is refused; preview
+again to obtain the new digest. Formatting-only changes do not alter canonical
+content. The browser review page's explicit human Accept/Apply action is also
+bound to the digest from the retained review, and refuses if the proposal
+changed. There is no separate authorizer identity, steering-mode check, or
+persisted approval snapshot.
 
 ## The journal
 
@@ -331,15 +292,11 @@ Each row (`src/Twig.Domain/Services/Plan/PlanJournal.cs:10-68`) carries:
   original file on disk,
 - the top-level lifecycle state, `PreviewedAt`, and the separate `LastPreviewedAt`
   selection timestamp, plus `ConfirmedAt` and `CompletedAt`;
-- the authorization mode, authorizer identity, rationale, `AuthorizedAt`
-  timestamp, and the review-model JSON the authorizer was shown,
 - the per-operation rows in declaration order.
 
-A `null` `AuthorizationMode` means _the row predates authorization
-recording_, not _unauthorized_; rows written before the audit columns
-existed are real history and are never rewritten. Consumers must treat
-that null explicitly rather than falling back to "unauthorized"
-(`src/Twig.Domain/Services/Plan/PlanJournal.cs:39-49`).
+Legacy audit columns remain in the durable schema and historic values remain
+readable. New applies do not write those columns or persist a review-model
+snapshot; the current review model is transient preview/canvas data.
 
 ## `proposal latest`
 
@@ -375,7 +332,6 @@ has a full history. Re-run `proposal preview` to import the current row.
 |`validate` sees a parser issue|Exit 1, digest still reported if the file at least parsed enough to canonicalize.|
 |`preview` sees pending rows|`canApply=false`, but preview itself exits 0 — the pending rows are captured so a caller can decide what to do.|
 |`apply` sees a digest mismatch|Top-level refusal, exit 1, no per-operation rows touched.|
-|`apply` sees no authorization|Authorization gate refuses with the reason the session actually had; exit 1.|
 |`apply` sees pending rows or workspace drift|Top-level refusal captured on `PlanApplyResult.Error`; exit 1.|
 |`apply` finds a live `Applying` lease held by another actor|Short-circuit before touching the row; the other apply owns the run.|
 |`apply` per-operation loop hits a PATCH failure|That row lands `Failed`/`Indeterminate` with the message on `Error`; other rows are attempted; exit 1 overall.|
@@ -396,17 +352,7 @@ able to reconstruct. The temptations, and what each one loses:
   fine for local staging that flows through `sync`; they are not the close
   path for a proposal.
 - **"Re-use `--confirm` from an old preview after tweaking the file."**
-  The digest will not match. Even if it did — because the tweak canceled
-  out under canonicalization — the sign-off is bound to the pre-tweak
-  bytes, and the audit trail would record a human authorizing something
-  they never saw
-  (`src/Twig.Domain/Services/ChangeProposals/ProposalAuthorization.cs:26-33`).
-- **"Skip `--authorize` on AFK because nobody's watching."** The gate
-  refuses; exit 1; the log entry names the session mode that required an
-  authorization the caller did not supply. AFK still needs a `Model`
-  authorization for exactly this reason: an AFK apply is a real mutation
-  of someone's board, and the audit column has to name a party answerable
-  for it.
+  The digest will not match; preview again and confirm the new digest.
 - **"Loop over the operations client-side and PATCH them one at a time."**
   The per-operation journal rows are what make partial failures
   survivable. Rebuilding that in an agent duplicates code the domain
@@ -414,23 +360,22 @@ able to reconstruct. The temptations, and what each one loses:
   possible to observe `Applied` without `Verified`, which the domain
   refuses to expose.
 - **"Trust the top-level exit code."** Exit 0 means every operation
-  reached `Verified`; exit 1 covers digest mismatch, authorization
-  refusal, pending rows, workspace drift, a foreign `Applying` lease, and
+  reached `Verified`; exit 1 covers digest mismatch, pending rows, workspace
+  drift, a foreign `Applying` lease, and
   any per-row failure. Automation that wants to react differently to any
   of these must read `PlanApplyResult.Error` and `Operations[i].Error`,
   not just the process exit.
 
-The whole point of the workflow is that the answer to "did this mutation
-happen, who authorized it, and what did they authorize?" is a
-one-database-lookup question. Bypassing the digest gate turns it back into
-a forensics exercise.
+The journal answers what the proposal attempted and which operations were
+verified. Bypassing the digest gate or operation journal turns that result
+back into a forensics exercise.
 
 ## See also
 
 - [`proposal validate`](../commands/plans/proposal-validate.md) — parse, canonicalize, digest.
 - [`proposal preview`](../commands/plans/proposal-preview.md) — import journal, snapshot pending, evaluate `canApply`, and optionally capture native version-1 presentation frames for a rich host.
 - [`proposal latest`](../commands/plans/README.md#latest-unresolved-proposal) — select the latest unresolved journal header.
-- [`proposal apply`](../commands/plans/proposal-apply.md) — digest-gated, authorization-bound apply.
+- [`proposal apply`](../commands/plans/proposal-apply.md) — digest-gated apply.
 - [`proposal status`](../commands/plans/proposal-status.md) — read the journal row for a proposal file.
 - [`proposal seed`](../commands/plans/proposal-seed.md) — describe a staged seed for proposal authoring.
 - [`pending`](../commands/plans/pending.md) — dump of the same rows that block `canApply`.

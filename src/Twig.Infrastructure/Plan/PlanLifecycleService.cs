@@ -33,12 +33,6 @@ namespace Twig.Infrastructure.Plan;
 ///     is preview's job and gives the user a confirmable checkpoint.</item>
 ///   <item>Refuse if any pending row exists at apply time; preview's earlier snapshot is a
 ///     UI hint, not a race window — the pending journal is re-inspected here.</item>
-///   <item>Evaluate the authorization gate: the supplied
-///     <see cref="ProposalAuthorization"/> must be present, bound to this exact digest, carry
-///     the mode the session's steering requires, and name an authorizer. A refusal is
-///     top-level and nothing is confirmed. On a pass, the authorization and the canonical
-///     semantic review model are written to the journal's audit columns before the first
-///     operation runs.</item>
 ///   <item>Move the header and every operation Planned→Confirmed (idempotent), then walk
 ///     operations in declared order. For each: Confirmed→Applying (persist) → execute →
 ///     atomic Applying→Applied (state + applied_at + result_json in ONE row update; see
@@ -84,7 +78,6 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly PlanProcessRuleGate _ruleGate;
     private readonly string _systemRegistryPath;
     private readonly ChangeProposalReviewModelBuilder _reviewModel;
-    private readonly ISessionSteeringModeProvider _steering;
     private readonly DeclaredPolicyLoader _policyLoader;
     private readonly DeclaredPolicyEvaluator _policyEvaluator;
     private readonly IExecutionPolicyFactReader? _executionReader;
@@ -111,13 +104,12 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         TwigConfiguration config,
         TwigPaths paths,
         TimeProvider clock,
-        ISessionSteeringModeProvider steering,
         IPlanOriginProvider origin,
         IUnitOfWork unitOfWork)
         : this(
             parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionCodec, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
-            config, paths, clock, steering, origin, ruleProvider: null, unitOfWork)
+            config, paths, clock, origin, ruleProvider: null, unitOfWork)
     {
     }
 
@@ -145,7 +137,6 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         TwigConfiguration config,
         TwigPaths paths,
         TimeProvider clock,
-        ISessionSteeringModeProvider steering,
         IPlanOriginProvider origin,
         IProcessRuleProvider? ruleProvider,
         IUnitOfWork unitOfWork,
@@ -183,7 +174,6 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             CapabilityDescriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(
                 config.ResolveWorkItemProviderKind(), out var capabilityDescriptor) ? capabilityDescriptor : null,
         };
-        _steering = steering;
         _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
         _policyEvaluator = new DeclaredPolicyEvaluator(workItemRepo, linkRepo, providerSnapshots);
     }
@@ -197,8 +187,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         TwigConfiguration config,
         TwigPaths paths,
         IWorkItemSnapshotReader providerSnapshots,
-        GitHubNativeRelationshipService? nativeRelationships = null,
-        ISessionSteeringModeProvider? steering = null)
+        GitHubNativeRelationshipService? nativeRelationships = null)
     {
         _parser = parser;
         _journal = journal;
@@ -214,7 +203,6 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             CapabilityDescriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(
                 config.ResolveWorkItemProviderKind(), out var capabilityDescriptor) ? capabilityDescriptor : null,
         };
-        _steering = steering ?? new UnresolvedSessionSteeringModeProvider();
         _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
         _policyEvaluator = new DeclaredPolicyEvaluator(workItemRepo, links: null, providerSnapshots);
         _nativeRelationships = nativeRelationships;
@@ -342,7 +330,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 PendingChanges = pending,
                 CanApply = false,
                 ReviewModel = await _reviewModel.BuildAsync(
-                    parsed.Plan, parsed.Digest, blockedIssues, pending, canApply: false, ct: ct,
+                    parsed.Plan, parsed.Digest, blockedIssues, pending, ct: ct,
                     policyDecisions: providerPolicyDecisions)
                     .ConfigureAwait(false),
             };
@@ -366,7 +354,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 PendingChanges = pending,
                 CanApply = false,
                 ReviewModel = await _reviewModel.BuildAsync(
-                    parsed.Plan, parsed.Digest, blockedIssues, pending, canApply: false, ct: ct)
+                    parsed.Plan, parsed.Digest, blockedIssues, pending, ct: ct)
                     .ConfigureAwait(false),
             };
         }
@@ -436,7 +424,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 // though the journal refused it. Withholding the model here would leave the
                 // reviewer with an error string and no description of what was proposed.
                 ReviewModel = await _reviewModel.BuildAsync(
-                    parsed.Plan, parsed.Digest, failedIssues, pending, canApply: false, ct: ct)
+                    parsed.Plan, parsed.Digest, failedIssues, pending, ct: ct)
                     .ConfigureAwait(false),
             };
         }
@@ -464,7 +452,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             PendingChanges = pending,
             CanApply = previewCanApply,
             ReviewModel = await _reviewModel.BuildAsync(
-                parsed.Plan, journal.Digest, previewIssues, pending, previewCanApply, ct: ct,
+                parsed.Plan, journal.Digest, previewIssues, pending, ct: ct,
                 policyDecisions: policyDecisions)
                 .ConfigureAwait(false),
         };
@@ -666,7 +654,6 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     public async Task<PlanApplyResult> ApplyAsync(
         string file,
         string confirmedDigest,
-        ProposalAuthorization? authorization,
         CancellationToken ct = default)
     {
         var containment = TryResolveInsideWorkspace(file);
@@ -686,13 +673,13 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         if (_previewOnly || (_executor is null && _nativeRelationships is null))
             return TopLevelApplyFailure(
                 confirmedDigest,
-                "This provider composition is review-only. No confirmation, authorization, journal mutation, or provider operation was attempted.");
+                "This provider composition is review-only. No confirmation, journal mutation, or provider operation was attempted.");
 
         if ((parsed.Plan.Version == 2 && !SupportsProviderPlan(parsed.Plan))
             || (_nativeRelationships is not null && parsed.Plan.Version != 2))
             return TopLevelApplyFailure(
                 confirmedDigest,
-                "Plan version 2 is reviewable but cannot be applied by this lifecycle. No confirmation, authorization, journal mutation, or provider operation was attempted.");
+                "Plan version 2 is reviewable but cannot be applied by this lifecycle. No confirmation, journal mutation, or provider operation was attempted.");
 
         if (!string.Equals(parsed.Digest, confirmedDigest, StringComparison.Ordinal))
             return TopLevelApplyFailure(
@@ -724,18 +711,17 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
         if (journal.DraftCapture is not null)
             return TopLevelApplyFailure(confirmedDigest,
-                "Draft-captured proposals are local inspection only; native Save consumption is not enabled.");
+                "Draft-captured proposals require the separate native Save path.");
 
-        return await ApplyPreparedAsync(parsed, journal, pending, authorization, ct).ConfigureAwait(false);
+        return await ApplyPreparedAsync(parsed, journal, pending, ct).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Native retained-draft consumption. Callers must supply ordinary digest-bound
-    /// authorization; this seam supplies no host-authenticated click attribution.
+    /// Native retained-draft consumption bound to the exact retained digest and native origin.
     /// No proposal file is exported or substituted for the captured intent.
     /// </summary>
     internal async Task<PlanApplyResult> ApplyCapturedDraftAsync(
-        string confirmedDigest, ProposalAuthorization? authorization, CancellationToken ct = default)
+        string confirmedDigest, CancellationToken ct = default)
     {
         if (_previewOnly || _executor is null || _origin is null
             || _journal is not SqlitePlanJournalRepository journals)
@@ -753,7 +739,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         var pending = await _pendingReader.GetAllChangesAsync(ct).ConfigureAwait(false);
         if (pending.Count > 0)
             return TopLevelApplyFailure(confirmedDigest, $"Refusing to apply while {pending.Count} pending change(s) are staged.");
-        var result = await ApplyPreparedAsync(parsed, journal, pending, authorization, ct).ConfigureAwait(false);
+        var result = await ApplyPreparedAsync(parsed, journal, pending, ct).ConfigureAwait(false);
         if (!result.Failed)
         {
             try
@@ -776,7 +762,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
     private async Task<PlanApplyResult> ApplyPreparedAsync(
         PlanValidationResult parsed, PlanJournal journal, IReadOnlyList<PendingChangeDetail> pending,
-        ProposalAuthorization? authorization, CancellationToken ct)
+        CancellationToken ct)
     {
         if (parsed.Plan is null || parsed.Digest is null)
             throw new InvalidOperationException("Apply requires a validated proposal.");
@@ -801,30 +787,6 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                     "Declared policy refuses this proposal: "
                     + string.Join("; ", blocking.Select(static d => $"[{d.RuleId}] {d.OutcomeName}: {d.Reason}")));
         }
-
-        // Authorization gate. Last of the top-level refusals and first thing after the journal
-        // is in hand: it must run before any Planned→Confirmed transition, because confirming a
-        // journal is already a claim that someone released this proposal.
-        var steering = _steering.Resolve();
-        var decision = ProposalAuthorizationGate.Evaluate(authorization, parsed.Digest, steering);
-        if (!decision.Authorized)
-            return TopLevelApplyFailure(confirmedDigest, decision.Refusal!);
-
-        // Record what released the proposal, and what the authorizer was shown, BEFORE the first
-        // operation runs. Recording it afterwards would leave a crashed apply having mutated the
-        // board with no record of who authorized it — the one window an audit trail cannot have.
-        // The model is rebuilt here rather than carried from preview: preview and apply are
-        // separate invocations, so the surviving artifact must come from this process, and the
-        // digest it embeds is the digest just verified against the file.
-        var authorizedModel = await _reviewModel.BuildAsync(
-            parsed.Plan, parsed.Digest, parsed.Issues, pending, canApply: true, ct: ct,
-            policyDecisions: policyDecisions)
-            .ConfigureAwait(false);
-        await _journal.RecordAuthorizationAsync(
-            parsed.Digest,
-            authorization!,
-            ChangeProposalReviewModelJson.Serialize(authorizedModel),
-            ct).ConfigureAwait(false);
 
         var now = _clock.GetUtcNow();
 

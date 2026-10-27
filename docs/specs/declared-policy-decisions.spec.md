@@ -5,9 +5,8 @@
 > change-proposal path.
 > **Settled by:** Epic #1169 Phase 0 rulings D1–D5 (approved by Daniel), Idea #615
 > (declared policy engine, closed into Spec #727 / Task #732), the existing
-> `PlanProcessRuleGate` (AB#673/#720/#721/#803/#881) and `ProposalAuthorizationGate` (AB#743).
-> **Deliberately not settled here:** authorizer authenticity and independence (Spec #729,
-> `docs/projects/change-proposal-authorization-audit.plan.md`), reconciliation of historical
+> `PlanProcessRuleGate` (AB#673/#720/#721/#803/#881).
+> **Deliberately not settled here:** reconciliation of historical
 > proposal journals and the disposition of #726/#674/#727/#850 (Epic #1171), and any rule
 > that requires judgment rather than mechanical evaluation.
 
@@ -16,11 +15,10 @@
 ## Problem
 
 Teams can drive work through policy-governed skills (create, update, review,
-closeout, publication). Before this work Twig enforced two narrow mechanical gates — required
-close-gate fields (`PlanProcessRuleGate`) and digest/mode/authorizer presence
-(`ProposalAuthorizationGate`) — and everything else lived in agent prose. A rule written only
-in prose is enforced only when an agent remembers it, and a reviewer cannot see from a
-proposal preview whether it was checked.
+closeout, publication). Twig enforces required close-gate fields (`PlanProcessRuleGate`),
+while proposal digests and revision guards bind execution. Other policy decisions lived in
+agent prose. A rule written only in prose is enforced only when an agent remembers it, and a
+reviewer cannot see from a proposal preview whether it was checked.
 
 Idea #615 is closed (merged into Spec #727 / Task #732), but closure is a tracker
 disposition: at baseline `f74d3d58` there was **no general declared-policy engine** in
@@ -35,7 +33,7 @@ host judgment, with rationale.
 | D2 | Rules live in a **repository-owned** policy file, `twig.policy.json` at the repository root, loaded at runtime. Twig code hardcodes no team's type, label or field. |
 | D3 | A violated rule **refuses**. When a rule cannot be evaluated the outcome is **`unavailable`**, which also blocks — never a silent permit. |
 | D4 | Pre-existing violations are **reported, not blocked**. A proposal is refused only when it **adds or worsens** a violation. |
-| D5 | Follow-up decomposition of #1169 is published as Issues and Tasks through the proposal path, each write separately approved and authorized. |
+| D5 | Follow-up decomposition of #1169 is published as Issues and Tasks through the proposal path, each write separately represented and digest-bound. |
 
 ## Not a DSL
 
@@ -62,14 +60,13 @@ reference documents, not dependencies required to configure or use Twig.
 | 5 | Close-gate fields must be supplied with the Done transition | `closeout.md`, `enforcement.md` | Existing | `PlanProcessRuleGate`; unavailable rules block writes and surface as blocking preview decisions |
 | 6 | Unknown/unverifiable state is distinct from violated | `enforcement.md` | Native | `unavailable` outcome, blocking (D3) |
 | 7 | Exact digest, expected revision, journaled apply | `publication.md`, `enforcement.md` | Existing | proposal digest, revision guards, journal |
-| 8 | Human vs model authorization mode | `publication.md` | Existing | `ProposalAuthorizationGate` |
 | 9 | Whether a Task is meaningful / right-sized | `task-creation.md` | Host | judgment (D1) |
 | 10 | Attestation sufficiency at closeout | `closeout.md` | Host | judgment (D1) |
 | 11 | Review readiness; whether review was material | `review.md` | Host | judgment (D1) |
 | 12 | Type fit (is this really a Bug?) | `relationships.md`, type references | Host | judgment (D1) |
 | 13 | Human-visible field/form placement | `platform-evidence.md` | Host | process layout, not a proposal property |
 | 14 | Bench scope and reviewer isolation | `bench-management.md`, `review.md` | Host | Bench visibility grants no authority; isolation is a host/session property |
-| 15 | Authorizer authenticity and independence | `publication.md` | Out | Spec #729 / authorization audit plan; CLI `--authorize` is caller-supplied |
+| 15 | Human review/approval requirements | `publication.md` | Out | Process/host concern; Twig does not require authorizer sign-off or persist approval snapshots |
 | 16 | Historical journal reconciliation | — | Out | Epic #1171 |
 | 17 | A Bug correction is normally a Related link | `relationships.md` | Host | "normally" — no universal mechanical gate |
 | 18 | Scope of a planned-set approval | `publication.md` | Host | approval is a human act over a concrete set |
@@ -86,7 +83,7 @@ twig policy assess --ids 42,43 -o json
 twig policy reconcile --ids 42,43 --evidence <evidenceDigest> --finding f1 --strategy reparent --parent 43 -o json
 twig policy reconcile --ids 42 --evidence <evidenceDigest> --finding f1 --strategy remove-labels -o json --proposal-only > repair.json
 twig proposal preview --file repair.json -o json
-# Review the proposal's digest; authorize and apply through the ordinary proposal lifecycle.
+# Review the proposal and apply through the ordinary digest-bound proposal lifecycle.
 # After apply: refresh the affected items and their links, then assess the same scope again.
 ```
 
@@ -97,7 +94,7 @@ compliance was achieved. `--proposal-only` requires JSON and emits only the nati
 proposal for deliberate redirection; refusal emits no proposal bytes. Do not overwrite an
 existing draft with shell redirection. Without that flag JSON includes `before`, `projected`,
 `proposal`, and the ordinary proposal digest. Human output includes alternatives and native
-proposal JSON. Commands do not refresh, apply, authorize, or journal anything automatically.
+proposal JSON. Commands do not refresh, apply, or journal anything automatically.
 MCP integration remains withdrawn.
 
 The assessment names its exact `scope`, `freshness: cached`, item revisions, sync timestamps,
@@ -163,13 +160,13 @@ chosen operations over that observation, and reassesses **all declared rules**. 
 unknown effects, no improvement, or a new/worsened violation; unrelated pre-existing findings
 remain visible and do not prevent an improving repair. It checks the observation again before
 emitting. The digest includes policy data and observed evidence; it is distinct from the
-proposal digest that binds confirmation and authorization.
+proposal digest that binds confirmation.
 
 Repairs use the existing `batch` and `remove-link`/`add-link` operations with expected
 revisions. Reparenting removes the old edge then adds the explicitly chosen new edge at the
 next revision; this is a two-operation proposal, **not an atomic reparent**. A partial failure
 requires the ordinary journal recovery path. Proposal preview/apply retain native declared
-policy, process, pending-change, origin, confirmation, authorization and journal gates.
+policy, process, pending-change, origin, confirmation and journal gates.
 A successful write/readback proves the authored effect, not policy compliance: only a new
 assessment after refresh can establish observed compliance for the named scope.
 
@@ -205,7 +202,7 @@ the proposal operation link.
   is also a `policy` blocker. A v2 decision is an observation for review, not an exact-revision
   assertion; v2 remains non-applicable regardless of a permit.
 * **Apply** — for supported ADO v1 proposals, declared policy uses current native item
-  and relationship observations before initial authorization and immediately before each
+  and relationship observations before initial application and immediately before each
   outstanding write. The latter gate reloads the policy file, including on a `Confirmed`
   resume. Missing, denied or incomplete native facts are blocking `unavailable`; execution
   does not fill them from the mirror. Process-rule and exact-revision gates remain in force.
@@ -215,15 +212,14 @@ the proposal operation link.
   empty graph. A valid target has a canonical positive item ID under the bound organization
   (with no project segment or the bound project), with no credentials, query or fragment.
   Explicit empty arrays remain complete. Ordinary cache/preview projection is unchanged.
-  Provider-v2 apply remains blocked before confirmation, authorization, journal mutation
-  or provider call.
+  Provider-v2 apply remains blocked before confirmation, journal mutation, or provider call.
 
 Preview evaluates the **whole proposal's post-change state**, not operation order.
 Execution evaluates the **whole remaining not-yet-attempted projection** in original order.
 Verified effects are already present in native observations and are not replayed as new
 proposal effects. Earlier unknown outcomes must be reconciled before the outstanding tail
 can proceed. This projection does not replace the canonical proposal, original review or
-authorization history. Native reads plus source revision CAS do not provide a transaction
+review history. Native reads plus source revision CAS do not provide a transaction
 over every related item.
 
 ### Policy file
@@ -257,7 +253,7 @@ over every related item.
 * Preview retains its cached observation semantics. Initial apply and every new write use
   fresh execution observations; a previously confirmed proposal is not a reusable policy
   permit. A changed or invalid policy leaves the outstanding operation unattempted and
-  retryable, while preserving already verified effects and historical authorization.
+  retryable, while preserving already verified effects and original review history.
 * Decisions appear in the review model and in JSON as `policyDecisions`: an array of
   `{ ruleId, kind, outcome, outcomeName, isBlocking, reason, workItemId, providerIdentity,
   opId }`. The numeric `outcome` values0/1/2/3 correspond to `outcomeName`
@@ -311,7 +307,6 @@ empty rule set), which permits.
 
 * **#1171** audits historical policy/process work and journal reconciliation. #1169 does not
   re-close, re-scope or reassign #726, #674, #727 or #850.
-* **#729** owns authorizer authenticity. Nothing here claims to prove who authorized.
 * **#1167 / #1170** provide provider capability contracts, a read-only GitHub adapter, and
   a durable local relationship overlay. For provider-v2 preview, the existing evaluator reads
   provider-qualified snapshots directly; local CAS revisions and relationship overlays are

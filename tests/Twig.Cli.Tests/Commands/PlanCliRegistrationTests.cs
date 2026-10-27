@@ -38,7 +38,7 @@ public sealed class PlanCliRegistrationTests
         });
         var output = new StringWriter();
         var command = new PlanCommand(lifecycle, new(new HumanOutputFormatter()),
-            new UnresolvedSessionSteeringModeProvider(), TimeProvider.System, stdout: output);
+            stdout: output);
         using var services = new ServiceCollection().AddSingleton(command).BuildServiceProvider();
         var commands = new TwigCommands(services);
         var result = (Task<int>)method.Invoke(commands, ["legacy.json", "json", cancellation.Token])!;
@@ -50,7 +50,7 @@ public sealed class PlanCliRegistrationTests
         using var json = System.Text.Json.JsonDocument.Parse(output.ToString());
         json.RootElement.GetProperty("digest").GetString().ShouldBe("legacy-digest");
         await lifecycle.Received(2).PreviewAsync("legacy.json", cancellation.Token);
-        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default);
         // CAF registers only the declared preview handler; the inherited legacy overload
         // must remain a callable C# method, not a second CLI verb.
         var registered = typeof(TwigCommands).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)

@@ -42,7 +42,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
             .Returns(Task.FromResult<IReadOnlyList<WorkItem>>([item]));
         var doc = Document(new BatchOperation { Id = "edit", WorkItemId = 742, ExpectedRevision = 4,
             Fields = new Dictionary<string, string?> { ["Custom.Empty"] = null, ["Custom.Absent"] = "x", ["Custom.Missing"] = "y" } });
-        var model = await Builder().BuildAsync(doc, "digest", [], [], true);
+        var model = await Builder().BuildAsync(doc, "digest", [], []);
         var effects = model.Operations.Single().Consequences;
         effects[0].Before!.State.ShouldBe("value");
         effects[0].Before!.Value.ShouldBe("");
@@ -50,10 +50,9 @@ public sealed class ChangeProposalReviewModelBuilderTests
         effects[2].Before!.State.ShouldBe("unknown");
         effects[2].Before!.Reason.ShouldBe("field-not-cached");
         item.MarkSynced(5);
-        var stale = await Builder().BuildAsync(doc, "digest", [], [], true);
+        var stale = await Builder().BuildAsync(doc, "digest", [], []);
         stale.Operations.Single().Consequences.ShouldAllBe(c => c.Before!.State == "unknown" && c.Before.Reason == "revision-mismatch");
         stale.Digest.ShouldBe(model.Digest);
-        stale.AuthorizationChoices.ShouldBe(model.AuthorizationChoices);
     }
 
     [Fact]
@@ -65,7 +64,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         _workItems.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult<IReadOnlyList<WorkItem>>(call.Arg<IEnumerable<int>>().Where(id => id == 10)
                 .Select(id => new WorkItem { Id = id, Title = "Parent", Type = WorkItemType.Feature, ParentId = 99 }).ToArray()));
-        var model = await Builder().BuildAsync(Document(new PublishSeedOperation { Id = "publish", StagedIdentity = identity, ExpectedFingerprint = "exact-fingerprint" }), "digest", [], [], true);
+        var model = await Builder().BuildAsync(Document(new PublishSeedOperation { Id = "publish", StagedIdentity = identity, ExpectedFingerprint = "exact-fingerprint" }), "digest", [], []);
         var target = model.Operations.Single().Target;
         target.WorkItemId.ShouldBeNull(); target.StagedIdentity.ShouldBe(identity.Value.ToString());
         target.Seed!.DisplayAlias.ShouldBe(-2); target.Seed.Title.ShouldBe("Draft"); target.Seed.Type.ShouldBe("Task");
@@ -87,16 +86,16 @@ public sealed class ChangeProposalReviewModelBuilderTests
         fields.GetAllAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<FieldDefinition>>([new("System.Description", "Description", "html", false)]));
         var builder = new ChangeProposalReviewModelBuilder(_workItems, fields);
         var doc = Document(new BatchOperation { Id = "edit", WorkItemId = 742, ExpectedRevision = 4, Fields = new Dictionary<string, string?> { ["System.Description"] = "A😁Z" } });
-        var model = await builder.BuildAsync(doc, "digest", [], [], true);
+        var model = await builder.BuildAsync(doc, "digest", [], []);
         var con = model.Operations.Single().Consequences.Single();
         con.FieldLabel.ShouldBe("Description"); con.FieldType.ShouldBe("html");
         con.Before!.Value.ShouldBe("A😀Z"); con.TextChange!.Removed.ShouldBe(1); con.TextChange.Inserted.ShouldBe(1);
         item.UpdateField("System.Description", "local text");
-        var dirty = await builder.BuildAsync(doc, "digest", [], [], true);
+        var dirty = await builder.BuildAsync(doc, "digest", [], []);
         dirty.Operations.Single().Consequences.Single().Before!.Reason.ShouldBe("local-edits");
         dirty.Operations.Single().Consequences.Single().TextChange.ShouldBeNull();
         _workItems.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<WorkItem>>([]));
-        var missing = await builder.BuildAsync(doc, "digest", [], [], true);
+        var missing = await builder.BuildAsync(doc, "digest", [], []);
         missing.Operations.Single().Consequences.Single().Before!.Reason.ShouldBe("item-not-cached");
         missing.Operations.Single().Consequences.Single().TextChange.ShouldBeNull();
     }
@@ -121,7 +120,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
                 Fields = new Dictionary<string, string?> { ["Custom.SupportPriority"] = null, ["System.State"] = "New" } },
             new BatchOperation { Id = "business-again", WorkItemId = 744, ExpectedRevision = 6,
                 Fields = new Dictionary<string, string?> { ["Custom.BusinessPriority"] = "2", ["Custom.NoMetadata"] = "exact" } });
-        var model = await builder.BuildAsync(doc, "digest", [], [], true);
+        var model = await builder.BuildAsync(doc, "digest", [], []);
         var effects = model.Operations.SelectMany(o => o.Consequences).ToArray();
         effects.Select(c => c.FieldLabel).ShouldBe([
             "Priority (Custom.BusinessPriority)", "State", "Priority (Custom.SupportPriority)", "State",
@@ -146,7 +145,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         // operation present in the proposal but absent from what the reviewer was shown. A
         // reviewer would then authorize a digest covering a mutation they never saw.
         var model = await Builder().BuildAsync(
-            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true);
+            AllKindsDocument(), "d".PadLeft(64, 'a'), [], []);
 
         model.Operations.Count.ShouldBe(5);
         model.Operations.Select(o => o.Kind).ShouldBe(
@@ -162,7 +161,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         // Preconditions are why a proposal would refuse to apply; a reviewer who cannot see
         // them cannot tell a stale proposal from a fresh one.
         var model = await Builder().BuildAsync(
-            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true);
+            AllKindsDocument(), "d".PadLeft(64, 'a'), [], []);
 
         model.Operations.ShouldAllBe(o => o.Preconditions.Count > 0);
 
@@ -191,7 +190,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
             },
         });
 
-        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], []);
 
         var consequences = model.Operations.Single().Consequences;
         consequences.Count.ShouldBe(3);
@@ -215,7 +214,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
             Fields = new Dictionary<string, string?> { ["System.AssignedTo"] = null },
         });
 
-        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], []);
 
         var consequence = model.Operations.Single().Consequences.Single();
         consequence.Kind.ShouldBe("field-clear");
@@ -240,7 +239,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
             OtherId = 740,
         });
 
-        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], []);
 
         model.AffectedItems.Select(i => i.Id).ShouldBe([740, 742], ignoreOrder: true);
         model.AffectedItems.Single(i => i.Id == 742).Role.ShouldBe("target");
@@ -261,7 +260,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
             Fields = new Dictionary<string, string?> { ["System.State"] = "Doing" },
         });
 
-        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], []);
 
         var item = model.AffectedItems.Single();
         item.Id.ShouldBe(999_999);
@@ -283,7 +282,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
 
         var document = Document(new DeleteOperation { Id = "op-1", WorkItemId = 742, ExpectedRevision = 4 });
 
-        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], []);
 
         var item = model.AffectedItems.Single();
         item.Title.ShouldBe("Implement Change Recipe and Proposal core");
@@ -303,7 +302,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
             ExpectedFingerprint = "fingerprint-1",
         });
 
-        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await Builder().BuildAsync(document, "d".PadLeft(64, 'a'), [], []);
 
         var op = model.Operations.Single();
         op.Target.WorkItemId.ShouldBeNull();
@@ -311,23 +310,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         model.AffectedItems.ShouldBeEmpty();
     }
 
-    // ── authorization choices and blockers ────────────────────────────────
-
-    [Fact]
-    public async Task Model_OffersApply_OnlyWhenTheProposalCanActuallyApply()
-    {
-        // Defends against: presenting an "apply" control that is guaranteed to refuse. A
-        // reviewer choosing it learns only that the tool lied about the options.
-        var applicable = await Builder().BuildAsync(
-            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true);
-        var blocked = await Builder().BuildAsync(
-            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: false);
-
-        applicable.AuthorizationChoices.ShouldContain("apply");
-        blocked.AuthorizationChoices.ShouldNotContain("apply");
-        blocked.AuthorizationChoices.ShouldContain("revise");
-        blocked.AuthorizationChoices.ShouldContain("decline");
-    }
+    // ── blockers ──────────────────────────────────────────────────────────
 
     [Fact]
     public async Task Model_ReportsPendingRowsAndIssuesAsBlockers()
@@ -353,7 +336,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         };
 
         var model = await Builder().BuildAsync(
-            AllKindsDocument(), "d".PadLeft(64, 'a'), [issue], [pending], canApply: false);
+            AllKindsDocument(), "d".PadLeft(64, 'a'), [issue], [pending]);
 
         model.Blockers.Count.ShouldBe(2);
         model.Blockers.ShouldContain(b => b.Kind == "issue" && b.Detail.Contains(PlanValidationCodes.EmptyFields));
@@ -373,10 +356,9 @@ public sealed class ChangeProposalReviewModelBuilderTests
         };
 
         var model = await Builder().BuildAsync(
-            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true, policyDecisions: decisions);
+            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], policyDecisions: decisions);
 
         model.PolicyDecisions.ShouldBe(decisions);
-        model.AuthorizationChoices.ShouldNotContain("apply");
         var blocker = model.Blockers.ShouldHaveSingleItem();
         blocker.Kind.ShouldBe("policy");
         blocker.WorkItemId.ShouldBe(729);
@@ -408,7 +390,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         // the value an authorization binds to; any transformation of it breaks the binding.
         var digest = new string('a', 64);
 
-        var model = await Builder().BuildAsync(AllKindsDocument(), digest, [], [], canApply: true);
+        var model = await Builder().BuildAsync(AllKindsDocument(), digest, [], []);
 
         model.Digest.ShouldBe(digest);
         model.Model.ShouldBe("twig.change-proposal.review");
@@ -463,9 +445,8 @@ public sealed class ChangeProposalReviewModelBuilderTests
             ],
         };
 
-        var model = await Builder().BuildAsync(definition, "digest-v2", [], [], canApply: false);
+        var model = await Builder().BuildAsync(definition, "digest-v2", [], []);
 
-        model.AuthorizationChoices.ShouldBe(["revise", "decline"]);
         model.Operations.Select(operation => operation.Target.ProviderWorkItem)
             .ShouldBe(new ProviderWorkItemReference?[] { source, source });
         model.Operations[0].Preconditions.Single().ShouldBe(new ReviewPrecondition
@@ -537,7 +518,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
             ],
         };
 
-        var model = await Builder().BuildAsync(definition, "digest-v2", [], [], canApply: false);
+        var model = await Builder().BuildAsync(definition, "digest-v2", [], []);
 
         var affected = model.ProviderAffectedItems!;
         affected.Count.ShouldBe(3);
@@ -576,9 +557,9 @@ public sealed class ChangeProposalReviewModelBuilderTests
     {
         // Defends against: inventing a placeholder recipe reference for a hand-authored
         // proposal, which would send a reviewer looking for a template that does not exist.
-        var adHoc = await Builder().BuildAsync(AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var adHoc = await Builder().BuildAsync(AllKindsDocument(), "d".PadLeft(64, 'a'), [], []);
         var rendered = await Builder().BuildAsync(
-            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true,
+            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [],
             recipe: new ChangeRecipeReference { RecipeId = "twig.test.recipe", Version = 2 });
 
         adHoc.Recipe.ShouldBeNull();
@@ -602,7 +583,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         IWorkItemRepository workItems, string relation, Twig.Domain.Capabilities.ProviderCapabilityDescriptor? descriptor)
     {
         var builder = new ChangeProposalReviewModelBuilder(workItems) { CapabilityDescriptor = descriptor };
-        var model = await builder.BuildAsync(AddLink(relation), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await builder.BuildAsync(AddLink(relation), "d".PadLeft(64, 'a'), [], []);
         return model.Operations.Single();
     }
 
@@ -685,7 +666,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
         var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
 
-        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.AddLink, relation), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.AddLink, relation), "d".PadLeft(64, 'a'), [], []);
 
         var capability = model.Operations.Single().Capability;
         capability.ShouldNotBeNull();
@@ -700,7 +681,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
     {
         var builder = new ChangeProposalReviewModelBuilder(_workItems);
 
-        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.AddLink, "parent"), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.AddLink, "parent"), "d".PadLeft(64, 'a'), [], []);
 
         model.Operations.Single().Capability!.Declared.ShouldBe("unknown");
     }
@@ -711,7 +692,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
         var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
 
-        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.Batch, null), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await builder.BuildAsync(ProviderOp(PlanOperationKind.Batch, null), "d".PadLeft(64, 'a'), [], []);
 
         model.Operations.Single().Capability.ShouldBeNull();
     }
@@ -732,7 +713,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         digestBefore.Length.ShouldBe(64);
 
         var withAdvisory = await new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor }
-            .BuildAsync(plan, digestBefore, [], [], canApply: true);
+            .BuildAsync(plan, digestBefore, [], []);
 
         PlanDocumentWriter.Write(plan).ShouldBe(canonicalBefore);
         DeriveDigest(PlanDocumentWriter.Write(plan)).ShouldBe(digestBefore);
@@ -751,7 +732,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
         var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
 
-        var model = await builder.BuildAsync(AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await builder.BuildAsync(AllKindsDocument(), "d".PadLeft(64, 'a'), [], []);
 
         model.Operations.Where(o => o.Kind != "add-link").ShouldAllBe(o => o.Capability == null);
     }
@@ -761,7 +742,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
     {
         Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
         var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
-        var model = await builder.BuildAsync(AddLink("parent"), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        var model = await builder.BuildAsync(AddLink("parent"), "d".PadLeft(64, 'a'), [], []);
 
         var json = ChangeProposalReviewModelJson.Serialize(model);
         var stripped = ChangeProposalReviewModelJson.Serialize(model with
@@ -802,7 +783,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         foreach (var descriptor in new Twig.Domain.Capabilities.ProviderCapabilityDescriptor?[] { null, ado, github })
         {
             var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
-            models.Add(await builder.BuildAsync(plan, digestBefore, [], [], canApply: true));
+            models.Add(await builder.BuildAsync(plan, digestBefore, [], []));
             PlanDocumentWriter.Write(plan).ShouldBe(canonical);
             DeriveDigest(PlanDocumentWriter.Write(plan)).ShouldBe(digestBefore);
         }

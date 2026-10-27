@@ -32,6 +32,11 @@ internal static class CommandExamples
             "twig bench discussion prepare-post --stdin          Prepare native proposal bytes from qualified context, format and text JSON through EOF; never posts",
             "twig bench discussion prepare-post --stdin -o json  Return the exact native body and canonical digest for separate proposal review and authorization",
         ],
+        ["bench attachments"] =
+        [
+            "twig bench attachments --stdin -o json       Read the explicit qualified Bench attachment inventory",
+            "twig bench attachments --stdin --framed       Write one bounded binary frame for an explicit download request",
+        ],
         ["init"] =
         [
             // Onboarding is four distinct operations, in order: enroll an identity once,

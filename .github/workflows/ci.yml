@@ -137,7 +137,7 @@ jobs:
           base.mkdir(parents=True, exist_ok=True)
           groups = [
               ("links", ["ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints"], 6),
-              ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "ReviewOnlyProposal_RemainsUnappliedWithoutDigestEligibleOperation",
+              ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "DigestMismatch",
                              "ObservationToken", "JournalRejects"], 9),
               ("recovery", ["UncertainOrContradictoryResponse", "DeniedReadback", "CrashRecovery"], 7),
           ]

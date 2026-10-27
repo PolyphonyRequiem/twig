@@ -96,11 +96,15 @@ public sealed class GitHubNativeRelationshipTests
     }
 
     [Fact]
-    public async Task ReviewOnlyProposal_RemainsUnappliedWithoutDigestEligibleOperation()
+    public async Task DigestMismatch_RemainsUnappliedWithoutNativeWrite()
     {
         using var fixture = await Fixture.CreateAsync();
         var (path, digest) = await fixture.PreviewAsync();
-        (await fixture.Lifecycle.ApplyAsync(path, digest)).Failed.ShouldBeTrue();
+        var mismatchedDigest = (digest[0] == '0' ? "1" : "0") + digest[1..];
+        var result = await fixture.Lifecycle.ApplyAsync(path, mismatchedDigest);
+        result.Failed.ShouldBeTrue();
+        (result.Error ?? throw new InvalidOperationException("Expected a digest-mismatch refusal."))
+            .ShouldContain("does not match confirmed digest");
         (await fixture.Journal.GetAsync(digest))!.Operations.Single().State.ShouldBe(PlanOperationState.Planned);
         fixture.Network.Writes.ShouldBe(0);
     }

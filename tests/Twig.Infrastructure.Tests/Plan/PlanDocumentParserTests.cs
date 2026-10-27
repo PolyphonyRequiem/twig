@@ -979,6 +979,33 @@ public sealed class PlanDocumentParserTests
             "{\"version\":1,\"workspace\":{\"organization\":\"acme\",\"project\":\"widgets\"},\"operations\":[{\"id\":\"op-1\",\"kind\":\"batch\",\"workItemId\":42,\"expectedRevision\":3,\"fields\":{\"System.Title\":\"New title\",\"System.AssignedTo\":null}}]}");
     }
 
+    [Theory]
+    [InlineData("observed-non-atomic")]
+    [InlineData("exact-revision")]
+    public void V2_link_concurrency_is_explicit_reviewable_and_digest_bound(string concurrency)
+    {
+        var json = ValidProviderLink.Replace("\"relation\": \"related\"",
+            $"\"relation\": \"parent\", \"concurrency\": \"{concurrency}\"", StringComparison.Ordinal);
+        var parsed = Parser.Parse(json);
+        parsed.IsValid.ShouldBeTrue(FormatIssues(parsed));
+        parsed.Plan!.Operations.Single().ShouldBeOfType<ProviderMutationOperation>().Concurrency.ShouldBe(concurrency);
+        var written = Parser.Parse(PlanDocumentWriter.Write(parsed.Plan));
+        written.Plan!.Operations.Single().ShouldBeOfType<ProviderMutationOperation>().Concurrency.ShouldBe(concurrency);
+        if (concurrency == "observed-non-atomic")
+            parsed.Digest.ShouldNotBe(Parser.Parse(json.Replace("observed-non-atomic", "exact-revision", StringComparison.Ordinal)).Digest);
+    }
+
+    [Theory]
+    [InlineData("best-effort")]
+    [InlineData("Observed-Non-Atomic")]
+    [InlineData("")]
+    public void V2_link_refuses_unknown_concurrency(string concurrency)
+    {
+        var json = ValidProviderLink.Replace("\"relation\": \"related\"",
+            $"\"relation\": \"parent\", \"concurrency\": \"{concurrency}\"", StringComparison.Ordinal);
+        Parser.Parse(json).IsValid.ShouldBeFalse();
+    }
+
     private static string FormatIssues(PlanValidationResult r)
         => "expected valid; got: " + string.Join(", ", r.Issues.Select(i => $"[{i.Code} @ {i.Path}] {i.Message}"));
 }

@@ -259,6 +259,7 @@ namespace Twig.Infrastructure.Serialization;
 // Provider-neutral worktree target pointer, separate from ADO connection attachments.
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.ProviderTargets.ProviderTargetAttachmentDocument))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.ProviderPlanAuthority))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.DraftProposalCapture))]
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.WorkItemSnapshot))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]

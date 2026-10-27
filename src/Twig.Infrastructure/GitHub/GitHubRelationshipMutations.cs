@@ -4,7 +4,7 @@ namespace Twig.Infrastructure.GitHub;
 
 /// <summary>
 /// Prepares fixed request shapes only. This is not transport admission, repository membership
-/// evidence, or revision protection; the provider-v2 executor remains disabled.
+/// evidence, or revision protection; the proposal lifecycle supplies admission.
 /// </summary>
 internal static class GitHubRelationshipMutations
 {

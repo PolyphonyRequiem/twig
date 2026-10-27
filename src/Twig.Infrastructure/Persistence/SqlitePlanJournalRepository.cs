@@ -532,6 +532,18 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         }
         switch (canonical)
         {
+            case ProviderMutationOperation cp when supplied is ProviderMutationOperation sp:
+                if (cp.OperationKind != sp.OperationKind) { mismatch = "operationKind"; return false; }
+                if (cp.Target != sp.Target) { mismatch = "provider target or expected token"; return false; }
+                if (cp.Other != sp.Other) { mismatch = "provider peer"; return false; }
+                if (cp.Relation != sp.Relation) { mismatch = "relation"; return false; }
+                if (cp.Concurrency != sp.Concurrency) { mismatch = "concurrency"; return false; }
+                if ((cp.Fields is null) != (sp.Fields is null))
+                { mismatch = "provider fields presence"; return false; }
+                if (cp.Fields is not null && sp.Fields is not null
+                    && !AreFieldsEqual(cp.Fields, sp.Fields, out _))
+                { mismatch = "provider fields"; return false; }
+                break;
             case BatchOperation cb when supplied is BatchOperation sb:
                 if (cb.WorkItemId != sb.WorkItemId) { mismatch = "workItemId"; return false; }
                 if (cb.ExpectedRevision != sb.ExpectedRevision) { mismatch = "expectedRevision"; return false; }

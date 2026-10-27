@@ -169,6 +169,9 @@ public sealed record ProviderWorkItemMutationTarget
 /// </summary>
 public sealed record ProviderMutationOperation : PlanOperationDefinition
 {
+    /// <summary>Exact revision protection by default; links may explicitly opt into observed non-atomic execution.</summary>
+    public string Concurrency { get; init; } = "exact-revision";
+
     /// <summary>The supported field, link or delete operation kind.</summary>
     public required PlanOperationKind OperationKind { get; init; }
 

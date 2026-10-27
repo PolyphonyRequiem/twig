@@ -319,7 +319,12 @@ public sealed partial class PlanLifecycleService
             return current == expected ? null
                 : "Proposal origin attachment, binding, principal or selection revision changed. Refusing saved authorization/apply/resume; reconnect and author a fresh proposal.";
         }
-        catch (InvalidOperationException ex) { return ex.Message; }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or InvalidDataException
+            or HttpRequestException or JsonException or GitHub.GitHubCredentialUnavailableException)
+        {
+            return _nativeRelationships is null ? ex.Message
+                : "Provider target or authenticated actor observation is unavailable; original proposal authority cannot be confirmed.";
+        }
     }
 
     internal static bool SameExpectedEffect(string original, string replacement)

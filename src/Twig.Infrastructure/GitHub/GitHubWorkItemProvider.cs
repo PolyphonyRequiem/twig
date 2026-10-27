@@ -105,7 +105,7 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
                 ? (FieldValue)NullValue.Instance : new TextValue(Text(milestone, "title")));
 
             var labels = await ReadConnectionAsync(identity, "labels", ct);
-            var labelValues = new StringListValue(labels.Select(l => Text(l, "name")));
+            var labelValues = new StringListValue(labels.Select(l => Text(l, "name")).Order(StringComparer.Ordinal));
             fields = fields.Set("github.labels", labelValues).Set("System.Tags", labelValues);
             var assignees = (await ReadConnectionAsync(identity, "assignees", ct))
                 .Select(a => new GitHubIssueAssignee(NativeId(a), Text(a, "login")))
@@ -132,7 +132,8 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
             if (target is not null)
                 await _validateTarget!(target, ct).ConfigureAwait(false);
             _lastReadEvidence = [];
-            return new(identity, null, fields, relationships.ToArray(), RelationshipsComplete: true);
+            return new(identity, GitHubObservationToken.Create(identity, fields, relationships),
+                fields, relationships.ToArray(), RelationshipsComplete: true);
         }
         catch (HttpRequestException ex)
         {

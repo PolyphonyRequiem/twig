@@ -526,6 +526,11 @@ CI qualifies native host-inventory migration and retained-publication recovery o
 Windows; macOS lacks that admission and Linux can refuse inaccessible `/proc` handles.
 Normal cross-platform gates remain; these checks never authorize existing-store migration.
 
+`SqliteBackupPathProbeTests` is an opt-in `Integration` diagnostic, excluded from
+routine and release-candidate eligibility. Select it explicitly only to investigate
+a host's native SQLite path-failure behavior; a different failure signature is not
+evidence that preservation regressed. Portable preservation checks run separately.
+
 ## Next Topics
 
 - **[Architecture Overview](docs/architecture/overview.md)** — how twig is built: layered design, project structure, key constraints

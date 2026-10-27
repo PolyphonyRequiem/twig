@@ -163,9 +163,25 @@ jobs:
                                 ("binding", "CrashAfterIdentityBindingKeepsKnownOutcomeAndStableIdentity"),
                                 ("delete", "CrashAfterPayloadDeletionKeepsKnownOutcomeAndStableIdentity")]:
               groups.append((label, "RetainedPublicationTests", [method], 1))
+          groups += [
+              ("backup-owned-rows", "PreservationBackupProofTests", ["CoherentBackupOwnedRowsCannotBeCertifiedOrActivated", "RetainedManifestIsRevalidatedAgainstOwnedBackupRowsBeforeActivation"], 3),
+              ("cancelled-history", "PreservationSchemaRebuildTests", ["CancelledSlotNullHistoryAllowsSchema15ScratchCloneRebuild"], 1),
+              ("source-backup", "PreservationMigrationTests", ["SourceWriterAfterBackupPreventsActivationWithoutDiscardingItsChange", "BackupCopyCorruptionBlocksCertificationAndActivation"], 2),
+              ("writers-generation", "PreservationMigrationTests", ["UnclassifiedTargetWriterIsRefusedWithoutClearingEitherView", "GenerationRaceAtActivationPreservesOriginalAdmissionAndPreparingIntent", "BackupFailureBlocksActivationAndCanResumeWithoutDeletingOriginals"], 3),
+              ("cancel-local", "PreservationMigrationTests", ["FailedPreparationCanBeExplicitlyCancelledAndReviewedAgainAfterOrdinaryEdits", "LocalWritesRemainReversibleAndGenerationChangingTransitionIsBlockedBeforeIntent"], 2),
+              ("reader-provenance", "PreservationMigrationTests", ["ActualReadersUseRetainedTablesAndRollbackRefusesDivergentOriginals", "ActualSeedReadersUseRetainedPayloadWithoutOriginalSeed"], 2),
+              ("composition", "PreservationMigrationTests", ["SeedEditsAndLocalPublicationCompositionKeepIndependentStableLocalIdentity"], 1),
+              ("interruption", "PreservationMigrationTests", ["InterruptedPreparationKeepsCurrentViewAndResumesOriginalIntent"], 4),
+              ("corruption", "PreservationMigrationTests", ["PayloadRejectedByExistingReaderCannotActivateAndRemainsUnmodified"], 4),
+              ("execution-admission", "PreservationMigrationTests", ["ExecutionAdmissionWriterIsFingerprintedBeforeActivationAndRetainedThroughRollback"], 2),
+          ]
+          for case in ["preparing-slot", "active-slot", "rolled-back-slot", "unknown-slot-null", "cancelled-slot", "cancelled-retained-target"]:
+              groups.append((f"owning-history-{case}", "PreservationSchemaRebuildTests", ["OwningOrUnknownIntentAndRetainedTargetsRefuseSchemaRebuild"], 1))
           ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
           for label, cls, methods, count in groups:
               selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.{cls}.{m}" for m in methods)
+              if label.startswith("owning-history-"):
+                  selector += "&DisplayName~" + label.removeprefix("owning-history-")
               args = [sys.executable, "tools/run-bounded.py", "--timeout", "60", "--", "dotnet", "test",
                       "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "-f", "net11.0", "--no-build", "--no-restore",
                       "--filter", selector, "--logger", f"trx;LogFileName={label}.trx", "--results-directory", str(base)]

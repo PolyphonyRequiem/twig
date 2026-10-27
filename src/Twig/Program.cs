@@ -191,6 +191,17 @@ if (outputFormatError is not null)
     return;
 }
 
+// Structured writes must identify the item they target instead of relying on the
+// interactive active-item pointer. Keep this before workspace resolution so a missing
+// --id cannot trigger a read or mutation through active context.
+var structuredMutationError = StructuredMutationArgumentValidator.Validate(args);
+if (structuredMutationError is not null)
+{
+    Console.Error.WriteLine(structuredMutationError);
+    Environment.ExitCode = StructuredMutationArgumentValidator.UsageExitCode;
+    return;
+}
+
 // Skills are an explicit offline utility: do not resolve workspace/network services
 // or run binary cleanup/companion installation for this command family.
 if (args.Length > 0 && args[0] == "skills")

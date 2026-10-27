@@ -10,6 +10,10 @@ Use the user's actual scope and any explicit review hold. A proposal does not it
 
 Ready when the intended effects, preconditions and applicable authority are explicit.
 
+## Machine invocations and active context
+
+With structured output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`), a mutation that targets one active work item must use `--id`; do not set or rely on Twig's active-item pointer for automation. File-scoped proposal validate, preview and apply commands are already bound to the proposal's explicit work-item IDs and do not require an active item. Human CLI behavior is unchanged.
+
 ## Validate, review, apply, verify
 
 1. **Author:** use the current native schema inside the intended Twig workspace. Execution state belongs in the journal, not the proposal. Obtain staged seed identities and fingerprints through `twig proposal seed`; never predict published IDs or treat temporary aliases as durable identities.

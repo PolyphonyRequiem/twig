@@ -87,12 +87,13 @@ public sealed class BuildFixture
     /// hanging the suite — a truncated log still lets the assertions report honestly.
     /// </remarks>
     internal static (string Stdout, string Stderr, int ExitCode, bool Exited) RunProcess(
-        string fileName, string arguments, int timeoutMinutes = 5)
+        string fileName, string arguments, int timeoutMinutes = 5, string? workingDirectory = null)
     {
         var psi = new ProcessStartInfo
         {
             FileName = fileName,
             Arguments = arguments,
+            WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

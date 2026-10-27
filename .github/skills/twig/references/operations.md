@@ -19,6 +19,16 @@ Ready when the intended executable and relevant command contract are known.
 
 Ready when the requested facts, connection and relevant freshness/completeness limits are established without unintended writes.
 
+## Structured mutation calls
+
+Structured output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) marks a machine invocation. Mutations that otherwise target the active work item require an explicit `--id`; a missing ID is a usage error before workspace resolution, so the active item is not read or changed. Multi-item commands may use an explicit multi-item scope such as `--ids` or `--all`. `twig set`, `twig new --set`, navigation commands, and `twig seed publish` are refused with structured output because they read or change active context. For structured seed creation, select `--parent <id>` or `--no-parent` rather than inferring a parent from the active item. Reads retain their existing behavior, and file-scoped proposal operations use the identities in the proposal rather than the active item. Human CLI use is unchanged.
+
+Examples:
+
+- `twig state Done --id 1234 -o json`
+- `twig update System.Title "New title" --id 1234 -o json`
+- `twig show 1234 -o json` (a read; no `--id` mutation guard applies)
+
 ## Compact reads
 
 Bind the qualified executable path and hash, invocation workspace and organization/project before comparing compact and full responses. Keep that binding across calls. Reuse help only for the same executable contract; reload when it changes.

@@ -28,6 +28,10 @@ sprint backlogs as rich terminal trees using Spectre.Console.
 - Tests use **xUnit** with **Shouldly** assertions and **NSubstitute** for mocking
 - Test classes use `[Fact]` and `[Theory]` attributes (not `[TestClass]`/`[TestMethod]`)
 
+## Structured CLI mutations
+
+Non-human output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) is treated as a machine invocation. A machine invocation that mutates one active work item must name it with `--id`; it must not rely on the interactive active-item pointer. Commands with an explicit multi-item scope may use that scope instead. `twig set`, `twig new --set`, navigation, and `twig seed publish` are refused with structured output because they read or change active context. Structured seed creation must choose `--parent <id>` or `--no-parent`. Reads remain available with their existing active-item behavior, and file-scoped proposal operations do not depend on active context. Human CLI behavior is unchanged.
+
 ## Telemetry & Data Privacy
 
 Twig supports optional anonymous telemetry via `TWIG_TELEMETRY_ENDPOINT` environment variable.

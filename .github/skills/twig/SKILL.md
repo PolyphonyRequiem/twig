@@ -15,6 +15,7 @@ Twig connects your working environment to Azure DevOps (ADO) work tracking throu
 - **Bench and active item:** a Bench is a named, saved view of work; the active item is a local selection. Neither is a work claim.
 - **Local versus published:** reads may use cached information; seeds are local drafts. Local changes, publication and refreshed verification are distinct outcomes.
 - **Change proposal:** intended tracker mutations. Review and application are separate; apply requires the exact digest from preview, and journal verification is separate.
+- **Machine mutations:** structured output is a machine invocation. Active-item-targeted changes require an explicit `--id`; context-changing operations such as `set`, navigation, and seed publication are refused. Human use is unchanged. See [operations](references/operations.md) and [changes](references/changes.md).
 
 ## Change-proposal presentation
 

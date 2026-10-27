@@ -44,7 +44,17 @@ public sealed class OutputFormatEntrypointTests
         var dll = typeof(OutputFormatArgumentValidator).Assembly.Location;
         File.Exists(dll).ShouldBeTrue($"The test project's Twig dependency is missing at {dll}");
 
-        return BuildFixture.RunProcess("dotnet", $"\"{dll}\" {arguments}", timeoutMinutes: 2);
+        var workingDirectory = Path.Combine(Path.GetTempPath(), $"twig-output-entrypoint-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workingDirectory);
+        try
+        {
+            return BuildFixture.RunProcess(
+                "dotnet", $"\"{dll}\" {arguments}", timeoutMinutes: 2, workingDirectory: workingDirectory);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
     }
 
     [Theory]
@@ -109,5 +119,27 @@ public sealed class OutputFormatEntrypointTests
             OutputFormatArgumentValidator.Validate(["show", "-o", accepted])
                 .ShouldBeNull($"'{accepted}' is on the accept-list and must pass the gate.");
         }
+    }
+
+    [Fact]
+    public void StructuredMutationWithoutId_IsRejectedBeforeWorkspaceResolution()
+    {
+        var (stdout, stderr, exitCode, exited) = RunTwig("state Done -o json");
+
+        exited.ShouldBeTrue("twig state Done -o json timed out");
+        exitCode.ShouldBe(2);
+        stderr.ShouldContain("requires an explicit --id");
+        stdout.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void SetWithStructuredOutput_IsRejectedBeforeChangingActiveContext()
+    {
+        var (stdout, stderr, exitCode, exited) = RunTwig("set 123 -o json");
+
+        exited.ShouldBeTrue("twig set 123 -o json timed out");
+        exitCode.ShouldBe(2);
+        stderr.ShouldContain("cannot be used with structured output");
+        stdout.ShouldBeEmpty();
     }
 }

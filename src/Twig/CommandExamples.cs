@@ -12,6 +12,11 @@ internal static class CommandExamples
     /// </summary>
     internal static Dictionary<string, string[]> Examples { get; } = new(StringComparer.Ordinal)
     {
+        ["auth logout"] =
+        [
+            "twig auth logout --provider github --identity personal  Remove selected local app-user tokens, not remote authorization",
+            "twig auth logout --provider github --identity personal --client-id <registered-app-client-id> -o json  Explicit app selection",
+        ],
         ["draft save"] =
         [
             "twig draft save --stdin -o json  Consume the exact retained capture from the human workbench Save action",
@@ -552,6 +557,7 @@ internal static class CommandExamples
         [
             "twig auth status               Inspect refresh-token store + cached ADO access token",
             "twig auth status --output json  Output token diagnostics as JSON",
+            "twig auth status --provider github --identity personal -o json  Inspect local app-user expiry without HTTP or refresh",
         ],
         ["auth clear"] =
         [
@@ -561,6 +567,7 @@ internal static class CommandExamples
         ],
         ["auth login"] =
         [
+            "twig auth login --provider github --identity personal --client-id <registered-app-client-id>  GitHub App device flow, no secret",
             "twig auth login --identity work                   Enroll (or re-enroll) the 'work' identity via loopback PKCE",
             "twig auth login --identity personal --tenant <tenant-id>   Enroll against a specific AAD tenant",
             "twig auth login --identity work --device-code     Device-code grant (headless boxes; often blocked by tenant policy)",

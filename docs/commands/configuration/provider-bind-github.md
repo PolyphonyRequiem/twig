@@ -35,10 +35,15 @@ same opaque IDs. Old rows and existing item data are retained. Same-identity
 rebinding reuses the durable row without silently refreshing locator/display
 metadata; renames do not redefine identity.
 
-The user-local `github.account` must explicitly select an existing GitHub CLI
-account. Tokens stay in memory; no refresh, storage, new scopes, active-account
-switch or remote write occurs. A token may have broader grants than Twig's fixed
-request admission permits.
+By default, the user-local `github.account` must explicitly select an existing
+GitHub CLI account. That source keeps tokens in memory with no refresh, storage,
+new scopes or active-account switch. Alternatively, explicit user-local
+`github.credentialsource=github-app` selects an already enrolled Twig GitHub App
+identity through `github.appclientid` and `github.oauthidentity` on github.com.
+That source may rotate its stored expiring pair before the lookup; a missing,
+unavailable or uncertain identity refuses without falling back to gh. Neither
+source admits remote work-item writes. See
+[GitHub App enrollment](../system/auth-login.md#github-app-oauth-enrollment).
 
 `-o` / `--output` accepts `human` (default), `json` or `minimal`, with the same
 columns as discovery plus the resulting binding ID and attachment revision.
@@ -63,8 +68,9 @@ binding authority.
 This command changes neither `provider`, `github.host`, `github.repository`, nor
 ADO bindings. Choose normal-read configuration explicitly with `twig config`
 after binding. It does not initialize/migrate item stores, seeds or context.
-Twig-owned OAuth sign-in and complete GitHub integration remain required before
-1.0; this command alone does not complete those requirements.
+OAuth app registration, installation and live qualification, plus complete
+GitHub integration, remain required before 1.0; this command alone does not
+complete those requirements.
 
 The internal captured-read-session API can explicitly observe the authenticated
 actor and read issue snapshots using one captured in-memory credential. It retains

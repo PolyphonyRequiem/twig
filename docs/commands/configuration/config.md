@@ -79,6 +79,16 @@ identity authority. Existing slug-only configuration is **unbound** and refused
 before credential acquisition or HTTP; it is never silently enrolled or promoted
 to a binding, and Twig never falls back to ADO.
 
+`github.credentialsource` is a **user-local** selector: absent or `gh` preserves the
+existing explicit GitHub CLI account source; `github-app` selects Twig-owned
+GitHub App OAuth on github.com. `github.appclientid` (public registered app ID)
+and `github.oauthidentity` (local alias) are also user-local, never selectable
+from shared manifests. Selecting the source does not sign in, acquire a
+credential, grant permissions or enable writes. Unknown selections refuse
+without fallback. Enroll and inspect the app identity with
+[`auth login --provider github`](../system/auth-login.md#github-app-oauth-enrollment)
+and [`auth status --provider github`](../system/auth-status.md).
+
 `github.account` is a **user-local** preference in `.twig/config`, never a shared
 repository coordinate in `twig.json`. It explicitly selects a GitHub CLI account
 for that host; it does not change another user's selection. The token

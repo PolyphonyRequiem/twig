@@ -211,6 +211,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConfigStatusFieldsCommand>();
         services.AddSingleton<AuthClearCommand>();
         services.AddSingleton<AuthLoginCommand>();
+        services.AddSingleton<AuthGitHubCommand>();
         services.AddSingleton<AuthIdentitiesCommand>();
         services.AddSingleton<AuthPatCommand>();
         services.AddSingleton<ConnectionBindCommand>();

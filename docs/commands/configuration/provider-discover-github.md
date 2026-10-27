@@ -34,6 +34,13 @@ written into configuration. The explicit user-local `github.account` selects an
 already signed-in account via `gh auth token --hostname <host> --user <account>`; no active
 account default, renewal, new scopes or token persistence is used.
 
+An explicit user-local `github.credentialsource=github-app` instead uses the
+already enrolled Twig GitHub App identity selected by `github.appclientid` and
+`github.oauthidentity`, on github.com only. That source may rotate its saved
+expiring pair before discovery; missing or uncertain credentials refuse with no
+gh fallback. Discovery neither enrolls an identity nor expands its grant. See
+[GitHub App enrollment](../system/auth-login.md#github-app-oauth-enrollment).
+
 `-o` / `--output` supports `human` (default), `json`, and `minimal`.
 JSON emits one source-generated report. Minimal columns are provider, API origin,
 owner ID, repository ID, locator, attachment revision, current binding ID and

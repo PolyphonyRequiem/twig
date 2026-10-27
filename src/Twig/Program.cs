@@ -1556,11 +1556,19 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ConfigStatusFields(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConfigStatusFieldsCommand>().ExecuteAsync(output, ct);
 
-    /// <summary>Inspect the cached ADO access token (audience, expiry, principal). Diagnoses 403s caused by wrong-audience tokens.</summary>
+    /// <summary>Inspect local authentication state without refreshing. Use --provider github for a selected GitHub App identity.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="provider">Authentication provider: ado (default) or github.</param>
+    /// <param name="identity">Explicit GitHub OAuth identity alias; defaults to github.oauthidentity.</param>
+    /// <param name="clientId">Registered GitHub App client ID; defaults to github.appclientid.</param>
     [Command("auth status")]
-    public async Task<int> AuthStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct);
+    public async Task<int> AuthStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default,
+        string provider = "ado", string? identity = null, string? clientId = null)
+        => provider == "github"
+            ? await services.GetRequiredService<AuthGitHubCommand>().ExecuteAsync("status", identity, clientId, output, ct)
+            : provider == "ado" && identity is null && clientId is null
+                ? await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct)
+                : AuthProviderUsageError(output);
 
     /// <summary>Clear the selected admission proof. Without --identity, invalidates the attached binding's cached access token (unchanged pre-#1105 behavior). With --identity, clears the named identity's cached admission proof via the shared binding service; stored credentials are untouched.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1569,12 +1577,14 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? identity = null)
         => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(identity, output, ct);
 
-    /// <summary>Sign in to Azure DevOps interactively and enroll the credential against a named identity. Default flow is loopback PKCE (opens a browser); use --device-code for headless boxes.</summary>
+    /// <summary>Enroll an explicit identity. ADO uses loopback PKCE by default; --provider github uses Twig's GitHub App device flow without a shipped secret.</summary>
     /// <param name="deviceCode">Use the OAuth device authorization grant instead of loopback PKCE. Required on headless or sandboxed environments where a browser cannot be opened, but often blocked by enterprise Conditional Access policy.</param>
     /// <param name="tenant">AAD tenant ID, domain, or 'organizations' (default). Use a specific tenant when your account is a guest in multiple directories.</param>
     /// <param name="noBrowser">Print the authorize URL instead of launching the system browser. Use when running over SSH or when the OS browser launcher is unreliable.</param>
     /// <param name="identity">Alias of the identity to register or re-enroll. Required unless an attached binding already names one; a named login never clobbers an existing global/sibling account.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="provider">Authentication provider: ado (default) or github. GitHub always uses device flow.</param>
+    /// <param name="clientId">Registered GitHub App client ID (github only); defaults to github.appclientid.</param>
     [Command("auth login")]
     public async Task<int> AuthLogin(
         bool deviceCode = false,
@@ -1582,8 +1592,34 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         bool noBrowser = false,
         string? identity = null,
         string output = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
-        => await services.GetRequiredService<AuthLoginCommand>().ExecuteAsync(deviceCode, tenant, noBrowser, identity, output, ct);
+        CancellationToken ct = default,
+        string provider = "ado",
+        string? clientId = null)
+        => provider == "github" && tenant is null
+            ? await services.GetRequiredService<AuthGitHubCommand>().ExecuteAsync("login", identity, clientId, output, ct)
+            : provider == "ado" && clientId is null
+                ? await services.GetRequiredService<AuthLoginCommand>().ExecuteAsync(deviceCode, tenant, noBrowser, identity, output, ct)
+                : AuthProviderUsageError(output);
+
+    /// <summary>Remove selected local GitHub OAuth credentials. Does not revoke GitHub authorization or uninstall the app.</summary>
+    /// <param name="provider">Required explicit authentication provider: github.</param>
+    /// <param name="identity">GitHub OAuth identity alias; defaults to github.oauthidentity.</param>
+    /// <param name="clientId">Registered GitHub App client ID; defaults to github.appclientid.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("auth logout")]
+    public async Task<int> AuthLogout(string provider = "", string? identity = null, string? clientId = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => provider == "github"
+            ? await services.GetRequiredService<AuthGitHubCommand>().ExecuteAsync("logout", identity, clientId, output, ct)
+            : AuthProviderUsageError(output);
+
+    private int AuthProviderUsageError(string output)
+    {
+        Console.Error.WriteLine(AuthGitHubCommand.FormatError(
+            services.GetRequiredService<OutputFormatterFactory>().GetFormatter(output), output,
+            "Choose --provider ado or --provider github with compatible options; logout supports --provider github only."));
+        return 2;
+    }
 
     /// <summary>List every registered identity (AAD and PAT) with safe principal metadata. Credential blobs are never surfaced; AAD rows show tenant/objectId/authorityHost, PAT rows show adoPrincipalId/adoAuthority.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -2109,6 +2145,7 @@ internal static class GroupedHelp
         "auth status",
         "auth clear",
         "auth login",
+        "auth logout",
         "auth identities",
         "auth pat",
         "connection",

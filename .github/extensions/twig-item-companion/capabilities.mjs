@@ -14,13 +14,14 @@ export const CAPABILITIES = Object.freeze({
     "draft-open": capability(["draft", "open"], ["--bench", "-o", "--expect-binding", "--expect-identity"]),
     "draft-stage": capability(["draft", "stage"], ["--stdin", "-o"]),
     "draft-retain": capability(["draft", "retain"], ["--stdin", "-o"]),
+    "draft-save": capability(["draft", "save"], ["--stdin", "-o"]),
     "proposal-preview": capability(["proposal", "preview"], ["--file", "--expect-digest", "-o"]),
     "proposal-apply": capability(["proposal", "apply"], ["--file", "--confirm", "--authorize", "--rationale", "-o"]),
 });
 
 export const CANVAS_CAPABILITIES = Object.freeze({
     item: Object.freeze(["detail", "draft-show"]),
-    workbench: Object.freeze(["workspace-browser", "bench-detail", "discussion", "draft-open", "draft-stage", "draft-retain"]),
+    workbench: Object.freeze(["workspace-browser", "bench-detail", "discussion", "draft-open", "draft-stage", "draft-retain", "draft-save"]),
     review: Object.freeze(["proposal-preview", "proposal-apply"]),
 });
 

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { serializeStageRequest, validateEditingResult, validateRetainResult } from "./editing-document.mjs";
+import { validateSaveAuthorization } from "./native-save.mjs";
 
 function editableControls(document) {
     const controls = [...document.systemControls];
@@ -28,6 +29,7 @@ function editableControls(document) {
 export function createEditingBridge({ adapter, workspacePath }) {
     let epoch = 0;
     let capture = null;
+    let saveCapture = null;
     let active = false;
     let controller = null;
     let lastOutcome = null;
@@ -39,7 +41,11 @@ export function createEditingBridge({ adapter, workspacePath }) {
     function invalidate() {
         epoch++;
         capture = null;
-        if (lastOutcome) lastOutcome = { ...lastOutcome, captureHandle: null, canStage: false, canRetain: false };
+        saveCapture = null;
+        if (lastOutcome) lastOutcome = { ...lastOutcome, captureHandle: null, canStage: false, canRetain: false,
+            canSave: false, saveHandle: null };
+        for (const [key, outcome] of retainOutcomes)
+            retainOutcomes.set(key, { ...outcome, canSave: false, saveHandle: null });
         controller?.abort();
     }
     function view(result) {
@@ -72,7 +78,8 @@ export function createEditingBridge({ adapter, workspacePath }) {
             if (retaining) {
                 const outcome = { ...result, itemKey: target.expectedKey, benchId: target.bench,
                     identityId: target.identityId, captureHandle: null, canStage: false, canRetain: false,
-                    inspectFirst: result.status === "indeterminate" };
+                    inspectFirst: result.inspectFirst === true || result.status === "indeterminate",
+                    ...(generation !== epoch ? { canSave: false, saveHandle: null } : {}) };
                 if (outcome.inspectFirst) outcome.recovery = inspectFirst;
                 retainOutcomes.set(targetKey(target), structuredClone(outcome));
                 capture = null;
@@ -88,7 +95,7 @@ export function createEditingBridge({ adapter, workspacePath }) {
                 benchId: target.bench, identityId: target.identityId,
                 error: { message: error instanceof Error ? error.message : "Native outcome unavailable." } };
             if (retaining) {
-                lastOutcome = { ...lastOutcome, canRetain: false, captureHandle: null,
+                lastOutcome = { ...lastOutcome, canRetain: false, captureHandle: null, canSave: false, saveHandle: null,
                     inspectFirst: true, recovery: inspectFirst };
                 retainOutcomes.set(targetKey(target), structuredClone(lastOutcome));
             }
@@ -105,6 +112,27 @@ export function createEditingBridge({ adapter, workspacePath }) {
         get busy() { return active; },
         get outcome() { return lastOutcome; },
         get retainOutcomes() { return structuredClone([...retainOutcomes.values()]); },
+        async save(body) {
+            if (active) throw new Error("A native editing operation is already in progress.");
+            if (!body || Object.keys(body).sort().join(",") !== "authorization,saveHandle" ||
+                !saveCapture || body.saveHandle !== saveCapture.handle || typeof adapter?.save !== "function")
+                throw new Error("Save requires this panel's current retained capture; no apply was started.");
+            const held = saveCapture;
+            const authorization = validateSaveAuthorization(body.authorization, held.capture.digest);
+            saveCapture = null;
+            retainOutcomes.set(targetKey(held.target), { ...lastOutcome, canSave: false, saveHandle: null });
+            const target = held.target;
+            return run(async signal => {
+                const native = await adapter.save({ capture: held.capture, authorization, workspacePath, signal });
+                return {
+                    status: native.status, committed: native.verified, native,
+                    inspectFirst: native.status !== "saved", canSave: false, saveHandle: null,
+                    recovery: native.status === "saved"
+                        ? "Saved and verified. Explicitly reopen before further editing; do not replay this capture."
+                        : "Inspect the native journal and retained draft; do not replay uncertain or verified effects.",
+                };
+            }, target, true);
+        },
         open(target) {
             if (active) throw new Error("A native editing operation is already in progress.");
             invalidate();
@@ -221,6 +249,7 @@ export function createEditingBridge({ adapter, workspacePath }) {
                 identityId: document.nativeContext.identityId };
             const request = { version: 1, nativeContext: document.nativeContext, generation: document.generation,
                 baselineRevision: document.baselineRevision, observedRevision: document.observedRevision };
+            const retainedEpoch = epoch;
             capture = null;
             return run(async (signal) => {
                 const result = await adapter.retain({ request, workspacePath, signal });
@@ -232,8 +261,14 @@ export function createEditingBridge({ adapter, workspacePath }) {
                     effects: structuredClone(result.capture.effects), originCoverage: result.capture.originCoverage,
                     authorized: false, canApply: false,
                 };
+                let save = {};
+                if (retainedEpoch === epoch && result.status === "retained" && result.capture && typeof adapter.save === "function") {
+                    saveCapture = { handle: randomBytes(32).toString("base64url"),
+                        capture: structuredClone(result.capture), target };
+                    save = { canSave: true, saveHandle: saveCapture.handle };
+                }
                 return { status: result.status, committed: result.committed, error: result.error,
-                    ...(receipt ? { receipt } : {}) };
+                    ...(receipt ? { receipt } : {}), ...save };
             }, target, true);
         },
     };

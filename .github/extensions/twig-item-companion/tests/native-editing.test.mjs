@@ -11,6 +11,7 @@ import { serializeStageRequest, serializeRetainRequest, validateEditingContext, 
     validateRetainResult } from "../editing-document.mjs";
 import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
 import { createNativeEditingAdapter, NativeEditingTransportError } from "../native-editing.mjs";
+import { validateSaveResult } from "../native-save.mjs";
 
 const form = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8")).document;
 function context() {
@@ -92,6 +93,54 @@ function harness(response = result(), exit = 0, options = {}) {
     });
     return { adapter, calls };
 }
+
+function savedResult() {
+    const capture = retainedResult().capture;
+    return { version: 1, digest: capture.digest, callerIdentity: "identity", surface: "twig-workbench-explicit-save",
+        hostAttested: false, status: "saved", verified: true, settled: true, error: null,
+        draftSettlement: "settled", draftSettlementError: null, unsettledAcknowledgments: {},
+        operations: [{ opId: capture.operationId, ordinal: 0, state: "Verified", error: null,
+            warning: null, resultJson: '{"revision":18}' }] };
+}
+test("Save uses the same pinned bounded runner and forwards UI-authored authorization, never a proposal file", async () => {
+    const native = savedResult();
+    const executable = fakeExecutable();
+    const h = harness(native, 0, { executable });
+    const capture = retainedResult().capture;
+    const authorization = { digest: capture.digest, mode: 0,
+        authorizerIdentity: "workbench-ui-user (individual identity unverified)",
+        rationale: "Explicit Save gesture; caller/surface attribution only, not host-attested identity.",
+        authorizedAt: "2026-10-27T12:00:00.000Z" };
+    const saved = await h.adapter.save({ capture, authorization, workspacePath });
+    assert.deepEqual(saved, native);
+    assert.deepEqual(h.calls[0].args, ["draft", "save", "--stdin", "-o", "json"]);
+    assert.equal(h.calls[0].exe, FAKE_TWIG);
+    assert.deepEqual(executable.prepared, ["draft-save"]);
+    const request = JSON.parse(h.calls[0].writes[0].value);
+    assert.deepEqual(request.authorization, authorization);
+    assert.equal(request.callerIdentity, capture.nativeContext.identityId);
+    assert.deepEqual(Object.keys(request).sort(), ["authorization", "callerIdentity", "digest", "surface", "version"]);
+    assert.equal(h.calls[0].eof, true);
+});
+
+test("Save validates operation coverage and never reports verified effects or settlement from contradictory success", () => {
+    const value = savedResult();
+    const expected = { exitCode: 0, digest: value.digest, callerIdentity: value.callerIdentity,
+        operationId: value.operations[0].opId };
+    for (const mutate of [
+        x => { x.operations = []; }, x => { x.operations[0].opId = "other"; },
+        x => { x.operations[0].state = "Indeterminate"; }, x => { x.draftSettlement = "retained"; },
+        x => { x.hostAttested = true; }, x => { x.callerIdentity = "other"; },
+        x => { x.unsettledAcknowledgments = { held: "ack" }; },
+    ]) {
+        const corrupted = structuredClone(value);
+        mutate(corrupted);
+        assert.throws(() => validateSaveResult(corrupted, expected));
+    }
+    const unsettled = { ...value, status: "verified-draft-retained", settled: false,
+        draftSettlement: "retained", draftSettlementError: "Newer local intent retained" };
+    assert.deepEqual(validateSaveResult(unsettled, { ...expected, exitCode: 1 }), unsettled);
+});
 
 test("STAGE uses bounded shell-free owned stdin EOF and preserves exact context, order, null and empty", async () => {
     const { adapter, calls } = harness();
@@ -587,7 +636,7 @@ test("failed owned-tree cleanup poisons the adapter instead of admitting a repla
     assert.equal(calls, 1);
 });
 
-test("editing wiring remains explicit with no native autorun, Save, apply or publication", async () => {
+test("editing wiring remains explicit; only a separate trusted browser Save can consume retained intent", async () => {
     const extension = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
     assert.match(extension, /nativeEditing: createNativeEditingAdapter\(\{ executable \}\)/);
     const bridge = await readFile(new URL("../editing-bridge.mjs", import.meta.url), "utf8");
@@ -595,11 +644,17 @@ test("editing wiring remains explicit with no native autorun, Save, apply or pub
     assert.match(bridge, /adapter\.stage\(/);
     for (const name of ["extension.mjs", "canvas-server.mjs", "render.mjs", "workbench-client.mjs", "editing-client.mjs", "editing-bridge.mjs"]) {
         const source = await readFile(new URL("../" + name, import.meta.url), "utf8");
-        assert.doesNotMatch(source, /adapter\.(?:save|apply|publish)\s*\(|action:\s*["'](?:save|apply|publish)["']/);
+        assert.doesNotMatch(source, /adapter\.(?:apply|publish)\s*\(|action:\s*["'](?:apply|publish)["']/);
+        if (name !== "editing-bridge.mjs") assert.doesNotMatch(source, /adapter\.save\s*\(/);
     }
+    const workbenchActions = extension.slice(extension.indexOf("const workbenchCanvas"), extension.indexOf("const reviewCanvas"));
+    assert.doesNotMatch(workbenchActions, /name:\s*["'][^"']*(?:save|apply|publish)[^"']*["']/i);
     const client = await readFile(new URL("../editing-client.mjs", import.meta.url), "utf8");
     assert.match(client, /open\.addEventListener\("click", \(\) => void perform\("open"\)\)/);
     assert.match(client, /stage\.addEventListener\("click", \(\) => void perform\("stage"\)\)/);
+    assert.match(client, /save\.addEventListener\("click", event =>/);
+    assert.match(client, /event\?\.isTrusted !== true/);
+    assert.match(bridge, /validateSaveAuthorization\(body\.authorization, held\.capture\.digest\)/);
     assert.doesNotMatch(client, /innerHTML|setInterval|setTimeout/);
 });
 

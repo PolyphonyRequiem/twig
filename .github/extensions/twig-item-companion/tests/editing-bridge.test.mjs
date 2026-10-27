@@ -63,6 +63,67 @@ async function stageForRetain(h) {
         changes: [{ fieldRef: "System.Title", proposedValue: "" }] });
 }
 
+const saveAuthorization = digest => ({
+    digest, mode: 0, authorizerIdentity: "workbench-ui-user (individual identity unverified)",
+    rationale: "Explicit Save gesture; caller/surface attribution only, not host-attested identity.",
+    authorizedAt: "2026-10-27T12:00:00.000Z",
+});
+
+test("Save forwards the separate UI record unchanged against only the server-held capture, once", async () => {
+    const saves = [];
+    const h = setup({ save: async input => {
+        saves.push(input);
+        return { status: "saved", verified: true };
+    } });
+    const staged = await stageForRetain(h);
+    const held = await h.bridge.retain({ captureHandle: staged.captureHandle });
+    assert.equal(saves.length, 0, "retention does not authorize or save");
+    assert.equal(held.canSave, true);
+    const authorization = saveAuthorization(held.receipt.digest);
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle,
+        authorization: { ...authorization, digest: "a".repeat(64) } }), /exact retained digest/);
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle, authorization, callerIdentity: "forged" }));
+    const saved = await h.bridge.save({ saveHandle: held.saveHandle, authorization });
+    assert.equal(saved.status, "saved");
+    assert.equal(saved.canSave, false);
+    assert.equal(saved.inspectFirst, false);
+    assert.deepEqual(saves[0].authorization, authorization);
+    assert.equal(saves[0].capture.digest, held.receipt.digest);
+    assert.equal(saves[0].capture.nativeContext.identityId, h.target.identityId);
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle, authorization }), /current retained/);
+    assert.equal(saves.length, 1);
+});
+
+test("unknown Save consumes its handle and holds its original qualified target across reopen", async () => {
+    let saves = 0;
+    const h = setup({ save: async () => { saves++; throw new Error("Unknown Save"); } });
+    const staged = await stageForRetain(h);
+    const held = await h.bridge.retain({ captureHandle: staged.captureHandle });
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle,
+        authorization: saveAuthorization(held.receipt.digest) }), /Unknown Save/);
+    const reopened = await h.bridge.open(h.target);
+    assert.equal(reopened.inspectFirst, true);
+    assert.equal(reopened.canSave, false);
+    await assert.rejects(h.bridge.save({ saveHandle: held.saveHandle,
+        authorization: saveAuthorization(held.receipt.digest) }));
+    assert.equal(saves, 1);
+    assert.equal(h.calls.filter(call => call.action === "open").length, 1);
+});
+
+test("late successful retention after navigation never arms Save", async () => {
+    let release;
+    const h = setup({ save: async () => { throw new Error("Not permitted"); },
+        retain: ({ request }) => new Promise(resolve => { release = () => resolve(retained(request)); }) });
+    const staged = await stageForRetain(h);
+    const retaining = h.bridge.retain({ captureHandle: staged.captureHandle });
+    h.bridge.invalidate();
+    release();
+    const result = await retaining;
+    assert.equal(result.canSave, false);
+    assert.equal(result.saveHandle, null);
+    assert.equal(h.bridge.retainOutcomes[0].canSave, false);
+});
+
 test("RETAIN derives exact context and counters server-side and consumes handle with receipt-only projection", async () => {
     const h = setup();
     const staged = await stageForRetain(h);
@@ -303,6 +364,37 @@ async function httpSetup(overrides) {
         throw error;
     }
 }
+
+test("protected workbench HTTP Save consumes only its held capture and is not an exported SDK action", async () => {
+    const calls = [];
+    const h = await httpSetup({ save: async input => {
+        calls.push(input);
+        return { status: "saved", verified: true };
+    } });
+    try {
+        const opened = await (await h.post("/api/editing", { action: "open" })).json();
+        const staged = await (await h.post("/api/editing", { action: "stage",
+            captureHandle: opened.editing.captureHandle,
+            changes: [{ fieldRef: "System.Title", proposedValue: "" }] })).json();
+        const retained = await (await h.post("/api/editing", { action: "retain",
+            captureHandle: staged.editing.captureHandle })).json();
+        const body = { action: "save", saveHandle: retained.editing.saveHandle,
+            authorization: saveAuthorization(retained.editing.receipt.digest) };
+        const denied = await h.post("/api/editing", body, { Authorization: "Bearer not-the-instance-token" });
+        assert.equal(denied.status, 401);
+        assert.equal(calls.length, 0);
+        const response = await h.post("/api/editing", body);
+        assert.equal(response.status, 200);
+        assert.equal((await response.json()).editing.status, "saved");
+        assert.deepEqual(calls[0].authorization, body.authorization);
+        assert.equal(calls[0].capture.digest, body.authorization.digest);
+        assert.equal(h.server.save, undefined);
+        assert.equal(h.server.saveLocalDraft, undefined);
+        const replay = await h.post("/api/editing", body);
+        assert.notEqual(replay.status, 200);
+        assert.equal(calls.length, 1);
+    } finally { await h.server.close(); }
+});
 
 test("loopback editing routes reuse token/origin guards, forbid browser authority and preserve unrelated 4KiB cap", async () => {
     const h = await httpSetup();

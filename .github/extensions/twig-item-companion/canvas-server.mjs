@@ -417,8 +417,12 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                     sendJson(response, 200, { editing: await editing.stage({ captureHandle, changes }) });
                 } else if (body.action === "retain" && Object.keys(body).sort().join(",") === "action,captureHandle") {
                     sendJson(response, 200, { editing: await editing.retain({ captureHandle: body.captureHandle }) });
+                } else if (body.action === "save" && Object.keys(body).sort().join(",") === "action,authorization,saveHandle") {
+                    sendJson(response, 200, { editing: await editing.save({
+                        saveHandle: body.saveHandle, authorization: body.authorization,
+                    }) });
                 } else {
-                    sendJson(response, 400, { error: "Expected explicit OPEN, STAGE with handle and intent, or RETAIN with only a handle." });
+                    sendJson(response, 400, { error: "Expected explicit OPEN, STAGE with handle and intent, RETAIN with a capture handle, or Save with its held handle and separate UI authorization." });
                 }
             } finally {
                 request.removeListener("aborted", disconnected);

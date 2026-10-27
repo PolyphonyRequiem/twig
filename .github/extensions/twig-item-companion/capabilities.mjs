@@ -15,12 +15,13 @@ export const CAPABILITIES = Object.freeze({
     "draft-stage": capability(["draft", "stage"], ["--stdin", "-o"]),
     "draft-retain": capability(["draft", "retain"], ["--stdin", "-o"]),
     "proposal-preview": capability(["proposal", "preview"], ["--file", "--expect-digest", "-o"]),
+    "proposal-apply": capability(["proposal", "apply"], ["--file", "--confirm", "--authorize", "--rationale", "-o"]),
 });
 
 export const CANVAS_CAPABILITIES = Object.freeze({
     item: Object.freeze(["detail", "draft-show"]),
     workbench: Object.freeze(["workspace-browser", "bench-detail", "discussion", "draft-open", "draft-stage", "draft-retain"]),
-    review: Object.freeze(["proposal-preview"]),
+    review: Object.freeze(["proposal-preview", "proposal-apply"]),
 });
 
 // Requires a generated leaf usage line naming the exact command, plus every flag as an exact

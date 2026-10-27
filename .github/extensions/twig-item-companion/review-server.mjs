@@ -3,15 +3,17 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { renderPage } from "./render.mjs";
 import { validateReviewRequest } from "./native-proposal.mjs";
+import { validateApplyRequest } from "./native-apply.mjs";
 
-export async function createReviewServer({ workspacePath, readNativeProposal }) {
+export async function createReviewServer({ workspacePath, readNativeProposal, applyNativeProposal }) {
     const token = randomBytes(32).toString("base64url");
     const moduleSource = await readFile(new URL("./retained-review.mjs", import.meta.url), "utf8");
     let observation = null, error = null, controller = null, closed = false, generation = 0;
+    let applyAttempt = null;
     const state = () => ({
         observation: observation ? { rawJson: observation.rawJson, expected: observation.expected,
             acquisition: observation.acquisition } : null,
-        error, busy: controller !== null, generation,
+        error, busy: controller !== null, generation, applyAttempt, applyAvailable: !!applyNativeProposal,
     });
 
     async function acquire(input) {
@@ -21,6 +23,7 @@ export async function createReviewServer({ workspacePath, readNativeProposal }) 
         controller = owned;
         const current = ++generation;
         observation = error = null;
+        applyAttempt = null;
         try {
             const request = validateReviewRequest(input);
             const result = await readNativeProposal({ workspacePath, input: request, signal: owned.signal });
@@ -28,6 +31,34 @@ export async function createReviewServer({ workspacePath, readNativeProposal }) 
             observation = result;
         } catch (failure) {
             if (!closed && generation === current) error = failure instanceof Error ? failure.message : "Native proposal preview failed.";
+            throw failure;
+        } finally {
+            if (controller === owned) controller = null;
+        }
+        return state();
+    }
+
+    async function apply(input) {
+        if (closed) throw new Error("This Twig proposal review is closed.");
+        if (controller) throw new Error("A proposal action is already in progress; no second action was started.");
+        if (!applyNativeProposal) throw new Error("Native Apply is unavailable.");
+        if (applyAttempt) throw new Error("This capture was already submitted. Inspect the native journal; do not retry an uncertain effect.");
+        const request = validateApplyRequest(input, observation);
+        const owned = new AbortController();
+        controller = owned;
+        const current = ++generation;
+        error = null;
+        applyAttempt = { captureId: request.captureId, digest: request.confirm, authorize: request.authorize,
+            status: "in-progress" };
+        try {
+            const result = await applyNativeProposal({ input: request, observation, workspacePath, signal: owned.signal });
+            if (closed || owned.signal.aborted || generation !== current) throw new Error("Apply was closed or superseded; outcome may be unknown.");
+            applyAttempt = { ...applyAttempt, ...result };
+        } catch (failure) {
+            if (!closed && generation === current) {
+                error = failure instanceof Error ? failure.message : "Native Apply failed.";
+                applyAttempt = { ...applyAttempt, status: "outcome-unknown", error };
+            }
             throw failure;
         } finally {
             if (controller === owned) controller = null;
@@ -64,21 +95,22 @@ export async function createReviewServer({ workspacePath, readNativeProposal }) 
             }
             if (req.headers.authorization !== `Bearer ${token}`) return send(403, { error: "Invalid canvas instance token." });
             if (req.method === "GET" && url.pathname === "/api/state") return send(200, state());
-            if (req.method !== "POST" || url.pathname !== "/api/acquire") return send(404, { error: "Unknown review route." });
+            if (req.method !== "POST" || !["/api/acquire", "/api/apply"].includes(url.pathname)) return send(404, { error: "Unknown review route." });
             if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
-                return send(415, { error: "Review acquisition requires JSON." });
+                return send(415, { error: "Review actions require JSON." });
             }
             const chunks = [];
             let bytes = 0;
             for await (const chunk of req) {
                 bytes += chunk.length;
-                if (bytes > 8192) return send(413, { error: "Review request exceeds 8192 bytes; no preview started." });
+                if (bytes > 8192) return send(413, { error: "Review request exceeds 8192 bytes; no action started." });
                 chunks.push(chunk);
             }
             let input;
             try { input = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
-            catch { return send(400, { error: "Review request is not valid JSON; no preview started." }); }
-            await acquire(input);
+            catch { return send(400, { error: "Review request is not valid JSON; no action started." }); }
+            if (url.pathname === "/api/apply") await apply(input);
+            else await acquire(input);
             send(200, state());
         } catch (failure) {
             send(400, { error: failure instanceof Error ? failure.message : "Proposal review failed." });
@@ -91,6 +123,7 @@ export async function createReviewServer({ workspacePath, readNativeProposal }) 
     return {
         url: `http://127.0.0.1:${server.address().port}/`,
         acquire,
+        apply,
         async close() {
             if (closed) return;
             closed = true;

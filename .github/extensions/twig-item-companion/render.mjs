@@ -113,7 +113,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
   <main>
     <header>
       <h1>${review ? "Twig proposal review" : workbench ? "Twig workbench" : "Twig item companion"}</h1>
-      <p class="muted">${review ? "Retained native proposal evidence. Explicit acquisition may write the local journal." : workbench ? "Cached named Bench evidence. Explicit native OPEN/STAGE can update local drafts only; no Save, apply or publication." : "Read-only semantic detail from the current admitted Twig workspace."}${workbench ? "" : " This view does not edit, save, apply, or publish work."}</p>
+      <p class="muted">${review ? "Retained native proposal evidence. Explicit acquisition may write the local journal; separate authorization and Apply can write the tracker." : workbench ? "Cached named Bench evidence. Explicit native OPEN/STAGE can update local drafts only; no Save, apply or publication." : "Read-only semantic detail from the current admitted Twig workspace."}${workbench || review ? "" : " This view does not edit, save, apply, or publish work."}</p>
     </header>
     <div class="row">
       <label for="theme-mode">Theme

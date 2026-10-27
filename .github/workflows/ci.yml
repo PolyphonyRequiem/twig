@@ -62,6 +62,12 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Canvas proposal Apply composition regression
+        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/native-apply.test.mjs .github/extensions/twig-item-companion/tests/proposal-canvas.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs .github/extensions/twig-item-companion/tests/native-executable.test.mjs .github/extensions/twig-item-companion/tests/native-executable-source.test.mjs
+
       - name: GitHub credential parser isolation regression
         env:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/gh-parser/trace

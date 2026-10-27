@@ -150,7 +150,7 @@ test("protected state/module, cross-origin actions and unknown authorization rou
         assert.equal((await fetch(new URL("/api/acquire", server.url), {
             method: "POST", headers: { ...headers, Origin: "https://untrusted.invalid" }, body: JSON.stringify(input()),
         })).status, 403);
-        assert.equal((await fetch(new URL("/api/apply", server.url), { method: "POST", headers, body: "{}" })).status, 404);
+        assert.equal((await fetch(new URL("/api/apply", server.url), { method: "POST", headers, body: "{}" })).status, 400);
         assert.equal(calls.length, 0);
     } finally { await server.close(); }
 });
@@ -273,16 +273,18 @@ test("supported SDK declares a third canvas with inert open, explicit action and
         createNativeDraftReader() {}, ExecutableError: class extends Error {},
         admitTwigExecutable: async ({ canvas }) => { admitted.push(canvas); return fakeExecutable(); },
         createNativeProposalReader: ({ executable }) => { assert.equal(executable.path, FAKE_TWIG); return "native-preview-reader"; },
+        createNativeProposalApplier: ({ executable }) => { assert.equal(executable.path, FAKE_TWIG); return "native-applier"; },
         createReviewServer: async (value) => {
             options = value; creations++;
             return { url: "http://127.0.0.1:1/", acquire: async (value) => { calls.push(value); return { retained: true }; },
+                apply: async (value) => { calls.push(value); return { applied: true }; },
                 close: async () => { calls.push("close"); } };
         },
     });
     await new Script(`(async () => { ${source.replace(/^import .*;\r?\n/gm, "")} })()`).runInContext(context);
     const canvas = declarations.find((value) => value.id === "twig-proposal-review");
     assert.ok(canvas);
-    assert.deepEqual(Array.from(canvas.actions, (value) => value.name), ["acquire_review"]);
+    assert.deepEqual(Array.from(canvas.actions, (value) => value.name), ["acquire_review", "apply_review"]);
     assert.equal(canvas.actions[0].inputSchema.additionalProperties, false);
     assert.deepEqual(Array.from(canvas.actions[0].inputSchema.required), ["file", "digest", "workspace"]);
     await assert.rejects(canvas.actions[0].handler({ instanceId: "missing", input: input() }),
@@ -293,9 +295,63 @@ test("supported SDK declares a third canvas with inert open, explicit action and
     assert.deepEqual(admitted, ["review"], "one admission per opened instance, scoped to the review manifest");
     assert.equal(options.workspacePath, workspacePath);
     assert.equal(options.readNativeProposal, "native-preview-reader");
+    assert.equal(options.applyNativeProposal, "native-applier");
     assert.deepEqual(calls, []);
     await canvas.actions[0].handler({ instanceId: "review", input: input() });
     assert.deepEqual(calls, [input()]);
+    const authority = { captureId: "capture", confirm: digest, authorize: "Synthetic reviewer" };
+    assert.equal(canvas.actions[1].inputSchema.additionalProperties, false);
+    await assert.rejects(canvas.actions[1].handler({ instanceId: "missing", input: authority }), { code: "canvas_not_open" });
+    await canvas.actions[1].handler({ instanceId: "review", input: authority });
     await canvas.onClose({ instanceId: "review" });
-    assert.deepEqual(calls, [input(), "close"]);
+    assert.deepEqual(calls, [input(), authority, "close"]);
+});
+
+test("Apply form is inert until separate consent and sends retained capture, not edited acquisition inputs", async () => {
+    const payload = fixture();
+    payload.reviewModel.blockers = [];
+    const observation = await reader([], () => JSON.stringify(payload))({ input: input(), workspacePath });
+    const calls = [];
+    const { nodes } = await client(async (route, options) => {
+        calls.push({ route, options });
+        return { observation, applyAvailable: true,
+            applyAttempt: options ? { status: "verified", native: { marker: "<script>unsafe</script>" } } : null };
+    });
+    assert.equal(nodes.get("#apply-proposal").disabled, false);
+    const submit = () => nodes.get("#apply-form").listeners.submit({ preventDefault() {} });
+    submit();
+    assert.equal(calls.length, 1, "no consent means no invocation");
+    nodes.get("#proposal-file").value = "different.json";
+    nodes.get("#proposal-digest").value = "b".repeat(64);
+    nodes.get("#apply-digest").value = digest;
+    nodes.get("#apply-authorizer").value = "Synthetic reviewer";
+    nodes.get("#apply-consent").checked = true;
+    submit();
+    submit();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(calls.length, 2, "rapid repeat cannot submit twice");
+    assert.equal(calls[1].route, "/api/apply");
+    assert.deepEqual(JSON.parse(calls[1].options.body), {
+        captureId: observation.expected.captureId, confirm: digest, authorize: "Synthetic reviewer",
+    });
+    assert.match(nodes.get("#apply-outcome").textContent, /every declared operation Verified/);
+    assert.ok(nodes.get("#apply-outcome").textContent.includes("<script>unsafe</script>"));
+    assert.equal(nodes.get("#apply-proposal").disabled, true);
+});
+
+test("blocked previews and replaced captures never carry prior consent forward", async () => {
+    const first = await reader([])({ input: input(), workspacePath });
+    const second = await reader([])({ input: input(), workspacePath });
+    let observation = first;
+    const { nodes } = await client(async () => ({ observation, applyAvailable: true }));
+    assert.equal(nodes.get("#apply-proposal").disabled, true, "model blockers refuse despite canApply=true");
+    nodes.get("#apply-authorizer").value = "Old reviewer";
+    nodes.get("#apply-digest").value = digest;
+    nodes.get("#apply-consent").checked = true;
+    observation = second;
+    nodes.get("#retained-review").listeners.click();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(nodes.get("#apply-authorizer").value, "");
+    assert.equal(nodes.get("#apply-digest").value, "");
+    assert.equal(nodes.get("#apply-consent").checked, false);
 });

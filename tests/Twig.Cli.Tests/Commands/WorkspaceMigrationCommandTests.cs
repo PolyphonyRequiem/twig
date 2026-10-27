@@ -8,6 +8,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.ValueObjects.Fields;
 using Twig.Formatters;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
@@ -52,8 +53,16 @@ public sealed class WorkspaceMigrationCommandTests : IDisposable
         await history.RecordVisitAsync(seed.Value.Id);
         await history.GoBackAsync();
         var expectedHistory = await history.GetHistoryAsync();
+        var scope = items.DurableScope.ShouldNotBeNull();
+        runtime.Dispose();
+        runtime = await fixture.CreateRuntimeAsync(initializeBench: false);
+        store = runtime.GetRequiredService<SqliteCacheStore>();
+        items = (SqliteWorkItemRepository)runtime.GetRequiredService<IWorkItemRepository>();
+        items.DurableScope.ShouldBeNull();
+        context = runtime.GetRequiredService<IContextStore>();
+        history = runtime.GetRequiredService<INavigationHistoryStore>();
         var command = runtime.GetRequiredService<WorkspaceMigrationCommand>();
-        var before = new StoreParityHarness(store, items.DurableScope!, preserveOpaqueContext: true).Inspect();
+        var before = new StoreParityHarness(store, scope, preserveOpaqueContext: true).Inspect();
 
         var (humanExit, humanText) = await StdoutCapture.RunAsync(() => command.ExecuteAsync());
         humanExit.ShouldBe(0);
@@ -72,7 +81,7 @@ public sealed class WorkspaceMigrationCommandTests : IDisposable
         preview.Movements.ShouldContain(row => row.Source == "pending.pending_changes");
         preview.RollbackPreconditions.ShouldNotBeEmpty();
         Directory.Exists(preview.Migration.BackupDirectory).ShouldBeFalse();
-        var after = new StoreParityHarness(store, items.DurableScope!, preserveOpaqueContext: true).Inspect();
+        var after = new StoreParityHarness(store, scope, preserveOpaqueContext: true).Inspect();
         after.Classes.Select(row => (row.ClassName, row.RowCount, row.CanonicalDigest))
             .ShouldBe(before.Classes.Select(row => (row.ClassName, row.RowCount, row.CanonicalDigest)));
 
@@ -82,7 +91,7 @@ public sealed class WorkspaceMigrationCommandTests : IDisposable
         var applied = JsonSerializer.Deserialize(applyJson, TwigJsonContext.Default.PreservationMigrationReport)!;
         applied.Migration.State.ShouldBe("active");
         applied.CanApply.ShouldBeFalse();
-        var local = new PreservationMigrationService(store, fixture.CurrentPaths(), items.DurableScope!)
+        var local = new PreservationMigrationService(store, fixture.CurrentPaths(), scope)
             .FindSeedLocalId(staged.Identity);
         local.ShouldNotBeNull();
         local.Value.Value.ShouldNotBe(staged.Identity.Value);
@@ -152,6 +161,21 @@ public sealed class WorkspaceMigrationCommandTests : IDisposable
             command.ExecuteAsync(rollback: rollback, cancelIntent: cancel, output: "json"));
         exit.ShouldBe(2);
         File.Exists(paths.DbPath).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(0, "preservation-scope-unavailable:")]
+    [InlineData(2, "preservation-scope-ambiguous:")]
+    public async Task ColdScopeRequiresOneDurableObservationRatherThanAnInMemoryWarmup(int scopes, string code)
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var identities = new SqliteLocalWorkItemRepository(store);
+        for (var index = 0; index < scopes; index++)
+            await identities.ResolveAsync(new ExternalWorkItemIdentity("ado",
+                index == 0 ? "11111111-2222-3333-4444-555555555555" : "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "42"), new ProviderRevisionToken("3"));
+        Should.Throw<InvalidOperationException>(() => PreservationMigrationService.ReadCachedResourceScope(store))
+            .Message.ShouldStartWith(code);
     }
 
     [Fact]

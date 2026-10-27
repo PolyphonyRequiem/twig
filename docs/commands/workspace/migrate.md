@@ -37,7 +37,10 @@ Omitting `--confirm` performs read-only inspection; no intent or backup is
 created, no reader is switched, and no pending work is published or flushed.
 
 Only an already-admitted ADO store with a known cached resource scope is
-supported. A provider-target attachment, including GitHub, refuses before
+supported. A fresh process reads that scope from existing durable ADO identity
+observations, not an in-memory sync warmup. Missing or multiple cached scopes
+refuse rather than guessing or making a provider request.
+A provider-target attachment, including GitHub, refuses before
 opening ADO storage: no provider-native storage-generation producer exists yet.
 Unadmitted or legacy stores must not be relabelled as admitted generations.
 Unknown schemas, unmapped references and unreadable payloads also refuse.

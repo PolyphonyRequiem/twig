@@ -45,6 +45,25 @@ internal sealed class PreservationMigrationService(
         "pending.seed_local_identities",
     };
 
+    internal static string ReadCachedResourceScope(SqliteCacheStore source)
+    {
+        using var operation = source.AcquireOperation();
+        using var command = source.GetConnection().CreateCommand();
+        command.Transaction = source.ActiveTransaction;
+        command.CommandText = """
+            SELECT DISTINCT resource_scope FROM pending.external_identities
+            WHERE provider_kind='ado' ORDER BY resource_scope LIMIT 2;
+            """;
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+            throw new InvalidOperationException("preservation-scope-unavailable: cached ADO identity observations are required; no provider lookup was attempted.");
+        var scope = reader.GetString(0);
+        _ = new ExternalWorkItemIdentity(AdoMirrorIdentityProjection.ProviderKind, scope, "0");
+        if (reader.Read())
+            throw new InvalidOperationException("preservation-scope-ambiguous: durable observations name multiple ADO scopes; no scope is guessed.");
+        return scope;
+    }
+
     internal PreservationMigrationResult Preview()
     {
         using var operation = store.AcquireOperation();

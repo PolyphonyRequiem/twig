@@ -230,10 +230,7 @@ public static class CommandRegistrationModule
             () =>
             {
                 var store = sp.GetRequiredService<Twig.Infrastructure.Persistence.SqliteCacheStore>();
-                var items = sp.GetRequiredService<IWorkItemRepository>();
-                var scope = (items as Twig.Infrastructure.Persistence.SqliteWorkItemRepository)?.DurableScope;
-                if (string.IsNullOrWhiteSpace(scope))
-                    throw new InvalidOperationException("preservation-scope-unavailable: an already-admitted cached ADO scope is required; no provider lookup or initialization was attempted.");
+                var scope = Twig.Infrastructure.Persistence.PreservationMigrationService.ReadCachedResourceScope(store);
                 return new Twig.Infrastructure.Persistence.PreservationMigrationService(
                     store, sp.GetRequiredService<TwigPaths>(), scope);
             },

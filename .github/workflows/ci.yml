@@ -182,7 +182,7 @@ jobs:
               ("execution-admission", "PreservationMigrationTests", ["ExecutionAdmissionWriterIsFingerprintedBeforeActivationAndRetainedThroughRollback"], 2),
               ("guided-preservation", "WorkspaceMigrationCommandTests", ["ProductionCommandReportsMovementThenExplicitlyCutsOverAndRollsBack"], 1),
               ("guided-recovery", "WorkspaceMigrationCommandTests", ["InterruptedPreparationReportsIntentAndRequiresExactCancellationBeforeRereview"], 1),
-              ("guided-refusals", "WorkspaceMigrationCommandTests", ["InvalidMutationArgumentsRefuseBeforeResolvingStorage", "UnadmittedStorageRefusesBeforeOpeningOrRebuildingOriginals", "ProviderTargetRefusesWithoutOpeningAdoStorageOrCallingTheProvider"], 4),
+              ("guided-refusals", "WorkspaceMigrationCommandTests", ["InvalidMutationArgumentsRefuseBeforeResolvingStorage", "ColdScopeRequiresOneDurableObservationRatherThanAnInMemoryWarmup", "UnadmittedStorageRefusesBeforeOpeningOrRebuildingOriginals", "ProviderTargetRefusesWithoutOpeningAdoStorageOrCallingTheProvider"], 6),
           ]
           for case in ["preparing-slot", "active-slot", "rolled-back-slot", "unknown-slot-null", "cancelled-slot", "cancelled-retained-target"]:
               groups.append((f"owning-history-{case}", "PreservationSchemaRebuildTests", ["OwningOrUnknownIntentAndRetainedTargetsRefuseSchemaRebuild"], 1))

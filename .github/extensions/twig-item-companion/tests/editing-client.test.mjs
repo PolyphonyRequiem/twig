@@ -208,7 +208,7 @@ test("RETAIN requires explicit click after staging with no unsent input and send
     assert.deepEqual(h.calls[3], { action: "retain", captureHandle: "staged-handle" });
     assert.equal(button(h.root, "Retain staged draft").disabled, true);
     assert.equal(button(h.root, "Stage local changes").disabled, true);
-    assert.match(flattened(h.root), /Captured locally, not authorized or applied/);
+    assert.match(flattened(h.root), /Captured locally, not applied/);
     assert.match(flattened(h.root), /Baseline: \(absent \/ unknown\)/);
     assert.match(flattened(h.root), /Baseline: \(null\)/);
     assert.match(flattened(h.root), /Proposed: \(empty text ""\)/);

@@ -136,8 +136,8 @@ jobs:
           base = pathlib.Path("artifacts/test-logs/ci/github-native")
           base.mkdir(parents=True, exist_ok=True)
           groups = [
-              ("links", ["ProductionComposition_AuthorizesJournalsWritesAndReadsBackBothEndpoints"], 6),
-              ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "MissingOrWrongDigestAuthorization",
+              ("links", ["ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints"], 6),
+              ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "ReviewOnlyProposal_RemainsUnappliedWithoutDigestEligibleOperation",
                              "ObservationToken", "JournalRejects"], 9),
               ("recovery", ["UncertainOrContradictoryResponse", "DeniedReadback", "CrashRecovery"], 7),
           ]

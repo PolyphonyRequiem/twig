@@ -48,7 +48,7 @@ internal static class PreservationInventory
             ["digest", "schema_version", "organization", "project", "source_path", "canonical_json",
              "state", "previewed_at", "confirmed_at", "completed_at", "error", "authorization_mode",
              "authorizer_identity", "rationale", "review_model_json", "authorized_at",
-             "last_previewed_at", "origin_json", "draft_capture_json"]),
+             "last_previewed_at", "origin_json", "draft_capture_json", "execution_admission_json"]),
         new(DurableSchema, "proposal_operations",
             ["digest", "ordinal", "op_id", "kind", "state", "request_json", "started_at",
              "applied_at", "verified_at", "result_json", "error", "warning"]),

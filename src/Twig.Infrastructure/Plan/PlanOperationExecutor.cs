@@ -569,8 +569,8 @@ internal sealed class PlanOperationExecutor
 
     /// <summary>
     /// Resolves a batch field for readback comparison. Canonical core fields
-    /// (Title/State/AssignedTo/AreaPath/IterationPath) live on the <see cref="WorkItem"/>
-    /// aggregate first — the ADO response mapper is authoritative for those five and the
+    /// (Title/State/AssignedTo/AreaPath/IterationPath/WorkItemType) live on the <see cref="WorkItem"/>
+    /// aggregate first — the ADO response mapper is authoritative for those fields and the
     /// Fields dictionary is only a mirror. We consult the property first and fall through
     /// to <see cref="WorkItem.Fields"/> when the property is empty/default so a mapper that
     /// only populates one side still produces a comparable value.
@@ -589,6 +589,8 @@ internal sealed class PlanOperationExecutor
             fromProperty = item.AreaPath.Value;
         else if (string.Equals(field, "System.IterationPath", StringComparison.OrdinalIgnoreCase))
             fromProperty = item.IterationPath.Value;
+        else if (string.Equals(field, "System.WorkItemType", StringComparison.OrdinalIgnoreCase))
+            fromProperty = item.Type.Value;
         else
             isCanonical = false;
 

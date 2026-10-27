@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 17;
+    internal const int DurableSchemaVersion = 18;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -119,6 +119,7 @@ public sealed class SqliteCacheStore : IDisposable
             AttachDurableStore();
             if (ReadDurableSchemaVersion() > DurableSchemaVersion)
                 throw new InvalidOperationException("durable-version-unsupported: open pending.db with its compatible Twig version; no mirror rebuild is permitted.");
+            RefuseIncompatiblePreservationUpgrade(ReadDurableSchemaVersion());
             EnsureSchema();
             EnsureDurableSchema();
             if (_admission is not null)
@@ -456,6 +457,7 @@ public sealed class SqliteCacheStore : IDisposable
         using var tx = _connection.BeginTransaction();
         try
         {
+            RefuseIncompatiblePreservationUpgrade(from, tx);
             for (var v = from + 1; v <= DurableSchemaVersion; v++)
             {
                 if (!DurableMigrations.TryGetValue(v, out var sql))
@@ -490,6 +492,25 @@ public sealed class SqliteCacheStore : IDisposable
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = $"PRAGMA {DurableSchema}.user_version;";
         return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    private void RefuseIncompatiblePreservationUpgrade(int from, SqliteTransaction? transaction = null)
+    {
+        if (from != 17)
+            return;
+        using var command = _connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT EXISTS(
+                SELECT 1 FROM pending.preservation_migrations
+                WHERE slot IS NOT NULL OR state <> 'cancelled');
+            """;
+        if (Convert.ToInt32(command.ExecuteScalar()) != 0)
+            throw new InvalidOperationException(
+                "preservation-upgrade-blocked: this v17 workspace retains a preservation intent whose original coverage and fingerprint must remain readable. " +
+                "Continue using the compatible v17 Twig; cancel a preparing intent there before upgrading. " +
+                "Upgrading active or rolled-back v17 intents is not supported; rollback does not release that retained intent. " +
+                "No durable schema, intent or backup was rewritten.");
     }
 
     /// <summary>
@@ -979,6 +1000,10 @@ public sealed class SqliteCacheStore : IDisposable
                 coverage_version INTEGER NOT NULL,
                 backup_directory TEXT NOT NULL
             );
+            """,
+
+        [18] = $"""
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN execution_admission_json TEXT NULL;
             """,
 
     };

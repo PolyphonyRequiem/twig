@@ -204,11 +204,27 @@ the proposal operation link.
   (`policyDecisions`), in JSON, human, table and browser renderings. Each blocking decision
   is also a `policy` blocker. A v2 decision is an observation for review, not an exact-revision
   assertion; v2 remains non-applicable regardless of a permit.
-* **Apply** — for supported ADO v1 proposals, declared policy is re-evaluated immediately
-  before authorization and process rules at the per-operation pre-write gate. Provider-v2
-  apply remains blocked before confirmation, authorization, journal mutation or provider call.
+* **Apply** — for supported ADO v1 proposals, declared policy uses current native item
+  and relationship observations before initial authorization and immediately before each
+  outstanding write. The latter gate reloads the policy file, including on a `Confirmed`
+  resume. Missing, denied or incomplete native facts are blocking `unavailable`; execution
+  does not fill them from the mirror. Process-rule and exact-revision gates remain in force.
+  Execution relationship reads validate the expanded native payload before the ordinary
+  cache projection can drop evidence. An absent/null relationship array, an unnamed relation,
+  or a malformed, ambiguous or foreign dependency/hierarchy target is unavailable, not an
+  empty graph. A valid target has a canonical positive item ID under the bound organization
+  (with no project segment or the bound project), with no credentials, query or fragment.
+  Explicit empty arrays remain complete. Ordinary cache/preview projection is unchanged.
+  Provider-v2 apply remains blocked before confirmation, authorization, journal mutation
+  or provider call.
 
-Evaluation is over the **whole proposal's post-change state**, not operation order.
+Preview evaluates the **whole proposal's post-change state**, not operation order.
+Execution evaluates the **whole remaining not-yet-attempted projection** in original order.
+Verified effects are already present in native observations and are not replayed as new
+proposal effects. Earlier unknown outcomes must be reconciled before the outstanding tail
+can proceed. This projection does not replace the canonical proposal, original review or
+authorization history. Native reads plus source revision CAS do not provide a transaction
+over every related item.
 
 ### Policy file
 
@@ -238,13 +254,17 @@ Evaluation is over the **whole proposal's post-change state**, not operation ord
   split into inferred labels.
 * Every rule accepts `"enforcement": "refuse"` (default) or `"warn"`. A `warn` rule reports a
   violation as a non-blocking `warn` decision; `unavailable` stays blocking regardless.
-* Policy is evaluated at preview and before authorization at apply, only while the proposal
-  journal is still `Planned`. A resumed apply does not re-judge operations already confirmed.
+* Preview retains its cached observation semantics. Initial apply and every new write use
+  fresh execution observations; a previously confirmed proposal is not a reusable policy
+  permit. A changed or invalid policy leaves the outstanding operation unattempted and
+  retryable, while preserving already verified effects and historical authorization.
 * Decisions appear in the review model and in JSON as `policyDecisions`: an array of
-  `{ ruleId, kind, outcome, blocking, reason, workItemId, providerIdentity, opId }` with
-  `outcome` one of `permit`, `warn`, `refuse`, `unavailable`. `providerIdentity` is either
-  null or `{ providerKind, resourceScope, nativeId }`; it identifies the observed provider
-  item and does not assert exact-revision authority. Any `refuse` or `unavailable` sets
+  `{ ruleId, kind, outcome, outcomeName, isBlocking, reason, workItemId, providerIdentity,
+  opId }`. The numeric `outcome` values0/1/2/3 correspond to `outcomeName`
+  `permit`/`warn`/`refuse`/`unavailable`; `isBlocking` is true for the last two. Nullable
+  item/operation members are omitted when null. A present `providerIdentity` is
+  `{ providerKind, resourceScope, nativeId }`; it identifies the observed provider item
+  and does not assert exact-revision authority. Any `refuse` or `unavailable` sets
   `canApply` to false.
 
 ### Rule kinds

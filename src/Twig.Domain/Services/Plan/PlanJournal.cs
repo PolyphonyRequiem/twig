@@ -73,6 +73,9 @@ public sealed record PlanJournal
     /// <summary>Authority captured on the first preview; null means unknown legacy origin.</summary>
     public PlanOrigin? Origin { get; init; }
 
+    /// <summary>Write-once mechanical admission; legacy workflow audit fields remain unchanged.</summary>
+    public PlanExecutionAdmission? ExecutionAdmission { get; init; }
+
     internal DraftProposalCapture? DraftCapture { get; init; }
 
     /// <summary>Per-operation rows, in declaration order.</summary>

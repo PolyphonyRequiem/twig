@@ -201,6 +201,7 @@ public sealed class LocalWorkItemDurabilityTests
             using (var store = new SqliteCacheStore(source))
             using (var cmd = store.GetConnection().CreateCommand())
             {
+                DraftProposalCaptureStoreTests.RemovePost16Schema(store.GetConnection());
                 cmd.CommandText = """
                     DROP TABLE pending.local_work_items;
                     DROP TABLE pending.external_identities;

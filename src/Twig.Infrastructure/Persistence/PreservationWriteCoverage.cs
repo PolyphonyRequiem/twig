@@ -4,7 +4,7 @@ internal sealed record PreservationWritePath(string Surface, string Disposition)
 
 internal static class PreservationWriteCoverage
 {
-    internal const int Version = 1;
+    internal const int Version = 2;
 
     internal static IReadOnlyList<PreservationWritePath> Paths { get; } =
     [
@@ -15,6 +15,7 @@ internal static class PreservationWriteCoverage
         new("pending.edit-note-add-clear-seed-filter", "existing-durable-authority"),
         new("seed.identity-links-intent-published-map", "existing-durable-authority"),
         new("proposal.journal-receipts-drafts", "existing-durable-authority"),
+        new("proposal.execution-admission", "existing-durable-authority-first-writer-cas-full-row-fingerprint"),
         new("local.fields-identity-relationships-tombstones", "existing-durable-authority"),
         new("provider.links-verification-process-fields-calendar-sync", "existing-mirror-authority"),
         new("connection.identity-generation-change", "blocked-before-native-intent-and-reset"),
@@ -26,7 +27,7 @@ internal static class PreservationWriteCoverage
 
     internal static void RequireComplete()
     {
-        if (Version != 1 || Paths.Count != 14
+        if (Version != 2 || Paths.Count != 15
             || Paths.Any(path => string.IsNullOrWhiteSpace(path.Disposition))
             || Paths.Select(path => path.Surface).Distinct(StringComparer.Ordinal).Count() != Paths.Count)
             throw new InvalidOperationException("preservation-write-coverage-unverified: cutover and rollback require the complete reviewed write-path matrix.");

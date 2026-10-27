@@ -151,6 +151,7 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
                 WHERE j.digest=@digest AND j.state='Planned'
                     AND j.confirmed_at IS NULL AND j.completed_at IS NULL
                     AND j.authorization_mode IS NULL AND j.authorizer_identity IS NULL
+                    AND j.execution_admission_json IS NULL
                     AND j.rationale IS NULL AND j.review_model_json IS NULL AND j.authorized_at IS NULL
                     AND NOT EXISTS(
                         SELECT 1 FROM pending.proposal_operations o WHERE o.digest=j.digest

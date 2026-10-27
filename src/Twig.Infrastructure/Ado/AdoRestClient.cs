@@ -752,13 +752,21 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// always carried <c>$expand=relations</c>, so the links come back on the existing round
     /// trips and this overload simply stops discarding them.
     /// </remarks>
-    public async Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksAsync(
+    public Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksAsync(
         IReadOnlyList<int> ids,
         CancellationToken ct = default)
+        => FetchBatchWithLinksCoreAsync(ids, requireCompleteRelations: false, ct);
+
+    internal Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchPolicyFactsAsync(
+        IReadOnlyList<int> ids, CancellationToken ct)
+        => FetchBatchWithLinksCoreAsync(ids, requireCompleteRelations: true, ct);
+
+    private async Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksCoreAsync(
+        IReadOnlyList<int> ids, bool requireCompleteRelations, CancellationToken ct)
     {
         using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (ids.Count <= MaxBatchSize)
-            return await FetchBatchChunkAsync(ids, ct);
+            return await FetchBatchChunkAsync(ids, ct, requireCompleteRelations);
 
         var items = new List<WorkItem>(ids.Count);
         var links = new List<WorkItemLink>();
@@ -769,7 +777,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
             for (var i = offset; i < offset + count; i++)
                 chunk.Add(ids[i]);
 
-            var (chunkItems, chunkLinks) = await FetchBatchChunkAsync(chunk, ct);
+            var (chunkItems, chunkLinks) = await FetchBatchChunkAsync(chunk, ct, requireCompleteRelations);
             items.AddRange(chunkItems);
             links.AddRange(chunkLinks);
         }
@@ -779,7 +787,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     private async Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchChunkAsync(
         IReadOnlyList<int> ids,
-        CancellationToken ct)
+        CancellationToken ct, bool requireCompleteRelations)
     {
         using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var idsCsv = string.Join(',', ids);
@@ -797,6 +805,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var links = new List<WorkItemLink>();
         foreach (var dto in result.Value)
         {
+            if (requireCompleteRelations)
+                ValidatePolicyRelationships(dto);
             // MapToSnapshotWithLinks, not MapToSnapshot: the relations are already on the wire
             // (see $expand=relations above) and the single-item mapper discarded them (ADO #154).
             var (snapshot, itemLinks) = AdoResponseMapper.MapToSnapshotWithLinks(dto, lookup);
@@ -805,6 +815,54 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         }
 
         return (items, links);
+    }
+
+    private void ValidatePolicyRelationships(AdoWorkItemResponse? item)
+    {
+        if (item?.Relations is null)
+            throw new InvalidOperationException("Complete native policy relationships are unavailable.");
+
+        var parents = 0;
+        foreach (var relation in item.Relations)
+        {
+            if (relation is null || string.IsNullOrWhiteSpace(relation.Rel))
+                throw new InvalidOperationException("A native relationship has no relation kind.");
+            var isParent = string.Equals(relation.Rel, "System.LinkTypes.Hierarchy-Reverse", StringComparison.OrdinalIgnoreCase);
+            if (!isParent
+                && !string.Equals(relation.Rel, "System.LinkTypes.Hierarchy-Forward", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(relation.Rel, "System.LinkTypes.Dependency-Forward", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(relation.Rel, "System.LinkTypes.Dependency-Reverse", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!IsNativePolicyTarget(relation.Url) || (isParent && ++parents > 1))
+                throw new InvalidOperationException("A native policy relationship is malformed, ambiguous or outside the bound authority.");
+        }
+    }
+
+    private bool IsNativePolicyTarget(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var target))
+            return false;
+        var authority = new Uri(_orgUrl.TrimEnd('/') + "/");
+        if (!string.Equals(target.Scheme, authority.Scheme, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(target.Host, authority.Host, StringComparison.OrdinalIgnoreCase)
+            || target.Port != authority.Port || target.UserInfo.Length != 0
+            || target.Query.Length != 0 || target.Fragment.Length != 0)
+            return false;
+
+        var organizationPath = authority.AbsolutePath.TrimEnd('/') + "/";
+        if (!target.AbsolutePath.StartsWith(organizationPath, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var path = target.AbsolutePath[organizationPath.Length..];
+        const string route = "_apis/wit/workitems/";
+        var projectRoute = Uri.EscapeDataString(_project) + "/" + route;
+        var id = path.StartsWith(route, StringComparison.OrdinalIgnoreCase)
+            ? path[route.Length..]
+            : path.StartsWith(projectRoute, StringComparison.OrdinalIgnoreCase)
+                ? path[projectRoute.Length..] : string.Empty;
+        return int.TryParse(id, System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            && parsed > 0
+            && id == parsed.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     // ── Work item history (twig#241) ────────────────────────────────

@@ -260,6 +260,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.DraftProposalCapture))]
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.WorkItemSnapshot))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanExecutionAdmission))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.QualifiedWorkItemKey))]
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.RecoverableWorkItemDraft))]

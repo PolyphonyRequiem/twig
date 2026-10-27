@@ -45,7 +45,6 @@ function fixture() {
                 preconditions: [{ kind: kind === "publish-seed" ? "expectedFingerprint" : "expectedRevision",
                     value: kind === "publish-seed" ? "fixture-fingerprint" : "3" }],
             })),
-            authorizationChoices: ["cancel"],
             blockers: [{ kind: "pending", workItemId: 42, detail: "Pending local intent" }],
             policyDecisions: [{ ruleId: "fixture-rule", kind: "fixture", outcome: "Unknown",
                 blocking: true, reason: "Not evaluated", workItemId: 42, opId: "op-0" }],
@@ -57,7 +56,6 @@ const capture = (value = fixture(), expectation = expected) => retainProposalRev
 test("retains all native operations and exact values without authenticating source or gaining authority", () => {
     const input = fixture();
     input.canApply = true;
-    input.reviewModel.authorizationChoices = ["apply"];
     input.additive = { future: "retained" };
     const retained = capture(input);
     assert.deepEqual(retained.envelope, input);
@@ -106,7 +104,6 @@ test("malformed, unsupported and structurally truncated envelopes refuse instead
         (v) => { v.reviewModel.operations[4].consequences[0].otherId = 99; },
         (v) => { delete v.reviewModel.blockers; },
         (v) => { delete v.pendingChanges; },
-        (v) => { delete v.reviewModel.authorizationChoices; },
         (v) => { v.reviewModel.providerAffectedItems = {}; },
         (v) => { v.reviewModel.operations[0].target.providerWorkItem = { localId: "opaque" }; },
         (v) => { v.reviewModel.operations[1].consequences[0].otherProviderWorkItem = { localId: "opaque" }; },
@@ -199,7 +196,7 @@ test("brief/details/back stay on one frozen capture and inert content; only view
     buttons[0].listeners.click();
     assert.match(flatten(root), /<script>untrusted\(\)<\/script>/);
     assert.match(flatten(root), /"canApply": false/);
-    assert.match(flatten(root), /"authorizationChoices"/);
+    assert.doesNotMatch(flatten(root), /authorizationChoices|authorization choice/i);
     assert.equal(view.retained.captureId, "capture-1");
     buttons[1].listeners.click();
     assert.equal(flatten(root), brief);
@@ -338,17 +335,16 @@ test("mixed legacy and provider operations preserve both complete affected sets"
     assert.throws(() => capture(value), /invalid field effect/);
 });
 
-test("provider brief exposes all effects, choices, recipe and capability evidence inertly without claiming origin", () => {
+test("provider brief exposes effects, recipe and capability evidence without decision choices or origin", () => {
     const root = dom();
     const value = providerFixture();
     value.canApply = true;
-    value.reviewModel.authorizationChoices = ["apply", "revise", "decline"];
     value.reviewModel.recipe = { recipeId: "<img src=x onerror=untrusted()>", version: 3 };
     const view = mountRetainedReview(root, JSON.stringify(value), expected);
     assert.equal(view.available, true);
     const brief = flatten(root);
     for (const text of ["900719925474099312345", "field-clear", "link-add", "link-remove", "work-item-delete",
-        "expectedProviderRevision", '"apply"', "not-probed", "emulated", "Before value for Custom.Value: unknown",
+        "expectedProviderRevision", "not-probed", "emulated", "Before value for Custom.Value: unknown",
         "<img src=x onerror=untrusted()>", "capture authenticity is not verified"])
         assert.ok(brief.includes(text), text);
     const buttons = all(root).filter((e) => e.tag === "button");

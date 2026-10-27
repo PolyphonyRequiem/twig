@@ -68,24 +68,10 @@ public interface IPlanLifecycleService
     /// file's canonical digest and refuses unless it equals <paramref name="confirmedDigest"/>
     /// exactly. Pending rows refuse. On success or per-operation failure the returned result
     /// carries the up-to-date per-operation journal.
-    /// <para>
-    /// <paramref name="authorization"/> is the sign-off the apply is gated on, evaluated by
-    /// <see cref="Twig.Domain.Services.ChangeProposals.ProposalAuthorizationGate"/> against the
-    /// session's steering mode. It is <b>required</b>: passing <c>null</c> is a refusal, not a
-    /// legacy path. A record bound to a different digest, carrying the wrong mode for the
-    /// session, or naming no authorizer also refuses, and nothing is applied.
-    /// </para>
-    /// <para>
-    /// On a passing gate the implementation records the authorization and the canonical
-    /// semantic review model into the journal's audit columns BEFORE the first operation runs,
-    /// so a crash mid-apply still leaves a record of who released the proposal and what they
-    /// were shown.
-    /// </para>
     /// </summary>
     Task<PlanApplyResult> ApplyAsync(
         string file,
         string confirmedDigest,
-        Twig.Domain.Services.ChangeProposals.ProposalAuthorization? authorization,
         CancellationToken ct = default);
 
     /// <summary>
@@ -96,7 +82,7 @@ public interface IPlanLifecycleService
 
     /// <summary>
     /// Explicitly retires a never-admitted operation, establishes its outcome by fresh readback,
-    /// or maps its exact effect to a Verified replacement. Requires original-digest authorization;
+    /// or maps its exact effect to a Verified replacement. Requires the original confirmed digest;
     /// appends evidence without changing the original lifecycle or replaying a mutation.
     /// </summary>
     Task<PlanReconciliationResult> ReconcileAsync(
@@ -104,7 +90,6 @@ public interface IPlanLifecycleService
         string confirmedDigest,
         string opId,
         PlanOutcomeKind kind,
-        Twig.Domain.Services.ChangeProposals.ProposalAuthorization? authorization,
         string? replacementDigest = null,
         string? replacementOpId = null,
         CancellationToken ct = default);

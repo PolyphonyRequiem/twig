@@ -127,7 +127,7 @@ public sealed record AppendCommentOperation : PlanOperationDefinition
     /// <summary>The explicitly selected saved Bench identity.</summary>
     public required string SavedBenchId { get; init; }
 
-    /// <summary>The saved Bench contents digest reviewed by the authorizer.</summary>
+    /// <summary>The saved Bench contents digest shown to the reviewer.</summary>
     public required string ExpectedBenchContentsDigest { get; init; }
 
     /// <summary>The bound identity required to apply the proposal.</summary>

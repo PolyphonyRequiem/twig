@@ -9,7 +9,6 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
 using Twig.Domain.Services;
-using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Workspace;
@@ -31,7 +30,7 @@ public sealed class DraftSaveCommandTests : IDisposable
     [InlineData("json")]
     [InlineData("human")]
     [InlineData("minimal")]
-    public async Task GeneratedParserForwardsSeparateAuthorizationThroughRealNativeComposition(string format)
+    public async Task GeneratedParserConsumesExactSaveRequestThroughRealNativeComposition(string format)
     {
         using var h = await CreateAsync();
         var result = Run(h, Request(h), format);
@@ -49,7 +48,8 @@ public sealed class DraftSaveCommandTests : IDisposable
         else result.Out.Trim().ShouldBe($"saved\t{h.Digest}");
         var journal = (await new SqlitePlanJournalRepository(h.Cache).GetAsync(h.Digest))!;
         journal.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
-        journal.AuthorizerIdentity.ShouldBe(Request(h).Authorization.AuthorizerIdentity);
+        journal.AuthorizerIdentity.ShouldBeNull();
+        journal.AuthorizationMode.ShouldBeNull();
         (await new SqliteRecoverableWorkItemDraftStore(h.Cache).GetAsync(h.Key))!.Changes.ShouldBeEmpty();
         await h.Ado.Received(1).PatchAsync(42, Arg.Is<IReadOnlyList<FieldChange>>(changes =>
             changes.Count == 1 && changes[0].FieldName == "System.Title" && changes[0].NewValue == "intent"),
@@ -60,23 +60,19 @@ public sealed class DraftSaveCommandTests : IDisposable
     [Theory]
     [InlineData("digest")]
     [InlineData("caller")]
-    [InlineData("model")]
     [InlineData("surface")]
-    [InlineData("named-human")]
-    public async Task InvalidAuthorizationCannotMintHumanApprovalOrTouchNativeJournal(string fault)
+    public async Task InvalidSaveRequestCannotTouchNativeJournal(string fault)
     {
         using var h = await CreateAsync();
         var request = Request(h);
         request = fault switch
         {
-            "digest" => request with { Authorization = request.Authorization with { Digest = new string('a', 64) } },
+            "digest" => request with { Digest = new string('a', 64) },
             "caller" => request with { CallerIdentity = "other-account" },
-            "model" => request with { Authorization = request.Authorization with { Mode = ProposalAuthorizationMode.Model } },
-            "surface" => request with { Surface = "agent-tool" },
-            _ => request with { Authorization = request.Authorization with { AuthorizerIdentity = "claimed person" } },
+            _ => request with { Surface = "agent-tool" },
         };
         var result = Run(h, request);
-        result.Exit.ShouldBe(fault == "caller" ? 1 : 2);
+        result.Exit.ShouldBe(fault is "caller" or "digest" ? 1 : 2);
         using var error = JsonDocument.Parse(result.Error);
         error.RootElement.GetProperty("error").GetString().ShouldNotBeNullOrWhiteSpace();
         h.Ado.ReceivedCalls().ShouldBeEmpty();
@@ -101,14 +97,14 @@ public sealed class DraftSaveCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task StrictReaderRejectsUnknownNestedPropertiesDuplicatesAndMissingAuthorization()
+    public async Task StrictReaderRejectsUnknownPropertiesDuplicatesAndMissingRequiredValues()
     {
         using var h = await CreateAsync();
         var valid = JsonSerializer.Serialize(Request(h), TwigJsonContext.Default.DraftSaveRequest);
         foreach (var malformed in new[]
         {
             "{}", valid.Insert(1, "\"version\":1,"), valid.Insert(1, "\"effects\":[],"),
-            valid.Replace("\"mode\":0", "\"extra\":true,\"mode\":0", StringComparison.Ordinal),
+            valid.Insert(1, "\"authorization\":{},"),
         })
         {
             using var input = new MemoryStream(Encoding.UTF8.GetBytes(malformed));
@@ -117,14 +113,8 @@ public sealed class DraftSaveCommandTests : IDisposable
         h.Ado.ReceivedCalls().ShouldBeEmpty();
     }
 
-    private static DraftSaveRequest Request(Harness h) => new(1, h.Digest, "caller-account",
-        "twig-workbench-explicit-save", new ProposalAuthorization
-        {
-            Digest = h.Digest, Mode = ProposalAuthorizationMode.Human,
-            AuthorizerIdentity = "workbench-ui-user (individual identity unverified)",
-            Rationale = "Explicit Save gesture; caller/surface attribution only, not host-attested identity.",
-            AuthorizedAt = DateTimeOffset.UtcNow,
-        });
+    private static DraftSaveRequest Request(Harness h) =>
+        new(1, h.Digest, "caller-account", "twig-workbench-explicit-save");
 
     private static (int Exit, string Out, string Error) Run(Harness h, DraftSaveRequest request, string format = "json")
     {
@@ -183,8 +173,6 @@ public sealed class DraftSaveCommandTests : IDisposable
         var seed = new SeedPublishOrchestrator(repository, ado, links, Substitute.For<IWorkItemLinkRepository>(),
             mapping, Substitute.For<ISeedPublishRulesProvider>(), unit, new BacklogOrderer(ado, fields), pending,
             intents, Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
-        var steering = Substitute.For<ISessionSteeringModeProvider>();
-        steering.Resolve().Returns(SessionSteeringMode.HumanSteered);
         var origins = Substitute.For<IPlanOriginProvider>();
         origins.GetOriginAsync(Arg.Any<CancellationToken>()).Returns(origin);
         var rules = Substitute.For<IProcessRuleProvider>();
@@ -195,7 +183,7 @@ public sealed class DraftSaveCommandTests : IDisposable
             pending, fields, new AdoProviderWorkItemWriter(ado), AdoProviderRevisionCodec.Instance, bound, seed,
             repository, links, Substitute.For<IStagedIdentityRegistry>(), mapping, intents, config,
             new TwigPaths(twig, Path.Combine(twig, "config"), Path.Combine(directory, "twig.db"), directory),
-            TimeProvider.System, steering, origins, rules, unit, systemRegistryPath: Path.Combine(directory, "system.db"));
+            TimeProvider.System, origins, rules, unit, systemRegistryPath: Path.Combine(directory, "system.db"));
         return new(cache, key, journal.Digest, lifecycle, origins, ado, config);
     }
 

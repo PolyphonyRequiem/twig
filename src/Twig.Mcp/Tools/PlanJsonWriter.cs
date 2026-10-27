@@ -195,8 +195,8 @@ internal static class PlanJsonWriter
     /// Writes the canonical semantic review model under the <c>reviewModel</c> key.
     /// <para>
     /// The body comes from <see cref="ChangeProposalReviewModelJson"/> — the one writer the CLI
-    /// payload, this payload and the journal's <c>review_model_json</c> audit column all share,
-    /// so what a reviewer was shown and what the audit row records cannot drift.
+    /// payload and this payload share. The model is transient preview data and is not persisted
+    /// as an approval snapshot.
     /// </para>
     /// <para>
     /// A null model is emitted as JSON null rather than an omitted key, so a consumer can tell
@@ -250,9 +250,8 @@ internal static class PlanJsonWriter
     }
 
     /// <summary>
-    /// Writes a <see cref="PlanOutcomeReceipt"/> under <paramref name="name"/>. Carries both
-    /// origins and the exact authorization record so an auditor can replay the gate decision
-    /// from JSON alone; <paramref name="receipt"/> null is emitted as JSON null.
+    /// Writes a <see cref="PlanOutcomeReceipt"/> under <paramref name="name"/>.
+    /// <paramref name="receipt"/> null is emitted as JSON null.
     /// </summary>
     public static void WriteOutcomeReceipt(
         Utf8JsonWriter writer, string name, PlanOutcomeReceipt? receipt)
@@ -271,7 +270,8 @@ internal static class PlanJsonWriter
         writer.WriteString("evidenceJson", receipt.EvidenceJson);
         WriteOrigin(writer, "origin", receipt.Origin);
         WriteOrigin(writer, "authorizingOrigin", receipt.AuthorizingOrigin);
-        WriteAuthorization(writer, "authorization", receipt.Authorization);
+        if (receipt.Authorization is { } legacyAuthorization)
+            WriteLegacyReceiptAuthorization(writer, legacyAuthorization);
         if (receipt.ReplacementDigest is not null) writer.WriteString("replacementDigest", receipt.ReplacementDigest);
         else writer.WriteNull("replacementDigest");
         if (receipt.ReplacementOpId is not null) writer.WriteString("replacementOpId", receipt.ReplacementOpId);
@@ -287,10 +287,10 @@ internal static class PlanJsonWriter
         writer.WriteEndObject();
     }
 
-    public static void WriteAuthorization(
-        Utf8JsonWriter writer, string name, ProposalAuthorization authorization)
+    private static void WriteLegacyReceiptAuthorization(
+        Utf8JsonWriter writer, ProposalAuthorization authorization)
     {
-        writer.WriteStartObject(name);
+        writer.WriteStartObject("authorization");
         writer.WriteString("digest", authorization.Digest);
         writer.WriteString("mode", ProposalAuthorization.ModeToWire(authorization.Mode));
         writer.WriteString("authorizerIdentity", authorization.AuthorizerIdentity);
@@ -301,4 +301,5 @@ internal static class PlanJsonWriter
             authorization.AuthorizedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
         writer.WriteEndObject();
     }
+
 }

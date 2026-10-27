@@ -43,31 +43,23 @@ public sealed record PlanJournal
     public string? Error { get; init; }
 
     /// <summary>
-    /// Whether a human or a model authorized this proposal, or <c>null</c> when the row
-    /// predates authorization recording (design record T2 §5.3).
-    /// <para>
-    /// 🔴 <c>null</c> means "predates authorization recording", NEVER "unauthorized". The
-    /// durable store is never dropped, so rows written before AB#743 are real audit history
-    /// with no authorization columns to read; reporting them as unauthorized would invent a
-    /// policy violation out of a schema change.
-    /// </para>
+    /// Historic authorization mode, hydrated only to preserve old journal reads. New applies
+    /// leave this and the adjacent legacy audit fields unset.
     /// </summary>
     public ProposalAuthorizationMode? AuthorizationMode { get; init; }
 
-    /// <summary>The identity that authorized the apply; null when the row predates recording.</summary>
+    /// <summary>Historic authorizer identity, when recorded.</summary>
     public string? AuthorizerIdentity { get; init; }
 
-    /// <summary>The authorizer's rationale; null when none was supplied or the row predates recording.</summary>
+    /// <summary>Historic authorization rationale, when recorded.</summary>
     public string? Rationale { get; init; }
 
     /// <summary>
-    /// The canonical semantic review model exactly as serialized at authorization time — what
-    /// the authorizer was shown, as distinct from <see cref="CanonicalJson"/>, which is what
-    /// they authorized. Null when the row predates recording.
+    /// Historic review-model snapshot, when recorded. New preview models remain transient.
     /// </summary>
     public string? ReviewModelJson { get; init; }
 
-    /// <summary>When the authorization was recorded; null when the row predates recording.</summary>
+    /// <summary>When the historic authorization was recorded, when available.</summary>
     public DateTimeOffset? AuthorizedAt { get; init; }
 
     /// <summary>Authority captured on the first preview; null means unknown legacy origin.</summary>

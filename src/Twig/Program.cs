@@ -1265,7 +1265,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await services.GetRequiredService<DraftEditingCommand>().RetainAsync(stdin, output, ct);
 
     /// <summary>Consume the exact retained capture following a separate explicit workbench Save gesture; never recapture or export.</summary>
-    /// <param name="stdin">Read the separate UI's strict authorization record through EOF; required. No replacement file, effects, identity selection or self-generated approval.</param>
+    /// <param name="stdin">Read the workbench's strict digest-and-caller request through EOF; required. No replacement file, effects, identity selection or approval record.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal; ids is unsupported.</param>
     /// <param name="ct">Cancellation token; uncertain effects are never automatically replayed.</param>
     [Command("draft save")]
@@ -1846,15 +1846,13 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> PlanLatest(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().LatestAsync(output, ct);
 
-    /// <summary>Apply a proposal. Requires --confirm &lt;digest&gt; matching the current file digest exactly, and --authorize &lt;identity&gt; recording who signed it off. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
+    /// <summary>Apply a proposal when --confirm &lt;digest&gt; matches the current file digest exactly. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical proposal bytes. Must match exactly.</param>
-    /// <param name="authorize">Identity authorizing this apply. Recorded in the journal audit trail; without it the apply is refused.</param>
-    /// <param name="rationale">Optional reason for authorizing this apply, recorded alongside the authorization.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal apply|plan apply")]
-    public async Task<int> PlanApply(string? file = null, string? confirm = null, string? authorize = null, string? rationale = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, authorize, rationale, output, ct);
+    public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
 
     /// <summary>Show journal state for a proposal file. Exit 1 when no journal exists for its digest. Canonical verb is <c>proposal status</c>; <c>plan status</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
@@ -1875,8 +1873,6 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="confirm">Lowercase-hex SHA-256 digest of the original canonical proposal bytes the receipt is bound to. Must match the journalled digest exactly.</param>
     /// <param name="operation">Op id of the original journalled operation being settled.</param>
     /// <param name="outcome">Outcome kind: retire | readback | supersede.</param>
-    /// <param name="authorize">Identity authorizing this settlement, recorded in the receipt.</param>
-    /// <param name="rationale">Why the outcome is being settled. Required — a receipt without a reason is refused.</param>
     /// <param name="replacementDigest">For --outcome supersede only: canonical digest of the replacement proposal.</param>
     /// <param name="replacementOperation">For --outcome supersede only: op id of the Verified replacement operation.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1886,15 +1882,12 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string? confirm = null,
         string? operation = null,
         string? outcome = null,
-        string? authorize = null,
-        string? rationale = null,
         string? replacementDigest = null,
         string? replacementOperation = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().ReconcileAsync(
-            file, confirm, operation, outcome, authorize, rationale,
-            replacementDigest, replacementOperation, output, ct);
+            file, confirm, operation, outcome, replacementDigest, replacementOperation, output, ct);
 
     /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

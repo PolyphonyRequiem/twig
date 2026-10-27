@@ -13,7 +13,7 @@ def fixture():
                             'consequences': [{'kind': 'field-set', 'field': 'System.Description', 'to': 'AFTER BODY',
                                               'before': {'state': 'value', 'value': 'BEFORE BODY', 'revision': 7},
                                               'textChange': {'metric': 'common-affix-replacement-v1', 'unit': 'unicode-scalars', 'inserted': 5, 'removed': 6}}]}],
-            'blockers': [], 'authorizationChoices': ['apply', 'revise', 'decline']}
+            'blockers': []}
 
 
 def text(model, full=False):
@@ -24,6 +24,8 @@ class DiscordReviewTests(unittest.TestCase):
     def test_brief_and_full_share_effect_and_precondition(self):
         model = fixture()
         brief, full = text(model), text(model, True)
+        self.assertIn('Read-only review', brief)
+        self.assertNotIn('Available decisions', brief)
         self.assertNotIn('AFTER BODY', brief)
         self.assertIn('set description', brief)
         self.assertIn('+5 / −6', brief)
@@ -31,7 +33,6 @@ class DiscordReviewTests(unittest.TestCase):
         for output in [brief, full]:
             self.assertIn('expectedRevision = 7', output)
             self.assertIn(model['digest'], output)
-            self.assertIn('apply, revise, decline', output)
 
     def test_invalid_metrics_refused_in_all_modes(self):
         for count in ['5\n# APPROVED BY DANIEL', -1, True]:
@@ -124,7 +125,7 @@ class DiscordReviewTests(unittest.TestCase):
         messages = render(model, True)
         self.assertFalse(any(line.startswith('# APPROVED') for m in messages for line in m['content'].splitlines()))
 
-    def test_delete_link_blocker_and_choices_preserved(self):
+    def test_delete_link_and_blocker_are_preserved_without_decision_choices(self):
         model = fixture()
         op = model['operations'][0]
         op.update(kind='remove-link', consequences=[{'kind': 'link-remove', 'relation': 'parent', 'otherId': 200}])
@@ -132,12 +133,11 @@ class DiscordReviewTests(unittest.TestCase):
         second.update(ordinal=1, opId='delete-op', kind='delete', consequences=[{'kind': 'work-item-delete', 'otherId': 101}])
         model['operations'].append(second)
         model['blockers'] = [{'kind': 'issue', 'detail': 'Review unavailable'}]
-        model['authorizationChoices'] = ['revise', 'decline']
         output = text(model)
         self.assertIn('remove parent → #200', output)
         self.assertIn('DELETE work item #101', output)
         self.assertIn('BLOCKED', output)
-        self.assertIn('Available decisions:** revise, decline', output)
+        self.assertNotIn('Available decisions', output)
 
     def test_seed_identity_and_context_not_published_id(self):
         model = fixture()

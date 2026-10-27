@@ -16,7 +16,7 @@ export const CAPABILITIES = Object.freeze({
     "draft-retain": capability(["draft", "retain"], ["--stdin", "-o"]),
     "draft-save": capability(["draft", "save"], ["--stdin", "-o"]),
     "proposal-preview": capability(["proposal", "preview"], ["--file", "--expect-digest", "-o"]),
-    "proposal-apply": capability(["proposal", "apply"], ["--file", "--confirm", "--authorize", "--rationale", "-o"]),
+    "proposal-apply": capability(["proposal", "apply"], ["--file", "--confirm", "-o"]),
 });
 
 export const CANVAS_CAPABILITIES = Object.freeze({

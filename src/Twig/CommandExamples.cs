@@ -14,8 +14,8 @@ internal static class CommandExamples
     {
         ["draft save"] =
         [
-            "twig draft save --stdin -o json  Forward the separate UI's exact explicit Save authorization; not an agent approval action",
-            "twig draft review <retained-digest> -o json  Inspect without authorizing or applying; do not invoke Save from review alone",
+            "twig draft save --stdin -o json  Consume the exact retained capture from the human workbench Save action",
+            "twig draft review <retained-digest> -o json  Inspect the capture without applying it",
         ],
         ["bench discussion"] =
         [
@@ -693,7 +693,7 @@ internal static class CommandExamples
         ["policy reconcile"] =
         [
             "twig policy reconcile --ids 42,43 --evidence <digest> --finding f1 --strategy reparent --parent 43    Project an explicitly selected repair.",
-            "twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy detach-parent -o json --proposal-only > repair.json    Author a native proposal; preview and authorize separately.",
+            "twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy detach-parent -o json --proposal-only > repair.json    Author a native proposal; preview and apply with its digest.",
         ],
         ["proposal preview"] =
         [
@@ -710,8 +710,8 @@ internal static class CommandExamples
         ],
         ["proposal apply"] =
         [
-            "twig proposal apply --file proposal.json --confirm <digest> --authorize <identity>    Apply the exact reviewed proposal with its authorizer.",
-            "twig proposal apply --file proposal.json --confirm <digest> --authorize <identity> --output json    Emit every operation's journal outcome.",
+            "twig proposal apply --file proposal.json --confirm <digest>    Apply the exact reviewed proposal.",
+            "twig proposal apply --file proposal.json --confirm <digest> --output json    Emit every operation's journal outcome.",
         ],
         ["proposal status"] =
         [
@@ -725,10 +725,10 @@ internal static class CommandExamples
         ],
         ["proposal reconcile"] =
         [
-            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --authorize <identity> --rationale \"...\"    Append a Retired receipt; the authored mutation is NOT applied.",
-            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome readback --authorize <identity> --rationale \"...\"    Establish outcome by fresh ADO readback.",
-            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome supersede --replacement-digest <digest2> --replacement-operation <op-id2> --authorize <identity> --rationale \"...\"    Map the exact effect to a Verified replacement.",
-            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --authorize <identity> --rationale \"...\" --output json    Emit the full receipt (origins, authorization, evidence) as JSON.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire    Append a Retired receipt; the authored mutation is NOT applied.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome readback    Establish outcome by fresh ADO readback.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome supersede --replacement-digest <digest2> --replacement-operation <op-id2>    Map the exact effect to a Verified replacement.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --output json    Emit the full receipt (origins, evidence) as JSON.",
         ],
         ["pending"] =
         [

@@ -18,7 +18,7 @@ public sealed partial class PlanLifecycleService
 {
     public async Task<PlanReconciliationResult> ReconcileAsync(
         string file, string confirmedDigest, string opId, PlanOutcomeKind kind,
-        ProposalAuthorization? authorization, string? replacementDigest = null,
+        string? replacementDigest = null,
         string? replacementOpId = null, CancellationToken ct = default)
     {
         if (_previewOnly || _origin is null || _executor is null || _publishIntent is null)
@@ -28,10 +28,6 @@ public sealed partial class PlanLifecycleService
         if (!parsed.IsValid || parsed.Plan is null || parsed.Digest != confirmedDigest)
             return RefuseSettlement("Original immutable proposal and confirmed digest do not match.");
         if (!Enum.IsDefined(kind)) return RefuseSettlement("Unknown native outcome kind.");
-        var decision = ProposalAuthorizationGate.Evaluate(authorization, confirmedDigest, _steering.Resolve());
-        if (!decision.Authorized) return RefuseSettlement(decision.Refusal!);
-        if (string.IsNullOrWhiteSpace(authorization!.Rationale))
-            return RefuseSettlement("Explicit native reconciliation requires an authorizer rationale.");
         var journal = await _journal.GetAsync(confirmedDigest, ct).ConfigureAwait(false);
         var row = journal?.Operations.FirstOrDefault(op => op.OpId == opId);
         var operation = parsed.Plan.Operations.FirstOrDefault(op => op.Id == opId);
@@ -41,7 +37,7 @@ public sealed partial class PlanLifecycleService
             return RefuseSettlement("Replacement selectors are only valid for supersession.");
         if (kind == PlanOutcomeKind.RejectedCreateFamily)
             return await ReconcileRejectedCreateFamilyAsync(
-                file, confirmedDigest, opId, parsed.Plan, journal, row, operation, authorization!, ct)
+                file, confirmedDigest, opId, parsed.Plan, journal, row, operation, ct)
                 .ConfigureAwait(false);
         if (row.OutcomeReceipt is { } existing)
             return existing.Kind == kind && existing.ReplacementDigest == replacementDigest
@@ -113,7 +109,7 @@ public sealed partial class PlanLifecycleService
         {
             ReceiptId = Guid.NewGuid().ToString("N"), Digest = confirmedDigest, OpId = opId,
             Kind = kind, RequestJson = row.RequestJson, Origin = journal.Origin,
-            AuthorizingOrigin = current, Authorization = authorization,
+            AuthorizingOrigin = current,
             EvidenceJson = evidence, ReplacementDigest = replacementDigest, ReplacementOpId = replacementOpId,
             PublishIdentity = intent?.Identity,
             PublishIntentRecordedAt = intent?.RecordedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
@@ -125,8 +121,7 @@ public sealed partial class PlanLifecycleService
 
     private async Task<PlanReconciliationResult> ReconcileRejectedCreateFamilyAsync(
         string file, string digest, string opId, PlanDefinition plan, PlanJournal journal,
-        PlanJournalOperation row, PlanOperationDefinition operation, ProposalAuthorization authorization,
-        CancellationToken ct)
+        PlanJournalOperation row, PlanOperationDefinition operation, CancellationToken ct)
     {
         if (operation is not PublishSeedOperation seed)
             return RefuseSettlement("Rejected-create-family evidence can settle only the original publish-seed operation.");
@@ -267,7 +262,6 @@ public sealed partial class PlanLifecycleService
                             RequestJson = row.RequestJson,
                             Origin = journal.Origin,
                             AuthorizingOrigin = current,
-                            Authorization = authorization,
                             EvidenceJson = JsonSerializer.Serialize(
                                 proof, TwigJsonContext.Default.RejectedCreateFamilyProof),
                             PublishIdentity = seed.StagedIdentity,
@@ -317,7 +311,7 @@ public sealed partial class PlanLifecycleService
         {
             var current = await _origin!.GetOriginAsync(ct).ConfigureAwait(false);
             return current == expected ? null
-                : "Proposal origin attachment, binding, principal or selection revision changed. Refusing saved authorization/apply/resume; reconnect and author a fresh proposal.";
+                : "Proposal origin attachment, binding, principal or selection revision changed. Refusing apply/resume; reconnect and author a fresh proposal.";
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or InvalidDataException
             or HttpRequestException or JsonException or GitHub.GitHubCredentialUnavailableException)

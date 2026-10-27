@@ -208,7 +208,7 @@ test("RETAIN requires explicit click after staging with no unsent input and send
     assert.deepEqual(h.calls[3], { action: "retain", captureHandle: "staged-handle" });
     assert.equal(button(h.root, "Retain staged draft").disabled, true);
     assert.equal(button(h.root, "Stage local changes").disabled, true);
-    assert.match(flattened(h.root), /Captured locally, not authorized or applied/);
+    assert.match(flattened(h.root), /Captured locally, not applied/);
     assert.match(flattened(h.root), /Baseline: \(absent \/ unknown\)/);
     assert.match(flattened(h.root), /Baseline: \(null\)/);
     assert.match(flattened(h.root), /Proposed: \(empty text ""\)/);
@@ -324,12 +324,8 @@ test("Save requires a distinct trusted UI gesture over the visible exact receipt
     save().listeners.click({ isTrusted: true });
     await settle();
     const sent = h.calls.at(-1);
-    assert.deepEqual(Object.keys(sent).sort(), ["action", "authorization", "saveHandle"]);
+    assert.deepEqual(Object.keys(sent).sort(), ["action", "saveHandle"]);
     assert.equal(sent.saveHandle, "held-save");
-    assert.equal(sent.authorization.digest, "a".repeat(64));
-    assert.equal(sent.authorization.mode, 0);
-    assert.match(sent.authorization.authorizerIdentity, /individual identity unverified/);
-    assert.ok(Number.isFinite(Date.parse(sent.authorization.authorizedAt)));
     assert.equal(save().disabled, true);
     assert.match(flattened(h.root), /Saved: native effects verified/);
     assert.match(flattened(h.root), /Digest: a{64}/, "the capture remains visible after Save");

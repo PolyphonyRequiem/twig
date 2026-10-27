@@ -8,6 +8,18 @@
 
 ---
 
+## Current product decision — AB#1212
+
+The design below is preserved as the historical T2 implementation record, not current
+apply policy. Proposal review remains transient preview data without authorization
+choices, and the review page keeps a human Accept/Apply action bound to the exact
+displayed digest. Apply does not require authorizer sign-off or capture a new approval
+audit. Existing authorization columns and
+historic values remain in the durable schema and are hydrated for backward-compatible reads;
+they are not populated by new applies.
+
+---
+
 ## Executive summary
 
 This note fixes the shapes that AB#742 (T3) and AB#743 (T4) implement against. It

@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Formatters;
 using Twig.Infrastructure.Plan;
@@ -9,7 +8,7 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>Consumes an explicitly authorized retained capture, never a replacement proposal file.</summary>
+/// <summary>Consumes an explicitly saved retained capture, never a replacement proposal file.</summary>
 internal sealed class DraftSaveCommand(CommandContext ctx, IPlanLifecycleService lifecycle,
     IPlanOriginProvider origins, TextWriter? stdout = null, Stream? stdin = null)
 {
@@ -28,19 +27,13 @@ internal sealed class DraftSaveCommand(CommandContext ctx, IPlanLifecycleService
                 return exit = 2;
             }
             if (!readStdin)
-                throw new ArgumentException("Save requires one explicit UI authorization record through --stdin.");
+                throw new ArgumentException("Save requires one explicit workbench Save request through --stdin.");
             var request = await DraftEditingCommand.ReadSaveRequestAsync(stdin ?? Console.OpenStandardInput(), ct);
             var digest = request.Digest;
-            var authorization = request.Authorization;
             if (request.Version != 1 || digest is not { Length: 64 }
                 || !digest.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f')
                 || string.IsNullOrWhiteSpace(request.CallerIdentity)
-                || request.Surface != "twig-workbench-explicit-save"
-                || authorization is null || authorization.Mode != ProposalAuthorizationMode.Human
-                || authorization.Digest != digest
-                || authorization.AuthorizerIdentity != "workbench-ui-user (individual identity unverified)"
-                || authorization.Rationale != "Explicit Save gesture; caller/surface attribution only, not host-attested identity."
-                || authorization.AuthorizedAt == default)
+                || request.Surface != "twig-workbench-explicit-save")
                 throw new ArgumentException("Save requires the exact retained digest, captured caller identity and explicit workbench Save surface.");
             if (lifecycle is not PlanLifecycleService native)
                 throw new InvalidOperationException("Native captured-draft consumption is unavailable.");
@@ -48,9 +41,7 @@ internal sealed class DraftSaveCommand(CommandContext ctx, IPlanLifecycleService
             if (request.CallerIdentity != origin.IdentityId)
                 throw new InvalidOperationException("Save caller differs from the admitted native identity; no identity was selected.");
 
-            // Forward the separate UI's authorization unchanged. The native caller must
-            // not manufacture a human record from its own admitted account or a token.
-            var result = await native.ApplyCapturedDraftAsync(digest, authorization, ct);
+            var result = await native.ApplyCapturedDraftAsync(digest, ct);
             var verified = !result.Failed && result.Error is null && result.Operations.Count > 0
                 && result.Operations.All(row => row.State == PlanOperationState.Verified)
                 && result.UnsettledAcknowledgments.Count == 0;

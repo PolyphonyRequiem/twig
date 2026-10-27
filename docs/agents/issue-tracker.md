@@ -57,7 +57,7 @@ substitute for the binary's own help.
   Close by staging **one** change-proposal `batch` op that sets `System.State` together with
   every field the type's process requires in that state — read them from
   `twig process description <type-ref> -o json` rather than assuming a list — then
-  applying it with `twig proposal apply --confirm <digest> --authorize <identity>`, then
+  applying it with `twig proposal apply --confirm <digest>`, then
   re-reading with `twig show <id> --refresh`. `twig state` remains correct for un-gated
   moves such as `To do` → `Doing`.
 - **`twig state` fails in a fresh git worktree** with *"Process configuration not available.

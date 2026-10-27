@@ -39,7 +39,7 @@ def check_model(payload):
         raise ValueError('Missing or malformed proposal digest')
     if payload is not model and payload.get('digest') != model['digest']:
         raise ValueError('Preview/model digest mismatch')
-    for key in ('affectedItems', 'operations', 'blockers', 'authorizationChoices'):
+    for key in ('affectedItems', 'operations', 'blockers'):
         if not isinstance(model.get(key), list):
             raise ValueError(f'Missing complete {key}')
     if model['modelVersion'] == 2 and not any(
@@ -133,8 +133,6 @@ def check_model(payload):
                 raise ValueError('Incomplete link consequence')
             if c['kind'] == 'work-item-delete' and not isinstance(c.get('otherId'), int):
                 raise ValueError('Incomplete deletion consequence')
-    if any(c not in {'apply', 'revise', 'decline'} for c in model['authorizationChoices']):
-        raise ValueError('Unknown authorization choice')
     return model
 
 
@@ -236,8 +234,8 @@ def render(payload, full=False, limit=1900):
         blocks.append('\n'.join(lines))
     for blocker in model['blockers']:
         blocks.append('**BLOCKED:** ' + escape(blocker['detail']))
-    choices = ', '.join(escape(x) for x in model['authorizationChoices']) or '(none)'
-    blocks.append(f"**Available decisions:** {choices}\n*This renderer does not authorize or apply. Details must use the retained review.*")
+    blocks.append(
+        '*Read-only review. A human may use the native review page to apply this exact digest.*')
     # Split without dropping any data. Every message identifies the exact proposal.
     footer = '\n\nProposal `' + model['digest'] + '`'
     capacity = limit - len(footer) - 50

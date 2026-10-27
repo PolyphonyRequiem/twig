@@ -68,7 +68,6 @@ public sealed class ChangeProposalReviewRendererTests
                     Consequences = [new ReviewConsequence { Kind = "seed-publish" }],
                 },
             ],
-            AuthorizationChoices = ["apply", "revise", "decline"],
             Blockers = blockers ?? [],
         };
 
@@ -147,7 +146,6 @@ public sealed class ChangeProposalReviewRendererTests
         text.ShouldContain("add predecessor link to #742");
         text.ShouldContain("publish staged draft");
 
-        text.ShouldNotContain("authorization choices");
         text.ShouldNotContain("apply");
         text.ShouldNotContain("revise");
         text.ShouldNotContain("decline");
@@ -264,7 +262,6 @@ public sealed class ChangeProposalReviewRendererTests
                     ],
                 },
             ],
-            AuthorizationChoices = ["revise", "decline"],
             Blockers =
             [
                 new ReviewBlocker

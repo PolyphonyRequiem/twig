@@ -155,7 +155,6 @@ internal sealed class BrowserReviewObservation
     {
         AffectedItems = Array.AsReadOnly(model.AffectedItems.ToArray()),
         ContextItems = Array.AsReadOnly(model.ContextItems.ToArray()),
-        AuthorizationChoices = Array.AsReadOnly(model.AuthorizationChoices.ToArray()),
         Blockers = Array.AsReadOnly(model.Blockers.ToArray()),
         PolicyDecisions = Array.AsReadOnly(model.PolicyDecisions.ToArray()),
         Operations = Array.AsReadOnly(model.Operations.Select(operation => operation with

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.ValueObjects;
 
@@ -22,7 +23,12 @@ public sealed record PlanOutcomeReceipt
     public required string RequestJson { get; init; }
     public PlanOrigin? Origin { get; init; }
     public required PlanOrigin AuthorizingOrigin { get; init; }
-    public required ProposalAuthorization Authorization { get; init; }
+    /// <summary>
+    /// Legacy authorization details on receipts written before sign-off capture was removed.
+    /// New receipts leave this null; the optional field keeps historic receipt JSON readable.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ProposalAuthorization? Authorization { get; init; }
     public required string EvidenceJson { get; init; }
     public string? ReplacementDigest { get; init; }
     public string? ReplacementOpId { get; init; }

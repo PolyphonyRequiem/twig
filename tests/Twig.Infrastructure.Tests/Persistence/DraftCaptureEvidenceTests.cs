@@ -45,7 +45,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         File.Exists(journal.SourcePath).ShouldBeFalse();
         var (lifecycle, ado, _) = ConsumptionService(cache, snapshot);
 
-        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest);
 
         result.Failed.ShouldBeFalse(result.Error);
         result.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
@@ -62,7 +62,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
             5, Arg.Any<CancellationToken>());
         await ado.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
 
-        var repeated = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        var repeated = await lifecycle.ApplyCapturedDraftAsync(journal.Digest);
         repeated.Failed.ShouldBeFalse();
         repeated.DraftSettlement.ShouldBe("settled");
         await ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>());
@@ -70,7 +70,6 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("missing-authorization")]
     [InlineData("wrong-digest")]
     [InlineData("stale-draft")]
     [InlineData("origin")]
@@ -83,10 +82,8 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         if (fault == "stale-draft")
             (await new SqliteRecoverableWorkItemDraftStore(cache).TrySaveAsync(
                 draft.SetField("System.Title", "baseline", "new intent"), draft.Generation)).ShouldBeTrue();
-        var authorization = fault == "missing-authorization" ? null
-            : Authorization(fault == "wrong-digest" ? new string('a', 64) : journal.Digest);
-
-        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, authorization);
+        var digest = fault == "wrong-digest" ? new string('a', 64) : journal.Digest;
+        var result = await lifecycle.ApplyCapturedDraftAsync(digest);
 
         result.Failed.ShouldBeTrue();
         result.Error.ShouldNotBeNullOrWhiteSpace();
@@ -112,7 +109,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
             return snapshot;
         });
 
-        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest);
 
         result.Failed.ShouldBeTrue();
         result.Error.ShouldNotBeNull().ShouldContain("Draft generation");
@@ -143,7 +140,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
                     return 6;
                 });
 
-        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest);
 
         result.Failed.ShouldBe(unknown);
         result.Operations.Single().State.ShouldBe(unknown ? PlanOperationState.Indeterminate : PlanOperationState.Verified);
@@ -151,16 +148,10 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         var retained = (await drafts.GetAsync(Key))!;
         retained.Changes.Single().ProposedValue.ShouldBe(unknown ? "intent" : "newer");
         retained.BaselineRevision.ShouldBe(5);
-        var repeated = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        var repeated = await lifecycle.ApplyCapturedDraftAsync(journal.Digest);
         repeated.Failed.ShouldBe(unknown);
         await ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>());
     }
-
-    private static ProposalAuthorization Authorization(string digest) => new()
-    {
-        Digest = digest, Mode = ProposalAuthorizationMode.Human,
-        AuthorizerIdentity = "fixture operator, not host authentication", AuthorizedAt = DateTimeOffset.UtcNow,
-    };
 
     [Fact]
     public async Task NativeConsumptionReportsLocalSettlementFailureWithoutLosingVerifiedRemoteOutcome()
@@ -174,7 +165,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
             """);
         var (lifecycle, ado, _) = ConsumptionService(cache, snapshot);
 
-        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest);
 
         result.Failed.ShouldBeFalse();
         result.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
@@ -206,7 +197,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         (await new SqliteRecoverableWorkItemDraftStore(cache).TrySaveAsync(newer, draft.Generation)).ShouldBeTrue();
         var (lifecycle, ado, _) = ConsumptionService(cache, snapshot);
 
-        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest, Authorization(journal.Digest));
+        var result = await lifecycle.ApplyCapturedDraftAsync(journal.Digest);
 
         result.Failed.ShouldBeFalse(result.Error);
         result.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
@@ -238,8 +229,6 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         var seed = new SeedPublishOrchestrator(repository, ado, links, Substitute.For<IWorkItemLinkRepository>(),
             mapping, Substitute.For<ISeedPublishRulesProvider>(), unit, new BacklogOrderer(ado, fields),
             pending, intents, Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
-        var steering = Substitute.For<ISessionSteeringModeProvider>();
-        steering.Resolve().Returns(SessionSteeringMode.HumanSteered);
         var origin = Substitute.For<IPlanOriginProvider>();
         origin.GetOriginAsync(Arg.Any<CancellationToken>()).Returns(currentOrigin ?? Origin);
         var rules = Substitute.For<IProcessRuleProvider>();
@@ -251,7 +240,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
             Substitute.For<IStagedIdentityRegistry>(), mapping, intents,
             new TwigConfiguration { Organization = Workspace.Organization, Project = Workspace.Project },
             new TwigPaths(twig, Path.Combine(twig, "config"), Path.Combine(_directory, "twig.db"), _directory),
-            TimeProvider.System, steering, origin, rules, unit,
+            TimeProvider.System, origin, rules, unit,
             systemRegistryPath: Path.Combine(_directory, "system.db")), ado, bound);
     }
 

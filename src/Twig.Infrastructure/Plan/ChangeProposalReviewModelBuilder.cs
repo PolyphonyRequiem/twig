@@ -15,7 +15,7 @@ namespace Twig.Infrastructure.Plan;
 /// <para>
 /// The model is a <em>derived projection</em>: it embeds the proposal's digest and never
 /// contributes to it. That is why affected-item context may be enriched with live board data
-/// without destabilising an authorization — see
+/// without changing the proposal's apply confirmation — see
 /// <see cref="ChangeProposalReviewModel"/> for the full rule.
 /// </para>
 /// <para>
@@ -75,16 +75,6 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
     public ChangeProposalReviewModelBuilder(IWorkItemRepository workItems, IFieldDefinitionStore fields) : this(workItems)
         => _fields = fields;
 
-    /// <summary>Authorization choices offered when the proposal is currently applicable.</summary>
-    private static readonly string[] ApplicableChoices = ["apply", "revise", "decline"];
-
-    /// <summary>
-    /// Choices offered when something blocks apply. <c>apply</c> is withheld deliberately:
-    /// presenting a control that is guaranteed to refuse misrepresents the decision the
-    /// reviewer is being asked to make.
-    /// </summary>
-    private static readonly string[] BlockedChoices = ["revise", "decline"];
-
     /// <summary>
     /// Builds the model for <paramref name="definition"/>.
     /// </summary>
@@ -93,7 +83,6 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         string digest,
         IReadOnlyList<PlanValidationIssue> issues,
         IReadOnlyList<PendingChangeDetail> pendingChanges,
-        bool canApply,
         string? rationale = null,
         ChangeRecipeReference? recipe = null,
         CancellationToken ct = default,
@@ -101,8 +90,6 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
     {
         ArgumentNullException.ThrowIfNull(definition);
         policyDecisions ??= [];
-        if (policyDecisions.Any(static d => d.IsBlocking))
-            canApply = false;
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
 
         var operations = new List<ReviewOperation>(definition.Operations.Count);
@@ -208,7 +195,6 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             ProviderAffectedItems = providerAffected.Length == 0 ? null : providerAffected,
             ContextItems = context,
             Operations = operations,
-            AuthorizationChoices = canApply ? ApplicableChoices : BlockedChoices,
             Blockers = ProjectBlockers(issues, pendingChanges, policyDecisions),
             PolicyDecisions = policyDecisions,
         };

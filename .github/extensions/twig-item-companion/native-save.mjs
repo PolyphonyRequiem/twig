@@ -1,15 +1,4 @@
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
-const keys = (value, names) => record(value) && Object.keys(value).sort().join(",") === names.sort().join(",");
-export function validateSaveAuthorization(value, digest) {
-    if (!keys(value, ["digest", "mode", "authorizerIdentity", "rationale", "authorizedAt"]) ||
-        value.digest !== digest || value.mode !== 0 ||
-        value.authorizerIdentity !== "workbench-ui-user (individual identity unverified)" ||
-        value.rationale !== "Explicit Save gesture; caller/surface attribution only, not host-attested identity." ||
-        typeof value.authorizedAt !== "string" || !Number.isFinite(Date.parse(value.authorizedAt))) {
-        throw new Error("Save requires the separate UI's explicit authorization of this exact retained digest.");
-    }
-    return structuredClone(value);
-}
 
 export function validateSaveResult(value, { exitCode, digest, callerIdentity, operationId }) {
     if (!record(value) || value.version !== 1 || value.digest !== digest ||
@@ -34,11 +23,10 @@ export function validateSaveResult(value, { exitCode, digest, callerIdentity, op
 }
 
 export function createNativeDraftSaver(invoke, resolveWorkspace) {
-    return async ({ capture, authorization, workspacePath, signal }) => {
+    return async ({ capture, workspacePath, signal }) => {
         const request = {
             version: 1, digest: capture.digest, callerIdentity: capture.nativeContext.identityId,
             surface: "twig-workbench-explicit-save",
-            authorization: validateSaveAuthorization(authorization, capture.digest),
         };
         const cwd = await resolveWorkspace(workspacePath, capture.nativeContext.itemKey.checkoutRoot);
         return invoke("draft-save", ["draft", "save", "--stdin", "-o", "json"], cwd,

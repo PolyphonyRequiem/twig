@@ -14,15 +14,15 @@ Twig connects your working environment to Azure DevOps (ADO) work tracking throu
 - **Relationships:** parent/child means decomposition; predecessor/successor means dependency; Related means association. A relationship alone grants neither ownership nor permission to act.
 - **Bench and active item:** a Bench is a named, saved view of work; the active item is a local selection. Neither is a work claim.
 - **Local versus published:** reads may use cached information; seeds are local drafts. Local changes, publication and refreshed verification are distinct outcomes.
-- **Change proposal:** intended tracker mutations. Review, authorization, application and verification are separate; presenting a change does not authorize it.
+- **Change proposal:** intended tracker mutations. Review and application are separate; apply requires the exact digest from preview, and journal verification is separate.
 
 ## Change-proposal presentation
 
-Before an applicable human authorization step, prefer the interactive OMP `twig_proposal_render` presenter when it is available and the selected companion is loaded. Call the tool once; its native capture is the sole observation. Follow [the change procedure](references/changes.md) and [presentation guidance](references/presentation.md) to retain its exact digest, workspace, supported review model and presentation version-1 brief/full frames. Details, Back and close are view controls over that observation; they never approve or apply.
+When a human needs to inspect a proposal, prefer the interactive OMP `twig_proposal_render` presenter when it is available and the selected companion is loaded. Call the tool once; its native capture is the sole observation. Follow [the change procedure](references/changes.md) and [presentation guidance](references/presentation.md) to retain its exact digest, workspace, supported review model and presentation version-1 brief/full frames. Details, Back and close are view controls; the separate human Apply action must remain bound to the displayed digest.
 
-When no human review is due, including delegated AFK execution, use the ordinary structured `twig proposal preview -o json` path without opening an interactive viewer.
+When no interactive review is requested, use the ordinary structured `twig proposal preview -o json` path without opening a viewer.
 
-For a human-review route, if the presenter or selected companion is unavailable before a call, disclose the gap and use the deliberate plain/structured review path. If the tool returns an incompatible, failed or truncated response, stop the affected authorization and report the failure without a second preview or mutation fallback. Do not install a companion or rewrite preferences silently. Existing authorization and apply rules remain unchanged.
+For a human-review route, if the presenter or selected companion is unavailable before a call, disclose the gap and use the deliberate plain/structured review path. If the tool returns an incompatible, failed or truncated response, stop that review and report the failure without a second preview or mutation fallback. Do not install a companion or rewrite preferences silently. The proposal digest and native apply checks remain authoritative; Twig does not require an authorizer identity or persist an approval snapshot.
 
 ## Discuss, Present, Review
 

@@ -48,8 +48,7 @@ export async function createReviewServer({ workspacePath, readNativeProposal, ap
         controller = owned;
         const current = ++generation;
         error = null;
-        applyAttempt = { captureId: request.captureId, digest: request.confirm, authorize: request.authorize,
-            status: "in-progress" };
+        applyAttempt = { captureId: request.captureId, digest: request.confirm, status: "in-progress" };
         try {
             const result = await applyNativeProposal({ input: request, observation, workspacePath, signal: owned.signal });
             if (closed || owned.signal.aborted || generation !== current) throw new Error("Apply was closed or superseded; outcome may be unknown.");

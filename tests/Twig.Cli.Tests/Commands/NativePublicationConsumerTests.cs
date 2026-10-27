@@ -11,7 +11,6 @@ using Twig.DependencyInjection;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
-using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -73,7 +72,6 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var file = await ProposalAsync(runtime, "original", "retired", 42, 1, "Refined actor plan");
         var bytes = await File.ReadAllBytesAsync(file);
         var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        var savedAuthorization = Authorize(digest);
         await journal.TryTransitionOperationAsync(digest, "retired", PlanOperationState.Planned, PlanOperationState.Confirmed, DateTimeOffset.UtcNow);
         await journal.ConfirmAsync(digest, DateTimeOffset.UtcNow);
         var unknown = await ProposalAsync(runtime, "unrelated-unknown", "unknown", 43, 1, "Another intent");
@@ -83,13 +81,13 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var command = new PlanCommand(lifecycle, runtime.GetRequiredService<OutputFormatterFactory>(),
-            runtime.GetRequiredService<ISessionSteeringModeProvider>(), TimeProvider.System, stdout: stdout, stderr: stderr);
-        (await command.ReconcileAsync(file, digest, "retired", "retire", "Fixture scope owner", "Deliberately abandon an unadmitted intent",
+            stdout: stdout, stderr: stderr);
+        (await command.ReconcileAsync(file, digest, "retired", "retire",
             null, null, "json", CancellationToken.None)).ShouldBe(0, stderr.ToString());
         using (var receiptOutput = JsonDocument.Parse(stdout.ToString()))
             receiptOutput.RootElement.GetProperty("receipt").GetProperty("kind").GetString().ShouldBe("Retired");
         var workRequests = _transport.WorkRequests;
-        (await lifecycle.ApplyAsync(file, digest, savedAuthorization)).Failed.ShouldBeTrue();
+        (await lifecycle.ApplyAsync(file, digest)).Failed.ShouldBeTrue();
         _transport.WorkRequests.ShouldBe(workRequests, "saved apply must refuse before any work HTTP");
         _transport.CommittedWrites.ShouldBe(0);
         _transport.RevisionOf(42).ShouldBe(1, "the original ADO revision is still admissible absent the native fence");
@@ -97,15 +95,15 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var imported = await lifecycle.ValidateAsync(file);
         var captured = (await journal.GetAsync(digest))!.Origin;
         await journal.ImportAsync(imported.Plan!, imported.CanonicalJson!, digest, file, DateTimeOffset.UtcNow, origin: captured);
-        (await lifecycle.ApplyAsync(file, digest, savedAuthorization)).Failed.ShouldBeTrue();
+        (await lifecycle.ApplyAsync(file, digest)).Failed.ShouldBeTrue();
         var stored = (await journal.GetAsync(digest))!.Operations.Single();
         stored.State.ShouldBe(PlanOperationState.Confirmed);
         stored.OutcomeReceipt!.Kind.ShouldBe(PlanOutcomeKind.Retired);
         (await journal.GetUnresolvedAsync()).Select(j => j.Digest).ShouldBe(new[] { unknownDigest });
 
-        var fresh = await ProposalAsync(runtime, "fresh-authorized", "fresh", 43, 1, "Fresh permitted plan");
+        var fresh = await ProposalAsync(runtime, "fresh", "fresh", 43, 1, "Fresh permitted plan");
         var freshDigest = (await lifecycle.PreviewAsync(fresh)).Digest!;
-        (await lifecycle.ApplyAsync(fresh, freshDigest, Authorize(freshDigest))).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        (await lifecycle.ApplyAsync(fresh, freshDigest)).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
         _transport.TitleOf(43).ShouldBe("Fresh permitted plan");
         var config = runtime.GetRequiredService<TwigConfiguration>();
         var paths = runtime.GetRequiredService<TwigPaths>();
@@ -114,7 +112,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var reconnected = BuildRuntime(config, paths);
         var newLifecycle = reconnected.GetRequiredService<IPlanLifecycleService>();
         workRequests = _transport.WorkRequests;
-        (await newLifecycle.ApplyAsync(file, digest, savedAuthorization)).Failed.ShouldBeTrue();
+        (await newLifecycle.ApplyAsync(file, digest)).Failed.ShouldBeTrue();
         _transport.WorkRequests.ShouldBe(workRequests);
         (await newLifecycle.PreviewAsync(file)).CanApply.ShouldBeFalse();
         (await reconnected.GetRequiredService<IPlanJournalRepository>().GetAsync(digest))!.Origin.ShouldBe(captured);
@@ -134,11 +132,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var file = await ProposalAsync(runtime, "acknowledged", "attempt", 42, 1, "Committed actor plan");
         var digest = (await lifecycle.PreviewAsync(file)).Digest!;
         _transport.FailReadbackAfterCommit = true;
-        var attempted = await lifecycle.ApplyAsync(file, digest, Authorize(digest));
+        var attempted = await lifecycle.ApplyAsync(file, digest);
         attempted.Operations.Single().State.ShouldBe(PlanOperationState.Indeterminate);
         _transport.CommittedWrites.ShouldBe(1);
         _transport.FailReadbackAfterCommit = false;
-        var reconciled = await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback, Authorize(digest));
+        var reconciled = await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback);
         reconciled.Settled.ShouldBeTrue(reconciled.Error);
         var row = (await runtime.GetRequiredService<IPlanJournalRepository>().GetAsync(digest))!.Operations.Single();
         row.State.ShouldBe(PlanOperationState.Indeterminate);
@@ -148,7 +146,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var cached = (await repository.GetByIdAsync(42))!;
         cached.Title.ShouldBe(original.Title);
         cached.Revision.ShouldBe(original.Revision);
-        (await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback, Authorize(digest)))
+        (await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback))
             .Settled.ShouldBeTrue();
         (await repository.GetByIdAsync(42))!.Title.ShouldBe(original.Title);
         _transport.CommittedWrites.ShouldBe(1);
@@ -201,7 +199,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 .ShouldBeFalse("the real SQLite Applying-to-Applied fence must already have been lost");
         };
 
-        var attempted = await lifecycle.ApplyAsync(file, digest, Authorize(digest));
+        var attempted = await lifecycle.ApplyAsync(file, digest);
 
         winner.ShouldNotBeNull();
         _transport.CommittedWrites.ShouldBe(1);
@@ -217,7 +215,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         attempted.Failed.ShouldBeTrue();
         if (winningState is PlanOperationState.Failed or PlanOperationState.Indeterminate)
         {
-            var resumed = await lifecycle.ApplyAsync(file, digest, Authorize(digest));
+            var resumed = await lifecycle.ApplyAsync(file, digest);
             resumed.Operations.Single(row => row.OpId == "attempt").ShouldBe(winner);
         }
         _transport.CommittedWrites.ShouldBe(1, "neither the losing attempt nor resume may repeat an acknowledged write");
@@ -259,7 +257,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 .ShouldBeFalse();
         };
 
-        var attempted = await lifecycle.ApplyAsync(file, digest, Authorize(digest));
+        var attempted = await lifecycle.ApplyAsync(file, digest);
 
         attempted.Failed.ShouldBeFalse(attempted.Error);
         attempted.UnsettledAcknowledgments.ShouldBeEmpty();
@@ -269,7 +267,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         (await InspectAcknowledgedWriteAsync(runtime)).Receipt.ShouldNotBeNull();
         var winner = (await journal.GetAsync(digest))!.Operations.Single();
         var readbacks = _transport.ReadbacksAfterCommit;
-        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Failed.ShouldBeFalse();
+        (await lifecycle.ApplyAsync(file, digest)).Failed.ShouldBeFalse();
         (await competingJournal.GetAsync(digest))!.Operations.Single().ShouldBe(winner);
         _transport.CommittedWrites.ShouldBe(1);
         _transport.PatchAttempts.ShouldBe(1);
@@ -317,7 +315,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var file = await ProposalAsync(runtime, "unattributable", "attempt", 42, 1, "Committed actor plan");
         var digest = (await lifecycle.PreviewAsync(file)).Digest!;
         _transport.FailReadbackAfterCommit = true;
-        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Operations.Single().State
+        (await lifecycle.ApplyAsync(file, digest)).Operations.Single().State
             .ShouldBe(PlanOperationState.Indeterminate);
         var attempted = (await journal.GetAsync(digest))!.Operations.Single();
         using (var acknowledged = JsonDocument.Parse(attempted.ResultJson!))
@@ -326,7 +324,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         // A later edit retained the expected title but is not this attempt's acknowledged revision.
         _transport.FailReadbackAfterCommit = false;
         _transport.SetItem(42, "Committed actor plan", 3, Actor);
-        var result = await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback, Authorize(digest));
+        var result = await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback);
 
         result.Settled.ShouldBeFalse();
         (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
@@ -362,7 +360,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 await pending.AddChangeAsync(42, "note", null, null, "Unpublished actor note");
         };
 
-        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Operations.Single().State
+        (await lifecycle.ApplyAsync(file, digest)).Operations.Single().State
             .ShouldBe(PlanOperationState.Verified);
 
         _transport.TitleOf(42).ShouldBe("Committed actor plan");
@@ -405,7 +403,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var file = await ProposalAsync(runtime, "snapshot-race", "attempt", 42, 1, "Committed actor plan");
         var digest = (await lifecycle.PreviewAsync(file)).Digest!;
 
-        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Operations.Single().State
+        (await lifecycle.ApplyAsync(file, digest)).Operations.Single().State
             .ShouldBe(PlanOperationState.Verified);
         if (blocked) await competingRepository.SaveAsync(draft);
 
@@ -425,7 +423,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var digest = (await lifecycle.PreviewAsync(file)).Digest!;
         await journal.SaveOperationErrorAsync(digest, "unknown", "Unknown transport outcome", PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
         _transport.SetItem(42, "Coincidental newer title", 2, Actor);
-        var result = await lifecycle.ReconcileAsync(file, digest, "unknown", PlanOutcomeKind.Readback, Authorize(digest));
+        var result = await lifecycle.ReconcileAsync(file, digest, "unknown", PlanOutcomeKind.Readback);
         result.Settled.ShouldBeFalse();
         (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
         (await journal.GetUnresolvedAsync()).Select(j => j.Digest).ShouldContain(digest);
@@ -441,20 +439,20 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var original = await ProposalAsync(runtime, "original", "original", 42, 1, "Replacement actor plan");
         var digest = (await lifecycle.PreviewAsync(original)).Digest!;
         _transport.RejectNextPatch = true;
-        (await lifecycle.ApplyAsync(original, digest, Authorize(digest))).Operations.Single().State.ShouldBe(PlanOperationState.Failed);
+        (await lifecycle.ApplyAsync(original, digest)).Operations.Single().State.ShouldBe(PlanOperationState.Failed);
         var unrelated = await ProposalAsync(runtime, "unrelated", "unrelated", 43, 1, "Unrelated successful plan");
         var unrelatedDigest = (await lifecycle.PreviewAsync(unrelated)).Digest!;
-        (await lifecycle.ApplyAsync(unrelated, unrelatedDigest, Authorize(unrelatedDigest))).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
-        (await lifecycle.ReconcileAsync(original, digest, "original", PlanOutcomeKind.Superseded, Authorize(digest), unrelatedDigest, "unrelated")).Settled.ShouldBeFalse();
+        (await lifecycle.ApplyAsync(unrelated, unrelatedDigest)).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        (await lifecycle.ReconcileAsync(original, digest, "original", PlanOutcomeKind.Superseded, unrelatedDigest, "unrelated")).Settled.ShouldBeFalse();
         (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
         var replacement = await ProposalAsync(runtime, "replacement", "replacement", 42, 1, "Replacement actor plan");
         var replacementDigest = (await lifecycle.PreviewAsync(replacement)).Digest!;
-        (await lifecycle.ApplyAsync(replacement, replacementDigest, Authorize(replacementDigest))).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        (await lifecycle.ApplyAsync(replacement, replacementDigest)).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
         var cachedReplacement = (await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!;
         cachedReplacement.Title.ShouldBe("Replacement actor plan");
         cachedReplacement.Revision.ShouldBe(2);
         var writes = _transport.CommittedWrites;
-        var settled = await lifecycle.ReconcileAsync(original, digest, "original", PlanOutcomeKind.Superseded, Authorize(digest), replacementDigest, "replacement");
+        var settled = await lifecycle.ReconcileAsync(original, digest, "original", PlanOutcomeKind.Superseded, replacementDigest, "replacement");
         settled.Settled.ShouldBeTrue(settled.Error);
         var row = (await journal.GetAsync(digest))!.Operations.Single();
         row.State.ShouldBe(PlanOperationState.Failed);
@@ -475,15 +473,15 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var parsed = await lifecycle.ValidateAsync(legacy);
         await journal.ImportAsync(parsed.Plan!, parsed.CanonicalJson!, parsed.Digest!, legacy, DateTimeOffset.UtcNow);
         var requests = _transport.WorkRequests;
-        (await lifecycle.ApplyAsync(legacy, parsed.Digest!, Authorize(parsed.Digest!))).Failed.ShouldBeTrue();
+        (await lifecycle.ApplyAsync(legacy, parsed.Digest!)).Failed.ShouldBeTrue();
         _transport.WorkRequests.ShouldBe(requests);
         var config = runtime.GetRequiredService<TwigConfiguration>();
         var selected = await _bindings.CreateBindingAsync(config.Organization, config.Project, "sibling", false);
         SwapSelection(config, selected.BindingId);
-        (await lifecycle.ApplyAsync(original, digest, Authorize(digest))).Failed.ShouldBeTrue();
+        (await lifecycle.ApplyAsync(original, digest)).Failed.ShouldBeTrue();
         (await lifecycle.PreviewAsync(original)).CanApply.ShouldBeFalse();
         var reconnected = BuildRuntime(config, runtime.GetRequiredService<TwigPaths>());
-        (await reconnected.GetRequiredService<IPlanLifecycleService>().ApplyAsync(original, digest, Authorize(digest))).Failed.ShouldBeTrue();
+        (await reconnected.GetRequiredService<IPlanLifecycleService>().ApplyAsync(original, digest)).Failed.ShouldBeTrue();
         _transport.WorkRequests.ShouldBe(requests);
         (await journal.GetAsync(parsed.Digest!))!.Origin.ShouldBeNull();
         _transport.CommittedWrites.ShouldBe(0);
@@ -508,7 +506,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var digest = (await lifecycle.PreviewAsync(file)).Digest!;
         var originalIntent = await intents.RecordIntentAsync(identity, "Unknown create", "Task");
         await journal.SaveOperationErrorAsync(digest, "seed", "Unknown create outcome", PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
-        var result = await lifecycle.ReconcileAsync(file, digest, "seed", PlanOutcomeKind.Readback, Authorize(digest));
+        var result = await lifecycle.ReconcileAsync(file, digest, "seed", PlanOutcomeKind.Readback);
         result.Settled.ShouldBeFalse();
         (await intents.GetOpenIntentsAsync()).Single().RecordedAt.ShouldBe(originalIntent.RecordedAt);
         (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
@@ -613,12 +611,6 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         change.Parameters.AddWithValue("@expected", revision);
         change.ExecuteNonQuery().ShouldBe(1);
     }
-
-    private static ProposalAuthorization Authorize(string digest) => new()
-    {
-        Digest = digest, Mode = ProposalAuthorizationMode.Human, AuthorizerIdentity = "Fixture scope owner",
-        Rationale = "Isolated native publication proof", AuthorizedAt = DateTimeOffset.UtcNow
-    };
 
     private sealed class PrincipalTransport : HttpMessageHandler
     {

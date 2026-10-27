@@ -4,13 +4,13 @@ namespace Twig.Domain.Services.ChangeProposals;
 
 /// <summary>
 /// The canonical semantic review model — the sole source of truth for what a reviewer must
-/// be shown before authorizing a Change Proposal. Shape fixed by design record T2 (AB#741)
+/// be shown before accepting and applying a Change Proposal. Shape fixed by design record T2 (AB#741)
 /// as <c>modelVersion</c> 1, with version 2 for discussion-append effects.
 /// <para>
 /// <b>Derived, never hashed.</b> The model embeds <see cref="Digest"/>; it never contributes
 /// to it. <see cref="AffectedItems"/> carries live titles and states, which change over
 /// time — if the model were hashed into the proposal, an unrelated title edit would change
-/// the digest and invalidate an authorization that was still perfectly valid. So the model
+/// the digest and invalidate an apply confirmation. So the model
 /// is reproducible but not immutable: the same proposal yields the same operations,
 /// preconditions and consequences on any adapter, while affected-item context reflects the
 /// board at render time.
@@ -20,13 +20,13 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// <see cref="ModelVersion"/>, MUST fail closed on an unknown version rather than partially
 /// render, and MUST preserve every entry of <see cref="Operations"/>,
 /// <see cref="ReviewOperation.Preconditions"/>, <see cref="ReviewOperation.Consequences"/>
-/// <see cref="ProviderAffectedItems"/>, and <see cref="AuthorizationChoices"/> in the canonical
-/// structured model. Human review shows every material operation, affected item, consequence,
-/// warning, and blocker, but no approval controls; raw operation identity, preconditions, and
+/// <see cref="ProviderAffectedItems"/> in the canonical structured model. Human review shows
+/// every material operation, affected item, consequence, warning, and blocker, but no approval
+/// controls; raw operation identity, preconditions, and
 /// observation provenance remain structured. Apply
 /// still enforces those exact values. Brief views may elide description bodies only while naming
 /// the field, effect, available metric and full-detail access. Enrichment is additive only: an
-/// adapter may never add or remove an authorization choice, and never alter the digest.
+/// adapter may never alter the digest.
 /// </para>
 /// </summary>
 public sealed record ChangeProposalReviewModel
@@ -42,7 +42,7 @@ public sealed record ChangeProposalReviewModel
 
     /// <summary>
     /// The proposal's digest, verbatim. A renderer never recomputes this — it is the value
-    /// an authorization is bound to.
+    /// the human Accept/Apply action is bound to.
     /// </summary>
     public required string Digest { get; init; }
 
@@ -80,13 +80,6 @@ public sealed record ChangeProposalReviewModel
 
     /// <summary>One entry per proposal operation, in declared order.</summary>
     public required IReadOnlyList<ReviewOperation> Operations { get; init; }
-
-    /// <summary>
-    /// The authorization choices actually available for this proposal. A proposal that
-    /// cannot currently apply does not offer <c>apply</c> — offering a control that is
-    /// guaranteed to refuse misrepresents the decision the reviewer is making.
-    /// </summary>
-    public required IReadOnlyList<string> AuthorizationChoices { get; init; }
 
     /// <summary>Everything standing between this proposal and applying. May be empty.</summary>
     public required IReadOnlyList<ReviewBlocker> Blockers { get; init; }

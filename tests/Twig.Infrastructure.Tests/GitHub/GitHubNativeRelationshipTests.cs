@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.ValueObjects.Fields;
@@ -26,7 +25,7 @@ public sealed class GitHubNativeRelationshipTests
     [InlineData("predecessor", false)]
     [InlineData("successor", true)]
     [InlineData("successor", false)]
-    public async Task ProductionComposition_AuthorizesJournalsWritesAndReadsBackBothEndpoints(string relation, bool add)
+    public async Task ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints(string relation, bool add)
     {
         using var fixture = await Fixture.CreateAsync(relation, add);
         var (path, digest) = await fixture.PreviewAsync();
@@ -39,12 +38,9 @@ public sealed class GitHubNativeRelationshipTests
         fixture.Network.Writes.ShouldBe(1);
         fixture.Network.Edge.ShouldBe(add);
         var journal = (await fixture.Journal.GetAsync(digest))!;
-        journal.AuthorizationMode.ShouldBe(ProposalAuthorizationMode.Human);
-        journal.AuthorizerIdentity.ShouldBe("Fixture reviewer");
         var authority = journal.Origin.ShouldNotBeNull().ProviderAuthority.ShouldNotBeNull();
         authority.ActorId.ShouldBe("U_actor");
         authority.Target.ShouldBe(GitHubTargetFixture.Target.ToIdentity(new("https://api.github.com/graphql")));
-        journal.ReviewModelJson.ShouldNotBeNull().ShouldContain("observed-non-atomic");
         fixture.Network.WriterCredential.ShouldBe(fixture.Network.LastViewerCredentialBeforeWrite);
         fixture.Network.ReadIdsAfterWrite.ShouldContain("I_item");
         fixture.Network.ReadIdsAfterWrite.ShouldContain("I_peer");
@@ -100,13 +96,15 @@ public sealed class GitHubNativeRelationshipTests
     }
 
     [Fact]
-    public async Task MissingOrWrongDigestAuthorization_NeverConfirmsOrWrites()
+    public async Task DigestMismatch_RemainsUnappliedWithoutNativeWrite()
     {
         using var fixture = await Fixture.CreateAsync();
         var (path, digest) = await fixture.PreviewAsync();
-        (await fixture.Lifecycle.ApplyAsync(path, digest, authorization: null)).Failed.ShouldBeTrue();
-        (await fixture.Lifecycle.ApplyAsync(path, digest,
-            authorization: Authorize(new string('f', 64)))).Failed.ShouldBeTrue();
+        var mismatchedDigest = (digest[0] == '0' ? "1" : "0") + digest[1..];
+        var result = await fixture.Lifecycle.ApplyAsync(path, mismatchedDigest);
+        result.Failed.ShouldBeTrue();
+        (result.Error ?? throw new InvalidOperationException("Expected a digest-mismatch refusal."))
+            .ShouldContain("does not match confirmed digest");
         (await fixture.Journal.GetAsync(digest))!.Operations.Single().State.ShouldBe(PlanOperationState.Planned);
         fixture.Network.Writes.ShouldBe(0);
     }
@@ -200,12 +198,6 @@ public sealed class GitHubNativeRelationshipTests
         GitHubObservationToken.Create(item, fields, []).ShouldNotBe(token);
     }
 
-    private static ProposalAuthorization Authorize(string digest) => new()
-    {
-        Digest = digest, Mode = ProposalAuthorizationMode.Human,
-        AuthorizerIdentity = "Fixture reviewer", AuthorizedAt = DateTimeOffset.UtcNow,
-    };
-
     private sealed class Fixture : IDisposable
     {
         internal GitHubTargetFixture Target { get; } = new();
@@ -275,7 +267,7 @@ public sealed class GitHubNativeRelationshipTests
         }
 
         internal Task<PlanApplyResult> ApplyAsync(string path, string digest) =>
-            Lifecycle.ApplyAsync(path, digest, authorization: Authorize(digest));
+            Lifecycle.ApplyAsync(path, digest);
 
         public void Dispose()
         {

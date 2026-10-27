@@ -651,14 +651,7 @@ public static class TwigServiceRegistration
         // so the two cannot drift.
         services.AddSingleton<Twig.Infrastructure.Plan.ChangeRecipeRenderer>();
 
-        // Session steering seam for the Change Proposal authorization gate (AB#743).
-        // Spec #729 defers where the mode actually comes from, so the production binding
-        // resolves Unresolved and every apply takes the human-steered path. That is the
-        // fail-closed answer, and it is deliberately NOT derived from a transport attachment —
-        // the worktree, agent session, or terminal host a session happens to run in says
-        // nothing about who is allowed to authorize a mutation from it.
-        services.AddSingleton<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider,
-            Twig.Domain.Services.ChangeProposals.UnresolvedSessionSteeringModeProvider>();
+        // Native plan origin is captured independently from the caller's transport/session.
         services.TryAddSingleton<IPlanOriginProvider>(sp => new BoundPlanOriginProvider(
             sp.GetRequiredService<IConnectionBindingService>(),
             sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(),
@@ -677,8 +670,7 @@ public static class TwigServiceRegistration
                     configuration,
                     sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
                     sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemSnapshotReader>(),
-                    sp.GetRequiredService<Twig.Infrastructure.GitHub.GitHubNativeRelationshipService>(),
-                    sp.GetRequiredService<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider>());
+                    sp.GetRequiredService<Twig.Infrastructure.GitHub.GitHubNativeRelationshipService>());
             }
 
             return new Twig.Infrastructure.Plan.PlanLifecycleService(
@@ -698,7 +690,6 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>(),
                 sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
                 sp.GetRequiredService<TimeProvider>(),
-                sp.GetRequiredService<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider>(),
                 sp.GetRequiredService<IPlanOriginProvider>(),
                 // Runtime process-rule gate (AB#673). Resolved optionally so the graph still
                 // builds without the network module, but an absent provider is NOT a permit:

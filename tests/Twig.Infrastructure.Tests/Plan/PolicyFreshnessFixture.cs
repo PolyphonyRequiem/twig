@@ -7,7 +7,6 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.ReferenceProfile;
 using Twig.Domain.Services.Seed;
@@ -120,7 +119,7 @@ internal sealed class PolicyFreshnessFixture : IDisposable
         _services.GetRequiredService<IPublishIdMapRepository>(),
         _services.GetRequiredService<IPublishIntentRepository>(),
         _services.GetRequiredService<TwigConfiguration>(), _paths, TimeProvider.System,
-        new UnresolvedSessionSteeringModeProvider(), _origin, _process,
+        _origin, _process,
         _services.GetRequiredService<IUnitOfWork>(), linkRepo: _links,
         systemRegistryPath: Path.Combine(_root, "system.db"));
 
@@ -203,10 +202,8 @@ internal sealed class PolicyFreshnessFixture : IDisposable
                     .ShouldBe(operation.GetProperty("expectedRevision").GetInt32());
         }
         (await _services.GetRequiredService<IPendingChangeReader>().GetAllChangesAsync()).ShouldBeEmpty();
-        ProposalAuthorizationGate.Evaluate(Authorization(digest), digest, SessionSteeringMode.Unresolved)
-            .Authorized.ShouldBeTrue();
         _ambientFactoryCalls.ShouldBe(0);
-        var result = await Service().ApplyAsync(PlanPath, digest, Authorization(digest));
+        var result = await Service().ApplyAsync(PlanPath, digest);
         Native.AssertWriteAdmissionsCompleted();
         _diagnostic?.Invoke($"Apply digest={digest}; Failed={result.Failed}; TopError={result.Error ?? "<NULL>"}");
         foreach (var operation in result.Operations)
@@ -223,15 +220,6 @@ internal sealed class PolicyFreshnessFixture : IDisposable
         return result;
     }
 
-    public static ProposalAuthorization Authorization(string digest) => new()
-    {
-        Digest = digest,
-        Mode = ProposalAuthorizationMode.Human,
-        AuthorizerIdentity = "Fixture legacy authorizer",
-        Rationale = "Exercise current policy, not reusable permission.",
-        AuthorizedAt = DateTimeOffset.UnixEpoch,
-    };
-
     public async Task PauseAsync(string digest, int itemId, int completed = 0)
     {
         Native.UnavailableRevisionItem = itemId;
@@ -243,13 +231,13 @@ internal sealed class PolicyFreshnessFixture : IDisposable
         row.ConfirmedAt.ShouldNotBeNull();
         row.Operations.Take(completed).ShouldAllBe(op => op.State == PlanOperationState.Verified);
         row.Operations.Skip(completed).ShouldAllBe(op => op.State == PlanOperationState.Confirmed);
-        row.AuthorizationMode.ShouldBe(ProposalAuthorizationMode.Human);
-        row.AuthorizerIdentity.ShouldBe("Fixture legacy authorizer");
-        row.ReviewModelJson.ShouldNotBeNull();
+        row.AuthorizationMode.ShouldBeNull();
+        row.AuthorizerIdentity.ShouldBeNull();
+        row.Rationale.ShouldBeNull();
+        row.ReviewModelJson.ShouldBeNull();
+        row.AuthorizedAt.ShouldBeNull();
         row.ExecutionAdmission.ShouldBeNull();
         row.Origin.ShouldBe(Origin);
-        ProposalAuthorizationGate.Evaluate(Authorization(digest), digest, SessionSteeringMode.Unresolved)
-            .Authorized.ShouldBeTrue();
         Native.Mutations.Count.ShouldBe(completed);
     }
 

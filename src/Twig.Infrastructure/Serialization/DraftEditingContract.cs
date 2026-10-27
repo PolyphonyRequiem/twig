@@ -48,8 +48,7 @@ internal sealed record DraftSaveRequest(
     [property: JsonRequired] int Version,
     [property: JsonRequired] string Digest,
     [property: JsonRequired] string CallerIdentity,
-    [property: JsonRequired] string Surface,
-    [property: JsonRequired] Twig.Domain.Services.ChangeProposals.ProposalAuthorization Authorization);
+    [property: JsonRequired] string Surface);
 
 internal sealed record DraftRetainedCapture(
     DraftEditingContext NativeContext, string Generation, string BaselineRevision, string ObservedRevision,

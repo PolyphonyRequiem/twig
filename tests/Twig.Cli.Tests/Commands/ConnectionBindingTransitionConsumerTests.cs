@@ -285,7 +285,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         await journal.SaveOperationErrorAsync(olderDigest, "older-op", "Unacknowledged earlier call", PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
         var newerFile = await FieldProposalAsync("newer", "newer-op", 44, 1, "Verified current title");
         var newerDigest = (await lifecycle.PreviewAsync(newerFile)).Digest!;
-        var verified = await lifecycle.ApplyAsync(newerFile, newerDigest, Authorize(newerDigest));
+        var verified = await lifecycle.ApplyAsync(newerFile, newerDigest);
         verified.Failed.ShouldBeFalse(verified.Error);
         verified.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
         var mutations = _transport.Mutations;
@@ -476,19 +476,19 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         var journal = runtime.GetRequiredService<IPlanJournalRepository>();
         var verifiedFile = await FieldProposalAsync("historical-verified", "verified-op", 44, 1, "Verified actor history");
         var verifiedDigest = (await lifecycle.PreviewAsync(verifiedFile)).Digest!;
-        var verified = await lifecycle.ApplyAsync(verifiedFile, verifiedDigest, Authorize(verifiedDigest));
+        var verified = await lifecycle.ApplyAsync(verifiedFile, verifiedDigest);
         verified.Failed.ShouldBeFalse(verified.Error);
         verified.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
         var retiredFile = await FieldProposalAsync("historical-retired", "retired-op", 42, 1, "Never applied historical intent");
         var retiredDigest = (await lifecycle.PreviewAsync(retiredFile)).Digest!;
         await journal.ConfirmAsync(retiredDigest, DateTimeOffset.UtcNow);
-        (await lifecycle.ReconcileAsync(retiredFile, retiredDigest, "retired-op", PlanOutcomeKind.Retired, Authorize(retiredDigest))).Settled.ShouldBeTrue();
+        (await lifecycle.ReconcileAsync(retiredFile, retiredDigest, "retired-op", PlanOutcomeKind.Retired)).Settled.ShouldBeTrue();
         var retiredBefore = (await journal.GetAsync(retiredDigest))!;
         var seed = await StageSeedAsync(runtime, "Published actor history");
         var descriptor = (await lifecycle.DescribeSeedAsync(seed.Id))!;
         var seedFile = await SeedProposalAsync(descriptor);
         var seedDigest = (await lifecycle.PreviewAsync(seedFile)).Digest!;
-        var published = await lifecycle.ApplyAsync(seedFile, seedDigest, Authorize(seedDigest));
+        var published = await lifecycle.ApplyAsync(seedFile, seedDigest);
         published.Failed.ShouldBeFalse(published.Error);
         published.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
         var intentBefore = (await runtime.GetRequiredService<IPublishIntentRepository>().GetIntentAsync(descriptor.Identity))!;
@@ -553,7 +553,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         (await preservedJournal.GetUnresolvedAsync()).ShouldBeEmpty();
         (await reconnected.GetRequiredService<IPublishIntentRepository>().GetIntentAsync(descriptor.Identity)).ShouldBe(intentBefore);
         // Preserved Confirmed history must stay retired at the native execution seam.
-        var replay = await reconnected.GetRequiredService<IPlanLifecycleService>().ApplyAsync(retiredFile, retiredDigest, Authorize(retiredDigest));
+        var replay = await reconnected.GetRequiredService<IPlanLifecycleService>().ApplyAsync(retiredFile, retiredDigest);
         replay.Failed.ShouldBeTrue();
         _transport.Mutations.ShouldBe(mutations);
     }
@@ -1035,15 +1035,6 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         }));
         return path;
     }
-
-    private static ProposalAuthorization Authorize(string digest) => new()
-    {
-        Digest = digest,
-        Mode = ProposalAuthorizationMode.Human,
-        AuthorizerIdentity = "Fixture scope owner",
-        Rationale = "Isolated transition consumer proof",
-        AuthorizedAt = DateTimeOffset.UtcNow,
-    };
 
     private async Task<CapturedCommand> InvokePinAsync(ServiceProvider runtime, string? binding, bool remove, string? confirm = null)
     {

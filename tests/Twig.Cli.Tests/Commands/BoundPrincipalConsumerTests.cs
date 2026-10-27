@@ -10,7 +10,6 @@ using Twig.DependencyInjection;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
-using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Claims;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Workspace;
@@ -95,7 +94,7 @@ public sealed class BoundPrincipalConsumerTests : IAsyncLifetime
             var preview = await lifecycle.PreviewAsync(file);
             preview.CanApply.ShouldBeTrue();
             var digest = preview.Digest ?? throw new InvalidOperationException("Native preview produced no digest.");
-            var applied = await lifecycle.ApplyAsync(file, digest, Authorize(digest));
+            var applied = await lifecycle.ApplyAsync(file, digest);
             applied.Failed.ShouldBeFalse(applied.Error);
             var row = applied.Operations.ShouldHaveSingleItem();
             row.State.ShouldBe(PlanOperationState.Verified, row.Error);
@@ -203,9 +202,9 @@ public sealed class BoundPrincipalConsumerTests : IAsyncLifetime
         var preview = await lifecycle.PreviewAsync(file);
         var digest = preview.Digest ?? throw new InvalidOperationException("Native preview produced no digest.");
         var wrong = new string('0', 64);
-        (await lifecycle.ApplyAsync(file, wrong, Authorize(wrong))).Failed.ShouldBeTrue();
+        (await lifecycle.ApplyAsync(file, wrong)).Failed.ShouldBeTrue();
         await repo.SaveAsync(seed.WithSeedFields("Changed after preview", seed.Fields));
-        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Failed.ShouldBeTrue();
+        (await lifecycle.ApplyAsync(file, digest)).Failed.ShouldBeTrue();
         _transport.CreatedCount.ShouldBe(0);
         (await repo.GetSeedsAsync()).Single().Title.ShouldBe("Changed after preview");
     }
@@ -309,15 +308,6 @@ public sealed class BoundPrincipalConsumerTests : IAsyncLifetime
             new TeamIteration(project, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1)),
         });
     }
-
-    private static ProposalAuthorization Authorize(string digest) => new()
-    {
-        Digest = digest,
-        Mode = ProposalAuthorizationMode.Human,
-        AuthorizerIdentity = "Fixture scope owner",
-        Rationale = "Isolated consumer proof",
-        AuthorizedAt = DateTimeOffset.UtcNow,
-    };
 
     private static async Task<string> WriteSeedProposalAsync(ServiceProvider runtime, PlanSeedDescriptor descriptor)
     {

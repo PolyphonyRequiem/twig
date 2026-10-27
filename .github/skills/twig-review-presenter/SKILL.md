@@ -1,6 +1,6 @@
 ---
 name: twig-review-presenter
-description: Present Twig proposal reviews in a host such as Discord while preserving exact effects, proposal identity, blockers and authorization choices.
+description: Present Twig proposal reviews in a host such as Discord while preserving exact effects, proposal identity and blockers.
 ---
 
 # Twig review presenter
@@ -30,8 +30,8 @@ no host plugin or Discord credentials are bundled or required.
   published ID.
 - Group effects with their owning item while retaining declared operation order and
   identifiers. If grouping would imply a different execution order, expose the order.
-- Preserve **every operation, precondition, material consequence, blocker and allowed
-  authorization choice**. A concise review is not a partial review.
+- Preserve **every operation, precondition, material consequence and blocker**. A concise
+  review is not a partial review.
 - Display exact old/new scalar values when the baseline is known. Treat unknown,
   absent, empty and cleared values distinctly. A cache observation with the wrong
   revision is not the operation's expected baseline.
@@ -50,7 +50,7 @@ Prefer native Markdown that wraps on a phone:
 - One bold linked item heading, with type name and a restrained emoji or host icon.
 - Quote-block lines for field effects. No Markdown tables or ANSI-dependent layout.
 - Blank lines between items; no repeated `Changes` heading.
-- One detail affordance and, only when required and allowed, a decision prompt.
+- One detail affordance.
 
 Escape field values as untrusted text. Suppress unintended mentions and link previews
 through the host's supported message controls; user-authored text must not become a
@@ -59,30 +59,22 @@ color-only state, and do not rely on the recipient having a Nerd Font.
 
 Size before sending. Split long reviews at item/operation boundaries and identify
 continuation messages. Never clip away later operations or assume a failed send was
-seen. Required coverage must be delivered before soliciting approval. For huge exact
-values use a detail message or downloadable text artifact, with its proposal identity.
+seen. For huge exact values use a detail message or downloadable text artifact, with its
+proposal identity.
 
-## Details and decisions
+## Details and Apply
 
 A request such as `details 104` selects content from the retained review object;
-it does not apply, approve, or silently replace the baseline with a fresh preview.
+it does not apply or silently replace the baseline with a fresh preview.
 If the retained data is unavailable, explicitly refresh the review and disclose that
 it is a new observation before continuing.
 
-The host authenticates the responding actor and correlates a decision with the exact
-workspace and proposal digest. Display only choices supplied by Twig. Do not offer
-Apply when absent. Do not infer approval from opening details, silence, a timeout,
-a renderer error, or failed message delivery.
-
-Whether explicit human approval is needed is policy, not a side effect of displaying
-a proposal. An authorized agent workflow may proceed under its existing authority;
-a human-steered workflow waits for its required human decision. No renderer may
-upgrade that authority.
-
+This presenter is review-only and must not collect an authorizer identity, invent an
+approval decision, or expose an agent-triggered Apply action. The native review page's
+human Apply action and the CLI both bind application to the exact digest being applied.
 Apply through the documented Twig lifecycle, not direct per-field writes or host-side
-ADO calls. Inspect the structured result and journal, including partial failures,
-and verify actual outcomes before announcing success. Duplicate button/reply events
-must not start independent mutation attempts.
+ADO calls. Inspect the structured result and journal, including partial failures, and
+verify actual outcomes before announcing success.
 
 ## Built-in CLI and future TUI
 
@@ -113,7 +105,7 @@ format, effective body, and saved-Bench/identity preconditions are present.
 
 - Same digest/workspace and all operations covered?
 - Before-value provenance and unavailable data represented honestly?
-- Blockers, destructive effects, preconditions and exact choices visible?
+- Blockers, destructive effects, preconditions and the digest visible?
 - Long text expandable without silently changing the review?
 - Host-specific escaping, message length and delivery checked?
 - Rendering and applying remain separate?

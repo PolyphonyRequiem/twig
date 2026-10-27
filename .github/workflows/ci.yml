@@ -68,8 +68,8 @@ jobs:
       - name: Canvas proposal Apply composition regression
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/native-apply.test.mjs .github/extensions/twig-item-companion/tests/proposal-canvas.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs .github/extensions/twig-item-companion/tests/native-executable.test.mjs .github/extensions/twig-item-companion/tests/native-executable-source.test.mjs
 
-      - name: Native captured-draft consumption regression
-        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeConsumption|FullyQualifiedName~Apply_DraftCapturedJournal_RefusesBeforeAuthorityOrConfirmation" --logger "trx;LogFileName=native-save.trx" --results-directory artifacts/test-logs/ci/native-save
+      - name: Native captured-draft and digest-apply regression
+        run: python tools/run-bounded.py --timeout 60 -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeConsumption|FullyQualifiedName~Apply_DraftCapturedJournal_RefusesBeforeConfirmation" --logger "trx;LogFileName=native-save.trx" --results-directory artifacts/test-logs/ci/native-save
 
       - name: Explicit workbench Save gesture and native transport regression
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/editing-client.test.mjs .github/extensions/twig-item-companion/tests/editing-bridge.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs
@@ -86,9 +86,9 @@ jobs:
           results = root.findall(".//t:UnitTestResult", ns)
           counters = root.find(".//t:Counters", ns)
           assert counters is not None
-          assert len(results) == len({r.attrib["testId"] for r in results}) == 10
+          assert len(results) == len({r.attrib["testId"] for r in results}) == 8
           assert all(r.attrib["outcome"] == "Passed" for r in results)
-          assert all(counters.attrib[key] == "10" for key in ("total", "executed", "passed"))
+          assert all(counters.attrib[key] == "8" for key in ("total", "executed", "passed"))
           assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted", "notExecuted"))
           assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
 
@@ -109,9 +109,10 @@ jobs:
           results = root.findall(".//t:UnitTestResult", ns)
           counters = root.find(".//t:Counters", ns)
           assert counters is not None
-          assert len(results) == len({r.attrib["testId"] for r in results}) == 13
+          assert len(results) == len({r.attrib["testId"] for r in results}) == 11
+          assert any("Apply_DraftCapturedJournal_RefusesBeforeConfirmation" in r.attrib["testName"] for r in results)
           assert all(r.attrib["outcome"] == "Passed" for r in results)
-          assert all(counters.attrib[key] == "13" for key in ("total", "executed", "passed"))
+          assert all(counters.attrib[key] == "11" for key in ("total", "executed", "passed"))
           assert all(counters.attrib[key] == "0" for key in ("failed", "error", "timeout", "aborted"))
           assert root.find("t:ResultSummary", ns).attrib["outcome"] == "Completed"
 
@@ -135,8 +136,8 @@ jobs:
           base = pathlib.Path("artifacts/test-logs/ci/github-native")
           base.mkdir(parents=True, exist_ok=True)
           groups = [
-              ("links", ["ProductionComposition_AuthorizesJournalsWritesAndReadsBackBothEndpoints"], 6),
-              ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "MissingOrWrongDigestAuthorization",
+              ("links", ["ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints"], 6),
+              ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "DigestMismatch",
                              "ObservationToken", "JournalRejects"], 9),
               ("recovery", ["UncertainOrContradictoryResponse", "DeniedReadback", "CrashRecovery"], 7),
           ]

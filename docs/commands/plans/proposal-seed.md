@@ -59,8 +59,8 @@ Do not paste the whole descriptor or use its negative alias as the identity.
 Use the active connection's organization/project, choose a unique operation
 `id`, and save the proposal inside the active workspace. Then run
 `twig proposal validate --file proposal.json -o json` (no ADO calls or journal
-writes). Preview imports the journal and presents review; only authorized
-apply can publish. See [the full authoring reference](README.md#author-a-minimal-seed-publication-proposal).
+writes). Preview imports the journal and presents review; apply with its exact
+digest can publish. See [the full authoring reference](README.md#author-a-minimal-seed-publication-proposal).
 
 ## Examples
 

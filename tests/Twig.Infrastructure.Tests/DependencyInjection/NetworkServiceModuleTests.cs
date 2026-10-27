@@ -284,20 +284,13 @@ public sealed class NetworkServiceModuleTests
             var requestCount = transport.Requests.Count;
             var pendingCallCount = pending.ReceivedCalls().Count();
             var digest = preview.Digest ?? throw new InvalidOperationException("Expected the preview digest.");
-            var authorization = new ProposalAuthorization
-            {
-                Digest = digest,
-                Mode = ProposalAuthorizationMode.Human,
-                AuthorizerIdentity = "reviewer",
-                AuthorizedAt = DateTimeOffset.UnixEpoch,
-            };
-            var apply = await lifecycle.ApplyAsync(file, digest, authorization);
+            var apply = await lifecycle.ApplyAsync(file, digest);
             apply.Failed.ShouldBeTrue();
             (apply.Error ?? throw new InvalidOperationException("Expected apply to explain its refusal."))
                 .ShouldContain("cannot be applied by this lifecycle");
-            apply.Error.ShouldContain("No confirmation, authorization, journal mutation, or provider operation was attempted.");
+            apply.Error.ShouldContain("No confirmation, journal mutation, or provider operation was attempted.");
             var reconcile = await lifecycle.ReconcileAsync(
-                file, digest, "provider-retype", PlanOutcomeKind.Retired, authorization);
+                file, digest, "provider-retype", PlanOutcomeKind.Retired);
             reconcile.Settled.ShouldBeFalse();
             (reconcile.Error ?? throw new InvalidOperationException("Expected reconciliation to explain its refusal."))
                 .ShouldContain("review-only");

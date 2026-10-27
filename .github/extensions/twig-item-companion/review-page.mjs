@@ -1,6 +1,6 @@
 export const reviewMarkup = `
     <p class="notice">Acquire once explicitly: native preview may import a local proposal journal row and
-    update last-preview ordering. It does not authorize or apply. Open, Details, Back and reload do not preview.</p>
+    update last-preview ordering. Preview is read-only against the tracker. Open, Details, Back and reload do not preview.</p>
     <form id="review-form" class="row">
       <label>Proposal file inside this checkout<input id="proposal-file" required></label>
       <label>Exact canonical SHA-256 digest<input id="proposal-digest" required pattern="[a-f0-9]{64}"></label>
@@ -12,16 +12,12 @@ export const reviewMarkup = `
     <p id="review-status" class="notice" role="status" aria-live="polite">No retained observation. Acquisition is explicit.</p>
     <div id="review-output"></div>
     <form id="apply-form">
-      <h2>Authorize and apply this exact retained proposal</h2>
+      <h2>Accept and apply this exact retained proposal</h2>
       <p class="notice">This separate action can write to the tracker. Review every effect above first.
-      An assessment, acquisition, Details or reload never grants authority. Native authorization,
-      digest, precondition and journal gates remain authoritative.</p>
-      <label>Re-enter the reviewed SHA-256 digest<input id="apply-digest" required pattern="[a-f0-9]{64}"></label>
-      <label>Authorizing identity<input id="apply-authorizer" required maxlength="512"></label>
-      <label>Authorization rationale (optional)<input id="apply-rationale" maxlength="2048"></label>
+      The Apply action is bound to the digest shown in this retained preview. A changed proposal is refused.</p>
       <label><input id="apply-consent" type="checkbox" required>
-        I authorize these exact reviewed effects, not a future replacement proposal.</label>
-      <button id="apply-proposal" type="submit" disabled>Authorize and apply (writes tracker)</button>
+        I accept and apply these exact reviewed effects, not a future replacement proposal.</label>
+      <button id="apply-proposal" type="submit" disabled>Accept and apply (writes tracker)</button>
     </form>
     <pre id="apply-outcome" role="status" aria-live="polite"></pre>`;
 
@@ -41,9 +37,6 @@ export async function reviewClient({ document, request, loadModule }) {
         retained = state.observation;
         if (captureId !== retained?.expected.captureId) {
             captureId = retained?.expected.captureId;
-            for (const selector of ["#apply-digest", "#apply-authorizer", "#apply-rationale"]) {
-                document.querySelector(selector).value = "";
-            }
             document.querySelector("#apply-consent").checked = false;
         }
         const envelope = retained ? JSON.parse(retained.rawJson) : null;
@@ -53,13 +46,13 @@ export async function reviewClient({ document, request, loadModule }) {
         applyButton.disabled = !applyReady;
         applyOutcome.textContent = state.applyAttempt
             ? `${state.applyAttempt.status === "verified" ? "Native journal: every declared operation Verified." :
-                "Not verified. Effects may already exist; inspect the native journal before any new authorization."}\n${JSON.stringify(state.applyAttempt, null, 2)}`
-            : "No Apply submitted. Authorization is explicit and bound to this retained capture.";
+                "Not verified. Effects may already exist; inspect the native journal before any new action."}\n${JSON.stringify(state.applyAttempt, null, 2)}`
+            : "No Apply submitted. The human Accept/Apply action is bound to this retained capture and digest.";
         output.replaceChildren();
         if (state.error) {
             status.textContent = `Unavailable: ${state.error}. No automatic retry. A failed or unsupported preview may already have written its local journal.`;
         } else if (state.busy) {
-            status.textContent = state.applyAttempt ? "Explicit native Apply in progress. No second action will be started." :
+            status.textContent = state.applyAttempt ? "Human-initiated native Apply in progress. No second action will be started." :
                 "Explicit native preview in progress. No second preview will be started.";
         }
         if (state.observation) {
@@ -75,7 +68,7 @@ export async function reviewClient({ document, request, loadModule }) {
         acquire.disabled = show.disabled = applyButton.disabled = true;
         applyReady = false;
         output.replaceChildren();
-        status.textContent = path === "/api/apply" ? "Applying one exact authorized proposal; tracker effects are possible." :
+        status.textContent = path === "/api/apply" ? "Human-initiated Apply for the exact retained digest; tracker effects are possible." :
             options ? "Acquiring one native preview; local journal writes are possible." : "Loading retained state only.";
         try {
             const state = await request(path, options);
@@ -105,11 +98,8 @@ export async function reviewClient({ document, request, loadModule }) {
         if (!applyReady || !retained || !document.querySelector("#apply-consent").checked) return;
         const input = {
             captureId: retained.expected.captureId,
-            confirm: document.querySelector("#apply-digest").value,
-            authorize: document.querySelector("#apply-authorizer").value,
+            confirm: retained.expected.digest,
         };
-        const rationale = document.querySelector("#apply-rationale").value;
-        if (rationale.trim()) input.rationale = rationale;
         void run("/api/apply", { method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify(input) });
     });

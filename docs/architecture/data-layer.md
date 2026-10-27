@@ -178,7 +178,8 @@ deserializes and reports missing evidence; it is never backfilled. Generic unbou
 proposals keep their existing behavior. Preview and Status inspect retained captures
 locally before generic import or process fetch, reporting structured current/stale
 issues with no authority. Generic Apply continues to refuse every capture-bound row
-before authorization or confirmation; native Save consumption is not enabled.
+before confirmation; native Save consumption remains a separate explicit human
+action over the retained digest.
 
 Capture commits with `export-incomplete` recorded in the existing journal error
 column before filesystem work. Canonical UTF-8 bytes are written to a unique

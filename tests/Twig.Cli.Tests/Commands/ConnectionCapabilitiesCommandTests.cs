@@ -251,6 +251,64 @@ public sealed class ConnectionCapabilitiesCommandTests
     }
 
     [Fact]
+    public async Task Json_GitHubSchema_ReportsFieldStateAndRuleSupportSeparately()
+    {
+        var provider = new SchemaMetadataProvider();
+
+        var (exit, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand(() => provider).ExecuteAsync("json", includeGitHubSchema: true));
+
+        exit.ShouldBe(0);
+        using var document = JsonDocument.Parse(output);
+        var schema = document.RootElement.GetProperty("schema");
+        schema.GetProperty("availability").GetString().ShouldBe("available");
+        schema.GetProperty("fields").EnumerateArray()
+            .Single(field => field.GetProperty("name").GetString() == "labels")
+            .GetProperty("support").GetString().ShouldBe("supported");
+        schema.GetProperty("fields").EnumerateArray()
+            .Single(field => field.GetProperty("name").GetString() == "assignees")
+            .GetProperty("support").GetString().ShouldBe("supported");
+        schema.GetProperty("fields").EnumerateArray()
+            .Single(field => field.GetProperty("name").GetString() == "milestone")
+            .GetProperty("support").GetString().ShouldBe("supported");
+        schema.GetProperty("states").GetProperty("values").GetArrayLength().ShouldBe(2);
+        schema.GetProperty("rules").GetProperty("process").GetProperty("support").GetString()
+            .ShouldBe("unsupported");
+        schema.GetProperty("rules").GetProperty("fields").GetProperty("support").GetString()
+            .ShouldBe("unsupported");
+        schema.GetProperty("types").GetArrayLength().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Minimal_GitHubSchema_UsesFiveColumnRows()
+    {
+        var (exit, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand(() => new SchemaMetadataProvider())
+                .ExecuteAsync("minimal", includeGitHubSchema: true));
+
+        exit.ShouldBe(0);
+        var rows = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r').Split('\t', StringSplitOptions.None))
+            .ToArray();
+        rows.ShouldAllBe(row => row.Length == 5);
+        rows.ShouldContain(row => row[0] == "field" && row[1] == "labels" && row[3] == "supported");
+        rows.ShouldContain(row => row[0] == "rule" && row[1] == "process" && row[3] == "unsupported");
+    }
+
+    [Fact]
+    public async Task GitHubSchemaOption_RefusesAdoWithoutCallingProvider()
+    {
+        var provider = Provider(ProviderCapabilityCatalog.Ado);
+
+        var (exit, stderr) = await StderrCapture.RunAsync(
+            () => CreateCommand(() => provider).ExecuteAsync("json", includeGitHubSchema: true));
+
+        exit.ShouldBe(2);
+        stderr.ShouldContain("requires the active GitHub provider");
+        await provider.DidNotReceive().ProbeCapabilitiesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Human_NamesProviderAndEachKind()
     {
         var (exit, output) = await StdoutCapture.RunAsync(
@@ -393,6 +451,37 @@ public sealed class ConnectionCapabilitiesCommandTests
             Calls++;
             return ValueTask.FromResult("fixture-github-token");
         }
+    }
+
+    private sealed class SchemaMetadataProvider : IWorkItemProvider, IProviderSchemaMetadataReader
+    {
+        public ProviderCapabilityDescriptor Capabilities => ProviderCapabilityCatalog.GitHub;
+
+        public Task<IReadOnlyList<CapabilityAvailabilityEvidence>> ProbeCapabilitiesAsync(
+            CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<CapabilityAvailabilityEvidence>>([]);
+
+        public Task<ProviderSchemaMetadata> DiscoverSchemaMetadataAsync(CancellationToken ct = default) =>
+            Task.FromResult(new ProviderSchemaMetadata(
+                "github",
+                ProviderSchemaDiscoveryAvailability.Available,
+                null,
+                [new ProviderSchemaTypeMetadata("Issue", ProviderSchemaElementSupport.Supported, null)],
+                [
+                    new("labels", "LabelConnection!", ProviderSchemaElementSupport.Supported, null),
+                    new("assignees", "UserConnection!", ProviderSchemaElementSupport.Supported, null),
+                    new("milestone", "Milestone", ProviderSchemaElementSupport.Supported, null),
+                ],
+                new ProviderSchemaStateMetadata(
+                    "IssueState", ProviderSchemaElementSupport.Supported, ["CLOSED", "OPEN"], null),
+                [
+                    new(LinkKind.ParentChild, ProviderSchemaElementSupport.Supported, ["parent", "subIssues"], null),
+                    new(LinkKind.PredecessorSuccessor, ProviderSchemaElementSupport.Supported, ["blockedBy", "blocking"], null),
+                    new(LinkKind.Related, ProviderSchemaElementSupport.Unsupported, [], "relationship-not-supported-by-adapter"),
+                ],
+                new ProviderSchemaRuleSupport(
+                    ProviderSchemaElementSupport.Unsupported, "provider-does-not-expose-process-rules",
+                    ProviderSchemaElementSupport.Unsupported, "provider-does-not-expose-field-rules")));
     }
 
     private static ServiceProvider BuildWithProvider(

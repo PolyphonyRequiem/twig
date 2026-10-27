@@ -15,8 +15,28 @@ namespace Twig.Infrastructure.GitHub;
 /// When <c>expectedRepository</c> is supplied, snapshots of issues in any other repository are refused.
 /// Normal composition supplies an immutable target resolver instead; locator names are not authority.
 /// </summary>
-internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
+internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader, IProviderSchemaMetadataReader
 {
+    private const string ProcessRulesUnsupportedReason = "provider-does-not-expose-process-rules";
+    private const string FieldRulesUnsupportedReason = "provider-does-not-expose-field-rules";
+    private const string FieldNotInSchemaReason = "field-not-in-schema";
+    private const string TypeNotInSchemaReason = "type-not-in-schema";
+    private const string RelationshipFieldsNotInSchemaReason = "relationship-fields-not-in-schema";
+    private const string RelationshipNotSupportedReason = "relationship-not-supported-by-adapter";
+
+    private static readonly string[] SchemaFieldNames =
+    [
+        "number", "title", "state", "body", "url", "issueType", "parent", "milestone", "repository",
+        "labels", "assignees", "subIssues", "blockedBy", "blocking",
+    ];
+
+    private static readonly (LinkKind Kind, string[] Fields)[] SchemaRelationships =
+    [
+        (LinkKind.ParentChild, ["parent", "subIssues"]),
+        (LinkKind.PredecessorSuccessor, ["blockedBy", "blocking"]),
+        (LinkKind.Related, []),
+    ];
+
     private readonly HttpClient _http;
     private readonly Uri _endpoint;
     private readonly string _scope;
@@ -61,6 +81,42 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
     {
         ct.ThrowIfCancellationRequested();
         return Task.FromResult(_lastReadEvidence);
+    }
+
+    public async Task<ProviderSchemaMetadata> DiscoverSchemaMetadataAsync(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var data = await ReadSchemaDataAsync(ct).ConfigureAwait(false);
+            return ParseSchemaMetadata(data);
+        }
+        catch (HttpRequestException ex)
+        {
+            var denied = ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                or HttpStatusCode.NotFound or HttpStatusCode.Gone;
+            return UnavailableSchemaMetadata(
+                denied ? ProviderSchemaDiscoveryAvailability.Unavailable : ProviderSchemaDiscoveryAvailability.Unknown,
+                denied ? "read-denied" : "read-failed");
+        }
+        catch (GitHubGraphQlReadException ex)
+        {
+            return UnavailableSchemaMetadata(
+                ex.Denied ? ProviderSchemaDiscoveryAvailability.Unavailable : ProviderSchemaDiscoveryAvailability.Unknown,
+                ex.Denied ? "read-denied" : "read-incomplete");
+        }
+        catch (GitHubCredentialUnavailableException)
+        {
+            return UnavailableSchemaMetadata(ProviderSchemaDiscoveryAvailability.Unavailable, "credential-unavailable");
+        }
+        catch (JsonException)
+        {
+            return UnavailableSchemaMetadata(ProviderSchemaDiscoveryAvailability.Unknown, "read-incomplete");
+        }
+        catch (IOException)
+        {
+            return UnavailableSchemaMetadata(ProviderSchemaDiscoveryAvailability.Unknown, "read-failed");
+        }
     }
 
     public async Task<ProviderWorkItemSnapshot> FetchSnapshotAsync(
@@ -242,23 +298,177 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.GitHubIssueGraphQlResponse, ct)
             ?? throw new JsonException("GitHub returned no response.");
-        if (result.Errors.ValueKind != JsonValueKind.Undefined)
-        {
-            if (result.Errors.ValueKind != JsonValueKind.Array)
-                throw new JsonException("GitHub returned invalid errors.");
-            if (result.Errors.GetArrayLength() != 0)
-            {
-                var denied = result.Errors.EnumerateArray().Any(e =>
-                    e.ValueKind == JsonValueKind.Object
-                        && e.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
-                        && type.GetString() is "FORBIDDEN" or "NOT_FOUND" or "UNAUTHORIZED");
-                throw new GitHubGraphQlReadException(denied);
-            }
-        }
+        EnsureNoGraphQlErrors(result.Errors);
         var node = Required(result.Data, "node");
         if (Text(node, "__typename") != "Issue" || Text(node, "id") != identity.NativeId)
             throw new JsonException("GitHub did not return the requested issue identity.");
         return node;
+    }
+
+    private async Task<JsonElement> ReadSchemaDataAsync(CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint);
+        request.Headers.UserAgent.ParseAdd("twig-cli");
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+        request.Content = new StringContent(JsonSerializer.Serialize(
+            new GitHubIssueGraphQlRequest(GitHubIssueQueries.SchemaMetadata, new Dictionary<string, string?>()),
+            TwigJsonContext.Default.GitHubIssueGraphQlRequest), Encoding.UTF8, "application/json");
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var result = await JsonSerializer.DeserializeAsync(
+            stream, TwigJsonContext.Default.GitHubIssueGraphQlResponse, ct).ConfigureAwait(false)
+            ?? throw new JsonException("GitHub returned no schema metadata response.");
+        EnsureNoGraphQlErrors(result.Errors);
+        if (result.Data.ValueKind != JsonValueKind.Object)
+            throw new JsonException("GitHub returned incomplete schema metadata.");
+        return result.Data;
+    }
+
+    private ProviderSchemaMetadata ParseSchemaMetadata(JsonElement data)
+    {
+        var issueType = Required(data, "issue");
+        var issueSupported = issueType.ValueKind == JsonValueKind.Object
+            && Text(issueType, "kind") == "OBJECT"
+            && Text(issueType, "name") == "Issue";
+        var issueFields = issueSupported ? ReadIssueFields(issueType) : new Dictionary<string, string>(StringComparer.Ordinal);
+        var issueReason = issueSupported ? null : TypeNotInSchemaReason;
+
+        var fields = SchemaFieldNames.Select(name =>
+        {
+            if (issueFields.TryGetValue(name, out var typeName))
+                return new ProviderSchemaFieldMetadata(name, typeName, ProviderSchemaElementSupport.Supported, null);
+            var reason = issueSupported ? FieldNotInSchemaReason : issueReason;
+            return new ProviderSchemaFieldMetadata(name, null, ProviderSchemaElementSupport.Unsupported, reason);
+        }).ToArray();
+
+        var rawStates = Required(data, "issueState");
+        var stateSupport = rawStates.ValueKind == JsonValueKind.Object
+            && Text(rawStates, "kind") == "ENUM"
+            && Text(rawStates, "name") == "IssueState";
+        var stateValues = stateSupport ? ReadEnumValues(rawStates) : [];
+        var stateReason = stateSupport
+            ? stateValues.Count == 0 ? "state-values-empty" : null
+            : TypeNotInSchemaReason;
+        if (stateValues.Count == 0)
+            stateSupport = false;
+
+        var relationships = SchemaRelationships.Select(relation =>
+        {
+            var support = relation.Kind == LinkKind.Related
+                ? ProviderSchemaElementSupport.Unsupported
+                : !issueSupported || relation.Fields.Any(field => !issueFields.ContainsKey(field))
+                    ? ProviderSchemaElementSupport.Unsupported
+                    : ProviderSchemaElementSupport.Supported;
+            var reason = relation.Kind == LinkKind.Related
+                ? RelationshipNotSupportedReason
+                : !issueSupported
+                    ? TypeNotInSchemaReason
+                    : support == ProviderSchemaElementSupport.Unsupported
+                        ? RelationshipFieldsNotInSchemaReason
+                        : null;
+            return new ProviderSchemaRelationshipMetadata(relation.Kind, support, relation.Fields, reason);
+        }).ToArray();
+
+        return new ProviderSchemaMetadata(
+            "github",
+            ProviderSchemaDiscoveryAvailability.Available,
+            null,
+            [new ProviderSchemaTypeMetadata("Issue", issueSupported
+                ? ProviderSchemaElementSupport.Supported : ProviderSchemaElementSupport.Unsupported, issueReason)],
+            fields,
+            new ProviderSchemaStateMetadata(
+                "IssueState",
+                stateSupport ? ProviderSchemaElementSupport.Supported : ProviderSchemaElementSupport.Unsupported,
+                stateValues,
+                stateSupport ? null : stateReason),
+            relationships,
+            UnsupportedRules());
+    }
+
+    private ProviderSchemaMetadata UnavailableSchemaMetadata(
+        ProviderSchemaDiscoveryAvailability availability,
+        string reasonCode)
+    {
+        return new ProviderSchemaMetadata(
+            "github",
+            availability,
+            reasonCode,
+            [new ProviderSchemaTypeMetadata("Issue", ProviderSchemaElementSupport.Unknown, reasonCode)],
+            SchemaFieldNames.Select(name =>
+                new ProviderSchemaFieldMetadata(name, null, ProviderSchemaElementSupport.Unknown, reasonCode)).ToArray(),
+            new ProviderSchemaStateMetadata(
+                "IssueState", ProviderSchemaElementSupport.Unknown, [], reasonCode),
+            SchemaRelationships.Select(relation =>
+                new ProviderSchemaRelationshipMetadata(
+                    relation.Kind, ProviderSchemaElementSupport.Unknown, relation.Fields, reasonCode)).ToArray(),
+            UnsupportedRules());
+    }
+
+    private static ProviderSchemaRuleSupport UnsupportedRules() =>
+        new(ProviderSchemaElementSupport.Unsupported, ProcessRulesUnsupportedReason,
+            ProviderSchemaElementSupport.Unsupported, FieldRulesUnsupportedReason);
+
+    private static Dictionary<string, string> ReadIssueFields(JsonElement issueType)
+    {
+        var rawFields = Required(issueType, "fields");
+        if (rawFields.ValueKind != JsonValueKind.Array)
+            throw new JsonException("GitHub returned invalid issue schema fields.");
+
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var field in rawFields.EnumerateArray())
+        {
+            var name = Text(field, "name");
+            if (string.IsNullOrWhiteSpace(name) || !fields.TryAdd(name, TypeSignature(Required(field, "type"))))
+                throw new JsonException("GitHub returned duplicate or invalid issue schema fields.");
+        }
+
+        return fields;
+    }
+
+    private static IReadOnlyList<string> ReadEnumValues(JsonElement enumType)
+    {
+        var rawValues = Required(enumType, "enumValues");
+        if (rawValues.ValueKind != JsonValueKind.Array)
+            throw new JsonException("GitHub returned invalid issue-state values.");
+        return rawValues.EnumerateArray()
+            .Select(value => Text(value, "name"))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string TypeSignature(JsonElement type)
+    {
+        var kind = Text(type, "kind");
+        if (kind is "NON_NULL" or "LIST")
+        {
+            var inner = TypeSignature(Required(type, "ofType"));
+            return kind == "NON_NULL" ? inner + "!" : $"[{inner}]";
+        }
+
+        var name = Text(type, "name");
+        return !string.IsNullOrWhiteSpace(name)
+            ? name
+            : throw new JsonException("GitHub returned an unnamed issue schema type.");
+    }
+
+    private static void EnsureNoGraphQlErrors(JsonElement errors)
+    {
+        if (errors.ValueKind == JsonValueKind.Undefined)
+            return;
+        if (errors.ValueKind != JsonValueKind.Array)
+            throw new JsonException("GitHub returned invalid GraphQL errors.");
+        if (errors.GetArrayLength() == 0)
+            return;
+
+        var denied = errors.EnumerateArray().Any(error =>
+            error.ValueKind == JsonValueKind.Object
+                && error.TryGetProperty("type", out var type)
+                && type.ValueKind == JsonValueKind.String
+                && type.GetString() is "FORBIDDEN" or "NOT_FOUND" or "UNAUTHORIZED");
+        throw new GitHubGraphQlReadException(denied);
     }
 
     private static JsonElement Required(JsonElement node, string property)

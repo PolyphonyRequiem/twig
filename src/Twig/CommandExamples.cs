@@ -601,6 +601,7 @@ internal static class CommandExamples
         [
             "twig connection capabilities                 Show how the active provider implements each relationship kind",
             "twig connection capabilities --output json   Emit implementation, storage and availability per kind for agents",
+            "twig connection capabilities --github-schema -o json   Discover GitHub schema support without repository value catalogs",
         ],
         ["provider discover github"] =
         [

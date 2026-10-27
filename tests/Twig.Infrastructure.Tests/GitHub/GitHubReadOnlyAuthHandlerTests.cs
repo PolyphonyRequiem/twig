@@ -25,6 +25,19 @@ public sealed class GitHubReadOnlyAuthHandlerTests
         h.Network.Requests[0].Authorization.ShouldBe("Bearer " + Token);
     }
 
+    [Fact]
+    public async Task FixedSchemaMetadata_IsAdmittedWithEmptyVariables()
+    {
+        var h = new Harness();
+        using var response = await h.SendAsync(HttpMethod.Post, Endpoint.ToString(),
+            Body(GitHubIssueQueries.SchemaMetadata, new Dictionary<string, string?>()));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        h.Tokens.Calls.ShouldBe(1);
+        h.Network.Requests.Count.ShouldBe(1);
+        h.Network.Requests[0].Authorization.ShouldBe("Bearer " + Token);
+    }
+
     [Theory]
     [InlineData("null")]
     [InlineData("[]")]
@@ -183,6 +196,8 @@ public sealed class GitHubReadOnlyAuthHandlerTests
             { "POST", Endpoint.ToString(), Body(snapshot, new Dictionary<string, string> { ["id"] = "I_1", ["input"] = "x" }) },
             { "POST", Endpoint.ToString(), Body(GitHubIssueQueries.Connection("labels"), id) },
             { "POST", Endpoint.ToString(), Body(GitHubIssueQueries.Connection("labels"), new Dictionary<string, object?> { ["id"] = "I_1", ["after"] = 3 }) },
+            { "POST", Endpoint.ToString(), Body(GitHubIssueQueries.SchemaMetadata + " ", new Dictionary<string, string?>()) },
+            { "POST", Endpoint.ToString(), Body(GitHubIssueQueries.SchemaMetadata, new Dictionary<string, string?> { ["type"] = "Issue" }) },
             { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + ",\"variables\":{\"id\":\"I_1\"},\"operationName\":\"x\"}" },
             { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + ",\"query\":\"mutation { x }\",\"variables\":{\"id\":\"I_1\"}}" },
             { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + ",\"variables\":{\"id\":\"I_1\",\"id\":\"I_2\"}}" },

@@ -18,6 +18,18 @@ namespace Twig.Infrastructure.Tests.GitHub;
 
 public sealed class GitHubNativeRelationshipTests
 {
+    [Fact]
+    public async Task AppOAuthSource_DoesNotAdmitNativeWrites()
+    {
+        using var fixture = await Fixture.CreateAsync(credentialSource: "github-app");
+        var (path, digest) = await fixture.PreviewAsync();
+        var result = await fixture.ApplyAsync(path, digest);
+        result.Failed.ShouldBeTrue();
+        result.Operations.Single().Error!.ShouldContain("read-only admission is unchanged");
+        fixture.Network.Writes.ShouldBe(0);
+        (await fixture.Journal.GetAsync(digest))!.Origin!.Method.ShouldBe("github-github-app");
+    }
+
     [Theory]
     [InlineData("parent", true)]
     [InlineData("parent", false)]
@@ -211,7 +223,8 @@ public sealed class GitHubNativeRelationshipTests
         private readonly ExternalWorkItemIdentity _item = new("github", "https://api.github.com", "I_item");
         private readonly ExternalWorkItemIdentity _peer = new("github", "https://api.github.com", "I_peer");
 
-        internal static async Task<Fixture> CreateAsync(string relation = "parent", bool add = true)
+        internal static async Task<Fixture> CreateAsync(
+            string relation = "parent", bool add = true, string? credentialSource = null)
         {
             var fixture = new Fixture();
             await fixture.Target.BindAsync();
@@ -222,6 +235,7 @@ public sealed class GitHubNativeRelationshipTests
             {
                 Provider = "github", GitHub = new() { Host = "github.com", Repository = "owner/repo" },
                 GitHubAccount = "selected-account",
+                GitHubCredentialSource = credentialSource,
             };
             var services = new ServiceCollection();
             services.AddTwigInfrastructure(config, fixture.Target.Paths.TwigDir, fixture.Target.Root);

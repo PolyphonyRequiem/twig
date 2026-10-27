@@ -9,16 +9,21 @@ namespace Twig.Infrastructure.GitHub;
 internal enum GitHubDeviceScope { PublicRepositories, PrivateRepositories }
 
 internal sealed class GitHubDeviceFlowException(string reason)
-    : Exception($"GitHub device authorization failed: {reason}.");
+    : InvalidOperationException($"GitHub device authorization failed: {reason}.");
 
 internal sealed record GitHubDeviceInstructions(Uri VerificationUri, string UserCode);
 
 /// <summary>In-memory protocol result only; not principal attestation, storage or write authority.</summary>
-internal sealed class GitHubDeviceGrant(string accessToken, string scope, long? expiresIn)
+internal sealed class GitHubDeviceGrant(
+    string accessToken, string scope, long? expiresIn,
+    string? refreshToken = null, long? refreshTokenExpiresIn = null, DateTimeOffset? requestedAt = null)
 {
     internal string AccessToken { get; } = accessToken;
     internal string Scope { get; } = scope;
     internal long? ExpiresIn { get; } = expiresIn;
+    internal string? RefreshToken { get; } = refreshToken;
+    internal long? RefreshTokenExpiresIn { get; } = refreshTokenExpiresIn;
+    internal DateTimeOffset? RequestedAt { get; } = requestedAt;
     public override string ToString() => nameof(GitHubDeviceGrant);
 }
 
@@ -68,6 +73,54 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
             GitHubDeviceScope.PrivateRepositories => "repo",
             _ => throw new ArgumentOutOfRangeException(nameof(scope)),
         };
+        return await RunCoreAsync(ClientId, requestedScope, false, reportInstructions, ct).ConfigureAwait(false);
+    }
+
+    internal Task<GitHubDeviceGrant> RunAppAsync(string clientId,
+        Action<GitHubDeviceInstructions> reportInstructions, CancellationToken ct = default)
+    {
+        ValidateAppClientId(clientId);
+        return RunCoreAsync(clientId, "offline_access", true, reportInstructions, ct);
+    }
+
+    internal async Task<GitHubDeviceGrant> RefreshAppAsync(
+        string clientId, string refreshToken, CancellationToken ct = default)
+    {
+        ValidateAppClientId(clientId);
+        if (!AppToken(refreshToken, "ghr_"))
+            throw new GitHubDeviceFlowException("invalid stored refresh credential; sign in again");
+        var requestedAt = _clock.GetUtcNow();
+        var response = await SendAsync(TokenEndpoint, new()
+        {
+            ["client_id"] = clientId,
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+        }, TwigJsonContext.Default.GitHubDeviceTokenResponse, RequestBudget, ct).ConfigureAwait(false);
+        return AppGrant(response, requestedAt);
+    }
+
+    internal async Task<GitHubAppActor> ObserveAppActorAsync(string accessToken, CancellationToken ct)
+    {
+        if (!AppToken(accessToken, "ghu_"))
+            throw new GitHubDeviceFlowException("invalid app credential");
+        var actor = await SendAsync(new("https://api.github.com/user"), null,
+            TwigJsonContext.Default.GitHubAppActor, RequestBudget, ct, accessToken).ConfigureAwait(false);
+        if (!Canonical(actor.NodeId) || actor.NodeId!.Length > 256 || actor.NodeId.Any(char.IsWhiteSpace)
+            || !Canonical(actor.Login) || actor.Login!.Length > 100 || actor.Login.Any(char.IsWhiteSpace))
+            throw new GitHubDeviceFlowException("authenticated actor observation is incomplete");
+        return actor;
+    }
+
+    internal static void ValidateAppClientId(string clientId)
+    {
+        if (!clientId.StartsWith("Iv", StringComparison.Ordinal) || clientId.Length is < 10 or > 100
+            || clientId.Any(c => !char.IsAsciiLetterOrDigit(c)))
+            throw new GitHubDeviceFlowException("configure the registered GitHub App client ID before sign-in");
+    }
+
+    private async Task<GitHubDeviceGrant> RunCoreAsync(string clientId, string requestedScope,
+        bool app, Action<GitHubDeviceInstructions> reportInstructions, CancellationToken ct)
+    {
         ArgumentNullException.ThrowIfNull(reportInstructions);
         ct.ThrowIfCancellationRequested();
         // Include the initial request in the monotonic total, never restart expiry per poll.
@@ -75,7 +128,7 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
         var total = TimeSpan.FromMinutes(15);
         var code = await SendAsync(CodeEndpoint, new()
         {
-            ["client_id"] = ClientId,
+            ["client_id"] = clientId,
             ["scope"] = requestedScope,
         }, TwigJsonContext.Default.GitHubDeviceAuthorizationResponse, total, ct).ConfigureAwait(false);
         if (code.Error is not null || !Canonical(code.DeviceCode) || code.DeviceCode!.Length > 256
@@ -97,16 +150,17 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
                 throw new GitHubDeviceFlowException("device authorization expired");
             await _delay(interval, ct).ConfigureAwait(false);
             remaining = EnsureRemaining(started, total);
+            var requestedAt = _clock.GetUtcNow();
             var token = await SendAsync(TokenEndpoint, new()
             {
-                ["client_id"] = ClientId,
+                ["client_id"] = clientId,
                 ["device_code"] = code.DeviceCode!,
                 ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code",
             }, TwigJsonContext.Default.GitHubDeviceTokenResponse, remaining, ct).ConfigureAwait(false);
             EnsureRemaining(started, total);
             if (token.Error is not null)
             {
-                if (token.AccessToken is not null)
+                if (token.AccessToken is not null || token.RefreshToken is not null)
                     throw new GitHubDeviceFlowException("ambiguous token response");
                 switch (token.Error)
                 {
@@ -114,8 +168,15 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
                         continue;
                     case "slow_down":
                         interval += TimeSpan.FromSeconds(5);
+                        if (token.Interval is { } serverInterval)
+                        {
+                            if (serverInterval is < 1 or > 900)
+                                throw new GitHubDeviceFlowException("invalid polling interval");
+                            interval = TimeSpan.FromSeconds(Math.Max(interval.TotalSeconds, serverInterval));
+                        }
                         continue;
                     case "expired_token":
+                    case "token_expired":
                         throw new GitHubDeviceFlowException("device authorization expired");
                     case "access_denied":
                         throw new GitHubDeviceFlowException("sign-in declined");
@@ -123,6 +184,8 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
                         throw new GitHubDeviceFlowException("authorization server refused the request");
                 }
             }
+            if (app)
+                return AppGrant(token, requestedAt);
             if (!Canonical(token.AccessToken) || token.AccessToken!.Length > 4096
                 || token.AccessToken!.Any(char.IsWhiteSpace)
                 || !string.Equals(token.TokenType, "bearer", StringComparison.OrdinalIgnoreCase)
@@ -133,6 +196,23 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
         }
     }
 
+    private static GitHubDeviceGrant AppGrant(GitHubDeviceTokenResponse token, DateTimeOffset requestedAt)
+    {
+        if (token.Error is not null || !AppToken(token.AccessToken, "ghu_")
+            || !AppToken(token.RefreshToken, "ghr_")
+            || token.ExpiresIn is not (>= 1 and <= 28800)
+            || token.RefreshTokenExpiresIn is not (>= 1 and <= 15897600)
+            || !string.Equals(token.TokenType, "bearer", StringComparison.OrdinalIgnoreCase)
+            || token.Scope != "")
+            throw new GitHubDeviceFlowException("invalid or refused expiring app grant; sign in again");
+        return new(token.AccessToken!, "", token.ExpiresIn, token.RefreshToken, token.RefreshTokenExpiresIn, requestedAt);
+    }
+
+    internal static bool AppToken(string? value, string prefix) =>
+        value is { Length: <= 4096 } && value.Length > prefix.Length
+        && value.StartsWith(prefix, StringComparison.Ordinal)
+        && value.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
+
     private TimeSpan EnsureRemaining(long started, TimeSpan total)
     {
         var remaining = total - _clock.GetElapsedTime(started);
@@ -140,15 +220,18 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
             : throw new GitHubDeviceFlowException("device authorization expired");
     }
 
-    private async Task<T> SendAsync<T>(Uri endpoint, Dictionary<string, string> fields,
-        JsonTypeInfo<T> type, TimeSpan remaining, CancellationToken ct)
+    private async Task<T> SendAsync<T>(Uri endpoint, Dictionary<string, string>? fields,
+        JsonTypeInfo<T> type, TimeSpan remaining, CancellationToken ct, string? bearer = null)
     {
         using var budget = new CancellationTokenSource(remaining < RequestBudget ? remaining : RequestBudget, _clock);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
-        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        using var request = new HttpRequestMessage(fields is null ? HttpMethod.Get : HttpMethod.Post, endpoint);
         request.Headers.Accept.ParseAdd("application/json");
         request.Headers.UserAgent.ParseAdd("twig-cli");
-        request.Content = new FormUrlEncodedContent(fields);
+        if (fields is not null)
+            request.Content = new FormUrlEncodedContent(fields);
+        if (bearer is not null)
+            request.Headers.Authorization = new("Bearer", bearer);
         try
         {
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token)
@@ -216,6 +299,12 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
     public void Dispose() => _http.Dispose();
 }
 
+internal sealed class GitHubAppActor
+{
+    [JsonPropertyName("node_id")] public string? NodeId { get; set; }
+    [JsonPropertyName("login")] public string? Login { get; set; }
+}
+
 internal sealed class GitHubDeviceAuthorizationResponse
 {
     [JsonPropertyName("device_code")] public string? DeviceCode { get; set; }
@@ -233,6 +322,9 @@ internal sealed class GitHubDeviceTokenResponse
     [JsonPropertyName("token_type")] public string? TokenType { get; set; }
     [JsonPropertyName("scope")] public string? Scope { get; set; }
     [JsonPropertyName("expires_in")] public long? ExpiresIn { get; set; }
+    [JsonPropertyName("refresh_token")] public string? RefreshToken { get; set; }
+    [JsonPropertyName("refresh_token_expires_in")] public long? RefreshTokenExpiresIn { get; set; }
+    [JsonPropertyName("interval")] public int? Interval { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
     public override string ToString() => nameof(GitHubDeviceTokenResponse);
 }

@@ -16,6 +16,7 @@ selected account. This is integration-branch behavior, not a partial release.
 
 ```text
 twig auth status [-o <format>]
+twig auth status --provider github --identity <alias> [--client-id <registered-app-client-id>] [-o <format>]
 twig connection status [-o <format>]
 twig auth identities [-o <format>]
 twig connection list [--org <organization> --project <project>] [-o <format>]
@@ -30,6 +31,22 @@ twig connection reconcile-write --intent <id> --confirm <digest> --rationale <ba
 ```
 
 ## Behavior
+
+With `--provider github`, status inspects only the explicitly selected local
+GitHub App identity. `--identity` and `--client-id` default to user-local
+`github.oauthidentity` and `github.appclientid`; missing selection refuses.
+Output contains host, public app client ID, identity alias, immutable actor ID,
+login locator, access/refresh expiries and one of `signed-out`, `signed-in`,
+`refresh-required` or `needs-login`. Status never contacts GitHub, refreshes,
+selects another credential, or outputs access/refresh tokens. `signed-in` is
+local saved-state information, **not** fresh permission/installation evidence
+or write admission. A refresh-pending uncertainty marker requires explicit
+sign-in, not another refresh attempt.
+
+`auth logout --provider github` deletes only the selected local pair; it does not
+revoke GitHub authorization or uninstall the app. See [GitHub enrollment and
+registration](auth-login.md#github-app-oauth-enrollment). The following binding
+diagnostics describe the unchanged default `--provider ado`.
 
 Status validates the worktree attachment, declared endpoint and effective local
 pin or central binding default. It reports organization/project/team, method, alias, stable principal

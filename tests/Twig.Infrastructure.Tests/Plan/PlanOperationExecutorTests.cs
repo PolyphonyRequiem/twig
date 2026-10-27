@@ -77,7 +77,7 @@ public sealed class PlanOperationExecutorTests
                 return Task.FromResult(_recoveryBehaviour(seedId));
             });
         _executor = new PlanOperationExecutor(
-            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions, publisher);
+            AdoWriterFixture.Wrap(_ado, _revisionBound), AdoWriterFixture.Codec, _fieldDefinitions, publisher);
     }
 
     private PlanOperationExecutor CreateProductionSeedExecutor(
@@ -99,7 +99,7 @@ public sealed class PlanOperationExecutorTests
             _publishIntent,
             ReferenceProfileBuilder.SprintPolicy());
         return new PlanOperationExecutor(
-            AdoWriterFixture.Wrap(_ado), AdoWriterFixture.Codec, _revisionBound, _fieldDefinitions,
+            AdoWriterFixture.Wrap(_ado, _revisionBound), AdoWriterFixture.Codec, _fieldDefinitions,
             orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap, _publishIntent,
             Substitute.For<IPendingChangeReader>(), unitOfWork);
     }
@@ -123,6 +123,47 @@ public sealed class PlanOperationExecutorTests
             .Returns(Task.FromResult<FieldDefinition?>(
                 new FieldDefinition(referenceName, referenceName, dataType, IsReadOnly: false)));
     }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("remove")]
+    [InlineData("delete")]
+    public async Task RevisionBoundMutation_MissingRevision_RefusesBeforeTransport(string kind)
+    {
+        PlanOperationDefinition operation = kind switch
+        {
+            "add" => new AddLinkOperation
+            {
+                Id = "missing-revision", WorkItemId = 42, ExpectedRevision = 0,
+                Relation = "related", OtherId = 43,
+            },
+            "remove" => new RemoveLinkOperation
+            {
+                Id = "missing-revision", WorkItemId = 42, ExpectedRevision = 0,
+                Relation = "related", OtherId = 43,
+            },
+            _ => new DeleteOperation
+            {
+                Id = "missing-revision", WorkItemId = 42, ExpectedRevision = 0,
+            },
+        };
+        _ado.ClearReceivedCalls();
+        _revisionBound.ClearReceivedCalls();
+
+        var result = await _executor.ExecuteAsync(operation, CancellationToken.None);
+
+        result.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+        result.Error!.ShouldStartWith("revision-precondition-refused:");
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Executor_DoesNotDependOnAdoRevisionBoundMutationService()
+        => typeof(PlanOperationExecutor)
+            .GetConstructors(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            .SelectMany(constructor => constructor.GetParameters())
+            .ShouldNotContain(parameter => parameter.ParameterType == typeof(IRevisionBoundAdoWorkItemService));
 
     /// <summary>
     /// Stubs a field ADO declares as an identity. Deliberately typed <c>string</c>: that is

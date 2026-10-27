@@ -165,7 +165,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _paths = paths;
         _clock = clock;
         _executor = new PlanOperationExecutor(
-            adoService, revisionCodec, revisionBound, fieldDefinitionStore, seedPublish,
+            adoService, revisionCodec, fieldDefinitionStore, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent, pendingReader, unitOfWork,
             discussionWriter, discussionReader, discussionAdmission);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);

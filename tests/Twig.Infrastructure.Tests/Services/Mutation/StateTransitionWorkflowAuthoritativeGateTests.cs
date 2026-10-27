@@ -200,7 +200,7 @@ public sealed class StateTransitionWorkflowAuthoritativeGateTests
         // surface and the revision-bound surface.
         var workflow = new StateTransitionWorkflow(
             Substitute.For<IWorkItemRepository>(),
-            new AdoProviderWorkItemWriter(client),
+            new AdoProviderWorkItemWriter(client, client),
             pending,
             processConfig,
             parentPropagation: null,

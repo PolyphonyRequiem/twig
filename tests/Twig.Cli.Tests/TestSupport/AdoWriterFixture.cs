@@ -29,7 +29,7 @@ internal static class AdoWriterFixture
     {
         ado.PatchAsync(default, default!, default, default)
             .ReturnsForAnyArgs(ci => Task.FromResult(ci.ArgAt<int>(2) + 1));
-        return new AdoProviderWorkItemWriter(ado);
+        return new AdoProviderWorkItemWriter(ado, Substitute.For<IRevisionBoundAdoWorkItemService>());
     }
 
     /// <summary>The single ADO revision codec.</summary>

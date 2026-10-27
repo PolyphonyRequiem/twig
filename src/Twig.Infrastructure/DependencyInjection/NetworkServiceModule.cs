@@ -142,7 +142,9 @@ public static class NetworkServiceModule
         services.AddSingleton<IProviderWorkItemWriter>(sp =>
         {
             RequireAdoBoundary(sp, "provider mutation boundary");
-            return new AdoProviderWorkItemWriter(sp.GetRequiredService<IAdoWorkItemService>());
+            return new AdoProviderWorkItemWriter(
+                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<IRevisionBoundAdoWorkItemService>());
         });
         // Converts the cache's ADO int revision to and from the opaque token. It only exists
         // at the ADO compatibility boundary; a non-ADO workspace refuses here with the port's

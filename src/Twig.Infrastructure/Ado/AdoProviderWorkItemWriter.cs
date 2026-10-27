@@ -75,7 +75,9 @@ internal sealed class AdoProviderRevisionCodec : IProviderRevisionCodec
 /// revision precondition before any transport call, then delegates to
 /// <see cref="IAdoWorkItemService"/> unchanged, so ADO requests stay byte-identical.
 /// </summary>
-internal sealed class AdoProviderWorkItemWriter(IAdoWorkItemService ado)
+internal sealed class AdoProviderWorkItemWriter(
+    IAdoWorkItemService ado,
+    IRevisionBoundAdoWorkItemService revisionBound)
     : IProviderWorkItemWriter, IExecutionPolicyFactReader
 {
     private static AdoProviderRevisionCodec Codec => AdoProviderRevisionCodec.Instance;
@@ -99,6 +101,33 @@ internal sealed class AdoProviderWorkItemWriter(IAdoWorkItemService ado)
 
     public Task AddCommentAsync(int id, string text, CancellationToken ct = default)
         => ado.AddCommentAsync(id, text, ct);
+
+    public async Task<ProviderRevisionToken> AddLinkAtRevisionAsync(
+        int sourceId, string relationType, int targetId,
+        ProviderRevisionPrecondition expected, CancellationToken ct = default)
+    {
+        var revision = Codec.DecodePrecondition(expected);
+        var written = await revisionBound.AddLinkAtRevisionAsync(
+            sourceId, relationType, targetId, revision, ct).ConfigureAwait(false);
+        return Codec.EncodeWrittenRevision(written);
+    }
+
+    public async Task<ProviderRevisionToken> RemoveLinkAtRevisionAsync(
+        int sourceId, string relationType, int targetId,
+        ProviderRevisionPrecondition expected, CancellationToken ct = default)
+    {
+        var revision = Codec.DecodePrecondition(expected);
+        var written = await revisionBound.RemoveLinkAtRevisionAsync(
+            sourceId, relationType, targetId, revision, ct).ConfigureAwait(false);
+        return Codec.EncodeWrittenRevision(written);
+    }
+
+    public Task DeleteAtRevisionAsync(
+        int id, ProviderRevisionPrecondition expected, CancellationToken ct = default)
+    {
+        var revision = Codec.DecodePrecondition(expected);
+        return revisionBound.DeleteAtRevisionAsync(id, revision, ct);
+    }
 
     public Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
         => ado.AddLinkAsync(sourceId, targetId, adoLinkType, ct);

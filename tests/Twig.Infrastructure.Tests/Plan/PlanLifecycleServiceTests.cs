@@ -57,7 +57,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
     public PlanLifecycleServiceTests()
     {
-        _writer = AdoWriterFixture.Wrap(_ado);
+        _writer = AdoWriterFixture.Wrap(_ado, _revisionBound);
         _repoRoot = Path.Combine(Path.GetTempPath(), $"twig-plan-lc-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_repoRoot);
         var twigDir = Path.Combine(_repoRoot, ".twig");
@@ -1114,6 +1114,20 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     private sealed class ForeignPreconditionWriter(IProviderWorkItemWriter inner, int foreignItemId)
         : IProviderWorkItemWriter
     {
+        public Task<ProviderRevisionToken> AddLinkAtRevisionAsync(
+            int sourceId, string relationType, int targetId,
+            ProviderRevisionPrecondition expected, CancellationToken ct = default)
+            => inner.AddLinkAtRevisionAsync(sourceId, relationType, targetId, expected, ct);
+
+        public Task<ProviderRevisionToken> RemoveLinkAtRevisionAsync(
+            int sourceId, string relationType, int targetId,
+            ProviderRevisionPrecondition expected, CancellationToken ct = default)
+            => inner.RemoveLinkAtRevisionAsync(sourceId, relationType, targetId, expected, ct);
+
+        public Task DeleteAtRevisionAsync(
+            int id, ProviderRevisionPrecondition expected, CancellationToken ct = default)
+            => inner.DeleteAtRevisionAsync(id, expected, ct);
+
         public Task<ProviderRevisionToken> PatchAsync(int id, IReadOnlyList<FieldChange> changes,
             ProviderRevisionPrecondition expected, CancellationToken ct = default)
             => inner.PatchAsync(id, changes,

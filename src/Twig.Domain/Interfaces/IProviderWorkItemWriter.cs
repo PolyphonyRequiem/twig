@@ -4,21 +4,22 @@ namespace Twig.Domain.Interfaces;
 
 /// <summary>
 /// The provider mutation boundary (Epic #1167, Feature #1178). Update, state, note, link,
-/// pending-change flush and proposal batch apply depend on this contract rather than on a
+/// pending-change flush and proposal batch/link/delete apply depend on this contract rather than on a
 /// concrete provider client, and production composition resolves it from the workspace's
 /// selected provider.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The members are the field-patch, comment and link operations. The ADO adapter
-/// (<c>AdoProviderWorkItemWriter</c>) delegates to <see cref="IAdoWorkItemService"/> and keeps
-/// byte-identical requests. Create, delete, artifact links, publish-intent recovery and
+/// The members are field-patch, comment, link and strict delete operations. The ADO adapter
+/// (<c>AdoProviderWorkItemWriter</c>) delegates to <see cref="IAdoWorkItemService"/> and
+/// <see cref="IRevisionBoundAdoWorkItemService"/> and keeps byte-identical requests.
+/// Create, artifact links, publish-intent recovery and
 /// history stay ADO-only on <see cref="IAdoWorkItemService"/> and fail closed for other
 /// providers.
 /// </para>
 /// <para>
-/// <see cref="PatchAsync"/> is bound to an opaque <see cref="ProviderRevisionPrecondition"/>
-/// and returns the provider's opaque post-write revision. An implementation must refuse a
+/// Patch, strict link and strict delete carry an opaque <see cref="ProviderRevisionPrecondition"/>.
+/// Patch and strict link return the provider's opaque post-write revision. An implementation must refuse a
 /// missing precondition, one minted by another provider, or a non-canonical token with
 /// <see cref="ProviderRevisionPreconditionRefusedException"/> <b>before any transport
 /// call</b>. Every member still takes the local integer id; the neutral store's item identity
@@ -37,6 +38,26 @@ public interface IProviderWorkItemWriter : IProviderWorkItemReader
     /// The precondition is missing, foreign or non-canonical. Raised before any transport call.
     /// </exception>
     Task<ProviderRevisionToken> PatchAsync(int id, IReadOnlyList<FieldChange> changes, ProviderRevisionPrecondition expected, CancellationToken ct = default);
+
+    /// <summary>
+    /// Adds a relation at exactly <paramref name="expected"/> without retry or rebase.
+    /// Refuses missing, foreign or non-canonical preconditions before transport.
+    /// </summary>
+    Task<ProviderRevisionToken> AddLinkAtRevisionAsync(int sourceId, string relationType, int targetId, ProviderRevisionPrecondition expected, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes a relation at exactly <paramref name="expected"/> without retry or rebase.
+    /// Refuses missing, foreign or non-canonical preconditions before transport.
+    /// A missing relation is a determinate failure, not a successful no-op.
+    /// </summary>
+    Task<ProviderRevisionToken> RemoveLinkAtRevisionAsync(int sourceId, string relationType, int targetId, ProviderRevisionPrecondition expected, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes an item at exactly <paramref name="expected"/> without retry or rebase.
+    /// Refuses missing, foreign or non-canonical preconditions before transport.
+    /// An already absent item is idempotent success.
+    /// </summary>
+    Task DeleteAtRevisionAsync(int id, ProviderRevisionPrecondition expected, CancellationToken ct = default);
 
     Task AddCommentAsync(int id, string text, CancellationToken ct = default);
 

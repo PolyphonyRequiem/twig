@@ -112,7 +112,7 @@ internal sealed class PolicyFreshnessFixture : IDisposable
         new PlanDocumentParser(), Journal,
         _services.GetRequiredService<IPendingChangeReader>(),
         _services.GetRequiredService<IFieldDefinitionStore>(),
-        new AdoProviderWorkItemWriter(_ado), AdoProviderRevisionCodec.Instance, _ado,
+        new AdoProviderWorkItemWriter(_ado, _ado), AdoProviderRevisionCodec.Instance, _ado,
         _services.GetRequiredService<SeedPublishOrchestrator>(), _items,
         _services.GetRequiredService<ISeedLinkRepository>(),
         _services.GetRequiredService<IStagedIdentityRegistry>(),

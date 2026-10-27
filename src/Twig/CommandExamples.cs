@@ -336,6 +336,13 @@ internal static class CommandExamples
             "twig workspace --tree         Show the full backlog hierarchy",
             "twig workspace --all --tree  Show all team items as a tree hierarchy",
         ],
+        ["workspace migrate"] =
+        [
+            "twig workspace migrate -o json  Review movement, backups and rollback preconditions without cutover",
+            "twig workspace migrate --confirm <digest>  Explicitly authorize the exact reviewed admitted-ADO cutover",
+            "twig workspace migrate --rollback --confirm <digest>  Return to protected originals when parity still holds",
+            "twig workspace migrate --cancel-intent <intent-id> --confirm <digest>  Cancel preparation before a fresh review",
+        ],
         ["workspace sync"] =
         [
             "twig workspace sync                    Pull only the current Bench scope, without flushing edits",

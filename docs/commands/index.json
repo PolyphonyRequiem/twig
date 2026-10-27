@@ -88,6 +88,14 @@
     "path": "workspace/workspace.md"
   },
   {
+    "command": "workspace migrate",
+    "group": "workspace",
+    "summary": "Review or explicitly confirm preservation of an admitted ADO workspace.",
+    "stability": "experimental",
+    "mutates": "local",
+    "path": "workspace/migrate.md"
+  },
+  {
     "command": "workspace sync",
     "group": "workspace",
     "summary": "Pull current Bench selector members and permitted relationship candidates without flushing edits.",

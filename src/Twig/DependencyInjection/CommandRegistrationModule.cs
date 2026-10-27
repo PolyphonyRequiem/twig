@@ -226,6 +226,16 @@ public static class CommandRegistrationModule
             sp.GetService<Twig.Rendering.RendererFactory>(),
             sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>()));
         services.AddSingleton<ConnectionMigrateCommand>();
+        services.AddSingleton(sp => new WorkspaceMigrationCommand(
+            () =>
+            {
+                var store = sp.GetRequiredService<Twig.Infrastructure.Persistence.SqliteCacheStore>();
+                var scope = Twig.Infrastructure.Persistence.PreservationMigrationService.ReadCachedResourceScope(store);
+                return new Twig.Infrastructure.Persistence.PreservationMigrationService(
+                    store, sp.GetRequiredService<TwigPaths>(), scope);
+            },
+            sp.GetRequiredService<TwigPaths>(),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>(), sp.GetService<ITelemetryClient>()));
         services.AddSingleton<ConnectionPinCommand>();
         services.AddSingleton<ConnectionWritesCommand>();
         services.AddSingleton<ConnectionDefaultCommand>();

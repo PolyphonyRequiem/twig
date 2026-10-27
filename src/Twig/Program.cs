@@ -1668,6 +1668,16 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionMigrateCommand>().ExecuteAsync(identity, method, confirm, output, ct);
 
+    /// <summary>Report preservation movement and rollback conditions for an admitted ADO workspace. Cutover requires its exact reviewed digest; never initializes or publishes provider work.</summary>
+    /// <param name="confirm">Exact lowercase preview digest. Omit for read-only inspection; reuse the original digest to resume interrupted preparation.</param>
+    /// <param name="rollback">Return to protected original readers only if generation, parity and coverage still match; requires confirm.</param>
+    /// <param name="cancelIntent">Exact preparing intent ID to cancel without deleting originals or backups; requires its original confirm digest.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("workspace migrate")]
+    public Task<int> WorkspaceMigrate(string? confirm = null, bool rollback = false, string? cancelIntent = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => services.GetRequiredService<WorkspaceMigrationCommand>().ExecuteAsync(confirm, rollback, cancelIntent, output, ct);
+
     /// <summary>Preview a guarded checkout-local binding pin, or apply the exact preview. Unfinished work and in-flight operations block switching; affected live hosts require explicit reconnect.</summary>
     /// <param name="binding">Registered binding ID for the declared endpoint; required. Inspect connection list for IDs.</param>
     /// <param name="confirm">Exact eligible preview digest. Omit for read-only preview; reuse the original digest to recover an interrupted native intent.</param>
@@ -1978,6 +1988,7 @@ internal static class GroupedHelp
         "workspace",
         "ws",
         "workspace sync",
+        "workspace migrate",
         "workspace track",
         "workspace track-tree",
         "workspace untrack",

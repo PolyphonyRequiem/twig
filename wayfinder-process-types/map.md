@@ -170,12 +170,28 @@ Two shapes fall straight out of that matrix and are ticketed rather than assumed
    partial answer 2): the wayfinder cluster is REAL, not drift.** Those four types are exactly
    the `wayfinder` skill's four ticket types, and the three fields describe *how well a question
    was answered* — a spec that was implemented. `Map` joins them as their **container**. Ticket
-   [0007](tickets/0007-fields-and-gates.md) inherits this frame rather than a blank sheet, and
-   should ask which *other* types need a close gate — not whether this one belongs.
-2. 🔴 **Three near-homonyms — `Maturity`, `MaturityNote`, `WayfinderDecisionMaturity` — with
-   no type carrying more than one.** Three names for one concept split across two clusters is
-   the shape of accreted drift, and it is exactly the kind of thing a new type inherits by
-   copying its nearest neighbour. Also in ticket 0007.
+   [0007](tickets/0007-fields-and-gates.md) inherits this frame rather than a blank sheet and
+   records the measured field/gate disposition without adding, removing, or consolidating fields.
+2. **Three near-homonyms — `Maturity`, `MaturityNote`, `WayfinderDecisionMaturity` — with no
+   type carrying more than one.** Ticket [0007](tickets/0007-fields-and-gates.md) records the
+   2026-10-27 ruling to preserve all three fields and the measured matrix without additions,
+   removals, or consolidation. The semantic count is an ADO-workflow detail, not a Twig product
+   contract; it is out of scope here and is not inferred from the placement.
+
+Ticket [0007](tickets/0007-fields-and-gates.md) also records that existing `makeRequired` rules
+are advisory guardrails, not guarantees; adds no other close gates; retains the existing
+`VerificationMode` picklist; and records an **Acceptable** customer-zero verdict. The ruling
+covers measured existing types only; any later type accepted by 0004 must have its fields
+specified deliberately rather than inherited by proximity.
+
+Ticket [0008](tickets/0008-form-layouts.md) records the current Hyperbright layouts for all 12
+visible types: a custom Details page, inherited History, Links, and Attachments pages, Outcome
+and Status groups, and a Planning group on Task only. It records the measured placement of
+gate-related fields without moving or normalizing them, and zero contribution rows across the
+12 layouts. Twig's generic projection receives layouts per process and per type while preserving
+page → section → group → control, the three field states, contribution flags, and `ReadOnly` as
+reported rather than enforced. These ADO layouts do not establish a Twig template or a future
+type-placement rule; that specific process-policy question remains open.
 
 **The Bug→Done close gate** is `Custom.FalsificationCriteria` (html) **and**
 `Custom.VerificationMode` (string). The mechanism is pinned by ticket 0009's memo: **two custom

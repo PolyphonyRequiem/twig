@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
@@ -1451,6 +1452,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 // The [9] audit columns are dropped too: a genuine v7 database never had
                 // them, and leaving them would make the reopen's ADD COLUMN collide. The same
                 // holds for the [13] neutral tables: dropping them removes [14]'s columns too.
+                DraftProposalCaptureStoreTests.RemovePost16Schema(conn);
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
@@ -1657,6 +1659,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 var conn = store.GetConnection();
                 // A genuine v8 database never had the [13] neutral tables either; dropping them
                 // removes [14]'s columns, so the reopen replays [13] and [14] as a real upgrade.
+                DraftProposalCaptureStoreTests.RemovePost16Schema(conn);
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
@@ -1839,6 +1842,438 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         journal.Rationale.ShouldBe("original");
         journal.ReviewModelJson.ShouldBe("""{"first":true}""");
         journal.AuthorizedAt.ShouldBe(first.AuthorizedAt);
+    }
+
+    [Theory]
+    [InlineData("preparing")]
+    [InlineData("active")]
+    [InlineData("rolled-back")]
+    public void Migration18RefusesRetainedV17IntentBeforeChangingSchemaOrHistory(string state)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"twig-admission-upgrade-fence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var connectionString = $"Data Source={Path.Combine(directory, "twig.db")};Pooling=False";
+        Dictionary<string, string[]> before;
+        try
+        {
+            using (var store = new SqliteCacheStore(connectionString))
+            {
+                using var prepare = store.GetConnection().CreateCommand();
+                prepare.CommandText = """
+                    INSERT INTO pending.preservation_migrations
+                        (intent_id,slot,source_generation,source_digest,state,coverage_version,backup_directory)
+                    VALUES ('retained-intent',1,'retained-generation','retained-digest',$state,1,'retained-backup');
+                    INSERT INTO pending.workspace_context(key,value) VALUES ('opaque.standing','unchanged');
+                    ALTER TABLE pending.proposal_journals DROP COLUMN execution_admission_json;
+                    PRAGMA pending.user_version=17;
+                    """;
+                prepare.Parameters.AddWithValue("$state", state);
+                prepare.ExecuteNonQuery();
+                DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(store.GetConnection(), 17);
+                before = SnapshotPreAdmissionRows(store.GetConnection());
+            }
+            var error = Should.Throw<InvalidOperationException>(() =>
+            {
+                using var refused = new SqliteCacheStore(connectionString);
+            });
+            error.Message.ShouldStartWith("preservation-upgrade-blocked:");
+            error.Message.ShouldContain("cancel a preparing intent there before upgrading");
+            error.Message.ShouldContain("Upgrading active or rolled-back v17 intents is not supported");
+            error.Message.ShouldContain("rollback does not release that retained intent");
+            using var inspect = new SqliteConnection("Data Source=:memory:");
+            inspect.Open();
+            using var attach = inspect.CreateCommand();
+            attach.CommandText = "ATTACH DATABASE @path AS pending;";
+            attach.Parameters.AddWithValue("@path", Path.Combine(directory, "pending.db"));
+            attach.ExecuteNonQuery();
+            DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(inspect, 17);
+            var after = SnapshotPreAdmissionRows(inspect);
+            foreach (var (table, rows) in before)
+                after[table].ShouldBe(rows, $"refused upgrade must preserve every original cell in {table}");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Migration17To18PreservesEveryHistoricalCellAndLeavesAdmissionNull(bool partialAudit)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"twig-admission-migration-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var connectionString = $"Data Source={Path.Combine(directory, "twig.db")};Pooling=False";
+        var plan = BuildTwoOpPlan();
+        Dictionary<string, string[]> before;
+        try
+        {
+            using (var store = new SqliteCacheStore(connectionString))
+            {
+                var repository = new SqlitePlanJournalRepository(store);
+                var origin = NewOrigin("historical-v17");
+                var journal = await repository.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/legacy.json", Now(), origin: origin);
+                await repository.RecordAuthorizationAsync(plan.Digest, NewAuthorization(plan.Digest),
+                    """{ "legacy": "spacing and audit bytes are retained" }""");
+                var operation = journal.Operations[0];
+                (await repository.TryAppendReceiptAsync(
+                    NewRetiredReceipt(plan.Digest, operation.OpId, operation.RequestJson, origin),
+                    PlanOperationState.Planned, null)).ShouldBeTrue();
+                using var prepare = store.GetConnection().CreateCommand();
+                prepare.CommandText = """
+                    INSERT INTO pending.workspace_context(key,value) VALUES ('opaque.standing','  retained  ');
+                    INSERT INTO pending.preservation_migrations
+                        (intent_id,slot,source_generation,source_digest,state,coverage_version,backup_directory)
+                    VALUES ('cancelled-history',NULL,'old-generation','old-digest','cancelled',1,'old-backup');
+                    ALTER TABLE pending.proposal_journals DROP COLUMN execution_admission_json;
+                    PRAGMA pending.user_version=17;
+                    """;
+                prepare.ExecuteNonQuery();
+                if (partialAudit)
+                {
+                    prepare.CommandText = "UPDATE pending.proposal_journals SET authorization_mode=NULL,authorized_at=NULL;";
+                    prepare.ExecuteNonQuery().ShouldBe(1);
+                }
+                DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(store.GetConnection(), 17);
+                before = SnapshotPreAdmissionRows(store.GetConnection());
+            }
+            for (var reopen = 0; reopen < 2; reopen++)
+            {
+                using var migrated = new SqliteCacheStore(connectionString);
+                DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(
+                    migrated.GetConnection(), SqliteCacheStore.DurableSchemaVersion);
+                var after = SnapshotPreAdmissionRows(migrated.GetConnection());
+                foreach (var (table, rows) in before)
+                    after[table].ShouldBe(rows, $"v18 must preserve every prior cell in {table}");
+                using var admission = migrated.GetConnection().CreateCommand();
+                admission.CommandText = "SELECT execution_admission_json FROM pending.proposal_journals;";
+                admission.ExecuteScalar().ShouldBe(DBNull.Value, "legacy history must not acquire fabricated execution evidence");
+                var loaded = (await new SqlitePlanJournalRepository(migrated).GetAsync(plan.Digest)).ShouldNotBeNull();
+                loaded.ExecutionAdmission.ShouldBeNull();
+                loaded.Operations[0].OutcomeReceipt.ShouldNotBeNull();
+                loaded.Operations[0].OutcomeReceipt!.Authorization.ShouldNotBeNull();
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Migration18CollisionDoesNotStampVersionOrRewriteHistoricalBytes()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"twig-admission-collision-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var connectionString = $"Data Source={Path.Combine(directory, "twig.db")};Pooling=False";
+        Dictionary<string, string[]> before;
+        try
+        {
+            using (var store = new SqliteCacheStore(connectionString))
+            {
+                var repository = new SqlitePlanJournalRepository(store);
+                var plan = BuildTwoOpPlan();
+                await repository.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/legacy.json", Now());
+                await repository.RecordAuthorizationAsync(plan.Digest, NewAuthorization(plan.Digest), """{ "raw": "legacy" }""");
+                using var prepare = store.GetConnection().CreateCommand();
+                prepare.CommandText = """
+                    UPDATE pending.proposal_journals SET execution_admission_json='  unversioned retained bytes  ';
+                    PRAGMA pending.user_version=17;
+                    """;
+                prepare.ExecuteNonQuery();
+                before = SnapshotPreAdmissionRows(store.GetConnection());
+            }
+
+            var error = Should.Throw<InvalidOperationException>(() =>
+            {
+                using var failed = new SqliteCacheStore(connectionString);
+            });
+            error.InnerException.ShouldBeOfType<SqliteException>().Message.ShouldContain(
+                "duplicate column name: execution_admission_json");
+            using var raw = new SqliteConnection(
+                $"Data Source={Path.Combine(directory, "pending.db")};Pooling=False");
+            raw.Open();
+            using var inspect = raw.CreateCommand();
+            inspect.CommandText = "PRAGMA user_version;";
+            Convert.ToInt32(inspect.ExecuteScalar()).ShouldBe(17);
+            inspect.CommandText = "SELECT execution_admission_json FROM proposal_journals;";
+            inspect.ExecuteScalar().ShouldBe("  unversioned retained bytes  ");
+            using var attached = new SqliteConnection("Data Source=:memory:");
+            attached.Open();
+            using var attach = attached.CreateCommand();
+            attach.CommandText = "ATTACH DATABASE @path AS pending;";
+            attach.Parameters.AddWithValue("@path", Path.Combine(directory, "pending.db"));
+            attach.ExecuteNonQuery();
+            var after = SnapshotPreAdmissionRows(attached);
+            foreach (var (table, rows) in before)
+                after[table].ShouldBe(rows, $"failed v18 must not rewrite {table}");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static Dictionary<string, string[]> SnapshotPreAdmissionRows(SqliteConnection connection)
+    {
+        var snapshot = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        foreach (var table in PreservationInventory.AllTables.Where(table => table.Schema == "pending"))
+        {
+            var columns = string.Join(",", table.Columns.Where(column => column != "execution_admission_json")
+                .Select(column => $"\"{column}\""));
+            using var command = connection.CreateCommand();
+            command.CommandText = $"SELECT json_array({columns}) FROM pending.\"{table.Table}\" ORDER BY 1 COLLATE BINARY;";
+            var rows = new List<string>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) rows.Add(reader.GetString(0));
+            snapshot.Add(table.Table, rows.ToArray());
+        }
+        return snapshot;
+    }
+
+    [Fact]
+    public async Task ExecutionAdmission_RollbackLeavesBothAdmissionAndLegacyAuditUnchanged()
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("admission-rollback");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
+        await _repo.RecordAuthorizationAsync(plan.Digest, NewAuthorization(plan.Digest), """{"historical":true}""");
+        var before = ReadAuditBytes(plan.Digest);
+        await using (var transaction = await new SqliteUnitOfWork(_store).BeginAsync())
+        {
+            (await _repo.RecordExecutionAdmissionAsync(new PlanExecutionAdmission
+            {
+                Digest = plan.Digest, Origin = origin, RecordedAt = Now(),
+            })).ShouldBe(PlanAdmissionRecordResult.Recorded);
+            ReadAdmissionJson(plan.Digest).ShouldNotBeNull();
+        }
+        ReadAdmissionJson(plan.Digest).ShouldBeNull();
+        ReadAuditBytes(plan.Digest).ShouldBe(before);
+        (await _repo.GetAsync(plan.Digest))!.State.ShouldBe(PlanOperationState.Planned);
+    }
+
+    [Fact]
+    public async Task ExecutionAdmission_RetryReusesFirstDurableBytesAndTimestamp()
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("admission");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
+        var admission = new PlanExecutionAdmission
+        {
+            Digest = plan.Digest, Origin = origin, RecordedAt = Now(), Rationale = "first",
+        };
+        (await _repo.RecordExecutionAdmissionAsync(admission)).ShouldBe(PlanAdmissionRecordResult.Recorded);
+        var original = ReadAdmissionJson(plan.Digest).ShouldNotBeNull();
+
+        (await _repo.RecordExecutionAdmissionAsync(admission with
+        {
+            RecordedAt = admission.RecordedAt.AddHours(2), Rationale = "retry",
+        })).ShouldBe(PlanAdmissionRecordResult.Existing);
+
+        ReadAdmissionJson(plan.Digest).ShouldBe(original);
+        var retained = (await _repo.GetAsync(plan.Digest))!.ExecutionAdmission.ShouldNotBeNull();
+        retained.RecordedAt.ShouldBe(admission.RecordedAt);
+        retained.Rationale.ShouldBe("first");
+        (await _repo.GetAsync(plan.Digest))!.AuthorizationMode.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ExecutionAdmission_ChangedSemanticEvidenceConflictsWithoutOverwriting()
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("first-admission");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
+        var admission = new PlanExecutionAdmission { Digest = plan.Digest, Origin = origin, RecordedAt = Now() };
+        (await _repo.RecordExecutionAdmissionAsync(admission)).ShouldBe(PlanAdmissionRecordResult.Recorded);
+        var original = ReadAdmissionJson(plan.Digest).ShouldNotBeNull();
+
+        (await _repo.RecordExecutionAdmissionAsync(admission with { Origin = NewOrigin("different") }))
+            .ShouldBe(PlanAdmissionRecordResult.Conflict);
+        (await _repo.RecordExecutionAdmissionAsync(admission with
+        {
+            PolicyDecisions = [new Twig.Domain.Services.Policy.PolicyDecision
+            {
+                RuleId = "different-evidence", Kind = "fixture",
+                Outcome = Twig.Domain.Services.Policy.PolicyOutcome.Permit, Reason = "new observation",
+            }],
+        })).ShouldBe(PlanAdmissionRecordResult.Conflict);
+
+        ReadAdmissionJson(plan.Digest).ShouldBe(original);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecutionAdmission_ContendingStoresRetainFirstCommittedEvidence(bool conflictingOrigin)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"twig-admission-race-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var connectionString = $"Data Source={Path.Combine(directory, "twig.db")};Pooling=False";
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("first-writer");
+        var first = new PlanExecutionAdmission
+        {
+            Digest = plan.Digest, Origin = origin, RecordedAt = Now(), Rationale = "first immutable evidence",
+        };
+        var contender = first with
+        {
+            Origin = conflictingOrigin ? NewOrigin("conflicting-writer") : origin,
+            RecordedAt = first.RecordedAt.AddHours(2),
+            Rationale = "later retry",
+        };
+        try
+        {
+            using (var initial = new SqliteCacheStore(connectionString))
+                await new SqlitePlanJournalRepository(initial).ImportAsync(
+                    plan, plan.CanonicalJson, plan.Digest, "/race.json", Now(), origin: origin);
+            using var firstStore = new SqliteCacheStore(connectionString);
+            using var secondStore = new SqliteCacheStore(connectionString);
+            var firstRepository = new SqlitePlanJournalRepository(firstStore);
+            var secondRepository = new SqlitePlanJournalRepository(secondStore);
+            var unitOfWork = new SqliteUnitOfWork(firstStore);
+            await using var transaction = await unitOfWork.BeginAsync();
+            (await firstRepository.RecordExecutionAdmissionAsync(first)).ShouldBe(PlanAdmissionRecordResult.Recorded);
+            using var entered = new ManualResetEventSlim();
+            var competingWrite = Task.Run(() =>
+            {
+                entered.Set();
+                return secondRepository.RecordExecutionAdmissionAsync(contender);
+            });
+            try
+            {
+                entered.Wait(TimeSpan.FromSeconds(5)).ShouldBeTrue();
+                (await Task.WhenAny(competingWrite, Task.Delay(200))).ShouldNotBe(competingWrite,
+                    "the second connection must contend with the uncommitted first writer");
+                await unitOfWork.CommitAsync(transaction);
+                (await competingWrite.WaitAsync(TimeSpan.FromSeconds(10))).ShouldBe(conflictingOrigin
+                    ? PlanAdmissionRecordResult.Conflict : PlanAdmissionRecordResult.Existing);
+                using var command = secondStore.GetConnection().CreateCommand();
+                command.CommandText = "SELECT execution_admission_json FROM proposal_journals WHERE digest=@digest;";
+                command.Parameters.AddWithValue("@digest", plan.Digest);
+                command.ExecuteScalar().ShouldBe(JsonSerializer.Serialize(first,
+                    Twig.Infrastructure.Serialization.TwigJsonContext.Default.PlanExecutionAdmission));
+                var retained = (await secondRepository.GetAsync(plan.Digest))!.ExecutionAdmission.ShouldNotBeNull();
+                retained.RecordedAt.ShouldBe(first.RecordedAt);
+                retained.Rationale.ShouldBe(first.Rationale);
+                retained.Origin.ShouldBe(origin);
+            }
+            finally
+            {
+                await transaction.DisposeAsync();
+                await competingWrite.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(PlanOperationState.Confirmed)]
+    [InlineData(PlanOperationState.Applying)]
+    [InlineData(PlanOperationState.Failed)]
+    public async Task ExecutionAdmission_CannotBackfillAdvancedOperations(PlanOperationState state)
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("started");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
+        var opId = plan.Plan.Operations[0].Id;
+        (await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Planned, state, Now())).ShouldBeTrue();
+        (await _repo.GetAsync(plan.Digest))!.Operations.Single(op => op.OpId == opId).State.ShouldBe(state);
+
+        (await _repo.RecordExecutionAdmissionAsync(new PlanExecutionAdmission
+        {
+            Digest = plan.Digest, Origin = origin, RecordedAt = Now(),
+        })).ShouldBe(PlanAdmissionRecordResult.Conflict);
+        ReadAdmissionJson(plan.Digest).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ExecutionAdmission_PreservesLegacyAuditAndRefusesLaterSignerInsertion()
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("legacy-audit");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
+        var legacy = NewAuthorization(plan.Digest);
+        await _repo.RecordAuthorizationAsync(plan.Digest, legacy, """{"legacy":"exact bytes"}""");
+        var before = ReadAuditBytes(plan.Digest);
+        (await _repo.RecordExecutionAdmissionAsync(new PlanExecutionAdmission
+        {
+            Digest = plan.Digest, Origin = origin, RecordedAt = Now(), Rationale = "mechanical",
+        })).ShouldBe(PlanAdmissionRecordResult.Recorded);
+        ReadAuditBytes(plan.Digest).ShouldBe(before);
+
+        var another = BuildLinkPlan();
+        await _repo.ImportAsync(another, another.CanonicalJson, another.Digest, "/another.json", Now(), origin: origin);
+        (await _repo.RecordExecutionAdmissionAsync(new PlanExecutionAdmission
+        {
+            Digest = another.Digest, Origin = origin, RecordedAt = Now(),
+        })).ShouldBe(PlanAdmissionRecordResult.Recorded);
+        var admissionBytes = ReadAdmissionJson(another.Digest).ShouldNotBeNull();
+        await _repo.RecordAuthorizationAsync(another.Digest, NewAuthorization(another.Digest), """{"invented":true}""");
+        var retained = (await _repo.GetAsync(another.Digest))!;
+        retained.AuthorizationMode.ShouldBeNull();
+        retained.AuthorizerIdentity.ShouldBeNull();
+        retained.ReviewModelJson.ShouldBeNull();
+        ReadAdmissionJson(another.Digest).ShouldBe(admissionBytes);
+    }
+
+    [Theory]
+    [InlineData("authorizer_identity")]
+    [InlineData("rationale")]
+    [InlineData("review_model_json")]
+    [InlineData("authorized_at")]
+    public async Task LegacyAuthorizationRecorderCannotOverwritePartialHistoricalAudit(string column)
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("partial-legacy");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now(), origin: origin);
+        using (var command = _store.GetConnection().CreateCommand())
+        {
+            command.CommandText = column switch
+            {
+                "authorizer_identity" => "UPDATE proposal_journals SET authorizer_identity=@value WHERE digest=@digest;",
+                "rationale" => "UPDATE proposal_journals SET rationale=@value WHERE digest=@digest;",
+                "review_model_json" => "UPDATE proposal_journals SET review_model_json=@value WHERE digest=@digest;",
+                "authorized_at" => "UPDATE proposal_journals SET authorized_at=@value WHERE digest=@digest;",
+                _ => throw new ArgumentOutOfRangeException(nameof(column)),
+            };
+            command.Parameters.AddWithValue("@digest", plan.Digest);
+            command.Parameters.AddWithValue("@value", column == "authorized_at"
+                ? "2026-08-27T11:22:33.0000000+00:00" : "retained partial historical bytes");
+            command.ExecuteNonQuery().ShouldBe(1);
+        }
+        var before = ReadAuditBytes(plan.Digest);
+
+        await _repo.RecordAuthorizationAsync(plan.Digest, NewAuthorization(plan.Digest), """{"replacement":true}""");
+
+        ReadAuditBytes(plan.Digest).ShouldBe(before);
+        ReadAdmissionJson(plan.Digest).ShouldBeNull();
+    }
+
+    private string? ReadAdmissionJson(string digest)
+    {
+        using var command = _store.GetConnection().CreateCommand();
+        command.CommandText = "SELECT execution_admission_json FROM proposal_journals WHERE digest=@digest;";
+        command.Parameters.AddWithValue("@digest", digest);
+        return command.ExecuteScalar() as string;
+    }
+
+    private string[] ReadAuditBytes(string digest)
+    {
+        using var command = _store.GetConnection().CreateCommand();
+        command.CommandText = """
+            SELECT authorization_mode, authorizer_identity, rationale, review_model_json, authorized_at
+            FROM proposal_journals WHERE digest=@digest;
+            """;
+        command.Parameters.AddWithValue("@digest", digest);
+        using var reader = command.ExecuteReader();
+        reader.Read().ShouldBeTrue();
+        return Enumerable.Range(0, reader.FieldCount).Select(index =>
+            reader.IsDBNull(index) ? "<null>" : reader.GetString(index)).ToArray();
     }
 
     // ─── helpers ────────────────────────────────────────────────────────────────

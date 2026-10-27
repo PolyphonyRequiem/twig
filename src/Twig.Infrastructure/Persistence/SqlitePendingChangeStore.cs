@@ -134,6 +134,8 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
     public Task RemapWorkItemIdAsync(int oldId, int newId, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        var preserved = new PreservedWorkspaceState(_store);
+        using var write = preserved.BeginWrite();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         // Enrolled in the ambient transaction: publish remaps inside SqliteUnitOfWork's
@@ -143,6 +145,18 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
         cmd.Parameters.AddWithValue("@newId", newId);
         cmd.Parameters.AddWithValue("@oldId", oldId);
         cmd.ExecuteNonQuery();
+        if (preserved.IsActive)
+        {
+            using var dirty = conn.CreateCommand();
+            dirty.Transaction = _store.ActiveTransaction;
+            dirty.CommandText = """
+                UPDATE main.work_items SET is_dirty=1 WHERE id=@newId AND is_seed=0
+                    AND EXISTS(SELECT 1 FROM pending.pending_changes WHERE work_item_id=@newId);
+                """;
+            dirty.Parameters.AddWithValue("@newId", newId);
+            dirty.ExecuteNonQuery();
+        }
+        write.Complete();
         return Task.CompletedTask;
     }
 
@@ -151,9 +165,9 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             DELETE FROM pending_changes
-            WHERE work_item_id NOT IN (SELECT id FROM work_items WHERE is_seed = 1);
+            WHERE work_item_id NOT IN (SELECT id FROM {new PreservedWorkspaceState(_store).Items} WHERE is_seed = 1);
             """;
         var count = cmd.ExecuteNonQuery();
         return Task.FromResult(count);

@@ -33,8 +33,19 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
     private string ConnectionString => $"Data Source={Path.Combine(_directory, "twig.db")};Pooling=False";
     public DraftCaptureEvidenceTests() => Directory.CreateDirectory(_directory);
 
-    [Fact]
-    public async Task QualifiedFenceRechecksNewJournalAuditInsideTheOwningTransactionAndRollsBack()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task ExportGuardRejectsNewJournalAuditInsideOwningTransactionAndRollsBack(bool admission)
+        => AssertNewJournalAuditRollsBack(admission, afterExport: false);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task QualifiedFenceRejectsAuditAfterInitialExportWriteAndRollsBack(bool admission)
+        => AssertNewJournalAuditRollsBack(admission, afterExport: true);
+
+    private async Task AssertNewJournalAuditRollsBack(bool admission, bool afterExport)
     {
         using var cache = new SqliteCacheStore(ConnectionString);
         var (draft, snapshot, evidence) = await SeedAsync(cache);
@@ -45,18 +56,37 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
             cache.ActiveTransaction.ShouldNotBeNull();
             using var update = cache.GetConnection().CreateCommand();
             update.Transaction = cache.ActiveTransaction;
-            update.CommandText = "UPDATE pending.proposal_journals SET authorizer_identity='concurrent-audit';";
+            if (admission)
+            {
+                update.CommandText = """
+                    UPDATE pending.proposal_journals
+                    SET execution_admission_json=json_set(@json,'$.digest',digest);
+                    """;
+                update.Parameters.AddWithValue("@json", JsonSerializer.Serialize(new PlanExecutionAdmission
+                {
+                    Digest = "filled from the retained journal", Origin = Origin, RecordedAt = DateTimeOffset.UtcNow,
+                }, TwigJsonContext.Default.PlanExecutionAdmission));
+            }
+            else
+                update.CommandText = "UPDATE pending.proposal_journals SET authorizer_identity='concurrent-audit';";
             update.ExecuteNonQuery().ShouldBe(1);
             return 0;
         });
-        Execute(cache, """
-            CREATE TEMP TRIGGER qualified_fence_probe AFTER INSERT ON pending.proposal_journals
-            BEGIN SELECT qualified_fence_probe(); END;
-            """);
+        Execute(cache, afterExport
+            ? """
+              CREATE TEMP TRIGGER qualified_fence_probe AFTER UPDATE OF error ON pending.proposal_journals
+              BEGIN SELECT qualified_fence_probe(); END;
+              """
+            : """
+              CREATE TEMP TRIGGER qualified_fence_probe AFTER INSERT ON pending.proposal_journals
+              BEGIN SELECT qualified_fence_probe(); END;
+              """);
         var refused = await Should.ThrowAsync<InvalidOperationException>(() =>
             new SqliteDraftProposalCaptureStore(cache).CaptureQualifiedAsync(draft, snapshot, Origin, Workspace,
                 Path.Combine(_directory, "proposals"), SqliteDraftCaptureEvidenceStore.Fingerprint(evidence)));
-        refused.Message.ShouldStartWith("capture-not-reviewable:");
+        refused.Message.ShouldBe(afterExport
+            ? "capture-not-reviewable: retained capture is no longer an unconfirmed, unauthorized planned observation."
+            : "Capture export state could not be recorded; the journal was not changed.");
         attempted.ShouldBeTrue();
         cache.ActiveTransaction.ShouldBeNull();
         Count(cache, "proposal_journals").ShouldBe(0);
@@ -77,6 +107,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
     [InlineData("rationale")]
     [InlineData("review")]
     [InlineData("authorized")]
+    [InlineData("admission")]
     [InlineData("operation-state")]
     [InlineData("operation-started")]
     [InlineData("operation-applied")]
@@ -129,6 +160,16 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
             unchangedOperation.VerifiedAt.ShouldBeNull();
             unchangedOperation.OutcomeReceipt.ShouldNotBeNull().ReceiptId.ShouldBe(receipt.ReceiptId);
         }
+        else if (fault == "admission")
+        {
+            using var command = cache.GetConnection().CreateCommand();
+            command.CommandText = "UPDATE pending.proposal_journals SET execution_admission_json=@json;";
+            command.Parameters.AddWithValue("@json", JsonSerializer.Serialize(new PlanExecutionAdmission
+            {
+                Digest = first.Digest, Origin = Origin, RecordedAt = DateTimeOffset.UtcNow,
+            }, TwigJsonContext.Default.PlanExecutionAdmission));
+            command.ExecuteNonQuery().ShouldBe(1);
+        }
         else Execute(cache, fault switch
         {
             "state" => "UPDATE pending.proposal_journals SET state='Confirmed';",
@@ -149,6 +190,16 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(fault)),
         });
         var before = ReadRows();
+        if (fault == "mode" || fault == "unknown-mode" || fault == "empty-mode"
+            || fault == "authorizer" || fault == "empty-authorizer" || fault == "rationale"
+            || fault == "review" || fault == "authorized" || fault == "admission")
+        {
+            var journals = new SqlitePlanJournalRepository(cache);
+            Should.Throw<InvalidOperationException>(() =>
+                journals.SetCaptureExportState(first.Digest, complete: true))
+                .Message.ShouldContain("Capture export state could not be recorded");
+            ReadRows().ShouldBe(before);
+        }
         var refused = await Should.ThrowAsync<InvalidOperationException>(() =>
             store.CaptureQualifiedAsync(draft, snapshot, Origin, Workspace, directory, fingerprint));
         refused.Message.ShouldStartWith("capture-not-reviewable:");

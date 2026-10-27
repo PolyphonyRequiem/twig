@@ -15,16 +15,19 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
     private const int MaxEntries = 50;
 
     private readonly SqliteCacheStore _store;
+    private readonly PreservedWorkspaceState _preserved;
 
     public SqliteNavigationHistoryStore(SqliteCacheStore store)
     {
         _store = store;
+        _preserved = new(store);
     }
 
     public Task RecordVisitAsync(int workItemId, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
 
         // Read cursor
@@ -38,7 +41,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
             {
                 using var deleteCmd = conn.CreateCommand();
                 deleteCmd.Transaction = _store.ActiveTransaction;
-                deleteCmd.CommandText = "DELETE FROM navigation_history WHERE id > @cursorId;";
+                deleteCmd.CommandText = $"DELETE FROM {_preserved.Navigation} WHERE id > @cursorId;";
                 deleteCmd.Parameters.AddWithValue("@cursorId", cursorId.Value);
                 deleteCmd.ExecuteNonQuery();
             }
@@ -48,7 +51,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
         var visitedAt = DateTimeOffset.UtcNow.ToString("o");
         using var insertCmd = conn.CreateCommand();
         insertCmd.Transaction = _store.ActiveTransaction;
-        insertCmd.CommandText = "INSERT INTO navigation_history (work_item_id, visited_at) VALUES (@workItemId, @visitedAt); SELECT last_insert_rowid();";
+        insertCmd.CommandText = $"INSERT INTO {_preserved.Navigation} (work_item_id, visited_at) VALUES (@workItemId, @visitedAt); SELECT last_insert_rowid();";
         insertCmd.Parameters.AddWithValue("@workItemId", workItemId);
         insertCmd.Parameters.AddWithValue("@visitedAt", visitedAt);
         var newId = Convert.ToInt64(insertCmd.ExecuteScalar());
@@ -59,12 +62,13 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
         {
             using var trimCmd = conn.CreateCommand();
             trimCmd.Transaction = _store.ActiveTransaction;
-            trimCmd.CommandText = "DELETE FROM navigation_history WHERE id = (SELECT MIN(id) FROM navigation_history);";
+            trimCmd.CommandText = $"DELETE FROM {_preserved.Navigation} WHERE id = (SELECT MIN(id) FROM {_preserved.Navigation});";
             trimCmd.ExecuteNonQuery();
         }
 
         // Update cursor to the new entry
         SetCursorId(conn, (int)newId);
+        write.Complete(navigation: true);
 
         return Task.CompletedTask;
     }
@@ -72,6 +76,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
     public Task<int?> GoBackAsync(CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
         var cursorId = GetCursorId(conn);
         if (cursorId is null)
@@ -79,7 +84,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
 
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT id, work_item_id FROM navigation_history WHERE id < @cursorId ORDER BY id DESC LIMIT 1;";
+        cmd.CommandText = $"SELECT id, work_item_id FROM {_preserved.Navigation} WHERE id < @cursorId ORDER BY id DESC LIMIT 1;";
         cmd.Parameters.AddWithValue("@cursorId", cursorId.Value);
 
         using var reader = cmd.ExecuteReader();
@@ -91,12 +96,14 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
         reader.Close();
 
         SetCursorId(conn, prevId);
+        write.Complete(navigation: true);
         return Task.FromResult<int?>(workItemId);
     }
 
     public Task<int?> GoForwardAsync(CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
         var cursorId = GetCursorId(conn);
         if (cursorId is null)
@@ -104,7 +111,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
 
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT id, work_item_id FROM navigation_history WHERE id > @cursorId ORDER BY id ASC LIMIT 1;";
+        cmd.CommandText = $"SELECT id, work_item_id FROM {_preserved.Navigation} WHERE id > @cursorId ORDER BY id ASC LIMIT 1;";
         cmd.Parameters.AddWithValue("@cursorId", cursorId.Value);
 
         using var reader = cmd.ExecuteReader();
@@ -116,6 +123,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
         reader.Close();
 
         SetCursorId(conn, nextId);
+        write.Complete(navigation: true);
         return Task.FromResult<int?>(workItemId);
     }
 
@@ -127,13 +135,13 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
         var entries = new List<NavigationHistoryEntry>();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT id, work_item_id, visited_at FROM navigation_history ORDER BY id ASC;";
+        cmd.CommandText = $"SELECT id, work_item_id, visited_at FROM {_preserved.Navigation} ORDER BY id ASC;";
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
             var id = reader.GetInt32(0);
             var workItemId = reader.GetInt32(1);
-            var visitedAt = DateTimeOffset.Parse(reader.GetString(2), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind);
+            var visitedAt = ParseVisitedAt(reader.GetString(2));
             entries.Add(new NavigationHistoryEntry(id, workItemId, visitedAt));
         }
         reader.Close();
@@ -146,18 +154,20 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
     public Task ClearAsync(CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
+        using var write = _preserved.BeginWrite();
         var conn = _store.GetConnection();
 
         using var deleteCmd = conn.CreateCommand();
         deleteCmd.Transaction = _store.ActiveTransaction;
-        deleteCmd.CommandText = "DELETE FROM navigation_history;";
+        deleteCmd.CommandText = $"DELETE FROM {_preserved.Navigation};";
         deleteCmd.ExecuteNonQuery();
 
         using var cursorCmd = conn.CreateCommand();
         cursorCmd.Transaction = _store.ActiveTransaction;
-        cursorCmd.CommandText = "DELETE FROM context WHERE key = @key;";
+        cursorCmd.CommandText = $"DELETE FROM {_preserved.Context} WHERE key = @key;";
         cursorCmd.Parameters.AddWithValue("@key", CursorKey);
         cursorCmd.ExecuteNonQuery();
+        write.Complete(navigation: true);
 
         return Task.CompletedTask;
     }
@@ -166,7 +176,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT value FROM context WHERE key = @key;";
+        cmd.CommandText = $"SELECT value FROM {_preserved.Context} WHERE key = @key;";
         cmd.Parameters.AddWithValue("@key", CursorKey);
         var result = cmd.ExecuteScalar();
         if (result is string s && int.TryParse(s, out var id))
@@ -178,7 +188,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "INSERT OR REPLACE INTO context (key, value) VALUES (@key, @value);";
+        cmd.CommandText = $"INSERT OR REPLACE INTO {_preserved.Context} (key, value) VALUES (@key, @value);";
         cmd.Parameters.AddWithValue("@key", CursorKey);
         cmd.Parameters.AddWithValue("@value", id.ToString());
         cmd.ExecuteNonQuery();
@@ -188,7 +198,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT MAX(id) FROM navigation_history;";
+        cmd.CommandText = $"SELECT MAX(id) FROM {_preserved.Navigation};";
         var result = cmd.ExecuteScalar();
         if (result is long l)
             return l;
@@ -199,7 +209,11 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = "SELECT COUNT(*) FROM navigation_history;";
+        cmd.CommandText = $"SELECT COUNT(*) FROM {_preserved.Navigation};";
         return Convert.ToInt64(cmd.ExecuteScalar());
     }
+
+    internal static DateTimeOffset ParseVisitedAt(string value)
+        => DateTimeOffset.Parse(value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind);
 }

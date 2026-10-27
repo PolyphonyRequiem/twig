@@ -210,6 +210,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
             {
                 await new SqlitePublishIntentRepository(store).RecordIntentAsync(identity, "Keep me", "Task");
                 var conn = store.GetConnection();
+                DraftProposalCaptureStoreTests.RemovePost16Schema(conn);
                 Exec(conn, "DROP TABLE pending.local_relationships;");
                 Exec(conn, "DROP TABLE pending.local_work_items;");
                 Exec(conn, "DROP TABLE pending.external_identities;");
@@ -241,6 +242,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
             using (var store = new SqliteCacheStore($"Data Source={path}"))
             {
                 var conn = store.GetConnection();
+                DraftProposalCaptureStoreTests.RemovePost16Schema(conn);
                 Exec(conn, "DROP TABLE pending.local_relationships;");
                 Exec(conn, "ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;");
                 Exec(conn, "DROP TABLE pending.recoverable_work_item_drafts;");
@@ -300,6 +302,9 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
             using (var store = new SqliteCacheStore($"Data Source={path}"))
             {
                 var conn = store.GetConnection();
+                DraftProposalCaptureStoreTests.RemovePost16Schema(conn);
+                Exec(conn, "ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;");
+                Exec(conn, "DROP TABLE pending.recoverable_work_item_drafts;");
                 if (collideOnPublication)
                     Exec(conn, "ALTER TABLE pending.local_relationships DROP COLUMN storage;");
                 Exec(conn, "PRAGMA pending.user_version = 13;");

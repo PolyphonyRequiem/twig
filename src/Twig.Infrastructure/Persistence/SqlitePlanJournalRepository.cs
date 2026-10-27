@@ -243,7 +243,10 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         command.CommandText = """
             UPDATE pending.proposal_journals SET error=@error
             WHERE digest=@digest AND draft_capture_json IS NOT NULL AND state='Planned'
-                AND confirmed_at IS NULL AND authorization_mode IS NULL;
+                AND confirmed_at IS NULL AND authorization_mode IS NULL
+                AND authorizer_identity IS NULL AND rationale IS NULL
+                AND review_model_json IS NULL AND authorized_at IS NULL
+                AND execution_admission_json IS NULL;
             """;
         command.Parameters.AddWithValue("@digest", digest);
         command.Parameters.AddWithValue("@error", complete ? DBNull.Value : "export-incomplete: exact native capture is retained; recover export by digest.");
@@ -621,7 +624,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             SELECT organization, project, source_path, canonical_json,
                    state, previewed_at, last_previewed_at, confirmed_at, completed_at, error,
                    authorization_mode, authorizer_identity, rationale,
-                   review_model_json, authorized_at, origin_json, draft_capture_json
+                   review_model_json, authorized_at, origin_json, draft_capture_json, execution_admission_json
             FROM proposal_journals
             WHERE digest = @digest;
             """;
@@ -658,6 +661,14 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 ?? throw new InvalidDataException("The persisted draft capture was empty.");
         if (capture is not null && (capture.ProposalDigest != digest || capture.Origin != origin))
             throw new InvalidDataException("The persisted draft capture disagrees with its journal identity or origin.");
+        var admission = reader.IsDBNull(17) ? null
+            : JsonSerializer.Deserialize(reader.GetString(17), TwigJsonContext.Default.PlanExecutionAdmission)
+                ?? throw new InvalidDataException("The persisted mechanical admission was empty.");
+        if (admission is not null && (admission.Version != 1 || admission.RecordedAt == default
+            || admission.Origin is null || admission.PolicyDecisions is null
+            || admission.PolicyDecisions.Any(static decision => decision.IsBlocking)
+            || admission.Digest != digest || admission.Origin != origin))
+            throw new InvalidDataException("The persisted mechanical admission disagrees with its journal identity or origin.");
 
         var operations = ReadOperations(digest);
 
@@ -679,6 +690,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             ReviewModelJson = reviewModelJson,
             AuthorizedAt = authorizedAt,
             Origin = origin,
+            ExecutionAdmission = admission,
             DraftCapture = capture,
             Operations = operations,
         });
@@ -928,6 +940,60 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     }
 
     /// <inheritdoc />
+    public Task<PlanAdmissionRecordResult> RecordExecutionAdmissionAsync(
+        PlanExecutionAdmission admission, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+        ArgumentException.ThrowIfNullOrWhiteSpace(admission.Digest);
+        ArgumentNullException.ThrowIfNull(admission.Origin);
+        ArgumentNullException.ThrowIfNull(admission.PolicyDecisions);
+        if (admission.Version != 1 || admission.RecordedAt == default
+            || admission.PolicyDecisions.Any(static decision => decision.IsBlocking))
+            return Task.FromResult(PlanAdmissionRecordResult.Conflict);
+        ct.ThrowIfCancellationRequested();
+        using var bindingOperation = _store.AcquireOperation();
+        var connection = _store.GetConnection();
+        var ownsTransaction = _store.ActiveTransaction is null;
+        using var ownedTransaction = ownsTransaction ? connection.BeginTransaction(deferred: false) : null;
+        var transaction = _store.ActiveTransaction ?? ownedTransaction;
+        using var read = connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText = "SELECT execution_admission_json FROM proposal_journals WHERE digest = @digest;";
+        read.Parameters.AddWithValue("@digest", admission.Digest);
+        var existingJson = read.ExecuteScalar();
+        if (existingJson is null)
+            return Task.FromResult(PlanAdmissionRecordResult.Conflict);
+        if (existingJson is string json)
+        {
+            var existing = JsonSerializer.Deserialize(json, TwigJsonContext.Default.PlanExecutionAdmission)
+                ?? throw new InvalidOperationException("Stored mechanical admission is empty.");
+            var retry = admission with { RecordedAt = existing.RecordedAt, Rationale = existing.Rationale };
+            var same = JsonSerializer.Serialize(retry, TwigJsonContext.Default.PlanExecutionAdmission)
+                == JsonSerializer.Serialize(existing, TwigJsonContext.Default.PlanExecutionAdmission);
+            ownedTransaction?.Commit();
+            return Task.FromResult(same ? PlanAdmissionRecordResult.Existing : PlanAdmissionRecordResult.Conflict);
+        }
+        using var write = connection.CreateCommand();
+        write.Transaction = transaction;
+        write.CommandText = """
+            UPDATE proposal_journals SET execution_admission_json = @json
+            WHERE digest = @digest AND execution_admission_json IS NULL
+              AND state = 'Planned' AND confirmed_at IS NULL
+              AND draft_capture_json IS NULL AND origin_json = @origin
+              AND NOT EXISTS (
+                  SELECT 1 FROM proposal_operations o WHERE o.digest = @digest
+                    AND (o.state <> 'Planned' OR o.started_at IS NOT NULL))
+              AND NOT EXISTS (SELECT 1 FROM proposal_receipts r WHERE r.digest = @digest);
+            """;
+        write.Parameters.AddWithValue("@digest", admission.Digest);
+        write.Parameters.AddWithValue("@origin", JsonSerializer.Serialize(admission.Origin, TwigJsonContext.Default.PlanOrigin));
+        write.Parameters.AddWithValue("@json", JsonSerializer.Serialize(admission, TwigJsonContext.Default.PlanExecutionAdmission));
+        var result = write.ExecuteNonQuery() == 1
+            ? PlanAdmissionRecordResult.Recorded : PlanAdmissionRecordResult.Conflict;
+        ownedTransaction?.Commit();
+        return Task.FromResult(result);
+    }
+
     public Task RecordAuthorizationAsync(
         string digest,
         ProposalAuthorization authorization,
@@ -942,10 +1008,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
-        // `authorization_mode IS NULL` is the write-once guard. A resumed apply re-presents the
-        // same digest, and the audit fact worth keeping is the authorization that originally
-        // released the proposal — overwriting it with the moment a crashed run was picked back
-        // up would erase exactly the record this column exists to preserve.
+        // Preserve even partial historical audit bytes; admission never grants permission
+        // to insert a caller signer later.
         cmd.CommandText = """
             UPDATE proposal_journals
             SET authorization_mode = @mode,
@@ -953,7 +1017,10 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 rationale = @rationale,
                 review_model_json = @reviewModel,
                 authorized_at = @authorizedAt
-            WHERE digest = @digest AND authorization_mode IS NULL;
+            WHERE digest = @digest AND authorization_mode IS NULL
+              AND authorizer_identity IS NULL AND rationale IS NULL
+              AND review_model_json IS NULL AND authorized_at IS NULL
+              AND execution_admission_json IS NULL;
             """;
         cmd.Parameters.AddWithValue("@digest", digest);
         cmd.Parameters.AddWithValue("@mode", ProposalAuthorization.ModeToWire(authorization.Mode));

@@ -258,6 +258,7 @@ public sealed class DraftProposalCaptureStoreTests : IDisposable
             draft = seeded.Draft;
             var journal = await CaptureAsync(cache, draft, seeded.Snapshot);
             digest = journal.Digest;
+            RemovePost16Schema(cache.GetConnection());
             Execute(cache, "ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json; PRAGMA pending.user_version=15;");
             AssertLegacySchemaFingerprint(cache.GetConnection(), 15);
         }
@@ -286,6 +287,7 @@ public sealed class DraftProposalCaptureStoreTests : IDisposable
             var (draft, snapshot) = await SeedAsync(cache);
             await CaptureAsync(cache, draft, snapshot);
             before = HeaderJson(cache);
+            RemovePost16Schema(cache.GetConnection());
             // Simulate an interrupted/foreign allocation with the column already present.
             Execute(cache, "PRAGMA pending.user_version=15;");
         }
@@ -352,6 +354,20 @@ public sealed class DraftProposalCaptureStoreTests : IDisposable
         command.ExecuteNonQuery();
     }
 
+    internal static void RemovePost16Schema(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            ALTER TABLE pending.proposal_journals DROP COLUMN execution_admission_json;
+            DROP TABLE pending.seed_local_identities;
+            DROP TABLE pending.seed_work_items;
+            DROP TABLE pending.workspace_context;
+            DROP TABLE pending.workspace_navigation_history;
+            DROP TABLE pending.preservation_migrations;
+            """;
+        command.ExecuteNonQuery();
+    }
+
     internal static void AssertLegacySchemaFingerprint(SqliteConnection connection, int version)
     {
         using var command = connection.CreateCommand();
@@ -371,16 +387,30 @@ public sealed class DraftProposalCaptureStoreTests : IDisposable
             expected.AddRange(["authorization_mode", "authorizer_identity", "rationale", "review_model_json", "authorized_at"]);
         if (version >= 11) expected.Add("last_previewed_at");
         if (version >= 12) expected.Add("origin_json");
-        columns.ShouldBe(expected, "fixture column fingerprint must match the declared pre-capture schema");
+        if (version >= 16) expected.Add("draft_capture_json");
+        if (version >= 18) expected.Add("execution_admission_json");
+        columns.ShouldBe(expected, "fixture column fingerprint must match the declared historical schema");
         command.CommandText = "SELECT count(*) FROM pending.sqlite_master WHERE type='table' AND name='recoverable_work_item_drafts';";
         Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture).ShouldBe(version >= 15 ? 1 : 0);
+        command.CommandText = """
+            SELECT name FROM pending.sqlite_master WHERE type='table' AND name IN (
+                'seed_local_identities','seed_work_items','workspace_context',
+                'workspace_navigation_history','preservation_migrations') ORDER BY name;
+            """;
+        var tables = new List<string>();
+        using (var reader = command.ExecuteReader())
+            while (reader.Read()) tables.Add(reader.GetString(0));
+        var expectedTables = version >= 17
+            ? new List<string> { "preservation_migrations", "seed_local_identities", "seed_work_items", "workspace_context", "workspace_navigation_history" }
+            : new List<string>();
+        tables.ShouldBe(expectedTables, "later preservation tables must not remain in a lowered-version fixture");
     }
 
     private static void AssertCurrentCaptureColumn(SqliteCacheStore cache)
     {
         using var command = cache.GetConnection().CreateCommand();
         command.CommandText = "PRAGMA pending.user_version;";
-        Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture).ShouldBe(16);
+        Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
         command.CommandText = "SELECT count(*) FROM pragma_table_info('proposal_journals','pending') WHERE name='draft_capture_json';";
         Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture).ShouldBe(1);
     }

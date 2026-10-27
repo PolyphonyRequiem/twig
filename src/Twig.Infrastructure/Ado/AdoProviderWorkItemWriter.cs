@@ -1,6 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Infrastructure.Ado;
@@ -74,9 +75,16 @@ internal sealed class AdoProviderRevisionCodec : IProviderRevisionCodec
 /// revision precondition before any transport call, then delegates to
 /// <see cref="IAdoWorkItemService"/> unchanged, so ADO requests stay byte-identical.
 /// </summary>
-internal sealed class AdoProviderWorkItemWriter(IAdoWorkItemService ado) : IProviderWorkItemWriter
+internal sealed class AdoProviderWorkItemWriter(IAdoWorkItemService ado)
+    : IProviderWorkItemWriter, IExecutionPolicyFactReader
 {
     private static AdoProviderRevisionCodec Codec => AdoProviderRevisionCodec.Instance;
+
+    Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)>
+        IExecutionPolicyFactReader.FetchPolicyFactsAsync(IReadOnlyList<int> ids, CancellationToken ct)
+        => ado is AdoRestClient client
+            ? client.FetchPolicyFactsAsync(ids, ct)
+            : throw new InvalidOperationException("The provider cannot certify complete native policy relationships.");
 
     public async Task<ProviderRevisionToken> PatchAsync(
         int id,

@@ -114,6 +114,15 @@ public interface IPlanJournalRepository
         string reviewModelJson,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Records the first mechanical admission without modifying legacy authorization bytes.
+    /// Repeated semantic admission reuses the original timestamp and bytes; a different
+    /// digest, origin or policy evidence conflicts rather than replacing that record.
+    /// </summary>
+    Task<PlanAdmissionRecordResult> RecordExecutionAdmissionAsync(
+        PlanExecutionAdmission admission,
+        CancellationToken ct = default);
+
     /// <summary>Marks the top-level plan as confirmed and stamps <paramref name="confirmedAt"/>.</summary>
     Task ConfirmAsync(string digest, DateTimeOffset confirmedAt, CancellationToken ct = default);
 

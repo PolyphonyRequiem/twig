@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Shouldly;
+using Twig.Domain.Services.Plan;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Plan;
 using Twig.Infrastructure.Serialization;
 using Xunit;
 
@@ -10,6 +12,51 @@ namespace Twig.Infrastructure.Tests.Persistence;
 public sealed class StoreParityHarnessTests
 {
     private const string ResourceScope = "ado:test-scope";
+
+    [Fact]
+    public async Task Inspect_FullRowFingerprintIncludesExactExecutionAdmissionBytes()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var plan = new PlanDocumentParser().Parse("""
+            {"version":1,"workspace":{"organization":"fixture","project":"fixture"},"operations":[
+              {"id":"edit","kind":"batch","workItemId":42,"expectedRevision":1,"fields":{"System.Title":"new"}}]}
+            """);
+        plan.IsValid.ShouldBeTrue();
+        var origin = new PlanOrigin("/owned", "fingerprint", 1, "connection", "binding", 1,
+            "selection", 1, "identity", "method", "credential", "tenant", "object", "issuer", "authority", null);
+        var repository = new SqlitePlanJournalRepository(store);
+        await repository.ImportAsync(plan.Plan!, plan.CanonicalJson!, plan.Digest!, "/owned.json",
+            DateTimeOffset.UtcNow, origin: origin);
+        var harness = new StoreParityHarness(store, ResourceScope);
+        var before = harness.Inspect();
+        before.IsConsistent.ShouldBeTrue();
+        PreservationInventory.AllTables.Single(table => table.Table == "proposal_journals")
+            .Columns.ShouldContain("execution_admission_json");
+        PreservationWriteCoverage.RequireComplete();
+        PreservationWriteCoverage.Version.ShouldBe(2);
+        PreservationWriteCoverage.Paths.ShouldContain(path => path.Surface == "proposal.execution-admission");
+        var admission = new PlanExecutionAdmission
+        {
+            Digest = plan.Digest!, Origin = origin, RecordedAt = DateTimeOffset.UtcNow,
+        };
+        (await repository.RecordExecutionAdmissionAsync(admission)).ShouldBe(PlanAdmissionRecordResult.Recorded);
+        var after = harness.Inspect();
+        after.IsConsistent.ShouldBeTrue();
+        after.Classes.Single(entry => entry.ClassName == "pending.proposal_journals").CanonicalDigest
+            .ShouldNotBe(before.Classes.Single(entry => entry.ClassName == "pending.proposal_journals").CanonicalDigest);
+        (await repository.RecordExecutionAdmissionAsync(admission with { RecordedAt = admission.RecordedAt.AddHours(1) }))
+            .ShouldBe(PlanAdmissionRecordResult.Existing);
+        harness.Inspect().Classes.Single(entry => entry.ClassName == "pending.proposal_journals").CanonicalDigest
+            .ShouldBe(after.Classes.Single(entry => entry.ClassName == "pending.proposal_journals").CanonicalDigest);
+        Execute(store, "UPDATE pending.proposal_journals SET execution_admission_json=execution_admission_json || ' ';");
+        var rawChange = harness.Inspect();
+        rawChange.IsConsistent.ShouldBeTrue();
+        rawChange.Classes.Single(entry => entry.ClassName == "pending.proposal_journals").CanonicalDigest
+            .ShouldNotBe(after.Classes.Single(entry => entry.ClassName == "pending.proposal_journals").CanonicalDigest,
+                "the fingerprint must include raw bytes, not just deserialized admission semantics");
+        foreach (var other in before.Classes.Where(entry => entry.ClassName != "pending.proposal_journals"))
+            rawChange.Classes.Single(entry => entry.ClassName == other.ClassName).CanonicalDigest.ShouldBe(other.CanonicalDigest);
+    }
 
     [Fact]
     public void Inspect_ReportsAllChecksForPopulatedConsistentClasses()

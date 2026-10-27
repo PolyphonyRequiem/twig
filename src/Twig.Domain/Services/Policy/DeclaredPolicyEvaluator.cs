@@ -43,8 +43,16 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
     }
 
     /// <summary>Evaluates every rule in declared order.</summary>
-    public async Task<IReadOnlyList<PolicyDecision>> EvaluateAsync(
+    public Task<IReadOnlyList<PolicyDecision>> EvaluateAsync(
         DeclaredPolicy policy, PlanDefinition plan, CancellationToken ct = default)
+        => EvaluateCoreAsync(policy, plan, null, ct);
+
+    internal Task<IReadOnlyList<PolicyDecision>> EvaluateForExecutionAsync(
+        DeclaredPolicy policy, PlanDefinition plan, IExecutionPolicyFactReader reader, CancellationToken ct)
+        => EvaluateCoreAsync(policy, plan, new ExecutionFacts(reader), ct);
+
+    private async Task<IReadOnlyList<PolicyDecision>> EvaluateCoreAsync(
+        DeclaredPolicy policy, PlanDefinition plan, ExecutionFacts? facts, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(plan);
@@ -54,7 +62,7 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
         if (plan.Version == 2)
             return await EvaluateProviderAsync(policy, plan, ct).ConfigureAwait(false);
 
-        var context = await ProposalState.LoadAsync(items, plan, ct).ConfigureAwait(false);
+        var context = await ProposalState.LoadAsync(items, plan, ct, facts).ConfigureAwait(false);
         var decisions = new List<PolicyDecision>();
         foreach (var rule in policy.Rules)
         {
@@ -62,7 +70,7 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             {
                 ParentTypeRule r => EvaluateParentType(r, context),
                 LabelApplicabilityRule r => EvaluateLabels(r, context),
-                DependencyIntegrityRule r => await EvaluateDependenciesAsync(r, plan, ct).ConfigureAwait(false),
+                DependencyIntegrityRule r => await EvaluateDependenciesAsync(r, plan, facts, ct).ConfigureAwait(false),
                 _ => [Decide(rule, PolicyOutcome.Unavailable, $"Rule kind '{rule.Kind}' is not supported by this Twig build.")],
             };
             decisions.AddRange(found);
@@ -798,7 +806,7 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
     }
 
     private async Task<List<PolicyDecision>> EvaluateDependenciesAsync(
-        DependencyIntegrityRule rule, PlanDefinition plan, CancellationToken ct)
+        DependencyIntegrityRule rule, PlanDefinition plan, ExecutionFacts? facts, CancellationToken ct)
     {
         var findings = new List<PolicyDecision>();
         var adds = new List<(int From, int To, string OpId, int Source)>();
@@ -823,7 +831,7 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
         if (adds.Count == 0)
             return findings.Count > 0 ? findings : [Decide(rule, PolicyOutcome.Permit, "No new dependency edges.")];
 
-        if (links is null)
+        if (links is null && facts is null)
         {
             foreach (var add in adds)
                 findings.Add(Decide(rule, PolicyOutcome.Unavailable,
@@ -831,7 +839,7 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             return findings;
         }
 
-        var graph = new DependencyGraph(links, adds.Select(a => (a.From, a.To)), removes);
+        var graph = new DependencyGraph(links, adds.Select(a => (a.From, a.To)), removes, facts);
         var seen = new HashSet<(int, int)>();
         foreach (var add in adds)
         {
@@ -931,6 +939,46 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
 
     private readonly record struct LabelTarget(int Id, string OpId, bool IsNewSeed);
 
+    private sealed class ExecutionFacts(IExecutionPolicyFactReader reader)
+    {
+        private readonly Dictionary<int, WorkItem> _items = [];
+        private readonly Dictionary<int, IReadOnlyList<WorkItemLink>> _links = [];
+
+        public async Task<IReadOnlyList<WorkItem>> ItemsAsync(IEnumerable<int> ids, CancellationToken ct)
+        {
+            var requested = ids.Distinct().ToArray();
+            var missing = requested.Where(id => !_items.ContainsKey(id)).ToArray();
+            if (missing.Length > 0)
+            {
+                var observed = await reader.FetchPolicyFactsAsync(missing, ct).ConfigureAwait(false);
+                if (observed.Items is null || observed.Links is null
+                    || observed.Items.Count != missing.Length
+                    || observed.Items.Select(item => item.Id).Distinct().Count() != missing.Length
+                    || observed.Items.Any(item => !missing.Contains(item.Id)
+                        || item.Revision <= 0 || string.IsNullOrWhiteSpace(item.Type.Value))
+                    || observed.Links.Any(link => link.SourceId <= 0 || link.TargetId <= 0
+                        || (!missing.Contains(link.SourceId) && !missing.Contains(link.TargetId))))
+                    throw new InvalidOperationException("Current native policy facts are incomplete or inconsistent.");
+
+                foreach (var item in observed.Items)
+                {
+                    _items.Add(item.Id, item);
+                    _links.Add(item.Id, observed.Links
+                        .Where(link => link.SourceId == item.Id || link.TargetId == item.Id)
+                        .ToArray());
+                }
+            }
+            return requested.Select(id => _items[id]).ToArray();
+        }
+
+        public async Task<IReadOnlyList<WorkItemLink>> LinksAsync(
+            IReadOnlyList<int> ids, CancellationToken ct)
+        {
+            await ItemsAsync(ids, ct).ConfigureAwait(false);
+            return ids.SelectMany(id => _links[id]).Distinct().ToArray();
+        }
+    }
+
     /// <summary>Cached pre-change items plus the proposal's overlays.</summary>
     private sealed class ProposalState
     {
@@ -949,7 +997,8 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             _publishedSeedOps = publishedSeedOps;
         }
 
-        public static async Task<ProposalState> LoadAsync(IWorkItemRepository items, PlanDefinition plan, CancellationToken ct)
+        public static async Task<ProposalState> LoadAsync(
+            IWorkItemRepository items, PlanDefinition plan, CancellationToken ct, ExecutionFacts? facts = null)
         {
             var seeds = new Dictionary<int, WorkItem>();
             var published = new Dictionary<int, string>();
@@ -987,9 +1036,12 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             }
 
             ids.RemoveWhere(i => i <= 0);
-            var cached = ids.Count == 0
-                ? new Dictionary<int, WorkItem>()
-                : (await items.GetByIdsAsync(ids, ct).ConfigureAwait(false)).ToDictionary(w => w.Id);
+            IReadOnlyList<WorkItem> observed = ids.Count == 0
+                ? []
+                : facts is null
+                    ? await items.GetByIdsAsync(ids, ct).ConfigureAwait(false)
+                    : await facts.ItemsAsync(ids, ct).ConfigureAwait(false);
+            var cached = observed.ToDictionary(w => w.Id);
 
             // A type change re-judges the item's existing parent, which no operation names.
             var parentsOfRetyped = plan.Operations.OfType<BatchOperation>()
@@ -1000,7 +1052,10 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
                 .ToHashSet();
             if (parentsOfRetyped.Count > 0)
             {
-                foreach (var parent in await items.GetByIdsAsync(parentsOfRetyped, ct).ConfigureAwait(false))
+                var parents = facts is null
+                    ? await items.GetByIdsAsync(parentsOfRetyped, ct).ConfigureAwait(false)
+                    : await facts.ItemsAsync(parentsOfRetyped, ct).ConfigureAwait(false);
+                foreach (var parent in parents)
                     cached[parent.Id] = parent;
             }
 
@@ -1168,9 +1223,10 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
 
     /// <summary>Dependency edges: verified cached links, plus proposed adds, minus proposed removes.</summary>
     private sealed class DependencyGraph(
-        IWorkItemLinkRepository links,
+        IWorkItemLinkRepository? links,
         IEnumerable<(int From, int To)> adds,
-        HashSet<(int, int)> removes)
+        HashSet<(int, int)> removes,
+        ExecutionFacts? facts)
     {
         private readonly ILookup<int, int> _added = adds.ToLookup(a => a.From, a => a.To);
         private readonly Dictionary<int, HashSet<int>?> _outgoing = [];
@@ -1226,10 +1282,22 @@ public sealed class DeclaredPolicyEvaluator(IWorkItemRepository items, IWorkItem
             if (missing.Count == 0)
                 return;
 
-            var verified = await links.GetLinksVerifiedAtForSetAsync(missing, ct).ConfigureAwait(false);
-            var found = await links.GetLinksForSetAsync(missing, ct).ConfigureAwait(false);
-            foreach (var node in missing)
-                _outgoing[node] = verified.ContainsKey(node) ? [] : null;
+            IReadOnlyList<WorkItemLink> found;
+            if (facts is not null)
+            {
+                found = await facts.LinksAsync(missing, ct).ConfigureAwait(false);
+                foreach (var node in missing)
+                    _outgoing[node] = [];
+            }
+            else
+            {
+                var repository = links
+                    ?? throw new InvalidOperationException("Dependency link observations are unavailable.");
+                var verified = await repository.GetLinksVerifiedAtForSetAsync(missing, ct).ConfigureAwait(false);
+                found = await repository.GetLinksForSetAsync(missing, ct).ConfigureAwait(false);
+                foreach (var node in missing)
+                    _outgoing[node] = verified.ContainsKey(node) ? [] : null;
+            }
 
             foreach (var link in found)
             {

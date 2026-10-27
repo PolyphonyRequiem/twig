@@ -62,6 +62,7 @@ public sealed class SqliteRecoverableWorkItemDraftStoreTests : IDisposable
         using (var cache = new SqliteCacheStore(ConnectionString))
         {
             SeedUnrelatedRows(cache.GetConnection());
+            DraftProposalCaptureStoreTests.RemovePost16Schema(cache.GetConnection());
             using var seed = cache.GetConnection().CreateCommand();
             seed.CommandText = """
                 DROP TABLE pending.recoverable_work_item_drafts;
@@ -100,6 +101,7 @@ public sealed class SqliteRecoverableWorkItemDraftStoreTests : IDisposable
         using (var cache = new SqliteCacheStore(ConnectionString))
         {
             SeedUnrelatedRows(cache.GetConnection());
+            DraftProposalCaptureStoreTests.RemovePost16Schema(cache.GetConnection());
             using var prepare = cache.GetConnection().CreateCommand();
             prepare.CommandText = """
                 DROP TABLE pending.recoverable_work_item_drafts;

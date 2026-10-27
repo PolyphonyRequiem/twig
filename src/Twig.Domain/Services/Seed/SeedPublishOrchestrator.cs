@@ -420,7 +420,7 @@ public sealed class SeedPublishOrchestrator
         };
     }
 
-    private async Task CompleteLocalPublishAsync(WorkItem seed, WorkItem publishedItem, int newId, CancellationToken ct)
+    internal async Task CompleteLocalPublishAsync(WorkItem seed, WorkItem publishedItem, int newId, CancellationToken ct)
     {
         var tx = await _unitOfWork.BeginAsync(ct).ConfigureAwait(false);
         try

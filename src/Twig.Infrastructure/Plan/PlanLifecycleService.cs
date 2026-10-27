@@ -84,6 +84,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly ISessionSteeringModeProvider _steering;
     private readonly DeclaredPolicyLoader _policyLoader;
     private readonly DeclaredPolicyEvaluator _policyEvaluator;
+    private readonly IExecutionPolicyFactReader? _executionReader;
 
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton; the executor is
@@ -156,6 +157,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _journal = journal;
         _pendingReader = pendingReader;
         _workItemRepo = workItemRepo;
+        _executionReader = adoService as IExecutionPolicyFactReader;
         _seedLinkRepo = seedLinkRepo;
         _stagedRegistry = stagedRegistry;
         _publishIdMap = publishIdMap;
@@ -475,15 +477,69 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     }
 
     private async Task<IReadOnlyList<PolicyDecision>> EvaluateDeclaredPolicyAsync(
-        PlanDefinition plan, CancellationToken ct)
+        PlanDefinition plan, CancellationToken ct, bool forExecution = false)
     {
         var decisions = new List<PolicyDecision>();
         var loaded = await _policyLoader.LoadAsync(ct).ConfigureAwait(false);
         if (loaded.Failure is { } failure)
             decisions.Add(failure);
         else if (loaded.Policy is { } policy)
-            decisions.AddRange(await _policyEvaluator.EvaluateAsync(policy, plan, ct).ConfigureAwait(false));
+        {
+            if (!forExecution)
+                decisions.AddRange(await _policyEvaluator.EvaluateAsync(policy, plan, ct).ConfigureAwait(false));
+            else if (_executionReader is null)
+                decisions.Add(NativePolicyFactsUnavailable());
+            else
+            {
+                try
+                {
+                    decisions.AddRange(await _policyEvaluator
+                        .EvaluateForExecutionAsync(policy, plan, _executionReader, ct).ConfigureAwait(false));
+                }
+                catch (Exception error) when (error is Twig.Infrastructure.Ado.Exceptions.AdoException
+                    or HttpRequestException or InvalidOperationException or System.Text.Json.JsonException)
+                {
+                    decisions.Add(NativePolicyFactsUnavailable());
+                }
+            }
+        }
         return decisions;
+    }
+
+    private static PolicyDecision NativePolicyFactsUnavailable() => new()
+    {
+        RuleId = "policy-facts",
+        Kind = "native-facts",
+        Outcome = PolicyOutcome.Unavailable,
+        Reason = "Current native policy facts are unavailable or incomplete; cached observations cannot authorize this write.",
+    };
+
+    private async Task<string?> RemainingPolicyRefusalAsync(
+        string digest, string operationId, CancellationToken ct)
+    {
+        var journal = await _journal.GetAsync(digest, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Journal disappeared before the policy gate.");
+        var parsed = _parser.Parse(journal.CanonicalJson);
+        if (!parsed.IsValid || parsed.Plan is null || parsed.Digest != digest)
+            return "The recorded proposal cannot establish the remaining policy scope; no write was attempted.";
+        var current = journal.Operations.Single(row => row.OpId == operationId);
+        if (current.State is not (PlanOperationState.Planned or PlanOperationState.Confirmed))
+            return null;
+        if (journal.Operations.Any(row => row.Ordinal < current.Ordinal
+            && row.State != PlanOperationState.Verified))
+            return "An earlier operation must be reconciled before evaluating or attempting the outstanding tail.";
+
+        var states = journal.Operations.ToDictionary(row => row.OpId, row => row.State, StringComparer.Ordinal);
+        var remaining = parsed.Plan with
+        {
+            Operations = parsed.Plan.Operations.Where(operation => states.TryGetValue(operation.Id, out var state)
+                && state is PlanOperationState.Planned or PlanOperationState.Confirmed).ToArray(),
+        };
+        var decisions = await EvaluateDeclaredPolicyAsync(remaining, ct, forExecution: true).ConfigureAwait(false);
+        var blocking = decisions.Where(static decision => decision.IsBlocking).ToArray();
+        return blocking.Length == 0 ? null : "Declared policy refuses outstanding operations: "
+            + string.Join("; ", blocking.Select(static decision =>
+                $"[{decision.RuleId}] {decision.OutcomeName}: {decision.Reason}"));
     }
 
     private async Task<IReadOnlyList<PolicyDecision>> EvaluateProcessRuleDecisionsAsync(
@@ -668,13 +724,13 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         if (originError is not null)
             return TopLevelApplyFailure(confirmedDigest, originError);
 
-        // Declared policy gate (AB#1169). Judged only before the first confirmation: once a
-        // journal has advanced, the cache already reflects the proposal's own effects, and
-        // re-judging them on resume would refuse the proposal for edges it created itself.
+        // The first review uses current native facts. Each new write separately checks
+        // the outstanding projection, without replaying or reauthorizing verified effects.
         IReadOnlyList<PolicyDecision> policyDecisions = [];
-        if (journal.State == PlanOperationState.Planned)
+        if (journal.State == PlanOperationState.Planned && journal.Operations.All(static row =>
+            row.State is PlanOperationState.Planned or PlanOperationState.Confirmed))
         {
-            policyDecisions = await EvaluateDeclaredPolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
+            policyDecisions = await EvaluateDeclaredPolicyAsync(parsed.Plan, ct, forExecution: true).ConfigureAwait(false);
             var blocking = policyDecisions.Where(static d => d.IsBlocking).ToArray();
             if (blocking.Length > 0)
                 return TopLevelApplyFailure(
@@ -1162,6 +1218,10 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             {
                 return StepResult.NeedsRefresh(gate.Outcome.Message!);
             }
+
+            var policyRefusal = await RemainingPolicyRefusalAsync(digest, row.OpId, ct).ConfigureAwait(false);
+            if (policyRefusal is not null)
+                return StepResult.NeedsRefresh(policyRefusal);
 
             // Persist Applying BEFORE the ADO call — the transition is the durable evidence
             // that the operation was attempted.

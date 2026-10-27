@@ -60,14 +60,14 @@ function samePath(a, b) {
     return nonempty(a) && nonempty(b) && normalize(a) === normalize(b);
 }
 
-export function createNativeEditingAdapter({
+export function createNativeCommandRunner({
     spawn = nodeSpawn, launch = (exe, args, options, callback, overflow) =>
         spawnCaptured(exe, args, options, callback, overflow, spawn),
     realpath = nodeRealpath, stopTree = terminateTree, executable,
 } = {}) {
     let active = false;
     let poisoned = false;
-    async function invoke(capability, args, cwd, signal, stdin, expected) {
+    async function invoke(capability, args, cwd, signal, stdin, expected, validateResult) {
         signal?.throwIfAborted();
         requireAdmitted(executable);
         if (active || poisoned) throw new Error("Native editing process ownership is busy or unresolved; no second child admitted.");
@@ -99,7 +99,7 @@ export function createNativeEditingAdapter({
                             const { error, stdout } = output;
                             const code = error ? error.code : 0;
                             if (error?.killed || error?.signal || ![0, 1, 2].includes(code)) throw error;
-                            const validate = expected.action === "retain" ? validateRetainResult : validateEditingResult;
+                            const validate = validateResult ?? (expected.action === "retain" ? validateRetainResult : validateEditingResult);
                             const result = validate(JSON.parse(stdout), { ...expected, exitCode: code });
                             settled = true;
                             clearTimeout(closeTimer);
@@ -165,6 +165,12 @@ export function createNativeEditingAdapter({
             active = false;
         });
     }
+    return invoke;
+}
+
+export function createNativeEditingAdapter(options = {}) {
+    const { realpath = nodeRealpath } = options;
+    const invoke = createNativeCommandRunner(options);
     return {
         async open({ workItemId, bench, workspacePath, expectedKey, identityId, signal }) {
             signal?.throwIfAborted();

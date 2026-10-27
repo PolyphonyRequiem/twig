@@ -2,7 +2,8 @@
 
 This project-scoped Copilot extension provides cached item detail and a named-Bench
 workbench. Detail and ordinary browsing remain read-only; the workbench also exposes
-two explicit local-draft actions backed by Twig's native editing bridge. It does not
+two explicit local-draft actions backed by Twig's native editing bridge. A separate
+proposal-review canvas provides explicit acquisition and digest-bound authorization/Apply. It does not
 read Twig's SQLite files or call an ADO/GitHub API directly.
 
 The item-detail canvas remains read-only. The workbench can explicitly open a local
@@ -30,7 +31,7 @@ a new instance does.
 
 Each canvas declares only the native capabilities it uses (item: detail and draft
 show; workbench: Bench browse/detail, discussion and draft open/stage/retain;
-review: proposal preview). Before a capability's first use, the instance runs
+review: proposal preview/apply). Before a capability's first use, the instance runs
 `<command> --help` on the pinned path and requires that the usage line names that
 command and that its `Options:` section declares each flag the canvas will pass as
 an exact token. A generic or different help page, or a prefix of a required flag,
@@ -602,7 +603,49 @@ loopback state restores the same observation while this provider instance lives;
 provider restart or a fresh panel starts empty, not with invented durable recovery.
 Retained file/revision/readiness freshness is unknown until another explicit
 acquisition. A failed replacement clears old success. Close aborts the owned child
-and suppresses late publication; no Apply, Save or authorization route exists.
+and suppresses late publication. Acquisition and view controls do not invoke the
+separate authorization/Apply action below; workbench Save remains separate scope.
+
+### Separate explicit proposal Apply (#1201)
+
+After acquiring and reviewing one executable, unblocked native preview, use the
+separate **Authorize and apply** form or `apply_review` SDK action. The action
+requires `{captureId, confirm, authorize}` with an optional `rationale`. It accepts
+no caller-selected file, replacement observation or workspace. The form requires
+fresh consent, an explicitly entered authorizer and re-entered digest; replacing
+the capture clears these inputs. Acquisition, favorable assessments, Details,
+Show retained observation, reload and open never authorize or apply.
+
+The server binds the request to its retained capture and digest, rejects pending
+changes/blockers/non-executable review, and consumes each submitted capture once.
+The adapter checks that physical checkout/file paths still match acquisition and
+uses the same pinned executable admission and owned-process supervision as local
+editing. It invokes only:
+
+```text
+twig proposal apply --file <retained-physical-file> --confirm <retained-digest> --authorize <explicit-identity> [--rationale <text>] -o json
+```
+
+The authorizer is a journal identity supplied explicitly by the caller, not proof
+of an authenticated human. Native mode-specific authorization, current digest,
+origin, revision, policy and journal gates remain authoritative. Review does not
+export full binding/identity origin, so this action makes no stronger continuity
+claim. Review model version alone does not grant proposal executability; native
+Apply also rejects unsupported proposal document versions.
+
+Only native exit zero with the exact complete operation coverage, every row
+`Verified`, no failure/error and no unsettled acknowledgments is shown as verified.
+Partial native rows, warnings, failures and unsettled effects remain visible as
+full text-only JSON. Malformed output, cancellation, transport loss or an unproven
+owned-tree teardown is an unknown outcome, not rollback or success. No automatic
+retry or re-preview occurs. The loopback server and SDK action share single-flight
+ownership; closing aborts owned work and suppresses late results.
+
+Iframe reload retains the reviewed observation and Apply outcome while that
+provider lives. Provider restart starts empty; the durable native journal remains
+the recovery authority, not the canvas's in-memory receipt. Inspect it before
+authorizing any new attempt after uncertainty. Synthetic Node/HTTP/SDK tests are
+not installed-app or live-provider qualification.
 
 Qualification on base `9bf9372e3f7acbd65798527dff4cb77408ee1ba4` used the exact
 reviewed executable/test blobs: eight `node --check` children passed in one

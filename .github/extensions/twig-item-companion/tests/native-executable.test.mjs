@@ -160,7 +160,7 @@ test("probes only the requested capability, lazily, with bounded absolute help i
 
 test("canvas manifests list only the capabilities each canvas uses", () => {
     assert.deepEqual([...CANVAS_CAPABILITIES.item], ["detail", "draft-show"]);
-    assert.deepEqual([...CANVAS_CAPABILITIES.review], ["proposal-preview"]);
+    assert.deepEqual([...CANVAS_CAPABILITIES.review], ["proposal-preview", "proposal-apply"]);
     assert.deepEqual([...CANVAS_CAPABILITIES.workbench],
         ["workspace-browser", "bench-detail", "discussion", "draft-open", "draft-stage", "draft-retain"]);
 });

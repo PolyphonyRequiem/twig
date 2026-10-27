@@ -425,7 +425,9 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                         OpId = provider.Id,
                         Kind = PlanDocumentWriter.WireKind(provider.Kind),
                         Target = new ReviewTarget { ProviderWorkItem = item },
-                        Summary = summary,
+                        Summary = provider.Concurrency == "observed-non-atomic"
+                            ? summary + " (non-atomic: observed-token preflight and native readback; concurrent changes remain possible)"
+                            : summary,
                         Preconditions =
                         [
                             new ReviewPrecondition
@@ -433,6 +435,8 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                                 Kind = "expectedProviderRevision",
                                 Value = provider.Target.ExpectedProviderRevision.Value,
                             },
+                            .. provider.Concurrency == "exact-revision" ? Array.Empty<ReviewPrecondition>()
+                                : [new ReviewPrecondition { Kind = "concurrency", Value = provider.Concurrency }],
                         ],
                         Consequences = consequences,
                     };

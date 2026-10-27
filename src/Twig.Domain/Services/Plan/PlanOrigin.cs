@@ -17,4 +17,13 @@ public sealed record PlanOrigin(
     string ObjectId,
     string Issuer,
     string Authority,
-    string? AdoPrincipalId);
+    string? AdoPrincipalId)
+{
+    [System.Text.Json.Serialization.JsonInclude]
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    internal ProviderPlanAuthority? ProviderAuthority { get; init; }
+}
+
+/// <summary>Provider-neutral target and authenticated subject captured for native relationship proposals.</summary>
+internal sealed record ProviderPlanAuthority(
+    Twig.Domain.ValueObjects.ProviderTargetIdentity Target, string ActorId, string CredentialAccount, string Endpoint);

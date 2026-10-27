@@ -676,7 +676,9 @@ public static class TwigServiceRegistration
                     sp.GetRequiredService<IWorkItemRepository>(),
                     configuration,
                     sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
-                    sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemSnapshotReader>());
+                    sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemSnapshotReader>(),
+                    sp.GetRequiredService<Twig.Infrastructure.GitHub.GitHubNativeRelationshipService>(),
+                    sp.GetRequiredService<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider>());
             }
 
             return new Twig.Infrastructure.Plan.PlanLifecycleService(

@@ -63,6 +63,29 @@ public class ConfigCommandTests : IDisposable
         output.ShouldContain("selected-account");
     }
 
+    [Theory]
+    [InlineData("human")]
+    [InlineData("json")]
+    [InlineData("minimal")]
+    public async Task Config_GitHubCredentialSource_RoundTripsWithoutAcquiringCredential(string format)
+    {
+        var config = new TwigConfiguration();
+        var command = new ConfigCommand(config, _paths, _formatterFactory);
+        const string source = "windows-credential-manager";
+        var (written, _) = await StdoutCapture.RunAsync(() =>
+            command.ExecuteAsync("github.credentialsource", source, outputFormat: format));
+        written.ShouldBe(0);
+        (await TwigConfiguration.LoadSplitAsync(_paths)).GitHubCredentialSource.ShouldBe(source);
+        (await File.ReadAllTextAsync(_paths.RepoConfigPath)).ShouldNotContain(source);
+        (await File.ReadAllTextAsync(_paths.ConfigPath)).ShouldContain(source);
+
+        var (read, output) = await StdoutCapture.RunAsync(() =>
+            command.ExecuteAsync("github.credentialsource", outputFormat: format));
+
+        read.ShouldBe(0);
+        output.ShouldContain(source);
+    }
+
     [Fact]
     public async Task Config_Read_UnknownKey_ReturnsError()
     {

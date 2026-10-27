@@ -100,6 +100,20 @@ jobs:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/gh-parser/trace
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GhCliTokenSourceTests" --logger "trx;LogFileName=gh-parser.trx" --results-directory artifacts/test-logs/ci/gh-parser
 
+      - name: Repository credential source regression (synthetic credentials only)
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~WindowsCredentialManagerTokenSourceTests|FullyQualifiedName~GitHubConfigTests|FullyQualifiedName~GitHubNativeRelationshipTests.WindowsCredentialSource_DoesNotAdmitNativeWrites" --logger "trx;LogFileName=github-source.trx" --results-directory artifacts/test-logs/ci/github-source
+
+      - name: Repository credential source configuration output regression
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ConfigCommandTests" --logger "trx;LogFileName=github-source-cli.trx" --results-directory artifacts/test-logs/ci/github-source
+
+      - name: Preserve repository credential source results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-github-source-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/github-source/
+          if-no-files-found: warn
+
       - name: GitHub native relationship proposal regression
         shell: python
         run: |

@@ -79,9 +79,15 @@ identity authority. Existing slug-only configuration is **unbound** and refused
 before credential acquisition or HTTP; it is never silently enrolled or promoted
 to a binding, and Twig never falls back to ADO.
 
+`github.credentialsource` is a **user-local** preference accepting `gh` (the
+unchanged default) or `windows-credential-manager`. Shared manifests cannot select
+it. Unknown stored values fail closed; an unavailable source never falls back to
+another source. Setting this preference reads no credential and makes no HTTP call.
+
 `github.account` is a **user-local** preference in `.twig/config`, never a shared
 repository coordinate in `twig.json`. It explicitly selects a GitHub CLI account
-for that host; it does not change another user's selection. The token
+for `gh`, or the exact expected credential UserName for Windows Credential Manager;
+it is not authenticated actor evidence. It does not change another user's selection. The default token
 source uses `gh auth token --hostname <host> --user <account>` without changing the
 CLI's active account or asking it to refresh stored credentials. Token environment overrides are removed only from the child
 process; the caller's environment and stored credentials are unchanged. Twig does
@@ -89,17 +95,44 @@ not persist the returned token, request new scopes, or infer an authenticated
 actor or granted permissions from this account-selection string. No account is
 assumed when the setting is missing.
 
+For `windows-credential-manager`, Twig uses `CredReadW` to read only the generic
+credential named `twig:github:<host>/<owner/repository>`, using the explicitly
+configured host and repository. It requires `CRED_TYPE_GENERIC`, `LOCAL_MACHINE`
+persistence, the exact selected UserName, and a UTF-8 blob beginning `github_pat_`.
+The token remains in process memory; native buffers are freed and managed blob
+copies are cleared. Twig neither creates nor modifies Credential Manager entries,
+enumerates credentials, prints the token, nor requests or refreshes permissions.
+On other platforms this source is unavailable. `GH_TOKEN`, `GITHUB_TOKEN` and
+other environment tokens are not alternate sources.
+
+The token owner must provision a fine-grained token limited to the intended
+repository with **Issues: read/write** and baseline **Metadata: read**.
+The token's prefix does not prove its permissions, repository grants, validity,
+expiry or authenticated actor. A fine-grained permission is not an OAuth scope or
+GitHub CLI's broader `repo` scope. Windows Credential Manager selection does not
+enable authoring: native relationship writes from this source are explicitly
+refused pending separate write admission and endpoint-permission qualification.
+Twig-owned OAuth sign-in remains a separate 1.0 requirement.
+
+Select this source without putting token material in a command argument:
+
+```text
+twig config github.account <credential-username>
+twig config github.credentialsource windows-credential-manager
+```
+
 Repository discovery is a fixed read-only observation, not a binding operation.
 Use [`provider discover github`](provider-discover-github.md), then
 [`provider bind github`](provider-bind-github.md) with the exact observed IDs and
 attachment revision. Neither command changes provider configuration. An existing bound repository rename is accepted when both immutable IDs
 match. A transfer to a different owner or replacement repository at the same slug
 is refused and requires explicit rediscovery/rebinding. Reads do not silently
-refresh binding metadata. Twig-owned OAuth sign-in is also required before 1.0;
-this GitHub CLI credential source is the first supported source, not its replacement.
+refresh binding metadata. Neither supported credential source replaces the separate
+Twig-owned OAuth sign-in requirement.
 
-For setup, choose an already signed-in GitHub CLI account explicitly with
-`twig config github.account <login>`. Run discovery and bind using explicit
+For setup, choose the source and its account explicitly; for the default `gh` source,
+use an already signed-in account with `twig config github.account <login>`.
+Run discovery and bind using explicit
 `--host` and `--repository` values, then select normal reads separately:
 `twig config github.host github.com`, `twig config github.repository owner/repo`,
 and `twig config provider github`. These settings do not enroll an account,

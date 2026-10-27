@@ -11,6 +11,7 @@
     <Description>Infrastructure for twig — a high-performance .NET CLI for Azure DevOps work-item triage. SQLite persistence, Azure DevOps REST clients, auth providers, and the AddTwigInfrastructure DI extension.</Description>
     <PackageTags>azure-devops;ado;work-items;twig;sqlite;infrastructure</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1573;CS1574;CS0419;CS1580;CS1584</NoWarn>
   </PropertyGroup>

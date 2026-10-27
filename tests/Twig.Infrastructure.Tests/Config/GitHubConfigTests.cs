@@ -25,6 +25,65 @@ public sealed class GitHubConfigTests : IDisposable
     public void Account_IsUserScoped() => TwigConfiguration.GetConfigScope("github.account").ShouldBe(ConfigScope.User);
 
     [Theory]
+    [InlineData("gh")]
+    [InlineData("windows-credential-manager")]
+    public void CredentialSource_IsExplicitAndUserScoped(string source)
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("github.credentialsource", source).ShouldBeTrue();
+        config.GetValue("github.credentialsource").ShouldBe((source, true));
+        TwigConfiguration.GetConfigScope("github.credentialsource").ShouldBe(ConfigScope.User);
+    }
+
+    [Fact]
+    public void CredentialSource_DefaultPreservesGh()
+        => new TwigConfiguration().GetValue("github.credentialsource").ShouldBe(("gh", true));
+
+    [Fact]
+    public async Task CredentialSource_CannotBeSelectedBySharedManifest()
+    {
+        var paths = new TwigPaths(
+            Path.Combine(_dir, ".twig"), Path.Combine(_dir, ".twig", "config"),
+            Path.Combine(_dir, ".twig", "twig.db"), _dir);
+        await File.WriteAllTextAsync(paths.RepoConfigPath, """
+            {"organization":"o","project":"p","gitHubCredentialSource":"windows-credential-manager"}
+            """);
+
+        (await TwigConfiguration.LoadSplitAsync(paths))
+            .GetValue("github.credentialsource").ShouldBe(("gh", true));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("environment")]
+    [InlineData("GH")]
+    [InlineData(" windows-credential-manager")]
+    public void CredentialSource_InvalidSelectionPreservesExistingValue(string invalid)
+    {
+        var config = new TwigConfiguration { GitHubCredentialSource = "gh" };
+        config.SetValue("github.credentialsource", invalid).ShouldBeFalse();
+        config.GitHubCredentialSource.ShouldBe("gh");
+    }
+
+    [Fact]
+    public async Task CredentialSource_RoundTripsOnlyInUserPreferences()
+    {
+        var paths = new TwigPaths(
+            Path.Combine(_dir, ".twig"), Path.Combine(_dir, ".twig", "config"),
+            Path.Combine(_dir, ".twig", "twig.db"), _dir);
+        var config = new TwigConfiguration { Organization = "o", Project = "p" };
+        config.SetValue("github.credentialsource", "windows-credential-manager").ShouldBeTrue();
+        await config.SaveRepoAsync(paths.RepoConfigPath);
+        await config.SaveUserAsync(paths.ConfigPath);
+
+        (await File.ReadAllTextAsync(paths.RepoConfigPath)).ShouldNotContain("windows-credential-manager");
+        (await File.ReadAllTextAsync(paths.ConfigPath)).ShouldContain("windows-credential-manager");
+        (await TwigConfiguration.LoadSplitAsync(paths)).GitHubCredentialSource
+            .ShouldBe("windows-credential-manager");
+        TwigConfiguration.LoadSplit(paths).GitHubCredentialSource.ShouldBe("windows-credential-manager");
+    }
+
+    [Theory]
     [InlineData("github.com", "github.com")]
     [InlineData("GitHub.Com", "github.com")]
     [InlineData("ghe.example.com", "ghe.example.com")]

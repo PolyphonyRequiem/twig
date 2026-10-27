@@ -12,6 +12,7 @@ using Twig.Domain.Services;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;

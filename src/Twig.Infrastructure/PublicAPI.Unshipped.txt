@@ -1,4 +1,8 @@
 #nullable enable
+Twig.Infrastructure.Config.TwigConfiguration.GitHubCredentialSource.get -> string?
+Twig.Infrastructure.Config.TwigConfiguration.GitHubCredentialSource.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.GitHubCredentialSource.get -> string?
+Twig.Infrastructure.Config.TwigUserConfig.GitHubCredentialSource.set -> void
 Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.RecordExecutionAdmissionAsync(Twig.Domain.Services.Plan.PlanExecutionAdmission! admission, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanAdmissionRecordResult>!
 Twig.Infrastructure.Config.TwigConfiguration.GitHubAccount.get -> string?
 Twig.Infrastructure.Config.TwigConfiguration.GitHubAccount.set -> void

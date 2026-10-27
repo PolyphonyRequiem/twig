@@ -265,10 +265,9 @@ public static class NetworkServiceModule
     {
         services.TryAddSingleton<IBoundedProcessRunner, BoundedProcessRunner>();
         services.TryAddSingleton(sp => GitHubScope(sp.GetRequiredService<TwigConfiguration>()));
-        services.TryAddSingleton<IGitHubTokenSource>(sp => new GhCliTokenSource(
-            sp.GetRequiredService<IBoundedProcessRunner>(),
-            sp.GetRequiredService<GitHubWorkspaceScope>().Host,
-            sp.GetRequiredService<TwigConfiguration>().GitHubAccount));
+        services.TryAddSingleton<IWindowsCredentialApi, WindowsCredentialApi>();
+        services.TryAddSingleton<IGitHubTokenSource>(sp => GitHubTokenSource(
+            sp, sp.GetRequiredService<GitHubWorkspaceScope>()));
         services.TryAddSingleton(sp =>
         {
             var scope = sp.GetRequiredService<GitHubWorkspaceScope>();
@@ -285,7 +284,8 @@ public static class NetworkServiceModule
             sp.GetRequiredService<IExternalIdentityMap>(),
             sp.GetRequiredService<ILocalWorkItemStore>(),
             sp.GetRequiredService<TwigConfiguration>().GitHubAccount,
-            sp.GetService<GitHubTransportOverride>()));
+            sp.GetService<GitHubTransportOverride>(),
+            sp.GetRequiredService<TwigConfiguration>().GitHubCredentialSource ?? "gh"));
         services.TryAddSingleton(sp => new GitHubCapturedReadSessionFactory(
             sp.GetRequiredService<IGitHubTokenSource>(),
             sp.GetRequiredService<GitHubBoundTargetResolver>(),
@@ -304,9 +304,7 @@ public static class NetworkServiceModule
                 return observation.Value;
             },
             scope => GitHubReadOnlyAuthHandler.CreateClient(
-                new GhCliTokenSource(
-                    sp.GetRequiredService<IBoundedProcessRunner>(), scope.Host,
-                    sp.GetRequiredService<TwigConfiguration>().GitHubAccount),
+                GitHubTokenSource(sp, scope),
                 scope.GraphQlEndpoint, sp.GetService<GitHubTransportOverride>()?.CreateHandler())));
         services.TryAddSingleton(sp =>
         {
@@ -341,6 +339,20 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<IExternalIdentityMap>(),
                 sp.GetRequiredService<ILocalWorkItemStore>()));
         }
+    }
+
+    private static IGitHubTokenSource GitHubTokenSource(IServiceProvider services, GitHubWorkspaceScope scope)
+    {
+        var config = services.GetRequiredService<TwigConfiguration>();
+        return config.GitHubCredentialSource switch
+        {
+            null or "gh" => new GhCliTokenSource(
+                services.GetRequiredService<IBoundedProcessRunner>(), scope.Host, config.GitHubAccount),
+            WindowsCredentialManagerTokenSource.SourceKind => new WindowsCredentialManagerTokenSource(
+                services.GetRequiredService<IWindowsCredentialApi>(), scope, config.GitHubAccount),
+            _ => throw new GitHubCredentialUnavailableException(
+                "GitHub credential unavailable: unknown github.credentialsource; no alternate source was used."),
+        };
     }
 
     private static GitHubWorkspaceScope GitHubScope(TwigConfiguration cfg)

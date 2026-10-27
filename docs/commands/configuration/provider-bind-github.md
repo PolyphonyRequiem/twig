@@ -36,7 +36,10 @@ rebinding reuses the durable row without silently refreshing locator/display
 metadata; renames do not redefine identity.
 
 The user-local `github.account` must explicitly select an existing GitHub CLI
-account. Tokens stay in memory; no refresh, storage, new scopes, active-account
+account for the default `gh` source, or the exact credential UserName for
+`github.credentialsource=windows-credential-manager` (see [config](config.md)).
+The latter reads only `twig:github:<host>/<owner/repository>` through CredReadW
+on Windows and never falls back to `gh`. Tokens stay in memory; no refresh, storage, new scopes, active-account
 switch or remote write occurs. A token may have broader grants than Twig's fixed
 request admission permits.
 

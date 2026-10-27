@@ -23,7 +23,8 @@ internal sealed class GitHubNativeRelationshipService(
     IExternalIdentityMap identities,
     ILocalWorkItemStore localItems,
     string? account,
-    GitHubTransportOverride? transport = null) : IPlanOriginProvider
+    GitHubTransportOverride? transport = null,
+    string credentialSource = "gh") : IPlanOriginProvider
 {
     internal static bool Supports(PlanOperationDefinition operation) =>
         operation is ProviderMutationOperation
@@ -43,6 +44,9 @@ internal sealed class GitHubNativeRelationshipService(
     internal async Task<PlanExecutionResult> ExecuteAsync(
         ProviderMutationOperation operation, PlanOrigin? expectedOrigin, CancellationToken ct)
     {
+        if (credentialSource != "gh")
+            return PlanExecutionResult.Failure(
+                "Native GitHub writes are unavailable for this credential source; read-only admission is unchanged.");
         if (!Supports(operation))
             return PlanExecutionResult.Failure(
                 "GitHub relationships require explicit observed-non-atomic concurrency; exact-revision writes are unavailable.");
@@ -157,7 +161,7 @@ internal sealed class GitHubNativeRelationshipService(
         paths.RepoRoot, session.Target.WorktreeFingerprint, session.Target.AttachmentRevision,
         session.Target.Identity.ResourceScope, session.Target.BindingId.ToString(), session.Target.BindingRevision,
         "provider-target-attachment", session.Target.AttachmentRevision,
-        session.Actor.ActorId, "github-gh", account ?? string.Empty,
+        session.Actor.ActorId, "github-" + credentialSource, account ?? string.Empty,
         string.Empty, string.Empty, string.Empty, string.Empty, null)
     {
         ProviderAuthority = new(session.Target.Identity, session.Actor.ActorId,

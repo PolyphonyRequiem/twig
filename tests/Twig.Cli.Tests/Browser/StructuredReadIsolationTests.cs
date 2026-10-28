@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.Browser;
 using Twig.Cli.Tests.Commands;
-using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
@@ -12,14 +11,13 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Browser;
 
-[Trait("Category", "HostInventory")]
 public sealed class StructuredReadIsolationTests : IAsyncLifetime
 {
     private readonly NativeBrowserFixture _fixture = new();
-    public Task InitializeAsync() => _fixture.InitializeAsync();
+    public Task InitializeAsync() => _fixture.InitializeNewStoreAsync();
     public Task DisposeAsync() => _fixture.DisposeAsync().AsTask();
 
-    [HostMigrationTheory]
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -58,7 +56,7 @@ public sealed class StructuredReadIsolationTests : IAsyncLifetime
         _fixture.Transport.Mutations.ShouldBe(0);
     }
 
-    [HostMigrationFact]
+    [Fact]
     public async Task ExplicitNamedBrowserWorkspaceDoesNotConsultActiveContext()
     {
         var (runtime, context) = await SeedAsync();
@@ -79,7 +77,7 @@ public sealed class StructuredReadIsolationTests : IAsyncLifetime
         _fixture.Transport.RequestedItems.ShouldBeEmpty();
     }
 
-    [HostMigrationFact]
+    [Fact]
     public async Task StructuredTreeRefreshDoesNotAddActiveContextToItsWorkingSet()
     {
         var (runtime, context) = await SeedAsync();
@@ -100,7 +98,7 @@ public sealed class StructuredReadIsolationTests : IAsyncLifetime
         (await context.Inner.GetActiveWorkItemIdAsync()).ShouldBe(900);
     }
 
-    [HostMigrationTheory]
+    [Theory]
     [InlineData("cli")]
     [InlineData("browser")]
     [InlineData("human")]
@@ -140,10 +138,10 @@ public sealed class StructuredReadIsolationTests : IAsyncLifetime
         _fixture.Transport.Mutations.ShouldBe(0);
     }
 
-    [HostMigrationFact]
+    [Fact]
     public Task ShowTargetTwinsRetainHumanActiveRead() => AssertRealParserAsync("show");
 
-    [HostMigrationFact]
+    [Fact]
     public Task TreeTargetTwinsRetainHumanActiveRead() => AssertRealParserAsync("tree");
 
     private async Task AssertRealParserAsync(string command)
@@ -164,7 +162,7 @@ public sealed class StructuredReadIsolationTests : IAsyncLifetime
         (await runtime.GetRequiredService<IContextStore>().GetActiveWorkItemIdAsync()).ShouldBe(900);
     }
 
-    [HostMigrationFact]
+    [Fact]
     public async Task HumanStatesAndWorkspaceRetainInteractiveContext()
     {
         var (runtime, context) = await SeedAsync();

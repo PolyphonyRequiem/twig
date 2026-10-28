@@ -2,7 +2,7 @@ id = "twig-herdr"
 name = "Twig bench"
 version = "1.0.0"
 min_herdr_version = "0.9.0"
-description = "NativeAOT Twig Bench, preserved field staging and read-only proposal Review, standalone and source-scoped native Herdr hosting from the same executable. Native Twig owns authority and durable state. No automatic publication, credential migration or idle lease. Windows/Linux replacement; existing legacy macOS paths remain separate and unchanged."
+description = "NativeAOT Twig Bench, preserved field staging and read-only proposal Review, standalone and source-scoped native Herdr hosting from the same executable. Native Twig owns authority and durable state. No automatic publication, credential migration or idle lease. Windows/Linux only; macOS support is temporarily suspended."
 platforms = ["linux", "windows"]
 
 [[actions]]

@@ -177,7 +177,7 @@ refuse with `provider-unsupported`.
 application; `--view table` selects Table. It uses admitted native modules in-process,
 not a Go UI or read subprocess. On Windows/Linux, canonical `twig tui`, `twig-tui`
 and `twig-bench-tui` enter this same application with the same options. macOS
-`twig tui` and its Terminal.Gui companion remain unchanged.
+support is temporarily suspended; native and legacy entries refuse explicitly.
 
 - **Browse:** 1 Tree, 2 Table; arrows/j/k select locally. Left folds or selects the
   parent; Right unfolds or selects the first child; Space toggles a fold. Tree
@@ -257,7 +257,8 @@ Named, fully visible action buttons are mouse-clickable; clipped controls cannot
 execute hidden actions. Pin/Unpin reflects cached explicit Single/Subtree pins,
 not inherited membership. q quits from the Bench when no unsaved buffer needs a
 decision. Modes, inherited code pages and POSIX termios are restored on exit.
-Native terminal code targets win-x64/linux-x64/osx-arm64; source or an unsigned
+Supported native terminal targets are win-x64/linux-x64; dormant macOS code is
+retained for restoration. Source or an unsigned
 smoke build is not signed installed-platform qualification or owner baseline acceptance.
 
 Wrapping keeps extended graphemes intact. Windows budgets their per-rune console-cell
@@ -270,7 +271,7 @@ retained text for later wider reflow; font-specific rendering still needs qualif
 routes authenticated bounded controls to the same application in a native
 manifest-owned pane. Windows/Linux uses the canonical `twig-herdr` host, preserving
 existing action and pane IDs; the manifest source is
-`integrations/herdr-aot/herdr-plugin.toml`. macOS's existing launch paths remain.
+`integrations/herdr-aot/herdr-plugin.toml`. macOS launch is suspended.
 Installed protocol22 was the measured capability
 contract: plugin-pane open/close, opaque owner metadata, pane get/list/process-info,
 captured source topology and no-focus launch. Display IDs alone are not authority.

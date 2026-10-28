@@ -4,6 +4,12 @@ A high-performance, opinionated CLI for Azure DevOps work item management. Twig 
 
 Built with C# .NET 10 Native AOT — single binary, sub-100ms cold start.
 
+**Supported platforms: Windows x64 and Linux x64. macOS support is temporarily
+suspended on both Intel and Apple Silicon.** New macOS builds, qualification,
+installation, upgrades and companion launches are disabled. Historical releases
+and dormant platform implementation remain available as restoration context,
+not as currently supported alternatives.
+
 > **[Full Documentation](docs/README.md)** — architecture, internals, and contributor guides
 
 ## Quick Start
@@ -267,10 +273,8 @@ signed primary image when release signing is configured. The Windows/Linux Herdr
 host is `twig-herdr` and launches this same native application directly, preserving
 its action and pane IDs.
 
-**macOS is not currently supported.** macOS builds, tests, releases and installs
-are suspended; the retained `Twig.Tui` Terminal.Gui companion, legacy Go/Herdr
-paths and shared macOS code paths remain in source only so support can be restored.
-They do not represent a second Windows/Linux UI.
+The legacy macOS Terminal.Gui companion and platform implementation are retained
+as dormant source only; they are not published or launched on macOS.
 See the [TUI command guide](docs/commands/experimental/tui.md) for platform behavior
 and the [Bench browser guide](docs/commands/bench/README.md) for controls and trust.
 
@@ -451,9 +455,6 @@ irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | i
 curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash
 ```
 
-macOS is not currently supported: no macOS build is published, and `install.sh`
-refuses to install on macOS.
-
 ### Update
 
 ```bash
@@ -464,7 +465,7 @@ Installs to `~/.twig/bin/` and adds it to your PATH. The installer is idempotent
 
 Windows and Linux installers require the three same-image native entry points
 from the downloaded archive; `twig tui` does not require a legacy companion or
-fall back to one.
+fall back to one. Both installers refuse macOS before networking or installation.
 
 ### Verifying downloads
 

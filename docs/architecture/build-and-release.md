@@ -45,8 +45,8 @@ MCP is withdrawn from delivery pending redesign; its source is retained only as 
 | Markdig | ✔ |
 | Terminal.Gui v2 | ✘ (reflection) |
 
-Terminal.Gui's reflection dependency applies only to the retained legacy macOS
-`Twig.Tui` companion. Windows/Linux TUI entry points use the full-trim NativeAOT
+Terminal.Gui's reflection dependency applies only to the dormant legacy
+`Twig.Tui` source. macOS support is temporarily suspended. Windows/Linux TUI entry points use the full-trim NativeAOT
 `Twig` image and do not publish or launch that companion (see §4).
 
 ---
@@ -89,7 +89,7 @@ scripts all read this attribute.
 Runs on pull requests to `main` and pushes to `main`:
 
 ```
-Restore → Build → Test (ubuntu-latest)
+Restore → Build → Test (ubuntu-latest and windows-latest)
 ```
 
 Test filter: `Category!=Interactive & Category!=Integration` with a
@@ -105,30 +105,14 @@ Triggered by pushing a tag matching `v*`.
 |----------|--------|-----|---------|
 | Windows x64 | `windows-latest` | `win-x64` | `.zip` |
 | Linux x64 | `ubuntu-latest` | `linux-x64` | `.tar.gz` |
-| macOS (any) | — | `osx-arm64` / `osx-x64` | **not published — macOS support suspended** |
 
-**macOS support is suspended (owner decision, 2026-10-27).** CI, release,
-TUI-candidate and `install.sh` no longer build, test, publish or install macOS;
-`install.sh` refuses `Darwin` with an explanation. Runtime macOS code paths and the
-`Twig.Tui` companion remain in source so support can be restored: re-add the
-`osx-arm64` (`macos-latest`, `tar.gz`) legs to `ci.yml`, `release.yml` and
-`tui-candidate.yml`, the legacy macOS TUI companion publish step, the
-`twig-osx-arm64` release assets, and the `install.sh` Darwin case together.
-The rest of this section records the macOS layout as it was when last built.
-
-**macOS Intel (`osx-x64`) was additionally unpublished** from v0.85.1.
-The NativeAOT link step fails on the .NET 11 preview toolchain:
-
-```
-ld: unaligned pointer(s) for architecture x86_64
-  '_NetSecurityNative_ImportPrincipalName.gss_krb5_nt_principal_name_desc'
-  from libSystem.Net.Security.Native.a(pal_gssapi.c.o)
-```
-
-The failing object is a **prebuilt Microsoft static library** under Xcode 16.4 — no
-twig code is in the path, and `osx-arm64` links cleanly from the same commit, so
-this is a toolchain defect rather than a repo one; restoring Intel macOS also
-requires a toolchain that links it.
+**macOS support is temporarily suspended on both Intel and Apple Silicon.**
+CI, release and candidate matrices qualify Windows/Linux only. No new macOS
+archives, checksums or companions are published. Installers, runtime entry,
+self-upgrade and canvas executable admission refuse macOS explicitly before
+network or workspace activity; no Linux fallback is permitted. Existing published
+releases are not removed. Restoration requires coordinated runtime, installer,
+asset and qualification changes, not merely re-adding a CI runner.
 
 Each platform publishes **Twig** once with
 `dotnet publish src/Twig/Twig.csproj -c Release -r {RID} --self-contained true`.
@@ -137,7 +121,6 @@ Each platform publishes **Twig** once with
 |----------|-------------------|-------------------|
 | Windows x64 | `twig.exe`, `twig-tui.exe`, `twig-bench-tui.exe`: identical NativeAOT bytes | `e_sqlite3.dll` |
 | Linux x64 | `twig`, `twig-tui`, `twig-bench-tui`: identical NativeAOT bytes | `libe_sqlite3.so` |
-| macOS ARM64 (suspended) | `twig`: NativeAOT CLI; `twig-tui`: legacy self-contained Terminal.Gui companion | `libe_sqlite3.dylib` |
 
 Windows/Linux aliases are copied before signing. Windows signing operates on
 `twig.exe`, then copies its final signed bytes over both existing aliases before
@@ -145,9 +128,8 @@ archiving; timestamps therefore cannot produce different executable hashes. Linu
 copies preserve executable mode. Standalone basenames dispatch to the canonical
 in-process TUI, with no Go wrapper or legacy companion fallback.
 
-When macOS was built, only macOS additionally published `src/Twig.Tui/Twig.Tui.csproj` with
-`/p:PublishTrimmed=false /p:PublishAot=false`. macOS Terminal.Gui and existing
-Go/Herdr paths are preserved; this cutover does not replace them.
+`src/Twig.Tui/Twig.Tui.csproj` and macOS terminal implementation remain dormant
+restoration context. Neither is a supported macOS delivery path.
 
 Build steps:
 
@@ -172,7 +154,7 @@ Runs on `ubuntu-latest` after all platform builds succeed:
    previous tag. Commit types: `feat`, `fix`, `docs`, `chore`, `refactor`,
    `perf`, `test`, `ci`, `build`, `breaking`.
 3. Create GitHub release via `softprops/action-gh-release@v2` with the
-   three platform archives, checksums and generated release notes.
+   two platform archives, checksums and generated release notes.
 
 #### Native browser responsiveness policy for v0.98.0
 
@@ -210,7 +192,7 @@ identity or startup qualification.
 
 ---
 
-## 4. Native Entry Points and Legacy macOS Companion
+## 4. Native Entry Points and Dormant Legacy Companion
 
 ### Project dependency graph
 
@@ -218,7 +200,7 @@ identity or startup qualification.
 graph TD
     Domain["Twig.Domain (lib)"] --> Infra["Twig.Infrastructure (lib)<br/>Markdig, Microsoft.Data.Sqlite<br/>InternalsVisibleTo: all consumers + test projects"]
     Domain --> CLI["Twig (exe) — CLI/native TUI — AOT<br/>Windows/Linux aliases share this image"]
-    Domain --> Tui["Twig.Tui (exe) — legacy macOS TUI — non-AOT, SingleFile<br/>Terminal.Gui v2 (nightly)"]
+    Domain --> Tui["Twig.Tui (dormant source) — non-AOT, SingleFile<br/>Terminal.Gui v2 (nightly)"]
     Infra --> CLI
     Infra --> Tui
 ```
@@ -247,7 +229,7 @@ Candidate installs and recovery remain private, owner-marked and explicit; the t
 does not install into normal Twig or registered Herdr paths. Candidate CI exercises
 `twig tui --help` and both standalone `--help` entry points before and after sealing
 on Windows/Linux, then checks normal startup did not change the sealed inventory.
-macOS candidate qualification remains `bench browser`, not replacement of legacy TUI.
+macOS candidate build/install/restore is disabled while support is suspended.
 
 ### MCP (withdrawn)
 
@@ -255,7 +237,7 @@ MCP is excluded from supported builds, release archives, local publishing,
 installation and automatic companion downloads. Its source remains available
 for a separate redesign; current delivery does not expose an MCP server.
 
-### Legacy macOS twig-tui (Terminal UI)
+### Dormant legacy twig-tui (Terminal UI)
 
 - Assembly name: `twig-tui`
 - Output: `twig-tui.exe` / `twig-tui` (self-contained single-file, larger)
@@ -263,7 +245,8 @@ for a separate redesign; current delivery does not expose an MCP server.
 - `PublishSingleFile=true`, `SelfContained=true` — bundles .NET runtime
 - Uses Terminal.Gui v2 nightly (`2.0.0-develop.5185`)
 
-`Twig.Tui` source and its Terminal.Gui/runtime dependencies remain for macOS.
+`Twig.Tui` source and its Terminal.Gui/runtime dependencies remain for later restoration.
+Its macOS entry refuses before SQLite initialization or workspace discovery.
 Shared `Twig.Domain`, `Twig.Infrastructure` and other source/dependencies used by
 that path are retained; no deletion of shared code follows from retiring the
 Windows/Linux legacy executable. Historical research/prototype artifacts also

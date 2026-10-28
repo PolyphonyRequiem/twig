@@ -12,6 +12,12 @@ using Twig.Infrastructure.Ado;
 using Twig.Tui;
 using Twig.Tui.Views;
 
+if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+{
+    Console.Error.WriteLine("error: Twig supports Windows and Linux only; macOS support is temporarily suspended.");
+    return 1;
+}
+
 SQLitePCL.Batteries.Init();
 
 // AB#3296: discover the workspace root (parent of .twig/ OR directory containing twig.json).

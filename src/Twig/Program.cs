@@ -11,6 +11,13 @@ using Twig.Infrastructure.GitHub;
 using Twig.ProcessOverrides;
 using Twig.Rendering;
 
+if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+{
+    Console.Error.WriteLine($"error: {PlatformHelper.UnsupportedPlatformMessage}");
+    Environment.ExitCode = 1;
+    return;
+}
+
 // AB#350: the generated argument binder deserializes a JSON-array option value
 // through JsonSerializer. Twig sets JsonSerializerIsReflectionEnabledByDefault=false
 // for AOT, so it must be handed a source-generated resolver or every array-form
@@ -1824,7 +1831,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, output, ct);
 
-    /// <summary>Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.</summary>
+    /// <summary>Open the in-process native TUI on Windows/Linux; macOS support is suspended.</summary>
     /// <param name="cwd">Native source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
     /// <param name="view">Native initial tree or table view (default tree).</param>
     /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
@@ -1845,15 +1852,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             return services.GetRequiredService<BrowserHostCommand>().ExecuteAsync(cwd, view, file, herdr, hostEntry,
                 intent, sourceWorkspace, sourceTab, sourcePane, sourceSocket, output, ct, commandName: "tui");
 
-        if (cwd is not null || view != "tree" || file is not null || herdr || hostEntry || intent is not null ||
-            sourceWorkspace is not null || sourceTab is not null || sourcePane is not null || sourceSocket is not null || output != "human")
-        {
-            CommandError.Write(services.GetRequiredService<Twig.Rendering.RendererFactory>(), Console.Error, output,
-                "Native TUI options require Windows or Linux. On macOS, invoke twig tui without options for the legacy companion.");
-            return Task.FromResult(2);
-        }
-
-        return Task.FromResult(BinaryLauncher.Launch("twig-tui", "Twig.Tui"));
+        Console.Error.WriteLine($"error: {PlatformHelper.UnsupportedPlatformMessage}");
+        return Task.FromResult(1);
     }
 
     /// <summary>Launch the MCP server (requires twig-mcp binary).</summary>

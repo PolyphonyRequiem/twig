@@ -20,13 +20,10 @@ native Bench application in-process, using existing runtime/authority/terminal
 contracts rather than a Go wrapper or Terminal.Gui companion. The Windows/Linux
 Herdr host is `twig-herdr`, preserving action and pane IDs.
 
-**macOS is not currently supported** (support suspended 2026-10-27): nothing is
-built, tested, released or installed for macOS. The macOS paths described below —
-its NativeAOT CLI, non-AOT Terminal.Gui `twig-tui` companion and legacy Go/Herdr
-paths — remain in source only so support can be restored. The shared
-domain/infrastructure source and dependencies they need remain; they are not a
-second supported Windows/Linux UI. See [Build & Release](build-and-release.md) for
-artifact layout.
+macOS support is temporarily suspended on Intel and Apple Silicon. No new macOS
+artifacts or qualification gates run; installers, CLI/TUI and canvas entry points
+refuse explicitly. Legacy Terminal.Gui, native terminal and shared implementation
+remain dormant restoration context. See [Build & Release](build-and-release.md).
 
 ---
 
@@ -37,7 +34,7 @@ graph TD
     subgraph Entry["Entry Points"]
         CLI["twig (CLI/native Windows/Linux TUI)<br/>NativeAOT; standalone aliases share bytes"]
         MCP["twig-mcp (withdrawn MCP source)<br/>Retained redesign context"]
-        TUI["twig-tui (legacy macOS companion)<br/>Terminal.Gui<br/>(reflection-based, non-AOT)"]
+        TUI["twig-tui (dormant legacy source)<br/>Terminal.Gui<br/>(reflection-based, non-AOT)"]
     end
 
     subgraph Domain["Twig.Domain"]
@@ -99,7 +96,7 @@ than a structural fact. Note `Twig.RenderTree.csproj` already granted
 | `Twig.RenderTree` | (class library) | Pure, AOT-clean presentation vocabulary — render-tree node types (`Text`, `KeyValue`, `Record`, `Table`, `TreeView`, `Section`) plus the JSON/minimal/ids renderers. No Spectre.Console, no I/O, no runtime package dependencies. Referenced by Domain and by every entry point. |
 | `Twig.Infrastructure` | (class library) | SQLite persistence, ADO REST clients, authentication providers, git CLI wrapper, JSON serialization (`TwigJsonContext`), configuration, telemetry. |
 | `Twig.Mcp` | `twig-mcp` | Withdrawn MCP source retained for redesign; excluded from supported delivery. |
-| `Twig.Tui` | `twig-tui` | Legacy macOS Terminal.Gui viewer. Three-pane layout (menu, tree navigator, form), self-contained single-file (non-AOT). Shared source/dependencies retained for macOS. |
+| `Twig.Tui` | `twig-tui` | Dormant legacy Terminal.Gui viewer source. Not published; macOS entry refuses before initialization. |
 
 ### Test Projects (`tests/`)
 
@@ -237,7 +234,10 @@ Standalone aliases are exact image copies; only their basenames select TUI entry
 The registered Windows/Linux `twig-herdr` pane also launches native `twig tui`
 directly, without an execution shim.
 
-### Legacy macOS TUI (`twig-tui` companion)
+### Dormant legacy TUI (`twig-tui` source)
+
+macOS entry is disabled before initialization. The retained implementation below
+is restoration context, not a supported launch path:
 
 1. Initialize SQLite, discover workspace, load configuration.
 2. Compose minimal DI (core services only — no commands, no rendering pipeline).
@@ -397,7 +397,7 @@ services tests live in `tests/Twig.Domain.Tests/Services/`).
 | [Commands](commands.md) | CLI command reference, flow commands, seed commands, git integration |
 | [Rendering](rendering.md) | Output formatters, Spectre.Console theming, live display pipeline |
 | [MCP Server](mcp-server.md) | MCP tool reference, result builders, workspace guard |
-| [TUI command](../commands/experimental/tui.md) | Native Windows/Linux TUI and retained legacy macOS companion |
+| [TUI command](../commands/experimental/tui.md) | Native Windows/Linux TUI; macOS support suspended |
 | [Configuration](configuration.md) | `.twig/config` schema, type appearances, display options |
 | [Testing](testing.md) | Test architecture, shared test kit, mocking patterns |
 | [AOT & Trimming](aot-trimming.md) | AOT constraints, `TwigJsonContext`, DI factory patterns |

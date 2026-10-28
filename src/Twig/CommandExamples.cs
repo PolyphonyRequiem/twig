@@ -673,7 +673,7 @@ internal static class CommandExamples
         ],
         ["tui"] =
         [
-            "twig tui                   Open the native Tree view on Windows/Linux; legacy companion on macOS",
+            "twig tui                   Open the native Tree view on Windows/Linux; macOS support suspended",
             "twig tui --cwd C:\\work\\twig --view table  Open the native Table view from this source workspace",
             "twig tui --file .twig/proposals/review.json  Open read-only proposal Review; no authorization or apply",
             "twig tui --herdr --intent tree -o json  Open or reuse the source-scoped native Herdr browser pane",

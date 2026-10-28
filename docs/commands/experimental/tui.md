@@ -1,7 +1,7 @@
 ---
 command: tui
 group: experimental
-summary: Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.
+summary: Open the in-process native TUI on Windows/Linux; macOS support is suspended.
 stability: experimental
 mutates: local
 ---
@@ -13,10 +13,8 @@ process. It is the same application as `twig bench browser`, with the same
 captured source, authority checks, local editing and read-only proposal Review.
 No companion download or Go/work-item-read subprocess is part of native startup.
 
-macOS is not currently supported: no macOS build is published. The macOS
-behavior below describes retained source paths. On macOS, `twig tui` without
-options launches the existing Terminal.Gui `twig-tui` companion; this cutover does
-not replace macOS's legacy terminal UI.
+macOS support is temporarily suspended. All macOS CLI/TUI entry points refuse
+before workspace access; no legacy companion is downloaded or launched.
 
 ## Synopsis
 
@@ -104,17 +102,11 @@ No positional arguments. All native options below are Windows/Linux options for
   five-second budget. Caller cancellation and owner shutdown still cancel work.
   No timeout triggers an automatic retry, retarget or replacement host.
 
-### macOS legacy entry
+### Suspended macOS entry
 
-- `twig tui` without native options delegates to
-  `BinaryLauncher.Launch("twig-tui", "Twig.Tui")`.
-- The companion resolves adjacent to `twig` first (`AppContext.BaseDirectory`, then
-  the process directory), then on `PATH`. Standard streams and its exit code are
-  inherited. The companion discovers the workspace and opens its Terminal.Gui
-  tree/form application; local form edits enter the pending change store.
-- Nondefault native options on `twig tui` refuse with a usage error on macOS rather
-  than being silently ignored. The separately built macOS companion remains eligible for the
-  existing first-run companion installation and explicit upgrade.
+Both Intel and Apple Silicon macOS return exit 1 with an unsupported-platform
+diagnostic. Dormant Terminal.Gui and native terminal sources remain for later
+restoration, not as supported fallback paths.
 
 ## Examples
 
@@ -148,14 +140,12 @@ twig tui --herdr --intent tree -o json
 |---|---|
 |Native UI quits normally or Herdr control succeeds|`0`|
 |Invalid view/output or incompatible control/host-entry options|`2`|
-|Nondefault native options passed to macOS's legacy `twig tui`|`2`|
+|Any macOS invocation|`1` with an explicit support-suspension diagnostic|
 |Terminal, source admission or runtime fails; Herdr control refuses|`1`|
-|macOS companion missing or cannot launch|`1` with a diagnostic naming the companion|
-|macOS companion exits|Its exit code is propagated|
 
 ## See also
 
 - [Native Bench browser](../bench/README.md#native-bench-browser).
 - [`twig pending`](../plans/pending.md) — inspect local pending changes.
 - [`twig sync`](../getting-started/sync.md) — explicitly synchronize pending work.
-- [`twig upgrade`](../system/upgrade.md) — synchronize native launch names or the macOS companion.
+- [`twig upgrade`](../system/upgrade.md) — synchronize Windows/Linux native launch names.

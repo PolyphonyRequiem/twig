@@ -28,6 +28,10 @@ export class ExecutableError extends Error {
 // directory and relative entries can never supply the executable. On Windows only .exe is
 // accepted: script shims cannot be launched with shell:false.
 export async function resolveTwigExecutable({ env = process.env, platform = process.platform, fs = { stat, access, realpath } } = {}) {
+    if (platform !== "win32" && platform !== "linux") {
+        throw new ExecutableError("unsupported_platform",
+            "Twig supports Windows and Linux only; macOS support is temporarily suspended.");
+    }
     const raw = (platform === "win32" ? env.Path ?? env.PATH : env.PATH ?? env.Path) ?? "";
     const names = platform === "win32" ? ["twig.exe"] : ["twig"];
     for (const entry of raw.split(platform === "win32" ? ";" : ":")) {

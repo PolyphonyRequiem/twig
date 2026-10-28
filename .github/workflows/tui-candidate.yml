@@ -24,7 +24,6 @@ jobs:
             os: windows-latest
           - rid: linux-x64
             os: ubuntu-latest
-          # osx-arm64 omitted: macOS support is suspended (see ci.yml).
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
     steps:
@@ -56,7 +55,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native image version execution failed.' }
           & $image bench browser --help
           if ($LASTEXITCODE -ne 0) { throw 'Native browser declaration execution failed.' }
-          if ('${{ matrix.rid }}' -ne 'osx-arm64') {
+          if ('${{ matrix.rid }}' -eq 'win-x64' -or '${{ matrix.rid }}' -eq 'linux-x64') {
             & $image tui --help
             if ($LASTEXITCODE -ne 0) { throw 'Canonical native tui help failed.' }
             $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
@@ -116,7 +115,7 @@ jobs:
           $name = if ('${{ matrix.rid }}' -eq 'win-x64') { 'twig.exe' } else { 'twig' }
           $image = Join-Path $directory "bin/$name"
           $receipt = Get-Content "artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json" -Raw | ConvertFrom-Json
-          if ('${{ matrix.rid }}' -ne 'osx-arm64') {
+          if ('${{ matrix.rid }}' -eq 'win-x64' -or '${{ matrix.rid }}' -eq 'linux-x64') {
             & $image tui --help
             if ($LASTEXITCODE -ne 0) { throw 'Sealed canonical native tui help failed.' }
             $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }

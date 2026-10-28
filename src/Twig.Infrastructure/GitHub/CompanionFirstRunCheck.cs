@@ -25,6 +25,9 @@ internal sealed class CompanionFirstRunCheck(
         string currentVersion,
         CancellationToken ct = default)
     {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+            throw new PlatformNotSupportedException(PlatformHelper.UnsupportedPlatformMessage);
+
         // Phase 1 — Fast path: no I/O write
         if (processPath is null)
             return;

@@ -723,3 +723,7 @@ binary; current installed-host qualification is unknown. Capability preflight no
 refuses such a mismatch before the detail command runs. No retry, installation or reload was
 performed. The new review canvas is not yet discovered in that host; no Save,
 host authorization or full-native-origin acceptance is claimed.
+## Supported platforms
+
+Windows and Linux only. macOS support is temporarily suspended; executable
+admission refuses before PATH lookup or native probes, without a Unix fallback.

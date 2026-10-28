@@ -6,7 +6,7 @@ namespace Twig.Commands;
 /// <summary>
 /// Implements <c>twig upgrade</c>: checks GitHub Releases for a newer version and applies the update.
 /// When a newer version is available, installs the main binary and the platform's launch
-/// targets: same-image native TUI names on Windows/Linux, legacy TUI companion on macOS.
+/// targets: same-image native TUI names on Windows/Linux.
 /// When already up to date, installs missing launch targets.
 /// </summary>
 public sealed class SelfUpdateCommand(
@@ -21,6 +21,13 @@ public sealed class SelfUpdateCommand(
     /// (e.g. a running standalone TUI) before applying the update.</param>
     public async Task<int> ExecuteAsync(bool force = false, CancellationToken ct = default)
     {
+        var rid = PlatformHelper.DetectRid();
+        if (rid is null)
+        {
+            Console.Error.WriteLine($"error: {PlatformHelper.UnsupportedPlatformMessage}");
+            return 1;
+        }
+
         var currentVersion = VersionHelper.GetVersion();
         Console.WriteLine($"Current version: {currentVersion}");
         Console.WriteLine("Checking for updates...");
@@ -57,13 +64,6 @@ public sealed class SelfUpdateCommand(
         Console.WriteLine($"New version available: {latestTag}");
 
         // Determine platform RID and find matching asset
-        var rid = PlatformHelper.DetectRid();
-        if (rid is null)
-        {
-            Console.Error.WriteLine("error: Could not determine platform. Manual download required.");
-            return 1;
-        }
-
         var (asset, archiveName) = PlatformHelper.FindAsset(latest, rid);
         if (asset is null)
         {

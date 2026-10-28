@@ -71,7 +71,7 @@ jobs:
       # fail-fast: false is a deliberate choice, kept after the `nuget` job was
       # moved downstream of this one. A failing leg no longer risks anything
       # irreversible — it only lets its siblings burn CI minutes to completion —
-      # and in exchange you learn about both platforms from a single tag
+      # and in exchange you learn about both supported platforms from a single tag
       # push instead of discovering them one at a time across several re-cuts.
       fail-fast: false
       matrix:
@@ -82,13 +82,7 @@ jobs:
           - rid: linux-x64
             os: ubuntu-latest
             archive: tar.gz
-          # macOS (osx-arm64 and osx-x64) is NOT built: macOS support is suspended
-          # for now (owner decision, 2026-10-27). Releases publish only win-x64 and
-          # linux-x64, and install.sh refuses macOS. Restore the osx-arm64 leg
-          # (macos-latest, tar.gz), the legacy macOS TUI companion step and the
-          # osx-arm64 release assets together with ci.yml when support resumes.
-          # osx-x64 was additionally blocked by a NativeAOT link failure on the
-          # .NET 11 preview toolchain (see docs/architecture/build-and-release.md).
+          # macOS support is temporarily suspended; no macOS release assets.
 
     runs-on: ${{ matrix.os }}
 
@@ -229,7 +223,7 @@ jobs:
           $file = "twig-${{ matrix.rid }}.${{ matrix.archive }}"
           $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
           # Standard sha256sum-compatible format: "<hash>  <filename>\n"
-          # so `sha256sum -c <file>.sha256` (Linux) verifies directly.
+          # so `sha256sum -c <file>.sha256` verifies directly.
           "$hash  $file" | Out-File -Encoding ascii -FilePath "$file.sha256"
           Write-Host "Wrote $file.sha256:"
           Get-Content "$file.sha256"
@@ -369,4 +363,3 @@ jobs:
         with:
           name: nupkgs
           path: ./nupkgs/
-

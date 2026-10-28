@@ -22,8 +22,7 @@ public sealed class PlatformHelperTests
         rid.ShouldNotBeNull();
 
         var isKnown = rid.StartsWith("win-", StringComparison.Ordinal)
-            || rid.StartsWith("linux-", StringComparison.Ordinal)
-            || rid.StartsWith("osx-", StringComparison.Ordinal);
+            || rid.StartsWith("linux-", StringComparison.Ordinal);
 
         isKnown.ShouldBeTrue($"RID '{rid}' does not start with a known OS prefix");
     }
@@ -70,15 +69,16 @@ public sealed class PlatformHelperTests
         asset.Name.ShouldBe("twig-linux-x64.tar.gz");
     }
 
-    [Fact]
-    public void FindAsset_OsxRid_LooksForTarGz()
+    [Theory]
+    [InlineData("osx-arm64")]
+    [InlineData("osx-x64")]
+    [InlineData("freebsd-x64")]
+    public void FindAsset_UnsupportedRid_RefusesEvenExistingHistoricalAsset(string rid)
     {
-        var release = MakeRelease("twig-osx-arm64.tar.gz");
+        var release = MakeRelease($"twig-{rid}.tar.gz");
 
-        var (asset, archiveName) = PlatformHelper.FindAsset(release, "osx-arm64");
-
-        archiveName.ShouldBe("twig-osx-arm64.tar.gz");
-        asset.ShouldNotBeNull();
+        Should.Throw<PlatformNotSupportedException>(() => PlatformHelper.FindAsset(release, rid))
+            .Message.ShouldContain("Windows and Linux");
     }
 
     [Fact]

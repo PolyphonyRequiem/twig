@@ -8,35 +8,8 @@ on:
 jobs:
   build-and-test:
     name: build-and-test (${{ matrix.rid }})
-    # AB#140 — CI used to be a single `runs-on: ubuntu-latest` job while the
-    # release workflow publishes win-x64, linux-x64 and osx-arm64. Anything
-    # platform-conditional was therefore untested until tag day, and the first
-    # execution on Windows happened DURING a release.
-    #
-    # That is not hypothetical: v0.85.0 failed two of four platform legs. One was
-    # ours — three tests hardcoded a Unix shell path and were merged with a green
-    # CI check, because the only multi-platform run lived in the release workflow.
-    #
-    # The sibling half of that incident (NuGet publishing before the platform
-    # builds had proven they could compile, burning a version string
-    # irreversibly) was already fixed in #362: the `nuget` job now `needs: build`.
-    # This is the other half — test the platforms we actually ship, on every PR.
-    #
-    # macOS was deliberately omitted at AB#140, with an explicit re-entry condition:
-    # "Add osx-arm64 here if a macOS-specific defect ever escapes." One has. The
-    # v0.92.0 release run's macOS ARM64 leg failed 38 CLI skill tests (AB#886) —
-    # Path.GetTempPath() is /var/folders/... on macOS and /var is a symlink, which
-    # the skill link guard correctly refuses. The defect was macOS-only, was invisible
-    # to this workflow, and was therefore first executed DURING a release: precisely
-    # the failure mode the comment above says this matrix exists to abolish.
-    #
-    # The cost/risk trade that justified omitting macOS was made when no macOS-specific
-    # defect had escaped. That premise is now falsified, so the condition it named is met.
-    #
-    # macOS support is SUSPENDED for now (owner decision, 2026-10-27): no osx-arm64
-    # build, test, release or install. The leg is removed rather than made optional so
-    # a green check never implies macOS works. Restore it together with the release.yml
-    # and tui-candidate.yml legs, install.sh, and the docs when support resumes.
+    # Qualify every currently shipped platform. macOS support is temporarily
+    # suspended across CI, release publishing, installation and runtime entry.
     strategy:
       # fail-fast: false so one platform's failure does not cancel the other's
       # run. The point of this matrix is learning about every platform from a
@@ -72,6 +45,9 @@ jobs:
           node-version: '22'
       - name: Canvas proposal Apply composition regression
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/native-apply.test.mjs .github/extensions/twig-item-companion/tests/proposal-canvas.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs .github/extensions/twig-item-companion/tests/native-executable.test.mjs .github/extensions/twig-item-companion/tests/native-executable-source.test.mjs
+
+      - name: Supported platform delivery regression (offline)
+        run: python tools/run-bounded.py --timeout 60 -- python tools/test-platform-support.py
 
       - name: Native captured-draft and digest-apply regression
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeConsumption|FullyQualifiedName~Apply_DraftCapturedJournal_RefusesBeforeConfirmation" --logger "trx;LogFileName=native-save.trx" --results-directory artifacts/test-logs/ci/native-save

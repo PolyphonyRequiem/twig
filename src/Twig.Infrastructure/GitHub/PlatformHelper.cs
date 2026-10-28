@@ -8,6 +8,9 @@ namespace Twig.Infrastructure.GitHub;
 /// </summary>
 internal static class PlatformHelper
 {
+    internal const string UnsupportedPlatformMessage =
+        "Twig supports Windows and Linux only; macOS support is temporarily suspended.";
+
     /// <summary>
     /// Detects the Runtime Identifier (RID) for the current platform.
     /// In a Native AOT binary, <see cref="RuntimeInformation.RuntimeIdentifier"/> returns
@@ -16,18 +19,19 @@ internal static class PlatformHelper
     /// </summary>
     internal static string? DetectRid()
     {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+            return null;
+
         var rid = RuntimeInformation.RuntimeIdentifier;
         if (!string.IsNullOrWhiteSpace(rid)
             && (rid.StartsWith("win-", StringComparison.Ordinal)
-                || rid.StartsWith("linux-", StringComparison.Ordinal)
-                || rid.StartsWith("osx-", StringComparison.Ordinal)))
+                || rid.StartsWith("linux-", StringComparison.Ordinal)))
             return rid;
 
         // Fallback: manual OS/arch detection
         string os;
         if (OperatingSystem.IsWindows()) os = "win";
         else if (OperatingSystem.IsLinux()) os = "linux";
-        else if (OperatingSystem.IsMacOS()) os = "osx";
         else return null;
 
         var arch = RuntimeInformation.ProcessArchitecture switch
@@ -48,6 +52,10 @@ internal static class PlatformHelper
     internal static (GitHubReleaseAssetInfo? asset, string archiveName) FindAsset(
         GitHubReleaseInfo release, string rid)
     {
+        if (!rid.StartsWith("win-", StringComparison.Ordinal)
+            && !rid.StartsWith("linux-", StringComparison.Ordinal))
+            throw new PlatformNotSupportedException(UnsupportedPlatformMessage);
+
         var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
         var expectedName = $"twig-{rid}{ext}";
 

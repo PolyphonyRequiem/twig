@@ -9,6 +9,20 @@ import { admitTwigExecutable, resolveTwigExecutable } from "../native-executable
 const win = process.platform === "win32";
 const exeName = win ? "twig.exe" : "twig";
 
+test("macOS and unknown platforms refuse before PATH lookup or executable probes", async () => {
+    for (const platform of ["darwin", "freebsd"]) {
+        let touched = false;
+        const fs = { stat: async () => { touched = true; throw new Error("unexpected lookup"); } };
+        await assert.rejects(resolveTwigExecutable({ platform, env: { PATH: "/bin" }, fs }),
+            { code: "unsupported_platform", message: /Windows and Linux.*macOS support is temporarily suspended/ });
+        assert.equal(touched, false);
+        const { execFile, calls } = prober({});
+        await assert.rejects(admitTwigExecutable({ canvas: "item", platform, execFile }),
+            { code: "unsupported_platform" });
+        assert.equal(calls.length, 0);
+    }
+});
+
 async function fixture() {
     const root = await mkdtemp(path.join(os.tmpdir(), "twig-exec-test-"));
     const bin = path.join(root, "bin");

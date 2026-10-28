@@ -11,16 +11,13 @@ mutates: local
 Fetches the latest release from GitHub, compares it to the running version
 using twig's SemVer comparer, and applies the update by downloading the
 platform-specific archive. Windows/Linux synchronizes `twig`, `twig-tui` and
-`twig-bench-tui` from the archive's main native image; macOS installs `twig` and
-its legacy `twig-tui` companion. When already current, Windows/Linux repairs
+`twig-bench-tui` from the archive's main native image. macOS support is temporarily
+suspended: upgrades refuse before querying releases, with no Linux fallback or
+historical macOS asset selection. When already current, Windows/Linux repairs
 missing or mismatched native launch files from the installed main image without
-downloading a different image; macOS installs missing legacy companions. MCP is withdrawn and is not discovered or installed. Reach for it
+downloading a different image. MCP is withdrawn and is not discovered or installed. Reach for it
 to keep an installation self-updating in place, without invoking `install.sh`
 or `install.ps1` a second time.
-
-macOS is not currently supported. Releases no longer publish a macOS archive, so
-`twig upgrade` on macOS reports `No binary found for platform '<rid>'` and exits 1
-once a release without a macOS asset is latest; the macOS companion behavior above describes retained source paths only.
 
 ## Synopsis
 
@@ -59,7 +56,7 @@ twig upgrade [-f | --force]
    the running version is greater than or equal to the latest tag, twig is
    already current. Windows/Linux repairs missing or mismatched native launch files
    from the installed main image, preserving its version and bytes without an archive
-   download. macOS installs missing legacy companions from the current release archive.
+   download.
 5. Otherwise, detect the platform RID via `PlatformHelper.DetectRid()` and
    locate the matching asset on the release. If no RID matches, or no asset
    matches the RID, the command exits `1` with "Manual download required."
@@ -128,6 +125,7 @@ Update complete. Restart to use 1.5.0.
 |---|---|
 | Update downloaded and applied, or already-current run installed all missing companions | `0` |
 | No releases published in the upstream repository | `0` with "No releases found." |
+| macOS or another unsupported operating system | `1` before network or installation, with an explicit unsupported-platform diagnostic |
 | GitHub Releases request failed (network, rate limit, 5xx) | `1` with "Failed to check for updates: …" |
 | Platform RID could not be detected, or no asset matched | `1` with "Manual download required." |
 | Peer binary was held open and `--force` was not passed | `1` with a blocked diagnostic naming the PIDs |

@@ -157,7 +157,7 @@ and updates.
 | [System](system/README.md) | [`twig version`](system/version.md) | Print the installed twig version. | stable | `none` |
 | [Experimental](experimental/README.md) | [`twig mcp`](experimental/mcp.md) | Launch the Model Context Protocol server (requires twig-mcp companion binary). | experimental | `ado` |
 | [Experimental](experimental/README.md) | [`twig ohmyposh init`](experimental/ohmyposh-init.md) | Emit an Oh My Posh shell hook and text-segment JSON for the current shell. | experimental | `none` |
-| [Experimental](experimental/README.md) | [`twig tui`](experimental/tui.md) | Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion. | experimental | `local` |
+| [Experimental](experimental/README.md) | [`twig tui`](experimental/tui.md) | Open the in-process native TUI on Windows/Linux; macOS support is suspended. | experimental | `local` |
 
 ## Feature guides
 

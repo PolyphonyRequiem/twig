@@ -17,8 +17,7 @@ REPO = Path(__file__).resolve().parent.parent
 MANIFEST = "tui-candidate.json"
 ROOT_MARKER = ".twig-tui-candidate-root.json"
 RIDS = {"win-x64": ("Windows", "twig.exe", "e_sqlite3.dll"),
-        "linux-x64": ("Linux", "twig", "libe_sqlite3.so"),
-        "osx-arm64": ("Darwin", "twig", "libe_sqlite3.dylib")}
+        "linux-x64": ("Linux", "twig", "libe_sqlite3.so")}
 NATIVE_ALIASES = {"win-x64": ("twig-tui.exe", "twig-bench-tui.exe"),
                   "linux-x64": ("twig-tui", "twig-bench-tui")}
 
@@ -110,8 +109,7 @@ def signature(root, rid, commit):
 def build(args):
     source_pin(args.commit)
     system, _, _ = RIDS[args.rid]
-    machine = platform.machine().lower()
-    if platform.system() != system or (args.rid == "osx-arm64" and machine not in ("arm64", "aarch64")):
+    if platform.system() != system:
         raise ValueError("NativeAOT must be built on the selected platform; this tool does not claim cross-OS publication.")
     target = args.directory.resolve()
     if target.exists():
@@ -126,8 +124,7 @@ def build(args):
     source_pin(args.commit)
     for name in NATIVE_ALIASES.get(args.rid, ()):
         shutil.copy2(target / "bin" / RIDS[args.rid][1], target / "bin" / name)
-    # Seal startup state alongside same-image native entry points. macOS candidates
-    # still omit their legacy companion; startup must not download or mutate the seal.
+    # Startup must not download or mutate the sealed native entry points.
     (target / "bin" / ".twig-version").write_text(version, encoding="utf-8")
     host = REPO / "integrations/herdr-aot"
     shutil.copy2(host / "herdr-plugin.toml", target / "herdr-plugin.toml")
@@ -257,7 +254,7 @@ def switch(args, restoring=False):
         current = json.loads(pointer.read_text(encoding="utf-8")) if pointer.exists() else None
         if current:
             name = current.get("directory", "")
-            if not re.fullmatch(r"[0-9a-f]{40}-(win-x64|linux-x64|osx-arm64)", name):
+            if not re.fullmatch(r"[0-9a-f]{40}-(win-x64|linux-x64)", name):
                 raise ValueError("Existing candidate selection is invalid; no prior payload is overwritten.")
             previous = inspect(root / name, commit_value(current["sourceCommit"]), current["rid"], current["manifestSha256"])
             if current["rid"] != args.rid:
@@ -290,6 +287,9 @@ def switch(args, restoring=False):
 
 
 def main():
+    if platform.system() not in ("Windows", "Linux"):
+        print("Twig supports Windows and Linux only; macOS support is temporarily suspended.", file=sys.stderr)
+        return 1
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=["build", "seal", "inspect", "install", "restore"])
     parser.add_argument("--directory", required=True, type=Path, help="Fresh build output or exact retained candidate artifact directory")

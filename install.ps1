@@ -4,6 +4,10 @@
 
 $ErrorActionPreference = 'Stop'
 
+if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
+    throw "Twig supports Windows and Linux only; macOS support is temporarily suspended. This installer requires Windows; use install.sh on Linux."
+}
+
 $repo = "PolyphonyRequiem/twig"
 $assetName = "twig-win-x64.zip"
 $installDir = Join-Path $HOME ".twig" "bin"

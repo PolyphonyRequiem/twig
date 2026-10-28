@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Twig CLI installer for Linux (macOS support is currently suspended)
+# Twig CLI installer for Linux
 # Usage: curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash
 
 set -euo pipefail
@@ -14,9 +14,7 @@ OS="$(uname -s)"
 case "$OS" in
     Linux)  os="linux" ;;
     Darwin)
-        # macOS support is suspended: no macOS build is published or tested.
-        echo "Error: twig does not currently support macOS." >&2
-        echo "       macOS builds are suspended; supported platforms are Linux and Windows." >&2
+        echo "Error: macOS support is temporarily suspended. Twig supports Windows and Linux only." >&2
         exit 1
         ;;
     *)
@@ -142,8 +140,10 @@ fi
 # Make executable
 chmod +x "${INSTALL_DIR}/twig"
 
-chmod +x "${INSTALL_DIR}/twig-tui" "${INSTALL_DIR}/twig-bench-tui"
-echo "  Native TUI: twig tui, twig-tui, twig-bench-tui"
+if [ "$os" = "linux" ]; then
+    chmod +x "${INSTALL_DIR}/twig-tui" "${INSTALL_DIR}/twig-bench-tui"
+    echo "  Native TUI: twig tui, twig-tui, twig-bench-tui"
+fi
 
 # Add to PATH via shell profile if not already present
 PATH_EXPORT="export PATH=\"\$HOME/.twig/bin:\$PATH\""

@@ -23,8 +23,19 @@ public sealed class CompanionFirstRunCheckTests
     private readonly ICompanionInstaller _companionInstaller = Substitute.For<ICompanionInstaller>();
     private readonly IFileSystem _fileSystem = Substitute.For<IFileSystem>();
 
-    // Exercise the retained macOS companion policy on every test runner platform.
+    // Exercise the dormant companion mechanism explicitly, independently of delivery policy.
     private CompanionFirstRunCheck CreateSut() => new(_releaseService, _companionInstaller, _fileSystem, ["twig-tui"]);
+
+    [Fact]
+    public async Task EnsureCompanionsAsync_DefaultPolicy_NeverDownloadsOrWrites()
+    {
+        CompanionTools.All.ShouldBeEmpty();
+        var sut = new CompanionFirstRunCheck(_releaseService, _companionInstaller, _fileSystem);
+        await sut.EnsureCompanionsAsync(ProcessPath, CurrentVersion);
+        _releaseService.ReceivedCalls().ShouldBeEmpty();
+        _companionInstaller.ReceivedCalls().ShouldBeEmpty();
+        _fileSystem.ReceivedCalls().ShouldBeEmpty();
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Phase 1 — Fast path (no I/O write)

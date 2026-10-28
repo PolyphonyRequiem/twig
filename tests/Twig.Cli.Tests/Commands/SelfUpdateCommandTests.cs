@@ -16,14 +16,6 @@ public class SelfUpdateCommandTests : IDisposable
     private static readonly string ExeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
     private readonly string _tempDir;
 
-    private sealed class MacPlatformFactAttribute : FactAttribute
-    {
-        public MacPlatformFactAttribute()
-        {
-            if (!OperatingSystem.IsMacOS()) Skip = "Only macOS downloads a legacy TUI companion.";
-        }
-    }
-
     public SelfUpdateCommandTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"twig-cmd-test-{Guid.NewGuid():N}");
@@ -111,13 +103,9 @@ public class SelfUpdateCommandTests : IDisposable
     }
 
 
-    [MacPlatformFact]
-    public async Task ExecuteAsync_AlreadyUpToDate_CompanionInstallFailure_Returns0()
+    [Fact]
+    public async Task ExecuteAsync_AlreadyUpToDate_RepairsNativeAliasesWithoutDownload()
     {
-        // When up to date and companion install fails (download error),
-        // the command still returns 0 — companion install failures are non-fatal.
-        // Pin processPath to _tempDir so companions are always "missing",
-        // regardless of what exists alongside the test runner binary.
         var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "current");
 
@@ -138,8 +126,9 @@ public class SelfUpdateCommandTests : IDisposable
 
         var exitCode = await command.ExecuteAsync();
 
-        // Non-fatal: companion install failure does not affect the exit code
         exitCode.ShouldBe(0);
+        foreach (var name in CompanionTools.NativeLaunchNames)
+            File.ReadAllText(Path.Combine(_tempDir, CompanionTools.GetExeName(name))).ShouldBe("current");
     }
 
     [Fact]

@@ -6,8 +6,8 @@ namespace Twig.Infrastructure.GitHub;
 /// </summary>
 internal static class CompanionTools
 {
-    /// <summary>Separately built companions. Only macOS retains the legacy TUI.</summary>
-    internal static readonly string[] All = OperatingSystem.IsMacOS() ? ["twig-tui"] : [];
+    /// <summary>No separately built companions are currently delivered.</summary>
+    internal static readonly string[] All = [];
 
     /// <summary>Windows/Linux standalone entry names copied from the main native image.</summary>
     internal static readonly string[] NativeLaunchNames = ["twig-tui", "twig-bench-tui"];

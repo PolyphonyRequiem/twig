@@ -64,6 +64,49 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task OfflineProviderLifecycle_ReadAuthorApplyReadbackUsesRealAdoComposition()
+    {
+        var runtime = await AttachAsync();
+        var reader = runtime.GetRequiredService<IProviderWorkItemReader>();
+        var repository = runtime.GetRequiredService<IWorkItemRepository>();
+        var before = await reader.FetchAsync(42);
+        before.Revision.ShouldBe(1);
+        await repository.SaveAsync(before);
+        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
+        var path = await ProposalAsync(runtime, "qualification", "edit", before.Id,
+            before.Revision, "Offline qualified ADO title");
+        var policyPath = runtime.GetRequiredService<TwigPaths>().PolicyPath;
+        await File.WriteAllTextAsync(policyPath, """{"version":2,"rules":[]}""");
+        (await lifecycle.PreviewAsync(path)).CanApply.ShouldBeFalse("invalid declared policy must fail closed");
+        _transport.CommittedWrites.ShouldBe(0);
+        File.Delete(policyPath);
+
+        var preview = await lifecycle.PreviewAsync(path);
+        preview.CanApply.ShouldBeTrue(string.Join("; ", preview.Issues.Select(i => i.Message)));
+        preview.ReviewModel.ShouldNotBeNull().Operations.Single().Consequences
+            .Single(e => e.Field == "System.Title").To.ShouldBe("Offline qualified ADO title");
+        _transport.CommittedWrites.ShouldBe(0, "authoring and preview must not publish");
+        (await lifecycle.ApplyAsync(path, new string('0', 64))).Failed.ShouldBeTrue();
+        _transport.CommittedWrites.ShouldBe(0, "a different digest cannot authorize the effect");
+        var result = await lifecycle.ApplyAsync(path, preview.Digest!);
+        result.Failed.ShouldBeFalse(result.Error);
+        result.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        _transport.CommittedWrites.ShouldBe(1);
+        var readback = await reader.FetchAsync(42);
+        readback.Title.ShouldBe("Offline qualified ADO title");
+        readback.Revision.ShouldBe(before.Revision + 1);
+
+        var reopened = BuildRuntime(runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
+        var retained = await reopened.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42);
+        retained.ShouldNotBeNull().Title.ShouldBe(readback.Title);
+        retained.Revision.ShouldBe(readback.Revision);
+        (await reopened.GetRequiredService<IPlanJournalRepository>().GetAsync(preview.Digest!))!
+            .Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        (await reopened.GetRequiredService<IPlanLifecycleService>().ApplyAsync(path, preview.Digest!)).Failed.ShouldBeFalse();
+        _transport.CommittedWrites.ShouldBe(1, "verified replay must not write again");
+    }
+
+    [Fact]
     public async Task RetiredConfirmedIntentCannotReplayBeforeOrAfterRebindingOrReimport()
     {
         var runtime = await AttachAsync();

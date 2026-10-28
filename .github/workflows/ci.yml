@@ -209,6 +209,29 @@ jobs:
       - name: Provider working-set command composition (offline)
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NonAdoProviderGateTests.GitHubSync_|FullyQualifiedName~NonAdoProviderGateTests.CommandReads_|FullyQualifiedName~NonAdoProviderGateTests.BenchSync_" --logger "trx;LogFileName=provider-sync-cli.trx" --results-directory artifacts/test-logs/ci/provider-sync-cli
 
+      - name: ADO shared lifecycle qualification (offline production composition)
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativePublicationConsumerTests.OfflineProviderLifecycle_|FullyQualifiedName~NativePublicationConsumerTests.AcknowledgedCommitWithUnavailableReadbackIsSettledWithoutReissuingTheWrite|FullyQualifiedName~NativePublicationConsumerTests.VerifiedPublicationPreservesLocalWorkCreatedDuringReadback|FullyQualifiedName~NativePublicationConsumerTests.ChangedAndUnknownOriginsCannotAdoptTheCurrentActorBeforeWorkHttp" --logger "trx;LogFileName=ado-lifecycle.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
+
+      - name: GitHub shared lifecycle qualification (offline production composition)
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubNativeRelationshipTests.OfflineProviderLifecycle_ReadAuthorApplyReadbackUsesRealGitHubComposition|FullyQualifiedName~GitHubNativeRelationshipTests.OfflineProviderLifecycle_DeclaredParentPolicyIsEvaluatedAgainBeforeGitHubWrite|FullyQualifiedName~GitHubNativeRelationshipTests.DeclaredProposalCapabilitiesMatchFixedExecutorShapes" --logger "trx;LogFileName=github-core.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
+
+      - name: GitHub native authoring qualification (offline)
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubNativeRelationshipTests.ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints|FullyQualifiedName~GitHubNativeRelationshipTests.Create_AppCompositionJournalsNativeIdentityAndFencesAcrossDigests" --logger "trx;LogFileName=github-authoring.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
+
+      - name: GitHub native authority refusal qualification (offline)
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubNativeRelationshipTests.ChangedPrecondition_RefusesWithoutNativeWriteOrLocalFallback|FullyQualifiedName~GitHubNativeRelationshipTests.UnknownCredentialSourceNeverFallsBackToGhForNativeWrites|FullyQualifiedName~GitHubNativeRelationshipTests.DigestMismatch_RemainsUnappliedWithoutNativeWrite|FullyQualifiedName~GitHubNativeRelationshipTests.ExactRevisionDefault_IsReviewableButNeverImportedOrApplied" --logger "trx;LogFileName=github-refusals.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
+
+      - name: GitHub unknown outcome and concurrency qualification (offline)
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubNativeRelationshipTests.Create_LostAcknowledgmentRemainsIndeterminateAndNeverInfersMatchingTitle|FullyQualifiedName~GitHubNativeRelationshipTests.DeniedReadback_RemainsIndeterminateWithoutReplay|FullyQualifiedName~GitHubNativeRelationshipTests.NativeFields_ConcurrentUnrelatedEditIsPreservedByIntendedPatch|FullyQualifiedName~GitHubNativeRelationshipTests.CrashRecovery_ObservesNativeEffectWithoutIssuingMutation" --logger "trx;LogFileName=github-outcomes.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
+
+      - name: Preserve offline provider lifecycle qualification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-provider-lifecycle-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/provider-lifecycle/
+          if-no-files-found: error
+
       - name: Preserve GitHub captured-read and authenticated actor results
         if: always()
         uses: actions/upload-artifact@v4

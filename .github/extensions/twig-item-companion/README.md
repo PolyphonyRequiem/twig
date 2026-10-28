@@ -215,6 +215,10 @@ Only visible, non-contribution, non-read-only `FieldControl` values carried in
 full or explicitly empty, with native `editable: true`, receive plain text/null
 inputs. HTML, other control types and unsupported contributions remain explicitly
 read-only. This is a transport capability limit, not inferred field rules.
+After explicit OPEN or STAGE, native `editable: false` fields retain their exact
+field reference and reason in the bridge projection. The form displays those
+reasons as inert text, never as HTML or editable inputs; the canvas does not
+replace them with inferred eligibility.
 
 Selection, Bench reads and identity-qualified target changes revoke the capture.
 Unsent input remains in memory per checkout/connection/binding/item/Bench/identity,

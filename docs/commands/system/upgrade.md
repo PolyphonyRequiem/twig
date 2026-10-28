@@ -18,6 +18,10 @@ downloading a different image; macOS installs missing legacy companions. MCP is 
 to keep an installation self-updating in place, without invoking `install.sh`
 or `install.ps1` a second time.
 
+macOS is not currently supported. Releases no longer publish a macOS archive, so
+`twig upgrade` on macOS reports `No binary found for platform '<rid>'` and exits 1
+once a release without a macOS asset is latest; the macOS companion behavior above describes retained source paths only.
+
 ## Synopsis
 
 ```

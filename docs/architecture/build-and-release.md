@@ -105,10 +105,18 @@ Triggered by pushing a tag matching `v*`.
 |----------|--------|-----|---------|
 | Windows x64 | `windows-latest` | `win-x64` | `.zip` |
 | Linux x64 | `ubuntu-latest` | `linux-x64` | `.tar.gz` |
-| macOS Intel | — | `osx-x64` | **not published** (see below) |
-| macOS ARM64 | `macos-latest` | `osx-arm64` | `.tar.gz` |
+| macOS (any) | — | `osx-arm64` / `osx-x64` | **not published — macOS support suspended** |
 
-**macOS Intel (`osx-x64`) is not published.** Dropped from the matrix at v0.85.1.
+**macOS support is suspended (owner decision, 2026-10-27).** CI, release,
+TUI-candidate and `install.sh` no longer build, test, publish or install macOS;
+`install.sh` refuses `Darwin` with an explanation. Runtime macOS code paths and the
+`Twig.Tui` companion remain in source so support can be restored: re-add the
+`osx-arm64` (`macos-latest`, `tar.gz`) legs to `ci.yml`, `release.yml` and
+`tui-candidate.yml`, the legacy macOS TUI companion publish step, the
+`twig-osx-arm64` release assets, and the `install.sh` Darwin case together.
+The rest of this section records the macOS layout as it was when last built.
+
+**macOS Intel (`osx-x64`) was additionally unpublished** from v0.85.1.
 The NativeAOT link step fails on the .NET 11 preview toolchain:
 
 ```
@@ -119,10 +127,8 @@ ld: unaligned pointer(s) for architecture x86_64
 
 The failing object is a **prebuilt Microsoft static library** under Xcode 16.4 — no
 twig code is in the path, and `osx-arm64` links cleanly from the same commit, so
-this is a toolchain defect rather than a repo one. `install.sh` detects Intel macOS
-and exits with an explanation instead of 404ing on a missing asset. Restore the
-matrix leg, the `Create GitHub Release` asset lines, and remove the `install.sh`
-guard once a newer preview links it.
+this is a toolchain defect rather than a repo one; restoring Intel macOS also
+requires a toolchain that links it.
 
 Each platform publishes **Twig** once with
 `dotnet publish src/Twig/Twig.csproj -c Release -r {RID} --self-contained true`.
@@ -131,7 +137,7 @@ Each platform publishes **Twig** once with
 |----------|-------------------|-------------------|
 | Windows x64 | `twig.exe`, `twig-tui.exe`, `twig-bench-tui.exe`: identical NativeAOT bytes | `e_sqlite3.dll` |
 | Linux x64 | `twig`, `twig-tui`, `twig-bench-tui`: identical NativeAOT bytes | `libe_sqlite3.so` |
-| macOS ARM64 | `twig`: NativeAOT CLI; `twig-tui`: legacy self-contained Terminal.Gui companion | `libe_sqlite3.dylib` |
+| macOS ARM64 (suspended) | `twig`: NativeAOT CLI; `twig-tui`: legacy self-contained Terminal.Gui companion | `libe_sqlite3.dylib` |
 
 Windows/Linux aliases are copied before signing. Windows signing operates on
 `twig.exe`, then copies its final signed bytes over both existing aliases before
@@ -139,7 +145,7 @@ archiving; timestamps therefore cannot produce different executable hashes. Linu
 copies preserve executable mode. Standalone basenames dispatch to the canonical
 in-process TUI, with no Go wrapper or legacy companion fallback.
 
-Only macOS additionally publishes `src/Twig.Tui/Twig.Tui.csproj` with
+When macOS was built, only macOS additionally published `src/Twig.Tui/Twig.Tui.csproj` with
 `/p:PublishTrimmed=false /p:PublishAot=false`. macOS Terminal.Gui and existing
 Go/Herdr paths are preserved; this cutover does not replace them.
 
@@ -151,7 +157,7 @@ Checkout (fetch-depth: 0, filter: tree:0)
   → Restore
   → Build
   → Test
-  → Publish Twig once; copy native aliases on Windows/Linux or publish legacy TUI on macOS
+  → Publish Twig once; copy native aliases on Windows/Linux
   → Sign Windows primary; synchronize final signed aliases
   → Archive (zip on Windows, tar.gz on Unix)
   → Upload artifacts

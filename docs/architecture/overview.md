@@ -20,10 +20,13 @@ native Bench application in-process, using existing runtime/authority/terminal
 contracts rather than a Go wrapper or Terminal.Gui companion. The Windows/Linux
 Herdr host is `twig-herdr`, preserving action and pane IDs.
 
-macOS retains its NativeAOT CLI and non-AOT Terminal.Gui `twig-tui` companion,
-alongside existing legacy Go/Herdr paths. The shared domain/infrastructure source
-and dependencies required by macOS remain; they are not a second supported
-Windows/Linux UI. See [Build & Release](build-and-release.md) for artifact layout.
+**macOS is not currently supported** (support suspended 2026-10-27): nothing is
+built, tested, released or installed for macOS. The macOS paths described below —
+its NativeAOT CLI, non-AOT Terminal.Gui `twig-tui` companion and legacy Go/Herdr
+paths — remain in source only so support can be restored. The shared
+domain/infrastructure source and dependencies they need remain; they are not a
+second supported Windows/Linux UI. See [Build & Release](build-and-release.md) for
+artifact layout.
 
 ---
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Twig CLI installer for Linux and macOS
+# Twig CLI installer for Linux (macOS support is currently suspended)
 # Usage: curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash
 
 set -euo pipefail
@@ -13,7 +13,12 @@ echo "Installing twig..."
 OS="$(uname -s)"
 case "$OS" in
     Linux)  os="linux" ;;
-    Darwin) os="osx" ;;
+    Darwin)
+        # macOS support is suspended: no macOS build is published or tested.
+        echo "Error: twig does not currently support macOS." >&2
+        echo "       macOS builds are suspended; supported platforms are Linux and Windows." >&2
+        exit 1
+        ;;
     *)
         echo "Error: Unsupported operating system: $OS" >&2
         exit 1
@@ -32,18 +37,6 @@ case "$ARCH" in
 esac
 
 RID="${os}-${arch}"
-
-# macOS Intel is not published. The NativeAOT link step fails on the .NET 11
-# preview toolchain (unaligned pointers in a prebuilt Microsoft static lib under
-# Xcode 16.4), so no osx-x64 asset exists to download. Fail with an explanation
-# rather than letting the user hit a bare 404 on the release asset.
-if [ "$RID" = "osx-x64" ]; then
-    echo "Error: twig does not currently publish a macOS Intel (x86_64) build." >&2
-    echo "       The .NET 11 preview NativeAOT toolchain cannot link it; Apple" >&2
-    echo "       Silicon and Linux/Windows builds are unaffected." >&2
-    echo "       Build from source, or run under Rosetta with the arm64 build." >&2
-    exit 1
-fi
 
 ASSET_NAME="twig-${RID}.tar.gz"
 
@@ -149,18 +142,8 @@ fi
 # Make executable
 chmod +x "${INSTALL_DIR}/twig"
 
-if [ "$os" = "linux" ]; then
-    chmod +x "${INSTALL_DIR}/twig-tui" "${INSTALL_DIR}/twig-bench-tui"
-    echo "  Native TUI: twig tui, twig-tui, twig-bench-tui"
-else
-    # macOS retains its legacy Terminal.Gui companion and repair path.
-    if [ -f "${INSTALL_DIR}/twig-tui" ]; then
-        chmod +x "${INSTALL_DIR}/twig-tui"
-        echo "  Found legacy macOS twig-tui companion"
-    else
-        echo "Warning: macOS twig-tui companion not found in archive. Run 'twig upgrade' after install to fetch it." >&2
-    fi
-fi
+chmod +x "${INSTALL_DIR}/twig-tui" "${INSTALL_DIR}/twig-bench-tui"
+echo "  Native TUI: twig tui, twig-tui, twig-bench-tui"
 
 # Add to PATH via shell profile if not already present
 PATH_EXPORT="export PATH=\"\$HOME/.twig/bin:\$PATH\""

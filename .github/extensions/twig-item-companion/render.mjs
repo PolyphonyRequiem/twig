@@ -78,6 +78,10 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
       outline: 2px solid var(--twig-focus);
       outline-offset: 2px;
     }
+    textarea:focus-visible, a:focus-visible {
+      outline: 2px solid var(--twig-focus);
+      outline-offset: 2px;
+    }
     button:disabled { cursor: not-allowed; opacity: .6; }
     section, details {
       border: 1px solid var(--twig-border);
@@ -126,6 +130,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
       </label>
       <span id="theme-status" class="muted" role="status" aria-live="polite"></span>
     </div>
+    <p class="muted">Theme changes apply to this document only; reopening resets Auto.</p>
     ${review ? reviewMarkup : workbench ? workbenchMarkup : `<form id="load-form" class="row">
       <label for="work-item-id">Work item ID or local seed ID
         <input id="work-item-id" name="workItemId" type="number" step="1" required aria-describedby="id-help">

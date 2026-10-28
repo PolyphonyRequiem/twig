@@ -3,11 +3,16 @@ import { Script, createContext } from "node:vm";
 import test from "node:test";
 import { renderPage } from "../render.mjs";
 
-function client({ host, osDark = false } = {}) {
+function client({ host, osDark = false, surface = "companion" } = {}) {
     const nodes = new Map();
     const element = () => ({
         dataset: {}, listeners: {}, textContent: "", value: "",
         classList: { add() {}, remove() {} },
+        style: { setProperty() {} },
+        children: [],
+        append(...nodes) { this.children.push(...nodes); },
+        replaceChildren(...nodes) { this.children = nodes; },
+        setAttribute(name, value) { this[name] = value; },
         addEventListener(event, callback) { this.listeners[event] = callback; },
         getAttribute(name) { return name === "data-color-mode" ? this.dataset.colorMode ?? null : null; },
     });
@@ -18,25 +23,35 @@ function client({ host, osDark = false } = {}) {
     const observers = [];
     const document = {
         documentElement: root, body,
+        createElement: () => element(),
         querySelector(selector) {
             if (!nodes.has(selector)) nodes.set(selector, element());
             return nodes.get(selector);
         },
     };
+    const storageAccess = [];
     const context = createContext({
         document,
         window: { matchMedia: () => media },
+        get localStorage() { storageAccess.push("local"); throw new Error("Theme must not persist data."); },
+        get sessionStorage() { storageAccess.push("session"); throw new Error("Theme must not persist data."); },
         MutationObserver: class {
             constructor(callback) { observers.push(callback); }
             observe() {}
         },
         fetch: async () => ({ ok: true, json: async () => ({ busy: false }) }),
     });
-    const html = renderPage({ token: "fixture-token", nonce: "fixture-nonce" });
+    const requests = [];
+    context.fetch = async (route, options) => {
+        requests.push({ route, options });
+        return { ok: true, json: async () => ({ busy: false }) };
+    };
+    const html = renderPage({ token: "fixture-token", nonce: "fixture-nonce",
+        workbench: surface === "workbench", review: surface === "review" });
     const source = html.match(/<script nonce="fixture-nonce">([\s\S]*?)<\/script>/)[1];
     new Script(source).runInContext(context);
     return {
-        root, body, media, html, nodes,
+        root, body, media, html, nodes, requests, storageAccess,
         select(mode) {
             const select = nodes.get("#theme-mode");
             select.value = mode;
@@ -58,6 +73,35 @@ test("Auto uses OS dark fallback without changing host attributes", () => {
     assert.match(ui.html, /<option value="light">Light<\/option>/);
     assert.match(ui.html, /<option value="dark">Dark<\/option>/);
 });
+
+for (const surface of ["companion", "workbench", "review"]) {
+    test(`${surface}: overrides are document-only; reopening resets Auto without persistence or authority effects`, () => {
+        const ui = client({ host: "dark", surface });
+        const requests = ui.requests.length;
+        ui.select("light");
+        ui.hostChanged("light");
+        ui.media.changed();
+        assert.equal(ui.body.dataset.twigColorMode, "light");
+        ui.select("dark");
+        ui.hostChanged("light");
+        assert.equal(ui.body.dataset.twigColorMode, "dark");
+        ui.select("auto");
+        assert.equal(ui.body.dataset.twigColorMode, "light");
+        ui.select("dark");
+        const reopened = client({ host: "light", surface });
+        assert.equal(reopened.body.dataset.twigTheme, "auto");
+        assert.equal(reopened.body.dataset.twigColorMode, "light");
+        assert.deepEqual(ui.storageAccess, []);
+        assert.deepEqual(reopened.storageAccess, []);
+        assert.equal(ui.requests.length, requests, "theme gestures cannot read, stage, capture or authorize");
+        assert.ok(/reopening resets Auto/i.test(ui.html), "per-document reset must be visible");
+    });
+    test(`${surface}: text editors and links have the shared explicit keyboard-focus fallback`, () => {
+        const html = client({ surface }).html;
+        assert.ok(/textarea:focus-visible/.test(html), "text editor focus needs the contrast-qualified fallback");
+        assert.ok(/a:focus-visible/.test(html), "link focus needs the contrast-qualified fallback");
+    });
+}
 
 test("Auto follows host mode before OS and reacts to host and OS changes", () => {
     const ui = client({ host: "light", osDark: true });

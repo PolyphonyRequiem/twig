@@ -440,13 +440,24 @@ attributes, Twig defaults or item state. Auto follows the documented host
 system color-scheme preference and reacts to changes. Auto uses host semantic
 tokens with appropriate light/dark fallbacks. Explicit modes use a local palette
 even if the host changes mode. Keyboard focus covers the selector and disclosure
-summaries as well as buttons/inputs.
+summaries as well as buttons/inputs, text editors and links. The shared additive
+textarea/link focus rule uses the same contrast-qualified focus token; it does
+not override workbench selectors.
 
 The override belongs to the current document only and resets to Auto when the
 iframe reloads. It is not advertised as a durable user preference: ephemeral
 loopback origins cannot reliably provide cross-instance browser storage. No
 localStorage, native preferences or new endpoint is used. This styling slice
-does not add workbench/proposal-review surfaces or qualify actual host rendering.
+does not qualify actual host rendering. Companion, workbench and proposal review
+use the same rendered theme control and semantics. Source tests exercise all
+three documents for explicit overrides, host/OS changes, reset to Auto on reopen
+and no theme storage or editing/authorization effects. Fallback text exceeds
+4.5:1 and focus/borders exceed 3:1 against both fallback backgrounds.
+
+Installed-host visual rendering and interactive host theme changes: **NOT RUN**.
+The first smoke timeout recorded for the theme foundation remains a failed
+attempt; these source tests do not retroactively qualify it or durable preference
+recovery. Feature #1176 and task #1207 must not be closed on that inference.
 
 ## Named-Bench workbench (#1198)
 

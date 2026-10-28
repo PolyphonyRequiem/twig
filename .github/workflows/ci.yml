@@ -55,6 +55,9 @@ jobs:
       - name: Explicit workbench Save gesture and native transport regression
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/editing-client.test.mjs .github/extensions/twig-item-companion/tests/editing-bridge.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs
 
+      - name: Companion context, shared quick edits and document theme regression
+        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/conversation-context.test.mjs .github/extensions/twig-item-companion/tests/companion-editing.test.mjs .github/extensions/twig-item-companion/tests/theme.test.mjs
+
       - name: Explicit Save command production composition regression
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~DraftSaveCommandTests" --logger "trx;LogFileName=explicit-save.trx" --results-directory artifacts/test-logs/ci/explicit-save
 

@@ -20,7 +20,7 @@ export const CAPABILITIES = Object.freeze({
 });
 
 export const CANVAS_CAPABILITIES = Object.freeze({
-    item: Object.freeze(["detail", "draft-show"]),
+    item: Object.freeze(["detail", "draft-show", "draft-open", "draft-stage", "draft-retain", "draft-save"]),
     workbench: Object.freeze(["workspace-browser", "bench-detail", "discussion", "draft-open", "draft-stage", "draft-retain", "draft-save"]),
     review: Object.freeze(["proposal-preview", "proposal-apply"]),
 });

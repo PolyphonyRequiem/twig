@@ -6,7 +6,7 @@ explicit local draft open/stage/retain and a separate human Save backed by Twig'
 proposal-review canvas provides explicit acquisition and a human digest-bound Accept/Apply action. It does not
 read Twig's SQLite files or call an ADO/GitHub API directly.
 
-The item-detail canvas remains read-only. The workbench can explicitly open a local
+Ordinary item-detail reads remain read-only. Both the companion and workbench can explicitly open a local
 draft and stage allowlisted field intent, but neither action saves, authorizes, applies,
 publishes, posts discussion, uploads/downloads attachments, or infers relationship
 coverage. OPEN may persist local observation metadata. The CLI remains the authority
@@ -29,8 +29,8 @@ file's SHA-256. Every native command in that instance then spawns that absolute
 path, never a bare `twig` name. Reopening the same instance does not re-admit;
 a new instance does.
 
-Each canvas declares only the native capabilities it uses (item: detail and draft
-show; workbench: Bench browse/detail, discussion and draft open/stage/retain/save;
+Each canvas declares only the native capabilities it uses (item: detail, draft
+show and draft open/stage/retain/save; workbench: Bench browse/detail, discussion and draft open/stage/retain/save;
 review: proposal preview/apply). Before a capability's first use, the instance runs
 `<command> --help` on the pinned path and requires that the usage line names that
 command and that its `Options:` section declares each flag the canvas will pass as
@@ -62,6 +62,47 @@ child, not descendants it may start. Help is not claimed to be offline or free o
 side effects; an older or unknown binary could perform startup work, including
 network access, while printing help. Preflight installs, downloads, reloads and
 changes nothing in the environment.
+
+## Companion runtime context (source only)
+
+The companion's **Check runtime context** button and `refresh_context` SDK action
+explicitly compare the joined SDK runtime session and canonical local checkout
+with the displayed native item key. Opening, loading and re-reading cached detail
+do not discover an active item, send chat, claim work or start a run. A changed
+runtime session, remote session or different checkout is a visible mismatch;
+unavailable metadata remains unknown. Detail reads invalidate previous context,
+and late metadata cannot relabel a different item. Context checks have a five-second
+deadline; this bounds observation, not cancellation of the SDK metadata request.
+
+Matching the checkout is **not** evidence that the conversation is linked to that
+item. The inspected host contract provides neither authoritative linked-item/run
+discovery nor app destination/focus navigation. Both remain visibly unavailable;
+runtime session IDs are not converted into app navigation links. This is a partial
+source implementation of #1205, not linked-run or installed-host qualification.
+
+## Companion quick edits (source only)
+
+After an explicit published-item detail selection, the companion mounts the same
+`editing-client.mjs` and `editing-bridge.mjs` as the workbench, backed by the same
+`native-editing.mjs` and native Save adapter. No second editing, capture,
+authorization, journal or conflict implementation is introduced. Local seeds do
+not acquire these editors. OPEN/STAGE/RETAIN remain explicit; only a separate
+trusted human **Save exact retained capture (publish)** gesture submits its
+server-held capture. No SDK Save action is exported. Native field eligibility,
+single-use handles, uncertain-outcome holds and unsent-input isolation are shared
+unchanged. Native surface attribution retains the shared workbench spelling; it
+does not attest an authenticated person or an installed host.
+
+Only a native `saved` result with verified effects triggers a qualified cache
+detail re-read. Its original checkout/connection/binding/item/Bench/identity
+must still match. Unverified or locally unsettled outcomes never refresh or
+replay. A subsequent detail-read failure is reported separately from the already
+verified Save; the old observation and native outcome remain available. Neither
+reopening nor selection changes silently clear a native inspect-first hold.
+
+Regression coverage runs the actual iframe, loopback server, shared bridge/client
+and native JSON adapters with only the SDK/process boundary substituted. This
+does not establish installed-host or live-tracker Save qualification.
 
 ## Explicit read-only workbench discussion
 
@@ -399,13 +440,24 @@ attributes, Twig defaults or item state. Auto follows the documented host
 system color-scheme preference and reacts to changes. Auto uses host semantic
 tokens with appropriate light/dark fallbacks. Explicit modes use a local palette
 even if the host changes mode. Keyboard focus covers the selector and disclosure
-summaries as well as buttons/inputs.
+summaries as well as buttons/inputs, text editors and links. The shared additive
+textarea/link focus rule uses the same contrast-qualified focus token; it does
+not override workbench selectors.
 
 The override belongs to the current document only and resets to Auto when the
 iframe reloads. It is not advertised as a durable user preference: ephemeral
 loopback origins cannot reliably provide cross-instance browser storage. No
 localStorage, native preferences or new endpoint is used. This styling slice
-does not add workbench/proposal-review surfaces or qualify actual host rendering.
+does not qualify actual host rendering. Companion, workbench and proposal review
+use the same rendered theme control and semantics. Source tests exercise all
+three documents for explicit overrides, host/OS changes, reset to Auto on reopen
+and no theme storage or editing/authorization effects. Fallback text exceeds
+4.5:1 and focus/borders exceed 3:1 against both fallback backgrounds.
+
+Installed-host visual rendering and interactive host theme changes: **NOT RUN**.
+The first smoke timeout recorded for the theme foundation remains a failed
+attempt; these source tests do not retroactively qualify it or durable preference
+recovery. Feature #1176 and task #1207 must not be closed on that inference.
 
 ## Named-Bench workbench (#1198)
 

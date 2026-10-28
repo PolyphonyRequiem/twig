@@ -295,7 +295,6 @@ choices. The model below closes that gap.
       "consequences": [ { "kind": "field-set", "field": "System.State", "to": "Doing" } ]
     }
   ],
-  "authorizationChoices": [ "apply", "revise", "decline" ],
   "blockers": [ { "kind": "pending|issue", "workItemId": 740, "detail": "<string>" } ]
 }
 ```
@@ -312,8 +311,15 @@ Field rules:
 | `operations` | yes | One entry per proposal operation, in declared order. |
 | `preconditions` | yes, may be empty | `expectedRevision` / `expectedFingerprint`. |
 | `consequences` | yes, may be empty | Derived from the operation's kind and fields. |
-| `authorizationChoices` | yes | The choices actually available for this proposal. |
 | `blockers` | yes, may be empty | Pending rows and preview issues. |
+
+> **Removed: `authorizationChoices`.** Earlier revisions of this model required an
+> `authorizationChoices` array. AB#1212 removed proposal-apply sign-off and stopped
+> emitting it, but `modelVersion` stayed at `1`. That contradicts §4.2, because
+> removing a required member is a breaking change. Renderers must therefore treat
+> `authorizationChoices` as **optional** within version 1. When it is present, it
+> is validated as before; when it is absent, a renderer must not invent choices.
+> The digest-bound apply action is the only authorization surface.
 
 `target` carries `workItemId` for every kind except `publish-seed`, which carries
 `stagedIdentity` — a seed has no id until it is published, and the model must not
@@ -332,9 +338,9 @@ Additive optional members do **not** increment it.
    and refuse to authorize. It must never partially render a model it does not
    understand, because a silently-dropped operation is exactly the failure Spec
    #729 exists to prevent.
-3. A renderer **MUST render every member of `operations`, `preconditions`,
-   `consequences`, and `authorizationChoices`**. Eliding a material entry is a
-   compliance failure, not a presentation choice.
+3. A renderer **MUST render every member of `operations`, `preconditions`, and
+   `consequences`**, plus `authorizationChoices` when it is present. Eliding a
+   material entry is a compliance failure, not a presentation choice.
 4. Enrichment is **additive only**. An adapter may add visual affordances; it may
    never add or remove an authorization choice, and never alter the digest.
 

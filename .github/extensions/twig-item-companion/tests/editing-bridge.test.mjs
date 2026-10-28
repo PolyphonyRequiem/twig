@@ -354,6 +354,42 @@ async function httpSetup(overrides) {
     }
 }
 
+test("workbench HTTP OPEN preserves exact native read-only reasons without admitting those fields", async () => {
+    const unavailable = { fieldRef: "Custom.Body", editable: false,
+        reason: "Native rule: <img src=x onerror=alert(1)> is read-only." };
+    const document = nativeDocument();
+    document.fields[1] = unavailable;
+    const h = await httpSetup({
+        open: async () => ({
+            version: 1, status: "opened", committed: true, document: structuredClone(document),
+        }),
+        stage: async ({ request }) => ({
+            version: 1, status: "staged", committed: true, document: {
+                ...structuredClone(document), generation: (BigInt(request.generation) + 1n).toString(),
+                changes: request.changes.map(change => ({ ...change, baselineValue: null })),
+            },
+        }),
+    });
+    try {
+        const response = await h.post("/api/editing", { action: "open" });
+        assert.equal(response.status, 200);
+        const { editing } = await response.json();
+        assert.deepEqual(editing.unavailableFields, [unavailable]);
+        assert.deepEqual(editing.editors.map(field => field.fieldRef), ["System.Title"]);
+        const refused = await h.post("/api/editing", { action: "stage",
+            captureHandle: editing.captureHandle,
+            changes: [{ fieldRef: unavailable.fieldRef, proposedValue: "must not stage" }] });
+        assert.equal(refused.status, 500);
+        assert.match((await refused.json()).error, /native form does not expose this field/);
+        assert.equal(h.calls.length, 0, "native STAGE must not run for an unavailable field");
+        const staged = await h.post("/api/editing", { action: "stage",
+            captureHandle: editing.captureHandle,
+            changes: [{ fieldRef: "System.Title", proposedValue: "local intent" }] });
+        assert.equal(staged.status, 200);
+        assert.deepEqual((await staged.json()).editing.unavailableFields, [unavailable]);
+    } finally { await h.server.close(); }
+});
+
 test("protected workbench HTTP Save consumes only its held capture and is not an exported SDK action", async () => {
     const calls = [];
     const h = await httpSetup({ save: async input => {

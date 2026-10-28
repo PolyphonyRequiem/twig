@@ -93,6 +93,11 @@ export function createEditingClient({ document, request, text }) {
                 fields.append(row);
             }
             if (!(editing.editors || []).length) fields.append(text("p", "No supported editable native controls. Other fields and contributions remain read-only."));
+            for (const field of editing.unavailableFields || []) {
+                const row = document.createElement("div");
+                row.append(text("strong", field.fieldRef), text("p", field.reason));
+                fields.append(row);
+            }
         }
         async function perform(action) {
             if (inFlight || current !== session) return;

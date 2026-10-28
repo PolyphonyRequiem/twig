@@ -61,6 +61,7 @@ export function createEditingBridge({ adapter, workspacePath }) {
             baselineRevision: document.baselineRevision,
             observedRevision: document.observedRevision,
             editors: editableControls(document),
+            unavailableFields: document.fields.filter(field => !field.editable).map(field => ({ ...field })),
             changes: document.changes, conflicts: document.conflicts,
         };
     }

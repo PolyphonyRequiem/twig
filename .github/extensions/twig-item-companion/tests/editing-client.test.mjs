@@ -95,6 +95,24 @@ test("OPEN failure and unknown STAGE retain unsent input and disable stage until
     assert.match(flattened(h.root), /Unknown native envelope/);
 });
 
+test("native read-only reasons remain exact inert text and never become editable inputs", async () => {
+    const reason = "Native rule: <img src=x onerror=alert(1)> is read-only.";
+    const h = harness(body => ({ editing: { ...editing(body.action === "stage" ? "staged" : "opened"), unavailableFields: [
+        { fieldRef: "Custom.Body", editable: false, reason },
+    ] } }));
+    h.mount(detail());
+    await h.click("Open native draft");
+    assert.ok(descendants(h.root).some(node => node.textContent === reason));
+    assert.match(flattened(h.root), /Custom\.Body/);
+    assert.equal(descendants(h.root).filter(node => node.tag === "textarea").length, 1);
+    assert.equal(descendants(h.root).some(node => node.tag === "img" || node.tag === "script"), false);
+    assert.equal(h.calls.length, 1, "rendering native reasons must not stage or save");
+    h.type("local intent");
+    await h.click("Stage local changes");
+    assert.ok(descendants(h.root).some(node => node.textContent === reason));
+    assert.equal(descendants(h.root).filter(node => node.tag === "textarea").length, 1);
+});
+
 test("null is an explicit separate choice; empty text remains empty and missing values are not synthesized", async () => {
     const h = harness(body => ({ editing: editing(body.action === "stage" ? "staged" : "opened") }));
     h.mount(detail());

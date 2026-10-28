@@ -46,7 +46,7 @@ public sealed class DraftEvidenceRebuildTests : IDisposable
             draftBefore.ShouldBe($"{Key}|5|5|1|System.Title:baseline->intent|0");
             ServedEvidenceRows(cache).ShouldBe(1);
             Scalar(cache, "SELECT COUNT(*) FROM metadata WHERE key='binding_generation';").ShouldBe("0");
-            Scalar(cache, "SELECT value FROM metadata WHERE key='schema_version';").ShouldBe("17");
+            Scalar(cache, "SELECT value FROM metadata WHERE key='schema_version';").ShouldBe(SqliteCacheStore.SchemaVersion.ToString());
             Scalar(cache, "SELECT is_seed FROM work_items WHERE id=42;").ShouldBe("0");
             Scalar(cache, "SELECT is_dirty FROM work_items WHERE id=42;").ShouldBe("0");
             Execute(cache, "UPDATE metadata SET value='15' WHERE key='schema_version';");
@@ -54,7 +54,7 @@ public sealed class DraftEvidenceRebuildTests : IDisposable
 
         using (var rebuilt = new SqliteCacheStore(ConnectionString))
         {
-            Scalar(rebuilt, "SELECT value FROM metadata WHERE key='schema_version';").ShouldBe("17");
+            Scalar(rebuilt, "SELECT value FROM metadata WHERE key='schema_version';").ShouldBe(SqliteCacheStore.SchemaVersion.ToString());
             Scalar(rebuilt, "SELECT COUNT(*) FROM work_items;").ShouldBe("0");
             ServedEvidenceRows(rebuilt).ShouldBe(0);
             Scalar(rebuilt, "SELECT COUNT(*) FROM metadata WHERE key='binding_generation';").ShouldBe("0");

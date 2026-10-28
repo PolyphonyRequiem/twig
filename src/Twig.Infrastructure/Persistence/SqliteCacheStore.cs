@@ -10,9 +10,9 @@ public sealed class SqliteCacheStore : IDisposable
 {
     /// <summary>
     /// Current schema version compiled into the binary.
-    /// Older incompatible mirrors are rebuilt; version 16 upgrades additively to preserve unfinished work.
+    /// Older incompatible mirrors are rebuilt; versions 16 and 17 upgrade additively to preserve unfinished work.
     /// </summary>
-    internal const int SchemaVersion = 17;
+    internal const int SchemaVersion = 18;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -310,6 +310,18 @@ public sealed class SqliteCacheStore : IDisposable
                 using var upgrade = _connection.CreateCommand();
                 upgrade.Transaction = tx;
                 upgrade.CommandText = "ALTER TABLE work_items ADD COLUMN assigned_to_unique_name TEXT; UPDATE metadata SET value = @version WHERE key = 'schema_version';";
+                upgrade.Parameters.AddWithValue("@version", "17");
+                upgrade.ExecuteNonQuery();
+                tx.Commit();
+                existingVersion = 17;
+            }
+            if (existingVersion == 17)
+            {
+                using var tx = _connection.BeginTransaction();
+                using var upgrade = _connection.CreateCommand();
+                upgrade.Transaction = tx;
+                upgrade.CommandText = ProviderSnapshotDdl
+                    + "UPDATE metadata SET value = @version WHERE key = 'schema_version';";
                 upgrade.Parameters.AddWithValue("@version", SchemaVersion.ToString());
                 upgrade.ExecuteNonQuery();
                 tx.Commit();
@@ -1036,7 +1048,7 @@ public sealed class SqliteCacheStore : IDisposable
         // live, which is exactly the premise the Bench build brief inherited and got wrong. Pins
         // are selectors on a Bench in the durable store (#145/#146); exclusions live in the
         // tracking file and are deliberately outside the Bench.
-        string[] tables = ["work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "work_item_link_verifications", "navigation_history", "iteration_calendar"];
+        string[] tables = ["provider_work_item_snapshots", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "work_item_link_verifications", "navigation_history", "iteration_calendar"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -1048,7 +1060,7 @@ public sealed class SqliteCacheStore : IDisposable
     private void CreateSchema()
     {
         using var cmd = _connection.CreateCommand();
-        cmd.CommandText = Ddl;
+        cmd.CommandText = Ddl + ProviderSnapshotDdl;
         cmd.ExecuteNonQuery();
 
         // Default workspace mode to Sprint for new databases
@@ -1064,6 +1076,17 @@ public sealed class SqliteCacheStore : IDisposable
         cmd.Parameters.AddWithValue("@version", SchemaVersion.ToString());
         cmd.ExecuteNonQuery();
     }
+
+    private const string ProviderSnapshotDdl = """
+        CREATE TABLE provider_work_item_snapshots (
+            provider_kind TEXT NOT NULL,
+            resource_scope TEXT NOT NULL,
+            native_id TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            PRIMARY KEY (provider_kind, resource_scope, native_id)
+        );
+        """;
 
     private const string Ddl = """
         CREATE TABLE metadata (

@@ -18,6 +18,8 @@ internal static class PreservationInventory
     private static readonly PreservationTableDefinition[] Tables =
     [
         new(MirrorSchema, "metadata", ["key", "value"]),
+        new(MirrorSchema, "provider_work_item_snapshots",
+            ["provider_kind", "resource_scope", "native_id", "snapshot_json", "observed_at"]),
         new(MirrorSchema, "work_items",
             ["id", "type", "title", "state", "parent_id", "assigned_to", "assigned_to_unique_name",
              "iteration_path", "area_path", "revision", "is_seed", "seed_created_at", "staged_identity",

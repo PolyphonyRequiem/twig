@@ -33,6 +33,15 @@ internal static class GitHubIssueQueries
         } } }
         """;
 
+    public const string WorkingSet = """
+        query($id: ID!, $after: String) { node(id: $id) { __typename id ... on Repository {
+          owner { id }
+          issues(first: 100, after: $after, orderBy: {field: CREATED_AT, direction: ASC}) {
+            nodes { id } pageInfo { hasNextPage endCursor }
+          }
+        } } }
+        """;
+
     private static readonly (string Field, string Selection)[] ConnectionShapes =
     [
         ("labels", "id name"),
@@ -64,7 +73,8 @@ internal static class GitHubIssueQueries
     /// </summary>
     public static bool TryMatch(string document, out bool paginated)
     {
-        paginated = PaginatedDocuments.Contains(document);
+        paginated = PaginatedDocuments.Contains(document)
+            || string.Equals(document, WorkingSet, StringComparison.Ordinal);
         return paginated
             || string.Equals(document, Snapshot, StringComparison.Ordinal)
             || string.Equals(document, SchemaMetadata, StringComparison.Ordinal);

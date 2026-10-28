@@ -15,7 +15,7 @@ namespace Twig.Infrastructure.GitHub;
 /// When <c>expectedRepository</c> is supplied, snapshots of issues in any other repository are refused.
 /// Normal composition supplies an immutable target resolver instead; locator names are not authority.
 /// </summary>
-internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader, IProviderSchemaMetadataReader
+internal sealed class GitHubWorkItemProvider : IProviderWorkingSetReader, IProviderSchemaMetadataReader
 {
     private const string ProcessRulesUnsupportedReason = "provider-does-not-expose-process-rules";
     private const string FieldRulesUnsupportedReason = "provider-does-not-expose-field-rules";
@@ -232,6 +232,57 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader, IProvide
             new(LinkKind.ParentChild, availability, reason),
             new(LinkKind.PredecessorSuccessor, availability, reason),
         ];
+
+    public async Task<IReadOnlyList<ProviderWorkItemSnapshot>> FetchWorkingSetAsync(CancellationToken ct = default)
+    {
+        var target = _resolveTarget is null
+            ? throw new InvalidOperationException("provider-target-required: bind the GitHub repository before sync.")
+            : await _resolveTarget(ct).ConfigureAwait(false);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var snapshots = new List<ProviderWorkItemSnapshot>();
+        var cursors = new HashSet<string>(StringComparer.Ordinal);
+        string? cursor = null;
+        do
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint);
+            request.Headers.UserAgent.ParseAdd("twig-cli");
+            request.Content = new StringContent(JsonSerializer.Serialize(
+                new GitHubIssueGraphQlRequest(GitHubIssueQueries.WorkingSet,
+                    new Dictionary<string, string?> { ["id"] = target.Target.RepositoryId, ["after"] = cursor }),
+                TwigJsonContext.Default.GitHubIssueGraphQlRequest), Encoding.UTF8, "application/json");
+            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.GitHubIssueGraphQlResponse, ct)
+                .ConfigureAwait(false) ?? throw new JsonException("GitHub returned no working set.");
+            EnsureNoGraphQlErrors(result.Errors);
+            var node = Required(result.Data, "node");
+            if (Text(node, "__typename") != "Repository" || NativeId(node) != target.Target.RepositoryId
+                || NativeId(Required(node, "owner")) != target.Target.OwnerId)
+                throw new JsonException("GitHub working set does not match the bound repository identity.");
+            var connection = Required(node, "issues");
+            var nodes = Required(connection, "nodes");
+            if (nodes.ValueKind != JsonValueKind.Array)
+                throw new JsonException("GitHub returned an incomplete working set.");
+            foreach (var issue in nodes.EnumerateArray())
+            {
+                var id = NativeId(issue);
+                if (!ids.Add(id))
+                    throw new JsonException("GitHub working-set pagination repeated an issue identity.");
+                snapshots.Add(await FetchSnapshotAsync(new("github", _scope, id), ct).ConfigureAwait(false));
+            }
+            var page = Required(connection, "pageInfo");
+            var hasNext = Required(page, "hasNextPage");
+            if (hasNext.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new JsonException("GitHub returned invalid working-set pagination.");
+            if (!hasNext.GetBoolean()) break;
+            cursor = Text(page, "endCursor");
+            if (cursor.Length == 0 || !cursors.Add(cursor))
+                throw new JsonException("GitHub working-set pagination did not advance.");
+        } while (true);
+        await _validateTarget!(target, ct).ConfigureAwait(false);
+        return snapshots;
+    }
 
     private ExternalWorkItemIdentity External(JsonElement node) => new("github", _scope, NativeId(node));
 

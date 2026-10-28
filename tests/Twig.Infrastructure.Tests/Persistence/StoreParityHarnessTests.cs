@@ -14,6 +14,30 @@ public sealed class StoreParityHarnessTests
     private const string ResourceScope = "ado:test-scope";
 
     [Fact]
+    public void Inspect_FingerprintsProviderSnapshotsWithoutChangingDurableClasses()
+    {
+        using var store = CreateConsistentStore();
+        var harness = new StoreParityHarness(store, ResourceScope);
+        var before = harness.Inspect();
+        before.IsConsistent.ShouldBeTrue();
+
+        Execute(store, """
+            INSERT INTO main.provider_work_item_snapshots
+                (provider_kind,resource_scope,native_id,snapshot_json,observed_at)
+            VALUES ('github','https://api.github.com','I_fixture','{"opaque":"snapshot"}','now');
+            """);
+
+        var after = harness.Inspect();
+        after.IsConsistent.ShouldBeTrue();
+        var name = "main.provider_work_item_snapshots";
+        after.Classes.Single(entry => entry.ClassName == name).RowCount.ShouldBe(1);
+        after.Classes.Single(entry => entry.ClassName == name).CanonicalDigest
+            .ShouldNotBe(before.Classes.Single(entry => entry.ClassName == name).CanonicalDigest);
+        foreach (var other in before.Classes.Where(entry => entry.ClassName != name))
+            after.Classes.Single(entry => entry.ClassName == other.ClassName).CanonicalDigest.ShouldBe(other.CanonicalDigest);
+    }
+
+    [Fact]
     public async Task Inspect_FullRowFingerprintIncludesExactExecutionAdmissionBytes()
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");

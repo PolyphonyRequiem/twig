@@ -1078,14 +1078,16 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
 
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="pullOnly">Skip the flush phase and only pull (refresh) from ADO.</param>
+    /// <param name="pullOnly">Skip the flush phase and only pull from the active provider. Required for GitHub.</param>
     public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool pullOnly = false, CancellationToken ct = default)
-        => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, pullOnly, ct);
+        => services.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind() == "github"
+            ? await services.GetRequiredService<ProviderSyncCommand>().ExecuteAsync(output, pullOnly, ct)
+            : await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, pullOnly, ct);
 
-    /// <summary>Refresh the local cache from Azure DevOps. Routes through sync --pull-only.</summary>
+    /// <summary>Refresh the local cache from the active provider. Routes through sync --pull-only.</summary>
     [Hidden]
     public async Task<int> Refresh(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, pullOnly: true, ct);
+        => await Sync(output, pullOnly: true, ct);
 
     /// <summary>Show the current workspace.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

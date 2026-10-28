@@ -11,8 +11,10 @@ namespace Twig.Infrastructure.Tests.Persistence;
 /// </summary>
 public class SqliteCacheStoreTests
 {
-    [Fact]
-    public async Task IdentityMetadataUpgradePreservesSeedAndPendingWorkWithoutInventingAnOwner()
+    [Theory]
+    [InlineData(16)]
+    [InlineData(17)]
+    public async Task AdditiveUpgradePreservesSeedAndPendingWorkWithoutInventingAnOwner(int version)
     {
         var dir = Path.Combine(Path.GetTempPath(), "twig-identity-upgrade-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
@@ -34,11 +36,16 @@ public class SqliteCacheStoreTests
                 };
                 await repo.SaveAsync(seed);
                 using var cmd = old.GetConnection().CreateCommand();
-                cmd.CommandText = "ALTER TABLE work_items DROP COLUMN assigned_to_unique_name; UPDATE metadata SET value = '16' WHERE key = 'schema_version'; INSERT INTO pending.pending_changes (work_item_id, change_type, field_name, old_value, new_value, created_at) VALUES (@id, 'note', NULL, NULL, 'Keep this note', '2026-10-01T00:00:00Z');";
+                cmd.CommandText = "DROP TABLE provider_work_item_snapshots; "
+                    + (version == 16 ? "ALTER TABLE work_items DROP COLUMN assigned_to_unique_name; " : "")
+                    + "UPDATE metadata SET value = @version WHERE key = 'schema_version'; INSERT INTO pending.pending_changes (work_item_id, change_type, field_name, old_value, new_value, created_at) VALUES (@id, 'note', NULL, NULL, 'Keep this note', '2026-10-01T00:00:00Z');";
+                cmd.Parameters.AddWithValue("@version", version.ToString());
                 cmd.Parameters.AddWithValue("@id", seed.Id);
                 cmd.ExecuteNonQuery();
             }
             using var upgraded = new SqliteCacheStore(connection);
+            upgraded.SchemaWasRebuilt.ShouldBeFalse();
+            TableExists(upgraded.GetConnection(), "provider_work_item_snapshots").ShouldBeTrue();
             var retained = (await new SqliteWorkItemRepository(upgraded, new Twig.Domain.Services.WorkItemMapper()).GetSeedsAsync()).ShouldHaveSingleItem();
             retained.Title.ShouldBe("Unpublished work");
             retained.AssignedToUniqueName.ShouldBeNull();
@@ -63,6 +70,7 @@ public class SqliteCacheStoreTests
         // Verify all tables exist
         TableExists(conn, "metadata").ShouldBeTrue();
         TableExists(conn, "work_items").ShouldBeTrue();
+        TableExists(conn, "provider_work_item_snapshots").ShouldBeTrue();
         DurableTableExists(conn, "pending_changes").ShouldBeTrue();
         TableExists(conn, "process_types").ShouldBeTrue();
         TableExists(conn, "context").ShouldBeTrue();

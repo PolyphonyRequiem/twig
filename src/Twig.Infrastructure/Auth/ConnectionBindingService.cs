@@ -129,7 +129,9 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (string.IsNullOrWhiteSpace(info.ObjectId))
             throw new InvalidOperationException(
                 $"Minted access token for '{normalizedName}' is missing an oid claim; refusing to register an unverifiable principal.");
-        if (!string.Equals(info.TenantId, tenantId, StringComparison.OrdinalIgnoreCase))
+        if (IsMultiTenantAuthorityAlias(tenantId))
+            tenantId = info.TenantId;
+        else if (!string.Equals(info.TenantId, tenantId, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
                 $"Refresh entry tenant_id ({tenantId}) disagrees with the minted token tenant ({info.TenantId}); refusing to register a mismatched principal.");
         if (!string.IsNullOrWhiteSpace(credential.ObjectId)
@@ -521,6 +523,13 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             && !string.Equals(identity.AdoAuthority, PatPrincipalAttestor.NormalizeAuthority(organization), StringComparison.Ordinal))
             throw new InvalidOperationException("PAT identity belongs to another authority; refusing account crossover.");
     }
+
+    /// <summary>Multi-tenant authority segments name no tenant, so they cannot
+    /// disagree with the minted token; registration binds the token's tid instead.</summary>
+    private static bool IsMultiTenantAuthorityAlias(string tenant)
+        => tenant.Equals("organizations", StringComparison.OrdinalIgnoreCase)
+            || tenant.Equals("common", StringComparison.OrdinalIgnoreCase)
+            || tenant.Equals("consumers", StringComparison.OrdinalIgnoreCase);
 
     private string ResolveCredentialPath(string credentialRef)
     {

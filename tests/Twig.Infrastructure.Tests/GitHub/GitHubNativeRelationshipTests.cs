@@ -20,6 +20,75 @@ namespace Twig.Infrastructure.Tests.GitHub;
 public sealed class GitHubNativeRelationshipTests
 {
     [Fact]
+    public async Task OfflineProviderLifecycle_ReadAuthorApplyReadbackUsesRealGitHubComposition()
+    {
+        using var fixture = await Fixture.CreateAsync(credentialSource: "github-app");
+        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_item");
+        var before = await fixture.ReadAsync(identity);
+        var overlay = FieldValues.Empty.Set("System.State", new TextValue("local-only"));
+        (await fixture.Local.UpdateAsync(before.Local.Id, before.Local.Revision, overlay))
+            .Value.ShouldBeOfType<LocalWriteApplied>();
+        var path = await fixture.WriteAsync(fields: new Dictionary<string, string?>
+        {
+            ["System.Title"] = "Offline qualified GitHub title",
+        });
+        var policyPath = fixture.Target.Paths.PolicyPath;
+        await File.WriteAllTextAsync(policyPath, """{"version":2,"rules":[]}""");
+        (await fixture.Lifecycle.PreviewAsync(path)).CanApply.ShouldBeFalse("invalid declared policy must fail closed");
+        fixture.Network.Writes.ShouldBe(0);
+        File.Delete(policyPath);
+
+        var preview = await fixture.Lifecycle.PreviewAsync(path);
+        preview.CanApply.ShouldBeTrue(string.Join("; ", preview.Issues.Select(i => i.Message)));
+        preview.ReviewModel.ShouldNotBeNull().Operations.Single().Summary.ShouldContain("non-atomic");
+        fixture.Network.Writes.ShouldBe(0, "authoring and preview must not publish");
+        (await fixture.ApplyAsync(path, new string('0', 64))).Failed.ShouldBeTrue();
+        fixture.Network.Writes.ShouldBe(0, "a different digest cannot authorize the effect");
+        var result = await fixture.ApplyAsync(path, preview.Digest!);
+        result.Failed.ShouldBeFalse(result.Error);
+        result.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        fixture.Network.Writes.ShouldBe(1);
+        var readback = await fixture.ReadAsync(identity);
+        readback.Local.Id.ShouldBe(before.Local.Id);
+        readback.ProviderFields["System.Title"].Value.ShouldBe(new TextValue("Offline qualified GitHub title"));
+        readback.Local.Fields.ShouldBe(overlay);
+        readback.Fields["System.State"].Value.ShouldBe(new TextValue("local-only"));
+        (await fixture.Journal.GetAsync(preview.Digest!))!.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        (await fixture.ApplyAsync(path, preview.Digest!)).Failed.ShouldBeFalse();
+        fixture.Network.Writes.ShouldBe(1, "verified replay must not write again");
+    }
+
+    [Fact]
+    public async Task OfflineProviderLifecycle_DeclaredParentPolicyIsEvaluatedAgainBeforeGitHubWrite()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        fixture.Network.IssueType = "Synthetic child type";
+        var observed = await fixture.ReadAsync(new("github", "https://api.github.com", "I_item"));
+        var type = observed.ProviderFields["System.WorkItemType"].Value.ShouldBeOfType<TextValue>().Value;
+        var path = await fixture.WriteAsync();
+        var policyPath = fixture.Target.Paths.PolicyPath;
+        string Policy(string parentType) => JsonSerializer.Serialize(new
+        {
+            version = 1,
+            rules = new[] { new { id = "parent-qualification", kind = "parent-type", childType = type,
+                allowedParentTypes = new[] { parentType } } },
+        });
+        await File.WriteAllTextAsync(policyPath, Policy("disallowed-synthetic-type"));
+        var denied = await fixture.Lifecycle.PreviewAsync(path);
+        denied.CanApply.ShouldBeFalse();
+        denied.ReviewModel.ShouldNotBeNull().PolicyDecisions.Single().IsBlocking.ShouldBeTrue();
+        fixture.Network.Writes.ShouldBe(0);
+
+        await File.WriteAllTextAsync(policyPath, Policy(type));
+        var permitted = await fixture.Lifecycle.PreviewAsync(path);
+        permitted.CanApply.ShouldBeTrue();
+        permitted.ReviewModel.ShouldNotBeNull().PolicyDecisions.Single().IsBlocking.ShouldBeFalse();
+        await File.WriteAllTextAsync(policyPath, Policy("disallowed-synthetic-type"));
+        (await fixture.ApplyAsync(path, permitted.Digest!)).Failed.ShouldBeTrue();
+        fixture.Network.Writes.ShouldBe(0, "a prior permitted preview cannot bypass a changed declared policy");
+    }
+
+    [Fact]
     public void DeclaredProposalCapabilitiesMatchFixedExecutorShapes()
     {
         var target = new ProviderWorkItemMutationTarget
@@ -580,6 +649,9 @@ public sealed class GitHubNativeRelationshipTests
         internal Task<PlanApplyResult> ApplyAsync(string path, string digest) =>
             Lifecycle.ApplyAsync(path, digest);
 
+        internal Task<ProviderWorkItemReadResult> ReadAsync(ExternalWorkItemIdentity identity) =>
+            _services.GetRequiredService<IProviderWorkItemReadService>().ReadByIdentityAsync(identity);
+
         public void Dispose()
         {
             _services?.Dispose();
@@ -612,6 +684,7 @@ public sealed class GitHubNativeRelationshipTests
         internal string Actor { get; set; } = "U_actor";
         internal string Title { get; set; } = "Title";
         internal string State { get; set; } = "OPEN";
+        internal string? IssueType { get; set; }
         internal string? UpdatedAt { get; set; } = "2026-10-28T01:00:00Z";
         internal string? InterleavedTitle { get; set; }
         internal string Body { get; set; } = "";
@@ -707,9 +780,10 @@ public sealed class GitHubNativeRelationshipTests
                         ? """{"id":"I_peer"}""" : "null";
                     var repository = id == "I_peer" ? PeerRepository : "R_repo";
                     var milestone = Milestone is null ? "null" : $$"""{"id":"{{Milestone}}","title":"Milestone"}""";
+                    var issueType = IssueType is null ? "null" : $$"""{"name":{{Quote(IssueType)}}}""";
                     body = $$$$$$"""
                         {"data":{"node":{"__typename":"Issue","id":"{{{{{{id}}}}}}","number":1,"title":{{{{{{Quote(Title)}}}}}},"state":"{{{{{{State}}}}}}",
-                        "body":{{{{{{Quote(Body)}}}}}},"updatedAt":{{{{{{(UpdatedAt is null ? "null" : Quote(UpdatedAt))}}}}}},"url":"https://example.test/issue","issueType":null,"parent":{{{{{{parent}}}}}},"milestone":{{{{{{milestone}}}}}},
+                        "body":{{{{{{Quote(Body)}}}}}},"updatedAt":{{{{{{(UpdatedAt is null ? "null" : Quote(UpdatedAt))}}}}}},"url":"https://example.test/issue","issueType":{{{{{{issueType}}}}}},"parent":{{{{{{parent}}}}}},"milestone":{{{{{{milestone}}}}}},
                         "repository":{"id":"{{{{{{repository}}}}}}","nameWithOwner":"owner/repo","owner":{"id":"O_owner"}}}}}
                         """;
                 }

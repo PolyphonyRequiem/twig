@@ -9,7 +9,10 @@ TUI entry points, and local development workflow.
 
 ### Configuration
 
-All publishable projects target `net10.0` (set in `Directory.Build.props`).
+The CLI targets `net11.0` (set in `Directory.Build.props`) using the .NET 11 RC3
+SDK (`11.0.100-rc.3.26522.148`) pinned in `global.json`. The published
+`Twig.Domain`, `Twig.Infrastructure`, and `Twig.RenderTree` libraries multi-target
+`net10.0;net11.0` so consumers can continue using .NET 10.
 The `twig` CLI is AOT-compiled, with AOT properties set in its `.csproj` file.
 MCP is withdrawn from delivery pending redesign; its source is retained only as context.
 

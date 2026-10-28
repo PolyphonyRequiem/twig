@@ -35,6 +35,32 @@ internal sealed class JwtAccessTokenPayload
     [JsonPropertyName("upn")]
     public string? UserPrincipalName { get; set; }
 
+    [JsonPropertyName("preferred_username")]
+    public string? PreferredUsername { get; set; }
+
+    [JsonPropertyName("unique_name")]
+    public string? UniqueName { get; set; }
+
+    [JsonPropertyName("email")]
+    public string? Email { get; set; }
+
+    public string? ResolveAccountName()
+    {
+        if (!string.IsNullOrWhiteSpace(UserPrincipalName))
+            return UserPrincipalName;
+        if (!string.IsNullOrWhiteSpace(PreferredUsername))
+            return PreferredUsername;
+
+        // AAD v1 personal-account unique_name can carry an issuer decoration
+        // that is not part of ADO's assignee uniqueName. Leave other '#' forms intact.
+        var uniqueName = UniqueName;
+        if (uniqueName?.StartsWith("live.com#", StringComparison.OrdinalIgnoreCase) == true)
+            uniqueName = uniqueName["live.com#".Length..];
+        if (!string.IsNullOrWhiteSpace(uniqueName))
+            return uniqueName;
+        return string.IsNullOrWhiteSpace(Email) ? null : Email;
+    }
+
     /// <summary>Object ID of the principal.</summary>
     [JsonPropertyName("oid")]
     public string? ObjectId { get; set; }
@@ -57,6 +83,8 @@ internal sealed record JwtTokenInfo(
     string? ObjectId,
     string? Issuer)
 {
+    public string? AccountName { get; init; }
+
     /// <summary>True iff the token's audience claim matches the ADO API resource.</summary>
     public bool IsValidAdoAudience
         => Audience is { Length: > 0 }
@@ -139,7 +167,10 @@ internal static class JwtAccessTokenInspector
             TenantId: payload.TenantId,
             UserPrincipalName: payload.UserPrincipalName,
             ObjectId: payload.ObjectId,
-            Issuer: payload.Issuer);
+            Issuer: payload.Issuer)
+        {
+            AccountName = payload.ResolveAccountName(),
+        };
     }
 
     /// <summary>

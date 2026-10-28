@@ -5,7 +5,7 @@ using Twig.Infrastructure.Serialization;
 namespace Twig.Infrastructure.Auth.InteractiveAuth;
 
 /// <summary>
-/// Decodes an OIDC <c>id_token</c> to extract identity stamps (upn, oid, tid) for the
+/// Decodes an OIDC <c>id_token</c> to extract account and principal stamps for the
 /// refresh-token store entry. Does NOT verify the signature — we trust the token because
 /// we just received it over TLS from AAD's <c>/token</c> endpoint in response to our own
 /// PKCE-protected request. This is decode-for-display, not authentication.
@@ -34,7 +34,7 @@ internal static class IdTokenDecoder
                 return new IdTokenClaims(null, null, null);
 
             return new IdTokenClaims(
-                payload.UserPrincipalName,
+                payload.ResolveAccountName(),
                 payload.ObjectId,
                 payload.TenantId);
         }

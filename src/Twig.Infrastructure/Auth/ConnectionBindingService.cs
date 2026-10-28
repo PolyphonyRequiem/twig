@@ -139,7 +139,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
 
         var issuer = Require(info.Issuer, "iss (minted token issuer)");
         var objectId = info.ObjectId!;
-        var accountName = !string.IsNullOrWhiteSpace(info.UserPrincipalName) ? info.UserPrincipalName
+        var accountName = !string.IsNullOrWhiteSpace(info.AccountName) ? info.AccountName
             : (!string.IsNullOrWhiteSpace(credential.UserPrincipalName) ? credential.UserPrincipalName : null);
 
         var credentialRef = "cred-" + Guid.NewGuid().ToString("N");

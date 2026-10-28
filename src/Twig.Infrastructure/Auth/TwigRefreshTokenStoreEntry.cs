@@ -25,11 +25,12 @@ internal sealed class TwigRefreshTokenStoreEntry
     [JsonPropertyName("authority_host")]
     public string? AuthorityHost { get; set; }
 
-    /// <summary>UPN of the identity the refresh token is bound to (recorded for diagnostics + identity guard).</summary>
+    /// <summary>Account name from token claims, retained under the legacy <c>upn</c> key.
+    /// Principal guards use tenant/object/issuer evidence, not this mutable account label.</summary>
     [JsonPropertyName("upn")]
     public string? UserPrincipalName { get; set; }
 
-    /// <summary>Object ID of the identity (immutable AAD identifier, fallback when UPN is absent).</summary>
+    /// <summary>Object ID of the identity (immutable AAD identifier).</summary>
     [JsonPropertyName("oid")]
     public string? ObjectId { get; set; }
 

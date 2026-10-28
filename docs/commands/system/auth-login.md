@@ -46,6 +46,19 @@ A mismatch leaves the existing credential intact. JWT decoding is consistency
 checking, not local signature verification; enrollment relies on authenticated
 issuance and ADO validates credentials presented to it.
 
+The cached account used by offline default-Bench reads comes from the first
+nonblank token claim in this order: `upn`, `preferred_username`, `unique_name`,
+then `email`. A `live.com#` prefix on `unique_name` is removed for ADO assignee
+matching; other account forms are preserved. Registration prefers the refreshed
+access token's account, then the ID token's account. A same-principal login
+backfills a missing cached account without changing bindings or selection
+revisions; if neither token supplies an account, an existing account is retained.
+After upgrading, renew the affected identity with
+`twig auth login --identity <alias>` to repair an empty account before retrying
+an offline default-Bench read.
+Enrollment does not add an organization-scoped `connectionData` probe: AAD
+identities can be enrolled before an organization is selected.
+
 ### PAT enrollment and repair
 
 `auth pat` reads a token from a non-echoing prompt, or one line of standard input

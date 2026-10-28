@@ -13,8 +13,10 @@ process. It is the same application as `twig bench browser`, with the same
 captured source, authority checks, local editing and read-only proposal Review.
 No companion download or Go/work-item-read subprocess is part of native startup.
 
-On macOS, `twig tui` without options still launches the existing Terminal.Gui
-`twig-tui` companion. This cutover does not replace macOS's legacy terminal UI.
+macOS is not currently supported: no macOS build is published. The macOS
+behavior below describes retained source paths. On macOS, `twig tui` without
+options launches the existing Terminal.Gui `twig-tui` companion; this cutover does
+not replace macOS's legacy terminal UI.
 
 ## Synopsis
 

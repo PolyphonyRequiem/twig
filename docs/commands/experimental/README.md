@@ -1,8 +1,9 @@
 # Experimental commands
 
 Commands under active development. Surfaces, flags, and behavior may change
-without notice. Windows/Linux `twig tui` runs the native browser in-process;
-macOS retains its separately built Terminal.Gui companion. `ohmyposh init`
+without notice. Windows/Linux `twig tui` runs the native browser in-process.
+macOS is not currently supported; its separately built Terminal.Gui companion
+remains in source only. `ohmyposh init`
 also runs in-process. MCP is withdrawn from supported delivery pending its
 separate redesign; its draft reference remains for context.
 

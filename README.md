@@ -267,9 +267,10 @@ signed primary image when release signing is configured. The Windows/Linux Herdr
 host is `twig-herdr` and launches this same native application directly, preserving
 its action and pane IDs.
 
-macOS keeps its existing `twig tui` / `twig-tui` Terminal.Gui companion and legacy
-Go/Herdr paths. `Twig.Tui`, shared domain/infrastructure sources and their required
-dependencies remain for macOS; they do not represent a second Windows/Linux UI.
+**macOS is not currently supported.** macOS builds, tests, releases and installs
+are suspended; the retained `Twig.Tui` Terminal.Gui companion, legacy Go/Herdr
+paths and shared macOS code paths remain in source only so support can be restored.
+They do not represent a second Windows/Linux UI.
 See the [TUI command guide](docs/commands/experimental/tui.md) for platform behavior
 and the [Bench browser guide](docs/commands/bench/README.md) for controls and trust.
 
@@ -444,11 +445,14 @@ All commands support `--output human|json|minimal`:
 irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | iex
 ```
 
-### Linux / macOS
+### Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash
 ```
+
+macOS is not currently supported: no macOS build is published, and `install.sh`
+refuses to install on macOS.
 
 ### Update
 
@@ -460,8 +464,7 @@ Installs to `~/.twig/bin/` and adds it to your PATH. The installer is idempotent
 
 Windows and Linux installers require the three same-image native entry points
 from the downloaded archive; `twig tui` does not require a legacy companion or
-fall back to one. Apple Silicon macOS still installs the legacy `twig-tui`
-companion alongside the native CLI. Intel macOS release builds remain unavailable.
+fall back to one.
 
 ### Verifying downloads
 
@@ -473,14 +476,6 @@ Every release publishes a SHA256 hash next to each archive plus an aggregate `SH
 curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-linux-x64.tar.gz
 curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-linux-x64.tar.gz.sha256
 sha256sum -c twig-linux-x64.tar.gz.sha256
-```
-
-**macOS:**
-
-```bash
-curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-osx-arm64.tar.gz
-curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-osx-arm64.tar.gz.sha256
-shasum -a 256 -c twig-osx-arm64.tar.gz.sha256
 ```
 
 **Windows (PowerShell):**

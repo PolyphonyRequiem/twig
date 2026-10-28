@@ -32,6 +32,11 @@ jobs:
     #
     # The cost/risk trade that justified omitting macOS was made when no macOS-specific
     # defect had escaped. That premise is now falsified, so the condition it named is met.
+    #
+    # macOS support is SUSPENDED for now (owner decision, 2026-10-27): no osx-arm64
+    # build, test, release or install. The leg is removed rather than made optional so
+    # a green check never implies macOS works. Restore it together with the release.yml
+    # and tui-candidate.yml legs, install.sh, and the docs when support resumes.
     strategy:
       # fail-fast: false so one platform's failure does not cancel the other's
       # run. The point of this matrix is learning about every platform from a
@@ -44,8 +49,6 @@ jobs:
             os: ubuntu-latest
           - rid: win-x64
             os: windows-latest
-          - rid: osx-arm64
-            os: macos-latest
 
     runs-on: ${{ matrix.os }}
 
@@ -142,7 +145,7 @@ jobs:
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ClaimHolderUsesBoundAccountAndRejectsSameNameAlternateActorWithoutMutation|FullyQualifiedName~ReservedClaimNotPointedAtByTheAttachmentBlocksAdmissionAndClearsOnlyAfterAuthorizedRelease" --logger "trx;LogFileName=claim-consumers.trx" --results-directory artifacts/test-logs/ci/provider-contracts
 
       # Non-Windows protected-store qualification is unavailable, NOT passed:
-      # OS handle inventory refuses on hosted Linux/macOS. Production guards stay unchanged.
+      # OS handle inventory refuses on hosted Linux. Production guards stay unchanged.
       - name: Windows real protected-store holder lifecycle
         if: matrix.rid == 'win-x64'
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ActiveNativeHolderMustBeReleasedByItsOrdinaryLifecycleBeforeAnotherActorCanPin|FullyQualifiedName~AnotherAffectedCheckoutActiveHolderBlocksDefaultWithoutImplicitReleaseOrScopeRewrite" --logger "trx;LogFileName=claim-holders.trx" --results-directory artifacts/test-logs/ci/provider-contracts

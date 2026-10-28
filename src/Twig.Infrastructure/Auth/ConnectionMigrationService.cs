@@ -29,14 +29,15 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
     private readonly string _home;
     private readonly IConnectionBindingService _bindings;
     private readonly SqliteSystemWorktreeRegistry _registry;
-    private readonly Func<Process, string>? _commandLineReader;
+    private readonly Func<IReadOnlyList<string>> _inspectHosts;
 
-    internal ConnectionMigrationService(string userHome, IConnectionBindingService bindings, Func<Process, string>? commandLineReader = null)
+    internal ConnectionMigrationService(string userHome, IConnectionBindingService bindings,
+        Func<Process, string>? commandLineReader = null, Func<IReadOnlyList<string>>? hostInventory = null)
     {
         _home = Path.GetFullPath(userHome);
         _bindings = bindings;
         _registry = new SqliteSystemWorktreeRegistry(Path.Combine(_home, "system.db"), TimeProvider.System);
-        _commandLineReader = commandLineReader;
+        _inspectHosts = hostInventory ?? (() => LegacyHostQuiescence.InspectProcesses(commandLineReader));
     }
 
     public async Task<ConnectionMigrationPreview> PreviewAsync(TwigConfiguration configuration, TwigPaths paths,
@@ -174,7 +175,7 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
         else if (claims.Value.Any(x => x.State is not (ClaimStates.Released or ClaimStates.Superseded)))
             blockers.Add("migration-reserved-claim: settle reserved/active claim ownership through its ordinary authorized lifecycle before migration; no claim is released or reminted.");
 
-        blockers.AddRange(LegacyHostQuiescence.InspectProcesses(_commandLineReader));
+        blockers.AddRange(_inspectHosts());
         var protectedPaths = ProtectedPaths(paths, configuration, source, record).ToArray();
         try
         {
@@ -212,7 +213,7 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
             var uncertainWrites = await _registry.ReadConnectionRemoteWritesAsync(fingerprint, unsettledOnly: true, ct).ConfigureAwait(false);
             if (!uncertainWrites.IsSuccess || uncertainWrites.Value.Count != 0)
                 throw new InvalidOperationException("migration-remote-write-outcome-unknown: original native mutation evidence is unavailable or unsettled; activation did not occur.");
-            var hosts = LegacyHostQuiescence.InspectProcesses(_commandLineReader);
+            var hosts = _inspectHosts();
             if (hosts.Count > 0) throw new InvalidOperationException(string.Join('\n', hosts));
             if (record is null)
             {
@@ -298,7 +299,7 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
         var temporary = markerPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(marker, TwigJsonContext.Default.MirrorAdmissionDocument), ct).ConfigureAwait(false);
         File.Move(temporary, markerPath, overwrite: true);
-        var remainingHosts = LegacyHostQuiescence.InspectProcesses(_commandLineReader);
+        var remainingHosts = _inspectHosts();
         if (remainingHosts.Count > 0) throw new InvalidOperationException(string.Join('\n', remainingHosts));
         // Recheck preserved attachment context; newly provisioned empty attachment is expected only on legacy ingress.
         if (record.AttachmentHash != "absent" && record.AttachmentHash != HashFile(AttachmentPath(paths)))
@@ -504,4 +505,3 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
     private static string HashFile(string path) => File.Exists(path) ? Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))) : "absent";
     public void Dispose() => _registry.Dispose();
 }
-

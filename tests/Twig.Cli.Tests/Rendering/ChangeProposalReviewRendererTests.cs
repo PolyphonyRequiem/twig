@@ -79,6 +79,44 @@ public sealed class ChangeProposalReviewRendererTests
         return output.ToString();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Render_SeedPublicationIncludesEveryLink_AndMarksOnlyDeferredPeers(bool full)
+    {
+        var model = Model();
+        var seed = model.Operations.Single(o => o.Kind == "publish-seed");
+        model = model with
+        {
+            Operations =
+            [
+                seed with
+                {
+                    Consequences =
+                    [
+                        new ReviewConsequence { Kind = "seed-publish" },
+                        new ReviewConsequence { Kind = "link-add", Relation = "blocks", OtherId = -50, Deferred = true },
+                        new ReviewConsequence { Kind = "link-add", Relation = "related", OtherId = -49, Deferred = false },
+                        new ReviewConsequence { Kind = "link-add", Relation = "successor", OtherId = 17, Deferred = false },
+                    ],
+                },
+            ],
+        };
+        var output = new StringWriter();
+        new RendererFactory().GetRenderer("human", output)
+            .Render(new RenderTree.RenderTree(ChangeProposalReviewRenderer.Render(model, full)));
+        var text = output.ToString();
+        text.ShouldContain("seed seed-abc");
+        text.ShouldContain("publish staged draft");
+        text.ShouldContain("add blocks link to #-50 (deferred until peer publishes)");
+        text.ShouldContain("add related link to #-49");
+        text.ShouldNotContain("add related link to #-49 (deferred");
+        text.ShouldContain("add successor link to #17");
+        text.ShouldNotContain("add successor link to #17 (deferred");
+        text.IndexOf("publish staged draft", StringComparison.Ordinal)
+            .ShouldBeLessThan(text.IndexOf("add blocks", StringComparison.Ordinal));
+    }
+
     // A declared capability is shown as declared and not observed, in both densities, and never as an origin.
     [Theory]
     [InlineData(true)]

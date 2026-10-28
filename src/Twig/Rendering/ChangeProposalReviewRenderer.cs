@@ -243,7 +243,8 @@ public static class ChangeProposalReviewRenderer
     private static string Quote(string value) => $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     private static string DescribeConsequence(ReviewConsequence c) => c.Kind switch
     {
-        "link-add" => $"add {c.Relation} link to {DescribeOther(c)}",
+        "link-add" => $"add {c.Relation} link to {DescribeOther(c)}"
+            + (c.Deferred == true ? " (deferred until peer publishes)" : string.Empty),
         "link-remove" => $"remove {c.Relation} link to {DescribeOther(c)}",
         "seed-publish" => "publish staged draft (new published identity assigned only when applied)",
         "work-item-delete" => $"delete work item {DescribeOther(c)}",

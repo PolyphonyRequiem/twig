@@ -150,6 +150,8 @@ public static class ChangeProposalReviewModelJson
                     writer.WriteNumber("otherId", otherId);
                 else
                     writer.WriteNull("otherId");
+                if (op.Kind == "publish-seed" && con.Kind == "link-add")
+                    writer.WriteBoolean("deferred", con.Deferred == true);
                 if (con.OtherProviderWorkItem is { } otherProviderItem)
                     WriteProviderReference(writer, "otherProviderWorkItem", otherProviderItem);
                 writer.WriteEndObject();

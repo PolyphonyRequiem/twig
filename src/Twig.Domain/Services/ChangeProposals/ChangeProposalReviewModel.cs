@@ -246,6 +246,12 @@ public sealed record ReviewConsequence
     /// <summary>The far end of a link, or the item being deleted.</summary>
     public int? OtherId { get; init; }
 
+    /// <summary>
+    /// Whether a publish-seed link awaits a peer seed not published by an earlier operation.
+    /// Present only on link-add consequences of publish-seed operations.
+    /// </summary>
+    public bool? Deferred { get; init; }
+
     /// <summary>Provider-qualified far end of a version 2 link or deleted item.</summary>
     public ProviderWorkItemReference? OtherProviderWorkItem { get; init; }
 

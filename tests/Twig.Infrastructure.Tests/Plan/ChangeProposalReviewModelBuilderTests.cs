@@ -33,6 +33,22 @@ public sealed class ChangeProposalReviewModelBuilderTests
     private ChangeProposalReviewModelBuilder Builder() => new(_workItems);
 
     [Fact]
+    public async Task Json_DeferredIsRestrictedToPublishSeedLinkAdds()
+    {
+        var model = await Builder().BuildAsync(AllKindsDocument(), "digest", [], []);
+        var polluted = model with
+        {
+            Operations = model.Operations.Select(op => op with
+            {
+                Consequences = op.Consequences.Select(con => con with { Deferred = true }).ToArray(),
+            }).ToArray(),
+        };
+        ChangeProposalReviewModelJson.Serialize(polluted)
+            .ShouldBe(ChangeProposalReviewModelJson.Serialize(model));
+        ChangeProposalReviewModelJson.Serialize(polluted).ShouldNotContain("deferred");
+    }
+
+    [Fact]
     public async Task Enrichment_UsesOnlyCleanMatchingRevision_AndKeepsEmptyDistinctFromAbsent()
     {
         var item = new WorkItem { Id = 742, Title = "Target", Type = WorkItemType.Task };

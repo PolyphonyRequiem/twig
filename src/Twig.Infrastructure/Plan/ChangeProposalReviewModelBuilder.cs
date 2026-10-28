@@ -39,6 +39,9 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
     /// </summary>
     internal ProviderCapabilityDescriptor? CapabilityDescriptor { get; init; }
 
+    /// <summary>Local seed relationships, supplied by the seed-capable lifecycle composition.</summary>
+    internal ISeedLinkRepository? SeedLinks { get; init; }
+
     private static ReviewCapabilityAdvisory AdvisoryFor(ProviderCapabilityDescriptor? descriptor, string relation)
     {
         const string Unknown = "unknown";
@@ -130,6 +133,7 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             ? await _workItems.GetSeedsAsync(ct).ConfigureAwait(false) : [];
         var staged = seeds.Where(s => s.Id < 0 && s.StagedIdentity is not null)
             .ToDictionary(s => s.StagedIdentity!.Value.Value.ToString());
+        var publishedSeeds = new HashSet<int>();
         for (var i = 0; i < operations.Count; i++)
         {
             var op = operations[i];
@@ -154,14 +158,43 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                 };
             }
             else if (op.Target.StagedIdentity is { } identity && staged.TryGetValue(identity, out var seed))
+            {
+                var consequences = op.Consequences;
+                if (SeedLinks is not null)
+                {
+                    var links = await SeedLinks.GetLinksForItemAsync(seed.Id, ct).ConfigureAwait(false);
+                    var derived = links
+                        .Where(link => (link.SourceId == seed.Id || link.TargetId == seed.Id)
+                            && link.LinkType != SeedLinkTypes.ParentChild)
+                        .Select(link => (link.SourceId, link.TargetId, link.LinkType))
+                        .Distinct()
+                        .Select(link => (
+                            Relation: link.SourceId == seed.Id
+                                ? link.LinkType : SeedLinkTypes.GetReverse(link.LinkType) ?? link.LinkType,
+                            OtherId: link.SourceId == seed.Id ? link.TargetId : link.SourceId))
+                        .Distinct()
+                        .OrderBy(link => link.OtherId)
+                        .ThenBy(link => link.Relation, StringComparer.Ordinal)
+                        .Select(link => new ReviewConsequence
+                        {
+                            Kind = "link-add",
+                            Relation = link.Relation,
+                            OtherId = link.OtherId,
+                            Deferred = link.OtherId < 0 && !publishedSeeds.Contains(link.OtherId),
+                        });
+                    consequences = [.. consequences, .. derived];
+                }
                 operations[i] = op with
                 {
+                    Consequences = consequences,
                     Target = op.Target with
                     {
                         Seed = new ReviewSeedDisplay
                         { DisplayAlias = seed.Id, Title = seed.Title, Type = seed.Type.Value, State = seed.State, ParentId = seed.ParentId }
                     }
                 };
+                publishedSeeds.Add(seed.Id);
+            }
         }
         // Resolve display ambiguity once for every presenter, across requested effects only.
         // Repeated uses of one reference are not a collision; unrelated cached fields do not expand labels.

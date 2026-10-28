@@ -101,8 +101,8 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
             {
                 using var mirror = OpenReadOnly(source);
                 mirrorVersion = ReadMirrorVersion(mirror);
-                if (mirrorVersion is not (16 or 17))
-                    blockers.Add($"migration-mirror-version-unsupported: observed {mirrorVersion}; only split versions 16 and 17 preserve the current staged-identity contract. Retain all files and use the compatible prior Twig version for explicit recovery.");
+                if (mirrorVersion is not (16 or 17 or 18))
+                    blockers.Add($"migration-mirror-version-unsupported: observed {mirrorVersion}; only split versions 16, 17 and 18 preserve the current staged-identity contract. Retain all files and use the compatible prior Twig version for explicit recovery.");
                 if (!HasTable(mirror, "work_items") || !HasTable(mirror, "metadata"))
                     blockers.Add("migration-source-shape-unsupported: mirror is missing required tables; retain it for recovery rather than rebuilding.");
                 foreach (var table in new[] { "pending_changes", "publish_id_map", "seed_links" })
@@ -504,4 +504,3 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
     private static string HashFile(string path) => File.Exists(path) ? Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))) : "absent";
     public void Dispose() => _registry.Dispose();
 }
-

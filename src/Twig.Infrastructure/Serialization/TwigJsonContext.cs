@@ -40,6 +40,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(GitHubIssueGraphQlRequest))]
+[JsonSerializable(typeof(ProviderWorkItemSnapshot))]
 [JsonSerializable(typeof(GitHubAppActor))]
 [JsonSerializable(typeof(GitHubAppCredential))]
 [JsonSerializable(typeof(Twig.Infrastructure.GitHub.GitHubDeviceAuthorizationResponse))]

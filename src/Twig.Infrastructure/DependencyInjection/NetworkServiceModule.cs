@@ -329,6 +329,7 @@ public static class NetworkServiceModule
         if (string.Equals(config.Provider, ProviderCapabilityCatalog.GitHubProviderKind, StringComparison.Ordinal))
         {
             services.AddSingleton<IWorkItemSnapshotReader>(sp => sp.GetRequiredService<GitHubWorkItemProvider>());
+            services.AddSingleton<IProviderWorkingSetReader>(sp => sp.GetRequiredService<GitHubWorkItemProvider>());
             services.TryAddSingleton<SqliteLocalWorkItemRepository>(sp =>
                 new SqliteLocalWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>()));
             services.TryAddSingleton<ILocalWorkItemStore>(sp =>
@@ -339,6 +340,7 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<IWorkItemSnapshotReader>(),
                 sp.GetRequiredService<IExternalIdentityMap>(),
                 sp.GetRequiredService<ILocalWorkItemStore>()));
+            services.AddSingleton<ProviderWorkingSetSyncService>();
         }
     }
 

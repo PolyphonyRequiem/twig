@@ -29,11 +29,11 @@ twig sync [flags]
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
 | `-o`, `--output <string>` | enum | `human` | Output format: `human`, `json`, `minimal`. |
-| `--pull-only` | bool | `false` | Skip the flush phase and only pull (refresh) from ADO. Equivalent to the deprecated `twig refresh` alias. |
+| `--pull-only` | bool | `false` | Skip the flush phase and only pull from the selected provider. Required for GitHub. Equivalent to the deprecated `twig refresh` alias. |
 
 ## Behavior
 
-`twig sync` runs a two-phase pipeline (`src/Twig/Commands/SyncCommand.cs:26-105`):
+For the default ADO provider, `twig sync` runs a two-phase pipeline (`src/Twig/Commands/SyncCommand.cs:26-105`):
 
 1. **Push phase.** Unless `--pull-only` is set, `IPendingChangeFlusher.FlushAllAsync` drains every dirty item in the workspace queue. Any per-item failure is written to stderr as `Flush failed for #<id>: <reason>` and captured in the returned `FlushResult` (`src/Twig/Commands/SyncCommand.cs:35-45`).
 2. **Pull phase.** `RefreshCommand.ExecuteAsync` runs unconditionally, pulling the working set from ADO into the local cache (`src/Twig/Commands/SyncCommand.cs:47-48`).
@@ -41,7 +41,26 @@ twig sync [flags]
 4. **Human/JSON/minimal rendering.** Human output prints a one-line push summary (`Sync push: <flushed> flushed, <failed> failed.` / `Sync push: nothing to flush.`); `--output json` and `--output minimal` emit structured summaries via `RenderSyncJson` / the render tree (`src/Twig/Commands/SyncCommand.cs:60-93`).
 5. **Scope.** Sync currently flushes every dirty item; per-item scoping (`twig sync <id>`) is deferred (T-1342.1 / #1342). See the TODO at `src/Twig/Commands/SyncCommand.cs:24-25`.
 
-`twig refresh` is a hidden, deprecated alias that calls `SyncCommand.ExecuteAsync(pullOnly: true)` — see `src/Twig/Program.cs:1061-1064`.
+`twig refresh` is a hidden, deprecated alias for `twig sync --pull-only`.
+
+### GitHub working sets
+
+In an explicitly configured and identity-bound GitHub checkout, `twig sync --pull-only`
+pages all issues in the bound repository, including open and closed issues. It validates
+the repository and owner IDs, follows every page and reads complete issue relationships.
+An incomplete page, repeated cursor, changed identity or denied issue read fails the pull;
+no prefix of that working set is committed.
+
+The complete observations are committed to the provider-neutral snapshot mirror together
+with scoped external identities and opaque observation tokens. Local-owned durable fields
+and their local CAS revisions are never replaced. Mirror schema 18 upgrades schema 17
+additively; seeds and pending edits are retained. The GitHub issue number is display data,
+not an ADO integer identity.
+
+GitHub sync without `--pull-only` exits nonzero with guidance to use digest-bound proposals
+for remote changes. Sync never publishes GitHub work. Credential and HTTP calls start only
+when the explicit pull runs; composing the command does not fetch credentials or read work.
+ADO remains the default provider and retains its existing pipeline.
 
 ## Examples
 

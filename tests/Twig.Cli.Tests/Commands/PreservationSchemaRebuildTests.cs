@@ -19,7 +19,7 @@ public sealed class PreservationSchemaRebuildTests
 
         using (var rebuilt = OpenStore(Path.Combine(rebuildRoot, "twig.db")))
         {
-            ReadSchemaVersion(rebuilt.GetConnection()).ShouldBe("17");
+            ReadSchemaVersion(rebuilt.GetConnection()).ShouldBe(SqliteCacheStore.SchemaVersion.ToString());
             HasAssignedToUniqueName(rebuilt.GetConnection()).ShouldBeTrue();
             ReadMigrationHistory(rebuilt.GetConnection(), scratch.History.IntentId!).ShouldBe(scratch.History);
             TargetRowCount(rebuilt.GetConnection()).ShouldBe(0);
@@ -195,6 +195,7 @@ public sealed class PreservationSchemaRebuildTests
             HasAssignedToUniqueName(mirror).ShouldBeTrue();
             using var command = mirror.CreateCommand();
             command.CommandText = """
+                DROP TABLE provider_work_item_snapshots;
                 ALTER TABLE work_items DROP COLUMN assigned_to_unique_name;
                 UPDATE metadata SET value='15' WHERE key='schema_version';
                 """;

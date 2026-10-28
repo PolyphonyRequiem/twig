@@ -366,7 +366,8 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         var caught = await CaptureAsync(run);
 
         caught.ShouldBeOfType<TwigConfigurationException>()
-            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+            .Message.ShouldStartWith((command is "sync" or "refresh"
+                ? WorkItemProviderSetting.UnconfiguredReasonCode : WorkItemProviderSetting.UnavailableReasonCode) + ":");
         adoConstructions.ShouldBe(0, $"{command} must refuse before constructing an ADO reader");
         _transport.Requests.ShouldBeEmpty(
             $"{command} must refuse before ADO HTTP; observed: {string.Join(", ", _transport.Requests)}");
@@ -450,6 +451,89 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         adoConstructions.ShouldBe(0);
         authConstructions.ShouldBe(0);
         httpConstructions.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GitHubSync_CompositionAndPushRefusalDoNotAcquireCredentialsOrSendHttp()
+    {
+        var tokens = new FixtureGitHubTokenSource();
+        using var transport = new FixtureGitHubSnapshotHandler();
+        var runtime = await AttachAsync("github", gitProject: "Project", overrides: services =>
+        {
+            services.AddSingleton<IGitHubTokenSource>(tokens);
+            services.AddSingleton(new GitHubTransportOverride(() => transport));
+            services.AddSingleton<IAdoWorkItemService>(_ =>
+                throw new InvalidOperationException("GitHub sync must not construct ADO."));
+        }, githubConfig: new() { Host = "github.com", Repository = "owner/repository" });
+        var command = runtime.GetRequiredService<ProviderSyncCommand>();
+        tokens.Calls.ShouldBe(0);
+        transport.RequestCount.ShouldBe(0);
+
+        (await command.ExecuteAsync("json", pullOnly: false, CancellationToken.None)).ShouldBe(1);
+
+        tokens.Calls.ShouldBe(0);
+        transport.RequestCount.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("forbidden")]
+    [InlineData("cursor")]
+    [InlineData("identity")]
+    [InlineData("snapshot")]
+    public async Task GitHubSync_PagesIntoNeutralStoreWithoutOverwritingLocalFields(string failure)
+    {
+        var failSecondPage = failure != "none";
+        using var transport = new FixtureGitHubSnapshotHandler { Failure = failure };
+        var runtime = await AttachAsync("github", gitProject: "Project", overrides: services =>
+        {
+            services.AddSingleton<IGitHubTokenSource>(new FixtureGitHubTokenSource());
+            services.AddSingleton(new GitHubTransportOverride(() => transport));
+            services.AddSingleton<IAdoWorkItemService>(_ =>
+                throw new InvalidOperationException("GitHub sync must not construct ADO."));
+        }, githubConfig: new() { Host = "github.com", Repository = "owner/repository" });
+        var attached = await runtime.GetRequiredService<Twig.Infrastructure.Persistence.ProviderTargets.ProviderTargetAttachmentService>()
+            .AttachAsync(new GitHubRepositoryTarget("O_owner", "R_repo")
+                .ToIdentity(new Uri("https://api.github.com/graphql")), "owner/repository", null, 0);
+        attached.IsSuccess.ShouldBeTrue(attached.Error);
+        var identities = runtime.GetRequiredService<IExternalIdentityMap>();
+        var localStore = runtime.GetRequiredService<ILocalWorkItemStore>();
+        var identity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_canonical");
+        var local = await identities.ResolveAsync(identity, new("before"));
+        var owned = FieldValues.Empty.Set("System.Title", new TextValue("Local owned title"));
+        (await localStore.UpdateAsync(local.Id, 1, owned)).Value.ShouldBeOfType<LocalWriteApplied>();
+        var foreign = new ExternalWorkItemIdentity("github", "https://ghe.example", "I_canonical");
+        var foreignId = (await identities.ResolveAsync(foreign, new("foreign"))).Id;
+
+        var (exit, output) = await StdoutCapture.RunAsync(() => new TwigCommands(runtime).Sync("json", pullOnly: true));
+
+        exit.ShouldBe(failSecondPage ? 1 : 0);
+        (await localStore.GetAsync(local.Id)).ShouldNotBeNull().Fields.ShouldBe(owned);
+        (await localStore.GetAsync(local.Id)).ShouldNotBeNull().Revision.ShouldBe(2);
+        (await identities.FindAsync(foreign)).ShouldBe(foreignId);
+        (await identities.GetObservedTokenAsync(foreign)).ShouldNotBeNull().Token.ShouldBe(new("foreign"));
+        if (failSecondPage)
+        {
+            (await identities.GetObservedTokenAsync(identity)).ShouldNotBeNull().Token.ShouldBe(new("before"));
+            (await identities.FindAsync(new("github", "https://api.github.com", "I_second"))).ShouldBeNull();
+        }
+        else
+        {
+            using var result = JsonDocument.Parse(output);
+            result.RootElement.GetProperty("itemCount").GetInt32().ShouldBe(2);
+            (await identities.GetObservedTokenAsync(identity)).ShouldNotBeNull().Token.ShouldNotBeNull()
+                .Value.ShouldStartWith("github-observed:");
+            (await identities.FindAsync(new("github", "https://api.github.com", "I_second"))).ShouldNotBeNull();
+            using var query = runtime.GetRequiredService<SqliteCacheStore>().GetConnection().CreateCommand();
+            query.CommandText = "SELECT COUNT(*) FROM provider_work_item_snapshots;";
+            Convert.ToInt32(await query.ExecuteScalarAsync()).ShouldBe(2);
+            query.CommandText = "SELECT snapshot_json FROM provider_work_item_snapshots WHERE native_id='I_canonical';";
+            using var snapshot = JsonDocument.Parse((string)(await query.ExecuteScalarAsync())!);
+            snapshot.RootElement.GetProperty("relationships").GetArrayLength().ShouldBe(1);
+        }
+        transport.WorkingSetPages.ShouldBe(2);
         _transport.Requests.ShouldBeEmpty();
     }
 
@@ -821,6 +905,8 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         private int _requestCount;
 
         public int RequestCount => Volatile.Read(ref _requestCount);
+        public string Failure { get; init; } = "none";
+        public int WorkingSetPages { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -830,9 +916,35 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
             var body = await request.Content!.ReadAsStringAsync(ct);
             using var document = JsonDocument.Parse(body);
             var query = document.RootElement.GetProperty("query").GetString()!;
+            var variables = document.RootElement.GetProperty("variables");
+            if (query.Contains("... on Repository", StringComparison.Ordinal))
+            {
+                WorkingSetPages++;
+                if (Failure == "forbidden" && WorkingSetPages == 2)
+                    return new(HttpStatusCode.Forbidden);
+                var next = variables.GetProperty("after").ValueKind == JsonValueKind.Null;
+                var page = next
+                    ? """{"nodes":[{"id":"I_canonical"}],"pageInfo":{"hasNextPage":true,"endCursor":"page2"}}"""
+                    : """{"nodes":[{"id":"I_second"}],"pageInfo":{"hasNextPage":false,"endCursor":null}}""";
+                if (!next && Failure == "cursor")
+                    page = page.Replace("\"hasNextPage\":false,\"endCursor\":null",
+                        "\"hasNextPage\":true,\"endCursor\":\"page2\"", StringComparison.Ordinal);
+                var owner = !next && Failure == "identity" ? "O_changed" : "O_owner";
+                return new(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"data":{"node":{"__typename":"Repository","id":"R_repo","owner":{"id":"""
+                        + JsonSerializer.Serialize(owner, TwigJsonContext.Default.String)
+                        + """},"issues":"""
+                        + page + "}}}", Encoding.UTF8, "application/json"),
+                };
+            }
+            if (Failure == "snapshot" && variables.GetProperty("id").GetString() == "I_second")
+                return new(HttpStatusCode.Forbidden);
             var connection = new[] { "labels", "assignees", "subIssues", "blockedBy", "blocking" }
                 .FirstOrDefault(field => query.Contains(field + "(", StringComparison.Ordinal));
             var response = connection is null ? Snapshot : EmptyConnection(connection);
+            response = response.Replace("I_canonical", variables.GetProperty("id").GetString(), StringComparison.Ordinal);
             return new(HttpStatusCode.OK)
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json"),

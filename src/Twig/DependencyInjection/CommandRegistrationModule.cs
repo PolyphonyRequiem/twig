@@ -79,6 +79,7 @@ public static class CommandRegistrationModule
             sp.GetService<TextWriter>(),
             sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>()));
         services.AddSingleton<StateCommand>();
+        services.AddSingleton<ProviderSyncCommand>();
         services.AddSingleton<TreeRenderingService>(sp => new TreeRenderingService(
             sp.GetRequiredService<CommandContext>(),
             sp.GetRequiredService<IContextStore>(),

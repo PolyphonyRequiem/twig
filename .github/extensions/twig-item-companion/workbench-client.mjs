@@ -446,6 +446,7 @@ export const workbenchClient = `
       if (event.key === "Escape") { event.preventDefault(); returnToBench(); }
     });
     void request("/api/state").then((state) => {
+      postClient.restore(state.discussionPostOutcomes);
       if (state.benchObservation) {
         renderBench(state.benchObservation);
         benchInput.value = state.benchObservation.requestedBench;

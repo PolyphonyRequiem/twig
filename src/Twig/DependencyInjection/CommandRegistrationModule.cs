@@ -180,6 +180,10 @@ public static class CommandRegistrationModule
         services.AddSingleton<BrowserHostCommand>();
         services.AddSingleton<BrowserReadModule>();
         services.AddSingleton<BrowserDiscussionModule>();
+        services.AddSingleton<BrowserDiscussionPostModule>();
+        services.AddSingleton<BenchDiscussionPostCommand>(sp => new(
+            sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<BrowserDiscussionPostModule>(),
+            sp.GetService<Stream>()));
         services.AddSingleton<BenchDiscussionCommand>(sp => new BenchDiscussionCommand(
             sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<BrowserDiscussionModule>()));
         services.AddSingleton<BenchDetailCommand>();

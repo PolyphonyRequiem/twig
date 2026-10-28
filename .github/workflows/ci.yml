@@ -58,6 +58,25 @@ jobs:
       - name: Companion context, shared quick edits and document theme regression
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/conversation-context.test.mjs .github/extensions/twig-item-companion/tests/companion-editing.test.mjs .github/extensions/twig-item-companion/tests/theme.test.mjs
 
+      - name: Explicit discussion post canvas and native transport regression
+        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/discussion-post.test.mjs .github/extensions/twig-item-companion/tests/discussion-client.test.mjs .github/extensions/twig-item-companion/tests/native-discussion.test.mjs .github/extensions/twig-item-companion/tests/workbench.test.mjs
+
+      - name: Discussion post native preparation production composition regression
+        if: matrix.rid == 'win-x64'
+        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~BenchDiscussionPostCommandTests.ProductionParser" --logger "trx;LogFileName=discussion-prepare.trx" --results-directory artifacts/test-logs/ci/discussion-prepare
+
+      - name: Discussion post typed-ID and unknown outcome production composition regression
+        if: matrix.rid == 'win-x64'
+        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~PreparedProposalUsesRealLifecycle|FullyQualifiedName~LostPostAcknowledgmentRemainsUnknown" --logger "trx;LogFileName=discussion-lifecycle.trx" --results-directory artifacts/test-logs/ci/discussion-lifecycle
+
+      - name: Preserve discussion post production composition results
+        if: always() && matrix.rid == 'win-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-discussion-post-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/discussion-*/
+          if-no-files-found: warn
+
       - name: Explicit Save command production composition regression
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~DraftSaveCommandTests" --logger "trx;LogFileName=explicit-save.trx" --results-directory artifacts/test-logs/ci/explicit-save
 

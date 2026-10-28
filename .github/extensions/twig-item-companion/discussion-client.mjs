@@ -1,9 +1,10 @@
-export function createDiscussionClient({ document, request, text }) {
+export function createDiscussionClient({ document, request, text, postClient }) {
     // Typed executable admission failures latch for this canvas instance, so reading again on the same
     // handle cannot succeed; recovery is reopening the canvas. Kept local: this function is injected as source.
     const EXECUTABLE_CODES = new Set(["twig_executable_unavailable", "twig_capability_unlisted", "twig_capability_missing", "executable_changed"]);
     let current = null;
     function leave() {
+        postClient?.leave();
         const previous = current;
         current = null;
         if (!previous) return Promise.resolve();
@@ -22,7 +23,7 @@ export function createDiscussionClient({ document, request, text }) {
         const box = document.createElement("section");
         state.box = box;
         box.append(text("h3", "Discussion"),
-            text("p", "Explicit online read of one provider page. No posting, editing, Save or apply. Pages are not a consistent whole-thread snapshot."));
+            text("p", "Explicit online read of one provider page. Reading never posts, edits, Saves or applies changes. Pages are not a consistent whole-thread snapshot."));
         const read = text("button", "Read discussion (online)");
         const next = text("button", "Next discussion page");
         read.type = next.type = "button";
@@ -92,6 +93,7 @@ export function createDiscussionClient({ document, request, text }) {
         read.addEventListener("click", () => { void load("read"); });
         next.addEventListener("click", () => { void load("next"); });
         box.append(read, next, status, content);
+        postClient?.mount(box, targetHandle);
         parent.append(box);
     }
     return { mount, leave };

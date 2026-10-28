@@ -7,13 +7,15 @@ import { createEditingBridge } from "./editing-bridge.mjs";
 import { createSessionHandoff } from "./session-handoff.mjs";
 import { ExecutableError } from "./native-executable.mjs";
 import { readConversationContext } from "./conversation-context.mjs";
+import { createDiscussionPost } from "./discussion-post.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, readNativeDiscussion, nativeEditing, handoffSession, conversationSession, workbench = false }) {
+export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, readNativeDiscussion, nativeDiscussionPost, nativeEditing, handoffSession, conversationSession, workbench = false }) {
     const token = randomBytes(32).toString("base64url");
     const editing = createEditingBridge({ adapter: nativeEditing, workspacePath });
     const handoff = createSessionHandoff({ session: handoffSession });
+    const discussionPost = createDiscussionPost({ adapter: nativeDiscussionPost, workspacePath });
     let editingTarget = null;
     let selectionGeneration = 0;
     let closing = null;
@@ -21,6 +23,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     let discussionController = null;
     let discussionIdle = Promise.resolve();
     function invalidateDiscussion() {
+        discussionPost.invalidate();
         discussionTarget = null;
         discussionController?.abort();
     }
@@ -401,6 +404,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 busy: state.busy,
                 ...(workbench ? { editingOutcome: editing.outcome, editingBusy: editing.busy,
                     retainOutcomes: editing.retainOutcomes, handoffOutcomes: handoff.outcomes,
+                    discussionPostOutcomes: discussionPost.outcomes,
                     handoffSessionId: handoffSession?.sessionId ?? null } : {}),
             });
             return;
@@ -411,7 +415,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         const editingRoute = workbench && request.url === "/api/editing" || companionEditingRoute;
         const handoffRoute = workbench && request.url === "/api/handoff";
         const discussionRoute = workbench && request.url === "/api/discussion";
-        if (request.method !== "POST" || (!contextRoute && !editingRoute && !handoffRoute && !discussionRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
+        const discussionPostRoute = workbench && request.url === "/api/discussion-post";
+        if (request.method !== "POST" || (!contextRoute && !editingRoute && !handoffRoute && !discussionRoute && !discussionPostRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
             sendJson(response, 404, { error: "Unknown Twig companion route." });
             return;
         }
@@ -422,11 +427,37 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
 
         // Only the editing intent route admits the native 256KiB request-sized payload.
-        const body = await readJsonBody(request, editingRoute ? 262144 : handoffRoute ? 16384 : MAX_REQUEST_BYTES, contextRoute || editingRoute || handoffRoute || discussionRoute);
+        const body = await readJsonBody(request, editingRoute ? 262144 : discussionPostRoute ? 131072 : handoffRoute ? 16384 : MAX_REQUEST_BYTES, contextRoute || editingRoute || handoffRoute || discussionRoute || discussionPostRoute);
         if (contextRoute) {
             if (body.action !== "refresh" || Object.keys(body).length !== 1)
                 throw new HttpError(400, "Expected only an explicit conversation context refresh; linkage and destinations cannot be supplied.");
             sendJson(response, 200, { conversationContext: await refreshConversation() });
+            return;
+        }
+        if (discussionPostRoute) {
+            const keys = Object.keys(body).sort().join(",");
+            if (!(body.action === "prepare" && keys === "action,format,targetHandle,text" &&
+                ["plain", "markdown"].includes(body.format) && typeof body.text === "string" &&
+                body.text.trim() && Buffer.byteLength(body.text, "utf8") <= 16384) &&
+                !(body.action === "apply" && keys === "action,captureHandle,confirm,targetHandle" &&
+                    typeof body.captureHandle === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.captureHandle) &&
+                    typeof body.confirm === "string" && /^[a-f0-9]{64}$/.test(body.confirm))) {
+                throw new HttpError(400, "Expected explicit discussion preparation or exact retained digest authorization only.");
+            }
+            if (state.closed || !discussionTarget || body.targetHandle !== discussionTarget.handle ||
+                !discussionTarget.context || state.busy || editing.busy || handoff.busy || discussionPost.busy)
+                throw new HttpError(409, "Read current qualified discussion before posting; native work may already be busy.");
+            state.busy = true;
+            try {
+                const result = body.action === "prepare" ?
+                    await discussionPost.prepare({ context: discussionTarget.context, text: body.text, format: body.format }) :
+                    await discussionPost.apply(body);
+                sendJson(response, 200, { discussionPost: result });
+            } catch {
+                throw new HttpError(409, body.action === "apply" ?
+                    "Discussion post refused or outcome unknown. Inspect the native journal; no retry." :
+                    "Discussion proposal preparation refused. Read qualified discussion again; no comment was posted.");
+            } finally { state.busy = false; }
             return;
         }
         if (discussionRoute) {
@@ -535,7 +566,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             invalidateEditing();
             clearDraft();
             state.controller?.abort();
-            closing = Promise.all([closeServer(server), editing.awaitIdle(), discussionIdle]).then(() => undefined);
+            closing = Promise.all([closeServer(server), editing.awaitIdle(), discussionIdle, discussionPost.awaitIdle()]).then(() => undefined);
             return closing;
         },
     };

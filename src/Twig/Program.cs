@@ -1276,6 +1276,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<BenchDiscussionCommand>().ExecuteAsync(stdin, output, ct);
 
+    /// <summary>Prepare a v1 append-comment proposal from fresh qualified native context, without posting, journal import or file writes.</summary>
+    /// <param name="stdin">Read strict version 1 JSON through EOF (required, default false), at most 262144 UTF-8 bytes/depth 32: context, format (plain or markdown), and exact text (at most 16KiB UTF-8). Stale or unqualified context refuses.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal; no ids. Includes native formatted body and canonical digest; effective body limit 64KiB UTF-8.</param>
+    /// <param name="ct">Cancellation token. No comment POST, authorization, retry, active-item or current-Bench change.</param>
+    [Command("bench discussion prepare-post")]
+    public async Task<int> BenchDiscussionPreparePost(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<BenchDiscussionPostCommand>().ExecuteAsync(stdin, output, ct);
+
     /// <summary>Open a shared recoverable draft using an explicit saved Bench and the native ADO form.</summary>
     /// <param name="id">Positive native ADO item ID; no active-item default or cross-provider fallback.</param>
     /// <param name="bench">Explicit saved Bench name or decimal ID; never switches the current Bench.</param>
@@ -2088,6 +2097,7 @@ internal static class GroupedHelp
         "bench delete",
         "bench detail",
         "bench discussion",
+        "bench discussion prepare-post",
         "draft show",
         "draft open",
         "draft stage",

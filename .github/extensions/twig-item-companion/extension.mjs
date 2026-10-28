@@ -1,4 +1,6 @@
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
+import { realpath, stat } from "node:fs/promises";
+import path from "node:path";
 import { createCanvasServer } from "./canvas-server.mjs";
 import { createNativeDetailReader } from "./native-detail.mjs";
 import { createNativeBenchReader } from "./native-bench.mjs";
@@ -15,6 +17,7 @@ import { admitTwigExecutable, ExecutableError } from "./native-executable.mjs";
 const instances = new Map();
 const workbenchInstances = new Map();
 const reviewInstances = new Map();
+const instanceWorkspaces = new WeakMap();
 let session;
 
 const canvas = createCanvas({
@@ -27,7 +30,7 @@ const canvas = createCanvas({
             description: "Explicitly check the current runtime session and checkout against displayed native item identity. Conversation item/run discovery and app focus remain unavailable; never starts work or sends chat.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
             handler: async (ctx) => {
-                try { return await getInstance(ctx.instanceId).refreshConversation(); }
+                try { return await (await getInstance(ctx)).refreshConversation(); }
                 catch (error) { throw asCanvasError(error); }
             },
         },
@@ -36,7 +39,7 @@ const canvas = createCanvas({
             description: "Explicitly inspect the loaded item's native draft. May write local observation/conflict metadata; not zero-write or guaranteed offline. Reopen the panel for the retained result. No edit, capture, Save or apply authority.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
             handler: async (ctx) => {
-                try { return await getInstance(ctx.instanceId).inspectDraft(); }
+                try { return await (await getInstance(ctx)).inspectDraft(); }
                 catch (error) { throw asCanvasError(error); }
             },
         },
@@ -57,7 +60,7 @@ const canvas = createCanvas({
                 additionalProperties: false,
             },
             handler: async (ctx) => {
-                const instance = getInstance(ctx.instanceId);
+                const instance = await getInstance(ctx);
                 try {
                     return await instance.load(ctx.input.workItemId);
                 } catch (error) {
@@ -74,7 +77,7 @@ const canvas = createCanvas({
                 additionalProperties: false,
             },
             handler: async (ctx) => {
-                const instance = getInstance(ctx.instanceId);
+                const instance = await getInstance(ctx);
                 try {
                     return await instance.refresh();
                 } catch (error) {
@@ -84,20 +87,18 @@ const canvas = createCanvas({
         },
     ],
     open: async (ctx) => {
-        if (!session?.workspacePath) {
-            throw new CanvasError("workspace_unavailable", "Twig item detail requires a project session with an admitted workspace.");
-        }
-
         let instance = instances.get(ctx.instanceId);
+        const workspacePath = await resolveWorkspace(ctx, instance);
         if (!instance) {
             const executable = await admit("item");
             instance = await createCanvasServer({
-                workspacePath: session.workspacePath,
+                workspacePath,
                 readNativeDetail: createNativeDetailReader({ executable }),
                 readNativeDraft: createNativeDraftReader({ executable }),
                 conversationSession: session,
                 nativeEditing: createNativeEditingAdapter({ executable }),
             });
+            instanceWorkspaces.set(instance, workspacePath);
             instances.set(ctx.instanceId, instance);
         }
 
@@ -116,12 +117,39 @@ const canvas = createCanvas({
     },
 });
 
-function getInstance(instanceId) {
-    const instance = instances.get(instanceId);
+async function getInstance(ctx) {
+    const instance = instances.get(ctx.instanceId);
     if (!instance) {
         throw new CanvasError("canvas_not_open", "Open the Twig item companion before loading detail.");
     }
 
+    await resolveWorkspace(ctx, instance);
+    return instance;
+}
+
+async function resolveWorkspace(ctx, instance) {
+    const workingDirectory = ctx.session?.workingDirectory;
+    if (typeof workingDirectory !== "string" || !path.isAbsolute(workingDirectory)) {
+        throw new CanvasError("workspace_unavailable", "A canvas session with an absolute checkout working directory is required.");
+    }
+    let workspacePath;
+    try {
+        workspacePath = await realpath(workingDirectory);
+        if (!(await stat(workspacePath)).isDirectory()) throw new Error("Not a directory.");
+    } catch {
+        throw new CanvasError("workspace_unavailable", "The canvas session checkout working directory is unavailable.");
+    }
+    const normalize = value => process.platform === "win32" ? value.toLowerCase() : value;
+    if (instance && normalize(instanceWorkspaces.get(instance)) !== normalize(workspacePath)) {
+        throw new CanvasError("workspace_unavailable", "The canvas session checkout changed. Close this canvas and open a new instance.");
+    }
+    return workspacePath;
+}
+
+async function getWorkbenchInstance(ctx, message) {
+    const instance = workbenchInstances.get(ctx.instanceId);
+    if (!instance) throw new CanvasError("canvas_not_open", message);
+    await resolveWorkspace(ctx, instance);
     return instance;
 }
 
@@ -153,8 +181,7 @@ const workbenchCanvas = createCanvas({
                 additionalProperties: false,
             },
             handler: async (ctx) => {
-                const instance = workbenchInstances.get(ctx.instanceId);
-                if (!instance) throw new CanvasError("canvas_not_open", "Open the Twig workbench before browsing.");
+                const instance = await getWorkbenchInstance(ctx, "Open the Twig workbench before browsing.");
                 try { return await instance.loadBench(ctx.input.bench); }
                 catch (error) { throw asCanvasError(error); }
             },
@@ -164,8 +191,7 @@ const workbenchCanvas = createCanvas({
             description: "Re-read the captured Bench by stable ID, requiring its full captured origin.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
             handler: async (ctx) => {
-                const instance = workbenchInstances.get(ctx.instanceId);
-                if (!instance) throw new CanvasError("canvas_not_open", "Open the Twig workbench before refreshing.");
+                const instance = await getWorkbenchInstance(ctx, "Open the Twig workbench before refreshing.");
                 try { return await instance.refreshBench(); }
                 catch (error) { throw asCanvasError(error); }
             },
@@ -182,8 +208,7 @@ const workbenchCanvas = createCanvas({
                 additionalProperties: false,
             },
             handler: async (ctx) => {
-                const instance = workbenchInstances.get(ctx.instanceId);
-                if (!instance) throw new CanvasError("canvas_not_open", "Open the Twig workbench before opening a local draft.");
+                const instance = await getWorkbenchInstance(ctx, "Open the Twig workbench before opening a local draft.");
                 try { return await instance.openLocalDraft(ctx.input.workItemId); }
                 catch (error) { throw asCanvasError(error); }
             },
@@ -225,26 +250,24 @@ const workbenchCanvas = createCanvas({
                 additionalProperties: false,
             },
             handler: async (ctx) => {
-                const instance = workbenchInstances.get(ctx.instanceId);
-                if (!instance) throw new CanvasError("canvas_not_open", "Open the Twig workbench before staging a local draft.");
+                const instance = await getWorkbenchInstance(ctx, "Open the Twig workbench before staging a local draft.");
                 try { return await instance.stageLocalDraft(ctx.input); }
                 catch (error) { throw asCanvasError(error); }
             },
         },
     ],
     open: async (ctx) => {
-        if (!session?.workspacePath) {
-            throw new CanvasError("workspace_unavailable", "Twig workbench requires a project session with an admitted workspace.");
-        }
         let instance = workbenchInstances.get(ctx.instanceId);
+        const workspacePath = await resolveWorkspace(ctx, instance);
         if (!instance) {
             const executable = await admit("workbench");
-            instance = await createCanvasServer({ workspacePath: session.workspacePath,
+            instance = await createCanvasServer({ workspacePath,
                 readNativeBench: createNativeBenchReader({ executable }),
                 readNativeBenchDetail: createNativeBenchDetailReader({ executable }),
                 readNativeDiscussion: createNativeDiscussionReader({ executable }),
                 nativeDiscussionPost: createNativeDiscussionPoster({ executable }),
                 nativeEditing: createNativeEditingAdapter({ executable }), handoffSession: session, workbench: true });
+            instanceWorkspaces.set(instance, workspacePath);
             workbenchInstances.set(ctx.instanceId, instance);
         }
         return { url: instance.url, title: "Twig workbench", status: "Cached browsing and local drafts; separate human Save can publish through native gates" };
@@ -280,18 +303,20 @@ const reviewCanvas = createCanvas({
         handler: async (ctx) => {
             const instance = reviewInstances.get(ctx.instanceId);
             if (!instance) throw new CanvasError("canvas_not_open", "Open Twig proposal review before explicit acquisition.");
+            await resolveWorkspace(ctx, instance);
             try { return await instance.acquire(ctx.input); }
             catch (error) { throw asCanvasError(error); }
         },
     }],
     open: async (ctx) => {
-        if (!session?.workspacePath) throw new CanvasError("workspace_unavailable", "Proposal review requires a project session with an admitted workspace.");
         let instance = reviewInstances.get(ctx.instanceId);
+        const workspacePath = await resolveWorkspace(ctx, instance);
         if (!instance) {
             const executable = await admit("review");
-            instance = await createReviewServer({ workspacePath: session.workspacePath,
+            instance = await createReviewServer({ workspacePath,
                 readNativeProposal: createNativeProposalReader({ executable }),
                 applyNativeProposal: createNativeProposalApplier({ executable }) });
+            instanceWorkspaces.set(instance, workspacePath);
             reviewInstances.set(ctx.instanceId, instance);
         }
         return { url: instance.url, title: "Twig proposal review", status: "Explicit preview, then human Accept/Apply bound to the reviewed digest" };

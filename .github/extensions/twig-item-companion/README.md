@@ -23,6 +23,21 @@ node --test .github/extensions/twig-item-companion/tests/*.test.mjs
 
 ## Executable admission and capability preflight
 
+All three canvases take their checkout from the host's
+`ctx.session.workingDirectory`, an absolute existing directory resolved with
+`realpath`. The joined SDK session's `workspacePath` is session-state storage
+(`checkpoints/`, `files/`), not the checkout, and is never a native command cwd
+fallback. Missing, relative or unavailable canvas working directories refuse
+with `workspace_unavailable` before executable admission.
+
+An instance pins that canonical checkout at open. Every SDK action and repeated
+open checks its canvas session working directory against the pin; a different
+checkout refuses rather than retargeting retained detail, drafts or proposals.
+Canonical aliases of the same directory are accepted. Close the instance before
+explicitly opening a different checkout. Native workspace/binding/identity
+admission still applies independently; resolving a directory does not initialize
+Twig, select a connection, or establish conversation/item linkage.
+
 Each opened canvas instance resolves `twig` once from absolute `PATH` entries
 (`twig.exe` only on Windows), canonicalises it to its real path, and records the
 file's SHA-256. Every native command in that instance then spawns that absolute

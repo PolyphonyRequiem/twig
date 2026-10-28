@@ -1237,7 +1237,9 @@ test("actual extension actions explicitly open and stage a local draft through t
     let declarations;
     const source = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
     const context = createContext({
-        Error,
+        Error, path, process,
+        realpath: async () => workspacePath,
+        stat: async () => ({ isDirectory: () => true }),
         CanvasError: class extends Error { constructor(code, message) { super(message); this.code = code; } },
         createCanvas: (declaration) => declaration,
         joinSession: async (config) => { declarations = config.canvases; return { workspacePath }; },
@@ -1259,7 +1261,8 @@ test("actual extension actions explicitly open and stage a local draft through t
     await new Script(`(async () => { ${script}\n })()`).runInContext(context);
     assert.deepEqual(Array.from(declarations, (canvas) => canvas.id), ["twig-item-companion", "twig-workbench", "twig-proposal-review"]);
     const workbench = declarations.find((canvas) => canvas.id === "twig-workbench");
-    const ctx = { instanceId: "fixture-workbench", input: { bench: "Release focus" } };
+    const ctx = { instanceId: "fixture-workbench", session: { workingDirectory: process.cwd() },
+        input: { bench: "Release focus" } };
     const opened = await workbench.open(ctx);
     try {
         assert.equal((await workbench.open(ctx)).url, opened.url);

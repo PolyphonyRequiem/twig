@@ -168,6 +168,24 @@ public sealed class SeedFingerprintCalculatorTests
     // ── ambiguous mappings fail closed ─────────────────────────────────────
 
     [Fact]
+    public async Task Fingerprint_binds_link_presence_type_and_direction()
+    {
+        var (registry, map) = Registry(
+            aliases: new[] { (SeedAlias, SeedIdentity), (LinkPeerAlias, LinkPeerIdentity) },
+            mappings: Array.Empty<PublishMapping>());
+        var seed = BuildSeed(SeedAlias.Value, SeedIdentity, parentId: null);
+        var link = new SeedLink(SeedAlias.Value, LinkPeerAlias.Value, SeedLinkTypes.BlockedBy, DateTimeOffset.UnixEpoch);
+        var original = await SeedFingerprintCalculator.ComputeAsync(seed, [link], registry, map);
+        var absent = await SeedFingerprintCalculator.ComputeAsync(seed, [], registry, map);
+        var differentType = await SeedFingerprintCalculator.ComputeAsync(seed,
+            [link with { LinkType = SeedLinkTypes.Related }], registry, map);
+        var reversed = await SeedFingerprintCalculator.ComputeAsync(seed,
+            [link with { SourceId = link.TargetId, TargetId = link.SourceId }], registry, map);
+
+        new[] { original, absent, differentType, reversed }.Distinct().Count().ShouldBe(4);
+    }
+
+    [Fact]
     public async Task Ambiguous_publish_mapping_throws()
     {
         // Two identities both claiming ADO id 9999 — a determinate corruption in the map.

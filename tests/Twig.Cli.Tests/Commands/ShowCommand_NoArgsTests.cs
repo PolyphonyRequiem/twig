@@ -74,7 +74,7 @@ public sealed class ShowCommand_NoArgsTests : IDisposable
         var ctx = new CommandContext(pipelineFactory, _formatterFactory,
             new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(),
             TelemetryClient: Substitute.For<ITelemetryClient>(), Stderr: stderr);
-        return new ShowCommand(ctx, _workItemRepo, _linkRepo,
+        return new ShowCommand(ctx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
             processConfigProvider: _processConfigProvider,
@@ -205,7 +205,7 @@ public sealed class ShowCommand_NoArgsTests : IDisposable
         var cmdCtx = new CommandContext(pipelineFactory, _formatterFactory,
             new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(),
             TelemetryClient: Substitute.For<ITelemetryClient>(), Stderr: stderr);
-        var cmd = new ShowCommand(cmdCtx, _workItemRepo, _linkRepo,
+        var cmd = new ShowCommand(cmdCtx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory, _statusFieldReader);
 
         var result = await cmd.ExecuteAsync();

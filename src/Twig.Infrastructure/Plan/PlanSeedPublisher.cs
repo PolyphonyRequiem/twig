@@ -308,13 +308,13 @@ internal sealed class PlanSeedPublisher
 
         foreach (var link in seedLinks)
         {
-            // The promoter places outgoing edges only. A link that names this item as target
-            // is another seed's outgoing edge and is that other seed's readback to verify.
-            if (link.SourceId != newId)
+            if (link.SourceId != newId && link.TargetId != newId)
                 continue;
 
             if (string.Equals(link.LinkType, SeedLinkTypes.ParentChild, StringComparison.Ordinal))
             {
+                if (link.SourceId != newId)
+                    continue;
                 // The parent link is set at CREATE time (System.LinkTypes.Hierarchy-Reverse),
                 // not by the promoter, so the remote proof is the fetched item's ParentId —
                 // NOT a non-hierarchy edge in the relations list.
@@ -329,12 +329,17 @@ internal sealed class PlanSeedPublisher
             // skipped it for a reason the readback can also observe".
             if (link.SourceId <= 0 || link.TargetId <= 0)
                 continue;
-            if (!SeedLinkTypeMapper.TryToAdoRelationType(link.LinkType, out var adoRelation))
+            // ADO reports relations from the fetched endpoint's perspective. The promoter
+            // writes from the stored source even when the target is the second publisher.
+            var outgoing = link.SourceId == newId;
+            var otherId = outgoing ? link.TargetId : link.SourceId;
+            var relativeType = outgoing ? link.LinkType : SeedLinkTypes.GetReverse(link.LinkType) ?? link.LinkType;
+            if (!SeedLinkTypeMapper.TryToAdoRelationType(relativeType, out var adoRelation))
                 continue;
 
-            if (!RemoteHasEdge(remoteLinks, newId, link.TargetId, adoRelation))
+            if (!RemoteHasEdge(remoteLinks, newId, otherId, adoRelation))
                 return PlanReadbackOutcome.Indeterminate(
-                    $"Seed {identity} published as #{newId} but the remote {link.LinkType} link to #{link.TargetId} is missing.");
+                    $"Seed {identity} published as #{newId} but the remote {relativeType} link to #{otherId} is missing.");
         }
 
         return PlanReadbackOutcome.VerifiedWith(

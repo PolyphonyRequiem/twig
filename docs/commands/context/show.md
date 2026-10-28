@@ -133,6 +133,17 @@ batch). It is `null` if that local evidence is unavailable, unless the item is
 already known dirty; unavailable does not mean clean. Omit both flags for the
 unchanged full-detail path; `--refresh` retains the protected pull-only behavior.
 
+For an unpublished seed, full JSON and selected `--sections links` reads include
+the seed's local virtual relationships in both endpoint directions, including
+hierarchy links. Rows retain the stored `sourceId`, `targetId`, and seed
+`linkType`; negative IDs identify unpublished endpoints. These are intended local
+relationships, not verified remote links: `linksVerifiedAt` remains null and a
+selected links section remains `status: "unknown"`. A seed-link storage failure
+fails the read rather than emitting an apparently empty graph. Human display and
+published-item link semantics are unchanged. See
+[`show-batch --include-fields`](./show-batch.md#target-only-stored-export)
+for the target-only stored export contract.
+
 ## Examples
 
 ```

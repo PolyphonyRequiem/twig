@@ -108,7 +108,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
     private ShowCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null)
     {
         var ctx = CreateCtx(pipelineFactory);
-        return new ShowCommand(ctx, _workItemRepo, _linkRepo,
+        return new ShowCommand(ctx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
             processConfigProvider: _processConfigProvider,

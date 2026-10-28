@@ -84,7 +84,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         var pipeline = pipelineFactory ?? new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
         var ctx = new CommandContext(pipeline, _formatterFactory,
             new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(), Stderr: stderr);
-        return new ShowCommand(ctx, _workItemRepo, _linkRepo, _syncCoordinatorFactory, _statusFieldReader,
+        return new ShowCommand(ctx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(), _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
             processConfigProvider: _processConfigProvider,
             contextStore: _contextStore,
@@ -299,6 +299,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             ctx,
             workItemRepo,
             linkRepo,
+            Substitute.For<ISeedLinkRepository>(),
             syncCoordinatorFactory,
             _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
@@ -357,6 +358,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             ctx,
             workItemRepo,
             linkRepo,
+            Substitute.For<ISeedLinkRepository>(),
             syncCoordinatorFactory,
             _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
@@ -411,6 +413,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             ctx,
             workItemRepo,
             linkRepo,
+            Substitute.For<ISeedLinkRepository>(),
             syncCoordinatorFactory,
             _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,

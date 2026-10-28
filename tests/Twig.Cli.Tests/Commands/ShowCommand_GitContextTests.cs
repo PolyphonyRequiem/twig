@@ -68,7 +68,7 @@ public sealed class ShowCommand_GitContextTests : IDisposable
     private ShowCommand CreateCommand(TwigPaths? paths = null, IAdoGitService? gitService = null)
     {
         return new ShowCommand(
-            _ctx, _workItemRepo, _linkRepo, _syncCoordinatorFactory, _statusFieldReader,
+            _ctx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(), _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
             processConfigProvider: _processConfigProvider,
             twigPaths: paths,

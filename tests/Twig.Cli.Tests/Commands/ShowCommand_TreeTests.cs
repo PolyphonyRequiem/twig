@@ -93,7 +93,7 @@ public sealed class ShowCommand_TreeTests : IDisposable
     private ShowCommand CreateShowCommand(CommandContext? ctx = null, TreeRenderingService? treeSvc = null)
     {
         var c = ctx ?? CreateCtx();
-        return new ShowCommand(c, _workItemRepo, _linkRepo,
+        return new ShowCommand(c, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
             processConfigProvider: _processConfigProvider,
@@ -425,7 +425,7 @@ public sealed class ShowCommand_TreeTests : IDisposable
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }),
             new TwigConfiguration(), TelemetryClient: _telemetryClient, Stderr: stderrWriter);
 
-        var cmd = new ShowCommand(ctx, _workItemRepo, _linkRepo,
+        var cmd = new ShowCommand(ctx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory, _statusFieldReader,
             treeRenderingService: null);
 

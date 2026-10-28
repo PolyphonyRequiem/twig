@@ -52,7 +52,7 @@ public sealed class ShowBatchLinksTests
         var statusFieldReader = new StatusFieldConfigReader(
             new TwigPaths(tempDir, Path.Combine(tempDir, "config"), Path.Combine(tempDir, "twig.db")));
 
-        _cmd = new ShowCommand(ctx, _workItemRepo, _linkRepo, syncCoordinatorFactory, statusFieldReader);
+        _cmd = new ShowCommand(ctx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(), syncCoordinatorFactory, statusFieldReader);
     }
 
     private void HaveItems(params int[] ids)

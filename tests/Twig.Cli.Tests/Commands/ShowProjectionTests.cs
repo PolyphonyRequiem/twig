@@ -79,6 +79,7 @@ public sealed class ShowProjectionTests : IDisposable
             ctx,
             _workItemRepo,
             _linkRepo,
+            Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory,
             _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,

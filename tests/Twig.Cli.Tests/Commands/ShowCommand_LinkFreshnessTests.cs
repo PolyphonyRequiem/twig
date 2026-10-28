@@ -68,6 +68,7 @@ public sealed class ShowCommand_LinkFreshnessTests : IDisposable
             ctx,
             _workItemRepo,
             _linkRepo,
+            Substitute.For<ISeedLinkRepository>(),
             syncCoordinatorFactory,
             new StatusFieldConfigReader(paths),
             fieldDefinitionStore: _fieldDefinitionStore,

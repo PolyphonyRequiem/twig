@@ -72,6 +72,7 @@ public sealed class ShowCommandTests : IDisposable
             _ctx,
             _workItemRepo,
             _linkRepo,
+            Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory,
             _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
@@ -94,7 +95,7 @@ public sealed class ShowCommandTests : IDisposable
         var pipelineCtx = new CommandContext(pipelineFactory, _formatterFactory,
             new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(),
             TelemetryClient: _telemetryClient, Stderr: stderr);
-        return new ShowCommand(pipelineCtx, _workItemRepo, _linkRepo,
+        return new ShowCommand(pipelineCtx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
             processConfigProvider: _processConfigProvider,
@@ -361,7 +362,7 @@ public sealed class ShowCommandTests : IDisposable
             new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }),
             new TwigConfiguration());
-        var cmd = new ShowCommand(minCtx, _workItemRepo, _linkRepo, _syncCoordinatorFactory, _statusFieldReader,
+        var cmd = new ShowCommand(minCtx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(), _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore, processConfigProvider: _processConfigProvider);
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "json"));
@@ -422,7 +423,7 @@ public sealed class ShowCommandTests : IDisposable
             new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }),
             new TwigConfiguration());
-        var cmd = new ShowCommand(minCtx, _workItemRepo, _linkRepo, _syncCoordinatorFactory, _statusFieldReader);
+        var cmd = new ShowCommand(minCtx, _workItemRepo, _linkRepo, Substitute.For<ISeedLinkRepository>(), _syncCoordinatorFactory, _statusFieldReader);
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "json"));
 

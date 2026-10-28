@@ -10,7 +10,7 @@ internal sealed record BenchSyncCounts(int ItemCount, int MemberCount, int Relat
 
 /// <summary>Pull-only selector and relationship expansion shared by admitted CLI and browser operations.</summary>
 internal sealed class BenchSyncOperation(CommandContext ctx, BenchEvaluator evaluator, IIterationCalendar calendar,
-    IIterationService iterations, IAdoWorkItemService ado, IWorkItemRepository repository, ProtectedCacheWriter writer,
+    IIterationService iterations, IProviderWorkItemReader ado, IWorkItemRepository repository, ProtectedCacheWriter writer,
     IWorkItemLinkRepository links, IContextStore context)
 {
     internal async Task<BenchSyncCounts> PullAsync(Bench bench, CancellationToken ct)

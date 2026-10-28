@@ -63,6 +63,23 @@ side effects; an older or unknown binary could perform startup work, including
 network access, while printing help. Preflight installs, downloads, reloads and
 changes nothing in the environment.
 
+## Companion runtime context (source only)
+
+The companion's **Check runtime context** button and `refresh_context` SDK action
+explicitly compare the joined SDK runtime session and canonical local checkout
+with the displayed native item key. Opening, loading and re-reading cached detail
+do not discover an active item, send chat, claim work or start a run. A changed
+runtime session, remote session or different checkout is a visible mismatch;
+unavailable metadata remains unknown. Detail reads invalidate previous context,
+and late metadata cannot relabel a different item. Context checks have a five-second
+deadline; this bounds observation, not cancellation of the SDK metadata request.
+
+Matching the checkout is **not** evidence that the conversation is linked to that
+item. The inspected host contract provides neither authoritative linked-item/run
+discovery nor app destination/focus navigation. Both remain visibly unavailable;
+runtime session IDs are not converted into app navigation links. This is a partial
+source implementation of #1205, not linked-run or installed-host qualification.
+
 ## Explicit read-only workbench discussion
 
 After qualified detail for a published cached member is loaded, **Read discussion

@@ -22,6 +22,15 @@ const canvas = createCanvas({
     description: "Browse cached native item detail; explicit draft inspection may update local observation/conflict metadata, never proposed intent.",
     actions: [
         {
+            name: "refresh_context",
+            description: "Explicitly check the current runtime session and checkout against displayed native item identity. Conversation item/run discovery and app focus remain unavailable; never starts work or sends chat.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+            handler: async (ctx) => {
+                try { return await getInstance(ctx.instanceId).refreshConversation(); }
+                catch (error) { throw asCanvasError(error); }
+            },
+        },
+        {
             name: "inspect_draft",
             description: "Explicitly inspect the loaded item's native draft. May write local observation/conflict metadata; not zero-write or guaranteed offline. Reopen the panel for the retained result. No edit, capture, Save or apply authority.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -85,6 +94,7 @@ const canvas = createCanvas({
                 workspacePath: session.workspacePath,
                 readNativeDetail: createNativeDetailReader({ executable }),
                 readNativeDraft: createNativeDraftReader({ executable }),
+                conversationSession: session,
             });
             instances.set(ctx.instanceId, instance);
         }

@@ -6,10 +6,11 @@ import { validateDraftDocument } from "./draft-document.mjs";
 import { createEditingBridge } from "./editing-bridge.mjs";
 import { createSessionHandoff } from "./session-handoff.mjs";
 import { ExecutableError } from "./native-executable.mjs";
+import { readConversationContext } from "./conversation-context.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, readNativeDiscussion, nativeEditing, handoffSession, workbench = false }) {
+export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, readNativeDiscussion, nativeEditing, handoffSession, conversationSession, workbench = false }) {
     const token = randomBytes(32).toString("base64url");
     const editing = createEditingBridge({ adapter: nativeEditing, workspacePath });
     const handoff = createSessionHandoff({ session: handoffSession });
@@ -42,6 +43,30 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         draftGeneration: 0,
         draftController: null,
     };
+    let conversationContext = null;
+    let conversationGeneration = 0;
+    let conversationBusy = false;
+    function invalidateConversation() {
+        conversationGeneration++;
+        if (conversationContext) conversationContext = { ...conversationContext, status: "stale",
+            message: "Previous runtime context observation is stale. Explicitly check context for the displayed item; linked item/run discovery remains unknown." };
+    }
+    const refreshConversation = async () => {
+        if (state.closed) throw new Error("This Twig item companion is closed.");
+        if (workbench || !state.observation || state.busy)
+            throw new HttpError(409, "Load current native item detail before checking conversation context.");
+        if (conversationBusy) throw new HttpError(409, "A conversation context check is already in progress.");
+        conversationBusy = true;
+        const generation = conversationGeneration;
+        const observation = state.observation;
+        try {
+            const context = await readConversationContext({ session: conversationSession, itemKey: observation.itemKey });
+            if (state.closed || generation !== conversationGeneration || observation !== state.observation)
+                throw new HttpError(409, "Conversation context check was superseded or closed.");
+            conversationContext = context;
+            return context;
+        } finally { conversationBusy = false; }
+    };
 
     function clearDraft() {
         state.draftGeneration++;
@@ -53,6 +78,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     }
 
     const load = async (workItemId, expected) => {
+        if (!workbench) invalidateConversation();
         clearDraft();
         if (state.closed) throw new Error("This Twig item companion is closed.");
         if (state.busy) throw new HttpError(409, "A Twig detail read is already in progress.");
@@ -345,6 +371,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 observation: state.observation,
                 ...(workbench ? { benchObservation: state.benchObservation } : {}),
                 ...(!workbench ? { draftDocument: state.draftDocument, draftError: state.draftError } : {}),
+                ...(!workbench ? { conversationContext, conversationBusy } : {}),
                 error: state.error,
                 busy: state.busy,
                 ...(workbench ? { editingOutcome: editing.outcome, editingBusy: editing.busy,
@@ -354,10 +381,11 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             return;
         }
 
+        const contextRoute = !workbench && request.url === "/api/context";
         const editingRoute = workbench && request.url === "/api/editing";
         const handoffRoute = workbench && request.url === "/api/handoff";
         const discussionRoute = workbench && request.url === "/api/discussion";
-        if (request.method !== "POST" || (!editingRoute && !handoffRoute && !discussionRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
+        if (request.method !== "POST" || (!contextRoute && !editingRoute && !handoffRoute && !discussionRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
             sendJson(response, 404, { error: "Unknown Twig companion route." });
             return;
         }
@@ -368,7 +396,13 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
 
         // Only the editing intent route admits the native 256KiB request-sized payload.
-        const body = await readJsonBody(request, editingRoute ? 262144 : handoffRoute ? 16384 : MAX_REQUEST_BYTES, editingRoute || handoffRoute || discussionRoute);
+        const body = await readJsonBody(request, editingRoute ? 262144 : handoffRoute ? 16384 : MAX_REQUEST_BYTES, contextRoute || editingRoute || handoffRoute || discussionRoute);
+        if (contextRoute) {
+            if (body.action !== "refresh" || Object.keys(body).length !== 1)
+                throw new HttpError(400, "Expected only an explicit conversation context refresh; linkage and destinations cannot be supplied.");
+            sendJson(response, 200, { conversationContext: await refreshConversation() });
+            return;
+        }
         if (discussionRoute) {
             const keys = Object.keys(body).sort().join(",");
             if (typeof body.targetHandle !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.targetHandle) ||
@@ -444,11 +478,11 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             return;
         }
         if (body.action === "load" && isWorkItemId(body.workItemId)) {
-            sendJson(response, 200, { observation: await load(body.workItemId) });
+            sendJson(response, 200, { observation: await load(body.workItemId), conversationContext });
             return;
         }
         if (body.action === "refresh") {
-            sendJson(response, 200, { observation: await refresh() });
+            sendJson(response, 200, { observation: await refresh(), conversationContext });
             return;
         }
 
@@ -465,9 +499,11 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         openLocalDraft,
         stageLocalDraft,
         inspectDraft,
+        refreshConversation,
         close: async () => {
             if (closing) return closing;
             state.closed = true;
+            invalidateConversation();
             invalidateEditing();
             clearDraft();
             state.controller?.abort();

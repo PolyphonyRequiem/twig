@@ -6,7 +6,7 @@ explicit local draft open/stage/retain and a separate human Save backed by Twig'
 proposal-review canvas provides explicit acquisition and a human digest-bound Accept/Apply action. It does not
 read Twig's SQLite files or call an ADO/GitHub API directly.
 
-The item-detail canvas remains read-only. The workbench can explicitly open a local
+Ordinary item-detail reads remain read-only. Both the companion and workbench can explicitly open a local
 draft and stage allowlisted field intent, but neither action saves, authorizes, applies,
 publishes, posts discussion, uploads/downloads attachments, or infers relationship
 coverage. OPEN may persist local observation metadata. The CLI remains the authority
@@ -29,8 +29,8 @@ file's SHA-256. Every native command in that instance then spawns that absolute
 path, never a bare `twig` name. Reopening the same instance does not re-admit;
 a new instance does.
 
-Each canvas declares only the native capabilities it uses (item: detail and draft
-show; workbench: Bench browse/detail, discussion and draft open/stage/retain/save;
+Each canvas declares only the native capabilities it uses (item: detail, draft
+show and draft open/stage/retain/save; workbench: Bench browse/detail, discussion and draft open/stage/retain/save;
 review: proposal preview/apply). Before a capability's first use, the instance runs
 `<command> --help` on the pinned path and requires that the usage line names that
 command and that its `Options:` section declares each flag the canvas will pass as
@@ -79,6 +79,30 @@ item. The inspected host contract provides neither authoritative linked-item/run
 discovery nor app destination/focus navigation. Both remain visibly unavailable;
 runtime session IDs are not converted into app navigation links. This is a partial
 source implementation of #1205, not linked-run or installed-host qualification.
+
+## Companion quick edits (source only)
+
+After an explicit published-item detail selection, the companion mounts the same
+`editing-client.mjs` and `editing-bridge.mjs` as the workbench, backed by the same
+`native-editing.mjs` and native Save adapter. No second editing, capture,
+authorization, journal or conflict implementation is introduced. Local seeds do
+not acquire these editors. OPEN/STAGE/RETAIN remain explicit; only a separate
+trusted human **Save exact retained capture (publish)** gesture submits its
+server-held capture. No SDK Save action is exported. Native field eligibility,
+single-use handles, uncertain-outcome holds and unsent-input isolation are shared
+unchanged. Native surface attribution retains the shared workbench spelling; it
+does not attest an authenticated person or an installed host.
+
+Only a native `saved` result with verified effects triggers a qualified cache
+detail re-read. Its original checkout/connection/binding/item/Bench/identity
+must still match. Unverified or locally unsettled outcomes never refresh or
+replay. A subsequent detail-read failure is reported separately from the already
+verified Save; the old observation and native outcome remain available. Neither
+reopening nor selection changes silently clear a native inspect-first hold.
+
+Regression coverage runs the actual iframe, loopback server, shared bridge/client
+and native JSON adapters with only the SDK/process boundary substituted. This
+does not establish installed-host or live-tracker Save qualification.
 
 ## Explicit read-only workbench discussion
 

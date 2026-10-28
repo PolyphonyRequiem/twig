@@ -310,6 +310,7 @@ test("existing SDK declaration wires only explicit inspection with no caller-sup
         admitTwigExecutable: async ({ canvas }) => { calls.push(`admit:${canvas}`); return fakeExecutable(); },
         createNativeDraftReader: ({ executable }) => executable.path === FAKE_TWIG ? "draft-reader" : "unpinned",
         createNativeDetailReader: () => "detail-reader",
+        createNativeEditingAdapter: () => "editing-adapter",
         createNativeBenchReader: () => "bench-reader",
         createNativeBenchDetailReader: () => "bench-detail-reader",
     });

@@ -78,7 +78,11 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     }
 
     const load = async (workItemId, expected) => {
-        if (!workbench) invalidateConversation();
+        if (!workbench) {
+            if (editing.busy) throw new HttpError(409, "A native editing operation is already in progress.");
+            invalidateEditing();
+            invalidateConversation();
+        }
         clearDraft();
         if (state.closed) throw new Error("This Twig item companion is closed.");
         if (state.busy) throw new HttpError(409, "A Twig detail read is already in progress.");
@@ -94,6 +98,10 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 signal: state.controller.signal,
             });
             state.observation = observation;
+            if (!workbench && observation.itemKey.workItemId > 0) editingTarget = {
+                workItemId: observation.itemKey.workItemId, bench: observation.benchId,
+                expectedKey: structuredClone(observation.itemKey), identityId: observation.identityId,
+            };
             return observation;
         } catch (error) {
             state.error = error instanceof Error ? error.message : "Twig detail could not be read.";
@@ -116,6 +124,21 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             identityId: current.identityId,
             connectionId: current.itemKey.connectionId,
         });
+    };
+    const saveCompanionDraft = async (saveHandle) => {
+        const capturedObservation = state.observation;
+        const result = await editing.save({ saveHandle });
+        if (result.status !== "saved" || result.committed !== true || result.native?.verified !== true)
+            return { editing: result };
+        try {
+            if (state.observation !== capturedObservation || state.closed)
+                throw new Error("Verified Save belongs to a previous selection; explicitly reload its detail.");
+            const observation = await refresh();
+            return { editing: result, observation, conversationContext, detailRefresh: { status: "current" } };
+        } catch (error) {
+            return { editing: result, detailRefresh: { status: "failed",
+                error: error instanceof Error ? error.message : "Verified Save completed, but cached detail could not be refreshed." } };
+        }
     };
 
     const inspectDraft = async () => {
@@ -372,6 +395,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 ...(workbench ? { benchObservation: state.benchObservation } : {}),
                 ...(!workbench ? { draftDocument: state.draftDocument, draftError: state.draftError } : {}),
                 ...(!workbench ? { conversationContext, conversationBusy } : {}),
+                ...(!workbench ? { editingOutcome: editing.outcome, editingBusy: editing.busy,
+                    retainOutcomes: editing.retainOutcomes } : {}),
                 error: state.error,
                 busy: state.busy,
                 ...(workbench ? { editingOutcome: editing.outcome, editingBusy: editing.busy,
@@ -382,7 +407,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
 
         const contextRoute = !workbench && request.url === "/api/context";
-        const editingRoute = workbench && request.url === "/api/editing";
+        const companionEditingRoute = !workbench && request.url === "/api/editing";
+        const editingRoute = workbench && request.url === "/api/editing" || companionEditingRoute;
         const handoffRoute = workbench && request.url === "/api/handoff";
         const discussionRoute = workbench && request.url === "/api/discussion";
         if (request.method !== "POST" || (!contextRoute && !editingRoute && !handoffRoute && !discussionRoute && request.url !== (workbench ? "/api/bench" : "/api/detail"))) {
@@ -437,7 +463,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 sendJson(response, 200, { invalidated: true });
                 return;
             }
-            if (state.busy || state.closed || !editingTarget) throw new HttpError(409, "Load current qualified Bench detail before explicit editing.");
+            if (state.busy || state.closed || !editingTarget) throw new HttpError(409,
+                companionEditingRoute ? "Load current qualified native item detail before explicit editing." : "Load current qualified Bench detail before explicit editing.");
             const disconnected = () => {
                 if (!response.writableEnded) editing.invalidate();
             };
@@ -452,7 +479,8 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 } else if (body.action === "retain" && Object.keys(body).sort().join(",") === "action,captureHandle") {
                     sendJson(response, 200, { editing: await editing.retain({ captureHandle: body.captureHandle }) });
                 } else if (body.action === "save" && Object.keys(body).sort().join(",") === "action,saveHandle") {
-                    sendJson(response, 200, { editing: await editing.save({
+                    if (companionEditingRoute) sendJson(response, 200, await saveCompanionDraft(body.saveHandle));
+                    else sendJson(response, 200, { editing: await editing.save({
                         saveHandle: body.saveHandle,
                     }) });
                 } else {

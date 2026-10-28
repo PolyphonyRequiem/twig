@@ -19,7 +19,7 @@ let session;
 const canvas = createCanvas({
     id: "twig-item-companion",
     displayName: "Twig item companion",
-    description: "Browse cached native item detail; explicit draft inspection may update local observation/conflict metadata, never proposed intent.",
+    description: "Browse cached native item detail and runtime context; explicit panel draft edits reuse native capture and human-only Save.",
     actions: [
         {
             name: "refresh_context",
@@ -95,6 +95,7 @@ const canvas = createCanvas({
                 readNativeDetail: createNativeDetailReader({ executable }),
                 readNativeDraft: createNativeDraftReader({ executable }),
                 conversationSession: session,
+                nativeEditing: createNativeEditingAdapter({ executable }),
             });
             instances.set(ctx.instanceId, instance);
         }
@@ -102,7 +103,7 @@ const canvas = createCanvas({
         return {
             url: instance.url,
             title: "Twig item companion",
-            status: "Cached detail; draft inspection is explicit and may update metadata",
+            status: "Cached detail and explicit local drafts; human-only Save uses native verification",
         };
     },
     onClose: async (ctx) => {

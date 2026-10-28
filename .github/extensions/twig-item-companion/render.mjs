@@ -114,7 +114,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
   <main>
     <header>
       <h1>${review ? "Twig proposal review" : workbench ? "Twig workbench" : "Twig item companion"}</h1>
-      <p class="muted">${review ? "Retained native proposal evidence. Explicit acquisition may write the local journal; the human Accept/Apply action can write the tracker after digest confirmation." : workbench ? "Cached named Bench evidence. Explicit native OPEN/STAGE can update local drafts only; no Save, apply or publication." : "Read-only semantic detail from the current admitted Twig workspace."}${workbench || review ? "" : " This view does not edit, save, apply, or publish work."}</p>
+      <p class="muted">${review ? "Retained native proposal evidence. Explicit acquisition may write the local journal; the human Accept/Apply action can write the tracker after digest confirmation." : workbench ? "Cached named Bench evidence. Explicit native OPEN/STAGE can update local drafts only; no Save, apply or publication." : "Read-only semantic detail from the current admitted Twig workspace. Quick edits are separate explicit actions; human-only Save publishes the exact native retained capture."}</p>
     </header>
     <div class="row">
       <label for="theme-mode">Theme
@@ -136,6 +136,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
     <p id="id-help" class="muted">The read runs through Twig in this session's workspace; a rejected admission or native read is shown as an error.</p>
     <div id="status" class="notice" role="status" aria-live="polite">Enter an ID to load cached detail.</div>
     <div id="observation"></div>
+    <div id="companion-editing"></div>
     <section aria-label="Conversation context">
       <div id="conversation-context"><h2>Conversation context</h2>
         <p>Conversation item: unknown. Linked run: unknown. App destination/focus navigation is unavailable.</p>
@@ -219,6 +220,25 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
     const draftOutput = document.querySelector("#draft-inspection");
     const contextOutput = document.querySelector("#conversation-context");
     const contextButton = document.querySelector("#context-button");
+    const editingOutput = document.querySelector("#companion-editing");
+    const companionEditingClient = (${createEditingClient.toString()})({ document, text,
+      request: async (path, options) => {
+        const generation = detailGeneration;
+        const result = await request(path, options);
+        if (result.detailRefresh && generation === detailGeneration) {
+          if (result.detailRefresh.status === "current") {
+            renderObservation(result.observation);
+            showContext(result.conversationContext);
+            status.classList.remove("error");
+            status.textContent = "Native Save verified; cached detail refreshed for the same stable item.";
+          } else {
+            status.classList.add("error");
+            status.textContent = "Native Save verified, but detail refresh failed. Previous observation remains displayed. " + result.detailRefresh.error;
+          }
+        }
+        return result;
+      },
+    });
     ${renderConversationContext.toString()}
     const showContext = context => renderConversationContext({ document, text, target: contextOutput, context });
     let detailGeneration = 0;
@@ -362,15 +382,18 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
       const generation = detailGeneration;
       draftOutput.replaceChildren();
       setBusy(true);
+      editingOutput.replaceChildren();
       status.classList.remove("error");
       status.textContent = action === "refresh" ? "Refreshing native detail…" : "Loading native detail…";
       try {
+        await companionEditingClient.leave();
         const result = await request("/api/detail", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(action === "refresh" ? { action } : { action, workItemId }),
         });
         renderObservation(result.observation);
+        if (result.observation.itemKey.workItemId > 0) companionEditingClient.mount(editingOutput, result.observation);
         if (generation === detailGeneration) showContext(result.conversationContext);
         input.value = String(result.observation.itemKey.workItemId);
         status.textContent = "Read-only detail loaded. This capture does not authorize edits or proposal changes.";
@@ -415,6 +438,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
       showContext(state.conversationContext);
       if (state.observation) {
         renderObservation(state.observation);
+        if (state.observation.itemKey.workItemId > 0) companionEditingClient.mount(editingOutput, state.observation);
         input.value = String(state.observation.itemKey.workItemId);
         if (state.error) {
           status.classList.add("error");

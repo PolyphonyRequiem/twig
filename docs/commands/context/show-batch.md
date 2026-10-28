@@ -36,7 +36,7 @@ twig show-batch --batch <ids> --include-fields -o json
 | `-o`, `--output` | `human` \| `json` \| `minimal` | `human` | Output format. |
 | `--fields` | string | none | Comma-separated field references; opt into the selected-item JSON contract. |
 | `--sections` | string | none | Comma-separated `links`, `children`, `parent`; opt into selected-item JSON. |
-| `--include-fields` | flag | false | Export complete stored target fields, core, freshness and non-hierarchy link metadata. Requires `-o json`; incompatible with `--fields`, `--sections` and `--refresh`. |
+| `--include-fields` | flag | false | Export complete stored target fields, core, freshness and link metadata (virtual links for seeds; cached non-hierarchy links for published items). Requires `-o json`; incompatible with `--fields`, `--sections` and `--refresh`. |
 
 ## Behavior
 
@@ -86,6 +86,18 @@ and pending-ID metadata report local changes without loading other bodies.
 Unavailable pending metadata remains unknown unless the target is known dirty.
 An empty link array with a null verification timestamp is not proof of no edges.
 
+For a seed, `links` contains its **local, unpublished virtual relationships**,
+including hierarchy links and edges where the seed is either endpoint. Each row
+retains the stored `sourceId`, `targetId`, and seed `linkType` (for example
+`blocked-by`); unpublished endpoints remain negative IDs. The source and target
+are not reversed to make the requested seed the source. `isSeed: true` and
+`linksVerifiedAt: null` distinguish this local intent from remotely verified
+relationships. No source marker or new export-version member is added.
+Published-item rows continue to carry their existing cached remote link metadata.
+Ordinary batch JSON and `--sections links` also include these virtual seed edges;
+selected sections remain `status: "unknown"` because they are not remote proof.
+A seed-link storage error fails the read rather than claiming an empty edge set.
+
 Missing positive IDs and negative seed aliases are all listed in `missing`;
 the complete found/missing envelope is still emitted with exit `1`. ID input
 must be a non-empty comma-separated list of distinct nonzero integers. Invalid
@@ -105,7 +117,10 @@ Without `--include-fields`, the existing command contract is unchanged.
     "parentId": 42, "tags": [],
     "fields": {"Custom.Empty": "", "Custom.Null": null, "System.State": "New"},
     "freshness": {"hasLocalChanges": true, "lastSyncedAt": null, "linksVerifiedAt": null},
-    "links": []
+    "links": [
+      {"sourceId": -1, "targetId": 42, "linkType": "parent-child"},
+      {"sourceId": -1, "targetId": -2, "linkType": "blocked-by"}
+    ]
   }],
   "missing": []
 }

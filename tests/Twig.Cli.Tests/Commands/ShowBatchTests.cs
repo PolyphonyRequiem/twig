@@ -52,6 +52,7 @@ public sealed class ShowBatchTests
             ctx,
             _workItemRepo,
             _linkRepo,
+            Substitute.For<ISeedLinkRepository>(),
             _syncCoordinatorFactory,
             statusFieldReader);
     }

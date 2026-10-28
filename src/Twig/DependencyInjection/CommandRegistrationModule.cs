@@ -57,6 +57,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<CommandContext>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IWorkItemLinkRepository>(),
+            sp.GetRequiredService<ISeedLinkRepository>(),
             sp.GetRequiredService<SyncCoordinatorFactory>(),
             sp.GetRequiredService<StatusFieldConfigReader>(),
             fieldDefinitionStore: sp.GetService<IFieldDefinitionStore>(),

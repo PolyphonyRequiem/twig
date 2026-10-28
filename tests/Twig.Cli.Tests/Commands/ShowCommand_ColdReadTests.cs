@@ -46,7 +46,7 @@ public sealed class ShowCommand_ColdReadTests : IDisposable
         var renderer = console is null ? null : new SpectreRenderer(console, new SpectreTheme(new DisplayConfig())) { SyncStatusDelay = TimeSpan.Zero };
         var ctx = new CommandContext(new RenderingPipelineFactory(formatter, renderer!, isOutputRedirected: () => console is null),
             formatter, new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(), Stderr: _stderr, TelemetryClient: _telemetry);
-        return new ShowCommand(ctx, _items, _links,
+        return new ShowCommand(ctx, _items, _links, Substitute.For<ISeedLinkRepository>(),
             new SyncCoordinatorFactory(_items, _ado, new ProtectedCacheWriter(_items, _pending), _pending, _links, 30, 30),
             new StatusFieldConfigReader(new TwigPaths(_temp, Path.Combine(_temp, "config"), Path.Combine(_temp, "twig.db"))),
             contextStore: _context, activeItemResolver: new ActiveItemResolver(_context, _items, _ado), pendingChangeStore: _pending);

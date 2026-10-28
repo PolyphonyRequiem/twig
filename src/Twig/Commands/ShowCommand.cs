@@ -6,6 +6,7 @@ using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
@@ -29,6 +30,7 @@ public sealed class ShowCommand(
     CommandContext ctx,
     IWorkItemRepository workItemRepo,
     IWorkItemLinkRepository linkRepo,
+    ISeedLinkRepository seedLinkRepo,
     SyncCoordinatorFactory syncCoordinatorFactory,
     StatusFieldConfigReader statusFieldReader,
     IFieldDefinitionStore? fieldDefinitionStore = null,
@@ -243,6 +245,12 @@ public sealed class ShowCommand(
             linksVerifiedAt = await linkRepo.GetLinksVerifiedAtAsync(item.Id, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        if (item.IsSeed && IsMachineFormat(outputFormat))
+        {
+            links = await ReadSeedLinksAsync(item.Id, ct);
+            linksVerifiedAt = null;
+        }
 
         // Human surface only, in the same idiom as the staleness hint above — including its
         // `!refresh` guard: telling someone to "pass --refresh" on a run that already passed it
@@ -627,7 +635,7 @@ public sealed class ShowCommand(
         if (links is { Count: > 0 })
         {
             foreach (var link in links)
-                relationNodes.Add(BuildRelationRecord(link));
+                relationNodes.Add(BuildRelationRecord(link, item.Id, item.IsSeed));
         }
         fields.Add(new DocumentField("relations", new RenderNode.Section(null, relationNodes)));
 
@@ -762,9 +770,9 @@ public sealed class ShowCommand(
     /// when <c>url</c> is empty. <c>url</c> is emitted as the empty string
     /// because twig does not persist the source ADO relation URL.
     /// </summary>
-    private static RenderNode BuildRelationRecord(WorkItemLink link)
+    private static RenderNode BuildRelationRecord(WorkItemLink link, int itemId, bool isSeed)
     {
-        return new RenderNode.Record(null, BuildRelationCells(link));
+        return new RenderNode.Record(null, BuildRelationCells(link, itemId, isSeed));
     }
 
     /// <summary>
@@ -781,16 +789,34 @@ public sealed class ShowCommand(
         };
     }
 
+    private async Task<IReadOnlyList<WorkItemLink>> ReadSeedLinksAsync(int id, CancellationToken ct) =>
+        (await seedLinkRepo.GetLinksForItemAsync(id, ct))
+            .Select(link => new WorkItemLink(link.SourceId, link.TargetId, link.LinkType))
+            .Distinct()
+            .OrderBy(link => link.SourceId).ThenBy(link => link.TargetId)
+            .ThenBy(link => link.LinkType, StringComparer.Ordinal).ToArray();
+
     /// <summary>
     /// The ADO-shaped <c>relations</c> wire shape for one edge, shared by the single-item
     /// document and the per-row <c>relations</c> array of <c>show-batch</c> (ADO #154).
     /// </summary>
-    private static Dictionary<string, RenderCell> BuildRelationCells(WorkItemLink link)
+    private static Dictionary<string, RenderCell> BuildRelationCells(WorkItemLink link, int itemId, bool isSeed)
     {
         var friendlyName = link.LinkType ?? string.Empty;
+        var otherId = link.TargetId;
+        if (isSeed)
+        {
+            var outgoing = link.SourceId == itemId;
+            otherId = outgoing ? link.TargetId : link.SourceId;
+            friendlyName = friendlyName == SeedLinkTypes.ParentChild
+                ? outgoing ? "parent" : "child"
+                : outgoing ? friendlyName : SeedLinkTypes.GetReverse(friendlyName) ?? friendlyName;
+        }
         var adoRel = !string.IsNullOrEmpty(friendlyName) && LinkTypeMapper.TryResolve(friendlyName, out var resolved)
             ? resolved
             : friendlyName;
+        if (isSeed && SeedLinkTypeMapper.TryToAdoRelationType(friendlyName, out var seedRelation))
+            adoRel = seedRelation;
 
         var attributes = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
@@ -799,7 +825,7 @@ public sealed class ShowCommand(
 
         return new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
-            ["id"] = RenderCell.Integer(link.TargetId),
+            ["id"] = RenderCell.Integer(otherId),
             ["rel"] = RenderCell.String(adoRel),
             ["url"] = RenderCell.String(string.Empty),
             ["attributes"] = new RenderCell(string.Empty, new RenderValue.Object(attributes)),
@@ -876,7 +902,7 @@ public sealed class ShowCommand(
             if (rawTags is not null)
                 foreach (var tag in rawTags.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                     tags.Add(RenderCell.String(tag));
-            var itemLinks = graph.GetLinks(item.Id);
+            var itemLinks = item.IsSeed ? await ReadSeedLinksAsync(item.Id, ct) : graph.GetLinks(item.Id);
             var linkCells = new List<RenderCell>(itemLinks.Count);
             foreach (var link in itemLinks)
                 linkCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link))));
@@ -886,7 +912,7 @@ public sealed class ShowCommand(
                 ["hasLocalChanges"] = item.IsDirty ? RenderCell.Boolean(true) : pendingIds is not null
                     ? RenderCell.Boolean(pendingIds.Contains(item.Id)) : new RenderCell(string.Empty, new RenderValue.Null()),
                 ["lastSyncedAt"] = LinksVerifiedAtCell(item.LastSyncedAt),
-                ["linksVerifiedAt"] = LinksVerifiedAtCell(verified.TryGetValue(item.Id, out var stamp) ? stamp : null),
+                ["linksVerifiedAt"] = LinksVerifiedAtCell(!item.IsSeed && verified.TryGetValue(item.Id, out var stamp) ? stamp : null),
             };
             var core = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
             {
@@ -967,8 +993,13 @@ public sealed class ShowCommand(
             }
         }
 
+        var localSeedLinks = new Dictionary<int, IReadOnlyList<WorkItemLink>>();
+        if (IsMachineFormat(outputFormat) && (!request.IsActive || request.Sections.Contains("links", StringComparer.OrdinalIgnoreCase)))
+            foreach (var seed in items.Where(item => item.IsSeed))
+                localSeedLinks.Add(seed.Id, await ReadSeedLinksAsync(seed.Id, ct));
+
         if (request.IsActive)
-            return await RenderBatchProjectionAsync(ids, items, missing, links, linksVerifiedAt, request, outputFormat, ct);
+            return await RenderBatchProjectionAsync(ids, items, missing, links, linksVerifiedAt, localSeedLinks, request, outputFormat, ct);
 
         var graph = WorkItemGraph.Build(items, links);
 
@@ -986,7 +1017,7 @@ public sealed class ShowCommand(
         }
         else
         {
-            RenderBatchAsTree(graph, linksVerifiedAt, outputFormat);
+            RenderBatchAsTree(graph, linksVerifiedAt, localSeedLinks, outputFormat);
         }
 
         // AB#880: a batch that was asked for ids the cache does not carry MUST
@@ -1010,6 +1041,7 @@ public sealed class ShowCommand(
         IReadOnlyList<int> missing,
         IReadOnlyList<WorkItemLink> links,
         IReadOnlyDictionary<int, DateTimeOffset> linksVerifiedAt,
+        IReadOnlyDictionary<int, IReadOnlyList<WorkItemLink>> localSeedLinks,
         ShowProjection.Request request,
         string outputFormat,
         CancellationToken ct)
@@ -1029,9 +1061,9 @@ public sealed class ShowCommand(
         foreach (var item in items)
         {
             var itemLinks = needLinks && graph is not null
-                ? graph.GetLinks(item.Id)
+                ? localSeedLinks.GetValueOrDefault(item.Id) ?? graph.GetLinks(item.Id)
                 : (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>();
-            DateTimeOffset? verifiedAt = linksVerifiedAt.TryGetValue(item.Id, out var v) ? v : null;
+            DateTimeOffset? verifiedAt = !item.IsSeed && linksVerifiedAt.TryGetValue(item.Id, out var v) ? v : null;
 
             Domain.Aggregates.WorkItem? parent = null;
             if (needParent && item.ParentId.HasValue)
@@ -1133,6 +1165,13 @@ public sealed class ShowCommand(
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { linksVerifiedAt = null; }
 
+        if (item.IsSeed)
+        {
+            linksVerifiedAt = null;
+            if (needLinks)
+                links = await ReadSeedLinksAsync(item.Id, ct);
+        }
+
         Domain.Aggregates.WorkItem? parent = null;
         if (needParent && item.ParentId.HasValue)
             parent = await OverlayOptionalAsync(await workItemRepo.GetByIdAsync(item.ParentId.Value, ct), ct);
@@ -1191,26 +1230,27 @@ public sealed class ShowCommand(
     private void RenderBatchAsTree(
         WorkItemGraph graph,
         IReadOnlyDictionary<int, DateTimeOffset> linksVerifiedAt,
+        IReadOnlyDictionary<int, IReadOnlyList<WorkItemLink>> localSeedLinks,
         string outputFormat)
     {
         var rows = new List<RenderRow>(graph.Items.Count);
         foreach (var item in graph.Items)
         {
             var cells = BuildCoreCells(item);
-            var itemLinks = graph.GetLinks(item.Id);
+            var itemLinks = localSeedLinks.GetValueOrDefault(item.Id) ?? graph.GetLinks(item.Id);
 
             var linkCells = new List<RenderCell>(itemLinks.Count);
             var relationCells = new List<RenderCell>(itemLinks.Count);
             foreach (var link in itemLinks)
             {
                 linkCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link))));
-                relationCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildRelationCells(link))));
+                relationCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildRelationCells(link, item.Id, item.IsSeed))));
             }
 
             cells["links"] = new RenderCell(string.Empty, new RenderValue.Array(linkCells));
             cells["relations"] = new RenderCell(string.Empty, new RenderValue.Array(relationCells));
             cells["linksVerifiedAt"] = LinksVerifiedAtCell(
-                linksVerifiedAt.TryGetValue(item.Id, out var verifiedAt) ? verifiedAt : null);
+                !item.IsSeed && linksVerifiedAt.TryGetValue(item.Id, out var verifiedAt) ? verifiedAt : null);
 
             rows.Add(new RenderRow(null, cells));
         }

@@ -242,6 +242,7 @@ public sealed class TreeWorkspaceDurableFieldOverlayTests : IDisposable
             services.GetRequiredService<CommandContext>(),
             services.GetRequiredService<IWorkItemRepository>(),
             services.GetRequiredService<IWorkItemLinkRepository>(),
+            services.GetRequiredService<ISeedLinkRepository>(),
             services.GetRequiredService<SyncCoordinatorFactory>(),
             services.GetRequiredService<StatusFieldConfigReader>(),
             fieldDefinitionStore: services.GetService<IFieldDefinitionStore>(),

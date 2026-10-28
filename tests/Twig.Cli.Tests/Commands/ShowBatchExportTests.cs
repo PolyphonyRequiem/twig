@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -19,6 +20,7 @@ public sealed class ShowBatchExportTests
 {
     private readonly IWorkItemRepository _repo = Substitute.For<IWorkItemRepository>();
     private readonly IWorkItemLinkRepository _links = Substitute.For<IWorkItemLinkRepository>();
+    private readonly ISeedLinkRepository _seedLinks = Substitute.For<ISeedLinkRepository>();
     private readonly IPendingChangeStore _pending = Substitute.For<IPendingChangeStore>();
     private readonly IAdoWorkItemService _remote = Substitute.For<IAdoWorkItemService>();
     private readonly StringWriter _stderr = new();
@@ -31,6 +33,7 @@ public sealed class ShowBatchExportTests
             .Returns(Array.Empty<WorkItemLink>());
         _links.GetLinksVerifiedAtForSetAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<int, DateTimeOffset>());
+        _seedLinks.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
         var protectedWriter = new ProtectedCacheWriter(_repo, _pending);
         var sync = new SyncCoordinatorFactory(_repo, _remote, protectedWriter, _pending, _links, 30, 30);
         var formatters = new OutputFormatterFactory(new HumanOutputFormatter());
@@ -40,7 +43,7 @@ public sealed class ShowBatchExportTests
             new TwigConfiguration { Organization = "testorg", Project = "testproj" }, Stderr: _stderr);
         var scratch = Path.Combine(Path.GetTempPath(), "twig-export-test-" + Guid.NewGuid().ToString("N"));
         var paths = new TwigPaths(scratch, Path.Combine(scratch, "config"), Path.Combine(scratch, "twig.db"));
-        _command = new ShowCommand(context, _repo, _links, sync,
+        _command = new ShowCommand(context, _repo, _links, _seedLinks, sync,
             new StatusFieldConfigReader(paths), pendingChangeStore: _pending);
     }
 
@@ -75,6 +78,8 @@ public sealed class ShowBatchExportTests
             .ShouldAllBe(name => name == nameof(IWorkItemRepository.GetByIdAsync) || name == nameof(IWorkItemRepository.AcquireOperation));
         _links.ReceivedCalls().Select(call => call.GetMethodInfo().Name)
             .ShouldAllBe(name => name == nameof(IWorkItemLinkRepository.GetLinksForSetAsync) || name == nameof(IWorkItemLinkRepository.GetLinksVerifiedAtForSetAsync));
+        _seedLinks.ReceivedCalls().Select(call => call.GetMethodInfo().Name)
+            .ShouldAllBe(name => name == nameof(ISeedLinkRepository.GetLinksForItemAsync));
         _pending.ReceivedCalls().Select(call => call.GetMethodInfo().Name)
             .ShouldAllBe(name => name == nameof(IPendingChangeStore.GetDirtyItemIdsAsync));
         _remote.ReceivedCalls().ShouldBeEmpty();
@@ -102,6 +107,11 @@ public sealed class ShowBatchExportTests
             .Returns(new[] { new WorkItemLink(-1, 901, "System.LinkTypes.Related") });
         _links.GetLinksVerifiedAtForSetAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<int, DateTimeOffset> { [-1] = verified });
+        _seedLinks.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new SeedLink(-1, -5, SeedLinkTypes.BlockedBy, DateTimeOffset.UnixEpoch),
+            new SeedLink(-6, -1, SeedLinkTypes.Blocks, DateTimeOffset.UnixEpoch),
+        });
 
         var (exitCode, stdout) = await StdoutCapture.RunAsync(() =>
             _command.ExecuteBatchAsync("-1", "json", includeFields: true));
@@ -129,14 +139,29 @@ public sealed class ShowBatchExportTests
         var freshness = exported.GetProperty("freshness");
         freshness.GetProperty("hasLocalChanges").GetBoolean().ShouldBeTrue();
         freshness.GetProperty("lastSyncedAt").ValueKind.ShouldBe(JsonValueKind.Null);
-        freshness.GetProperty("linksVerifiedAt").GetDateTimeOffset().ShouldBe(verified);
-        var link = exported.GetProperty("links").EnumerateArray().Single();
-        link.GetProperty("sourceId").GetInt32().ShouldBe(-1);
-        link.GetProperty("targetId").GetInt32().ShouldBe(901);
-        link.GetProperty("linkType").GetString().ShouldBe("System.LinkTypes.Related");
+        freshness.GetProperty("linksVerifiedAt").ValueKind.ShouldBe(JsonValueKind.Null);
+        var exportedLinks = exported.GetProperty("links").EnumerateArray().ToArray();
+        exportedLinks.Length.ShouldBe(2);
+        exportedLinks.Select(link => link.GetProperty("linkType").GetString()).Order()
+            .ShouldBe(new[] { SeedLinkTypes.BlockedBy, SeedLinkTypes.Blocks }.Order());
+        await _seedLinks.Received(1).GetLinksForItemAsync(-1, Arg.Any<CancellationToken>());
         _stderr.ToString().ShouldBeEmpty();
         seed.State.ShouldBe("Draft");
         seed.IsDirty.ShouldBeFalse();
+        AssertTargetOnlyRead();
+    }
+
+    [Fact]
+    public async Task Export_SeedLinkReadFailure_IsNotAnEmptyGraph()
+    {
+        AllowOnlyTargets(new Dictionary<int, WorkItem> { [-1] = new WorkItemBuilder(-1, "Draft").AsSeed().Build() });
+        _seedLinks.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("seed link storage unavailable"));
+
+        var error = await Should.ThrowAsync<InvalidOperationException>(() =>
+            StdoutCapture.RunAsync(() => _command.ExecuteBatchAsync("-1", "json", includeFields: true)));
+
+        error.Message.ShouldBe("seed link storage unavailable");
         AssertTargetOnlyRead();
     }
 

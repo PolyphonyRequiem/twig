@@ -56,5 +56,5 @@ change-proposal `batch` op, applying it with
 
 ADO creates a tag on first use, so applying one always "works" — which means a **typo silently
 creates a new tag** rather than failing. That is this repo's false-green class again
-(`AGENTS.md` § *The false-green class*). Copy the strings from the table above rather than
+(`docs/incidents/false-green-class.md`). Copy the strings from the table above rather than
 typing them, and check `twig show <id> --refresh` afterwards to confirm what actually landed.

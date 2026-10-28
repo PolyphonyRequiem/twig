@@ -9,7 +9,7 @@ through the **`twig` CLI**. It is not tracked on GitHub.
 
 ## The three-way split
 
-`AGENTS.md` § *Where work is tracked* is the authority:
+This file is the authority:
 
 | What | Lives in | Why |
 | --- | --- | --- |

@@ -218,7 +218,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
     });` : workbench ? `const editingClient = (${createEditingClient.toString()})({ document, request, text });
     const handoffClient = (${createHandoffClient.toString()})({ document, request, text });
     const postClient = (${createDiscussionPostClient.toString()})({ document, request, text });
-    const discussionClient = (${createDiscussionClient.toString()})({ document, request, text, postClient });\n${workbenchClient}` : `
+    const discussionClient = (${createDiscussionClient.toString()})({ document, request, text, postClient });
     const attachmentClient = (${createAttachmentClient.toString()})({ document, request, text, navigator: globalThis.navigator });\n${workbenchClient}` : `
     const form = document.querySelector("#load-form");
     const input = document.querySelector("#work-item-id");

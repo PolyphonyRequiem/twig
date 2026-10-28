@@ -443,25 +443,32 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
     }
     public async Task<IAuthenticationProvider> CreateBootstrapProviderAsync(
         TwigConfiguration configuration,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? bindingId = null)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(configuration);
         var connectionRef = ConnectionRefResolver.Compute(configuration);
 
-        var defaultRow = await _registry.FindDefaultBindingAsync(connectionRef, ct).ConfigureAwait(false);
-        if (!defaultRow.IsSuccess) throw new InvalidOperationException($"Registry refused default lookup: {defaultRow.Error}");
-        if (defaultRow.Value is not { } d)
-            throw new InvalidOperationException(
-                $"No default identity is bound to {configuration.Organization}/{configuration.Project}. Bootstrap requires an explicitly-selected identity; run 'twig connection bind --identity <name> --default' first.");
+        if (bindingId is not null && string.IsNullOrWhiteSpace(bindingId))
+            throw new InvalidOperationException("binding-selector-required: supply a registered binding ID.");
+        if (bindingId is null)
+        {
+            var defaultRow = await _registry.FindDefaultBindingAsync(connectionRef, ct).ConfigureAwait(false);
+            if (!defaultRow.IsSuccess) throw new InvalidOperationException($"Registry refused default lookup: {defaultRow.Error}");
+            if (defaultRow.Value is not { } d)
+                throw new InvalidOperationException(
+                    $"No default identity is bound to {configuration.Organization}/{configuration.Project}. Bootstrap requires an explicitly-selected identity; run 'twig connection bind --identity <name> --default' first.");
+            bindingId = d.BindingId;
+        }
 
-        var bindingRes = await _registry.FindBindingByIdAsync(d.BindingId, ct).ConfigureAwait(false);
+        var bindingRes = await _registry.FindBindingByIdAsync(bindingId, ct).ConfigureAwait(false);
         if (!bindingRes.IsSuccess) throw new InvalidOperationException($"Registry refused binding lookup: {bindingRes.Error}");
         if (bindingRes.Value is not { } b)
             throw new InvalidOperationException(
-                $"Default binding {d.BindingId} references a missing binding row — the identity registry is inconsistent.");
+                $"binding-unknown: binding {bindingId} is not registered. Inspect 'twig connection list' or register it with 'twig connection bind' first.");
         if (!string.Equals(b.ConnectionRef, connectionRef, StringComparison.Ordinal))
-            throw new InvalidOperationException("Bootstrap binding belongs to another declared connection; refusing account crossover.");
+            throw new InvalidOperationException("binding-endpoint-mismatch: bootstrap binding belongs to another declared connection; refusing account crossover.");
         var identityRes = await _registry.FindIdentityByIdAsync(b.IdentityId, ct).ConfigureAwait(false);
         if (!identityRes.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {identityRes.Error}");
         if (identityRes.Value is not { } idRow)

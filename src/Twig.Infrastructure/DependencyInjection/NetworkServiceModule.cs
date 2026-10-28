@@ -54,7 +54,7 @@ public static class NetworkServiceModule
             {
                 var endpointSelection = sp.GetRequiredService<BootstrapEndpointSelection>();
                 return new DeferredBoundAuthenticationProvider(
-                    ct => bindings.CreateBootstrapProviderAsync(endpointSelection.Effective ?? cfg, ct),
+                    ct => bindings.CreateBootstrapProviderAsync(endpointSelection.Effective ?? cfg, ct, endpointSelection.BindingId),
                     initializationMetadataOnly: true);
             }
 

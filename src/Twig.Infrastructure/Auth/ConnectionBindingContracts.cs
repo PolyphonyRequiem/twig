@@ -254,6 +254,7 @@ internal interface IConnectionBindingService
 
     Task<IAuthenticationProvider> CreateBootstrapProviderAsync(
         TwigConfiguration configuration,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? bindingId = null);
     IAuthenticationProvider CreateAuthenticationProvider(ResolvedConnectionBinding binding);
 }

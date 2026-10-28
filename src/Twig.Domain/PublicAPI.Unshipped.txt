@@ -239,6 +239,8 @@ Twig.Domain.Services.ChangeProposals.ReviewConsequence.Kind.get -> string!
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.Kind.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherId.get -> int?
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherId.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Deferred.get -> bool?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Deferred.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherProviderWorkItem.get -> Twig.Domain.Services.Plan.ProviderWorkItemReference?
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherProviderWorkItem.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.Relation.get -> string?

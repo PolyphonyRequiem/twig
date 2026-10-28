@@ -39,6 +39,41 @@ Preview remains cache-based; it must not refresh ADO once per item. A cache revi
 
 Optional additive fields may retain model version 1 when old consumers remain safe. Changes in required safety semantics must not be smuggled through optional fields. Unknown model versions fail closed.
 
+### Seed publication link consequences
+
+A `publish-seed` operation retains model version 1 (version 2 remains reserved for
+discussion append). Its consequences start with exactly one `seed-publish`, followed
+by the seed's non-hierarchy `link-add` effects read from the local seed-link repository
+at preview time, the same source used by `show`. With no derived links, the legacy
+`[seed-publish]` array is byte-identical.
+
+For local alias S, include links whose source or target is S, excluding `parent-child`
+(hierarchy remains `target.seed.parentId`). Deduplicate exact source/target/type triples,
+then orient each link from S: outgoing uses the exact lowercase seed token and target
+alias/ID; incoming uses the reverse token and source alias/ID. Reversals are
+`blocks` / `blocked-by`, `depends-on` / `depended-on-by`,
+`predecessor` / `successor`, and `related` / `related`, never ADO
+`System.LinkTypes` names. Deduplicate again on `(relation, otherId)` and sort by
+`otherId` ascending, then relation with ordinal comparison.
+
+Only these `publish-seed` / `link-add` consequences carry `deferred`, always a JSON
+boolean immediately after `otherId`. It is true exactly when `otherId` is negative
+and no lower-ordinal operation publishes that peer seed. Earlier peer publication
+makes it false without replacing the negative alias; a later publication does not.
+Positive peers are false. `seed-publish` itself and all other operation/consequence
+kinds omit `deferred`; standalone add/remove-link output is unchanged. Existing
+explicit null consequence members and seed target identity/display members remain
+unchanged. Both human densities show every link under the publishing seed and mark
+deferred links with `(deferred until peer publishes)`.
+
+The review model is derived and **does not contribute to the proposal digest**.
+The operation's existing `expectedFingerprint` binds seed links at apply time.
+Deterministic deduplication and ordering make repeated previews stable for unchanged
+local data; changed cached links require a fresh fingerprint, not a rewritten digest
+or a projection treated as apply authority.
+
+**Delivery coordination:** Must not ship in a delivered binary until CloudVault runner preview 12 is installed and verified.
+
 ## Brief versus expanded review
 
 Every mode retains coverage of every material consequence and blocker. The structured model

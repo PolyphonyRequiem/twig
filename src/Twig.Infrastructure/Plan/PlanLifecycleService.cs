@@ -171,6 +171,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore)
         {
+            SeedLinks = seedLinkRepo,
             CapabilityDescriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(
                 config.ResolveWorkItemProviderKind(), out var capabilityDescriptor) ? capabilityDescriptor : null,
         };

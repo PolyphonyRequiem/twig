@@ -29,7 +29,7 @@ namespace Twig.Infrastructure.Tests.Plan;
 /// surface routes through. Failure modes fake the collaborators so they exercise exactly the
 /// classification the service owns, not the SQLite persistence or the ADO wire.
 /// </summary>
-public sealed class PlanLifecycleServiceTests : IDisposable
+public sealed partial class PlanLifecycleServiceTests : IDisposable
 {
     private readonly string _repoRoot;
     private readonly SqliteCacheStore _store;
@@ -124,7 +124,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         DiscussionAppendAdmission? discussionAdmission = null,
         TimeProvider? timeProvider = null,
         string? systemRegistryPath = null,
-        string? startDir = null)
+        string? startDir = null,
+        ISeedLinkRepository? seedLinks = null)
     {
         var provider = timeProvider ?? (clock is null
             ? TimeProvider.System
@@ -141,7 +142,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             _revisionBound,
             _seedPublish.Orchestrator,
             workItems ?? _workItems,
-            _seedLinks,
+            seedLinks ?? _seedLinks,
             _stagedRegistry,
             _publishIdMap,
             _publishIntent,

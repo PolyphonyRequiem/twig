@@ -40,13 +40,13 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore
 
-      - name: Virtual seed-link export and publication verification regression
+      - name: Virtual seed-link export, review and publication verification regression
         shell: python
         run: |
           import subprocess, sys
           for suite, selector in [
-              ("Cli", "FullyQualifiedName~SeedLinkExportTests|FullyQualifiedName~ShowBatchExportTests"),
-              ("Infrastructure", "FullyQualifiedName~SeedLinkPublicationTests|FullyQualifiedName~ReadbackPublishSeed|FullyQualifiedName~SeedFingerprintCalculatorTests"),
+              ("Cli", "FullyQualifiedName~SeedLinkExportTests|FullyQualifiedName~ShowBatchExportTests|FullyQualifiedName~ChangeProposalReviewRendererTests"),
+              ("Infrastructure", "FullyQualifiedName~SeedLinkPublicationTests|FullyQualifiedName~ReadbackPublishSeed|FullyQualifiedName~SeedFingerprintCalculatorTests|FullyQualifiedName~SeedReview_|FullyQualifiedName~ChangeProposalReviewModelBuilderTests"),
           ]:
               subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "60", "--",
                               sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",

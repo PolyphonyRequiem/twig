@@ -122,12 +122,12 @@ internal sealed class LocalClaimService : ILocalClaimService
             epochWasReserved = true;
 
             phase = MintPhase.RemoteInFlight;
-            var projected = await input.AdoProjection.ProjectHolderAsync(input.PrimaryScopeId, holder, ct).ConfigureAwait(false);
+            var projected = await input.Projection.ProjectHolderAsync(input.PrimaryScopeId, holder, ct).ConfigureAwait(false);
             if (!projected.IsSuccess)
             {
                 phase = MintPhase.RemoteFailed;
                 var abort = await AbortPendingAsync(pending, ClaimReleaseReasons.MintAbort, CancellationToken.None).ConfigureAwait(false);
-                var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, CancellationToken.None).ConfigureAwait(false);
                 if (!abort.IsSuccess)
                 {
                     if (abort.Error == AttachmentStorageFailure.ClaimCasMismatch)
@@ -135,8 +135,8 @@ internal sealed class LocalClaimService : ILocalClaimService
                     return new ClaimMintOutcome.StorageUnavailable($"mint-abort-failed:{abort.Error}; projection={projected.Error}; converge={(conv.IsSuccess ? "ok" : conv.Error)}");
                 }
                 if (!conv.IsSuccess)
-                    return new ClaimMintOutcome.AdoProjectionFailed($"{projected.Error}; converge-failed:{conv.Error}");
-                return new ClaimMintOutcome.AdoProjectionFailed(projected.Error);
+                    return new ClaimMintOutcome.ProjectionFailed($"{projected.Error}; converge-failed:{conv.Error}");
+                return new ClaimMintOutcome.ProjectionFailed(projected.Error);
             }
 
             phase = MintPhase.RemoteCommitted;
@@ -154,7 +154,7 @@ internal sealed class LocalClaimService : ILocalClaimService
                 input.ConnectionRef, input.PrimaryScopeKind, workItemId, reservedEpoch, ct).ConfigureAwait(false);
             if (!atomic.IsSuccess)
             {
-                var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, CancellationToken.None).ConfigureAwait(false);
                 if (atomic.Error == AttachmentStorageFailure.ClaimCasMismatch)
                     return new ClaimMintOutcome.ConcurrentClaimWrite($"{atomic.Error}; converge={(conv.IsSuccess ? "ok" : conv.Error)}");
                 if (atomic.Error == AttachmentStorageFailure.ClaimTupleEpochMismatch)
@@ -167,9 +167,9 @@ internal sealed class LocalClaimService : ILocalClaimService
             phase = MintPhase.LocalCommitted;
             // Post-commit ADO reconciliation: verify our winning ADO write
             // is still the current authoritative signal.
-            var reconcile = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, ct).ConfigureAwait(false);
+            var reconcile = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, ct).ConfigureAwait(false);
             if (!reconcile.IsSuccess)
-                return new ClaimMintOutcome.AdoProjectionFailed($"post-commit-converge-failed:{reconcile.Error}");
+                return new ClaimMintOutcome.ProjectionFailed($"post-commit-converge-failed:{reconcile.Error}");
 
             var linked = await _attachment.LinkClaimAsync(
                 active.ClaimId, active.ActivatedAt!.Value,
@@ -181,7 +181,7 @@ internal sealed class LocalClaimService : ILocalClaimService
             if (!verifyLive.IsSuccess)
             {
                 var undo = await _attachment.UnlinkClaimAsync(active.ClaimId, expectedAttachmentRevision + 1, CancellationToken.None).ConfigureAwait(false);
-                var comp = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                var comp = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, CancellationToken.None).ConfigureAwait(false);
                 var msg = $"{verifyLive.Error}; unlink={(undo.IsSuccess ? "ok" : undo.Error)}; converge={(comp.IsSuccess ? "ok" : comp.Error)}";
                 return new ClaimMintOutcome.ConcurrentClaimWrite(msg);
             }
@@ -216,7 +216,7 @@ internal sealed class LocalClaimService : ILocalClaimService
                     var abort = await AbortPendingAsync(pending, ClaimReleaseReasons.MintAbort, ct).ConfigureAwait(false);
                     // Always converge, even when abort succeeds — the ADO
                     // write may have landed and needs reconciliation.
-                    var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, ct).ConfigureAwait(false);
+                    var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, ct).ConfigureAwait(false);
                     if (abort.IsSuccess && conv.IsSuccess) cleanup = Result.Ok();
                     else if (abort.IsSuccess) cleanup = Result.Fail($"converge-failed:{conv.Error}");
                     else if (conv.IsSuccess) cleanup = Result.Fail($"abort-failed:{abort.Error}");
@@ -224,7 +224,7 @@ internal sealed class LocalClaimService : ILocalClaimService
                 }
                 break;
             case MintPhase.LocalCommitted:
-                cleanup = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, ct).ConfigureAwait(false);
+                cleanup = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, ct).ConfigureAwait(false);
                 break;
             default:
                 cleanup = Result.Ok();
@@ -261,7 +261,7 @@ internal sealed class LocalClaimService : ILocalClaimService
             var mintInput = new MintClaimInput(
                 input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId,
                 input.WorktreeFingerprint, holder.Identity, holder.DisplayName,
-                input.Label, input.Notes, input.AdoProjection);
+                input.Label, input.Notes, input.Projection);
             var mintResult = await MintAsync(mintInput, ct).ConfigureAwait(false);
             return TranslateMintToReclaim(mintResult, supersededClaim: null);
         }
@@ -300,11 +300,11 @@ internal sealed class LocalClaimService : ILocalClaimService
             reservedEpoch = epochRes.Value;
 
             phase = ReclaimPhase.RemoteInFlight;
-            var projected = await input.AdoProjection.ProjectHolderAsync(input.PrimaryScopeId, holder, ct).ConfigureAwait(false);
+            var projected = await input.Projection.ProjectHolderAsync(input.PrimaryScopeId, holder, ct).ConfigureAwait(false);
             if (!projected.IsSuccess)
             {
-                var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
-                return new ClaimReclaimOutcome.AdoProjectionFailed(conv.IsSuccess ? projected.Error : $"{projected.Error}; converge-failed:{conv.Error}");
+                var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, CancellationToken.None).ConfigureAwait(false);
+                return new ClaimReclaimOutcome.ProjectionFailed(conv.IsSuccess ? projected.Error : $"{projected.Error}; converge-failed:{conv.Error}");
             }
 
             phase = ReclaimPhase.RemoteCommitted;
@@ -347,7 +347,7 @@ internal sealed class LocalClaimService : ILocalClaimService
                 expectedEpoch: reservedEpoch, ct: ct).ConfigureAwait(false);
             if (!supersede.IsSuccess)
             {
-                var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                var conv = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, CancellationToken.None).ConfigureAwait(false);
                 if (supersede.Error == AttachmentStorageFailure.ClaimCasMismatch)
                     return new ClaimReclaimOutcome.ConcurrentClaimWrite(conv.IsSuccess ? supersede.Error : $"{supersede.Error}; converge-failed:{conv.Error}");
                 if (supersede.Error == AttachmentStorageFailure.ClaimTupleEpochMismatch)
@@ -363,9 +363,9 @@ internal sealed class LocalClaimService : ILocalClaimService
             }
 
             phase = ReclaimPhase.LocalCommitted;
-            var reconcile = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, ct).ConfigureAwait(false);
+            var reconcile = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, ct).ConfigureAwait(false);
             if (!reconcile.IsSuccess)
-                return new ClaimReclaimOutcome.AdoProjectionFailed($"post-commit-converge-failed:{reconcile.Error}");
+                return new ClaimReclaimOutcome.ProjectionFailed($"post-commit-converge-failed:{reconcile.Error}");
 
             var linked = await _attachment.LinkClaimAsync(
                 newActive.ClaimId, newActive.ActivatedAt!.Value,
@@ -377,7 +377,7 @@ internal sealed class LocalClaimService : ILocalClaimService
             if (!verifyLive.IsSuccess)
             {
                 var undo = await _attachment.UnlinkClaimAsync(newActive.ClaimId, expectedAttachmentRevision + 1, CancellationToken.None).ConfigureAwait(false);
-                var comp = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                var comp = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, CancellationToken.None).ConfigureAwait(false);
                 return new ClaimReclaimOutcome.ConcurrentClaimWrite($"{verifyLive.Error}; unlink={(undo.IsSuccess ? "ok" : undo.Error)}; converge={(comp.IsSuccess ? "ok" : comp.Error)}");
             }
             return new ClaimReclaimOutcome.Succeeded(newActive, supersededPredecessor);
@@ -396,7 +396,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         var cleanup = phase switch
         {
             ReclaimPhase.PreRemote => Result.Ok(),
-            _ => await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, ct).ConfigureAwait(false),
+            _ => await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.Projection, ct).ConfigureAwait(false),
         };
         if (!cleanup.IsSuccess)
         {
@@ -415,7 +415,7 @@ internal sealed class LocalClaimService : ILocalClaimService
     {
         if (string.IsNullOrWhiteSpace(input.ClaimId))
             return new ClaimReleaseOutcome.InvalidRequest("claimId is required.");
-        if (input.AdoProjection is null)
+        if (input.Projection is null)
             return new ClaimReleaseOutcome.InvalidRequest("adoProjection is required.");
 
         var rowResult = await _registry.FindClaimAsync(input.ClaimId, ct).ConfigureAwait(false);
@@ -450,9 +450,9 @@ internal sealed class LocalClaimService : ILocalClaimService
             var reservedEpoch = epochRes.Value;
 
             phase = ReleasePhase.RemoteInFlight;
-            var cleared = await input.AdoProjection.ClearHolderAsync(current.PrimaryScopeId, ct).ConfigureAwait(false);
+            var cleared = await input.Projection.ClearHolderAsync(current.PrimaryScopeId, ct).ConfigureAwait(false);
             if (!cleared.IsSuccess)
-                return new ClaimReleaseOutcome.ReleaseAdoProjectionFailed(cleared.Error);
+                return new ClaimReleaseOutcome.ReleaseProjectionFailed(cleared.Error);
 
             phase = ReleasePhase.RemoteCommitted;
             var now = _clock.GetUtcNow();
@@ -474,7 +474,7 @@ internal sealed class LocalClaimService : ILocalClaimService
                 // Blocker (4): EVERY local terminalization failure after
                 // the remote clear — CAS mismatch, epoch mismatch,
                 // storage, schema, IO — converges from the fresh tuple.
-                var conv = await ConvergeToTupleWinnerAsync(current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId), input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                var conv = await ConvergeToTupleWinnerAsync(current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId), input.Projection, CancellationToken.None).ConfigureAwait(false);
                 if (write.Error == AttachmentStorageFailure.ClaimCasMismatch)
                     return new ClaimReleaseOutcome.ConcurrentClaimWrite(conv.IsSuccess ? write.Error : $"{write.Error}; converge-failed:{conv.Error}");
                 if (write.Error == AttachmentStorageFailure.ClaimTupleEpochMismatch)
@@ -483,9 +483,9 @@ internal sealed class LocalClaimService : ILocalClaimService
             }
 
             phase = ReleasePhase.LocalCommitted;
-            var reconcile = await ConvergeToTupleWinnerAsync(current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId), input.AdoProjection, ct).ConfigureAwait(false);
+            var reconcile = await ConvergeToTupleWinnerAsync(current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId), input.Projection, ct).ConfigureAwait(false);
             if (!reconcile.IsSuccess)
-                return new ClaimReleaseOutcome.ReleaseAdoProjectionFailed($"post-commit-converge-failed:{reconcile.Error}");
+                return new ClaimReleaseOutcome.ReleaseProjectionFailed($"post-commit-converge-failed:{reconcile.Error}");
 
             var unlink = await _attachment.UnlinkClaimAsync(current.ClaimId, expectedAttachmentRevision, ct).ConfigureAwait(false);
             if (!unlink.IsSuccess)
@@ -516,7 +516,7 @@ internal sealed class LocalClaimService : ILocalClaimService
                 break;
             case ReleasePhase.RemoteInFlight:
             case ReleasePhase.RemoteCommitted:
-                cleanup = await ConvergeToTupleWinnerAsync(current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId), input.AdoProjection, ct).ConfigureAwait(false);
+                cleanup = await ConvergeToTupleWinnerAsync(current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId), input.Projection, ct).ConfigureAwait(false);
                 break;
             case ReleasePhase.LocalCommitted:
                 {
@@ -650,7 +650,7 @@ internal sealed class LocalClaimService : ILocalClaimService
     /// </summary>
     private async Task<Result> ConvergeToTupleWinnerAsync(
         string connectionRef, string primaryScopeKind, string primaryScopeId,
-        int workItemId, IAdoClaimProjection ado, CancellationToken ct)
+        int workItemId, IClaimProjection ado, CancellationToken ct)
     {
         long lastObservedEpoch = -1;
         string? lastObservedWinner = null;
@@ -794,7 +794,7 @@ internal sealed class LocalClaimService : ILocalClaimService
     {
         ClaimMintOutcome.Succeeded(var c) => new ClaimReclaimOutcome.Succeeded(c, supersededClaim),
         ClaimMintOutcome.PrimaryScopeAlreadyClaimed(var id, var state) => new ClaimReclaimOutcome.PrimaryScopeAlreadyClaimed(id, state),
-        ClaimMintOutcome.AdoProjectionFailed(var u) => new ClaimReclaimOutcome.AdoProjectionFailed(u),
+        ClaimMintOutcome.ProjectionFailed(var u) => new ClaimReclaimOutcome.ProjectionFailed(u),
         ClaimMintOutcome.ConcurrentClaimWrite(var u) => new ClaimReclaimOutcome.ConcurrentClaimWrite(u),
         ClaimMintOutcome.AttachmentLinkFailed(var u, var c) => new ClaimReclaimOutcome.AttachmentLinkFailed(u, c),
         ClaimMintOutcome.HolderUnavailable(var u) => new ClaimReclaimOutcome.HolderUnavailable(u),
@@ -810,7 +810,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (string.IsNullOrWhiteSpace(input.PrimaryScopeKind)) { reason = "primaryScopeKind is required."; return false; }
         if (string.IsNullOrWhiteSpace(input.PrimaryScopeId)) { reason = "primaryScopeId is required."; return false; }
         if (string.IsNullOrWhiteSpace(input.WorktreeFingerprint)) { reason = "worktreeFingerprint is required."; return false; }
-        if (input.AdoProjection is null) { reason = "adoProjection is required."; return false; }
+        if (input.Projection is null) { reason = "adoProjection is required."; return false; }
         if (!ValidateClaimLabel(input.Label, out var labelReason)) { reason = labelReason; return false; }
         reason = string.Empty; return true;
     }
@@ -821,7 +821,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (string.IsNullOrWhiteSpace(input.PrimaryScopeKind)) { reason = "primaryScopeKind is required."; return false; }
         if (string.IsNullOrWhiteSpace(input.PrimaryScopeId)) { reason = "primaryScopeId is required."; return false; }
         if (string.IsNullOrWhiteSpace(input.WorktreeFingerprint)) { reason = "worktreeFingerprint is required."; return false; }
-        if (input.AdoProjection is null) { reason = "adoProjection is required."; return false; }
+        if (input.Projection is null) { reason = "adoProjection is required."; return false; }
         if (!ValidateClaimLabel(input.Label, out var labelReason)) { reason = labelReason; return false; }
         reason = string.Empty; return true;
     }

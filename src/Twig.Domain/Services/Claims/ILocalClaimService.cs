@@ -68,7 +68,7 @@ internal interface IClaimCasTokenGenerator
 
 /// <summary>Runtime-resolved claim holder seam. Supplies the (identity,
 /// displayName) pair the mint/reclaim path captures into the claim record
-/// and forwards to <see cref="IAdoClaimProjection.ProjectHolderAsync"/>. The
+/// and forwards to <see cref="IClaimProjection.ProjectHolderAsync"/>. The
 /// resolver is authoritative — no lifecycle path infers holder from OS
 /// username, ambient identity, or a config default.</summary>
 internal interface IClaimHolderResolver

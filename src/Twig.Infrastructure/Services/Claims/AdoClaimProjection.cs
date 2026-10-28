@@ -17,7 +17,7 @@ namespace Twig.Infrastructure.Services.Claims;
 /// surfaces as a named projection failure; the projection NEVER accepts
 /// "same display / different UPN" as a match.
 /// </summary>
-internal sealed class AdoClaimProjection : IAdoClaimProjection
+internal sealed class AdoClaimProjection : IClaimProjection
 {
     internal const string AssignedToField = "System.AssignedTo";
 

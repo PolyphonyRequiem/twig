@@ -311,7 +311,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         (await attachment.WriteAsync(initial.Attachment.WithPrimaryScope(Scope(42)), initial.Revision)).IsSuccess.ShouldBeTrue();
         var anchor = WorktreeAnchorDetector.Detect(_paths.StartDir!)!.Value;
         var claims = runtime.GetRequiredService<ILocalClaimService>();
-        var projection = runtime.GetRequiredService<IAdoClaimProjection>();
+        var projection = runtime.GetRequiredService<IClaimProjection>();
         var minted = (await claims.MintAsync(new MintClaimInput(ConnectionRefResolver.Compute(_configuration),
             PrimaryScopeKinds.AdoWorkItem, "42", WorktreeFingerprintProvider.CanonicalJson(anchor),
             "", "Alex Reader", null, null, projection))).ShouldBeOfType<ClaimMintOutcome.Succeeded>();

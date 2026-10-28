@@ -46,7 +46,7 @@ internal sealed record ClaimRecord(
 /// <summary>Input payload for
 /// <see cref="ILocalClaimService.MintAsync(MintClaimInput, System.Threading.CancellationToken)"/>.
 /// Callers never supply a <c>claimId</c> — the mint operation generates it
-/// (AB#737 §Interface). <see cref="AdoProjection"/> is the abstract seam that
+/// (AB#737 §Interface). <see cref="Projection"/> is the abstract seam that
 /// projects the resolved holder onto <c>System.AssignedTo</c>; it never leaks
 /// process-specific state or type names into the claim path.</summary>
 internal sealed record MintClaimInput(
@@ -58,7 +58,7 @@ internal sealed record MintClaimInput(
     string? HolderDisplay,
     string? Label,
     string? Notes,
-    IAdoClaimProjection AdoProjection);
+    IClaimProjection Projection);
 
 /// <summary>Input payload for
 /// <see cref="ILocalClaimService.ReclaimAsync(ReclaimClaimInput, System.Threading.CancellationToken)"/>.
@@ -77,18 +77,18 @@ internal sealed record ReclaimClaimInput(
     string? Label,
     string? Notes,
     bool AllowSupersede,
-    IAdoClaimProjection AdoProjection);
+    IClaimProjection Projection);
 
 /// <summary>Input payload for
 /// <see cref="ILocalClaimService.ReleaseAsync(ReleaseClaimInput, System.Threading.CancellationToken)"/>.
 /// The caller supplies the <see cref="ClaimId"/> to release; the release path
 /// requires the row to be <see cref="ClaimStates.Active"/> and owned by this
 /// installation (AB#737 §Release). The
-/// <see cref="AdoProjection"/> seam is the same one used at mint; release
+/// <see cref="Projection"/> seam is the same one used at mint; release
 /// clears <c>System.AssignedTo</c> before the local row terminalizes.</summary>
 internal sealed record ReleaseClaimInput(
     string ClaimId,
-    IAdoClaimProjection AdoProjection);
+    IClaimProjection Projection);
 
 /// <summary>Input payload for
 /// <see cref="ILocalClaimService.ValidateAsync(ClaimValidationInput, System.Threading.CancellationToken)"/>.
@@ -138,7 +138,7 @@ internal abstract record ClaimMintOutcome
 
     public sealed record Succeeded(ClaimRecord Claim) : ClaimMintOutcome;
     public sealed record PrimaryScopeAlreadyClaimed(string ExistingClaimId, string ExistingState) : ClaimMintOutcome;
-    public sealed record AdoProjectionFailed(string Underlying) : ClaimMintOutcome;
+    public sealed record ProjectionFailed(string Underlying) : ClaimMintOutcome;
     public sealed record ConcurrentClaimWrite(string Underlying) : ClaimMintOutcome;
     public sealed record AttachmentLinkFailed(string Underlying, ClaimRecord Claim) : ClaimMintOutcome;
     public sealed record HolderUnavailable(string Underlying) : ClaimMintOutcome;
@@ -159,7 +159,7 @@ internal abstract record ClaimReclaimOutcome
     public sealed record Succeeded(ClaimRecord NewClaim, ClaimRecord? SupersededClaim) : ClaimReclaimOutcome;
     public sealed record PrimaryScopeAlreadyClaimed(string ExistingClaimId, string ExistingState) : ClaimReclaimOutcome;
     public sealed record ClaimNotActive(string CurrentState) : ClaimReclaimOutcome;
-    public sealed record AdoProjectionFailed(string Underlying) : ClaimReclaimOutcome;
+    public sealed record ProjectionFailed(string Underlying) : ClaimReclaimOutcome;
     public sealed record ConcurrentClaimWrite(string Underlying) : ClaimReclaimOutcome;
     public sealed record AttachmentLinkFailed(string Underlying, ClaimRecord Claim) : ClaimReclaimOutcome;
     public sealed record HolderUnavailable(string Underlying) : ClaimReclaimOutcome;
@@ -181,7 +181,7 @@ internal abstract record ClaimReleaseOutcome
     public sealed record Succeeded(ClaimRecord Released) : ClaimReleaseOutcome;
     public sealed record ClaimNotFound(string ClaimId) : ClaimReleaseOutcome;
     public sealed record ClaimNotActive(string ClaimId, string CurrentState) : ClaimReleaseOutcome;
-    public sealed record ReleaseAdoProjectionFailed(string Underlying) : ClaimReleaseOutcome;
+    public sealed record ReleaseProjectionFailed(string Underlying) : ClaimReleaseOutcome;
     public sealed record ConcurrentClaimWrite(string Underlying) : ClaimReleaseOutcome;
     public sealed record AttachmentUnlinkFailed(string Underlying, ClaimRecord Released) : ClaimReleaseOutcome;
     public sealed record SchemaDrift(int SchemaVersion) : ClaimReleaseOutcome;

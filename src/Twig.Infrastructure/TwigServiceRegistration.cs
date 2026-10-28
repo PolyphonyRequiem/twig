@@ -295,7 +295,7 @@ public static class TwigServiceRegistration
         services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimHolderResolver>(sp =>
             new Twig.Infrastructure.Services.Claims.ConnectionHolderResolver(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IIterationService>()));
-        services.TryAddSingleton<Twig.Domain.Services.Claims.IAdoClaimProjection>(sp =>
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimProjection>(sp =>
             new Twig.Infrastructure.Services.Claims.AdoClaimProjection(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IAdoWorkItemService>(),
                 sp.GetRequiredService<Twig.Infrastructure.Ado.IAdoAssignedIdentityReader>()));

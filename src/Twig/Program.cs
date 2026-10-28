@@ -473,7 +473,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="area">Area path(s) to filter by (e.g., Project\Team). Append :exact for exact match. Semicolon-separated for multiple.</param>
     /// <param name="reinitialize">Archive an existing <c>.twig/</c> tree to <c>.twig-legacy-&lt;timestamp&gt;/</c> and start clean (design §7 supported legacy recovery — no in-place migration).</param>
     /// <param name="profile">Opaque released profile identity to explicitly select (default: none). Does not discover live-process compatibility.</param>
-    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null)
+    /// <param name="provider">Explicit work-item provider: ado (default) or github. Never inferred from git remotes.</param>
+    /// <param name="host">Explicit lowercase GitHub host, used with --provider github.</param>
+    /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Init stays offline; discover and bind separately.</param>
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null)
     {
         // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
         // document (`twig init <org> <project>`) parses alongside the named one. The generated
@@ -481,13 +484,29 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         // here rather than letting empty strings reach the command as if they were supplied.
         var resolvedOrg = org ?? orgArg;
         var resolvedProject = project ?? projectArg;
-        if (string.IsNullOrWhiteSpace(resolvedOrg) || string.IsNullOrWhiteSpace(resolvedProject))
+        var github = WorkItemProviderSetting.Normalize(provider) == "github";
+        if (github && (resolvedOrg is not null || resolvedProject is not null))
+        {
+            Console.Error.WriteLine("error: GitHub init uses --host and --repository, not ADO org/project arguments.");
+            return 1;
+        }
+        if (github)
+        {
+            resolvedOrg = host;
+            resolvedProject = repository;
+        }
+        if (!github && provider is not null && WorkItemProviderSetting.Normalize(provider) is null)
+        {
+            Console.Error.WriteLine("error: provider-unknown: use --provider ado or --provider github.");
+            return 1;
+        }
+        if (!github && (string.IsNullOrWhiteSpace(resolvedOrg) || string.IsNullOrWhiteSpace(resolvedProject)))
         {
             Console.Error.WriteLine("error: Usage: twig init <org> <project>, or twig init --org <org> --project <project>");
             return 1;
         }
 
-        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg, resolvedProject, team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile);
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository);
     }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>

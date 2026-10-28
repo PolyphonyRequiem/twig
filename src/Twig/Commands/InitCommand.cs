@@ -119,13 +119,13 @@ public sealed class InitCommand
         _systemRegistry = systemRegistry;
         _profileRegistry = profileRegistry;
     }
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
         int fieldCount;
         bool hadGlobalProfile;
-        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, reinitialize, ct, profile);
+        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, reinitialize, ct, profile, provider, host, repository);
         _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "init",
@@ -142,7 +142,7 @@ public sealed class InitCommand
         return exitCode;
     }
 
-    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile)
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile, string? provider, string? host, string? repository)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var telemetryHadGlobalProfile = false;
@@ -215,22 +215,68 @@ public sealed class InitCommand
             var existing = await TwigConfiguration.LoadSplitAsync(requestedContextPaths, ct);
             config.Profile = existing.Profile;
             config.Policy = existing.Policy;
+            config.Provider = existing.Provider;
+            config.GitHub = existing.GitHub;
         }
 
         var contextPaths = preserveRepoManifest
             ? TwigPaths.ForContext(twigDir, config.Organization, config.Project, invocationStartDir)
             : requestedContextPaths;
 
-        // Epic #1167: a tracked manifest may select a non-ADO provider. Init builds ADO clients
-        // directly below, so it applies the same gate as the DI factories before any network use.
+        string kind;
         try
         {
-            WorkItemProviderSetting.RequireAdo(config.Provider);
+            kind = provider is null
+                ? WorkItemProviderSetting.Resolve(config.Provider)
+                : WorkItemProviderSetting.Normalize(provider) ?? WorkItemProviderSetting.Resolve(provider);
+            if (provider is not null && (preserveRepoManifest || config.Provider is not null)
+                && kind != WorkItemProviderSetting.Resolve(config.Provider))
+            {
+                Console.Error.WriteLine(fmt.FormatError("Init cannot switch an existing workspace provider. Review twig.json and its target binding separately."));
+                return (1, false, 0);
+            }
+            if (!preserveRepoManifest && provider is not null)
+                config.Provider = kind;
         }
         catch (TwigConfigurationException ex)
         {
             Console.Error.WriteLine(fmt.FormatError(ex.Message));
             return (1, false, 0);
+        }
+
+        if (kind == "github")
+        {
+            if (preserveRepoManifest
+                && ((host is not null && host != config.GitHub?.Host)
+                    || (repository is not null && repository != config.GitHub?.Repository)))
+            {
+                Console.Error.WriteLine(fmt.FormatError("GitHub host/repository conflicts with tracked twig.json. The manifest is authoritative."));
+                return (1, false, 0);
+            }
+            if (!preserveRepoManifest && (host is not null || repository is not null))
+                config.GitHub = new GitHubConfig { Host = host, Repository = repository };
+            if (!GitHubWorkspaceScope.TryCreate(config.GitHub, out _, out var problem))
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"provider-unconfigured: {problem}. Use twig init --provider github --host <host> --repository <owner/name>."));
+                return (1, false, 0);
+            }
+            if (team is not null || gitProject is not null || sprint is not null || area is not null
+                || profile is not null || config.Profile is not null || config.Policy?.SelectedProfile is not null
+                || force || reinitialize)
+            {
+                Console.Error.WriteLine(fmt.FormatError("GitHub init does not support ADO team/sprint/area/git-project/profile options or destructive reinitialization. Initialize a fresh checkout; configure credentials and bind the repository separately."));
+                return (1, false, 0);
+            }
+        }
+        else
+        {
+            WorkItemProviderSetting.RequireAdo(config.Provider);
+            if (host is not null || repository is not null)
+            {
+                Console.Error.WriteLine(fmt.FormatError("--host and --repository require --provider github. The default provider is ado."));
+                return (1, false, 0);
+            }
         }
 
         // GH#466: publish the effective endpoint as soon as it is known, BEFORE any
@@ -442,6 +488,34 @@ public sealed class InitCommand
             {
                 rollback.TrackFile(contextPaths.RepoConfigPath);
                 await config.SaveSplitAsync(contextPaths, ct);
+            }
+
+            if (kind == "github")
+            {
+                rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.LayoutFileName));
+                rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.WorktreeFileName));
+                rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.AttachmentFileName));
+                rollback.TrackDirectory(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.TmpDirName));
+                var initialized = await scopedInitializer.InitializeAsync(config.Organization, config.Project, null, ct: ct);
+                if (!initialized.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Managed init failed: {initialized.Error}"));
+                    rollback.Rollback();
+                    return (1, false, 0);
+                }
+                using var githubCache = Infrastructure.Persistence.SqliteCacheStore.OpenWorkspace(contextPaths);
+                AppendToGitignore(invocationStartDir);
+                var next = $"twig provider discover github --host {config.GitHub!.Host} --repository {config.GitHub.Repository} -o json";
+                new Rendering.RendererFactory().GetRenderer(outputFormat).Render(new RenderTree.RenderTree(
+                    [new RenderTree.RenderNode.Record("initialized", new Dictionary<string, RenderTree.RenderCell>
+                    {
+                        ["provider"] = RenderTree.RenderCell.String(kind),
+                        ["host"] = RenderTree.RenderCell.String(config.GitHub.Host!),
+                        ["repository"] = RenderTree.RenderCell.String(config.GitHub.Repository!),
+                        ["message"] = RenderTree.RenderCell.String("Initialized local GitHub workspace. No credentials, remote requests or target binding were acquired."),
+                        ["next"] = RenderTree.RenderCell.String(next),
+                    })]));
+                return (0, false, 0);
             }
 
             var effectiveOrg = config.Organization;
@@ -920,9 +994,9 @@ public sealed class InitCommand
         }
     }
 
-    private void AppendToGitignore()
+    private void AppendToGitignore(string? worktreeRoot = null)
     {
-        var gitignorePath = Path.Combine(Directory.GetCurrentDirectory(), ".gitignore");
+        var gitignorePath = Path.Combine(worktreeRoot ?? Directory.GetCurrentDirectory(), ".gitignore");
         const string twigEntry = ".twig/";
 
         if (File.Exists(gitignorePath))

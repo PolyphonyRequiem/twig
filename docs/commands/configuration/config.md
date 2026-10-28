@@ -114,8 +114,10 @@ For setup, choose an already signed-in GitHub CLI account explicitly with
 `twig config github.host github.com`, `twig config github.repository owner/repo`,
 and `twig config provider github`. These settings do not enroll an account,
 grant remote permissions, initialize a GitHub item store, or migrate existing ADO
-seeds/context. Fresh GitHub-only initialization and complete read/write integration
-are separate delivery requirements, not consequences of binding a target.
+seeds/context. For a fresh GitHub checkout use
+[`twig init --provider github --host <host> --repository <owner/name>`](../getting-started/init.md#github-checkout-onboarding)
+before credential selection and discovery/binding. Init is local-only; changing
+configuration is not migration, remote permission, or live-provider qualification.
 
 Bound reads capture the attachment revision, binding ID, and immutable target
 identity, then recheck them after the complete snapshot and relationship fetch.

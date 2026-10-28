@@ -123,6 +123,17 @@ jobs:
           path: artifacts/test-logs/ci/provider-contracts/
           if-no-files-found: warn
 
+      - name: Explicit offline GitHub checkout onboarding
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubInitTests|FullyQualifiedName~GitHubSync_CompositionAndPushRefusalDoNotAcquireCredentialsOrSendHttp|FullyQualifiedName~InitCommandTests.Init_CreatesTwigDirectory" --logger "trx;LogFileName=github-init.trx" --results-directory artifacts/test-logs/ci/github-init
+
+      - name: Preserve GitHub onboarding results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-github-init-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/github-init/
+          if-no-files-found: warn
+
       - name: GitHub native relationship proposal regression
         shell: python
         run: |

@@ -96,7 +96,8 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         await _bindings.RegisterPatIdentityAsync("sibling", Organization, SiblingPat);
         _actorBinding = await _bindings.CreateBindingAsync(Organization, Project, "actor", makeDefault: true);
         _siblingBinding = await _bindings.CreateBindingAsync(Organization, Project, "sibling", makeDefault: false);
-        _migration = new ConnectionMigrationService(Home, _bindings);
+        // This synthetic home has no external hosts; actual database/capability fencing stays real.
+        _migration = new ConnectionMigrationService(Home, _bindings, hostInventory: static () => []);
         var preview = await _migration.PreviewAsync(_configuration, _paths, "actor", null);
         preview.CanApply.ShouldBeTrue(string.Join("\n", preview.Blockers));
         (await _migration.ApplyAsync(_configuration, _paths, "actor", null, preview.Digest)).State.ShouldBe("active");

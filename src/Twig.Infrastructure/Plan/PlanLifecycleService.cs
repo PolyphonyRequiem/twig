@@ -60,7 +60,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly IPlanJournalRepository _journal;
     private readonly IPendingChangeReader _pendingReader;
     private readonly PlanOperationExecutor? _executor;
-    private readonly GitHubNativeRelationshipService? _nativeRelationships;
+    private readonly GitHubNativeMutationService? _nativeRelationships;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly ISeedLinkRepository? _seedLinkRepo;
     private readonly IStagedIdentityRegistry? _stagedRegistry;
@@ -187,7 +187,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         TwigConfiguration config,
         TwigPaths paths,
         IWorkItemSnapshotReader providerSnapshots,
-        GitHubNativeRelationshipService? nativeRelationships = null)
+        GitHubNativeMutationService? nativeRelationships = null)
     {
         _parser = parser;
         _journal = journal;
@@ -318,7 +318,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             {
                 Code = PlanValidationCodes.UnsupportedApplyVersion,
                 Path = "/version",
-                Message = "Provider operations require exact-revision authority unless every operation is a supported GitHub relationship explicitly choosing observed-non-atomic concurrency.",
+                Message = "Provider operations require exact-revision authority unless every operation is a supported GitHub mutation explicitly choosing observed-non-atomic concurrency.",
             };
             PlanValidationIssue[] blockedIssues = [.. parsed.Issues, blocker];
             return new PlanPreviewResult
@@ -1275,8 +1275,10 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 return await ResumeFromObservedRowAsync(digest, row.OpId, opDef, carry, ct).ConfigureAwait(false);
             }
 
-            var applyResult = _nativeRelationships is not null && opDef is ProviderMutationOperation providerOperation
-                ? await _nativeRelationships.ExecuteAsync(providerOperation, journal?.Origin, ct).ConfigureAwait(false)
+            var applyResult = _nativeRelationships is not null
+                ? opDef is ProviderCreateOperation create
+                    ? await _nativeRelationships.ExecuteCreateAsync(create, journal?.Origin, ct).ConfigureAwait(false)
+                    : await _nativeRelationships.ExecuteAsync((ProviderMutationOperation)opDef, journal?.Origin, ct).ConfigureAwait(false)
                 : await _executor!.ExecuteAsync(opDef, ct).ConfigureAwait(false);
 
             // Applied / MappedPublish: atomic Applying → Applied+result. Failed: terminal
@@ -1446,7 +1448,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             digest, opId,
             PlanOperationState.Applied, PlanOperationState.Verified,
             _clock.GetUtcNow(), ct, outcome.Warning,
-            operation is BatchOperation ? outcome.ResultJson : null);
+            operation is BatchOperation or ProviderMutationOperation or ProviderCreateOperation ? outcome.ResultJson : null);
 
     /// <summary>
     /// Winning-execute path: atomic Applying → Applied (with executor's result JSON), then
@@ -1846,15 +1848,17 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
     private bool SupportsProviderPlan(PlanDefinition plan) =>
         _nativeRelationships is not null && plan.Operations.Count > 0
-        && plan.Operations.All(GitHubNativeRelationshipService.Supports);
+        && plan.Operations.All(GitHubNativeMutationService.Supports);
 
     private async Task<PlanReadbackOutcome> ReadbackOperationAsync(
         string digest, PlanOperationDefinition operation, PlanExecutionResult applied, CancellationToken ct)
     {
-        if (_nativeRelationships is not null && operation is ProviderMutationOperation provider)
+        if (_nativeRelationships is not null)
         {
             var journal = await _journal.GetAsync(digest, ct).ConfigureAwait(false);
-            return await _nativeRelationships.ReadbackAsync(provider, journal?.Origin, ct).ConfigureAwait(false);
+            return operation is ProviderCreateOperation create
+                ? await _nativeRelationships.ReadbackCreateAsync(create, journal?.Origin, applied.ResultJson, ct).ConfigureAwait(false)
+                : await _nativeRelationships.ReadbackAsync((ProviderMutationOperation)operation, journal?.Origin, ct).ConfigureAwait(false);
         }
         return await _executor!.ReadbackAsync(operation, applied, ct).ConfigureAwait(false);
     }

@@ -29,13 +29,13 @@ internal static class GitHubIssueQueries
 
     public const string Snapshot = """
         query($id: ID!) { node(id: $id) { __typename id ... on Issue {
-          number title state body url issueType { name } parent { id } milestone { title } repository { id nameWithOwner owner { id } }
+          number title state body url updatedAt issueType { name } parent { id } milestone { id title } repository { id nameWithOwner owner { id } }
         } } }
         """;
 
     private static readonly (string Field, string Selection)[] ConnectionShapes =
     [
-        ("labels", "name"),
+        ("labels", "id name"),
         ("assignees", "id login"),
         ("subIssues", "id"),
         ("blockedBy", "id"),

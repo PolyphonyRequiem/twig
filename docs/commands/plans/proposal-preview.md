@@ -9,11 +9,11 @@ mutates: local
 # `twig proposal preview`
 
 Reads a version 1 or 2 proposal file and reports its canonical digest and
-review. Version 1 imports its journal row and snapshots pending changes.
-Version 2 is review-only: it shows its provider-qualified identities and an
-unsupported-apply blocker, sets `canApply=false`, and does not import a journal
-row. Preview never mutates a provider; the "local" mutation flag reflects
-version 1 journal writes.
+review. ADO v1 and supported GitHub v2 proposals import their journal row and
+snapshot pending changes. Unsupported v2 shapes remain review-only with
+`canApply=false` and an unsupported-apply blocker. Preview never mutates a provider;
+the "local" mutation flag reflects journal writes. GitHub writes require explicit
+`observed-non-atomic` concurrency; see the [provider contract](../../features/proposals.md#github-writes-and-concurrency).
 
 ## Synopsis
 
@@ -53,10 +53,10 @@ shown by preview.
 
 - **Canonical digest.** Recomputed exactly as validate reports it; this is
   the value the caller will pass to `proposal apply --confirm`.
-- **Journal import.** For version 1, the journal row keyed on the digest is loaded into the
+- **Journal import.** For executable proposals, the journal row keyed on the digest is loaded into the
   workspace store; a fresh proposal creates a row in its initial state, and a re-preview
   updates only the separate last-preview ordering timestamp. Original `previewed_at` and
-  lifecycle state remain unchanged. Version 2 skips all journal access.
+  lifecycle state remain unchanged. Unsupported v2 shapes skip journal import.
 - **Digest guard.** When `--expect-digest` is supplied, the current canonical digest must
   match exactly. A mismatch returns a clear issue before journal import or review-model
   construction, so neither an invalid proposal nor stale bytes can move latest selection.
@@ -65,14 +65,14 @@ shown by preview.
   `canApply` false — proposal v1 is declarative-only and will not
   auto-flush pending edits
   (`src/Twig.Domain/Services/Plan/PlanPreviewResult.cs:26-37`).
-- **Version 2 apply blocker.** A valid version 2 proposal always has
+- **Version 2 apply blocker.** An unsupported version 2 proposal has
   `canApply=false` with `plan.unsupported_apply_version`. Its complete
   identity-aware review is still returned, but preview does not inspect or
   import the journal and does not imply provider mutation authority.
-- **`canApply` gate.** For version 1, true iff the proposal is valid, its
+- **`canApply` gate.** For executable proposals, true iff the proposal is valid, its
   workspace matches the active config, no pending row exists, and the journal
-  was imported successfully. Version 2 is always false because apply is
-  unsupported; the reason is on `Issues`.
+  was imported successfully and native policy/admission gates permit it.
+  Unsupported v2 shapes are false; the reason is on `Issues`.
 
 ### Native presentation for OMP
 

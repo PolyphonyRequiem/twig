@@ -1708,7 +1708,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         services.GetRequiredService<ProviderSetupCommand>().BindAsync("github", host, repository, expectedOwnerId,
             expectedRepositoryId, expectedAttachmentRevision, replaceBinding, output, ct);
 
-    /// <summary>Report relationship implementation and availability for the active provider. Optionally discover GitHub schema support; this is a read-only authenticated GraphQL query and does not report repository value catalogs or process rules.</summary>
+    /// <summary>Report relationship and fixed proposal mutation capabilities for the active provider; declarations are not write permission. GitHub proposals require explicit observed-non-atomic concurrency. Optionally discover GitHub schema support with a read-only authenticated query.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="githubSchema">Discover GitHub Issue fields, states and relationship schema. Requires the active GitHub provider; does not discover issue-type, label, assignee or milestone values.</param>
     [Command("connection capabilities")]

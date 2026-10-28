@@ -670,7 +670,7 @@ public static class TwigServiceRegistration
                     configuration,
                     sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
                     sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemSnapshotReader>(),
-                    sp.GetRequiredService<Twig.Infrastructure.GitHub.GitHubNativeRelationshipService>());
+                    sp.GetRequiredService<Twig.Infrastructure.GitHub.GitHubNativeMutationService>());
             }
 
             return new Twig.Infrastructure.Plan.PlanLifecycleService(

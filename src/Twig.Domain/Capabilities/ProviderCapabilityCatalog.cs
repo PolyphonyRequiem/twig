@@ -32,7 +32,20 @@ internal static class ProviderCapabilityCatalog
             new(LinkKind.ParentChild, CapabilityImplementation.Native, EmulationStorage.None),
             new(LinkKind.PredecessorSuccessor, CapabilityImplementation.Native, EmulationStorage.None),
             new(LinkKind.Related, CapabilityImplementation.Unsupported, EmulationStorage.None),
-        ]);
+        ])
+    {
+        ProposalConcurrency = "observed-non-atomic",
+        ProposalOperations =
+        [
+            "create",
+            "batch:System.Title", "batch:System.Description", "batch:System.State", "batch:github.milestoneId",
+            "batch:github.labels.add", "batch:github.labels.remove",
+            "batch:github.assignees.add", "batch:github.assignees.remove",
+            "add-link:parent", "remove-link:parent",
+            "add-link:predecessor", "remove-link:predecessor",
+            "add-link:successor", "remove-link:successor",
+        ],
+    };
 
     /// <summary>Looks up a built-in declaration. Ordinal: provider kinds are canonical tokens.</summary>
     public static bool TryGet(string? providerKind, out ProviderCapabilityDescriptor descriptor)

@@ -148,6 +148,8 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader, IProvide
                 .Set("System.State", new TextValue(Text(node, "state")))
                 .Set("github.number", new IntegerValue(IssueNumber(node)))
                 .Set("github.url", new TextValue(Text(node, "url")));
+            if (node.TryGetProperty("updatedAt", out _))
+                fields = fields.Set("github.updatedAt", new TextValue(Text(node, "updatedAt")));
             var issueType = Required(node, "issueType");
             fields = fields.Set("System.WorkItemType", issueType.ValueKind == JsonValueKind.Null
                 ? (FieldValue)NullValue.Instance : new TextValue(Text(issueType, "name")));
@@ -159,16 +161,23 @@ internal sealed class GitHubWorkItemProvider : IWorkItemSnapshotReader, IProvide
             var milestone = Required(node, "milestone");
             fields = fields.Set("github.milestone", milestone.ValueKind == JsonValueKind.Null
                 ? (FieldValue)NullValue.Instance : new TextValue(Text(milestone, "title")));
+            if (milestone.ValueKind == JsonValueKind.Null)
+                fields = fields.Set("github.milestoneId", NullValue.Instance);
+            else if (milestone.TryGetProperty("id", out _))
+                fields = fields.Set("github.milestoneId", new TextValue(NativeId(milestone)));
 
             var labels = await ReadConnectionAsync(identity, "labels", ct);
             var labelValues = new StringListValue(labels.Select(l => Text(l, "name")).Order(StringComparer.Ordinal));
             fields = fields.Set("github.labels", labelValues).Set("System.Tags", labelValues);
+            if (labels.All(l => l.TryGetProperty("id", out _)))
+                fields = fields.Set("github.labelIds", new StringListValue(labels.Select(NativeId).Order(StringComparer.Ordinal)));
             var assignees = (await ReadConnectionAsync(identity, "assignees", ct))
                 .Select(a => new GitHubIssueAssignee(NativeId(a), Text(a, "login")))
                 .OrderBy(a => a.Id, StringComparer.Ordinal).ToArray();
             fields = fields.Set("github.assignees", new RawValue(
                 JsonSerializer.Serialize(assignees, TwigJsonContext.Default.GitHubIssueAssigneeArray),
                 "github.assignees.v1"));
+            fields = fields.Set("github.assigneeIds", new StringListValue(assignees.Select(a => a.Id)));
             if (assignees.Length == 0)
                 fields = fields.Set("System.AssignedTo", NullValue.Instance);
             else if (assignees.Length == 1)

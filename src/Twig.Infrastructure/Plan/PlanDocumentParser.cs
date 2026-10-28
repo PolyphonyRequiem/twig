@@ -106,7 +106,17 @@ public sealed class PlanDocumentParser
 
     private static readonly FrozenSet<string> ProviderBatchProperties = new[]
     {
-        PropId, PropKind, PropTarget, PropFields,
+        PropId, PropKind, PropTarget, PropFields, PropConcurrency,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> ProviderCreateProperties = new[]
+    {
+        PropId, PropKind, "creationId", "destination", PropFields, PropConcurrency,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> DestinationProperties = new[]
+    {
+        PropProviderKind, PropResourceScope, "descriptorKind", "descriptorValue",
     }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> ProviderLinkProperties = new[]
@@ -403,6 +413,46 @@ public sealed class PlanDocumentParser
     {
         switch (kind)
         {
+            case "create":
+                RejectUnknown(op, ProviderCreateProperties, path, issues);
+                var creationId = ReadRequiredNonEmptyString(op, "creationId", $"{path}/creationId", issues);
+                var createFields = ReadFields(op, path, issues);
+                var createConcurrency = ReadConcurrency(op, path, issues);
+                if (!Guid.TryParseExact(creationId, "D", out var creation) || creation == Guid.Empty)
+                    issues.Add(new PlanValidationIssue
+                    {
+                        Code = PlanValidationCodes.InvalidProviderIdentity, Path = $"{path}/creationId",
+                        Message = "Creation identity must be a non-empty UUID in D format.",
+                    });
+                if (!op.TryGetProperty("destination", out var destination) || destination.ValueKind != JsonValueKind.Object)
+                {
+                    issues.Add(Missing($"{path}/destination", "destination"));
+                    return null;
+                }
+                RejectUnknown(destination, DestinationProperties, $"{path}/destination", issues);
+                var provider = ReadRequiredNonEmptyString(destination, PropProviderKind, $"{path}/destination/providerKind", issues);
+                var scope = ReadRequiredNonEmptyString(destination, PropResourceScope, $"{path}/destination/resourceScope", issues);
+                var descriptorKind = ReadRequiredNonEmptyString(destination, "descriptorKind", $"{path}/destination/descriptorKind", issues);
+                var descriptorValue = ReadRequiredNonEmptyString(destination, "descriptorValue", $"{path}/destination/descriptorValue", issues);
+                if (provider is null || scope is null || descriptorKind is null || descriptorValue is null || createFields is null)
+                    return null;
+                try
+                {
+                    return new ProviderCreateOperation
+                    {
+                        Id = id, CreationId = creation, Concurrency = createConcurrency,
+                        Destination = new(provider, scope, descriptorKind, descriptorValue), Fields = createFields,
+                    };
+                }
+                catch (ArgumentException ex)
+                {
+                    issues.Add(new PlanValidationIssue
+                    {
+                        Code = PlanValidationCodes.InvalidProviderIdentity, Path = $"{path}/destination", Message = ex.Message,
+                    });
+                    return null;
+                }
+
             case KindBatch:
                 RejectUnknown(op, ProviderBatchProperties, path, issues);
                 var batchTarget = ReadProviderTarget(op, path, issues);
@@ -413,6 +463,7 @@ public sealed class PlanDocumentParser
                     OperationKind = PlanOperationKind.Batch,
                     Target = batchTarget,
                     Fields = fields,
+                    Concurrency = ReadConcurrency(op, path, issues),
                 };
 
             case KindAddLink:
@@ -421,15 +472,7 @@ public sealed class PlanDocumentParser
                 var linkTarget = ReadProviderTarget(op, path, issues);
                 var relation = ReadRequiredNonEmptyString(op, PropRelation, $"{path}/{PropRelation}", issues);
                 var other = ReadProviderReference(op, PropOther, $"{path}/{PropOther}", issues);
-                var concurrency = op.TryGetProperty(PropConcurrency, out _)
-                    ? ReadRequiredNonEmptyString(op, PropConcurrency, $"{path}/{PropConcurrency}", issues)
-                    : "exact-revision";
-                if (concurrency is not ("exact-revision" or "observed-non-atomic"))
-                    issues.Add(new PlanValidationIssue
-                    {
-                        Code = PlanValidationCodes.EmptyString, Path = $"{path}/{PropConcurrency}",
-                        Message = "Concurrency must be exact-revision or observed-non-atomic.",
-                    });
+                var concurrency = ReadConcurrency(op, path, issues);
                 if (relation is not null && !ValidRelations.Contains(relation))
                 {
                     issues.Add(new PlanValidationIssue
@@ -440,6 +483,7 @@ public sealed class PlanDocumentParser
                     });
                     relation = null;
                 }
+
                 if (linkTarget is null || relation is null || other is null) return null;
                 return new ProviderMutationOperation
                 {
@@ -473,6 +517,20 @@ public sealed class PlanDocumentParser
             default:
                 return AddUnknownKind(op, path, kind, ProviderIdentityVersion, issues);
         }
+    }
+
+    private static string ReadConcurrency(JsonElement op, string path, List<PlanValidationIssue> issues)
+    {
+        var value = op.TryGetProperty(PropConcurrency, out _)
+            ? ReadRequiredNonEmptyString(op, PropConcurrency, $"{path}/{PropConcurrency}", issues)
+            : "exact-revision";
+        if (value is not ("exact-revision" or "observed-non-atomic"))
+            issues.Add(new PlanValidationIssue
+            {
+                Code = PlanValidationCodes.EmptyString, Path = $"{path}/{PropConcurrency}",
+                Message = "Concurrency must be exact-revision or observed-non-atomic.",
+            });
+        return value ?? "exact-revision";
     }
 
     private static ProviderWorkItemMutationTarget? ReadProviderTarget(
@@ -590,7 +648,7 @@ public sealed class PlanDocumentParser
     {
         _ = op;
         var expectedKinds = version == ProviderIdentityVersion
-            ? "batch | add-link | remove-link | delete"
+            ? "batch | add-link | remove-link | delete | create"
             : "batch | add-link | remove-link | publish-seed | delete | append-comment";
         issues.Add(new PlanValidationIssue
         {

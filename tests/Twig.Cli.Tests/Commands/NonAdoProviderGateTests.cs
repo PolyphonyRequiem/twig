@@ -314,6 +314,32 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         adoReads.ShouldBeEmpty($"{command} bypassed the boundary: {string.Join(", ", adoReads)}");
     }
 
+    [Fact]
+    public async Task BenchSync_UnderAdo_UsesOnlyTheProviderReadBoundary()
+    {
+        var reader = new RecordingProviderReader();
+        var provider = Substitute.For<IWorkItemProvider>();
+        provider.Capabilities.Returns(Twig.Domain.Capabilities.ProviderCapabilityCatalog.Ado);
+        provider.ResolveResourceScopeAsync(Arg.Any<CancellationToken>()).Returns("fixture-scope");
+        var runtime = await AttachAsync(provider: null, gitProject: "Project", overrides: services =>
+        {
+            services.AddSingleton<IProviderWorkItemReader>(reader);
+            services.AddSingleton(provider);
+            services.AddSingleton<IAdoWorkItemService>(_ =>
+                throw new InvalidOperationException("Bench sync must not resolve the ADO client."));
+        });
+
+        var operation = runtime.GetRequiredService<BenchSyncOperation>();
+        var result = await operation.PullAsync(
+            new Bench { Id = 7, Name = "fixture", Selectors = [BenchSelector.ForItem(42)] },
+            CancellationToken.None);
+
+        result.ItemCount.ShouldBe(1);
+        reader.Calls.ShouldContain(nameof(IProviderWorkItemReader.FetchBatchWithLinksAsync));
+        (await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42)).ShouldNotBeNull();
+        _transport.Requests.ShouldBeEmpty();
+    }
+
     [Theory]
     [InlineData("show")]
     [InlineData("query")]
@@ -405,7 +431,9 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         var result = document.RootElement;
         result.GetProperty("localId").GetString().ShouldBe(resolution.Id.ToString());
         result.GetProperty("localRevision").GetInt64().ShouldBe(updated.Revision);
-        result.GetProperty("providerRevision").ValueKind.ShouldBe(JsonValueKind.Null);
+        var observed = (await identityMap.GetObservedTokenAsync(identity)).ShouldNotBeNull().Token.ShouldNotBeNull();
+        result.GetProperty("providerRevision").GetString().ShouldBe(observed.Value);
+        observed.Value.ShouldStartWith("github-observed:");
         result.GetProperty("providerFields").GetProperty("System.Title").GetProperty("value").GetString()
             .ShouldBe("Provider snapshot");
         result.GetProperty("fields").GetProperty("System.Title").GetProperty("value").GetString()

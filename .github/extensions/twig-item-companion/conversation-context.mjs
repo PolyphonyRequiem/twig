@@ -16,8 +16,10 @@ export async function readConversationContext({ session, itemKey, timeoutMs = 50
     try {
         const checked = (async () => {
             const snapshot = await session.rpc.metadata.snapshot();
-            if (snapshot?.sessionId !== session.sessionId || snapshot.isRemote !== false ||
-                typeof snapshot.workingDirectory !== "string") return false;
+            if (typeof snapshot?.sessionId !== "string" || !snapshot.sessionId ||
+                typeof snapshot.isRemote !== "boolean" || typeof snapshot.workingDirectory !== "string" ||
+                !snapshot.workingDirectory.trim()) return null;
+            if (snapshot.sessionId !== session.sessionId || snapshot.isRemote) return false;
             const roots = await Promise.all([realpath(snapshot.workingDirectory), realpath(itemKey.checkoutRoot)]);
             const normalize = value => process.platform === "win32" ? path.resolve(value).toLowerCase() : path.resolve(value);
             return normalize(roots[0]) === normalize(roots[1]);
@@ -25,6 +27,7 @@ export async function readConversationContext({ session, itemKey, timeoutMs = 50
         const matches = await Promise.race([checked, new Promise((_, reject) => {
             timer = setTimeout(() => reject(new Error("Metadata deadline exceeded.")), timeoutMs);
         })]);
+        if (matches === null) return { ...context, message: "Runtime session metadata is incomplete or unsupported. " + context.message };
         return { ...context, status: matches ? "current" : "mismatch",
             message: (matches ? "Runtime session and checkout match this explicit native item selection; this does not establish a conversation/item link. "
                 : "Conversation/session or checkout mismatch. This item is not a verified conversation target. ") + context.message };

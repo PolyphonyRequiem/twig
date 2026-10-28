@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { createCanvasServer } from "../canvas-server.mjs";
+import { readConversationContext } from "../conversation-context.mjs";
 
 const fixture = JSON.parse(await readFile(new URL("./fixtures/detail-v2.json", import.meta.url), "utf8"));
 const detail = id => {
@@ -105,8 +106,26 @@ test("context refresh is authenticated, explicit and read-only; arbitrary linkag
             method: "POST", headers: { Authorization: `Bearer ${h.token}`, "Content-Type": "application/json" },
             body: JSON.stringify(body),
         });
+
         assert.equal((await request({ action: "refresh", workItemId: 99, sessionId: "forged" })).status, 400);
         assert.equal((await request({ action: "refresh" })).status, 200);
         assert.deepEqual(h.reads, [42, "snapshot"]);
     } finally { await h.server.close(); }
+});
+
+test("incomplete or deadline-exceeding SDK metadata stays visibly unknown, not a mismatch or verified link", async () => {
+    for (const value of [null, {}, { ...snapshot(), isRemote: undefined }]) {
+        const h = await setup(() => value);
+        try {
+            await h.server.load(42);
+            const result = await h.server.refreshConversation();
+            assert.equal(result.status, "unknown");
+            assert.match(result.message, /incomplete|unsupported/);
+        } finally { await h.server.close(); }
+    }
+    const result = await readConversationContext({ itemKey: detail(42).itemKey, timeoutMs: 10,
+        session: { sessionId: "runtime-session", rpc: { metadata: { snapshot: () => new Promise(() => {}) } } } });
+    assert.equal(result.status, "unknown");
+    assert.match(result.message, /unavailable/);
+    assert.equal(result.navigation, "unavailable");
 });

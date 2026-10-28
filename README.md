@@ -2,7 +2,7 @@
 
 A high-performance, opinionated CLI for Azure DevOps work item management. Twig brings a git-like interaction model to ADO work tracking: fast local reads from a SQLite cache, terse commands, context-aware operations, and seamless integration with developer workflows.
 
-Built with C# .NET 10 Native AOT — single binary, sub-100ms cold start.
+Built with C# .NET 11 RC3 Native AOT — single binary, sub-100ms cold start.
 
 **Supported platforms: Windows x64 and Linux x64. macOS support is temporarily
 suspended on both Intel and Apple Silicon.** New macOS builds, qualification,
@@ -497,7 +497,7 @@ The aggregate `SHA256SUMS` file on each release lists every asset's hash; `sha25
 
 ## Build from Source
 
-Requires the SDK pinned in [`global.json`](global.json) (currently a .NET 11 preview).
+Requires the SDK pinned in [`global.json`](global.json): .NET 11 RC3 (`11.0.100-rc.3.26522.148`).
 
 ```bash
 dotnet build

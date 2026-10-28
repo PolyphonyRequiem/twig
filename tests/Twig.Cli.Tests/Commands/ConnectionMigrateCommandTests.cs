@@ -317,6 +317,74 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         _transport.WorkRequests.ShouldBe(0);
     }
 
+    [HostMigrationTheory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task InjectedHostInventoryRefusesAtEveryActivationCheckpointAndRecovers(int blockedInspection)
+    {
+        const string blocker = "legacy-host-open: synthetic host; close it before activation.";
+        var inspections = 0;
+        var blocked = true;
+        using var migration = new ConnectionMigrationService(Home, _bindings, hostInventory: () =>
+        {
+            inspections++;
+            return blocked && inspections >= blockedInspection ? [blocker] : [];
+        });
+        var original = await File.ReadAllBytesAsync(_paths.DbPath);
+        var preview = await migration.PreviewAsync(_configuration, _paths, "legacy", "aad");
+        if (blockedInspection == 1)
+        {
+            preview.CanApply.ShouldBeFalse();
+            preview.Blockers.ShouldContain(blocker);
+        }
+        else
+        {
+            preview.CanApply.ShouldBeTrue(string.Join("\n", preview.Blockers));
+            if (blockedInspection == 2)
+            {
+                var refused = await migration.ApplyAsync(_configuration, _paths, "legacy", "aad", preview.Digest);
+                refused.CanApply.ShouldBeFalse();
+                refused.Blockers.ShouldContain(blocker);
+            }
+            else
+            {
+                var refusal = await Should.ThrowAsync<InvalidOperationException>(() =>
+                    migration.ApplyAsync(_configuration, _paths, "legacy", "aad", preview.Digest));
+                refusal.Message.ShouldBe(blocker);
+            }
+        }
+        inspections.ShouldBe(blockedInspection);
+        using var registry = new SqliteSystemWorktreeRegistry(Path.Combine(Home, "system.db"), TimeProvider.System);
+        var anchor = WorktreeAnchorDetector.Detect(_paths.StartDir)!.Value;
+        var fingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
+        var stored = await registry.ReadConnectionMigrationAsync(fingerprint);
+        stored.IsSuccess.ShouldBeTrue(stored.Error);
+        if (blockedInspection == 4)
+        {
+            stored.Value.ShouldNotBeNull().State.ShouldBe("preparing");
+            Directory.Exists(_paths.DbPath).ShouldBeTrue();
+            await Should.ThrowAsync<InvalidOperationException>(() => _bindings.ResolveAsync(_configuration, _paths));
+        }
+        else
+        {
+            stored.Value.ShouldBeNull();
+            (await File.ReadAllBytesAsync(_paths.DbPath)).ShouldBe(original);
+            (await _bindings.ListBindingsAsync("fixture", "Work")).ShouldBeEmpty();
+        }
+        _transport.WorkRequests.ShouldBe(0);
+        _transport.Mutations.ShouldBe(0);
+
+        blocked = false;
+        var recovery = await migration.PreviewAsync(_configuration, _paths, "legacy", "aad");
+        recovery.CanApply.ShouldBeTrue(string.Join("\n", recovery.Blockers));
+        var applied = await migration.ApplyAsync(_configuration, _paths, "legacy", "aad", recovery.Digest);
+        applied.State.ShouldBe("active", string.Join("\n", applied.Blockers));
+        _transport.WorkRequests.ShouldBe(0);
+        _transport.Mutations.ShouldBe(0);
+    }
+
     [HostMigrationFact]
     public async Task ReplacedWrongAccountCredentialRefusesBeforeCreatingDefaultOrMovingLegacyState()
     {

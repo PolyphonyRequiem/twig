@@ -89,7 +89,8 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         await Bindings.RegisterPatIdentityAsync("sibling", Organization, SiblingPat);
         ActorBinding = await Bindings.CreateBindingAsync(Organization, Project, "actor", makeDefault: true);
         SiblingBinding = await Bindings.CreateBindingAsync(Organization, Project, "sibling", makeDefault: false);
-        _migration = new ConnectionMigrationService(Home, Bindings);
+        // This synthetic home has no external hosts; actual database/capability fencing stays real.
+        _migration = new ConnectionMigrationService(Home, Bindings, hostInventory: static () => []);
         var preview = await _migration.PreviewAsync(Configuration, Paths, "actor", null);
         preview.CanApply.ShouldBeTrue(string.Join("\n", preview.Blockers));
         var applied = await _migration.ApplyAsync(Configuration, Paths, "actor", null, preview.Digest);

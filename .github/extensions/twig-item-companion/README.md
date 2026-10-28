@@ -8,7 +8,7 @@ read Twig's SQLite files or call an ADO/GitHub API directly.
 
 Ordinary item-detail reads remain read-only. Both the companion and workbench can explicitly open a local
 draft and stage allowlisted field intent, but neither action saves, authorizes, applies,
-publishes, posts discussion, uploads/downloads attachments, or infers relationship
+publishes, posts discussion, uploads attachments, or infers relationship
 coverage. OPEN may persist local observation metadata. The CLI remains the authority
 for workspace admission, target qualification and local draft transactions. Twig must
 be available as `twig` on the extension process's `PATH`; see *Executable admission*
@@ -30,10 +30,9 @@ path, never a bare `twig` name. Reopening the same instance does not re-admit;
 a new instance does.
 
 Each canvas declares only the native capabilities it uses (item: detail, draft
-show and draft open/stage/retain/save; workbench: Bench browse/detail,
-discussion read/prepare, proposal preview/apply
-and draft open/stage/retain/save;
-review: proposal preview/apply). Before a capability's first use, the instance runs
+show and draft open/stage/retain/save; workbench: Bench browse/detail, discussion
+read and prepare, attachment reads, proposal preview/apply, and draft
+open/stage/retain/save; review: proposal preview/apply). Before a capability's first use, the instance runs
 `<command> --help` on the pinned path and requires that the usage line names that
 command and that its `Options:` section declares each flag the canvas will pass as
 an exact token. A generic or different help page, or a prefix of a required flag,
@@ -152,7 +151,6 @@ selection, and late old-target results cannot render under another selection or
 a same-item revisit.
 
 This is source integration, not installed-host or live-provider qualification.
-Discussion editing/deletion and attachments are outside the discussion read path.
 
 ## Explicit discussion posting
 
@@ -185,6 +183,36 @@ autosend, direct backend write or comment-list inference. Proposal files are
 retained for journal inspection, not automatically deleted.
 
 This is source integration, not installed-host or live-provider qualification.
+
+## Explicit human-click attachment downloads
+
+For a published cached Bench member, **Show attachments (online)** performs one
+qualified native attachment inventory read. It does not read local files or accept
+a destination path. Each returned file receives a short-lived, single-use opaque
+download handle bound to that exact selected detail; changing selection, reloading
+the Bench, closing the canvas, or letting the handle expire invalidates it.
+
+Each **Download** link is a same-origin browser navigation, not a Copilot SDK
+action or agent tool. The page refuses synthetic clicks and clicks without an
+active trusted browser user gesture. If the host exposes no browser user-activation
+API, transfers remain unavailable without breaking ordinary workbench browsing.
+The local server requires its loopback Host,
+same-origin checks and browser `Sec-Fetch-Site: same-origin` signal, then rechecks
+the qualified native item revision and attachment membership before returning the
+raw bytes. The browser handles the normal save flow and destination selection;
+Twig never chooses or writes a local path. Responses include a validated media
+type, safe `Content-Disposition` filename (including UTF-8 `filename*`), exact
+`Content-Length`, `no-store` and `nosniff`. Inventory is bounded to 2 MiB and a
+download to 16 MiB; oversized, stale, unlinked or foreign-origin responses fail
+closed.
+
+This source integration is not yet qualified in the installed Copilot iframe or
+against a live ADO attachment. The installed-host check must verify that the
+browser's normal save prompt works from the iframe. If the host blocks downloads,
+record that exact result; do not silently replace the browser-managed flow. Upload
+and readback are explicitly deferred to a second PR.
+
+Discussion editing/deletion and attachment upload remain out of scope.
 
 ## Explicit in-session handoff fallback (not host-qualified)
 

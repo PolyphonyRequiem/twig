@@ -1286,6 +1286,17 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<BenchDiscussionPostCommand>().ExecuteAsync(stdin, output, ct);
 
+    /// <summary>Read qualified Bench-member attachment inventory or stream one bounded download frame.</summary>
+    /// <param name="stdin">Read strict version 1 JSON through EOF (required, default false), at most 262144 UTF-8 bytes/depth 32.</param>
+    /// <param name="output">-o, Output format: human, minimal or JSON for inventory; human is required with framed downloads.</param>
+    /// <param name="framed">Write a bounded binary response frame for a download. No local destination is accepted.</param>
+    /// <param name="ct">Cancellation token; never changes the current item or Bench, and never writes an attachment to disk.</param>
+    [Command("bench attachments")]
+    public async Task<int> BenchAttachments(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+        bool framed = false,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<BenchAttachmentCommand>().ExecuteAsync(stdin, output, framed, ct);
+
     /// <summary>Open a shared recoverable draft using an explicit saved Bench and the native ADO form.</summary>
     /// <param name="id">Positive native ADO item ID; no active-item default or cross-provider fallback.</param>
     /// <param name="bench">Explicit saved Bench name or decimal ID; never switches the current Bench.</param>
@@ -2099,6 +2110,7 @@ internal static class GroupedHelp
         "bench detail",
         "bench discussion",
         "bench discussion prepare-post",
+        "bench attachments",
         "draft show",
         "draft open",
         "draft stage",

@@ -291,6 +291,15 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DiscussionCursor))]
 [JsonSerializable(typeof(DiscussionPostRequest))]
 [JsonSerializable(typeof(DiscussionPostPreparation))]
+[JsonSerializable(typeof(WorkItemAttachment))]
+[JsonSerializable(typeof(WorkItemAttachment[]))]
+[JsonSerializable(typeof(AttachmentReadRequest))]
+[JsonSerializable(typeof(AttachmentReadContext))]
+[JsonSerializable(typeof(AttachmentReadCapability))]
+[JsonSerializable(typeof(AttachmentReadError))]
+[JsonSerializable(typeof(AttachmentReadEntry))]
+[JsonSerializable(typeof(AttachmentReadEntry[]))]
+[JsonSerializable(typeof(AttachmentReadResult))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],

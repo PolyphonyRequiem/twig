@@ -177,8 +177,8 @@ test("canvas manifests list only the capabilities each canvas uses", () => {
         ["detail", "draft-show", "draft-open", "draft-stage", "draft-retain", "draft-save"]);
     assert.deepEqual([...CANVAS_CAPABILITIES.review], ["proposal-preview", "proposal-apply"]);
     assert.deepEqual([...CANVAS_CAPABILITIES.workbench],
-        ["workspace-browser", "bench-detail", "discussion", "discussion-prepare-post", "proposal-preview", "proposal-apply",
-            "draft-open", "draft-stage", "draft-retain", "draft-save"]);
+        ["workspace-browser", "bench-detail", "discussion", "discussion-prepare-post", "attachments",
+            "proposal-preview", "proposal-apply", "draft-open", "draft-stage", "draft-retain", "draft-save"]);
 });
 
 test("help matching requires the exact command usage and exact flag tokens", () => {

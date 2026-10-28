@@ -128,6 +128,16 @@ public static class NetworkServiceModule
             RequireAdoBoundary(sp, "discussion read boundary");
             return (IWorkItemDiscussionReader)sp.GetRequiredService<IAdoWorkItemService>();
         });
+        services.AddSingleton<IWorkItemAttachmentReader>(sp =>
+        {
+            RequireAdoBoundary(sp, "attachment read boundary");
+            var cfg = AdoConfiguration(sp);
+            return new AdoWorkItemAttachmentReader(
+                sp.GetRequiredService<IAuthenticationProvider>(),
+                cfg.Organization,
+                cfg.Project,
+                sp.GetRequiredService<AdoConcurrencyThrottle>());
+        });
         services.AddSingleton<IWorkItemDiscussionWriter>(sp =>
         {
             RequireAdoBoundary(sp, "discussion write boundary");

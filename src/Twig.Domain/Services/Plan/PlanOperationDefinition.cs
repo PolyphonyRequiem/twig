@@ -164,12 +164,11 @@ public sealed record ProviderWorkItemMutationTarget
 }
 
 /// <summary>
-/// Version 2 mutation intent. It is parseable and reviewable, but the current executor
-/// refuses it before authorization or journal access.
+/// Version 2 mutation intent. Execution depends on the selected provider's fixed capabilities.
 /// </summary>
 public sealed record ProviderMutationOperation : PlanOperationDefinition
 {
-    /// <summary>Exact revision protection by default; links may explicitly opt into observed non-atomic execution.</summary>
+    /// <summary>Exact revision protection by default; supported GitHub effects must explicitly opt into observed non-atomic execution.</summary>
     public string Concurrency { get; init; } = "exact-revision";
 
     /// <summary>The supported field, link or delete operation kind.</summary>
@@ -189,4 +188,26 @@ public sealed record ProviderMutationOperation : PlanOperationDefinition
 
     /// <summary>Field changes; present only for batch operations.</summary>
     public IReadOnlyDictionary<string, string?>? Fields { get; init; }
+}
+
+/// <summary>
+/// Version 2 issue creation. The immutable creation identity fences an ambiguous attempt
+/// across proposal digests; it is not a predicted provider identity or an idempotency key.
+/// </summary>
+internal sealed record ProviderCreateOperation : PlanOperationDefinition
+{
+    /// <inheritdoc/>
+    public override PlanOperationKind Kind => PlanOperationKind.Create;
+
+    /// <summary>A caller-generated UUID retained across revisions of this creation intent.</summary>
+    public required Guid CreationId { get; init; }
+
+    /// <summary>The explicitly accepted concurrency mode.</summary>
+    public required string Concurrency { get; init; }
+
+    /// <summary>Immutable provider destination, not a repository locator.</summary>
+    public required ProviderTargetIdentity Destination { get; init; }
+
+    /// <summary>Fixed provider-supported initial fields.</summary>
+    public required IReadOnlyDictionary<string, string?> Fields { get; init; }
 }

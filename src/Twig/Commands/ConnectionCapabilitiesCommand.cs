@@ -123,6 +123,8 @@ internal sealed class ConnectionCapabilitiesCommand(
         {
             foreach (var entry in report.Relationships)
                 nodes.Add(new RenderNode.Text(string.Join('\t', Cells(entry))));
+            foreach (var operation in report.ProposalOperations)
+                nodes.Add(new RenderNode.Text($"proposal:{operation}\t{report.ProposalConcurrency}\tnone\tunknown\tnot-probed"));
             if (schema is not null)
             {
                 foreach (var row in SchemaRows(schema))
@@ -138,6 +140,12 @@ internal sealed class ConnectionCapabilitiesCommand(
                 var storage = entry.Storage == EmulationStorage.None ? string.Empty : $" storage={cells[2]}";
                 var reason = entry.ReasonCode is null ? string.Empty : $" ({entry.ReasonCode})";
                 nodes.Add(new RenderNode.Text($"  {cells[0],-22} {cells[1],-12}{storage} availability={cells[3]}{reason}"));
+            }
+            if (report.ProposalOperations.Count > 0)
+            {
+                nodes.Add(new RenderNode.Text($"Proposal mutations: {report.ProposalConcurrency}; availability=unknown (not-probed)"));
+                foreach (var operation in report.ProposalOperations)
+                    nodes.Add(new RenderNode.Text($"  {operation}"));
             }
             if (schema is not null)
             {
@@ -205,6 +213,18 @@ internal sealed class ConnectionCapabilitiesCommand(
             }
 
             writer.WriteEndArray();
+            if (report.ProposalOperations.Count > 0)
+            {
+                writer.WriteStartObject("proposals");
+                writer.WriteString("concurrency", report.ProposalConcurrency);
+                writer.WriteString("availability", "unknown");
+                writer.WriteString("reason", "not-probed");
+                writer.WriteStartArray("operations");
+                foreach (var operation in report.ProposalOperations)
+                    writer.WriteStringValue(operation);
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
             if (schema is not null)
                 WriteSchema(writer, schema);
             writer.WriteEndObject();

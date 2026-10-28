@@ -24,4 +24,7 @@ public enum PlanOperationKind
 
     /// <summary>Append one bounded discussion comment under an explicitly selected saved Bench.</summary>
     AppendComment,
+
+    /// <summary>Create one provider-native issue under a durable, non-replayable creation identity.</summary>
+    Create,
 }

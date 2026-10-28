@@ -633,6 +633,11 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         }
         switch (canonical)
         {
+            case ProviderCreateOperation cc when supplied is ProviderCreateOperation sc:
+                if (cc.CreationId != sc.CreationId || cc.Destination != sc.Destination
+                    || cc.Concurrency != sc.Concurrency || !AreFieldsEqual(cc.Fields, sc.Fields, out _))
+                { mismatch = "provider creation intent"; return false; }
+                break;
             case ProviderMutationOperation cp when supplied is ProviderMutationOperation sp:
                 if (cp.OperationKind != sp.OperationKind) { mismatch = "operationKind"; return false; }
                 if (cp.Target != sp.Target) { mismatch = "provider target or expected token"; return false; }

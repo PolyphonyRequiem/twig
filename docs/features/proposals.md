@@ -4,8 +4,9 @@ The change-proposal path is how an author's intent becomes a reviewed,
 journal-tracked work-item mutation. A **proposal** is an immutable JSON declaration
 identified by the SHA-256 digest of its canonical bytes. Version 1 retains the
 existing ADO mutation lifecycle `validate → preview → apply --confirm <digest>`.
-Version 2 adds provider-qualified identities and opaque provider revision
-tokens, but is currently validation- and review-only; it cannot be applied.
+Version 2 adds provider-qualified identities and opaque provider observation
+tokens. Supported GitHub operations can be applied only with explicit
+`observed-non-atomic` concurrency; unsupported shapes remain review-only.
 
 This page is the concept map. For flags, exit tables, and per-command output
 shapes see the [plans command group](../commands/plans/README.md).
@@ -74,18 +75,97 @@ the external identity keeps provider kind, stable resource scope, and opaque
 native ID separate. The provider token is preserved as an opaque string and
 belongs only to the mutation target. A v2 link's `other` endpoint uses the same
 local/provider identity pair but carries no mutation token. The supported v2
-operation kinds are `batch`, `add-link`, `remove-link`, and `delete`;
+operation kinds are `batch`, `add-link`, `remove-link`, `delete`, and `create`;
 `publish-seed` remains a v1-only operation.
 
 These fields describe proposal identity and the expected token, not proof that a
-provider offers atomic conditional mutation. The current lifecycle deliberately
-does not import v2 into the journal or execute it: preview returns the complete
-identity-aware review with `canApply=false` and a
-`plan.unsupported_apply_version` blocker, and apply refuses immediately after
-parsing a valid document, before checking the confirmation digest. That refusal
-precedes journal access or mutation, pending-state reads, and provider calls.
-Consequently, version 2 cannot inherit v1 integer identities or v1 execution
-semantics by conversion, and no existing v1 document or digest is rewritten.
+provider offers atomic conditional mutation. Supported GitHub v2 proposals use
+the same digest confirmation, pending-change refusal, per-operation journal
+and native readback lifecycle as ADO. Every operation must explicitly declare
+`"concurrency": "observed-non-atomic"`. Other providers, default
+`exact-revision`, delete, related links and unsupported fields remain blocked
+before journal import. No v1 integer identity or revision is synthesized.
+
+### GitHub writes and concurrency
+
+`twig connection capabilities -o json` reports the fixed proposal operations
+and their concurrency mode. Availability remains `unknown` / `not-probed`:
+neither a declaration nor successful read proves write permission. Both selected
+`github-app` and explicitly selected `gh` credentials use captured actor and
+immutable repository/owner identity; there is no fallback between sources.
+Direct legacy integer-ID mutation commands remain unavailable for GitHub.
+`GitHubReadOnlyAuthHandler` still refuses mutations.
+
+A `batch` supports `System.Title`, `System.Description` (native Markdown),
+`System.State` (`OPEN` or `CLOSED`), and `github.milestoneId` (native milestone
+ID, or null to clear). These scalar changes share one `updateIssue` request.
+Collection changes are **discrete**: `github.labels.add`,
+`github.labels.remove`, `github.assignees.add`, or
+`github.assignees.remove`, each with one native label or user ID. Put each
+collection effect in its own batch operation; whole-list replacement and mixing
+collection/scalar effects are refused. Label and milestone resources must
+belong to the bound repository. Parent, predecessor and successor links use
+native relationships, not comments or local-only stand-ins.
+
+Before each attempt Twig reattests the original actor, attachment and target,
+then compares a fresh native snapshot (including `updatedAt`, field values and
+relationships) with the authored observation token. A stale snapshot refuses
+the write. Only intended fields or the single discrete relationship/collection
+effect are sent, with one attempt and no redirect or blind retry. GitHub does
+**not** document generic conditional unsafe requests for issue mutations:
+Twig does not claim `If-Match`, server CAS or an edit lock. Another web or API
+client can write between preflight and mutation. Readback proves currently
+observed effects, **not** absence of overwritten interleaving. The explicit
+mode remains visible in review and journal evidence.
+
+Creation uses a different v2 operation because no issue identity exists yet:
+
+```json
+{
+  "version": 2,
+  "workspace": { "organization": "github.com", "project": "owner/repo" },
+  "operations": [{
+    "id": "create-issue",
+    "kind": "create",
+    "creationId": "018f3f5a-6b7c-7d8e-9f01-234567890abc",
+    "concurrency": "observed-non-atomic",
+    "destination": {
+      "providerKind": "github",
+      "resourceScope": "https://api.github.com",
+      "descriptorKind": "github.repository-owner/v1",
+      "descriptorValue": "[\"O_owner\",\"R_repo\"]"
+    },
+    "fields": {
+      "System.Title": "Example issue",
+      "System.Description": "Native Markdown body."
+    }
+  }]
+}
+```
+
+These are synthetic IDs; use the actual immutable destination from explicit
+provider discovery/binding. Generate a fresh non-empty UUID for a genuinely new
+creation intent, retaining it across edits and digest changes. Create supports
+only title and optional Markdown body. Other effects require subsequent
+provider-qualified proposals after the positive identity is known.
+
+Before POST, a creation fence is flushed to
+`.twig/github-create-fences/<creationId>.json`. This is a local cooperating-writer
+fence, **not** GitHub idempotency or a lock excluding web/third-party clients.
+An acknowledgment's native issue ID is retained in the fence and journal;
+native readback verifies initial fields and records its durable Twig identity.
+Crash recovery with that identity is read-only. A lost acknowledgment with no
+attributable identity stays **Indeterminate**; a matching title is never
+identity evidence. Reapplying or revising the same creation UUID never repeats
+POST. Preserve the original journal and fence; do not delete the fence, switch
+workspaces or generate another UUID to retry an unknown creation.
+Automatic provider-native outcome settlement is not available when the native
+identity was never acknowledged.
+
+Operations are not a transaction. A verified prefix remains committed if a
+later preflight, mutation or readback fails; the untouched tail is not executed.
+Observe `proposal status` and each row rather than treating a failed exit as
+proof that nothing changed.
 
 ## The lifecycle
 

@@ -56,6 +56,28 @@ public static class PlanDocumentWriter
 
     private static void WriteOperation(Utf8JsonWriter writer, PlanOperationDefinition op, int version)
     {
+        if (op is ProviderCreateOperation create)
+        {
+            if (version != 2)
+                throw new InvalidOperationException("Provider creation requires plan version 2.");
+            writer.WriteStartObject();
+            writer.WriteString("id", create.Id);
+            writer.WriteString("kind", "create");
+            writer.WriteString("creationId", create.CreationId);
+            writer.WriteString("concurrency", create.Concurrency);
+            writer.WriteStartObject("destination");
+            writer.WriteString("providerKind", create.Destination.ProviderKind);
+            writer.WriteString("resourceScope", create.Destination.ResourceScope);
+            writer.WriteString("descriptorKind", create.Destination.DescriptorKind);
+            writer.WriteString("descriptorValue", create.Destination.DescriptorValue);
+            writer.WriteEndObject();
+            writer.WriteStartObject("fields");
+            foreach (var (field, value) in create.Fields)
+                writer.WriteString(field, value);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+            return;
+        }
         if (op is ProviderMutationOperation providerOperation)
         {
             if (version != 2)
@@ -143,6 +165,8 @@ public static class PlanDocumentWriter
                     else writer.WriteString(field, value);
                 }
                 writer.WriteEndObject();
+                if (op.Concurrency != "exact-revision")
+                    writer.WriteString("concurrency", op.Concurrency);
                 break;
             case PlanOperationKind.AddLink or PlanOperationKind.RemoveLink
                 when op.Relation is not null && op.Other is not null && op.Fields is null:
@@ -194,6 +218,7 @@ public static class PlanDocumentWriter
         PlanOperationKind.PublishSeed => "publish-seed",
         PlanOperationKind.Delete => "delete",
         PlanOperationKind.AppendComment => "append-comment",
+        PlanOperationKind.Create => "create",
         _ => throw new NotSupportedException($"Unknown plan operation kind '{kind}'."),
     };
 }

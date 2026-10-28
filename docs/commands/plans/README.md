@@ -91,7 +91,7 @@ and `operations` are root properties; operations are ordered and nonempty.
 Unknown/duplicate properties, unsupported versions/kinds and invalid values are
 rejected. Version 1 supports `batch`, `add-link`, `remove-link`, `publish-seed`,
 `delete`, and `append-comment`. Version 2 supports provider-bound `batch`,
-`add-link`, `remove-link` and `delete`; `publish-seed` and `append-comment`
+`add-link`, `remove-link`, `delete` and `create`; `publish-seed` and `append-comment`
 remain version 1 only. Pending-note queue entries, artifacts, branch links,
 composite reparent operations and model-authored lifecycle state do not belong in
 this file. Use the explicit `append-comment` operation for a proposal-bound
@@ -202,9 +202,12 @@ Unknown/in-flight outcomes, active leases, missing evidence and mismatches stay 
 the historical `state` is never rewritten as `Verified`. Unknown legacy origin
 cannot silently adopt the current actor. A fresh proposal requires fresh operation
 identities and current preview/digest confirmation. Plan JSON v1 supports six operation kinds, including `append-comment`. Version 2 uses provider-qualified identities and opaque
-provider revision tokens for batch/link/delete proposals, but remains review-only:
-preview does not journal it and apply refuses it before journal or provider
-access. Reconciliation is a separate native action.
+provider observation tokens for batch/link/delete proposals and immutable
+destinations for create. Supported GitHub effects explicitly choosing
+`observed-non-atomic` concurrency use the shared digest/journal/readback lifecycle;
+unsupported shapes remain review-only. See [GitHub writes and concurrency](../../features/proposals.md#github-writes-and-concurrency).
+Reconciliation is a separate native action; unknown GitHub creation with no
+acknowledged native identity remains fenced and Indeterminate.
 
 The MCP equivalent is `twig_proposal_reconcile`, including batch dispatch. It requires
 `confirmed: true`, separate confirmed/authorization digests, an operation, outcome,

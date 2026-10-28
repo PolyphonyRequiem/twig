@@ -56,6 +56,16 @@ public sealed class ConnectionCapabilitiesCommandTests
         exit.ShouldBe(0);
         var kinds = ByKind(output, out var provider);
         provider.ShouldBe("github");
+        using var document = JsonDocument.Parse(output);
+        var proposals = document.RootElement.GetProperty("proposals");
+        proposals.GetProperty("concurrency").GetString().ShouldBe("observed-non-atomic");
+        proposals.GetProperty("availability").GetString().ShouldBe("unknown");
+        proposals.GetProperty("operations").EnumerateArray().Select(e => e.GetString())
+            .ShouldContain("create");
+        proposals.GetProperty("operations").EnumerateArray().Select(e => e.GetString())
+            .ShouldContain("batch:github.labels.add");
+        proposals.GetProperty("operations").EnumerateArray().Select(e => e.GetString())
+            .ShouldNotContain("delete");
         kinds.Keys.ShouldBe(["parent-child", "predecessor-successor", "related"], ignoreOrder: true);
         kinds["parent-child"].GetProperty("implementation").GetString().ShouldBe("native");
         kinds["predecessor-successor"].GetProperty("implementation").GetString().ShouldBe("native");
@@ -239,7 +249,7 @@ public sealed class ConnectionCapabilitiesCommandTests
     }
 
     [Fact]
-    public async Task Minimal_EmitsOneTabSeparatedLinePerKind()
+    public async Task Minimal_EmitsRelationshipAndExplicitProposalRows()
     {
         var (exit, output) = await StdoutCapture.RunAsync(
             () => CreateCommand(() => Provider(ProviderCapabilityCatalog.GitHub)).ExecuteAsync("minimal"));
@@ -247,7 +257,9 @@ public sealed class ConnectionCapabilitiesCommandTests
         exit.ShouldBe(0);
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         lines.ShouldContain("related\tunsupported\tnone\tunknown\tnot-probed");
-        lines.Count(l => l.Contains('\t')).ShouldBe(3);
+        lines.Count(l => l.Contains('\t') && !l.StartsWith("proposal:", StringComparison.Ordinal)).ShouldBe(3);
+        lines.Count(l => l.StartsWith("proposal:", StringComparison.Ordinal)).ShouldBe(15);
+        lines.ShouldContain("proposal:create\tobserved-non-atomic\tnone\tunknown\tnot-probed");
     }
 
     [Fact]

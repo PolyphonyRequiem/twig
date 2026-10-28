@@ -23,6 +23,11 @@ internal sealed record ProviderCapabilityDescriptor
 
     public IReadOnlyList<RelationshipCapability> Relationships { get; }
 
+    /// <summary>Fixed proposal effects implemented by this adapter; not live permission evidence.</summary>
+    public IReadOnlyList<string> ProposalOperations { get; init; } = [];
+
+    public string? ProposalConcurrency { get; init; }
+
     public ProviderCapabilityDescriptor(string providerKind, IReadOnlyList<RelationshipCapability> relationships)
     {
         ArgumentNullException.ThrowIfNull(relationships);
@@ -97,6 +102,8 @@ internal sealed record CapabilityReportEntry(
 /// </summary>
 internal sealed record CapabilityReport(string ProviderKind, IReadOnlyList<CapabilityReportEntry> Relationships)
 {
+    public IReadOnlyList<string> ProposalOperations { get; init; } = [];
+    public string? ProposalConcurrency { get; init; }
     public const string NotProbedReason = "not-probed";
 
     public static CapabilityReport Create(
@@ -121,6 +128,10 @@ internal sealed record CapabilityReport(string ProviderKind, IReadOnlyList<Capab
                 : new CapabilityReportEntry(capability.Kind, capability.Implementation, capability.Storage, CapabilityAvailability.Unknown, NotProbedReason))
             .ToArray();
 
-        return new CapabilityReport(descriptor.ProviderKind, entries);
+        return new CapabilityReport(descriptor.ProviderKind, entries)
+        {
+            ProposalOperations = descriptor.ProposalOperations,
+            ProposalConcurrency = descriptor.ProposalConcurrency,
+        };
     }
 }

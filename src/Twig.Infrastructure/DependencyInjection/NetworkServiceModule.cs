@@ -104,7 +104,7 @@ public static class NetworkServiceModule
             AdoConfiguration(sp);
             return (IWorkItemProvider)sp.GetRequiredService<IAdoWorkItemService>();
         });
-        AddGitHubReadOnlyProvider(services, config);
+        AddGitHubProvider(services, config);
 
         // IRevisionBoundAdoWorkItemService and IAdoAssignedIdentityReader alias the
         // same AdoRestClient instance so interface-segregated consumers (plan
@@ -136,7 +136,9 @@ public static class NetworkServiceModule
         // Feature #1178: the provider mutation boundary that update, state, note, link, patch,
         // edit, batch, the pending-change flusher and proposal apply resolve. Same ordering
         // as the read boundary: a non-ADO workspace refuses here, before any ADO client exists.
-        // GitHub stays read-only — no non-ADO writer is registered until #1183.
+        // Legacy integer-ID mutation commands stay closed for GitHub. Its native proposal
+        // executor (#1183) uses neutral identities and explicit observed-non-atomic effects,
+        // not this contract's exact-revision promise.
         // The ADO adapter owns the opaque-revision precondition check, so a foreign or
         // non-canonical token is refused before any ADO call (#1178 AC (a)).
         services.AddSingleton<IProviderWorkItemWriter>(sp =>
@@ -261,7 +263,7 @@ public static class NetworkServiceModule
     /// is actually requested. The snapshot reader is registered only for an explicit
     /// <c>provider=github</c> workspace.
     /// </summary>
-    private static void AddGitHubReadOnlyProvider(IServiceCollection services, TwigConfiguration config)
+    private static void AddGitHubProvider(IServiceCollection services, TwigConfiguration config)
     {
         services.TryAddSingleton<IBoundedProcessRunner, BoundedProcessRunner>();
         services.TryAddSingleton(sp => GitHubScope(sp.GetRequiredService<TwigConfiguration>()));
@@ -275,7 +277,7 @@ public static class NetworkServiceModule
                 sp.GetService<GitHubTransportOverride>()?.CreateHandler()), scope);
         });
         services.TryAddSingleton<GitHubBoundTargetResolver>();
-        services.TryAddSingleton(sp => new GitHubNativeRelationshipService(
+        services.TryAddSingleton(sp => new GitHubNativeMutationService(
             sp.GetRequiredService<IGitHubTokenSource>(),
             sp.GetRequiredService<GitHubBoundTargetResolver>(),
             sp.GetRequiredService<GitHubWorkspaceScope>(),

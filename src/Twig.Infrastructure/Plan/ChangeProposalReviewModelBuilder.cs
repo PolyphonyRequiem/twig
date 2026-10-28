@@ -352,6 +352,23 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                     ],
                 };
 
+            case ProviderCreateOperation create:
+                return new ReviewOperation
+                {
+                    Ordinal = ordinal, OpId = create.Id, Kind = "create", Target = new ReviewTarget(),
+                    Summary = $"Create GitHub issue at {create.Destination.ResourceScope} {create.Destination.DescriptorValue} "
+                        + "(non-atomic; ambiguous creation is fenced, never retried)",
+                    Preconditions =
+                    [
+                        new ReviewPrecondition { Kind = "creationId", Value = create.CreationId.ToString("D") },
+                        new ReviewPrecondition { Kind = "concurrency", Value = create.Concurrency },
+                    ],
+                    Consequences = create.Fields.Select(pair => new ReviewConsequence
+                    {
+                        Kind = "field-set", Field = pair.Key, To = pair.Value,
+                    }).ToArray(),
+                };
+
             case ProviderMutationOperation provider:
                 {
                     var item = provider.Target.Item;

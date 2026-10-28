@@ -47,8 +47,8 @@ distinct shapes and the exit code discriminates between them
 2. **Valid digest, no journal.** The lifecycle service returns `null` and
    the command emits a `proposalStatusNotFound` document
    (`src/Twig/Commands/PlanCommand.cs:154-158`). Exit 1 — the file parsed
-   cleanly but has no imported journal row. Version 2 previews intentionally
-   do not import one.
+   cleanly but has no imported journal row. Unsupported version 2 previews
+   intentionally do not import one; supported GitHub proposals do.
 3. **Input error.** The lifecycle service returns a non-null result with
    `Found=false` and `Issues` populated (path outside workspace, unreadable
    file, invalid JSON, workspace mismatch). Exit 2.

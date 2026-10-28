@@ -3,17 +3,17 @@ command: proposal apply
 group: plans
 summary: Apply a proposal after digest confirmation.
 stability: stable
-mutates: ado
+mutates: provider
 ---
 
 # `twig proposal apply`
 
-The only command in the plans group that writes to Azure DevOps. Apply
-consumes executable proposal v1 files, verifies the caller-supplied digest
+The command in the plans group that writes to the selected provider. Apply
+consumes executable ADO v1 or supported GitHub v2 files, verifies the caller-supplied digest
 matches the current file digest exactly, and then runs each declared operation
-as a journalled row. A valid
-v2 proposal is refused before checking the supplied confirmation digest,
-journal access, pending-state reads, or provider calls.
+as a journalled row. Unsupported v2 shapes remain refused before journal
+access or mutation. See [GitHub writes and concurrency](../../features/proposals.md#github-writes-and-concurrency)
+for fixed operations, immutable destinations and creation fencing.
 
 ## Synopsis
 
@@ -48,10 +48,14 @@ the operation journal is confirmed or any provider mutation runs.
 - **Digest is a hard gate.** `--confirm` is required at the command layer;
   a mismatch against the current file digest is a lifecycle failure — you
   must re-preview (which recomputes the digest) and pass the new value.
-- **Version 2 is not executable.** Regardless of the supplied confirmation
-  digest, the lifecycle refuses it before digest comparison, journal lookup or mutation,
-  pending-state inspection, or provider access. No v1
-  integer identity or revision is synthesized.
+- **Version 2 is provider-specific.** Supported GitHub effects require explicit
+  `observed-non-atomic` concurrency, unchanged native observation, target and actor.
+  Exact-revision defaults and unsupported effects remain blocked; no v1
+  integer identity or revision is synthesized. Single-attempt native readback
+  does not prove absence of concurrent overwritten edits.
+- **GitHub creation is never blindly replayed.** The durable creation UUID fence
+  survives digest changes. Without an acknowledged native identity, ambiguous
+  creation remains Indeterminate; keep the fence and journal.
 - **Digest confirmation is required.** A digest mismatch returns exit 1;
   pass the exact digest from the preview of the current proposal.
 - **Review-page Apply remains human-only.** The browser review page's explicit

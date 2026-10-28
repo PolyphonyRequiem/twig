@@ -10,7 +10,8 @@ mutates: none
 
 Read-only check that a version 1 or 2 proposal JSON file parses, canonicalizes,
 and reports a stable SHA-256 digest. Version 1 retains its existing ADO
-execution contract; version 2 is provider-identity-aware but review-only.
+execution contract; version 2 is provider-identity-aware, with execution
+limited to [supported GitHub effects](../../features/proposals.md#github-writes-and-concurrency).
 `validate` never talks to a provider and never touches the journal.
 
 ## Synopsis
@@ -49,8 +50,8 @@ Behaviors worth naming:
   error (`src/Twig/Commands/PlanCommand.cs:193-207`).
 - **Digest is stable.** The digest returned here is byte-identical to the one
   `proposal preview` reports and the one `proposal apply --confirm` requires.
-  Version 2 has its own canonical digest and cannot be applied by the current
-  lifecycle; validation does not imply execution support.
+  Version 2 has its own canonical digest; validation alone does not imply
+  execution support, write permission or provider concurrency guarantees.
 
 ### Authoring from installed help
 

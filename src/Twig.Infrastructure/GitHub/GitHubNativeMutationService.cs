@@ -12,10 +12,10 @@ using Twig.Infrastructure.Serialization;
 namespace Twig.Infrastructure.GitHub;
 
 /// <summary>
-/// Executes only reviewed native relationship shapes. Observation equality is a preflight
+/// Executes only reviewed, fixed native mutation shapes. Observation equality is a preflight
 /// check, not GitHub CAS; authorization and crash recovery belong to the proposal journal.
 /// </summary>
-internal sealed class GitHubNativeRelationshipService(
+internal sealed partial class GitHubNativeMutationService(
     IGitHubTokenSource credentials,
     GitHubBoundTargetResolver targets,
     GitHubWorkspaceScope scope,
@@ -27,13 +27,18 @@ internal sealed class GitHubNativeRelationshipService(
     string credentialSource = "gh") : IPlanOriginProvider
 {
     internal static bool Supports(PlanOperationDefinition operation) =>
-        operation is ProviderMutationOperation
+        operation is ProviderCreateOperation create && ValidCreate(create)
+        || operation is ProviderMutationOperation batch && ValidBatch(batch)
+        || operation is ProviderMutationOperation
         {
             Concurrency: "observed-non-atomic",
             OperationKind: PlanOperationKind.AddLink or PlanOperationKind.RemoveLink,
             Relation: "parent" or "predecessor" or "successor",
             Other: not null, Fields: null,
-        };
+            Target.Item.ExternalIdentity.ProviderKind: "github",
+            Other.ExternalIdentity.ProviderKind: "github",
+        } relationship
+        && relationship.Target.Item.ExternalIdentity.ResourceScope == relationship.Other.ExternalIdentity.ResourceScope;
 
     public async Task<PlanOrigin> GetOriginAsync(CancellationToken ct = default)
     {
@@ -44,9 +49,11 @@ internal sealed class GitHubNativeRelationshipService(
     internal async Task<PlanExecutionResult> ExecuteAsync(
         ProviderMutationOperation operation, PlanOrigin? expectedOrigin, CancellationToken ct)
     {
-        if (credentialSource != "gh")
+        if (credentialSource is not ("gh" or "github-app"))
             return PlanExecutionResult.Failure(
-                "Native GitHub writes are unavailable for this credential source; read-only admission is unchanged.");
+                "Native GitHub writes are unavailable for this explicit credential source; no alternate source was used.");
+        if (operation.OperationKind == PlanOperationKind.Batch)
+            return await ExecuteBatchAsync(operation, expectedOrigin, ct).ConfigureAwait(false);
         if (!Supports(operation))
             return PlanExecutionResult.Failure(
                 "GitHub relationships require explicit observed-non-atomic concurrency; exact-revision writes are unavailable.");
@@ -74,7 +81,7 @@ internal sealed class GitHubNativeRelationshipService(
                 // Peer membership is checked first so the final native read is the token preflight.
                 await session.Reads.FetchSnapshotAsync(operation.Other!.ExternalIdentity, ct).ConfigureAwait(false);
                 var before = await session.Reads.FetchSnapshotAsync(operation.Target.Item.ExternalIdentity, ct).ConfigureAwait(false);
-                if (before.RevisionToken != operation.Target.ExpectedProviderRevision)
+                if (!HasNativeObservation(before) || before.RevisionToken != operation.Target.ExpectedProviderRevision)
                     return PlanExecutionResult.Failure("Observed item token changed; no write attempted. Review a fresh proposal.");
                 await targets.ValidateCapturedSessionAsync(session.Reads.Target, ct).ConfigureAwait(false);
             }
@@ -126,6 +133,8 @@ internal sealed class GitHubNativeRelationshipService(
     {
         if (!Supports(operation))
             return PlanReadbackOutcome.Indeterminate("Unsupported native relationship readback.");
+        if (operation.OperationKind == PlanOperationKind.Batch)
+            return await ReadbackBatchAsync(operation, expectedOrigin, ct).ConfigureAwait(false);
         try
         {
             using var session = await CaptureAsync(ct).ConfigureAwait(false);
@@ -135,7 +144,8 @@ internal sealed class GitHubNativeRelationshipService(
             var peer = await session.Reads.FetchSnapshotAsync(operation.Other!.ExternalIdentity, ct).ConfigureAwait(false);
             var edge = ExpectedEdge(operation);
             var expectedPresence = operation.OperationKind == PlanOperationKind.AddLink;
-            if (!item.RelationshipsComplete || !peer.RelationshipsComplete)
+            if (!HasNativeObservation(item) || !HasNativeObservation(peer)
+                || !item.RelationshipsComplete || !peer.RelationshipsComplete)
                 return PlanReadbackOutcome.Indeterminate("Native relationship readback is incomplete.");
             if (item.Relationships.Contains(edge) != expectedPresence
                 || peer.Relationships.Contains(edge) != expectedPresence)
@@ -154,7 +164,7 @@ internal sealed class GitHubNativeRelationshipService(
         if (await identities.FindAsync(item.ExternalIdentity, ct).ConfigureAwait(false) != item.LocalId)
             throw new InvalidOperationException("The provider endpoint no longer matches its durable local identity.");
         if (await localItems.GetAsync(item.LocalId, ct).ConfigureAwait(false) is not { IsDeleted: false })
-            throw new InvalidOperationException("A native relationship requires two existing live local identities.");
+            throw new InvalidOperationException("A native mutation requires an existing live local identity.");
     }
 
     private PlanOrigin Origin(GitHubCapturedReadSession session) => new(

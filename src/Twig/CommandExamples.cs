@@ -611,8 +611,8 @@ internal static class CommandExamples
         ],
         ["connection capabilities"] =
         [
-            "twig connection capabilities                 Show how the active provider implements each relationship kind",
-            "twig connection capabilities --output json   Emit implementation, storage and availability per kind for agents",
+            "twig connection capabilities                 Show relationship and fixed proposal mutation capabilities",
+            "twig connection capabilities --output json   Emit declarations and availability; GitHub writes require observed-non-atomic proposals",
             "twig connection capabilities --github-schema -o json   Discover GitHub schema support without repository value catalogs",
         ],
         ["provider discover github"] =
@@ -689,7 +689,7 @@ internal static class CommandExamples
         ],
         ["proposal validate"] =
         [
-            "twig proposal validate --file proposal.json    Validate a proposal v1 file. No ADO calls.",
+            "twig proposal validate --file proposal.json    Validate a proposal v1 or v2 file. No provider calls.",
             "twig proposal validate --file proposal.json --output json    Validate and emit issues/digest as JSON.",
         ],
         ["policy assess"] =

@@ -44,7 +44,7 @@ public sealed class PlanCommand(
     private readonly TextWriter _stdout = stdout ?? Console.Out;
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
-    /// <summary>Validate a plan v1 file. No ADO mutation. Exit 0 valid, 1 invalid, 2 usage.</summary>
+    /// <summary>Validate a v1 or v2 proposal without provider calls. Exit 0 valid, 1 invalid, 2 usage.</summary>
     public async Task<int> ValidateAsync(string? file, string outputFormat, CancellationToken ct)
     {
         if (!TryRequireFile(file, out var resolved, out var usageError))

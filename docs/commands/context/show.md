@@ -42,6 +42,7 @@ provider snapshot or active provider identity.
 
 ```
 twig show [<id>] [--tree] [--refresh] [--output <format>]
+twig show --id <id> [--tree] [--refresh] [--output <format>]
 twig show --local-id <guid> --output json
 ```
 
@@ -49,7 +50,7 @@ twig show --local-id <guid> --output json
 
 | Argument | Required | Description |
 |---|---|---|
-| `id` | no | Work item ID to display. Omit to show the active work item selected with [`twig set`](./set.md). |
+| `id` | structured reads | Work item ID, supplied positionally or with `--id`. Only human output may omit it to show the active item selected with [`twig set`](./set.md). |
 
 ## Flags
 
@@ -57,6 +58,7 @@ twig show --local-id <guid> --output json
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
+| `--id` | integer | none | Named twin of the positional ID. Conflicting targets are refused. |
 | `-o`, `--output` | `human` \| `json` \| `json-full` \| `json-compact` \| `minimal` | `human` | Output format. |
 | `--tree` | bool | `false` | Render the parent chain + children as a tree instead of the detail card. |
 | `--refresh` | bool | `false` | Sync the item and its links from ADO before rendering. |
@@ -70,7 +72,8 @@ twig show --local-id <guid> --output json
   fetches the item and its links through the protected, pull-only sync path;
   no active item is needed. Without `--refresh`, a miss exits `1` and
   suggests `twig show <id> --refresh`, not a context-changing `set`.
-- **No ID.** The active work item comes from `IContextStore`. Missing
+- **No ID.** Structured output exits `2` before workspace resolution and asks for an
+  explicit target. Human output still reads the active work item from `IContextStore`. Missing
   context prints a branch‑detection hint and exits `1`
   (`ShowCommand.ExecuteCoreAsync`).
 - **Cache‑only by default (wayfinder 0004 §3).** Without `--refresh` no
@@ -169,8 +172,9 @@ $ twig show --local-id <guid> --output json
 | Condition | Result |
 |---|---|
 | Item rendered | `0` |
+| Structured output without an explicit target, or conflicting targets | `2` |
 | ID not present in local cache and refresh not requested | `1` |
-| No active work item set and no ID given | `1` |
+| Human output with no active work item set and no ID given | `1` |
 | Item inaccessible, or machine refresh failed/incomplete | `1` |
 | Tree rendering requested but service unavailable | `1` |
 

@@ -1,4 +1,5 @@
 #nullable enable
+Twig.Domain.Services.Workspace.WorkingSetService.ComputeScopedAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>? iterationPaths, System.Threading.CancellationToken ct, bool includeActiveContext) -> System.Threading.Tasks.Task<Twig.Domain.Services.Workspace.WorkingSet!>!
 Twig.Domain.Services.Plan.PlanOperationKind.Create = 6 -> Twig.Domain.Services.Plan.PlanOperationKind
 Twig.Domain.Services.Plan.ProviderMutationOperation.Concurrency.get -> string!
 Twig.Domain.Services.Plan.ProviderMutationOperation.Concurrency.init -> void

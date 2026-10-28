@@ -79,6 +79,38 @@ jobs:
       - name: Explicit Save command production composition regression
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~DraftSaveCommandTests" --logger "trx;LogFileName=explicit-save.trx" --results-directory artifacts/test-logs/ci/explicit-save
 
+      - name: Structured read scope and human compatibility regression
+        shell: python
+        run: |
+          import pathlib, subprocess, sys
+          base = pathlib.Path("artifacts/test-logs/ci/structured-reads")
+          base.mkdir(parents=True, exist_ok=True)
+          groups = [
+              ("guards", "Cli", "FullyQualifiedName~StructuredMutationArgumentValidatorTests|FullyQualifiedName~StructuredReadProductionCliTests"),
+              ("workspace", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.MachineWorkspace"),
+              ("named-tree", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.ExplicitNamed|FullyQualifiedName~StructuredReadIsolationTests.StructuredTree"),
+              ("bench", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.BenchPull"),
+              ("show-parser", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.ShowTarget"),
+              ("tree-parser", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.TreeTarget"),
+              ("human", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.HumanStates"),
+              ("working-set", "Domain", "FullyQualifiedName~WorkingSetServiceTests"),
+              ("consumers", "Cli", "FullyQualifiedName~WorkspaceCommandTests|FullyQualifiedName~BenchSync|FullyQualifiedName~ShowCommand_Tree"),
+          ]
+          for label, suite, selector in groups:
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              f"tests/Twig.{suite}.Tests/Twig.{suite}.Tests.csproj",
+                              "--no-build", "--no-restore", "-f", "net11.0", "--filter", selector,
+                              "--logger", f"trx;LogFileName={label}.trx",
+                              "--results-directory", str(base)], check=True)
+
+      - name: Preserve structured read scope results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-structured-reads-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/structured-reads/
+          if-no-files-found: error
+
       - name: Preserve explicit Save results
         if: always()
         uses: actions/upload-artifact@v4

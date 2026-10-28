@@ -87,7 +87,7 @@ public async Task<int> Show(
 ```csharp
 ["show"] = [
     "twig show              Show the active work item",
-    "twig show -o json      Show as JSON for scripting",
+    "twig show 1234 -o json Show an explicit target as JSON for scripting",
     "twig show --depth 3    Show with 3 levels of children",
 ],
 ```

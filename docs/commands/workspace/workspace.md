@@ -17,7 +17,8 @@ By default the command reads from the local cache and renders the current Bench
 as a live hierarchical tree. `--refresh` re-syncs from ADO before rendering.
 `--view table` explicitly selects a table for the same current Bench, while
 `--view tree` makes the hierarchy choice explicit. Both presentations include
-manual pins, seeds, and the active item. `--tree` remains the legacy full-backlog
+manual pins and seeds. Human output also includes the active item; machine output
+never reads or exports active context and keeps dirty drafts in scope. `--tree` remains the legacy full-backlog
 hierarchy mode, while `--all` remains the team/sprint layout.
 
 The Tree view keeps parent/child connectors and indentation with the complete
@@ -167,7 +168,8 @@ The command delegates to `WorkspaceCommand.ExecuteAsync`
   `error: --tree and --flat are mutually exclusive.` and exits `1`
   (`src/Twig/Commands/WorkspaceCommand.cs:71-75`).
 - `--view table` and `--view tree` keep the current Bench membership unchanged:
-  pins, seeds, and the active item remain in scope. The default presentation is
+  pins and seeds remain in scope; human output retains active context, while machine
+  output excludes that context and preserves dirty drafts. The default presentation is
   the same hierarchy as `--view tree`; parent IDs are used even when process
   metadata is absent, while metadata only controls working-level enrichment and
   virtual-group labels.
@@ -250,8 +252,10 @@ retain their iteration, exact/under area and assignee intersection; item pins na
 one item, and subtree pins follow their actual descendants. An empty sprint scope
 never becomes an unbounded query. Scoped sync refreshes the cached iteration calendar.
 
-Positive pending-work IDs remain protected, and active-context children/siblings
-and ancestors are fetched only within the configured relationship depths. Seeds
+Positive pending-work IDs remain protected. Machine output and browser pulls never
+consult the active pointer, add its item, or expand its relationships. Human pulls
+retain active-context children/siblings and ancestors within configured depths.
+Relationships of explicitly selected Bench members remain in scope. Seeds
 stay local. This operation never flushes pending edits, applies a proposal,
 changes the active item, or refreshes every unrelated cached item.
 

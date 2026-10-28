@@ -28,9 +28,9 @@ sprint backlogs as rich terminal trees using Spectre.Console.
 - Tests use **xUnit** with **Shouldly** assertions and **NSubstitute** for mocking
 - Test classes use `[Fact]` and `[Theory]` attributes (not `[TestClass]`/`[TestMethod]`)
 
-## Structured CLI mutations
+## Structured CLI targeting
 
-Non-human output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) is treated as a machine invocation. A machine invocation that mutates one active work item must name it with `--id`; it must not rely on the interactive active-item pointer. Commands with an explicit multi-item scope may use that scope instead. `twig set`, `twig new --set`, navigation, and `twig seed publish` are refused with structured output because they read or change active context. Structured seed creation must choose `--parent <id>` or `--no-parent`. Reads remain available with their existing active-item behavior, and file-scoped proposal operations do not depend on active context. Human CLI behavior is unchanged.
+Non-human output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) is treated as a machine invocation. A machine mutation targeting one work item must name it with `--id`. Structured `show`/`tree` reads require a positional ID or `--id`; conflicting targets are refused. Explicit `show --local-id`, list scopes, `tree --all`, history and file-scoped proposal operations remain supported. Structured `states` is refused; use `twig process <type>`. Machine workspace output and machine/browser Bench pulls exclude the interactive active item and its relationships, while preserving explicit Bench scope and local drafts. `twig set`, `twig new --set`, navigation, and `twig seed publish` are refused with structured output because they read or change active context. Structured seed creation must choose `--parent <id>` or `--no-parent`. Human CLI behavior is unchanged.
 
 ## Telemetry & Data Privacy
 

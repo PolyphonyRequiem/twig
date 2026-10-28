@@ -121,7 +121,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
     }
 
     internal async Task<ServiceProvider> CreateRuntimeAsync(Func<IFieldDefinitionStore, IFieldDefinitionStore>? fieldDefinitions = null,
-        bool initializeBench = true)
+        bool initializeBench = true, Func<IContextStore, IContextStore>? contextStore = null)
     {
         var paths = CurrentPaths();
         var services = new ServiceCollection();
@@ -138,6 +138,9 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         if (fieldDefinitions is not null)
             services.AddSingleton<IFieldDefinitionStore>(sp => fieldDefinitions(
                 new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>())));
+        if (contextStore is not null)
+            services.AddSingleton<IContextStore>(sp => contextStore(
+                new SqliteContextStore(sp.GetRequiredService<SqliteCacheStore>())));
         var runtime = services.BuildServiceProvider();
         _runtimes.Add(runtime);
         var processTypes = runtime.GetRequiredService<IProcessTypeStore>();
@@ -201,6 +204,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
     internal sealed class BrowserTransport : HttpMessageHandler
     {
         internal List<int> RequestedItems { get; } = [];
+        internal string? CurrentIterationPath { get; set; }
         internal int Mutations { get; private set; }
         internal int HttpAttempts { get; private set; }
         internal int MetadataAttempts { get; private set; }
@@ -245,6 +249,32 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
                 return Reply(HttpStatusCode.OK, new { displayName = "Fixture reader", emailAddress = actor + "@fixture.invalid" });
             }
             const string segment = "/_apis/wit/workitems/";
+            if (CurrentIterationPath is not null && path.EndsWith("/_apis/work/teamsettings/iterations", StringComparison.OrdinalIgnoreCase))
+                return Reply(HttpStatusCode.OK, new { count = 1, value = new[] { new { path = CurrentIterationPath } } });
+            if (request.Method == HttpMethod.Get && path.EndsWith(segment.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+            {
+                WorkReadAttempts++;
+                var ids = request.RequestUri.Query.TrimStart('?').Split('&')
+                    .Single(value => value.StartsWith("ids=", StringComparison.Ordinal))["ids=".Length..]
+                    .Split(',').Select(value => int.Parse(value, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                RequestedItems.AddRange(ids);
+                return Reply(HttpStatusCode.OK, new
+                {
+                    count = ids.Length,
+                    value = ids.Select(id => new
+                    {
+                        id,
+                        rev = 7,
+                        fields = new Dictionary<string, object>
+                        {
+                            ["System.Title"] = "Remote selected item",
+                            ["System.WorkItemType"] = "Task",
+                            ["System.State"] = "To Do",
+                        },
+                        relations = Array.Empty<object>(),
+                    }).ToArray(),
+                });
+            }
             var offset = path.IndexOf(segment, StringComparison.OrdinalIgnoreCase);
             if (offset < 0)
             {

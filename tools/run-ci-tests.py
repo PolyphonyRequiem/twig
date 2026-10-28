@@ -34,6 +34,7 @@ HOST_CLASSES = {
     "Twig.Cli.Tests.Commands.SeedLifecycleIntegrationTests",
     "Twig.Cli.Tests.Browser.BrowserApplicationScenarioTests",
     "Twig.Cli.Tests.Browser.BrowserBenchModuleTests",
+    "Twig.Cli.Tests.Browser.StructuredReadIsolationTests",
     "Twig.Cli.Tests.Browser.BrowserEditingModuleTests",
     "Twig.Cli.Tests.Browser.BrowserReadModuleTests",
     "Twig.Cli.Tests.Browser.BrowserReviewModuleTests",

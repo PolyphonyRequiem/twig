@@ -69,7 +69,7 @@ internal sealed class BrowserBenchModule(BrowserOperationModule operations, Curr
         {
             var (effective, _) = await resolver.ResolveCapturedAsync(token, capture.BenchId);
             await operations.EnsureCurrentAsync(capture, token);
-            return await sync.PullAsync(effective, token);
+            return await sync.PullAsync(effective, token, includeActiveContext: false);
         }, ct);
 
     internal Task<BrowserOperationResult<IReadOnlyList<AreaPathFilter>>> ReadAreaCandidatesAsync(BrowserCapture capture, CancellationToken ct = default)

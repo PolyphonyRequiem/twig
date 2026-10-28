@@ -14,7 +14,7 @@ they are read from the live process (or, where noted, the workspace cache).
 |[`twig process <type>`](./process-type.md)|Describe one type's dynamically discovered states, fields, and transitions.|
 |[`twig process layout`](./process-layout.md)|Show the server-defined form layout (tabs, boxes, ordered fields) for a work item type.|
 |[`twig process description`](./process-description.md)|Write a byte-stable structural description of the process, for diffing.|
-|[`twig states`](./states.md)|Hidden alias: list states for the active work item's type.|
+|[`twig states`](./states.md)|Human-only hidden alias: list states for the active work item's type.|
 
 ## Notes
 
@@ -22,9 +22,9 @@ they are read from the live process (or, where noted, the workspace cache).
   overrides that switch to a live read of another project's process without
   needing a workspace. `twig process description` operates on the current
   workspace's process only.
-- `twig states` is a compatibility alias that resolves the active work item
+- `twig states` is a human-only compatibility alias that resolves the active work item
   and forwards to `twig process <type>`. It requires a workspace, and does
-  not accept the override flags.
+  not accept the override flags. Structured callers must use `twig process <type>`.
 - Type-and-state data comes from the local workspace cache (populated by
   `twig sync`), except on the override paths, which read live from ADO. The
   hidden-type filter (`--include-hidden`) is derived from

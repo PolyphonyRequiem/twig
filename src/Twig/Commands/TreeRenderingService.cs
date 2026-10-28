@@ -195,7 +195,8 @@ public sealed class TreeRenderingService(
         {
             try
             {
-                var workingSet = await workingSetService.ComputeAsync([item.IterationPath]);
+                var workingSet = await workingSetService.ComputeScopedAsync([item.IterationPath], ct,
+                    includeActiveContext: OutputFormats.Normalize(outputFormat) == OutputFormats.Default);
                 await RefreshTreeAsync(item, workingSet, ct);
                 item = await workItemRepo.GetByIdAsync(item.Id, ct) ?? item;
             }

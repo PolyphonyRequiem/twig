@@ -94,7 +94,7 @@ jobs:
               ("tree-parser", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.TreeTarget"),
               ("human", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.HumanStates"),
               ("working-set", "Domain", "FullyQualifiedName~WorkingSetServiceTests"),
-              ("consumers", "Cli", "FullyQualifiedName~WorkspaceCommandTests|FullyQualifiedName~BenchSync|FullyQualifiedName~ShowCommand_Tree"),
+              ("consumers", "Cli", "FullyQualifiedName~WorkspaceCommandTests|FullyQualifiedName~BenchSyncCommandTests|FullyQualifiedName~ShowCommand_Tree"),
           ]
           for label, suite, selector in groups:
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",

@@ -92,7 +92,7 @@ and updates.
 | [Process](process/README.md) | [`twig process <type>`](process/process-type.md) | Describe one dynamically discovered work-item type. | stable | `none` |
 | [Process](process/README.md) | [`twig process description`](process/process-description.md) | Write a byte-stable structural description of the process, for diffing against another. | stable | `none` |
 | [Process](process/README.md) | [`twig process layout`](process/process-layout.md) | Show the server-defined form layout — tabs, boxes, and ordered fields — for a work item type. | stable | `none` |
-| [Process](process/README.md) | [`twig states`](process/states.md) | Hidden alias — list workflow states for the active work item's type. | stable | `none` |
+| [Process](process/README.md) | [`twig states`](process/states.md) | Human-only hidden alias — structured callers use `process <type>`. | stable | `none` |
 | [Work Items](work-items/README.md) | [`twig batch`](work-items/batch.md) | State transition, field updates, and a note in a single atomic call. | stable | `ado` |
 | [Work Items](work-items/README.md) | [`twig delete`](work-items/delete.md) | Permanently delete a work item from Azure DevOps. | stable | `ado` |
 | [Work Items](work-items/README.md) | [`twig discard`](work-items/discard.md) | Drop pending changes for a single work item or all dirty items. | stable | `local` |

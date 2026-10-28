@@ -568,7 +568,8 @@ public sealed partial class WorkspaceCommand(
             try
             {
                 var resolvedIters = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints);
-                var workingSet = await workingSetService.ComputeAsync(resolvedIters.Count > 0 ? resolvedIters : null);
+                var workingSet = await workingSetService.ComputeScopedAsync(resolvedIters.Count > 0 ? resolvedIters : null,
+                    ct, includeActiveContext: false);
                 await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -578,7 +579,7 @@ public sealed partial class WorkspaceCommand(
         }
 
         // Get active context (nullable) — auto-fetch on cache miss via ActiveItemResolver
-        var activeId = await contextStore.GetActiveWorkItemIdAsync();
+        var activeId = isMachineFormat ? null : await contextStore.GetActiveWorkItemIdAsync(ct);
         Domain.Aggregates.WorkItem? contextItem = null;
         if (activeId.HasValue)
         {
@@ -624,13 +625,14 @@ public sealed partial class WorkspaceCommand(
             }
             else
             {
-                benchView = await workingSetService.ComputeAsync(benchIterations);
+                benchView = await workingSetService.ComputeScopedAsync(benchIterations, ct, includeActiveContext: !isMachineFormat);
                 sprintItems = await LoadQueryMatchesInOrderAsync(
                     benchView.SprintItemIds, benchView.IterationPaths);
             }
             var sprintIds = new HashSet<int>(benchView.SprintItemIds);
             manualItems = await LoadItemsInOrderAsync(
-                benchView.TrackedItemIds.Where(id => !sprintIds.Contains(id)).ToArray());
+                benchView.TrackedItemIds.Concat(isMachineFormat ? benchView.DirtyItemIds.Where(id => id > 0) : [])
+                    .Where(id => !sprintIds.Contains(id)).Distinct().ToArray());
         }
         else
         {
@@ -779,7 +781,8 @@ public sealed partial class WorkspaceCommand(
                 var fallbackIteration = await iterationService.GetCurrentIterationAsync();
                 orphanIterations = [fallbackIteration];
             }
-            var dirtyWorkingSet = benchView ?? await workingSetService.ComputeAsync(orphanIterations);
+            var dirtyWorkingSet = benchView ?? await workingSetService.ComputeScopedAsync(orphanIterations, ct,
+                includeActiveContext: !isMachineFormat);
             if (dirtyWorkingSet.DirtyItemIds.Count > 0)
             {
                 var sprintItemIds = new HashSet<int>(sprintItems.Select(s => s.Id));

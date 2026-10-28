@@ -38,7 +38,8 @@ internal sealed class BenchSyncCommand(
             BrowserOriginGuard.EnsureExpected(binding, expectBinding, expectIdentity);
             var bench = await currentBench.ResolveAsync(ct, expectBench);
 
-            var counts = await sync.PullAsync(bench, ct);
+            var counts = await sync.PullAsync(bench, ct,
+                includeActiveContext: OutputFormats.Normalize(outputFormat) == OutputFormats.Default);
 
             rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree([
                 new RenderNode.Record("benchSync", new Dictionary<string, RenderCell>(StringComparer.Ordinal)

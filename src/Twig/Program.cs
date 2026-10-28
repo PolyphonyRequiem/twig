@@ -9,6 +9,7 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
 using Twig.ProcessOverrides;
+using Twig.Rendering;
 
 // AB#350: the generated argument binder deserializes a JSON-array option value
 // through JsonSerializer. Twig sets JsonSerializerIsReflectionEnabledByDefault=false
@@ -191,13 +192,13 @@ if (outputFormatError is not null)
     return;
 }
 
-// Structured writes must identify the item they target instead of relying on the
-// interactive active-item pointer. Keep this before workspace resolution so a missing
-// --id cannot trigger a read or mutation through active context.
+// Structured calls must not infer a target from the interactive active-item pointer.
+// Refuse before workspace resolution so missing scope cannot read active context.
 var structuredMutationError = StructuredMutationArgumentValidator.Validate(args);
 if (structuredMutationError is not null)
 {
-    Console.Error.WriteLine(structuredMutationError);
+    CommandError.Write(new RendererFactory(), Console.Error,
+        StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default, structuredMutationError);
     Environment.ExitCode = StructuredMutationArgumentValidator.UsageExitCode;
     return;
 }
@@ -516,15 +517,17 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
     /// <summary>Display a work item without changing context. Integer IDs are cache-only by default; --local-id reads a GitHub provider snapshot when configured.</summary>
-    /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
+    /// <param name="idArg">Work item ID, positionally. Omit only in human output to show the active work item.</param>
+    /// <param name="id">Explicit work item ID; may also be supplied positionally. Conflicting IDs are refused.</param>
     /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
     /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
     /// <param name="localId">Canonical lowercase GUIDv7 identity for a GitHub provider snapshot read; currently unavailable for other providers, requires JSON output, and excludes the other show options.</param>
-    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null, string? localId = null)
+    public async Task<int> Show([Argument] int? idArg = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null, string? localId = null, int? id = null)
     {
+        id ??= idArg;
         if (localId is not null)
         {
             // Resolve only the provider snapshot route; the cache-first command has process,
@@ -647,7 +650,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? sections = null, string? fields = null)
         => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct, sections: sections, fields: fields);
 
-    /// <summary>List available workflow states for the active work item's type.</summary>
+    /// <summary>Human-only alias for the active work item's states; structured callers must use process &lt;type&gt;.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     public async Task<int> States(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -673,17 +676,18 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await services.GetRequiredService<NewCommand>().ExecuteAsync(title ?? titleArg, type ?? typeArg, area, iteration, description, parent, set, editor, format, field, output, descriptionFile, descriptionStdin, ct);
 
     /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
-    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
+    /// <param name="idArg">Positional work item ID; required for structured output unless --id or --all is supplied.</param>
+    /// <param name="id">Explicit work item ID; conflicting positional and named IDs are refused.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
     /// <param name="all">When set, routes to workspace --tree showing all team items as hierarchy.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     [Hidden]
-    public async Task<int> Tree([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default)
+    public async Task<int> Tree([Argument] int? idArg = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, int? id = null)
         => all
             ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, refresh, ct, tree: true)
-            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, refresh, ct, depth, noLive);
+            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id ?? idArg, output, tree: true, refresh, ct, depth, noLive);
 
     /// <summary>Render an arbitrary working set of work items as a forest of annotated trees.</summary>
     /// <param name="items">Comma-separated work item IDs, or @file (one per line), or @- for stdin.</param>

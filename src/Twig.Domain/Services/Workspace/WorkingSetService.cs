@@ -73,11 +73,21 @@ public sealed class WorkingSetService
     /// When <paramref name="iterationPaths"/> is provided the sprint rule resolves to it directly;
     /// otherwise the rule is answered from local state.
     /// </summary>
-    public async Task<WorkingSet> ComputeAsync(
+    public Task<WorkingSet> ComputeAsync(
         IReadOnlyList<IterationPath>? iterationPaths = null, CancellationToken ct = default)
+        => ComputeScopedAsync(iterationPaths, ct, includeActiveContext: true);
+
+    /// <summary>
+    /// Evaluates Bench scope and local drafts. Machine callers set
+    /// <paramref name="includeActiveContext"/> to false to omit the interactive pointer
+    /// and its relationships without consulting the active-item store.
+    /// </summary>
+    public async Task<WorkingSet> ComputeScopedAsync(
+        IReadOnlyList<IterationPath>? iterationPaths, CancellationToken ct,
+        bool includeActiveContext)
     {
         // 1. Read active ID from context
-        var activeId = await _contextStore.GetActiveWorkItemIdAsync(ct);
+        var activeId = includeActiveContext ? await _contextStore.GetActiveWorkItemIdAsync(ct) : null;
 
         // 2. Query parent chain (empty list when no active item or item not in cache)
         var parentChain = activeId.HasValue

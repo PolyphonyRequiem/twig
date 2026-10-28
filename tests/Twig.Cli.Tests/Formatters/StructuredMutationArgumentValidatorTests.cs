@@ -94,14 +94,65 @@ public sealed class StructuredMutationArgumentValidatorTests
     }
 
     [Fact]
-    public void ReadCommandsRemainUsableWithoutId()
+    public void ExplicitListAndHistoryScopesRemainUsableWithoutId()
     {
-        StructuredMutationArgumentValidator.Validate(["show", "-o", "json"]).ShouldBeNull();
+        StructuredMutationArgumentValidator.Validate(["query", "--wiql", "select [System.Id] from WorkItems", "-o", "json"]).ShouldBeNull();
+        StructuredMutationArgumentValidator.Validate(["show-batch", "42,43", "-o", "json"]).ShouldBeNull();
+        StructuredMutationArgumentValidator.Validate(["tree", "--all", "-o", "json"]).ShouldBeNull();
         StructuredMutationArgumentValidator.Validate(["nav", "history", "-o", "json"]).ShouldBeNull();
         StructuredMutationArgumentValidator.Validate(["nav", "history", "-o", "minimal"]).ShouldBeNull();
         AssertError(
             ["nav", "history", "-o", "json-full"],
             "supports only -o json or -o minimal");
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("json-full")]
+    [InlineData("json-compact")]
+    [InlineData("minimal")]
+    [InlineData("ids")]
+    public void StructuredSingleReadsRequireAnExplicitTarget(string format)
+    {
+        AssertError(["show", "-o", format], "requires an explicit work-item ID");
+        AssertError(["tree", "-o", format], "requires an explicit work-item ID");
+        AssertError(["states", "-o", format], "twig process <type>");
+    }
+
+    [Theory]
+    [InlineData("show")]
+    [InlineData("tree")]
+    public void ReadTargetTwinsAndHumanFallbackAreUnambiguous(string command)
+    {
+        foreach (var target in new[]
+        {
+            new[] { "42" }, new[] { "--id", "42" }, new[] { "--id=42" },
+            new[] { "42", "--id", "42" }, new[] { "-42" }, new[] { "--id", "-42" },
+        })
+            StructuredMutationArgumentValidator.Validate([command, .. target, "-o", "json"]).ShouldBeNull();
+        StructuredMutationArgumentValidator.Validate([command]).ShouldBeNull();
+        StructuredMutationArgumentValidator.Validate([command, "-o", "human"]).ShouldBeNull();
+        AssertError([command, "42", "--id", "43", "-o", "json"], "Conflicting work-item targets");
+        AssertError([command, "42", "--id", "43"], "Conflicting work-item targets");
+        AssertError([command, "--id", "42", "--id=43", "-o", "json"], "Conflicting work-item targets");
+        AssertError([command, "--id=0", "-o", "json"], "nonzero integer");
+        AssertError([command, "--id=invalid", "-o", "json"], "nonzero integer");
+        AssertError([command, "--id", "-o", "json"], "nonzero integer");
+    }
+
+    [Fact]
+    public void ReadOptionValuesAndTerminatorsCannotSmuggleAnActiveTarget()
+    {
+        AssertError(["tree", "--depth", "42", "-o", "json"], "requires an explicit work-item ID");
+        AssertError(["show", "--fields", "42", "-o", "json"], "requires an explicit work-item ID");
+        AssertError(["show", "--fields", "--id", "-o", "json"], "requires an explicit work-item ID");
+        AssertError(["show", "--sections", "42", "-o", "json"], "requires an explicit work-item ID");
+        AssertError(["show", "-o", "json", "--", "--id", "42"], "requires an explicit work-item ID");
+        StructuredMutationArgumentValidator.Validate(["show", "-o", "json", "--", "42"]).ShouldBeNull();
+        StructuredMutationArgumentValidator.Validate(["show", "--local-id", "01900000-0000-7000-8000-000000000001", "-o", "json"]).ShouldBeNull();
+        AssertError(["show", "42", "--local-id", "01900000-0000-7000-8000-000000000001", "-o", "json"],
+            "Conflicting work-item targets");
+        StructuredMutationArgumentValidator.Validate(["states"]).ShouldBeNull();
     }
 
     [Fact]

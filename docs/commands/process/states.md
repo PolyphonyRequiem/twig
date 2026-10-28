@@ -1,21 +1,21 @@
 ---
 command: states
 group: process
-summary: Hidden alias — list workflow states for the active work item's type.
+summary: Human-only hidden alias — list workflow states for the active work item's type.
 stability: stable
 mutates: none
 ---
 
 # `twig states`
 
-Hidden compatibility alias for `twig process <type>`, scoped to whichever
+Human-only hidden compatibility alias for `twig process <type>`, scoped to whichever
 type the active work item is. Resolves the active work item via
 `ActiveItemResolver`, reads its type, and forwards to
 `ProcessCommand.ExecuteTypeDetailAsync` — the same code path
 `twig process <type>` uses (`src/Twig/Commands/ProcessCommand.cs:71-95`,
 `src/Twig/Program.cs:644-648`). Hidden from `twig --help`; kept because
-older muscle memory and older scripts still call it. Prefer
-`twig process <type>` in new work.
+older muscle memory still uses it. Structured output is refused before workspace
+resolution with exit `2`; scripts must use `twig process <type> -o json`.
 
 Type and state data are discovered from the process description — this
 command hard-codes nothing about which states any type has.
@@ -38,10 +38,11 @@ twig states [-o|--output <format>]
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-|`-o`, `--output`|`string`|`human`|Output format. Accepts `human`, `json`, and `minimal`.|
+|`-o`, `--output`|`string`|`human`|Only human output is supported by this active-item alias. Structured output is refused; use `twig process <type>`.|
 
 ## Behavior
 
+- Structured output is refused before workspace resolution; it never consults the active item.
 - Requires a workspace. `ActiveItemResolver` is a workspace-scoped service,
   and this command refuses without one: `'twig states' resolves the active
   work item, which requires a workspace. Run it from a twig workspace, or
@@ -87,14 +88,14 @@ $ twig states
 $ twig process Task -o json
 ```
 
-Same tree as `twig states -o json` when the active item is a Task, but does
-not depend on which item is currently active — which is what you want in a
-script.
+Describes the explicitly selected type without depending on the active item.
+`twig states -o json` is deliberately refused rather than inferring a type.
 
 ## Exit codes and failure modes
 
 |Condition|Result|
 |---|---|
+|Structured output requested.|Exit `2`; actionable refusal naming `twig process <type>`.|
 |Invoked outside a workspace.|Exit `1`; stderr `'twig states' resolves the active work item, which requires a workspace. …`|
 |No active work item is set.|Exit `1`; stderr `No active work item. Run 'twig set <id>' first.`|
 |Active work item id not present in cache.|Exit `1`; stderr `Work item #<id> not found in cache.`|

@@ -1,7 +1,7 @@
 namespace Twig.Formatters;
 
 /// <summary>
-/// Prevents structured CLI mutations from implicitly targeting the active work item.
+/// Prevents structured CLI calls from implicitly targeting the active work item.
 /// </summary>
 public static class StructuredMutationArgumentValidator
 {
@@ -72,6 +72,10 @@ public static class StructuredMutationArgumentValidator
         "--path",
         "--project",
         "--organization",
+        "--local-id",
+        "--fields",
+        "--sections",
+        "--depth",
     ];
 
     /// <summary>
@@ -83,12 +87,22 @@ public static class StructuredMutationArgumentValidator
         ArgumentNullException.ThrowIfNull(args);
 
         var outputFormat = GetOutputFormat(args);
+        var command = GetCommand(args);
+        if (command is "show" or "tree")
+        {
+            var readError = ValidateReadTarget(args, command,
+                outputFormat is not null && outputFormat != OutputFormats.Default);
+            if (readError is not null) return readError;
+        }
+
         if (outputFormat is null || string.Equals(outputFormat, OutputFormats.Default, StringComparison.Ordinal))
             return null;
 
-        var command = GetCommand(args);
         if (command is null)
             return null;
+
+        if (command == "states")
+            return "Structured twig states cannot read the active item; use 'twig process <type>' to name the type explicitly.";
 
         if (command == "set")
             return "twig set cannot be used with structured output because it changes the active work item.";
@@ -131,7 +145,7 @@ public static class StructuredMutationArgumentValidator
         return $"{command} with structured output requires an explicit --id; it will not use the active work item.";
     }
 
-    private static string? GetOutputFormat(IReadOnlyList<string> args)
+    internal static string? GetOutputFormat(IReadOnlyList<string> args)
     {
         var outputFormat = OutputFormats.Default;
         for (var i = 0; i < args.Count; i++)
@@ -151,6 +165,59 @@ public static class StructuredMutationArgumentValidator
         }
 
         return OutputFormats.Normalize(outputFormat);
+    }
+
+    private static string? ValidateReadTarget(IReadOnlyList<string> args, string command, bool required)
+    {
+        int? target = null;
+        var positionalOnly = false;
+        var positionalSeen = false;
+        for (var i = 1; i < args.Count; i++)
+        {
+            var arg = args[i];
+            if (!positionalOnly && arg == "--")
+            {
+                positionalOnly = true;
+                continue;
+            }
+
+            var named = !positionalOnly && (arg == "--id" || arg.StartsWith("--id=", StringComparison.Ordinal));
+            var value = arg;
+            if (named)
+            {
+                value = arg == "--id" && i + 1 < args.Count ? args[++i]
+                    : arg.StartsWith("--id=", StringComparison.Ordinal) ? arg["--id=".Length..] : "";
+            }
+            else if (!positionalOnly && ShouldSkipOptionValue(args, i))
+            {
+                i++;
+                continue;
+            }
+
+            if (!named)
+            {
+                if (!positionalOnly && arg.StartsWith('-') && !int.TryParse(arg, out _))
+                    continue;
+                if (positionalSeen) continue;
+                positionalSeen = true;
+            }
+
+            if (int.TryParse(value, out var id) && id != 0)
+            {
+                if (target.HasValue && target.Value != id)
+                    return "Conflicting work-item targets: positional ID and --id must identify the same item.";
+                target = id;
+            }
+            else if (named)
+                return $"twig {command} --id requires a nonzero integer work-item ID.";
+        }
+
+        var local = command == "show" && HasNonEmptyValueOption(args, "--local-id");
+        if (local && target.HasValue)
+            return "Conflicting work-item targets: use an integer ID or --local-id, not both.";
+        if (!required || target.HasValue || local || command == "tree" && HasBooleanOption(args, "--all"))
+            return null;
+        return $"twig {command} with structured output requires an explicit work-item ID (positional or --id); it will not use the active work item.";
     }
 
     private static string? GetCommand(IReadOnlyList<string> args)

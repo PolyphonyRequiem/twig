@@ -13,7 +13,7 @@ internal sealed class BenchSyncOperation(CommandContext ctx, BenchEvaluator eval
     IIterationService iterations, IProviderWorkItemReader ado, IWorkItemRepository repository, ProtectedCacheWriter writer,
     IWorkItemLinkRepository links, IContextStore context)
 {
-    internal async Task<BenchSyncCounts> PullAsync(Bench bench, CancellationToken ct)
+    internal async Task<BenchSyncCounts> PullAsync(Bench bench, CancellationToken ct, bool includeActiveContext = true)
     {
         var queries = bench.Selectors.Where(s => s.Kind == SelectorKind.Query).ToArray();
         foreach (var selector in queries) _ = BenchQueryRule.Parse(selector);
@@ -32,7 +32,7 @@ internal sealed class BenchSyncOperation(CommandContext ctx, BenchEvaluator eval
                 if (id > 0) ids.Add(id);
         }
         var memberIds = new HashSet<int>(membership.PinnedIds.Concat(membership.DirtyItemIds));
-        var active = await context.GetActiveWorkItemIdAsync(ct);
+        var active = includeActiveContext ? await context.GetActiveWorkItemIdAsync(ct) : null;
         if (active is > 0) ids.Add(active.Value);
 
         var fetched = new Dictionary<int, WorkItem>();

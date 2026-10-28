@@ -170,7 +170,7 @@ rendering. When `null`, it falls back to synchronous `IOutputFormatter` string o
 | Command | Description |
 |---------|-------------|
 | `state <name>` | Change active item state (with transition validation) |
-| `states` | List available workflow states for active item's type |
+| `states` | Human-only active-item alias; structured callers use `process <type>` |
 | `new` | Create a new work item in ADO |
 | `update <field> <value>` | Update a single field (immediate push) |
 | `note [text]` | Add a comment/note (stages locally) |

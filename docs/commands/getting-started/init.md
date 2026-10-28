@@ -11,7 +11,8 @@ mutates: local
 `twig init` bootstraps a Twig workspace under the current git-worktree root.
 It detects the worktree anchor, creates `.twig/`, writes the committed
 `twig.json`, initializes the per-workspace SQLite cache, and captures the
-process description needed by downstream commands. Gitignored `.twig/config`
+process description needed by downstream ADO commands. GitHub initialization is
+local-only and does not fetch process metadata. Gitignored `.twig/config`
 is written only for explicit local preferences (such as a detected user
 identity); implicit auth, display and tracking defaults do not create it.
 Use `init` when first pointing Twig at an ADO org/project or rebuilding a
@@ -26,7 +27,7 @@ exemption for the reference sprint-entry gate remains in effect, but
 primary-scope attachment and claims are unavailable without a compatible
 selected profile.
 
-Onboarding a brand-new checkout is four distinct operations, in this order —
+ADO onboarding is four distinct operations, in this order —
 `init` performs only the third:
 
 1. **Enroll an identity**, once per machine: [`twig auth login --identity <alias>`](../system/auth-login.md) (AAD) or `twig auth pat --identity <alias> --org <org>` (PAT).
@@ -38,6 +39,7 @@ Onboarding a brand-new checkout is four distinct operations, in this order —
 
 ```
 twig init [<org>] [<project>] [flags]
+twig init --provider github --host <host> --repository <owner/name>
 ```
 
 ## Arguments
@@ -55,6 +57,9 @@ twig init [<org>] [<project>] [flags]
 | `--version` | flag | — | Print the twig version and exit. |
 | `--org <string>` | string | none | Azure DevOps organization name (e.g. `contoso`). Named alternative to the positional argument. |
 | `--project <string>` | string | none | Azure DevOps project name. Named alternative to the positional argument. |
+| `--provider <string>` | string | `ado` | Explicit provider, `ado` or `github`. Never inferred from a remote. |
+| `--host <string>` | string | none | Explicit bare lowercase GitHub host, such as `github.com`; requires GitHub provider selection. |
+| `--repository <string>` | string | none | Explicit GitHub `owner/name`; requires GitHub provider selection. |
 | `--team <string>` | string | project default team | Team name within the project. |
 | `--git-project <string>` | string | same as `--project` | ADO project that hosts the git repository, when different from the work-item project. |
 | `--profile <identity>` | string | none | Opaque released profile identity to explicitly select for a fresh/untracked manifest. Does not discover live-process compatibility, choose from the detected process template, or override a tracked manifest. |
@@ -78,6 +83,54 @@ twig init [<org>] [<project>] [flags]
 8. **Telemetry.** Emits a `CommandExecuted` event with `command=init`, `exit_code`, `output_format`, `had_global_profile`, and generic `duration_ms` / `field_count` metrics — no org, project, or template names ever leave the process (`src/Twig/Commands/InitCommand.cs`).
 
 On success `.twig/cache/twig.db` exists, `twig.json` records the coordinates, and `.twig/` is appended to `.gitignore` (SEC-001).
+
+### GitHub checkout onboarding
+
+Start at a fresh git-worktree root:
+
+```sh
+twig init --provider github --host github.com --repository owner/repo
+twig config github.account your-existing-login
+twig provider discover github --host github.com --repository owner/repo -o json
+```
+
+GitHub init creates the local layout, registry entry and neutral item cache. It
+records the explicitly supplied host/repository in `github` and uses those same
+values as the legacy storage coordinate fields `organization`/`project`; these
+are not an ADO endpoint or a remote identity binding. It does not inspect remotes,
+acquire credentials, make HTTP requests, select a profile, bind a repository,
+enroll an account, or write a remote issue. JSON output is one structured record.
+Missing or malformed scope refuses before writing; nothing defaults to github.com.
+
+The credential choice is separate: the example selects an already enrolled `gh`
+account. Alternatively, explicitly enroll/select a
+[GitHub App identity](../system/auth-login.md#github-app-oauth-enrollment).
+Discovery is a read-only remote lookup using that explicit credential. Review its
+opaque owner/repository IDs and attachment revision, then bind those exact values:
+
+```sh
+twig provider bind github --host github.com --repository owner/repo --expected-owner-id O_id --expected-repository-id R_id --expected-attachment-revision 0
+twig sync --pull-only -o json
+```
+
+`O_id`, `R_id` and `0` are illustrative, not values to copy over an existing
+attachment. Use fresh discovery's actual IDs/revision; replacements also require
+the current binding ID. Binding changes local target selection, not permissions.
+Neither discover nor bind changes the manifest.
+
+GitHub reads use canonical local identities (`twig show --local-id <guid> -o json`).
+Mutations use reviewed, digest-bound proposal files, not ADO integer-ID commands
+or an implicit sync push. Unsupported legacy ADO commands refuse; selection never
+falls back to ADO. See [sync](sync.md) and [proposal apply](../plans/proposal-apply.md).
+This onboarding is not live-provider or release-candidate qualification.
+
+ADO positional/named coordinates cannot be mixed into the GitHub CLI spelling.
+GitHub init also refuses ADO team/sprint/area/git-project/profile options and
+`--force`/`--reinitialize`; it does not migrate or overwrite existing work.
+Tracked manifest provider/scope conflicts are rejected, not silently retargeted.
+Existing manifest configuration can be edited deliberately with `twig config`,
+but config edits alone cannot initialize storage, migrate ADO data or establish
+repository identity.
 
 ### What profile selection means
 

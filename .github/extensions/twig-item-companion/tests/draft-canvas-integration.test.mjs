@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { Script, createContext } from "node:vm";
 import test from "node:test";
@@ -303,8 +303,8 @@ test("existing SDK declaration wires only explicit inspection with no caller-sup
         close: async () => { calls.push("close"); },
     };
     const context = createContext({
-        CanvasError, createCanvas: (value) => value,
-        joinSession: async ({ canvases }) => { declarations = canvases; return { workspacePath }; },
+        CanvasError, realpath, stat, path, process, createCanvas: (value) => value,
+        joinSession: async ({ canvases }) => { declarations = canvases; return { workspacePath: path.join(workspacePath, "session-state") }; },
         createCanvasServer: async (options) => { serverOptions = options; return fakeServer; },
         ExecutableError: class extends Error {},
         admitTwigExecutable: async ({ canvas }) => { calls.push(`admit:${canvas}`); return fakeExecutable(); },
@@ -320,10 +320,12 @@ test("existing SDK declaration wires only explicit inspection with no caller-sup
     const action = companion.actions.find((value) => value.name === "inspect_draft");
     assert.deepEqual(JSON.parse(JSON.stringify(action.inputSchema)), { type: "object", properties: {}, additionalProperties: false });
     assert.match(action.description, /May write local observation\/conflict metadata/);
-    await companion.open({ instanceId: "fictional" });
+    const canvasContext = { instanceId: "fictional", session: { workingDirectory: workspacePath } };
+    await companion.open(canvasContext);
+    assert.equal(serverOptions.workspacePath, await realpath(workspacePath));
     assert.equal(serverOptions.readNativeDraft, "draft-reader");
     assert.deepEqual(calls, ["admit:item"]);
-    await action.handler({ instanceId: "fictional", input: {} });
+    await action.handler({ ...canvasContext, input: {} });
     assert.deepEqual(calls, ["admit:item", "inspect"]);
     assert.equal(declarations[1].actions.some((value) => value.name === "inspect_draft"), false);
     await companion.onClose({ instanceId: "fictional" });

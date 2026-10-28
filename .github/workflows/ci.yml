@@ -56,7 +56,7 @@ jobs:
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/editing-client.test.mjs .github/extensions/twig-item-companion/tests/editing-bridge.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs
 
       - name: Companion context, shared quick edits and document theme regression
-        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/conversation-context.test.mjs .github/extensions/twig-item-companion/tests/companion-editing.test.mjs .github/extensions/twig-item-companion/tests/theme.test.mjs
+        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/canvas-workspace.test.mjs .github/extensions/twig-item-companion/tests/conversation-context.test.mjs .github/extensions/twig-item-companion/tests/companion-editing.test.mjs .github/extensions/twig-item-companion/tests/theme.test.mjs
 
       - name: Explicit discussion post canvas and native transport regression
         run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/discussion-post.test.mjs .github/extensions/twig-item-companion/tests/discussion-client.test.mjs .github/extensions/twig-item-companion/tests/native-discussion.test.mjs .github/extensions/twig-item-companion/tests/workbench.test.mjs

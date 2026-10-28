@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { Script, createContext } from "node:vm";
 import test from "node:test";
@@ -267,7 +267,7 @@ test("supported SDK declares a third canvas with acquisition only; human Apply s
         constructor(code, message) { super(message); this.code = code; }
     }
     const context = createContext({
-        CanvasError, createCanvas: (value) => value,
+        CanvasError, realpath, stat, path, process, createCanvas: (value) => value,
         joinSession: async ({ canvases }) => { declarations = canvases; return { workspacePath }; },
         createNativeDetailReader() {}, createNativeBenchReader() {}, createNativeBenchDetailReader() {},
         createNativeDraftReader() {}, ExecutableError: class extends Error {},
@@ -289,15 +289,16 @@ test("supported SDK declares a third canvas with acquisition only; human Apply s
     assert.deepEqual(Array.from(canvas.actions[0].inputSchema.required), ["file", "digest", "workspace"]);
     await assert.rejects(canvas.actions[0].handler({ instanceId: "missing", input: input() }),
         { code: "canvas_not_open", message: "Open Twig proposal review before explicit acquisition." });
-    await canvas.open({ instanceId: "review" });
-    await canvas.open({ instanceId: "review" });
+    const canvasContext = { instanceId: "review", session: { workingDirectory: workspacePath } };
+    await canvas.open(canvasContext);
+    await canvas.open(canvasContext);
     assert.equal(creations, 1);
     assert.deepEqual(admitted, ["review"], "one admission per opened instance, scoped to the review manifest");
-    assert.equal(options.workspacePath, workspacePath);
+    assert.equal(options.workspacePath, await realpath(workspacePath));
     assert.equal(options.readNativeProposal, "native-preview-reader");
     assert.equal(options.applyNativeProposal, "native-applier");
     assert.deepEqual(calls, []);
-    await canvas.actions[0].handler({ instanceId: "review", input: input() });
+    await canvas.actions[0].handler({ ...canvasContext, input: input() });
     assert.deepEqual(calls, [input()]);
     await canvas.onClose({ instanceId: "review" });
     assert.deepEqual(calls, [input(), "close"]);

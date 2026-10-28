@@ -15,7 +15,8 @@ const refusalCodes = new Set(["usage", "invalid-json", "input-too-large", "provi
     "provider-unknown", "provider-unavailable", "authority-invalidated", "canceled",
     "bench-item-not-member", "bench-item-not-cached", "attachment-denied", "attachment-not-found",
     "attachment-offline", "attachment-throttled", "attachment-too-large", "attachment-stale",
-    "attachment-not-linked", "attachment-response-invalid", "attachment-unavailable"]);
+    "attachment-not-linked", "attachment-response-invalid", "attachment-redirect-refused",
+    "attachment-size-mismatch", "attachment-unavailable"]);
 export const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
 const fail = () => { throw new Error("Native attachment response was invalid or mismatched."); };
 const shape = (value, keys) => record(value) && Object.keys(value).sort().join(",") === [...keys].sort().join(",");

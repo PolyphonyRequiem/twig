@@ -154,7 +154,7 @@ export const workbenchClient = `
         pair(facts, "Pending marker", member.pending + " (not effective local values)");
         pair(facts, "Parent ID", member.parentId ?? "Not carried");
       }
-      const seam = "Raw cached summary only. This Bench contract exports no revision or editing authority. Full native form/draft detail is unavailable here; attachment reads revalidate their own qualified item revision and never retarget the shared current Bench.";
+      const seam = "Raw cached summary only. No revision or editing authority is exported by this Bench contract. Full native form/draft detail is unavailable here; attachment reads revalidate their own qualified item revision and never retarget the shared current Bench.";
       const detailNote = text("p", seam, "muted");
       const source = document.createElement("details");
       source.classList.add("bench-disclosure");

@@ -51,6 +51,17 @@ test("inventory validation requires exact context and rejects duplicate or unsaf
     }
 });
 
+test("native redirect and size refusals remain explicit rather than becoming invalid transport", () => {
+    for (const code of ["attachment-denied", "attachment-redirect-refused", "attachment-size-mismatch"]) {
+        const refused = { ...baseResult, status: "refused", context: null, attachments: [],
+            capability: { implementation: "native", availability: "unavailable" },
+            error: { code, message: "Attachment read refused.", recovery: "Inspect before retrying." } };
+        assert.equal(validateAttachmentResult(refused, {
+            target, action: "download", exitCode: 1,
+        }).code, code);
+    }
+});
+
 test("download validation matches the selected attachment, exact bytes, size and digest metadata", () => {
     const bytes = Buffer.from([0, 255, 13, 10, 128]);
     const value = { ...baseResult, status: "download", attachments: [], attachment,

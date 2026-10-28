@@ -194,7 +194,9 @@ the Bench, closing the canvas, or letting the handle expire invalidates it.
 
 Each **Download** link is a same-origin browser navigation, not a Copilot SDK
 action or agent tool. The page refuses synthetic clicks and clicks without an
-active trusted browser user gesture. The local server requires its loopback Host,
+active trusted browser user gesture. If the host exposes no browser user-activation
+API, transfers remain unavailable without breaking ordinary workbench browsing.
+The local server requires its loopback Host,
 same-origin checks and browser `Sec-Fetch-Site: same-origin` signal, then rechecks
 the qualified native item revision and attachment membership before returning the
 raw bytes. The browser handles the normal save flow and destination selection;

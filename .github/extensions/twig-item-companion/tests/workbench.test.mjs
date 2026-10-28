@@ -1252,6 +1252,7 @@ test("actual extension actions explicitly open and stage a local draft through t
         },
         createNativeDiscussionReader: () => async () => { throw new Error("Browsing must not read online discussion"); },
         createNativeDiscussionPoster,
+        createNativeAttachmentReader: () => async () => { throw new Error("Browsing must not transfer attachments"); },
         createNativeEditingAdapter: () => nativeEditing,
     });
     // Only SDK/import boundaries are replaced; the production declaration and callbacks run unchanged.

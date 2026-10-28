@@ -139,7 +139,8 @@ public static class StructuredMutationArgumentValidator
         if (command == "edit")
             return "twig edit is interactive and cannot use structured output; use 'twig patch --id <id>' instead.";
 
-        if (HasPositiveIntegerOption(args, "--id"))
+        // Negative IDs are explicit local seed aliases, not active-item fallbacks.
+        if (HasIntegerOption(args, "--id", static id => id != 0))
             return null;
 
         return $"{command} with structured output requires an explicit --id; it will not use the active work item.";
@@ -260,7 +261,10 @@ public static class StructuredMutationArgumentValidator
         return false;
     }
 
-    private static bool HasPositiveIntegerOption(IReadOnlyList<string> args, string option)
+    private static bool HasPositiveIntegerOption(IReadOnlyList<string> args, string option) =>
+        HasIntegerOption(args, option, static id => id > 0);
+
+    private static bool HasIntegerOption(IReadOnlyList<string> args, string option, Func<int, bool> accept)
     {
         for (var i = 0; i < args.Count; i++)
         {
@@ -269,11 +273,11 @@ public static class StructuredMutationArgumentValidator
                 return false;
 
             if (arg.StartsWith(option + "=", StringComparison.Ordinal))
-                return int.TryParse(arg[(option.Length + 1)..], out var attachedId) && attachedId > 0;
+                return int.TryParse(arg[(option.Length + 1)..], out var attachedId) && accept(attachedId);
 
             if (arg == option)
             {
-                if (i + 1 < args.Count && int.TryParse(args[i + 1], out var id) && id > 0)
+                if (i + 1 < args.Count && int.TryParse(args[i + 1], out var id) && accept(id))
                     return true;
                 continue;
             }

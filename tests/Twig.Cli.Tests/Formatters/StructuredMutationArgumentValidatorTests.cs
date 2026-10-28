@@ -30,6 +30,17 @@ public sealed class StructuredMutationArgumentValidatorTests
     }
 
     [Theory]
+    [InlineData("update", "System.Description", "--file", "d.html")]
+    [InlineData("state", "Done")]
+    [InlineData("note", "--text", "finished")]
+    [InlineData("link", "parent", "42")]
+    public void ActiveItemMutation_AllowsExplicitNegativeSeedAlias(string command, params string[] arguments)
+    {
+        StructuredMutationArgumentValidator.Validate([command, .. arguments, "--id", "-6", "-o", "json"])
+            .ShouldBeNull();
+    }
+
+    [Theory]
     [InlineData("--id")]
     [InlineData("--id=")]
     [InlineData("--id=invalid")]

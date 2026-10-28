@@ -484,7 +484,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="provider">Explicit work-item provider: ado (default) or github. Never inferred from git remotes.</param>
     /// <param name="host">Explicit lowercase GitHub host, used with --provider github.</param>
     /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Init stays offline; discover and bind separately.</param>
-    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null)
+    /// <param name="binding">Registered ADO binding ID to pin locally in a fresh checkout (default: endpoint default). Cannot combine with --force/--reinitialize or replace existing local state.</param>
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null)
     {
         // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
         // document (`twig init <org> <project>`) parses alongside the named one. The generated
@@ -514,7 +515,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             return 1;
         }
 
-        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository);
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding);
     }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>

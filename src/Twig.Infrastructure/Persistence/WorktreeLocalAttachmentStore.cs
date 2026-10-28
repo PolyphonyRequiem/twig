@@ -33,6 +33,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     private readonly TwigConfiguration _config;
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly string? _initialBindingPin;
 
     internal const string LayoutFileName = "layout.json";
     internal const string WorktreeFileName = "worktree.json";
@@ -43,11 +44,12 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     private const int LockAcquireMaxAttempts = 400;
     private const int LockAcquireDelayMs = 25;
 
-    public WorktreeLocalAttachmentStore(TwigPaths paths, TwigConfiguration config, TimeProvider clock)
+    public WorktreeLocalAttachmentStore(TwigPaths paths, TwigConfiguration config, TimeProvider clock, string? initialBindingPin = null)
     {
         _paths = paths;
         _config = config;
         _clock = clock;
+        _initialBindingPin = initialBindingPin;
     }
 
     public bool IsManagedWorktree()
@@ -100,14 +102,16 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
+            if (_initialBindingPin is not null && File.Exists(attachmentPath))
+                return Result.Fail("binding-initialization-requires-fresh-checkout: use guarded 'twig connection pin' for an existing attachment.");
             Directory.CreateDirectory(_paths.TwigDir);
             await EnsureLayoutMarkerAsync(ct).ConfigureAwait(false);
             await WriteFingerprintAsync(anchor, ct).ConfigureAwait(false);
 
-            var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
             if (!File.Exists(attachmentPath))
             {
-                var empty = AttachmentDocument.Empty(ConnectionRefResolver.Compute(_config));
+                var empty = AttachmentDocument.Empty(ConnectionRefResolver.Compute(_config)) with { BindingPin = _initialBindingPin };
                 await WriteJsonAtomicAsync(attachmentPath, empty, TwigJsonContext.Default.AttachmentDocument, ct)
                     .ConfigureAwait(false);
             }

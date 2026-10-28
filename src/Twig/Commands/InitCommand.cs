@@ -35,6 +35,7 @@ public sealed class InitCommand
     private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource? _profileRegistry;
     private readonly AdoConcurrencyThrottle? _throttle;
     private readonly Infrastructure.Auth.BootstrapEndpointSelection? _bootstrapEndpointSelection;
+    private readonly Infrastructure.Auth.IConnectionBindingService? _bindings;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -60,7 +61,8 @@ public sealed class InitCommand
         Twig.Domain.Interfaces.ISystemWorktreeRegistry systemRegistry,
         Twig.Domain.Services.Attachment.IProfileRegistrySource profileRegistry,
         AdoConcurrencyThrottle? throttle = null,
-        Infrastructure.Auth.BootstrapEndpointSelection? bootstrapEndpointSelection = null)
+        Infrastructure.Auth.BootstrapEndpointSelection? bootstrapEndpointSelection = null,
+        Infrastructure.Auth.IConnectionBindingService? bindings = null)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -75,6 +77,7 @@ public sealed class InitCommand
         _profileRegistry = profileRegistry;
         _throttle = throttle;
         _bootstrapEndpointSelection = bootstrapEndpointSelection;
+        _bindings = bindings;
     }
 
     /// <summary>
@@ -119,13 +122,13 @@ public sealed class InitCommand
         _systemRegistry = systemRegistry;
         _profileRegistry = profileRegistry;
     }
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
         int fieldCount;
         bool hadGlobalProfile;
-        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, reinitialize, ct, profile, provider, host, repository);
+        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, reinitialize, ct, profile, provider, host, repository, binding);
         _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "init",
@@ -142,7 +145,7 @@ public sealed class InitCommand
         return exitCode;
     }
 
-    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile, string? provider, string? host, string? repository)
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile, string? provider, string? host, string? repository, string? binding)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var telemetryHadGlobalProfile = false;
@@ -263,9 +266,9 @@ public sealed class InitCommand
             }
             if (team is not null || gitProject is not null || sprint is not null || area is not null
                 || profile is not null || config.Profile is not null || config.Policy?.SelectedProfile is not null
-                || force || reinitialize)
+                || binding is not null || force || reinitialize)
             {
-                Console.Error.WriteLine(fmt.FormatError("GitHub init does not support ADO team/sprint/area/git-project/profile options or destructive reinitialization. Initialize a fresh checkout; configure credentials and bind the repository separately."));
+                Console.Error.WriteLine(fmt.FormatError("GitHub init does not support ADO team/sprint/area/git-project/profile/binding options or destructive reinitialization. Initialize a fresh checkout; configure credentials and bind the repository separately."));
                 return (1, false, 0);
             }
         }
@@ -285,7 +288,7 @@ public sealed class InitCommand
         // always lands before the first GetAccessTokenAsync call — the provider was built
         // from the (potentially empty) configuration discovered at DI-container startup,
         // which is a different object than `config` and may name no endpoint at all.
-        _bootstrapEndpointSelection?.Publish(config);
+        _bootstrapEndpointSelection?.Publish(config, binding);
 
         // ── Design §6.3: every refusal that depends only on inputs and the
         //    tracked manifest runs BEFORE the first mutation, so a rejected
@@ -305,7 +308,28 @@ public sealed class InitCommand
         }
         var invocationPaths = new TwigPaths(twigDir, contextPaths.ConfigPath, contextPaths.DbPath, invocationStartDir);
         var invocationFingerprint = new Infrastructure.Persistence.WorktreeFingerprintProvider(invocationPaths, config);
-        var invocationStore = new Infrastructure.Persistence.WorktreeLocalAttachmentStore(invocationPaths, config, TimeProvider.System);
+        if (binding is not null)
+        {
+            if (force || reinitialize || Directory.Exists(twigDir))
+            {
+                Console.Error.WriteLine(fmt.FormatError("binding-initialization-requires-fresh-checkout: --binding cannot replace existing local state or combine with --force/--reinitialize. Use guarded 'twig connection pin' for an initialized checkout."));
+                return (1, false, 0);
+            }
+            try
+            {
+                if (_bindings is null)
+                    throw new InvalidOperationException("binding-service-unavailable: registered binding validation is unavailable.");
+                // Constructing the provider checks registry/endpoint evidence only; credentials
+                // and HTTP remain deferred until after all input-only admission has passed.
+                _ = await _bindings.CreateBootstrapProviderAsync(config, ct, binding);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(fmt.FormatError(ex.Message));
+                return (1, false, 0);
+            }
+        }
+        var invocationStore = new Infrastructure.Persistence.WorktreeLocalAttachmentStore(invocationPaths, config, TimeProvider.System, binding);
         if (_systemRegistry is null || _profileRegistry is null)
         {
             Console.Error.WriteLine(fmt.FormatError("Managed init refused: system-store or profile-registry seam is unavailable."));

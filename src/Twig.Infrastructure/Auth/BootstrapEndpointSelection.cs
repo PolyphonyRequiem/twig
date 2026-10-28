@@ -18,7 +18,7 @@ namespace Twig.Infrastructure.Auth;
 /// <para>
 /// This holder closes that gap without mutating the shared startup <see cref="TwigConfiguration"/>
 /// singleton (which other registrations still read as "the configuration discovered at
-/// startup") and without widening <c>CreateBootstrapProviderAsync</c>'s contract: 
+/// startup"):
 /// <c>InitCommand</c> publishes the effective coordinates as soon as it has computed them,
 /// and the deferred provider's admission factory — itself lazy, see
 /// <see cref="DeferredBoundAuthenticationProvider"/> — reads the published value (falling
@@ -30,6 +30,13 @@ internal sealed class BootstrapEndpointSelection
 {
     private readonly object _sync = new();
     private TwigConfiguration? _effective;
+    private string? _bindingId;
+
+    /// <summary>Optional registered binding explicitly selected for this fresh checkout.</summary>
+    public string? BindingId
+    {
+        get { lock (_sync) { return _bindingId; } }
+    }
 
     /// <summary>The explicitly published effective configuration, or <c>null</c> if none was published.</summary>
     public TwigConfiguration? Effective
@@ -42,9 +49,13 @@ internal sealed class BootstrapEndpointSelection
     /// identity resolution. Safe to call before the deferred provider has been admitted;
     /// a no-op for every consumer that never reads <see cref="Effective"/>.
     /// </summary>
-    public void Publish(TwigConfiguration configuration)
+    public void Publish(TwigConfiguration configuration, string? bindingId = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        lock (_sync) { _effective = configuration; }
+        lock (_sync)
+        {
+            _effective = configuration;
+            _bindingId = bindingId;
+        }
     }
 }

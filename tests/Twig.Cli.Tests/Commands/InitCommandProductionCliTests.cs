@@ -409,10 +409,191 @@ public sealed class InitCommandProductionCliTests : IDisposable
         (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
     }
 
-    private static async Task BindCachedAadIdentityAsync(string home, string organization, string project)
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public async Task Init_ThroughProductionCli_ExplicitBindingPinsCheckoutWithoutChangingDefault(bool positionalArgs, bool hasDefault)
+    {
+        await using var adoServer = InitAdoServer.Start();
+        const string project = "TestProject";
+        await RunGitAsync("init", "--quiet");
+        var home = Path.Combine(_repoRoot, ".test-system");
+        var selected = await BindCachedAadIdentityAsync(home, adoServer.BaseUrl, project, makeDefault: false);
+        IdentityBinding? originalDefault = null;
+        if (hasDefault)
+            originalDefault = await BindCachedAadIdentityAsync(home, adoServer.BaseUrl, project,
+                name: "unavailable", principal: "33333333-3333-3333-3333-333333333333");
+        string? otherRoot = null;
+        string? otherStatus = null;
+        string? otherAttachment = null;
+        if (hasDefault && !positionalArgs)
+        {
+            otherRoot = Path.Combine(_repoRoot, "other-checkout");
+            await RunGitAtAsync(otherRoot, "init", "--quiet");
+            var otherInit = await RunTwigAtAsync(otherRoot, "init", adoServer.BaseUrl, project);
+            otherInit.ExitCode.ShouldBe(0, otherInit.Stderr);
+            var statusBefore = await RunTwigAtAsync(otherRoot, "connection", "status", "-o", "json");
+            statusBefore.ExitCode.ShouldBe(0, statusBefore.Stderr);
+            otherStatus = statusBefore.Stdout;
+            otherAttachment = await File.ReadAllTextAsync(Path.Combine(otherRoot, ".twig", "attachment.json"));
+        }
+        using var bindings = new ConnectionBindingService(home);
+        var identities = await bindings.ListIdentitiesAsync();
+        if (hasDefault)
+        {
+            var unavailable = identities.Single(x => x.Name == "unavailable");
+            File.Delete(Path.Combine(home, "credentials", unavailable.CredentialRef + ".json"));
+            File.Delete(Path.Combine(home, "credentials", unavailable.CredentialRef + ".token-cache"));
+        }
+        var selectedIdentity = identities.Single(x => x.Name == "fixture");
+        var (expectedToken, _) = new TwigTokenFileCache(
+            Path.Combine(home, "credentials", selectedIdentity.CredentialRef + ".token-cache")).TryRead();
+        expectedToken.ShouldNotBeNullOrEmpty();
+        var config = new TwigConfiguration { Organization = adoServer.BaseUrl, Project = project };
+        if (hasDefault)
+        {
+            var defaultProvider = await bindings.CreateBootstrapProviderAsync(config);
+            await Should.ThrowAsync<Twig.Infrastructure.Ado.Exceptions.AdoAuthenticationException>(
+                async () => await defaultProvider.GetAccessTokenAsync());
+        }
+        var before = await RunTwigAsync("connection", "list", "--org", adoServer.BaseUrl, "--project", project, "-o", "json");
+        before.ExitCode.ShouldBe(0);
+
+        var args = positionalArgs
+            ? new[] { "init", adoServer.BaseUrl, project, "--binding", selected.BindingId }
+            : new[] { "init", "--org", adoServer.BaseUrl, "--project", project, "--binding", selected.BindingId };
+        var previousRequestCount = adoServer.Requests.Count;
+        var result = await RunTwigAsync(args);
+
+        result.ExitCode.ShouldBe(0, $"stdout: {result.Stdout}\nstderr: {result.Stderr}");
+        var status = await RunTwigAsync("connection", "status", "-o", "json");
+        status.ExitCode.ShouldBe(0, status.Stderr);
+        status.Stdout.ShouldContain(selected.BindingId);
+        status.Stdout.ShouldContain("checkout-binding-pin");
+        if (originalDefault is not null)
+            status.Stdout.ShouldNotContain(originalDefault.BindingId);
+        var selectedRequests = adoServer.Requests.Skip(previousRequestCount).ToArray();
+        selectedRequests.ShouldNotBeEmpty();
+        selectedRequests.ShouldAllBe(r => r.Authorization == $"Bearer {expectedToken}");
+        var after = await RunTwigAsync("connection", "list", "--org", adoServer.BaseUrl, "--project", project, "-o", "json");
+        after.ExitCode.ShouldBe(0);
+        after.Stdout.ShouldBe(before.Stdout, "init must not change any central binding/default");
+        if (otherRoot is not null)
+        {
+            var otherAfter = await RunTwigAtAsync(otherRoot, "connection", "status", "-o", "json");
+            otherAfter.ExitCode.ShouldBe(0, otherAfter.Stderr);
+            otherAfter.Stdout.ShouldBe(otherStatus, "another checkout must retain its selection");
+            (await File.ReadAllTextAsync(Path.Combine(otherRoot, ".twig", "attachment.json"))).ShouldBe(otherAttachment);
+        }
+    }
+
+    [Theory]
+    [InlineData("--force", false)]
+    [InlineData("--reinitialize", false)]
+    [InlineData(null, true)]
+    public async Task Init_ThroughProductionCli_BindingCannotBypassExistingStateGuards(string? flag, bool existingState)
+    {
+        await using var adoServer = InitAdoServer.Start();
+        await RunGitAsync("init", "--quiet");
+        var twigDir = Path.Combine(_repoRoot, ".twig");
+        if (existingState)
+        {
+            Directory.CreateDirectory(twigDir);
+            await File.WriteAllTextAsync(Path.Combine(twigDir, "attachment.json"), "preserve existing attachment bytes");
+        }
+        var args = new[] { "init", adoServer.BaseUrl, "TestProject", "--binding", "bind-existing" };
+        if (flag is not null) args = [.. args, flag];
+
+        var result = await RunTwigAsync(args);
+
+        result.ExitCode.ShouldBe(1, result.Stderr);
+        result.Stderr.ShouldContain("binding-initialization-requires-fresh-checkout");
+        if (existingState)
+            (await File.ReadAllTextAsync(Path.Combine(twigDir, "attachment.json"))).ShouldBe("preserve existing attachment bytes");
+        else
+            Directory.Exists(twigDir).ShouldBeFalse();
+        Directory.GetDirectories(_repoRoot, ".twig-legacy-*").ShouldBeEmpty();
+        File.Exists(Path.Combine(_repoRoot, "twig.json")).ShouldBeFalse();
+        adoServer.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Init_ThroughProductionCli_BindingFailureRollsBackLocalPin(bool afterAttachmentWrite)
+    {
+        await using var adoServer = InitAdoServer.Start();
+        await RunGitAsync("init", "--quiet");
+        var organization = adoServer.BaseUrl;
+        const string project = "TestProject";
+        var home = Path.Combine(_repoRoot, ".test-system");
+        var selected = await BindCachedAadIdentityAsync(home, organization, project, makeDefault: false);
+        if (afterAttachmentWrite)
+        {
+            Directory.CreateDirectory(Path.Combine(_repoRoot, ".gitignore"));
+        }
+        else
+        {
+            using var bindings = new ConnectionBindingService(home);
+            var identity = (await bindings.ListIdentitiesAsync()).Single();
+            File.Delete(Path.Combine(home, "credentials", identity.CredentialRef + ".json"));
+            File.Delete(Path.Combine(home, "credentials", identity.CredentialRef + ".token-cache"));
+        }
+
+        var result = await RunTwigAsync("init", organization, project, "--binding", selected.BindingId);
+
+        result.ExitCode.ShouldBe(1);
+        if (afterAttachmentWrite)
+        {
+            result.Stdout.ShouldContain("Getting current iteration");
+            result.Stderr.ShouldContain(".gitignore");
+            File.Exists(Path.Combine(_repoRoot, ".twig", "attachment.json")).ShouldBeFalse();
+        }
+        else
+        {
+            result.Stderr.ShouldContain("Identity 'fixture' has no credential blob");
+            Directory.Exists(Path.Combine(_repoRoot, ".twig")).ShouldBeFalse();
+        }
+        File.Exists(Path.Combine(_repoRoot, "twig.json")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Init_ThroughProductionCli_GitHubRefusesAdoBinding()
+    {
+        await RunGitAsync("init", "--quiet");
+        var result = await RunTwigAsync("init", "--provider", "github", "--host", "github.com",
+            "--repository", "owner/repo", "--binding", "bind-ado");
+
+        result.ExitCode.ShouldBe(1);
+        result.Stderr.ShouldContain("GitHub init does not support ADO");
+        Directory.Exists(Path.Combine(_repoRoot, ".twig")).ShouldBeFalse();
+        File.Exists(Path.Combine(_repoRoot, "twig.json")).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("unknown", "binding-unknown")]
+    [InlineData("mismatch", "binding-endpoint-mismatch")]
+    [InlineData(" ", "binding-selector-required")]
+    public async Task Init_ThroughProductionCli_InvalidBindingRefusesBeforeWriting(string selector, string reason)
+    {
+        await using var adoServer = InitAdoServer.Start();
+        await RunGitAsync("init", "--quiet");
+        var selected = await BindCachedAadIdentityAsync(Path.Combine(_repoRoot, ".test-system"), adoServer.BaseUrl, "OtherProject");
+        var result = await RunTwigAsync("init", adoServer.BaseUrl, "TestProject",
+            "--binding", selector == "mismatch" ? selected.BindingId : selector);
+
+        result.ExitCode.ShouldBe(1, result.Stderr);
+        result.Stderr.ShouldContain(reason);
+        Directory.Exists(Path.Combine(_repoRoot, ".twig")).ShouldBeFalse();
+        File.Exists(Path.Combine(_repoRoot, "twig.json")).ShouldBeFalse();
+        adoServer.Requests.ShouldBeEmpty();
+    }
+
+    private static async Task<IdentityBinding> BindCachedAadIdentityAsync(string home, string organization, string project,
+        bool makeDefault = true, string name = "fixture", string principal = "22222222-2222-2222-2222-222222222222")
     {
         var tenant = "11111111-1111-1111-1111-111111111111";
-        var principal = "22222222-2222-2222-2222-222222222222";
         var payload = JsonSerializer.Serialize(new Dictionary<string, object>
         {
             ["aud"] = JwtAccessTokenInspector.AdoResourceId,
@@ -426,7 +607,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
         refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((token, (string?)null, false));
         using var bindings = new ConnectionBindingService(home, refresher);
-        var identity = await bindings.RegisterAadIdentityAsync("fixture", new TwigRefreshTokenStoreEntry
+        var identity = await bindings.RegisterAadIdentityAsync(name, new TwigRefreshTokenStoreEntry
         {
             RefreshToken = "fixture-refresh",
             ClientId = "fixture-client",
@@ -434,9 +615,10 @@ public sealed class InitCommandProductionCliTests : IDisposable
             ObjectId = principal,
             AuthorityHost = "login.microsoftonline.com"
         });
-        await bindings.CreateBindingAsync(organization, project, "fixture", makeDefault: true);
+        var binding = await bindings.CreateBindingAsync(organization, project, name, makeDefault);
         new TwigTokenFileCache(Path.Combine(home, "credentials", identity.CredentialRef + ".token-cache"))
             .TryWrite(token, DateTimeOffset.UtcNow.AddHours(1));
+        return binding;
     }
 
     private static byte[] CreateManifestBytes(string organization, string project, string team) =>
@@ -491,12 +673,14 @@ public sealed class InitCommandProductionCliTests : IDisposable
         return manifestPath;
     }
 
-    private async Task RunGitAsync(params string[] args)
+    private Task RunGitAsync(params string[] args) => RunGitAtAsync(_repoRoot, args);
+
+    private static async Task RunGitAtAsync(string workingDirectory, params string[] args)
     {
-        Directory.CreateDirectory(_repoRoot);
+        Directory.CreateDirectory(workingDirectory);
         var startInfo = new ProcessStartInfo("git")
         {
-            WorkingDirectory = _repoRoot,
+            WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -517,7 +701,10 @@ public sealed class InitCommandProductionCliTests : IDisposable
             $"git {string.Join(' ', args)} failed:{Environment.NewLine}{stdout}{Environment.NewLine}{stderr}");
     }
 
-    private async Task<(int ExitCode, string Stdout, string Stderr)> RunTwigAsync(params string[] args)
+    private Task<(int ExitCode, string Stdout, string Stderr)> RunTwigAsync(params string[] args)
+        => RunTwigAtAsync(_repoRoot, args);
+
+    private async Task<(int ExitCode, string Stdout, string Stderr)> RunTwigAtAsync(string workingDirectory, params string[] args)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
         var repositoryRoot = Path.GetFullPath(Path.Combine(
@@ -534,7 +721,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
 
         var startInfo = new ProcessStartInfo(dotnetHost)
         {
-            WorkingDirectory = _repoRoot,
+            WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

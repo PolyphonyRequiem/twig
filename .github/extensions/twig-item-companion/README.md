@@ -30,7 +30,9 @@ path, never a bare `twig` name. Reopening the same instance does not re-admit;
 a new instance does.
 
 Each canvas declares only the native capabilities it uses (item: detail, draft
-show and draft open/stage/retain/save; workbench: Bench browse/detail, discussion and draft open/stage/retain/save;
+show and draft open/stage/retain/save; workbench: Bench browse/detail,
+discussion read/prepare, proposal preview/apply
+and draft open/stage/retain/save;
 review: proposal preview/apply). Before a capability's first use, the instance runs
 `<command> --help` on the pinned path and requires that the usage line names that
 command and that its `Options:` section declares each flag the canvas will pass as
@@ -150,7 +152,39 @@ selection, and late old-target results cannot render under another selection or
 a same-item revisit.
 
 This is source integration, not installed-host or live-provider qualification.
-Discussion posting/editing/deletion and attachments are outside this slice.
+Discussion editing/deletion and attachments are outside the discussion read path.
+
+## Explicit discussion posting
+
+After **Read discussion (online)** has admitted a published cached member, enter
+plain text and choose **Prepare discussion proposal**. The separately named
+`/api/discussion-post` route passes the server-held qualified context, exact text
+and format to `twig bench discussion prepare-post --stdin -o json`. The native
+command rechecks the full context and Bench membership, uses the existing .NET
+formatter and v1 append-comment parser, and returns canonical proposal bytes and
+their digest. It does not write files, import a journal row, authorize or post.
+It also supports restricted Markdown for native callers; the canvas composer
+currently submits plain text. Submitted/effective UTF-8 limits remain 16/64 KiB.
+
+The extension retains those exact bytes in a new, exclusively created file under
+the physical checkout's `.twig/canvas-discussion/` and acquires the native proposal
+preview. This explicit preparation may import a local journal row. The canvas
+shows the qualified target, workspace, Bench, identity, native preconditions,
+submitted text, effective HTML **as inert text**, digest and blockers. It never
+reimplements the native HTML policy or infers eligibility.
+
+Only a separate trusted human click on **Authorize and post exact digest once**
+submits the retained digest to the native proposal apply path. It is not exposed
+as a canvas agent action. Native append admission and origin/digest fences still
+govern the write. Native #532 performs one comment POST and reads back that
+specific typed comment ID; a list match, acknowledgment alone or exit zero without
+a complete verified receipt is not success. Unknown or unverified outcomes latch
+posting for this canvas instance, survive navigation and are available in local
+instance outcomes. Inspect the native journal; there is no automatic retry,
+autosend, direct backend write or comment-list inference. Proposal files are
+retained for journal inspection, not automatically deleted.
+
+This is source integration, not installed-host or live-provider qualification.
 
 ## Explicit in-session handoff fallback (not host-qualified)
 

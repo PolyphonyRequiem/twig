@@ -9,6 +9,7 @@ import { createNativeProposalApplier } from "./native-apply.mjs";
 import { createReviewServer } from "./review-server.mjs";
 import { createNativeEditingAdapter } from "./native-editing.mjs";
 import { createNativeDiscussionReader } from "./native-discussion.mjs";
+import { createNativeDiscussionPoster } from "./native-discussion-post.mjs";
 import { admitTwigExecutable, ExecutableError } from "./native-executable.mjs";
 
 const instances = new Map();
@@ -242,6 +243,7 @@ const workbenchCanvas = createCanvas({
                 readNativeBench: createNativeBenchReader({ executable }),
                 readNativeBenchDetail: createNativeBenchDetailReader({ executable }),
                 readNativeDiscussion: createNativeDiscussionReader({ executable }),
+                nativeDiscussionPost: createNativeDiscussionPoster({ executable }),
                 nativeEditing: createNativeEditingAdapter({ executable }), handoffSession: session, workbench: true });
             workbenchInstances.set(ctx.instanceId, instance);
         }

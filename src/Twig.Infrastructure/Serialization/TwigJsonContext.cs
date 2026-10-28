@@ -289,6 +289,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DiscussionResult))]
 [JsonSerializable(typeof(DiscussionContext))]
 [JsonSerializable(typeof(DiscussionCursor))]
+[JsonSerializable(typeof(DiscussionPostRequest))]
+[JsonSerializable(typeof(DiscussionPostPreparation))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],

@@ -129,7 +129,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
     }
 
     internal async Task<ServiceProvider> CreateRuntimeAsync(Func<IFieldDefinitionStore, IFieldDefinitionStore>? fieldDefinitions = null,
-        bool initializeBench = true, Func<IContextStore, IContextStore>? contextStore = null)
+        bool initializeBench = true, Func<IContextStore, IContextStore>? contextStore = null, HttpClient? http = null)
     {
         var paths = CurrentPaths();
         var services = new ServiceCollection();
@@ -138,7 +138,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         services.AddSingleton(paths);
         services.RemoveAll<ISystemWorktreeRegistry>();
         services.AddSingleton<ISystemWorktreeRegistry>(_ => new SqliteSystemWorktreeRegistry(Path.Combine(Home, "system.db"), TimeProvider.System));
-        services.AddSingleton(_http);
+        services.AddSingleton(http ?? _http);
         services.AddTwigNetworkServices(Configuration);
         services.AddTwigRenderingServices();
         services.AddTwigCommandServices();

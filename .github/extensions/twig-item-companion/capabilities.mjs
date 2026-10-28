@@ -11,6 +11,7 @@ export const CAPABILITIES = Object.freeze({
     "workspace-browser": capability(["workspace"], ["--bench", "--include-browser", "--browser-version", "--view", "-o",
         "--expect-bench", "--expect-binding", "--expect-identity"]),
     "discussion": capability(["bench", "discussion"], ["--stdin", "-o"]),
+    "discussion-prepare-post": capability(["bench", "discussion", "prepare-post"], ["--stdin", "-o"]),
     "draft-open": capability(["draft", "open"], ["--bench", "-o", "--expect-binding", "--expect-identity"]),
     "draft-stage": capability(["draft", "stage"], ["--stdin", "-o"]),
     "draft-retain": capability(["draft", "retain"], ["--stdin", "-o"]),
@@ -21,7 +22,7 @@ export const CAPABILITIES = Object.freeze({
 
 export const CANVAS_CAPABILITIES = Object.freeze({
     item: Object.freeze(["detail", "draft-show", "draft-open", "draft-stage", "draft-retain", "draft-save"]),
-    workbench: Object.freeze(["workspace-browser", "bench-detail", "discussion", "draft-open", "draft-stage", "draft-retain", "draft-save"]),
+    workbench: Object.freeze(["workspace-browser", "bench-detail", "discussion", "discussion-prepare-post", "proposal-preview", "proposal-apply", "draft-open", "draft-stage", "draft-retain", "draft-save"]),
     review: Object.freeze(["proposal-preview", "proposal-apply"]),
 });
 

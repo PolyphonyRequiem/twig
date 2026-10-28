@@ -9,6 +9,7 @@ import { createNativeBenchReader } from "../native-bench.mjs";
 import { createNativeBenchDetailReader } from "../native-bench-detail.mjs";
 import { renderPage } from "../render.mjs";
 import { createNativeDiscussionReader } from "../native-discussion.mjs";
+import { createNativeDiscussionPoster } from "../native-discussion-post.mjs";
 import { createNativeEditingAdapter } from "../native-editing.mjs";
 import { discussionTarget, discussionPage, discussionRefusal, childHarness } from "./discussion-fixture.mjs";
 import { fakeExecutable, FAKE_TWIG } from "./executable-fixture.mjs";
@@ -127,11 +128,11 @@ function dom(html, url, transformResponse) {
 }
 function flatten(node) { return [node.textContent, ...node.children.flatMap(flatten)].join("\n"); }
 function descendants(node) { return [node, ...node.children.flatMap(descendants)]; }
-async function open(payload = fixture, fail, detailPayload, nativeEditing, handoffSession, transformResponse, readNativeDiscussion) {
+async function open(payload = fixture, fail, detailPayload, nativeEditing, handoffSession, transformResponse, readNativeDiscussion, nativeDiscussionPost) {
     const calls = [];
     const server = await createCanvasServer({
         workspacePath: payload.browser.origin.worktreeRoot, workbench: true, readNativeBench: reader(payload, calls, fail),
-        nativeEditing, handoffSession, readNativeDiscussion,
+        nativeEditing, handoffSession, readNativeDiscussion, nativeDiscussionPost,
         readNativeBenchDetail: detailPayload && createNativeBenchDetailReader({ executable: fakeExecutable(),
             realpath: async (path) => path,
             execFile(exe, args, options, callback) {
@@ -650,7 +651,7 @@ test("rendered workbench VM crosses actual HTTP OPEN/STAGE/RETAIN only on explic
     } finally { await ui.server.close(); }
 });
 
-async function discussionSetup(handler = () => ({ value: discussionPage(), code: 0 }), transformResponse, nativeEditing, handoffSession, executable = fakeExecutable()) {
+async function discussionSetup(handler = () => ({ value: discussionPage(), code: 0 }), transformResponse, nativeEditing, handoffSession, executable = fakeExecutable(), nativeDiscussionPost) {
     const detail = structuredClone(detailFixture);
     Object.assign(detail, {
         benchName: fixture.browser.benchName, observation: "raw-mirror", origin: { ...fixture.browser.origin },
@@ -662,7 +663,7 @@ async function discussionSetup(handler = () => ({ value: discussionPage(), code:
     detail.document.processId = "twig.fallback";
     const h = childHarness(handler);
     const readNativeDiscussion = createNativeDiscussionReader({ executable, ...h, realpath: async value => value });
-    const ui = await open(fixture, undefined, detail, nativeEditing, handoffSession, transformResponse, readNativeDiscussion);
+    const ui = await open(fixture, undefined, detail, nativeEditing, handoffSession, transformResponse, readNativeDiscussion, nativeDiscussionPost);
     const find = label => descendants(ui.nodes.get("#bench-selection")).find(node => node.textContent === label);
     const token = JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]);
     const http = (body, extraHeaders = {}, method = "POST") => fetch(new URL("/api/discussion", ui.server.url), {
@@ -674,6 +675,98 @@ async function discussionSetup(handler = () => ({ value: discussionPage(), code:
     await ui.settled();
     return { ...ui, native: h, find, http };
 }
+
+test("discussion post real VM HTTP prepares inert exact review and only trusted explicit click submits digest once", async () => {
+    const calls = [];
+    const nativeDiscussionPost = {
+        async prepare(input) {
+            calls.push({ action: "prepare", input });
+            return { digest: "a".repeat(64), target: input.context.itemKey, bench: input.context.benchName,
+                identity: input.context.identityId, workspace: { organization: "fixture", project: "Work" },
+                text: input.text, format: input.format, effectiveBody: "<p>&lt;script&gt;inert&lt;/script&gt;</p>\n" };
+        },
+        async apply(input) {
+            calls.push({ action: "apply", input });
+            return { status: "verified", commentId: "9007199254740993" };
+        },
+    };
+    const ui = await discussionSetup(undefined, undefined, undefined, undefined, fakeExecutable(), nativeDiscussionPost);
+    try {
+        const prepare = ui.find("Prepare discussion proposal");
+        assert.ok(prepare, "real production workbench must expose separate explicit discussion preparation");
+        assert.equal(calls.length, 0);
+        ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+        const editor = descendants(ui.nodes.get("#bench-selection")).find(node =>
+            node.attributes["aria-label"] === "Discussion comment plain text");
+        assert.ok(editor);
+        editor.value = "<script>inert</script>";
+        editor.listeners.input();
+        prepare.listeners.click({ isTrusted: true }); await ui.settled();
+        assert.deepEqual(calls.map(call => call.action), ["prepare"]);
+        assert.equal(calls[0].input.context.itemKey.workItemId, 42);
+        assert.equal(calls[0].input.text, "<script>inert</script>");
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /<script>inert<\/script>/);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /a{64}/);
+        const apply = ui.find("Authorize and post exact digest once");
+        assert.ok(apply);
+        apply.listeners.click({ isTrusted: false }); await ui.settled();
+        assert.equal(calls.length, 1, "synthetic click cannot authorize");
+        apply.listeners.click({ isTrusted: true }); await ui.settled();
+        apply.listeners.click({ isTrusted: true }); await ui.settled();
+        assert.deepEqual(calls.map(call => call.action), ["prepare", "apply"]);
+        assert.equal(calls[1].input.confirm, "a".repeat(64));
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /9007199254740993/);
+        const post = ui.browserRequests.find(call => call.route === "/api/discussion-post" && call.body.action === "apply");
+        assert.deepEqual(Object.keys(post.body).sort(), ["action", "captureHandle", "confirm", "targetHandle"]);
+    } finally { await ui.server.close(); }
+});
+
+test("discussion post real HTTP refuses browser authority, stale context and duplicates; unknown survives navigation", async () => {
+    const calls = [];
+    const ui = await discussionSetup(undefined, undefined, undefined, undefined, fakeExecutable(), {
+        async prepare(input) {
+            calls.push("prepare");
+            return { digest: "a".repeat(64), target: input.context.itemKey, bench: input.context.benchName,
+                identity: input.context.identityId, workspace: { organization: "fixture", project: "Work" },
+                text: input.text, format: input.format, effectiveBody: "<p>exact</p>\n" };
+        },
+        async apply() { calls.push("apply"); throw new Error("PRIVATE acknowledgment lost"); },
+    });
+    const token = JSON.parse(ui.html.match(/const token = ("[^"]+");/)[1]);
+    const post = (body, extra = {}) => fetch(new URL("/api/discussion-post", ui.server.url), {
+        method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", ...extra },
+        body: JSON.stringify(body),
+    });
+    try {
+        const handle = (await (await post({ action: "prepare", targetHandle: "a".repeat(43), format: "plain", text: "exact" })).json());
+        assert.match(handle.error, /Read current qualified discussion/);
+        assert.equal((await post({ action: "prepare", targetHandle: "a".repeat(43), format: "plain", text: "exact", workItemId: 99 })).status, 400);
+        assert.equal((await post({}, { Origin: "https://evil.invalid" })).status, 403);
+        assert.deepEqual(calls, []);
+        ui.find("Read discussion (online)").listeners.click(); await ui.settled();
+        const editor = descendants(ui.nodes.get("#bench-selection")).find(node =>
+            node.attributes["aria-label"] === "Discussion comment plain text");
+        editor.value = "exact"; editor.listeners.input();
+        ui.find("Prepare discussion proposal").listeners.click({ isTrusted: true }); await ui.settled();
+        const capture = ui.browserRequests.find(call => call.route === "/api/discussion-post").body;
+        const state = await (await fetch(new URL("/api/state", ui.server.url), {
+            headers: { Authorization: "Bearer " + token },
+        })).json();
+        assert.deepEqual(state.discussionPostOutcomes, []);
+        ui.find("Authorize and post exact digest once").listeners.click({ isTrusted: true }); await ui.settled();
+        assert.deepEqual(calls, ["prepare", "apply"]);
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /outcome is unknown/);
+        assert.doesNotMatch(flatten(ui.nodes.get("#bench-selection")), /PRIVATE/);
+        ui.find("Back to Bench").listeners.click(); await ui.settled();
+        row42(ui).listeners.click(); await ui.settled();
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /Previous post.*outcome-unknown/);
+        assert.equal(ui.find("Prepare discussion proposal").disabled, true);
+        const duplicate = ui.browserRequests.find(call => call.route === "/api/discussion-post" && call.body.action === "apply").body;
+        assert.equal((await post(duplicate)).status, 409);
+        assert.deepEqual(calls, ["prepare", "apply"]);
+        assert.equal(capture.format, "plain");
+    } finally { await ui.server.close(); }
+});
 
 test("discussion real VM HTTP native adapter reads only on explicit online Read with inert qualified page", async () => {
     const ui = await discussionSetup();
@@ -1158,6 +1251,7 @@ test("actual extension actions explicitly open and stage a local draft through t
             return structuredClone(memberDetail);
         },
         createNativeDiscussionReader: () => async () => { throw new Error("Browsing must not read online discussion"); },
+        createNativeDiscussionPoster,
         createNativeEditingAdapter: () => nativeEditing,
     });
     // Only SDK/import boundaries are replaced; the production declaration and callbacks run unchanged.

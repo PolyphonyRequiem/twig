@@ -346,7 +346,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         var attachment = second.GetRequiredService<IPrimaryScopeAttachmentStore>();
         var versioned = (await attachment.ReadWithRevisionAsync()).Value;
         (await attachment.WriteAsync(versioned.Attachment.WithPrimaryScope(Scope(42)), versioned.Revision)).IsSuccess.ShouldBeTrue();
-        var projection = second.GetRequiredService<IAdoClaimProjection>();
+        var projection = second.GetRequiredService<IClaimProjection>();
         var holder = (await second.GetRequiredService<ILocalClaimService>().MintAsync(new MintClaimInput(
             ConnectionRefResolver.Compute(_configuration), PrimaryScopeKinds.AdoWorkItem, "42",
             WorktreeFingerprintProvider.CanonicalJson(WorktreeAnchorDetector.Detect(secondPaths.StartDir)!.Value),

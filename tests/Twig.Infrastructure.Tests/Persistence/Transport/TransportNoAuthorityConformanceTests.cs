@@ -152,7 +152,7 @@ public sealed class TransportNoAuthorityConformanceTests
 
         // R1 — claim lifecycle
         AddByType("R1", typeof(Twig.Domain.Services.Claims.ILocalClaimService));
-        AddByType("R1", typeof(Twig.Domain.Services.Claims.IAdoClaimProjection));
+        AddByType("R1", typeof(Twig.Domain.Services.Claims.IClaimProjection));
         AddByType("R1", typeof(Twig.Domain.Services.Claims.ClaimRecord));
         AddByType("R1", typeof(Twig.Domain.Services.Claims.MintClaimInput));
         AddByType("R1", typeof(Twig.Domain.Services.Claims.ReclaimClaimInput));

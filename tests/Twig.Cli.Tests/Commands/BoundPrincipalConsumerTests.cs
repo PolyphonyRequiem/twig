@@ -224,7 +224,7 @@ public sealed class BoundPrincipalConsumerTests : IAsyncLifetime
             "https://dev.azure.com/fixture/Work/_workitems/edit/42", DateTimeOffset.UtcNow)), versioned.Revision)).IsSuccess.ShouldBeTrue();
         var anchor = WorktreeAnchorDetector.Detect(paths.StartDir!)!.Value;
         var claim = runtime.GetRequiredService<ILocalClaimService>();
-        var projection = runtime.GetRequiredService<IAdoClaimProjection>();
+        var projection = runtime.GetRequiredService<IClaimProjection>();
         var input = new MintClaimInput(ConnectionRefResolver.Compute(cfg), PrimaryScopeKinds.AdoWorkItem,
             "42", WorktreeFingerprintProvider.CanonicalJson(anchor), Second, "Alex Reader", null, null, projection);
         (await claim.MintAsync(input)).ShouldBeOfType<ClaimMintOutcome.HolderUnavailable>();
@@ -243,7 +243,7 @@ public sealed class BoundPrincipalConsumerTests : IAsyncLifetime
             runtime.GetRequiredService<IClaimIdGenerator>(), runtime.GetRequiredService<IClaimCasTokenGenerator>(),
             sibling.GetRequiredService<IClaimHolderResolver>(), TimeProvider.System);
         (await alternateActor.ReleaseAsync(new ReleaseClaimInput(minted.Claim.ClaimId,
-            sibling.GetRequiredService<IAdoClaimProjection>())))
+            sibling.GetRequiredService<IClaimProjection>())))
             .ShouldBeOfType<ClaimReleaseOutcome.InvalidRequest>();
         _transport.PatchCount.ShouldBe(patches);
         _transport.OwnerOf(42).ShouldBe(First);

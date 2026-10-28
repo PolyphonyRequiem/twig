@@ -300,7 +300,7 @@ public sealed class Ab728FinalReviewTests : IDisposable
 
         var input = new MintClaimInput(
             "conn", PrimaryScopeKinds.AdoWorkItem, "42", "fp", "holder", "Holder Display",
-            Label: "ok", Notes: null, AdoProjection: new PassThroughAdoProjection());
+            Label: "ok", Notes: null, Projection: new PassThroughAdoProjection());
 
         var outcome = await svc.MintAsync(input);
         outcome.ShouldBeOfType<ClaimMintOutcome.Succeeded>();
@@ -325,7 +325,7 @@ public sealed class Ab728FinalReviewTests : IDisposable
 
         var input = new MintClaimInput(
             "conn", PrimaryScopeKinds.AdoWorkItem, "42", "fp", "holder", "H",
-            Label: "bad\nlabel", Notes: null, AdoProjection: new PassThroughAdoProjection());
+            Label: "bad\nlabel", Notes: null, Projection: new PassThroughAdoProjection());
 
         var outcome = await svc.MintAsync(input);
         outcome.ShouldBeOfType<ClaimMintOutcome.InvalidRequest>();
@@ -488,7 +488,7 @@ public sealed class Ab728FinalReviewTests : IDisposable
         public Task<Result<ClaimHolderDescriptor>> ResolveAsync(CancellationToken ct = default) => Task.FromResult(Result.Ok(_holder));
     }
 
-    private sealed class PassThroughAdoProjection : IAdoClaimProjection
+    private sealed class PassThroughAdoProjection : IClaimProjection
     {
         public Task<Result> ProjectHolderAsync(string primaryScopeId, ClaimHolderDescriptor holder, CancellationToken ct = default) => Task.FromResult(Result.Ok());
         public Task<Result> ClearHolderAsync(string primaryScopeId, CancellationToken ct = default) => Task.FromResult(Result.Ok());

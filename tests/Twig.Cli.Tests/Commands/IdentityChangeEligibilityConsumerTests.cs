@@ -248,7 +248,7 @@ public sealed class IdentityChangeEligibilityConsumerTests : IAsyncLifetime
             versioned.Revision)).IsSuccess.ShouldBeTrue();
 
         var claim = runtime.GetRequiredService<ILocalClaimService>();
-        var projection = runtime.GetRequiredService<IAdoClaimProjection>();
+        var projection = runtime.GetRequiredService<IClaimProjection>();
         var anchor = WorktreeAnchorDetector.Detect(paths.StartDir!)!.Value;
         var mint = (await claim.MintAsync(new MintClaimInput(
                 ConnectionRefResolver.Compute(config), PrimaryScopeKinds.AdoWorkItem,

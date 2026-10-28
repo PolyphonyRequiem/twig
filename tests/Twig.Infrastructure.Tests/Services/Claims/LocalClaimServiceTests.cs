@@ -70,7 +70,7 @@ public sealed class LocalClaimServiceTests : IDisposable
 
     private ReclaimClaimInput ReclaimInput(bool allowSupersede, string? scopeId = null) =>
         new(ConnRef, PrimaryScopeKind, scopeId ?? PrimaryScopeId, Fingerprint, Holder, "Service User",
-            Label: null, Notes: null, AllowSupersede: allowSupersede, AdoProjection: _ado);
+            Label: null, Notes: null, AllowSupersede: allowSupersede, Projection: _ado);
 
     // ── T2 mint happy path ─────────────────────────────────────────────
 
@@ -149,8 +149,8 @@ public sealed class LocalClaimServiceTests : IDisposable
 
         var outcome = await _svc.MintAsync(MintInput());
 
-        outcome.ShouldBeOfType<ClaimMintOutcome.AdoProjectionFailed>();
-        ((ClaimMintOutcome.AdoProjectionFailed)outcome).Underlying.ShouldBe("network-down");
+        outcome.ShouldBeOfType<ClaimMintOutcome.ProjectionFailed>();
+        ((ClaimMintOutcome.ProjectionFailed)outcome).Underlying.ShouldBe("network-down");
 
         _attachment.LinkedClaimIds.ShouldBeEmpty();
 
@@ -165,7 +165,7 @@ public sealed class LocalClaimServiceTests : IDisposable
 
     // ── Mint-abort inspects the CAS/storage result: a failed abort MUST
     //    surface as ConcurrentClaimWrite / StorageUnavailable, not as a
-    //    silent AdoProjectionFailed while the reservation lingers. ──────
+    //    silent ProjectionFailed while the reservation lingers. ──────
 
     [Fact]
     public async Task Mint_surfaces_concurrent_write_when_ado_fails_and_abort_hits_a_cas_mismatch()
@@ -175,7 +175,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         var badAdo = new FakeAdoClaimProjection { NextHolderResult = Result.Fail("simulated-net") };
         var input = new MintClaimInput(
             ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, "Service User",
-            Label: null, Notes: null, AdoProjection: badAdo);
+            Label: null, Notes: null, Projection: badAdo);
 
         var outcome = await svc.MintAsync(input);
         outcome.ShouldBeOfType<ClaimMintOutcome.ConcurrentClaimWrite>();
@@ -193,7 +193,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         var badAdo = new FakeAdoClaimProjection { NextHolderResult = Result.Fail("network-down") };
         var input = new MintClaimInput(
             ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, "Service User",
-            Label: null, Notes: null, AdoProjection: badAdo);
+            Label: null, Notes: null, Projection: badAdo);
 
         var outcome = await svc.MintAsync(input);
         outcome.ShouldBeOfType<ClaimMintOutcome.StorageUnavailable>();
@@ -211,7 +211,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         _attachment.SetScope(PrimaryScopeKind, 99);
         _ado.NextHolderResult = Result.Fail("simulated");
         var mint99 = await _svc.MintAsync(MintInput(scopeId: "99"));
-        mint99.ShouldBeOfType<ClaimMintOutcome.AdoProjectionFailed>();
+        mint99.ShouldBeOfType<ClaimMintOutcome.ProjectionFailed>();
 
         var row42 = (await _registry.FindClaimAsync(active42.ClaimId)).Value!;
         row42.State.ShouldBe(ClaimStates.Active);
@@ -363,7 +363,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         _ado.NextClearResult = Result.Fail("clear-blocked");
         var release = await _svc.ReleaseAsync(new ReleaseClaimInput(claim.ClaimId, _ado));
 
-        release.ShouldBeOfType<ClaimReleaseOutcome.ReleaseAdoProjectionFailed>();
+        release.ShouldBeOfType<ClaimReleaseOutcome.ReleaseProjectionFailed>();
         var row = (await _registry.FindClaimAsync(claim.ClaimId)).Value!;
         row.State.ShouldBe(ClaimStates.Active);
         _attachment.UnlinkedClaimIds.ShouldBeEmpty();
@@ -734,7 +734,7 @@ public sealed class LocalClaimServiceTests : IDisposable
     /// project sets it, clear empties it, and read-back verification is
     /// intrinsic to the mint/release contract the real seam guarantees.
     /// </summary>
-    private sealed class FakeAdoClaimProjection : IAdoClaimProjection
+    private sealed class FakeAdoClaimProjection : IClaimProjection
     {
         public List<(string ScopeId, ClaimHolderDescriptor Holder)> HolderCalls { get; } = new();
         public List<(string ScopeId, DateTimeOffset At)> ClearCalls { get; } = new();

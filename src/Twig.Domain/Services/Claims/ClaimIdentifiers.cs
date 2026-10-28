@@ -60,10 +60,10 @@ internal static class PrimaryScopeKinds
 internal static class ClaimFailureCodes
 {
     public const string PrimaryScopeAlreadyClaimed = "primary-scope-already-claimed";
-    public const string AdoProjectionFailed = "ado-projection-failed";
+    public const string ProjectionFailed = "ado-projection-failed";
     public const string ConcurrentClaimWrite = "concurrent-claim-write";
     public const string AttachmentLinkFailed = "attachment-link-failed";
-    public const string ReleaseAdoProjectionFailed = "release-ado-projection-failed";
+    public const string ReleaseProjectionFailed = "release-ado-projection-failed";
     public const string AttachmentUnlinkFailed = "attachment-unlink-failed";
     public const string ClaimNotFound = "claim-not-found";
     public const string ClaimNotActive = "claim-not-active";

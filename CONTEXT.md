@@ -329,3 +329,30 @@ local work state. Central identity management does not replace this association.
 An immutable, evidence-backed record relating a preserved publishing attempt to
 an established outcome or verified replacement. It is not a rewritten journal
 state or permission to replay the attempt.
+
+## 12. Additive clean core
+
+Phase 1 of Epic #1220 introduces `Twig.Core` alongside, not in place of, production
+`Twig.Domain`. These names describe the new contract only; legacy code remains authoritative
+for existing command behavior. See `docs/architecture/clean-core-contract.md`.
+
+**ItemKey**: A durable local UUID or a provider/resource-scope/native-ID tuple. A negative
+seed integer is a display alias, not a third identity form.
+
+**Revision**: An opaque token bound to one exact remote ItemKey. It is not a local store
+version and cannot be incremented, synthesized or carried across provider targets.
+
+**ProcessSchema**: The one discovered core model of types, fields, states, transitions,
+rules and relation semantics, with explicit completeness gaps. It is a model, not a port.
+
+**Draft**: Local intent over a retained revision-bound base; a never-published draft has
+a local ItemKey and no remote base. A seed remains a lifecycle condition, not another type.
+
+**Proposal**: Immutable, digest-bound, ordered mutation intent. A field/state batch is one
+operation; its authored close gates travel with the transition.
+
+**Receipt**: An attempt-bound observation of one core operation's execution or readback.
+An acknowledgement is not verification, and an indeterminate receipt is not replay permission.
+
+**PublishMapping**: Permanent provenance binding a draft's local UUID to its acknowledged
+remote ItemKey and original proposal operation. It survives refresh and later uncertainty.

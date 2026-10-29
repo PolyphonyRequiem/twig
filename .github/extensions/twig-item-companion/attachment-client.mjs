@@ -1,4 +1,5 @@
-export function createAttachmentClient({ document, request, text, navigator }) {
+export function createAttachmentClient({ document, request, text, navigator,
+    wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)) }) {
     let current = null;
     function leave() {
         const previous = current;
@@ -15,7 +16,7 @@ export function createAttachmentClient({ document, request, text, navigator }) {
             parent.append(text("p", "Attachments are unavailable for this item or native ADO support."));
             return;
         }
-        const state = { targetHandle, busy: false, invalidated: false };
+        const state = { targetHandle, busy: false, invalidated: false, inventoryRevision: 0 };
         current = state;
         const box = document.createElement("section");
         state.box = box;
@@ -34,6 +35,7 @@ export function createAttachmentClient({ document, request, text, navigator }) {
             }
             if (current !== state || state.busy || state.invalidated) return;
             state.busy = true;
+            const inventoryRevision = ++state.inventoryRevision;
             refresh();
             status.textContent = "Reading qualified attachment inventory...";
             try {
@@ -58,16 +60,58 @@ export function createAttachmentClient({ document, request, text, navigator }) {
                     const link = text("a", "Download " + entry.fileName);
                     link.href = "/api/attachment-download/" + encodeURIComponent(entry.downloadHandle);
                     link.download = entry.fileName;
+                    let clicked = false;
+                    async function observeDownload() {
+                        try {
+                            for (let attempt = 0; attempt < 40; attempt++) {
+                                await wait(1000);
+                                if (current !== state || state.invalidated || state.inventoryRevision !== inventoryRevision) return;
+                                const outcome = await request("/api/attachments", {
+                                    method: "POST", headers: { "Content-Type": "application/json" },
+                                    signal: AbortSignal.timeout(5000),
+                                    body: JSON.stringify({ action: "download-status", targetHandle,
+                                        downloadHandle: entry.downloadHandle }),
+                                });
+                                if (current !== state || state.inventoryRevision !== inventoryRevision) return;
+                                if (outcome.status === "sent") {
+                                    status.textContent = "Twig finished sending the attachment to the browser. Saving is not confirmed. If no file appeared, the host may have blocked the save.";
+                                    return;
+                                }
+                                if (outcome.status === "refused" || outcome.status === "interrupted") {
+                                    status.textContent = "Attachment download " + outcome.status + ": " +
+                                        (outcome.message ?? "The connection closed before Twig finished sending bytes.") +
+                                        " Read a fresh inventory before retrying.";
+                                    return;
+                                }
+                                if (!["not-requested", "reading"].includes(outcome.status))
+                                    throw new Error("Invalid download observation.");
+                                status.textContent = outcome.status === "not-requested"
+                                    ? "The click was accepted, but no download request has reached Twig. The host may be blocking iframe downloads."
+                                    : "Twig received the download request and is reading the attachment. Saving is not confirmed.";
+                            }
+                            status.textContent += " Observation ended; no automatic download retry. Read a fresh inventory before retrying.";
+                        } catch {
+                            if (current === state && state.inventoryRevision === inventoryRevision)
+                                status.textContent = "Download status unavailable. Saving is not confirmed; no automatic download retry.";
+                        }
+                    }
                     link.addEventListener("click", clickEvent => {
+                        if (clicked) {
+                            clickEvent.preventDefault();
+                            status.textContent = "This download link was already used. Read a fresh inventory before retrying.";
+                            return;
+                        }
                         if (clickEvent.isTrusted !== true || navigator?.userActivation?.isActive !== true ||
                             current !== state || state.invalidated) {
                             clickEvent.preventDefault();
                             status.textContent = "Download requires a trusted human click and active browser user gesture.";
                             return;
                         }
+                        clicked = true;
                         link.setAttribute("aria-disabled", "true");
                         link.classList.add("muted");
-                        status.textContent = "The browser is receiving the attachment using its normal save behavior.";
+                        status.textContent = "Download click accepted. Waiting for Twig to observe the request; saving is not confirmed.";
+                        void observeDownload();
                     });
                     row.append(link);
                     entries.append(row);

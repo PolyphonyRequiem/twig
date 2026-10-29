@@ -191,6 +191,9 @@ public static class CommandRegistrationModule
         services.AddSingleton<BrowserAttachmentModule>();
         services.AddSingleton<BenchAttachmentCommand>(sp => new BenchAttachmentCommand(
             sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<BrowserAttachmentModule>()));
+        services.AddSingleton<BrowserAttachmentUploadModule>();
+        services.AddSingleton<BenchAttachmentUploadCommand>(sp => new BenchAttachmentUploadCommand(
+            sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<BrowserAttachmentUploadModule>()));
         services.AddSingleton<BenchDetailCommand>();
         services.AddSingleton<DraftCommand>();
         services.AddSingleton<DraftSaveCommand>();

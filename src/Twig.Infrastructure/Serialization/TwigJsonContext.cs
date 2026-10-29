@@ -300,6 +300,13 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AttachmentReadEntry))]
 [JsonSerializable(typeof(AttachmentReadEntry[]))]
 [JsonSerializable(typeof(AttachmentReadResult))]
+[JsonSerializable(typeof(AttachmentUploadPrepareRequest))]
+[JsonSerializable(typeof(AttachmentUploadRequest))]
+[JsonSerializable(typeof(AttachmentUploadContext))]
+[JsonSerializable(typeof(AttachmentRemoteWriteEvidence))]
+[JsonSerializable(typeof(AttachmentUploadCapability))]
+[JsonSerializable(typeof(AttachmentUploadError))]
+[JsonSerializable(typeof(AttachmentUploadResult))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],

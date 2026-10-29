@@ -101,7 +101,7 @@ internal sealed class AdoWorkItemAttachmentReader : IWorkItemAttachmentReader, I
                 || !TryAttachmentId(target.GetString(), projectId, out var attachmentId)
                 || !relation.TryGetProperty("attributes", out var attributes) || attributes.ValueKind != JsonValueKind.Object
                 || !attributes.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String
-                || !ValidFileName(name.GetString()))
+                || !AttachmentReadLimits.ValidFileName(name.GetString()))
                 throw Failure("attachment-response-invalid", "An attachment has invalid origin, identity or filename.");
             long? size = null;
             if (attributes.TryGetProperty("resourceSize", out var resourceSize))
@@ -168,10 +168,6 @@ internal sealed class AdoWorkItemAttachmentReader : IWorkItemAttachmentReader, I
         }
         return Guid.TryParseExact(suffix, "D", out id) && id != Guid.Empty;
     }
-
-    private static bool ValidFileName(string? value) => !string.IsNullOrWhiteSpace(value)
-        && value.Length <= 255 && value is not ("." or "..")
-        && !value.Any(character => char.IsControl(character) || character is '/' or '\\');
 
     private static JsonDocument ParseInventory(byte[] bytes)
     {

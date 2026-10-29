@@ -37,6 +37,16 @@ internal static class CommandExamples
             "twig bench attachments --stdin -o json       Read the explicit qualified Bench attachment inventory",
             "twig bench attachments --stdin --framed       Write one bounded binary frame for an explicit download request",
         ],
+        ["bench attachments prepare-upload"] =
+        [
+            "twig bench attachments prepare-upload --stdin -o json  Capture an exact file/target intent without uploading bytes",
+            "twig bench attachments upload --stdin --framed -o json  Send one bounded TWIGUPL1 frame for explicit native upload",
+        ],
+        ["bench attachments upload"] =
+        [
+            "twig bench attachments upload --stdin --framed -o json  Upload and link the exact confirmed file intent",
+            "twig bench attachments prepare-upload --stdin -o json  Prepare metadata first; no bytes are sent by this command",
+        ],
         ["init"] =
         [
             // Onboarding is four distinct operations, in order: enroll an identity once,

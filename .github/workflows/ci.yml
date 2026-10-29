@@ -63,6 +63,29 @@ jobs:
           path: artifacts/test-logs/ci/seed-links/
           if-no-files-found: warn
 
+      - name: Native attachment upload admission and durable outcome regression
+        shell: python
+        run: |
+          import subprocess, sys
+          for suite, selector in [
+              ("Cli", "FullyQualifiedName~BrowserAttachmentUploadModuleTests|FullyQualifiedName~BenchAttachmentUploadCommandTests"),
+              ("Infrastructure", "FullyQualifiedName~AdoRestClientAttachmentUploadTests|FullyQualifiedName~AttachmentUploadAcknowledgement|FullyQualifiedName~AttachmentLinkAcknowledgement"),
+          ]:
+              subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "60", "--",
+                              sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              f"tests/Twig.{suite}.Tests/Twig.{suite}.Tests.csproj",
+                              "--no-build", "--no-restore", "-f", "net11.0", "--filter", selector,
+                              "--logger", f"trx;LogFileName=attachment-upload-{suite}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/attachment-upload"], check=True)
+
+      - name: Preserve native attachment upload regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-attachment-upload-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/attachment-upload/
+          if-no-files-found: warn
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

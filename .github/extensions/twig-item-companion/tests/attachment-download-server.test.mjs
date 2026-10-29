@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCanvasServer } from "../canvas-server.mjs";
+import { createAttachmentOpener } from "../attachment-opener.mjs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 const id = "4dab0171-49dc-4da5-8f18-35c923fbdb0a";
 const body = Buffer.from([0, 255, 13, 10, 128]);
@@ -11,11 +15,12 @@ const detail = workItemId => ({
         selectionSource: "bench", storageGeneration: "9" },
     membership: { seed: false, selected: true },
 });
-async function setup({ download, fileName = "report.pdf" } = {}) {
+async function setup({ download, fileName = "report.pdf", attachmentOpener } = {}) {
     const calls = [];
     const server = await createCanvasServer({
         workspacePath: "unused",
         workbench: true,
+        attachmentOpener,
         readNativeBench: async () => ({ benchId: "12", benchName: "Sprint" }),
         readNativeBenchDetail: async ({ workItemId }) => detail(workItemId),
         readNativeAttachments: async request => {
@@ -29,6 +34,7 @@ async function setup({ download, fileName = "report.pdf" } = {}) {
                 contentType: "application/pdf", contentLength: body.length, sha256: "a".repeat(64), content: body };
         },
     });
+
     const page = await fetch(server.url);
     const html = await page.text();
     const token = JSON.parse(html.match(/const token = ("[^"]+");/)[1]);
@@ -51,6 +57,88 @@ async function observe(h, downloadHandle, targetHandle = h.attachmentTargetHandl
         body: JSON.stringify({ action: "download-status", targetHandle, downloadHandle }),
     });
 }
+
+test("default-app opening requires a distinct current single-use handle, token and POST", async () => {
+    const launches = [];
+    const h = await setup({ attachmentOpener: {
+        available: true, open: async input => { launches.push(input); },
+    } });
+    try {
+        const entry = h.inventory.attachments[0];
+        assert.equal(entry.fileName, "report.pdf", "fixture must be a document, not a preview-only text file");
+        assert.match(entry.openHandle ?? "", /^[A-Za-z0-9_-]{43}$/);
+        assert.notEqual(entry.openHandle, entry.downloadHandle);
+        const url = new URL("/api/attachment-open/" + entry.openHandle, h.origin);
+        assert.equal((await fetch(url, { method: "POST", headers: { Origin: h.origin } })).status, 401);
+        assert.equal((await fetch(url, { headers: h.headers })).status, 404);
+        assert.equal((await fetch(url, { method: "POST", headers: { ...h.headers, Origin: "https://example.invalid" } })).status, 403);
+        assert.equal((await fetch(new URL("/api/attachment-open/" + entry.downloadHandle, h.origin),
+            { method: "POST", headers: h.headers })).status, 409);
+        assert.equal(launches.length, 0);
+        const result = await fetch(url, { method: "POST", headers: h.headers });
+        assert.equal(result.status, 200);
+        assert.deepEqual(await result.json(), { status: "handed-off" });
+        assert.equal(launches.length, 1);
+        assert.equal(launches[0].fileName, entry.fileName);
+        assert.deepEqual(launches[0].content, body);
+        assert.equal(typeof launches[0].assertCurrent, "function");
+        assert.equal((await fetch(url, { method: "POST", headers: h.headers })).status, 409);
+        assert.equal(launches.length, 1);
+        assert.deepEqual(await (await observe(h, entry.downloadHandle)).json(), { status: "not-requested" });
+    } finally { await h.server.close(); }
+});
+
+test("default-app opening rejects stale selections, unsafe types and launcher failures without retry", async () => {
+    const launches = [];
+    const opener = { available: true, open: async () => { launches.push(true); throw new Error("local path must not leak"); } };
+    const unsafe = await setup({ fileName: "run.cmd", attachmentOpener: opener });
+    try { assert.equal(unsafe.inventory.attachments[0].openHandle, undefined); }
+    finally { await unsafe.server.close(); }
+    const unavailable = await setup({ attachmentOpener: { available: false } });
+    try { assert.equal(unavailable.inventory.attachments[0].openHandle, undefined); }
+    finally { await unavailable.server.close(); }
+    const h = await setup({ attachmentOpener: opener });
+    try {
+        const handle = h.inventory.attachments[0].openHandle;
+        const url = new URL("/api/attachment-open/" + handle, h.origin);
+        const response = await fetch(url, { method: "POST", headers: h.headers });
+        assert.equal(response.status, 502);
+        assert.match((await response.json()).error, /default app.*unavailable/i);
+        assert.equal((await fetch(url, { method: "POST", headers: h.headers })).status, 409);
+        assert.equal(launches.length, 1);
+        await h.server.loadBenchDetail(43);
+        assert.equal((await fetch(url, { method: "POST", headers: h.headers })).status, 409);
+        assert.equal(launches.length, 1);
+    } finally { await h.server.close(); }
+});
+
+test("qualified native download reaches real marked local copy before default-app launcher", {
+    skip: process.platform !== "win32",
+}, async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "twig-open-route-test-"));
+    let launches = 0;
+    let h;
+    try {
+        const attachmentOpener = createAttachmentOpener({ tempRoot: root, execFile: async (_executable, _args, options) => {
+            const file = options.env.TWIG_ATTACHMENT_OPEN_FILE;
+            assert.deepEqual(await readFile(file), body);
+            assert.equal(await readFile(file + ":Zone.Identifier", "utf8"), "[ZoneTransfer]\r\nZoneId=3\r\n");
+            launches++;
+        } });
+        assert.equal(attachmentOpener.available, true, "fixture needs a local Windows host");
+        h = await setup({ fileName: "notes.txt", attachmentOpener });
+        const entry = h.inventory.attachments[0];
+        assert.match(entry.openHandle, /^[A-Za-z0-9_-]{43}$/);
+        const response = await fetch(new URL("/api/attachment-open/" + entry.openHandle, h.origin),
+            { method: "POST", headers: h.headers });
+        assert.equal(response.status, 200);
+        assert.equal(launches, 1);
+        assert.equal(h.calls.filter(call => call.action === "download").length, 1);
+    } finally {
+        if (h) await h.server.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 test("download observations are authenticated, target-bound and never invoke the native reader", async () => {
     const h = await setup();

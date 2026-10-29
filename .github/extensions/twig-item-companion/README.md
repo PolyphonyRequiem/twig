@@ -214,8 +214,8 @@ API, transfers remain unavailable without breaking ordinary workbench browsing.
 The local server requires its loopback Host,
 same-origin checks and browser `Sec-Fetch-Site: same-origin` signal, then rechecks
 the qualified native item revision and attachment membership before returning the
-raw bytes. The browser handles the normal save flow and destination selection;
-Twig never chooses or writes a local path. Responses include a validated media
+raw bytes. For **Download**, the browser handles the normal save flow and
+destination selection; Twig never chooses or writes its local path. Responses include a validated media
 type, safe `Content-Disposition` filename (including UTF-8 `filename*`), exact
 `Content-Length`, `no-store` and `nosniff`. Inventory is bounded to 2 MiB and a
 download to 16 MiB; oversized, stale, unlinked or foreign-origin responses fail
@@ -237,14 +237,53 @@ server response (the bar completes). Observations and opaque handles are discard
 on inventory refresh or selection invalidation. Each download link is single-use;
 retry requires a fresh inventory.
 
-### Open (in-canvas preview)
+### Open in default app (Windows extension host)
 
-Twig does not launch saved files: the iframe cannot know the saved path, and an
-attachment may be executable. Instead, **Open** previews the attachment inside the
-canvas. It is offered only when the file name has an allowlisted extension:
+**Open in default app** means an OS file-association handoff, not an in-canvas
+preview. The browser does not disclose its saved path, so this action saves a
+**separate** copy under `%TEMP%\twig-attachment-<random>\attachment.<extension>`
+on the extension's Windows host. It does not search Downloads or reuse its files.
+The first click displays the filename and effects; a second trusted
+**Confirm open in default app** click authorizes the read, local write and launch.
+Only open attachments you trust. An allowed extension is not a malware scan.
+
+The server mints a separate five-minute, single-use open handle only for text and
+raster-image formats listed below, plus `pdf`, `docx`, `xlsx` and `pptx`.
+Executables, scripts, shortcuts, HTML, SVG, legacy/macro-enabled Office formats
+and unknown extensions are not offered. Linux and detected SSH/Codespaces hosts
+do not offer this action; other remote hosting is not automatically detectable.
+The confirmation explicitly names the extension host, not necessarily the machine
+displaying the canvas. Download and Preview remain available independently.
+
+`POST /api/attachment-open/{handle}` requires instance bearer authorization and
+the normal loopback Host/origin checks. No SDK action, destination path or command
+is accepted. The server reuses the qualified native attachment download and its
+16 MiB bound, consumes the handle, then rechecks selection before OS launch.
+Provider filenames are never used as local paths or interpolated into commands.
+The file is created exclusively in a fresh temporary directory, receives
+`Zone.Identifier` with `ZoneId=3`, and is passed as environment data to a fixed,
+five-second-bounded Windows PowerShell helper. The helper uses
+`ProcessStartInfo.UseShellExecute` and the `open` verb to respect the default app.
+It does not bypass Windows/Office security warnings or change execution policy.
+If zone marking fails, no launch occurs.
+
+The indeterminate bar covers native reading, caching and OS handoff. Completion
+means Windows accepted that handoff, **not** that an application displayed the
+document. Errors/disconnects can leave an unknown outcome; no automatic retry
+occurs. Temporary files remain for external apps, including after this panel
+closes; they may also remain after a failed or canceled operation. Remove the
+specific generated directory through normal temporary-file cleanup when no
+application needs it. Installed-host default-app display remains a manual
+qualification step; automated tests replace only the launcher and never open apps.
+
+### Preview (inside the canvas)
+
+**Preview** is separate from **Open in default app** and never launches a file.
+It is offered only when the file name has an allowlisted extension:
 plain-text formats (`txt`, `log`, `md`, `csv`, `tsv`, `json`, `xml`, `yaml`,
 `ini`, `cfg`, `conf`, `diff`, `patch` and similar) and raster images (`png`,
-`jpg`, `gif`, `webp`, `bmp`). SVG, HTML, PDF and everything else are download-only.
+`jpg`, `gif`, `webp`, `bmp`). PDF has no in-canvas preview; SVG, HTML and
+unrecognized formats remain download-only.
 
 Inventory mints a separate single-use preview handle for eligible entries. The
 trusted click fetches `/api/attachment-preview/{handle}` with the instance bearer
@@ -258,6 +297,7 @@ URL that is revoked on close, refresh or leaving the item. Page CSP allows only
 download and preview handles cannot be used interchangeably.
 
 Upload and readback are explicitly deferred to a second PR.
+
 Discussion editing/deletion and attachment upload remain out of scope.
 
 ## Explicit in-session handoff fallback (not host-qualified)

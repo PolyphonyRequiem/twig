@@ -2,6 +2,8 @@ export function createAttachmentClient({ document, request, text, navigator, fet
     wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)) }) {
     let current = null;
     function closePreview(state) {
+        state.openController?.abort();
+        state.openController = null;
         state.previewController?.abort();
         state.previewController = null;
         if (state.previewUrl) urls?.revokeObjectURL(state.previewUrl);
@@ -29,7 +31,7 @@ export function createAttachmentClient({ document, request, text, navigator, fet
         const box = document.createElement("section");
         state.box = box;
         box.append(text("h3", "Attachments"),
-            text("p", "Inventory, download and open run only after an explicit click. Downloads use the browser's normal save behavior; Open previews text and images inside this canvas without saving or running the file."));
+            text("p", "Downloads use the browser's normal save behavior. Preview stays inside this canvas. Open in default app saves a separate local temporary copy and asks Windows to open it, only after confirmation; it does not reuse your Downloads copy."));
         const inventory = text("button", "Show attachments (online)");
         inventory.type = "button";
         const status = text("p", "Attachment inventory has not been read.");
@@ -39,10 +41,62 @@ export function createAttachmentClient({ document, request, text, navigator, fet
         state.preview = preview;
         const refresh = () => { inventory.disabled = state.busy || state.invalidated; };
         const previewTextLimit = 256 * 1024;
+        const trustedCurrent = (event, revision) => event?.isTrusted === true &&
+            navigator?.userActivation?.isActive === true && current === state &&
+            !state.invalidated && state.inventoryRevision === revision;
+        function confirmOpen(event, entry, button, inventoryRevision) {
+            if (!trustedCurrent(event, inventoryRevision) || state.busy || button.disabled) return;
+            closePreview(state);
+            const confirm = text("button", "Confirm open in default app");
+            confirm.type = "button";
+            const cancel = text("button", "Cancel open");
+            cancel.type = "button";
+            const progress = document.createElement("progress");
+            progress.hidden = true;
+            progress.setAttribute("aria-label", "Default app handoff for " + entry.fileName);
+            const confirmation = document.createElement("div");
+            confirmation.append(text("h4", entry.fileName),
+                text("p", "Open saves a separate copy in the extension host's Windows temporary folder and launches its default application. Attachments are untrusted; only open files you trust. Keep Windows security warnings enabled. The temporary copy remains after closing this panel."),
+                confirm, cancel, progress);
+            preview.replaceChildren(confirmation);
+            cancel.addEventListener("click", () => {
+                if (!state.busy && preview.children[0] === confirmation) closePreview(state);
+            });
+            confirm.addEventListener("click", async click => {
+                if (!trustedCurrent(click, inventoryRevision) || state.busy || button.disabled ||
+                    preview.children[0] !== confirmation) return;
+                state.busy = true;
+                button.disabled = confirm.disabled = cancel.disabled = true;
+                refresh();
+                progress.hidden = false;
+                const controller = new AbortController();
+                state.openController = controller;
+                status.textContent = "Reading " + entry.fileName + " and requesting its default application. Do not retry while this is in progress.";
+                try {
+                    const result = await request("/api/attachment-open/" + encodeURIComponent(entry.openHandle),
+                        { method: "POST", signal: controller.signal });
+                    if (current !== state || state.inventoryRevision !== inventoryRevision) return;
+                    if (result.status !== "handed-off") throw new Error("Invalid default app handoff response.");
+                    progress.max = progress.value = 1;
+                    status.textContent = "Windows accepted the default app handoff for " + entry.fileName +
+                        ". Twig cannot confirm the app displayed it. The separate temporary copy remains; no automatic retry.";
+                } catch (error) {
+                    progress.hidden = true;
+                    if (current === state && state.inventoryRevision === inventoryRevision)
+                        status.textContent = "Default app handoff failed or outcome unknown: " +
+                            (error?.message ?? "request unavailable") + " A temporary copy may remain; no automatic retry.";
+                } finally {
+                    if (state.openController === controller) state.openController = null;
+                    state.busy = false;
+                    if (current === state) refresh();
+                }
+            });
+        }
         async function openPreview(event, entry, button, inventoryRevision) {
+            if (state.busy) return;
             if (event?.isTrusted !== true || navigator?.userActivation?.isActive !== true ||
                 current !== state || state.invalidated || state.inventoryRevision !== inventoryRevision) {
-                status.textContent = "Open requires a trusted human click on the current inventory.";
+                status.textContent = "Preview requires a trusted human click on the current inventory.";
                 return;
             }
             if (button.disabled || typeof fetchBytes !== "function") return;
@@ -53,7 +107,7 @@ export function createAttachmentClient({ document, request, text, navigator, fet
             const stillCurrent = () => current === state && state.previewController === controller &&
                 state.inventoryRevision === inventoryRevision;
             const progress = document.createElement("progress");
-            progress.setAttribute("aria-label", "Open progress for " + entry.fileName);
+            progress.setAttribute("aria-label", "Preview progress for " + entry.fileName);
             preview.replaceChildren(text("h4", entry.fileName), progress);
             status.textContent = "Twig is reading " + entry.fileName + " for preview. Nothing is saved or run.";
             try {
@@ -99,12 +153,12 @@ export function createAttachmentClient({ document, request, text, navigator, fet
                     preview.replaceChildren(text("h4", entry.fileName), close, image);
                 }
                 state.previewController = null;
-                status.textContent = "Opened " + entry.fileName + " (" + received + " bytes) inside the canvas. Nothing was saved or run. Read a fresh inventory to open it again.";
+                status.textContent = "Previewed " + entry.fileName + " (" + received + " bytes) inside the canvas. Nothing was saved or run. Read a fresh inventory to preview it again.";
             } catch (error) {
                 if (!stillCurrent()) return;
                 state.previewController = null;
                 preview.replaceChildren();
-                status.textContent = "Open refused or unavailable: " + (error?.message ?? "preview failed") +
+                status.textContent = "Preview refused or unavailable: " + (error?.message ?? "preview failed") +
                     " No automatic retry; read a fresh inventory before trying again.";
             }
         }
@@ -209,11 +263,17 @@ export function createAttachmentClient({ document, request, text, navigator, fet
                         void observeDownload();
                     });
                     row.append(link);
-                    if (entry.preview === "text" || entry.preview === "image") {
-                        const open = text("button", "Open " + entry.fileName);
+                    if (typeof entry.openHandle === "string" && /^[A-Za-z0-9_-]{43}$/.test(entry.openHandle)) {
+                        const open = text("button", "Open in default app " + entry.fileName);
                         open.type = "button";
-                        open.addEventListener("click", event => openPreview(event, entry, open, inventoryRevision));
+                        open.addEventListener("click", event => confirmOpen(event, entry, open, inventoryRevision));
                         row.append(" ", open);
+                    }
+                    if (entry.preview === "text" || entry.preview === "image") {
+                        const previewButton = text("button", "Preview " + entry.fileName);
+                        previewButton.type = "button";
+                        previewButton.addEventListener("click", event => openPreview(event, entry, previewButton, inventoryRevision));
+                        row.append(" ", previewButton);
                     }
                     row.append(progress);
                     entries.append(row);

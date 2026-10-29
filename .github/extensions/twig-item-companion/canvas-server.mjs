@@ -28,6 +28,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     let attachmentController = null;
     let attachmentIdle = Promise.resolve();
     const attachmentDownloads = new Map();
+    const attachmentDownloadStatus = new Map();
     function invalidateDiscussion() {
         discussionPost.invalidate();
         discussionTarget = null;
@@ -36,6 +37,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     function invalidateAttachments() {
         attachmentTarget = null;
         attachmentDownloads.clear();
+        attachmentDownloadStatus.clear();
         attachmentController?.abort();
     }
     function invalidateEditing() {
@@ -367,6 +369,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         const disconnected = () => { if (!response.writableEnded) controller.abort(); };
         response.once("close", disconnected);
         attachmentDownloads.clear();
+        attachmentDownloadStatus.clear();
         try {
             const result = await readNativeAttachments({
                 target: captured.target, action: "inventory", workspacePath, signal: controller.signal,
@@ -386,6 +389,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                     target: captured, id: entry.id, revision: result.context.workItemRevision, entry,
                     expiresAt: Date.now() + 5 * 60 * 1000,
                 });
+                attachmentDownloadStatus.set(downloadHandle, { status: "not-requested" });
                 attachments.push({ ...entry, downloadHandle });
             }
             return { status: "inventory", attachments };
@@ -518,7 +522,26 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         const downloadMatch = workbench && request.method === "GET"
             ? /^\/api\/attachment-download\/([A-Za-z0-9_-]{43})$/.exec(request.url) : null;
         if (downloadMatch) {
-            await downloadAttachment(downloadMatch[1], request, response);
+            const outcome = attachmentDownloadStatus.get(downloadMatch[1]);
+            if (outcome && outcome.status !== "sent") {
+                outcome.status = "reading";
+                delete outcome.message;
+                response.once("finish", () => {
+                    if (response.statusCode === 200) outcome.status = "sent";
+                });
+                response.once("close", () => {
+                    if (!response.writableFinished) outcome.status = "interrupted";
+                });
+            }
+            try {
+                await downloadAttachment(downloadMatch[1], request, response);
+            } catch (error) {
+                if (outcome && outcome.status !== "sent") {
+                    outcome.status = "refused";
+                    outcome.message = error instanceof HttpError ? error.message : "Attachment download unavailable.";
+                }
+                throw error;
+            }
             return;
         }
 
@@ -601,7 +624,13 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
         if (attachmentsRoute) {
             const keys = Object.keys(body).sort().join(",");
-            if (body.action === "invalidate" && keys === "action,targetHandle" &&
+            if (body.action === "download-status" && keys === "action,downloadHandle,targetHandle" &&
+                typeof body.targetHandle === "string" && body.targetHandle === attachmentTarget?.handle &&
+                typeof body.downloadHandle === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.downloadHandle)) {
+                const outcome = attachmentDownloadStatus.get(body.downloadHandle);
+                if (!outcome) throw new HttpError(409, "Download observation expired; read a fresh inventory.");
+                sendJson(response, 200, outcome);
+            } else if (body.action === "invalidate" && keys === "action,targetHandle" &&
                 typeof body.targetHandle === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.targetHandle)) {
                 if (body.targetHandle === attachmentTarget?.handle) {
                     invalidateAttachments();

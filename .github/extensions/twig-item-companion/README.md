@@ -221,11 +221,21 @@ type, safe `Content-Disposition` filename (including UTF-8 `filename*`), exact
 download to 16 MiB; oversized, stale, unlinked or foreign-origin responses fail
 closed.
 
-This source integration is not yet qualified in the installed Copilot iframe or
-against a live ADO attachment. The installed-host check must verify that the
-browser's normal save prompt works from the iframe. If the host blocks downloads,
-record that exact result; do not silently replace the browser-managed flow. Upload
-and readback are explicitly deferred to a second PR.
+Live ADO inventory and native byte download have been verified, but saving from
+the installed Copilot iframe remains unqualified: an accepted click produced no
+visible file. A click is not evidence that the browser received or saved bytes.
+After a trusted download click, the panel makes at most 40 authenticated local
+status observations (one second apart, with a five-second timeout per request).
+These observations never start or retry a native read. They distinguish a request
+that never reached Twig, a native read in progress, a refusal/interruption, and a
+finished server response. Even a finished response does not confirm a saved file.
+Observations and opaque handles are discarded on inventory refresh or selection
+invalidation. Each download link is single-use; retry requires a fresh inventory.
+
+The installed-host check must still verify that the browser's normal save prompt
+works from the iframe. If the host blocks downloads, record that exact result;
+do not silently replace the browser-managed flow. Upload and readback are
+explicitly deferred to a second PR.
 
 Discussion editing/deletion and attachment upload remain out of scope.
 

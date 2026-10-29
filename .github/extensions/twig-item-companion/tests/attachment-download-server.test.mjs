@@ -11,7 +11,7 @@ const detail = workItemId => ({
         selectionSource: "bench", storageGeneration: "9" },
     membership: { seed: false, selected: true },
 });
-async function setup() {
+async function setup({ download } = {}) {
     const calls = [];
     const server = await createCanvasServer({
         workspacePath: "unused",
@@ -24,6 +24,7 @@ async function setup() {
                 status: "inventory", context: { workItemRevision: 7 },
                 attachments: [{ id, fileName: "report.pdf", reportedSize: String(body.length) }],
             };
+            if (download) return download();
             return { status: "download", attachment: { id, fileName: "report.pdf" },
                 contentType: "application/pdf", contentLength: body.length, sha256: "a".repeat(64), content: body };
         },
@@ -44,6 +45,49 @@ async function setup() {
     return { server, calls, origin, headers, attachmentTargetHandle, inventory: await inventoryResponse.json() };
 }
 
+async function observe(h, downloadHandle, targetHandle = h.attachmentTargetHandle, headers = h.headers) {
+    return fetch(new URL("/api/attachments", h.origin), {
+        method: "POST", headers,
+        body: JSON.stringify({ action: "download-status", targetHandle, downloadHandle }),
+    });
+}
+
+test("download observations are authenticated, target-bound and never invoke the native reader", async () => {
+    const h = await setup();
+    try {
+        const handle = h.inventory.attachments[0].downloadHandle;
+        assert.deepEqual(await (await observe(h, handle)).json(), { status: "not-requested" });
+        assert.equal((await observe(h, handle, "x".repeat(43))).status, 400);
+        assert.equal((await observe(h, handle, h.attachmentTargetHandle,
+            { Origin: h.origin, "Content-Type": "application/json" })).status, 401);
+        assert.equal(h.calls.length, 1);
+        await h.server.loadBenchDetail(43);
+        assert.notEqual((await observe(h, handle)).status, 200);
+        assert.equal(h.calls.length, 1);
+    } finally { await h.server.close(); }
+});
+
+test("native read progress and refusal remain observable without another native invocation", async () => {
+    let finish;
+    const h = await setup({ download: () => new Promise(resolve => { finish = resolve; }) });
+    try {
+        const handle = h.inventory.attachments[0].downloadHandle;
+        const pending = fetch(new URL("/api/attachment-download/" + handle, h.origin), {
+            headers: { Origin: h.origin, "Sec-Fetch-Site": "same-origin" },
+        });
+        for (let attempt = 0; attempt < 50 && !finish; attempt++)
+            await new Promise(resolve => setTimeout(resolve, 10));
+        assert.equal(typeof finish, "function", "native download must be in progress");
+        assert.deepEqual(await (await observe(h, handle)).json(), { status: "reading" });
+        finish({ status: "refused", code: "attachment-stale" });
+        assert.equal((await pending).status, 409);
+        const observation = await (await observe(h, handle)).json();
+        assert.equal(observation.status, "refused");
+        assert.match(observation.message, /attachment-stale/);
+        assert.equal(h.calls.filter(call => call.action === "download").length, 1);
+    } finally { await h.server.close(); }
+});
+
 test("attachment download is a single-use same-origin browser response with bounded safe headers", async () => {
     const h = await setup();
     try {
@@ -58,6 +102,7 @@ test("attachment download is a single-use same-origin browser response with boun
         assert.equal(response.headers.get("x-content-type-options"), "nosniff");
         assert.equal(response.headers.get("cache-control"), "no-store");
         assert.deepEqual(Buffer.from(await response.arrayBuffer()), body);
+        assert.deepEqual(await (await observe(h, entry.downloadHandle)).json(), { status: "sent" });
         assert.equal(h.calls.filter(call => call.action === "download").length, 1);
         const repeated = await fetch(url, { headers: { Origin: h.origin, "Sec-Fetch-Site": "same-origin" } });
         assert.equal(repeated.status, 409);
@@ -74,6 +119,9 @@ test("cross-origin and cross-site downloads refuse before reaching the native re
         assert.equal(crossOrigin.status, 403);
         const crossSite = await fetch(url, { headers: { Origin: h.origin, "Sec-Fetch-Site": "cross-site" } });
         assert.equal(crossSite.status, 403);
+        const observation = await (await observe(h, entry.downloadHandle)).json();
+        assert.equal(observation.status, "refused");
+        assert.match(observation.message, /same-origin/);
         assert.equal(h.calls.filter(call => call.action === "download").length, 0);
     } finally { await h.server.close(); }
 });

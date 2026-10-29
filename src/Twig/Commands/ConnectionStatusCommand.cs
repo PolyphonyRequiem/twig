@@ -1,3 +1,4 @@
+using Twig.Domain.Services.Attachment;
 using Twig.Formatters;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
@@ -18,20 +19,17 @@ internal sealed class ConnectionStatusCommand
     private readonly IConnectionBindingService _bindingService;
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
-    private readonly OutputFormatterFactory _formatterFactory;
     private readonly RendererFactory _rendererFactory;
 
     public ConnectionStatusCommand(
         IConnectionBindingService bindingService,
         TwigConfiguration config,
         TwigPaths paths,
-        OutputFormatterFactory formatterFactory,
         RendererFactory? rendererFactory = null)
     {
         _bindingService = bindingService;
         _config = config;
         _paths = paths;
-        _formatterFactory = formatterFactory;
         _rendererFactory = rendererFactory ?? new RendererFactory();
     }
 
@@ -39,16 +37,24 @@ internal sealed class ConnectionStatusCommand
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var fmt = _formatterFactory.GetFormatter(outputFormat);
         ResolvedConnectionBinding resolved;
         try
         {
             resolved = await _bindingService.ResolveAsync(_config, _paths, ct);
         }
+        catch (ConnectionBindingResolutionException ex)
+            when (ex.FailureCode == AttachmentStorageFailure.LayoutMarkerMissing)
+        {
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                $"Local Twig workspace at '{_paths.TwigDir}' has a missing or unsupported layout.json marker ({ex.FailureCode}). "
+                + "Inspect and back up this directory and check the Twig version before making changes. "
+                + "To deliberately archive and rebuild local state, run 'twig init <org> <project> --reinitialize' from the worktree root.");
+            return 1;
+        }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine(fmt.FormatError($"No active connection binding: {ex.Message}"));
-            Console.Error.WriteLine("Run 'twig auth login --identity <alias>' to register, then 'twig connection bind --org <org> --project <project> --identity <alias> --default'.");
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat, $"No active connection binding: {ex.Message} "
+                + "Run 'twig auth login --identity <alias>' to register, then 'twig connection bind --org <org> --project <project> --identity <alias> --default'.");
             return 1;
         }
 

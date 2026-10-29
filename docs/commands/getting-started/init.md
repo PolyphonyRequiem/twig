@@ -35,6 +35,14 @@ ADO onboarding is four distinct operations, in this order —
 3. **Initialize the checkout**: `twig init <org> <project>` (this command), or `twig init <org> <project> --binding <id>` to select a registered binding for this fresh checkout only. It requires an explicitly bound identity for the endpoint it is given — there is no account/last-login/Azure CLI fallback, so skipping steps 1–2 fails with a named remediation instead of silently picking a credential.
 4. **Verify metadata access**: [`twig process --refresh`](../process/process.md) makes read-only ADO metadata requests and refreshes the local process/field metadata caches. This verifies metadata access for the selected identity, not every work-item permission. [`twig connection status`](../system/auth-status.md) only inspects the local binding and identity; it never contacts ADO and cannot verify remote access.
 
+If `twig connection status` reports `layout-marker-missing`, the local `.twig/`
+layout is missing its marker or is incompatible with this Twig version. This is
+not evidence of a missing identity or binding. The error names the affected
+directory; inspect and back up its contents and check the Twig version first.
+To deliberately archive and rebuild an ADO workspace, run
+`twig init <org> <project> --reinitialize` from its worktree root. Status never
+reinitializes, repairs, deletes, reauthenticates, or rebinds automatically.
+
 ## Synopsis
 
 ```

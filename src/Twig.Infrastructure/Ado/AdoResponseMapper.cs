@@ -277,8 +277,8 @@ internal static class AdoResponseMapper
         var description = existingIndex >= 0
             ? operations[existingIndex].Value?.GetValue<string>() ?? ""
             : "";
-        if (SeedPublishCorrelation.HasDescriptionMarkerContent(description))
-            throw new InvalidOperationException("Seed Description contains reserved Twig publish origin content.");
+        if (SeedPublishCorrelation.GetDescriptionPublishError(description) is { } descriptionError)
+            throw new InvalidOperationException(descriptionError);
 
         var stamped = description + correlation.DescriptionMarkerHtml;
         if (!correlation.ContainsDescriptionMarker(stamped))

@@ -51,6 +51,29 @@ public class SeedValidateCommandTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
+    public async Task ValidateSingle_MalformedDescription_ReportsFailureInJson()
+    {
+        const string description = "<p>Use (<em><guid></em>).</p>";
+        SeedPublishCorrelation.HasDescriptionMarkerContent(description).ShouldBeFalse();
+        var seed = new WorkItemBuilder(-1, "Valid title")
+            .AsSeed()
+            .WithField("System.Description", description)
+            .Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync(-1, "json");
+
+        result.ShouldBe(1);
+        using var document = System.Text.Json.JsonDocument.Parse(writer.ToString());
+        var row = document.RootElement.GetProperty("results")[0];
+        row.GetProperty("passed").GetBoolean().ShouldBeFalse();
+        row.GetProperty("failures").GetString().ShouldNotBeNull()
+            .ShouldContain("System.Description: Seed Description HTML");
+    }
+
+    [Fact]
     public async Task ValidateSingle_PassingSeed_Returns0()
     {
         var seed = new WorkItemBuilder(-1, "Good seed").AsSeed().Build();

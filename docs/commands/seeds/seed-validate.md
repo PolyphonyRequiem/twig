@@ -36,6 +36,11 @@ twig seed validate [<id>] [-o|--output <format>]
 
 - Loads the current rule set via `ISeedPublishRulesProvider.GetRulesAsync` (`src/Twig/Commands/SeedValidateCommand.cs:41`).
 - With an ID, validates that one seed and reports detailed failures inline (`src/Twig/Commands/SeedValidateCommand.cs:43-56`).
+- Description checks use the same markup and reserved-origin rules as native seed
+  publication. Unclosed or unsupported HTML is reported as a `System.Description`
+  failure before publication, separately from reserved Twig origin content.
+  Escape literal angle brackets in HTML descriptions (for example, write
+  `&lt;guid&gt;` instead of `<guid>`). Validation does not rewrite the description.
 - Without an ID, loads every seed through `IWorkItemRepository.GetSeedsAsync` and every link row through `ISeedLinkRepository.GetAllSeedLinksAsync`, then runs `SeedValidator.Validate` per seed (`src/Twig/Commands/SeedValidateCommand.cs:58-71`).
 - The empty-workspace case (no seeds) still succeeds with a distinct message; the machine `results` table is emitted with zero rows (`src/Twig/Commands/SeedValidateCommand.cs:59-63`).
 - Machine formats emit a document with a `results` Table (per-seed `passed` plus a comma-joined `failures` column) and `passed`/`total` counts. Human output streams a line per result and finishes with a summary; minimal emits `PASS`/`FAIL` markers plus the summary (`src/Twig/Commands/SeedValidateCommand.cs:74-151`).

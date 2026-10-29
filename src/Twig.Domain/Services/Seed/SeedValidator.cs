@@ -64,6 +64,9 @@ public static class SeedValidator
         }
 
         failures.AddRange(ValidateCanonicalFields(seed));
+        if (seed.Fields.TryGetValue("System.Description", out var description)
+            && SeedPublishCorrelation.GetDescriptionPublishError(description) is { } descriptionError)
+            failures.Add(new SeedValidationFailure("System.Description", descriptionError));
 
         return new SeedValidationResult
         {

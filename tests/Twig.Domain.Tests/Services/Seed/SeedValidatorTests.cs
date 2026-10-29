@@ -9,6 +9,62 @@ namespace Twig.Domain.Tests.Services.Seed;
 
 public class SeedValidatorTests
 {
+    [Theory]
+    [InlineData("<p>Use an identifier (<em><guid></em>).</p>")]
+    [InlineData("<div hidden>Human content")]
+    [InlineData("<p>Unclosed comment<!--")]
+    public void Validate_MalformedDescription_FailsBeforePublication(string description)
+    {
+        SeedPublishCorrelation.HasDescriptionMarkerContent(description).ShouldBeFalse();
+        var seed = new WorkItemBuilder(-1, "Valid title")
+            .AsSeed()
+            .WithField("System.Description", description)
+            .Build();
+
+        var result = SeedValidator.Validate(seed, SeedPublishRules.Default);
+
+        result.Passed.ShouldBeFalse();
+        var failure = result.Failures.ShouldHaveSingleItem();
+        failure.Rule.ShouldBe("System.Description");
+        failure.Message.ShouldContain("Description HTML");
+        failure.Message.ShouldContain("&lt;");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Plain text")]
+    [InlineData("<p>Use an identifier (<em>&lt;guid&gt;</em>).</p>")]
+    [InlineData("<div hidden>Human content</div>")]
+    [InlineData("<p class='human'>Text<br><img src='image.png'></p><!-- comment -->")]
+    public void Validate_SupportedDescription_PreservesContent(string? description)
+    {
+        var seed = new WorkItemBuilder(-1, "Valid title")
+            .AsSeed()
+            .WithField("System.Description", description)
+            .Build();
+
+        SeedValidator.Validate(seed, SeedPublishRules.Default).Passed.ShouldBeTrue();
+
+        seed.Fields["System.Description"].ShouldBe(description);
+    }
+
+    [Fact]
+    public void Validate_ReservedDescription_ReportsReservedContentSeparately()
+    {
+        var description = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch)
+            .DescriptionMarkerHtml;
+        var seed = new WorkItemBuilder(-1, "Valid title")
+            .AsSeed()
+            .WithField("System.Description", description)
+            .Build();
+
+        var result = SeedValidator.Validate(seed, SeedPublishRules.Default);
+
+        result.Passed.ShouldBeFalse();
+        result.Failures.ShouldHaveSingleItem().Message.ShouldContain("reserved Twig publish origin content");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Default rules — only System.Title required, no parent needed
     // ═══════════════════════════════════════════════════════════════

@@ -494,6 +494,28 @@ public sealed class AdoResponseMapperTests
     }
 
     [Fact]
+    public void MapSeedToCreatePayload_MalformedDescription_ReportsMarkupNotReservedOrigin()
+    {
+        const string description = "<p>Use an identifier (<em><guid></em>).</p>";
+        SeedPublishCorrelation.HasDescriptionMarkerContent(description).ShouldBeFalse();
+        var request = new CreateWorkItemRequest
+        {
+            TypeName = "Task",
+            Title = "Native create",
+            SeedCorrelation = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch),
+            Fields = new Dictionary<string, string?> { ["System.Description"] = description },
+        };
+
+        var error = Should.Throw<InvalidOperationException>(() =>
+            AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/org"));
+
+        error.Message.ShouldContain("Description HTML");
+        error.Message.ShouldContain("&lt;");
+        error.Message.ShouldNotContain("visible Twig publish origin");
+        request.Fields["System.Description"].ShouldBe(description);
+    }
+
+    [Fact]
     public void MapSeedToCreatePayload_UnclosedHumanMarkup_CannotHideTheOriginMarker()
     {
         var request = new CreateWorkItemRequest

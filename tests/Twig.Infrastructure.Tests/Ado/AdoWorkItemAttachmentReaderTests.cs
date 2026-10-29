@@ -15,6 +15,7 @@ namespace Twig.Infrastructure.Tests.Ado;
 public sealed class AdoWorkItemAttachmentReaderTests
 {
     private static readonly Guid AttachmentId = new("4dab0171-49dc-4da5-8f18-35c923fbdb0a");
+    private static readonly Guid ProjectId = new("eb661658-9bc8-4941-8b44-0acb77b650c9");
     private static readonly byte[] Body = [0, 255, 13, 10, 128];
 
     [Fact]
@@ -238,6 +239,28 @@ public sealed class AdoWorkItemAttachmentReaderTests
     }
 
     [Fact]
+    public async Task InventoryAcceptsAttachmentsAddressedByTheItemsReportedProjectGuid()
+    {
+        var url = $"https://dev.azure.com/fixture/{ProjectId:D}/_apis/wit/attachments/{AttachmentId:D}";
+        using var handler = new Handler(_ => Json(Inventory(url: url, itemUrl: ItemUrl(ProjectId))));
+        using var reader = Reader(handler);
+        (await reader.ReadAsync(42)).Attachments.ShouldHaveSingleItem().Id.ShouldBe(AttachmentId);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ProjectGuidAttachmentUrlsMustMatchTheItemsReportedProject(bool reportItemUrl)
+    {
+        var otherProject = new Guid("0b7c3f0e-5d6a-4f61-9a37-4f5f7c2f9d11");
+        var url = $"https://dev.azure.com/fixture/{otherProject:D}/_apis/wit/attachments/{AttachmentId:D}";
+        using var handler = new Handler(_ => Json(Inventory(url: url, itemUrl: reportItemUrl ? ItemUrl(ProjectId) : null)));
+        using var reader = Reader(handler);
+        (await Should.ThrowAsync<AdoException>(() => reader.ReadAsync(42)))
+            .Message.ShouldStartWith("attachment-response-invalid:");
+    }
+
+    [Fact]
     public async Task NonJsonInventoryCannotMasqueradeAsEmpty()
     {
         using var handler = new Handler(_ => Binary(Encoding.UTF8.GetBytes("""{"id":42,"rev":7}""")));
@@ -253,8 +276,10 @@ public sealed class AdoWorkItemAttachmentReaderTests
         return new(authentication, "fixture", "Project Space", handler: handler);
     }
 
-    private static string Inventory(int revision = 7, long? size = 5, string? url = null) =>
-        $$"""{"id":42,"rev":{{revision}},"relations":[{"rel":"AttachedFile","url":"{{url ?? $"https://dev.azure.com/fixture/_apis/wit/attachments/{AttachmentId:D}"}}","attributes":{ "name":"report.bin"{{(size is null ? "" : $",\"resourceSize\":{size}")}} } } ] }""";
+    private static string ItemUrl(Guid projectId) => $"https://dev.azure.com/fixture/{projectId:D}/_apis/wit/workItems/42";
+
+    private static string Inventory(int revision = 7, long? size = 5, string? url = null, string? itemUrl = null) =>
+        $$"""{"id":42,"rev":{{revision}},{{(itemUrl is null ? "" : $"\"url\":\"{itemUrl}\",")}}"relations":[{"rel":"AttachedFile","url":"{{url ?? $"https://dev.azure.com/fixture/_apis/wit/attachments/{AttachmentId:D}"}}","attributes":{ "name":"report.bin"{{(size is null ? "" : $",\"resourceSize\":{size}")}} } } ] }""";
 
     private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK)
     {

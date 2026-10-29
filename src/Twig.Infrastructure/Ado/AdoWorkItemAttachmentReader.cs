@@ -85,6 +85,7 @@ internal sealed class AdoWorkItemAttachmentReader : IWorkItemAttachmentReader, I
             || !root.TryGetProperty("rev", out var rev) || rev.ValueKind != JsonValueKind.Number
             || !rev.TryGetInt32(out var revision) || revision <= 0)
             throw Failure("attachment-response-invalid", "The inventory has no matching item and revision.");
+        var projectId = ReportedProjectId(root, workItemId);
         var items = new List<WorkItemAttachment>();
         if (!root.TryGetProperty("relations", out var relations))
             return new(workItemId, revision, items);
@@ -97,7 +98,7 @@ internal sealed class AdoWorkItemAttachmentReader : IWorkItemAttachmentReader, I
                 throw Failure("attachment-response-invalid", "An inventory relation is invalid.");
             if (kind.GetString() != "AttachedFile") continue;
             if (!relation.TryGetProperty("url", out var target) || target.ValueKind != JsonValueKind.String
-                || !TryAttachmentId(target.GetString(), out var attachmentId)
+                || !TryAttachmentId(target.GetString(), projectId, out var attachmentId)
                 || !relation.TryGetProperty("attributes", out var attributes) || attributes.ValueKind != JsonValueKind.Object
                 || !attributes.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String
                 || !ValidFileName(name.GetString()))
@@ -116,19 +117,55 @@ internal sealed class AdoWorkItemAttachmentReader : IWorkItemAttachmentReader, I
         return new(workItemId, revision, items);
     }
 
-    private bool TryAttachmentId(string? value, out Guid id)
+    // ADO addresses project-scoped resources by project GUID; trust only the GUID in this item's own URL.
+    private Guid? ReportedProjectId(JsonElement root, int workItemId)
     {
-        id = Guid.Empty;
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != organization.Scheme
+        if (!root.TryGetProperty("url", out var value) || value.ValueKind != JsonValueKind.String
+            || !TrySameAuthority(value.GetString(), out var uri))
+            return null;
+        var organizationPath = organization.AbsolutePath.TrimEnd('/') + "/";
+        var path = uri.AbsolutePath;
+        if (!path.StartsWith(organizationPath, StringComparison.OrdinalIgnoreCase)) return null;
+        var segments = path[organizationPath.Length..].Split('/');
+        return segments.Length == 5
+            && string.Equals(segments[1], "_apis", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segments[2], "wit", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segments[3], "workItems", StringComparison.OrdinalIgnoreCase)
+            && segments[4] == workItemId.ToString(CultureInfo.InvariantCulture)
+            && Guid.TryParseExact(segments[0], "D", out var id) && id != Guid.Empty
+            ? id : null;
+    }
+
+    private bool TrySameAuthority(string? value, out Uri uri)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out uri!) || uri.Scheme != organization.Scheme
             || !string.Equals(uri.Host, organization.Host, StringComparison.OrdinalIgnoreCase)
             || uri.Port != organization.Port || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0)
             return false;
-        var prefix = organization.AbsolutePath.TrimEnd('/') + "/_apis/wit/attachments/";
-        var projectPrefix = organization.AbsolutePath.TrimEnd('/') + "/" + Uri.EscapeDataString(project)
-            + "/_apis/wit/attachments/";
+        return true;
+    }
+
+    private bool TryAttachmentId(string? value, Guid? projectId, out Guid id)
+    {
+        id = Guid.Empty;
+        if (!TrySameAuthority(value, out var uri)) return false;
+        var organizationPath = organization.AbsolutePath.TrimEnd('/');
+        const string attachments = "/_apis/wit/attachments/";
         var path = uri.AbsolutePath;
-        var suffix = path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? path[prefix.Length..]
-            : path.StartsWith(projectPrefix, StringComparison.OrdinalIgnoreCase) ? path[projectPrefix.Length..] : null;
+        string? suffix = null;
+        foreach (var prefix in new[]
+        {
+            organizationPath + attachments,
+            organizationPath + "/" + Uri.EscapeDataString(project) + attachments,
+            projectId is { } reported ? organizationPath + "/" + reported.ToString("D") + attachments : null,
+        })
+        {
+            if (prefix is not null && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                suffix = path[prefix.Length..];
+                break;
+            }
+        }
         return Guid.TryParseExact(suffix, "D", out id) && id != Guid.Empty;
     }
 

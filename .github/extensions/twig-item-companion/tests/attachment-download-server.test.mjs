@@ -11,7 +11,7 @@ const detail = workItemId => ({
         selectionSource: "bench", storageGeneration: "9" },
     membership: { seed: false, selected: true },
 });
-async function setup({ download } = {}) {
+async function setup({ download, fileName = "report.pdf" } = {}) {
     const calls = [];
     const server = await createCanvasServer({
         workspacePath: "unused",
@@ -22,10 +22,10 @@ async function setup({ download } = {}) {
             calls.push(request);
             if (request.action === "inventory") return {
                 status: "inventory", context: { workItemRevision: 7 },
-                attachments: [{ id, fileName: "report.pdf", reportedSize: String(body.length) }],
+                attachments: [{ id, fileName, reportedSize: String(body.length) }],
             };
             if (download) return download();
-            return { status: "download", attachment: { id, fileName: "report.pdf" },
+            return { status: "download", attachment: { id, fileName },
                 contentType: "application/pdf", contentLength: body.length, sha256: "a".repeat(64), content: body };
         },
     });
@@ -136,5 +136,39 @@ test("changing qualified detail invalidates outstanding opaque download handles"
         });
         assert.equal(response.status, 409);
         assert.equal(h.calls.filter(call => call.action === "download").length, 0);
+    } finally { await h.server.close(); }
+});
+
+test("preview handles exist only for allowlisted names and are token-gated, inline, sandboxed and single use", async () => {
+    const pdf = await setup();
+    try {
+        assert.equal(pdf.inventory.attachments[0].preview, null);
+        assert.equal("previewHandle" in pdf.inventory.attachments[0], false);
+    } finally { await pdf.server.close(); }
+
+    const h = await setup({ fileName: "notes.txt" });
+    try {
+        const entry = h.inventory.attachments[0];
+        assert.equal(entry.preview, "text");
+        assert.match(entry.previewHandle, /^[A-Za-z0-9_-]{43}$/);
+        assert.notEqual(entry.previewHandle, entry.downloadHandle);
+        const url = new URL("/api/attachment-preview/" + entry.previewHandle, h.origin);
+        assert.equal((await fetch(url, { headers: { Origin: h.origin } })).status, 401);
+        const crossed = await fetch(new URL("/api/attachment-preview/" + entry.downloadHandle, h.origin),
+            { headers: { Authorization: h.headers.Authorization, Origin: h.origin } });
+        assert.equal(crossed.status, 409, "download handles cannot open previews");
+        assert.equal(h.calls.filter(call => call.action === "download").length, 0);
+        const response = await fetch(url, { headers: { Authorization: h.headers.Authorization, Origin: h.origin } });
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("content-type"), "text/plain; charset=utf-8");
+        assert.equal(response.headers.get("content-disposition"), "inline");
+        assert.equal(response.headers.get("content-security-policy"), "sandbox; default-src 'none'");
+        assert.equal(response.headers.get("content-length"), String(body.length));
+        assert.deepEqual(Buffer.from(await response.arrayBuffer()), body);
+        const repeated = await fetch(url, { headers: { Authorization: h.headers.Authorization, Origin: h.origin } });
+        assert.equal(repeated.status, 409);
+        assert.equal(h.calls.filter(call => call.action === "download").length, 1);
+        assert.deepEqual(await (await observe(h, entry.downloadHandle)).json(), { status: "not-requested" },
+            "previewing does not consume or alter the download");
     } finally { await h.server.close(); }
 });

@@ -13,10 +13,13 @@ class Element {
     replaceChildren(...nodes) { this.children = nodes; }
     addEventListener(name, handler) { this.listeners[name] = handler; }
     setAttribute(name, value) { this.attributes[name] = value; }
+    removeAttribute(name) { delete this.attributes[name]; delete this[name]; }
 }
-const descendants = node => [node, ...node.children.flatMap(descendants)];
+const descendants = node => typeof node === "string" ? [] : [node, ...node.children.flatMap(descendants)];
 const settle = () => new Promise(resolve => setImmediate(resolve));
-function harness({ outcomes, wait = () => new Promise(() => {}) } = {}) {
+const pdf = { id: "4dab0171-49dc-4da5-8f18-35c923fbdb0a", fileName: "report.pdf",
+    reportedSize: "5", downloadHandle: "b".repeat(43), preview: null };
+function harness({ outcomes, wait = () => new Promise(() => {}), attachments = [pdf], fetchBytes, urls } = {}) {
     const calls = [];
     const navigator = { userActivation: { isActive: false } };
     const client = createAttachmentClient({
@@ -24,14 +27,13 @@ function harness({ outcomes, wait = () => new Promise(() => {}) } = {}) {
         text: (tag, textContent) => Object.assign(new Element(tag), { textContent }),
         navigator,
         wait,
+        fetchBytes,
+        urls,
         request: async (route, options) => {
             const body = JSON.parse(options.body);
             calls.push({ route, body });
             if (body.action === "download-status") return outcomes.shift();
-            return body.action === "inventory" ? { status: "inventory", attachments: [{
-                id: "4dab0171-49dc-4da5-8f18-35c923fbdb0a", fileName: "report.pdf",
-                reportedSize: "5", downloadHandle: "b".repeat(43),
-            }] } : { invalidated: true };
+            return body.action === "inventory" ? { status: "inventory", attachments } : { invalidated: true };
         },
     });
 
@@ -50,7 +52,7 @@ test("accepted download click never claims receipt and reports server observatio
     link.listeners.click({ isTrusted: true });
     assert.match(descendants(h.root).map(item => item.textContent).join("\n"), /saving is not confirmed/);
     await settle();
-    assert.match(descendants(h.root).map(item => item.textContent).join("\n"), /finished sending.*Saving is not confirmed/);
+    assert.match(descendants(h.root).map(item => item.textContent).join("\n"), /sent report\.pdf to the host.*Downloads folder.*cannot confirm the saved location/);
     assert.equal(h.calls.filter(call => call.body.action === "download-status").length, 3);
     let prevented = false;
     link.listeners.click({ isTrusted: true, preventDefault: () => { prevented = true; } });
@@ -129,4 +131,92 @@ test("leave invalidates the target handle and removes rendered links", async () 
     assert.equal(h.calls.length, 1);
     assert.deepEqual(h.calls[0], { route: "/api/attachments", body: { action: "invalidate", targetHandle: "a".repeat(43) } });
     assert.equal(descendants(h.root).some(item => item.tag === "a"), false);
+});
+
+const textLines = root => descendants(root).map(item => item.textContent).join("\n");
+const bytesResponse = (chunks, type = "text/plain; charset=utf-8", onRead = () => {}) => {
+    const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    const queue = [...chunks];
+    return { headers: { get: name => ({ "content-length": String(total), "content-type": type })[name] },
+        body: { getReader: () => ({ read: async () => (onRead(), queue.length) ? { done: false, value: queue.shift() } : { done: true },
+            cancel: async () => {} }) } };
+};
+const notes = { id: "5dab0171-49dc-4da5-8f18-35c923fbdb0a", fileName: "notes.txt", reportedSize: "11",
+    downloadHandle: "c".repeat(43), preview: "text", previewHandle: "d".repeat(43) };
+
+test("download shows an indeterminate progress bar that completes on sent and hides on refusal", async () => {
+    for (const [outcome, visible] of [[{ status: "sent" }, true], [{ status: "interrupted" }, false]]) {
+        let resume;
+        const h = harness({ outcomes: [outcome], wait: () => new Promise(resolve => { resume = resolve; }) });
+        h.navigator.userActivation.isActive = true;
+        await h.button("Show attachments (online)").listeners.click({ isTrusted: true });
+        const progress = descendants(h.root).find(item => item.tag === "progress");
+        assert.equal(progress.hidden, true, "progress is hidden before any click");
+        descendants(h.root).find(item => item.tag === "a").listeners.click({ isTrusted: true });
+        assert.equal(progress.hidden, false);
+        assert.equal("value" in progress, false, "progress is indeterminate while Twig reads");
+        resume();
+        await settle(); await settle();
+        assert.equal(progress.hidden, !visible);
+        if (visible) assert.equal(progress.value, 1);
+    }
+});
+
+test("Open is offered only for previewable entries and renders text in-canvas with byte progress", async () => {
+    const fetches = [], sampled = [];
+    let h;
+    const sample = () => {
+        const bar = descendants(h.root).find(item => item.tag === "progress" && /^Open/.test(item.attributes["aria-label"]));
+        sampled.push([bar.value, bar.max]);
+    };
+    h = harness({ attachments: [pdf, notes], fetchBytes: async (path, options) => {
+        fetches.push(path);
+        assert.ok(options.signal);
+        return bytesResponse([new TextEncoder().encode("hello "), new TextEncoder().encode("world")], undefined, sample);
+    } });
+    h.navigator.userActivation.isActive = true;
+    await h.button("Show attachments (online)").listeners.click({ isTrusted: true });
+    assert.equal(h.button("Open report.pdf"), undefined);
+    const open = h.button("Open notes.txt");
+    await open.listeners.click({ isTrusted: false });
+    assert.equal(fetches.length, 0, "synthetic activation never reads");
+    await open.listeners.click({ isTrusted: true });
+    assert.deepEqual(fetches, ["/api/attachment-preview/" + "d".repeat(43)]);
+    const pre = descendants(h.root).find(item => item.tag === "pre");
+    assert.equal(pre.textContent, "hello world");
+    assert.deepEqual(sampled, [[0, 11], [6, 11], [11, 11]], "byte progress advances toward Content-Length");
+    assert.match(textLines(h.root), /Opened notes\.txt \(11 bytes\).*Nothing was saved or run/);
+    assert.equal(open.disabled, true, "preview handles are single use");
+    await open.listeners.click({ isTrusted: true });
+    assert.equal(fetches.length, 1);
+    assert.equal(h.calls.some(call => call.body.action === "download-status"), false);
+    h.button("Close preview").listeners.click({ isTrusted: true });
+    assert.equal(descendants(h.root).some(item => item.tag === "pre"), false);
+});
+
+test("image preview uses a blob URL that is revoked when leaving the item", async () => {
+    const created = [], revoked = [];
+    const image = { ...notes, fileName: "shot.png", preview: "image" };
+    const h = harness({ attachments: [image],
+        fetchBytes: async () => bytesResponse([new Uint8Array([137, 80, 78, 71])], "image/png"),
+        urls: { createObjectURL: blob => { created.push(blob.type); return "blob:one"; },
+            revokeObjectURL: url => revoked.push(url) } });
+    h.navigator.userActivation.isActive = true;
+    await h.button("Show attachments (online)").listeners.click({ isTrusted: true });
+    await h.button("Open shot.png").listeners.click({ isTrusted: true });
+    const img = descendants(h.root).find(item => item.tag === "img");
+    assert.equal(img.src, "blob:one");
+    assert.deepEqual(created, ["image/png"]);
+    await h.client.leave();
+    assert.deepEqual(revoked, ["blob:one"]);
+});
+
+test("preview refusal is reported without retry", async () => {
+    let attempts = 0;
+    const h = harness({ attachments: [notes], fetchBytes: async () => { attempts++; throw new Error("Attachment download refused (attachment-stale)."); } });
+    h.navigator.userActivation.isActive = true;
+    await h.button("Show attachments (online)").listeners.click({ isTrusted: true });
+    await h.button("Open notes.txt").listeners.click({ isTrusted: true });
+    assert.match(textLines(h.root), /Open refused or unavailable: .*attachment-stale.*No automatic retry/);
+    assert.equal(attempts, 1);
 });

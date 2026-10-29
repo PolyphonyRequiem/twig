@@ -29,6 +29,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     let attachmentIdle = Promise.resolve();
     const attachmentDownloads = new Map();
     const attachmentDownloadStatus = new Map();
+    const attachmentPreviews = new Map();
     function invalidateDiscussion() {
         discussionPost.invalidate();
         discussionTarget = null;
@@ -38,6 +39,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         attachmentTarget = null;
         attachmentDownloads.clear();
         attachmentDownloadStatus.clear();
+        attachmentPreviews.clear();
         attachmentController?.abort();
     }
     function invalidateEditing() {
@@ -370,6 +372,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         response.once("close", disconnected);
         attachmentDownloads.clear();
         attachmentDownloadStatus.clear();
+        attachmentPreviews.clear();
         try {
             const result = await readNativeAttachments({
                 target: captured.target, action: "inventory", workspacePath, signal: controller.signal,
@@ -390,7 +393,17 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                     expiresAt: Date.now() + 5 * 60 * 1000,
                 });
                 attachmentDownloadStatus.set(downloadHandle, { status: "not-requested" });
-                attachments.push({ ...entry, downloadHandle });
+                const preview = attachmentPreviewKind(entry.fileName);
+                if (!preview) {
+                    attachments.push({ ...entry, downloadHandle, preview: null });
+                    continue;
+                }
+                const previewHandle = randomBytes(32).toString("base64url");
+                attachmentPreviews.set(previewHandle, {
+                    target: captured, id: entry.id, revision: result.context.workItemRevision, entry,
+                    expiresAt: Date.now() + 5 * 60 * 1000, preview,
+                });
+                attachments.push({ ...entry, downloadHandle, preview: preview.kind, previewHandle });
             }
             return { status: "inventory", attachments };
         } catch (error) {
@@ -407,16 +420,17 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         }
     };
 
-    const downloadAttachment = async (handle, request, response) => {
+    const downloadAttachment = async (handle, request, response, { preview = false } = {}) => {
         if (!readNativeAttachments || state.closed || !attachmentTarget)
             throw new HttpError(409, "Attachment selection is no longer current; reload qualified detail.");
-        if (request.headers["sec-fetch-site"] !== "same-origin")
+        if (!preview && request.headers["sec-fetch-site"] !== "same-origin")
             throw new HttpError(403, "Attachment downloads require a same-origin browser request.");
         if (request.headers.range) throw new HttpError(416, "Partial attachment downloads are not supported.");
         if (state.busy || editing.busy || handoff.busy)
             throw new HttpError(409, "A native operation is already in progress.");
-        const record = attachmentDownloads.get(handle);
-        attachmentDownloads.delete(handle);
+        const handles = preview ? attachmentPreviews : attachmentDownloads;
+        const record = handles.get(handle);
+        handles.delete(handle);
         if (!record || record.expiresAt < Date.now() || record.target !== attachmentTarget)
             throw new HttpError(409, "Attachment download handle is expired or no longer current.");
 
@@ -445,7 +459,14 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
                 !Buffer.isBuffer(result.content) || result.content.length !== result.contentLength)
                 throw new HttpError(502, "Attachment download response was invalid; no bytes were sent.");
             const mediaType = safeMediaType(result.contentType);
-            response.writeHead(200, {
+            response.writeHead(200, preview ? {
+                "Content-Type": record.preview.mediaType,
+                "Content-Disposition": "inline",
+                "Content-Length": String(result.contentLength),
+                "Content-Security-Policy": "sandbox; default-src 'none'",
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            } : {
                 "Content-Type": mediaType,
                 "Content-Disposition": attachmentDisposition(result.attachment.fileName),
                 "Content-Length": String(result.contentLength),
@@ -547,6 +568,13 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
 
         if (!hasValidToken(request, token)) {
             sendJson(response, 401, { error: "Canvas instance authorization is required." });
+            return;
+        }
+
+        const previewMatch = workbench && request.method === "GET"
+            ? /^\/api\/attachment-preview\/([A-Za-z0-9_-]{43})$/.exec(request.url) : null;
+        if (previewMatch) {
+            await downloadAttachment(previewMatch[1], request, response, { preview: true });
             return;
         }
 
@@ -824,6 +852,22 @@ function safeMediaType(contentType) {
     return type.toLowerCase();
 }
 
+const previewTextExtensions = new Set(["txt", "log", "md", "markdown", "csv", "tsv", "json", "xml",
+    "yaml", "yml", "ini", "cfg", "conf", "diff", "patch"]);
+const previewImageTypes = new Map([["png", "image/png"], ["jpg", "image/jpeg"], ["jpeg", "image/jpeg"],
+    ["gif", "image/gif"], ["webp", "image/webp"], ["bmp", "image/bmp"]]);
+
+// Preview eligibility comes from the file name because ADO commonly reports octet-stream.
+// Text renders as textContent and images as blob <img>; nothing is executed or written locally.
+export function attachmentPreviewKind(fileName) {
+    const match = typeof fileName === "string" ? /\.([A-Za-z0-9]{1,10})$/.exec(fileName) : null;
+    const extension = match?.[1].toLowerCase();
+    if (!extension) return null;
+    if (previewTextExtensions.has(extension)) return { kind: "text", mediaType: "text/plain; charset=utf-8" };
+    const image = previewImageTypes.get(extension);
+    return image ? { kind: "image", mediaType: image } : null;
+}
+
 function attachmentDisposition(fileName) {
     if (typeof fileName !== "string" || !fileName.trim() || fileName.length > 255 ||
         fileName === "." || fileName === ".." || /[/\\\u0000-\u001f\u007f-\u009f]/.test(fileName))
@@ -851,7 +895,7 @@ function contentSecurityPolicy(nonce) {
         `script-src 'nonce-${nonce}'`,
         `style-src 'nonce-${nonce}'`,
         "connect-src 'self'",
-        "img-src 'none'",
+        "img-src blob:",
         "font-src 'self'",
         "object-src 'none'",
         "base-uri 'none'",

@@ -1,10 +1,18 @@
-export function createAttachmentClient({ document, request, text, navigator,
+export function createAttachmentClient({ document, request, text, navigator, fetchBytes, urls = globalThis.URL,
     wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)) }) {
     let current = null;
+    function closePreview(state) {
+        state.previewController?.abort();
+        state.previewController = null;
+        if (state.previewUrl) urls?.revokeObjectURL(state.previewUrl);
+        state.previewUrl = null;
+        state.preview?.replaceChildren();
+    }
     function leave() {
         const previous = current;
         current = null;
         if (!previous) return Promise.resolve();
+        closePreview(previous);
         previous.box.replaceChildren();
         return request("/api/attachments", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -21,13 +29,85 @@ export function createAttachmentClient({ document, request, text, navigator,
         const box = document.createElement("section");
         state.box = box;
         box.append(text("h3", "Attachments"),
-            text("p", "Inventory and download run only after an explicit click. Downloads use the browser's normal save behavior; no local path or SDK download action is available."));
+            text("p", "Inventory, download and open run only after an explicit click. Downloads use the browser's normal save behavior; Open previews text and images inside this canvas without saving or running the file."));
         const inventory = text("button", "Show attachments (online)");
         inventory.type = "button";
         const status = text("p", "Attachment inventory has not been read.");
         status.setAttribute("role", "status");
         const entries = document.createElement("div");
+        const preview = document.createElement("div");
+        state.preview = preview;
         const refresh = () => { inventory.disabled = state.busy || state.invalidated; };
+        const previewTextLimit = 256 * 1024;
+        async function openPreview(event, entry, button, inventoryRevision) {
+            if (event?.isTrusted !== true || navigator?.userActivation?.isActive !== true ||
+                current !== state || state.invalidated || state.inventoryRevision !== inventoryRevision) {
+                status.textContent = "Open requires a trusted human click on the current inventory.";
+                return;
+            }
+            if (button.disabled || typeof fetchBytes !== "function") return;
+            button.disabled = true;
+            closePreview(state);
+            const controller = new AbortController();
+            state.previewController = controller;
+            const stillCurrent = () => current === state && state.previewController === controller &&
+                state.inventoryRevision === inventoryRevision;
+            const progress = document.createElement("progress");
+            progress.setAttribute("aria-label", "Open progress for " + entry.fileName);
+            preview.replaceChildren(text("h4", entry.fileName), progress);
+            status.textContent = "Twig is reading " + entry.fileName + " for preview. Nothing is saved or run.";
+            try {
+                const response = await fetchBytes("/api/attachment-preview/" + encodeURIComponent(entry.previewHandle),
+                    { signal: controller.signal });
+                if (!stillCurrent()) return;
+                const total = Number(response.headers.get("content-length"));
+                if (Number.isSafeInteger(total) && total > 0) { progress.max = total; progress.value = 0; }
+                const chunks = [];
+                let received = 0;
+                const reader = response.body.getReader();
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (!stillCurrent()) { void reader.cancel(); return; }
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.byteLength;
+                    if (progress.max > 1) progress.value = Math.min(received, progress.max);
+                }
+                progress.max = 1;
+                progress.value = 1;
+                const bytes = new Uint8Array(received);
+                let offset = 0;
+                for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+                const close = text("button", "Close preview");
+                close.type = "button";
+                close.addEventListener("click", () => {
+                    if (current !== state || state.previewController !== null) return;
+                    closePreview(state);
+                    status.textContent = "Preview closed. Read a fresh inventory to open it again.";
+                });
+                if (entry.preview === "text") {
+                    const truncated = bytes.byteLength > previewTextLimit;
+                    const body = new TextDecoder("utf-8").decode(bytes.subarray(0, previewTextLimit));
+                    preview.replaceChildren(text("h4", entry.fileName), close, text("pre", body),
+                        ...(truncated ? [text("p", "Preview shows the first 256 KiB. Download the file for the rest.")] : []));
+                } else {
+                    const image = document.createElement("img");
+                    state.previewUrl = urls.createObjectURL(new Blob([bytes], { type: response.headers.get("content-type") }));
+                    image.src = state.previewUrl;
+                    image.alt = entry.fileName;
+                    image.className = "attachment-preview";
+                    preview.replaceChildren(text("h4", entry.fileName), close, image);
+                }
+                state.previewController = null;
+                status.textContent = "Opened " + entry.fileName + " (" + received + " bytes) inside the canvas. Nothing was saved or run. Read a fresh inventory to open it again.";
+            } catch (error) {
+                if (!stillCurrent()) return;
+                state.previewController = null;
+                preview.replaceChildren();
+                status.textContent = "Open refused or unavailable: " + (error?.message ?? "preview failed") +
+                    " No automatic retry; read a fresh inventory before trying again.";
+            }
+        }
         async function readInventory(event) {
             if (event?.isTrusted !== true || navigator?.userActivation?.isActive !== true) {
                 status.textContent = "Attachment inventory requires a trusted human click; synthetic activation was refused.";
@@ -36,6 +116,7 @@ export function createAttachmentClient({ document, request, text, navigator,
             if (current !== state || state.busy || state.invalidated) return;
             state.busy = true;
             const inventoryRevision = ++state.inventoryRevision;
+            closePreview(state);
             refresh();
             status.textContent = "Reading qualified attachment inventory...";
             try {
@@ -60,6 +141,14 @@ export function createAttachmentClient({ document, request, text, navigator,
                     const link = text("a", "Download " + entry.fileName);
                     link.href = "/api/attachment-download/" + encodeURIComponent(entry.downloadHandle);
                     link.download = entry.fileName;
+                    const progress = document.createElement("progress");
+                    progress.hidden = true;
+                    progress.max = 1;
+                    progress.setAttribute("aria-label", "Download progress for " + entry.fileName);
+                    const finishProgress = ok => {
+                        if (ok) { progress.value = 1; progress.hidden = false; }
+                        else progress.hidden = true;
+                    };
                     let clicked = false;
                     async function observeDownload() {
                         try {
@@ -74,10 +163,12 @@ export function createAttachmentClient({ document, request, text, navigator,
                                 });
                                 if (current !== state || state.inventoryRevision !== inventoryRevision) return;
                                 if (outcome.status === "sent") {
-                                    status.textContent = "Twig finished sending the attachment to the browser. Saving is not confirmed. If no file appeared, the host may have blocked the save.";
+                                    finishProgress(true);
+                                    status.textContent = "Twig sent " + entry.fileName + " to the host. The Copilot desktop app normally saves it to your Downloads folder without a prompt (duplicates get a (n) suffix); Twig cannot confirm the saved location.";
                                     return;
                                 }
                                 if (outcome.status === "refused" || outcome.status === "interrupted") {
+                                    finishProgress(false);
                                     status.textContent = "Attachment download " + outcome.status + ": " +
                                         (outcome.message ?? "The connection closed before Twig finished sending bytes.") +
                                         " Read a fresh inventory before retrying.";
@@ -90,7 +181,9 @@ export function createAttachmentClient({ document, request, text, navigator,
                                     : "Twig received the download request and is reading the attachment. Saving is not confirmed.";
                             }
                             status.textContent += " Observation ended; no automatic download retry. Read a fresh inventory before retrying.";
+                            finishProgress(false);
                         } catch {
+                            finishProgress(false);
                             if (current === state && state.inventoryRevision === inventoryRevision)
                                 status.textContent = "Download status unavailable. Saving is not confirmed; no automatic download retry.";
                         }
@@ -110,10 +203,19 @@ export function createAttachmentClient({ document, request, text, navigator,
                         clicked = true;
                         link.setAttribute("aria-disabled", "true");
                         link.classList.add("muted");
+                        progress.removeAttribute("value");
+                        progress.hidden = false;
                         status.textContent = "Download click accepted. Waiting for Twig to observe the request; saving is not confirmed.";
                         void observeDownload();
                     });
                     row.append(link);
+                    if (entry.preview === "text" || entry.preview === "image") {
+                        const open = text("button", "Open " + entry.fileName);
+                        open.type = "button";
+                        open.addEventListener("click", event => openPreview(event, entry, open, inventoryRevision));
+                        row.append(" ", open);
+                    }
+                    row.append(progress);
                     entries.append(row);
                 }
                 state.invalidated = result.status === "refused" && result.code === "authority-invalidated";
@@ -128,7 +230,7 @@ export function createAttachmentClient({ document, request, text, navigator,
             }
         }
         inventory.addEventListener("click", readInventory);
-        box.append(inventory, status, entries);
+        box.append(inventory, status, entries, preview);
         parent.append(box);
     }
     return { mount, leave };

@@ -64,6 +64,9 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
     h2 { font-size: var(--text-title-small, 16px); line-height: var(--leading-title-small, 22px); }
     h3 { font-size: var(--text-body-large, 16px); }
     .muted { color: var(--twig-muted); }
+    img.attachment-preview { display: block; max-width: 100%; height: auto; }
+    progress { display: block; width: 100%; max-width: 320px; }
+    progress[hidden] { display: none; }
     .row { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-bottom: 16px; }
     label { display: grid; gap: 4px; flex: 1 1 220px; }
     input, button, select, textarea {
@@ -203,6 +206,19 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
       return value;
     }
 
+    async function fetchBytes(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: { Authorization: "Bearer " + token },
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const value = await response.json().catch(() => ({}));
+        throw new Error(value.error || "Twig request failed.");
+      }
+      return response;
+    }
+
     function text(tag, value, className) {
       const node = document.createElement(tag);
       node.textContent = value == null ? "" : String(value);
@@ -219,7 +235,7 @@ export function renderPage({ token, nonce, workbench = false, review = false }) 
     const handoffClient = (${createHandoffClient.toString()})({ document, request, text });
     const postClient = (${createDiscussionPostClient.toString()})({ document, request, text });
     const discussionClient = (${createDiscussionClient.toString()})({ document, request, text, postClient });
-    const attachmentClient = (${createAttachmentClient.toString()})({ document, request, text, navigator: globalThis.navigator });\n${workbenchClient}` : `
+    const attachmentClient = (${createAttachmentClient.toString()})({ document, request, text, navigator: globalThis.navigator, fetchBytes });\n${workbenchClient}` : `
     const form = document.querySelector("#load-form");
     const input = document.querySelector("#work-item-id");
     const loadButton = document.querySelector("#load-button");

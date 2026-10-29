@@ -221,22 +221,43 @@ type, safe `Content-Disposition` filename (including UTF-8 `filename*`), exact
 download to 16 MiB; oversized, stale, unlinked or foreign-origin responses fail
 closed.
 
-Live ADO inventory and native byte download have been verified, but saving from
-the installed Copilot iframe remains unqualified: an accepted click produced no
-visible file. A click is not evidence that the browser received or saved bytes.
-After a trusted download click, the panel makes at most 40 authenticated local
-status observations (one second apart, with a five-second timeout per request).
-These observations never start or retry a native read. They distinguish a request
-that never reached Twig, a native read in progress, a refusal/interruption, and a
-finished server response. Even a finished response does not confirm a saved file.
-Observations and opaque handles are discarded on inventory refresh or selection
-invalidation. Each download link is single-use; retry requires a fresh inventory.
+Installed-host qualification (Copilot desktop app 1.1.33, WebView2): an accepted
+click saves the file silently to the user's Downloads folder with no prompt or
+notification, renaming duplicates with a `(n)` suffix. Three clicks on a 201-byte
+test attachment produced three byte-identical files matching the native SHA-256.
+The iframe still cannot observe the saved path, so the panel says where the host
+normally saves rather than claiming a confirmed location.
 
-The installed-host check must still verify that the browser's normal save prompt
-works from the iframe. If the host blocks downloads, record that exact result;
-do not silently replace the browser-managed flow. Upload and readback are
-explicitly deferred to a second PR.
+After a trusted download click, the row shows an indeterminate progress bar and
+the panel makes at most 40 authenticated local status observations (one second
+apart, with a five-second timeout per request). These observations never start or
+retry a native read. They distinguish a request that never reached Twig, a native
+read in progress, a refusal/interruption (the bar is hidden), and a finished
+server response (the bar completes). Observations and opaque handles are discarded
+on inventory refresh or selection invalidation. Each download link is single-use;
+retry requires a fresh inventory.
 
+### Open (in-canvas preview)
+
+Twig does not launch saved files: the iframe cannot know the saved path, and an
+attachment may be executable. Instead, **Open** previews the attachment inside the
+canvas. It is offered only when the file name has an allowlisted extension:
+plain-text formats (`txt`, `log`, `md`, `csv`, `tsv`, `json`, `xml`, `yaml`,
+`ini`, `cfg`, `conf`, `diff`, `patch` and similar) and raster images (`png`,
+`jpg`, `gif`, `webp`, `bmp`). SVG, HTML, PDF and everything else are download-only.
+
+Inventory mints a separate single-use preview handle for eligible entries. The
+trusted click fetches `/api/attachment-preview/{handle}` with the instance bearer
+token; the server performs the same qualified native read and returns the bytes
+`inline` with a Twig-chosen media type (`text/plain` or the image type), exact
+`Content-Length`, `nosniff`, `no-store` and `Content-Security-Policy: sandbox`.
+The panel shows byte progress against `Content-Length`, renders text with
+`textContent` in a `<pre>` (first 256 KiB), and renders images through a `blob:`
+URL that is revoked on close, refresh or leaving the item. Page CSP allows only
+`img-src blob:` for this. Preview never writes to disk, runs content or retries;
+download and preview handles cannot be used interchangeably.
+
+Upload and readback are explicitly deferred to a second PR.
 Discussion editing/deletion and attachment upload remain out of scope.
 
 ## Explicit in-session handoff fallback (not host-qualified)

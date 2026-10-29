@@ -145,6 +145,38 @@ public sealed class AdoRelationNotFoundException : AdoException
     }
 }
 
+internal sealed class AdoAttachmentRemoteWriteUnknownException(string effectKind, Exception inner)
+    : AdoException($"{effectKind}-outcome-unknown: the native request was dispatched but no definitive outcome was recorded. Do not retry.", inner)
+{
+    internal string EffectKind { get; } = effectKind;
+}
+
+internal sealed class AdoAttachmentRemoteWriteNotDispatchedException(string effectKind, Exception inner)
+    : AdoException($"{effectKind}-not-dispatched: no HTTP request was dispatched.", inner)
+{
+    internal string EffectKind { get; } = effectKind;
+}
+
+internal sealed class AdoAttachmentUploadUnknownException(Exception inner)
+    : AdoException("attachment-upload-outcome-unknown: upload may have reached ADO but no trustworthy attachment receipt is available. Do not retry; inspect fresh attachment inventory and native write evidence.", inner);
+
+/// <summary>Attachment bytes were accepted but the work-item relation is rejected or uncertain.</summary>
+internal sealed class AdoAttachmentUploadPartialException : AdoException
+{
+    internal Guid AttachmentId { get; }
+    internal bool LinkOutcomeUnknown { get; }
+
+    internal AdoAttachmentUploadPartialException(Guid attachmentId, bool linkOutcomeUnknown, Exception inner)
+        : base(linkOutcomeUnknown
+            ? $"attachment-upload-partial: attachment {attachmentId:D} was uploaded; relation outcome is unknown. Do not retry."
+            : $"attachment-upload-partial: attachment {attachmentId:D} was uploaded but not linked. Do not retry.",
+            inner)
+    {
+        AttachmentId = attachmentId;
+        LinkOutcomeUnknown = linkOutcomeUnknown;
+    }
+}
+
 /// <summary>5xx — Transient server error.</summary>
 public sealed class AdoServerException : AdoException
 {

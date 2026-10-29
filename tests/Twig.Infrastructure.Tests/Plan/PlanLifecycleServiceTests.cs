@@ -2309,6 +2309,44 @@ public sealed partial class PlanLifecycleServiceTests : IDisposable
         remainingOpen.ShouldNotContain(open => open.Identity == identity);
     }
 
+    [Fact]
+    public void AttachmentUploadAcknowledgementRequiresTheExactReceiptUrl()
+    {
+        const string attachmentId = "8a814c6e-e1c8-4efb-8cf1-7780b0ad2222";
+        var request = new ConnectionRemoteWriteRequest("attachment-upload", "POST",
+            "https://dev.azure.com/acme/_apis/wit/attachments?fileName=report.txt&api-version=7.1",
+            """{"intentDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","workItemId":42,"expectedRevision":7,"fileName":"report.txt","contentType":"text/plain","contentLength":3,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","attachmentId":null}""",
+            null);
+        var exact = new ConnectionRemoteWriteResponse(201,
+            $$"""{"id":"{{attachmentId}}","url":"https://dev.azure.com/acme/_apis/wit/attachments/{{attachmentId}}"}""",
+            null, null);
+        ConnectionRemoteWriteAdmission.ClassifyAcknowledgement(request, exact).ShouldBe("acknowledged");
+
+        var mismatched = exact with
+        {
+            Body = $$"""{"id":"{{attachmentId}}","url":"https://dev.azure.com/acme/_apis/wit/attachments/5d08ec21-72f1-4bf8-aeba-dd9a905b4022"}""",
+        };
+        ConnectionRemoteWriteAdmission.ClassifyAcknowledgement(request, mismatched).ShouldBeNull();
+    }
+
+    [Fact]
+    public void AttachmentLinkAcknowledgementRequiresTheExactAttachedFileRelation()
+    {
+        const string attachmentId = "8a814c6e-e1c8-4efb-8cf1-7780b0ad2222";
+        const string attachmentUrl = "https://dev.azure.com/acme/_apis/wit/attachments/" + attachmentId;
+        var request = new ConnectionRemoteWriteRequest("attachment-link", "PATCH",
+            "https://dev.azure.com/acme/cache/_apis/wit/workitems/42?api-version=7.1",
+            $$"""{"intentDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","workItemId":42,"expectedRevision":7,"fileName":"report.txt","contentType":"text/plain","contentLength":3,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","attachmentId":"{{attachmentId}}","attachmentUrl":"{{attachmentUrl}}"}""",
+            "7");
+        var exact = new ConnectionRemoteWriteResponse(200,
+            $$"""{"id":42,"rev":8,"relations":[{"rel":"AttachedFile","url":"{{attachmentUrl}}"}]}""",
+            null, null);
+        ConnectionRemoteWriteAdmission.ClassifyAcknowledgement(request, exact).ShouldBe("acknowledged");
+
+        var missingRelation = exact with { Body = """{"id":42,"rev":8,"relations":[]}""" };
+        ConnectionRemoteWriteAdmission.ClassifyAcknowledgement(request, missingRelation).ShouldBeNull();
+    }
+
     private static string FindGitRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory);

@@ -66,7 +66,7 @@ internal interface IAdmittedConnectionOperation : IDisposable
 }
 
 internal sealed record ConnectionRemoteWriteRequest(string EffectKind, string Method, string Target, string Payload, string? IfMatch,
-    SeedPublishCorrelation? SeedCorrelation = null);
+    SeedPublishCorrelation? SeedCorrelation = null, string? Evidence = null);
 
 internal sealed record ConnectionRemoteWriteResponse(int StatusCode, string Body, string? RequestId, string? Location);
 
@@ -79,6 +79,7 @@ internal interface IConnectionRemoteWriteAdmission
 {
     bool IsDefinitivelyRejected { get; }
     Task RecordResponseAsync(ConnectionRemoteWriteResponse response, CancellationToken ct = default);
+    Task RecordNotDispatchedAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 /// <summary>Cleanup is allowed only after the original create has durable identity and outcome evidence.</summary>
@@ -101,15 +102,15 @@ internal static class ConnectionOperationAdmission
 
     internal static async Task<IConnectionRemoteWriteAdmission?> BeginRemoteWriteAsync(
         IAuthenticationProvider provider, HttpRequestMessage request, string? effectKind, CancellationToken ct,
-        SeedPublishCorrelation? seedCorrelation = null)
+        SeedPublishCorrelation? seedCorrelation = null, string? payloadOverride = null, string? evidence = null)
     {
         if (effectKind is null) return null;
         if (provider is not IConnectionRemoteWriteGuard guard)
             throw new InvalidOperationException("remote-write-admission-required: normal writes require an attached bound runtime with native outcome admission; reconnect explicitly before publication.");
-        var payload = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        var payload = payloadOverride ?? (request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
         var ifMatch = request.Headers.TryGetValues("If-Match", out var values) ? values.FirstOrDefault() : null;
         return await guard.BeginRemoteWriteAsync(new ConnectionRemoteWriteRequest(effectKind, request.Method.Method,
-            request.RequestUri!.AbsoluteUri, payload, ifMatch, seedCorrelation), ct).ConfigureAwait(false);
+            request.RequestUri!.AbsoluteUri, payload, ifMatch, seedCorrelation, evidence), ct).ConfigureAwait(false);
     }
 
     internal static async Task RecordRemoteWriteResponseAsync(
@@ -123,6 +124,9 @@ internal static class ConnectionOperationAdmission
             requestId is null ? null : RedactCredential(requestId, credential, authorizationParameter),
             response.Headers.Location is { } location ? RedactCredential(location.ToString(), credential, authorizationParameter) : null), ct).ConfigureAwait(false);
     }
+
+    internal static Task RecordRemoteWriteNotDispatchedAsync(IConnectionRemoteWriteAdmission? admission)
+        => admission?.RecordNotDispatchedAsync(CancellationToken.None) ?? Task.CompletedTask;
 
     internal static void RecordRejectedWriteAuthException(Exception exception, IConnectionRemoteWriteAdmission? admission)
     {

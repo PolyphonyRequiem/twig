@@ -1297,6 +1297,25 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<BenchAttachmentCommand>().ExecuteAsync(stdin, output, framed, ct);
 
+    /// <summary>Prepare an exact, bound attachment upload intent without uploading bytes.</summary>
+    /// <param name="stdin">Read one strict version 1 JSON intent through EOF (required); at most 262144 UTF-8 bytes.</param>
+    /// <param name="output">-o, Output format: human, minimal or JSON. JSON returns the bound context and confirmation digest.</param>
+    /// <param name="ct">Cancellation token; no server write or local attachment file is performed.</param>
+    [Command("bench attachments prepare-upload")]
+    public async Task<int> BenchAttachmentsPrepareUpload(bool stdin = false,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchAttachmentUploadCommand>().ExecutePrepareAsync(stdin, output, ct);
+
+    /// <summary>Upload and link one exact prepared attachment intent from a bounded binary stdin frame.</summary>
+    /// <param name="stdin">Read a single-use TWIGUPL1 binary frame through EOF; maximum content 16 MiB.</param>
+    /// <param name="framed">Required to accept binary stdin; the response remains structured output.</param>
+    /// <param name="output">-o, Output format: human, minimal or JSON; JSON reports upload/link outcome.</param>
+    /// <param name="ct">Cancellation token; uncertain outcomes are surfaced and never automatically retried.</param>
+    [Command("bench attachments upload")]
+    public async Task<int> BenchAttachmentsUpload(bool stdin = false, bool framed = false,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchAttachmentUploadCommand>().ExecuteUploadAsync(stdin, framed, output, ct);
+
     /// <summary>Open a shared recoverable draft using an explicit saved Bench and the native ADO form.</summary>
     /// <param name="id">Positive native ADO item ID; no active-item default or cross-provider fallback.</param>
     /// <param name="bench">Explicit saved Bench name or decimal ID; never switches the current Bench.</param>

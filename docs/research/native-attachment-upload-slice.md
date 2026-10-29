@@ -1,0 +1,9 @@
+# Native attachment upload slice
+
+This change implements the native, provider-admitted upload path for Twig's Copilot canvas companion. It is an intentionally partial delivery for Epic #1172 / Task #1203: the Copilot extension has no upload route, file picker, confirmation screen, or upload-result UI yet. Those host-side pieces remain a follow-on and are required before the canvas acceptance criterion is complete.
+
+The native protocol separates metadata preparation from transfer. `twig bench attachments prepare-upload --stdin -o json` captures the qualified item, current item revision, explicit Bench and binding identity, file name, declared media type, byte length, and SHA-256 into a confirmation digest without sending bytes. `twig bench attachments upload --stdin --framed -o json` accepts one bounded `TWIGUPL1` frame whose metadata and bytes must match. The current payload bound is 16 MiB.
+
+The ADO writer performs two distinct, separately journaled effects: a binary attachment POST and a revision-fenced `AttachedFile` relation PATCH. Upload receipts and link receipts are validated against the exact provider URL, attachment identity, item, and revision. Binary content is not persisted in remote-write evidence. A lost response or incomplete upload/link sequence is surfaced as unknown or partial and fenced from automatic replay; a known pre-dispatch cancellation is recorded separately from a dispatched request.
+
+This slice does not perform a live upload, install or reload the extension, or claim atomic upload-and-link behavior. The remaining delivery must add an authenticated native bridge route, standard browser file selection, exact target/file confirmation in the companion UI, and recovery presentation for unknown/partial outcomes. The extension must send the bounded frame to Twig; it must not accept arbitrary local paths, call provider HTTP directly, or invent a Copilot SDK upload action.

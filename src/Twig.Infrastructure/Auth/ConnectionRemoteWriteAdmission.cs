@@ -71,12 +71,28 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
         IsDefinitivelyRejected = kind == "rejected";
     }
 
+    public async Task RecordNotDispatchedAsync(CancellationToken ct = default)
+    {
+        var response = new ConnectionRemoteWriteResponse(0, "not-dispatched", null, null);
+        var observation = new ConnectionRemoteWriteObservation(1, Guid.NewGuid().ToString("N"), _intent.IntentId,
+            _intent.RequestDigest, response, DateTimeOffset.UtcNow);
+        var receipt = new ConnectionRemoteWriteReceipt(1, Guid.NewGuid().ToString("N"), _intent.IntentId,
+            _intent.RequestDigest, "not-dispatched", observation.ObservationId,
+            JsonSerializer.Serialize(response, TwigJsonContext.Default.ConnectionRemoteWriteResponse), _intent.Origin,
+            null, null, DateTimeOffset.UtcNow);
+        using var registry = new SqliteSystemWorktreeRegistry(_registryPath, TimeProvider.System);
+        var recorded = await registry.ObserveConnectionRemoteWriteAsync(_intent, observation, receipt, ct).ConfigureAwait(false);
+        if (!recorded.IsSuccess) throw new InvalidOperationException(recorded.Error);
+    }
+
     internal static string RequestDigest(ResolvedConnectionBinding origin, ConnectionRemoteWriteRequest request)
     {
         // Duplicate/replay identity excludes labels, preferences and unrelated scope revisions.
         var evidence = string.Join('\n', origin.Binding.ConnectionRef, origin.Identity.IdentityId,
             origin.Identity.Method, origin.Identity.CredentialRef, request.EffectKind, request.Method,
             request.Target, request.IfMatch, request.Payload);
+        if (request.Evidence is not null)
+            evidence += "\n" + request.Evidence;
         if (request.SeedCorrelation is { } seed)
             evidence += "\nseed\n" + seed.Identity;
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(evidence)));
@@ -168,8 +184,8 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
     {
         var method = request.EffectKind switch
         {
-            "workitem-patch" or "link-add" or "link-remove" => "PATCH",
-            "workitem-create" or "comment-add" or "git-pr-create" => "POST",
+            "workitem-patch" or "link-add" or "link-remove" or "attachment-link" => "PATCH",
+            "workitem-create" or "comment-add" or "git-pr-create" or "attachment-upload" => "POST",
             "workitem-delete" => "DELETE",
             _ => throw new InvalidOperationException("remote-write-kind-unsupported: explicit native mutation semantics are required.")
         };
@@ -202,6 +218,10 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
             var root = body.RootElement;
             if (request.EffectKind == "git-pr-create")
                 return PositiveInt(root, "pullRequestId", out _) ? "acknowledged" : null;
+            if (request.EffectKind == "attachment-upload")
+                return AttachmentUploadReceiptMatches(request.Target, root) ? "acknowledged" : null;
+            if (request.EffectKind == "attachment-link")
+                return AttachmentLinkReceiptMatches(request, response) ? "acknowledged" : null;
             if (!PositiveInt(root, "id", out var id)) return null;
             if (request.EffectKind == "workitem-delete")
                 return id == TargetWorkItemId(request.Target) ? "acknowledged" : null;
@@ -218,6 +238,66 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
                 || revision <= expectedRevision)) return null;
             return "acknowledged";
         }
+        catch (JsonException) { return null; }
+    }
+
+    internal static bool AttachmentUploadReceiptMatches(string target, JsonElement root)
+    {
+        if (!root.TryGetProperty("id", out var idValue) || idValue.ValueKind != JsonValueKind.String
+            || !Guid.TryParseExact(idValue.GetString(), "D", out var id) || id == Guid.Empty
+            || !root.TryGetProperty("url", out var urlValue) || urlValue.ValueKind != JsonValueKind.String
+            || !Uri.TryCreate(target, UriKind.Absolute, out var uploadTarget)
+            || !Uri.TryCreate(urlValue.GetString(), UriKind.Absolute, out var attachmentUrl))
+            return false;
+        var apiIndex = uploadTarget.AbsolutePath.IndexOf("/_apis/", StringComparison.OrdinalIgnoreCase);
+        if (apiIndex < 0) return false;
+        var expectedPath = uploadTarget.AbsolutePath[..apiIndex] + "/_apis/wit/attachments/" + id.ToString("D");
+        return attachmentUrl.Scheme.Equals(uploadTarget.Scheme, StringComparison.OrdinalIgnoreCase)
+            && attachmentUrl.Host.Equals(uploadTarget.Host, StringComparison.OrdinalIgnoreCase)
+            && attachmentUrl.Port == uploadTarget.Port
+            && attachmentUrl.UserInfo.Length == 0 && attachmentUrl.Fragment.Length == 0
+            && attachmentUrl.Query.Length == 0
+            && attachmentUrl.AbsolutePath.Equals(expectedPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool AttachmentLinkReceiptMatches(
+        ConnectionRemoteWriteRequest request, ConnectionRemoteWriteResponse response)
+    {
+        var evidence = ReadAttachmentEvidence(request.Evidence ?? request.Payload);
+        if (evidence?.AttachmentId is not { } attachmentId || evidence.AttachmentUrl is not { } attachmentUrl
+            || !Guid.TryParseExact(attachmentId, "D", out var parsedAttachmentId) || parsedAttachmentId == Guid.Empty
+            || TargetWorkItemId(request.Target) != evidence.WorkItemId
+            || !int.TryParse(request.IfMatch, NumberStyles.None, CultureInfo.InvariantCulture, out var expectedRevision)
+            || expectedRevision != evidence.ExpectedRevision)
+            return false;
+        try
+        {
+            using var body = JsonDocument.Parse(response.Body);
+            var root = body.RootElement;
+            if (!PositiveInt(root, "id", out var id) || id != evidence.WorkItemId
+                || !PositiveInt(root, "rev", out var revision) || revision <= evidence.ExpectedRevision
+                || !root.TryGetProperty("relations", out var relations) || relations.ValueKind != JsonValueKind.Array)
+                return false;
+            return relations.EnumerateArray().Any(relation =>
+                relation.ValueKind == JsonValueKind.Object
+                && relation.TryGetProperty("rel", out var kind) && kind.ValueKind == JsonValueKind.String
+                && kind.GetString() == "AttachedFile"
+                && relation.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String
+                && Uri.TryCreate(url.GetString(), UriKind.Absolute, out var observedUrl)
+                && Uri.TryCreate(attachmentUrl, UriKind.Absolute, out var expectedUrl)
+                && observedUrl.Scheme.Equals(expectedUrl.Scheme, StringComparison.OrdinalIgnoreCase)
+                && observedUrl.Host.Equals(expectedUrl.Host, StringComparison.OrdinalIgnoreCase)
+                && observedUrl.Port == expectedUrl.Port && observedUrl.UserInfo.Length == 0
+                && observedUrl.Query.Length == 0 && observedUrl.Fragment.Length == 0
+                && observedUrl.AbsolutePath.Equals(expectedUrl.AbsolutePath, StringComparison.OrdinalIgnoreCase)
+                && expectedUrl.AbsolutePath.EndsWith("/" + parsedAttachmentId.ToString("D"), StringComparison.OrdinalIgnoreCase));
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static AttachmentRemoteWriteEvidence? ReadAttachmentEvidence(string payload)
+    {
+        try { return JsonSerializer.Deserialize(payload, TwigJsonContext.Default.AttachmentRemoteWriteEvidence); }
         catch (JsonException) { return null; }
     }
 

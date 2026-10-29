@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Twig.Domain.Aggregates;
@@ -20,7 +21,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider, IWorkItemDiscussionReader, IWorkItemDiscussionWriter
+internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider, IWorkItemDiscussionReader, IWorkItemDiscussionWriter, IWorkItemAttachmentWriter
 {
     private const string JsonPatchMediaType = "application/json-patch+json";
 
@@ -437,6 +438,128 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
             throw new AdoException("discussion-receipt-invalid: response did not identify the exact appended comment.");
         return new DiscussionPostReceipt(workItemId, comment.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
             effectiveBody, "html");
+    }
+
+    public async Task<WorkItemAttachmentUploadReceipt> UploadAndLinkAsync(
+        int workItemId, int expectedRevision, string fileName, string contentType, byte[] content,
+        string sha256, string intentDigest,
+        CancellationToken ct = default)
+    {
+        if (workItemId <= 0 || expectedRevision <= 0 || !AttachmentReadLimits.ValidFileName(fileName)
+            || !AttachmentReadLimits.ValidMediaType(contentType)
+            || content is null || content.Length > AttachmentReadLimits.MaximumUploadBytes
+            || !string.Equals(Convert.ToHexStringLower(SHA256.HashData(content)), sha256, StringComparison.Ordinal))
+            throw new ArgumentException("attachment-upload-usage: target, revision, filename, content and SHA-256 must form a bounded captured intent.");
+
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        var metadata = JsonSerializer.Serialize(new AttachmentRemoteWriteEvidence(intentDigest, workItemId,
+            expectedRevision, fileName, contentType, content.LongLength, sha256, null, null),
+            TwigJsonContext.Default.AttachmentRemoteWriteEvidence);
+        var uploadUrl = $"{_orgUrl}/_apis/wit/attachments?fileName={Uri.EscapeDataString(fileName)}&api-version={AdoApiVersions.WorkItemAttachments}";
+        using var uploadContent = new ByteArrayContent(content);
+        uploadContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        HttpResponseMessage uploadResponse;
+        try
+        {
+            uploadResponse = await SendAsync(HttpMethod.Post, uploadUrl, uploadContent, null, ct,
+                effectKind: "attachment-upload", remoteWritePayload: metadata).ConfigureAwait(false);
+        }
+        catch (AdoAttachmentRemoteWriteUnknownException ex) when (ex.EffectKind == "attachment-upload")
+        {
+            throw new AdoAttachmentUploadUnknownException(ex);
+        }
+        catch (AdoAttachmentRemoteWriteNotDispatchedException ex) when (ex.EffectKind == "attachment-upload")
+        {
+            throw new OperationCanceledException("Attachment upload was canceled before HTTP dispatch.", ex, ct);
+        }
+        using (uploadResponse)
+        {
+            JsonDocument uploadJson;
+            try
+            {
+                await using var uploadStream = await uploadResponse.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                uploadJson = await JsonDocument.ParseAsync(uploadStream, new JsonDocumentOptions { MaxDepth = 16 }, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or OperationCanceledException)
+            {
+                throw new AdoAttachmentUploadUnknownException(ex);
+            }
+
+            using (uploadJson)
+            {
+                if (!uploadJson.RootElement.TryGetProperty("id", out var idElement)
+                    || idElement.ValueKind != JsonValueKind.String
+                    || !Guid.TryParseExact(idElement.GetString(), "D", out var attachmentId)
+                    || attachmentId == Guid.Empty
+                    || !uploadJson.RootElement.TryGetProperty("url", out var urlElement)
+                    || urlElement.ValueKind != JsonValueKind.String
+                    || !ValidUploadedAttachmentUrl(urlElement.GetString(), attachmentId, out var attachmentUrl))
+                    throw new AdoAttachmentUploadUnknownException(
+                        new AdoException("attachment-upload-receipt-invalid: uploaded bytes have no trustworthy attachment identity."));
+
+            var patch = new List<AdoPatchOperation>
+            {
+                AdoResponseMapper.CreateRevisionTest(expectedRevision),
+                new()
+                {
+                    Op = "add",
+                    Path = "/relations/-",
+                    Value = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["rel"] = System.Text.Json.Nodes.JsonValue.Create("AttachedFile"),
+                        ["url"] = System.Text.Json.Nodes.JsonValue.Create(attachmentUrl.AbsoluteUri),
+                        ["attributes"] = new System.Text.Json.Nodes.JsonObject
+                        {
+                            ["name"] = System.Text.Json.Nodes.JsonValue.Create(fileName),
+                            ["resourceSize"] = System.Text.Json.Nodes.JsonValue.Create(content.LongLength),
+                        },
+                    },
+                },
+            };
+            var json = JsonSerializer.Serialize(patch, TwigJsonContext.Default.ListAdoPatchOperation);
+            using var patchContent = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
+            var workItemUrl = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workitems/{workItemId}?api-version={AdoApiVersions.WorkItems}";
+            try
+            {
+                using var patchResponse = await SendAsync(HttpMethod.Patch, workItemUrl, patchContent,
+                    expectedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture), ct,
+                    effectKind: "attachment-link",
+                    remoteWriteEvidence: JsonSerializer.Serialize(new AttachmentRemoteWriteEvidence(intentDigest,
+                        workItemId, expectedRevision, fileName, contentType, content.LongLength, sha256,
+                        attachmentId.ToString("D"), attachmentUrl.AbsoluteUri), TwigJsonContext.Default.AttachmentRemoteWriteEvidence))
+                    .ConfigureAwait(false);
+                var dto = await DeserializeWorkItemAsync(patchResponse, ct).ConfigureAwait(false);
+                if (dto.Id != workItemId || dto.Rev <= expectedRevision
+                    || dto.Relations?.Any(relation => relation.Rel == "AttachedFile"
+                        && string.Equals(relation.Url, attachmentUrl.AbsoluteUri, StringComparison.OrdinalIgnoreCase)) != true)
+                    throw new AdoException("attachment-link-receipt-invalid: attachment link outcome is unknown. Do not retry.");
+                return new(workItemId, dto.Rev, attachmentId, fileName, content.LongLength);
+            }
+            catch (Exception ex)
+            {
+                var definitivelyRejected = ex is AdoBadRequestException or AdoAuthenticationException
+                    or AdoNotFoundException or AdoConflictException or AdoRateLimitException
+                    or AdoDuplicateRelationException or AdoAttachmentRemoteWriteNotDispatchedException;
+                throw new AdoAttachmentUploadPartialException(attachmentId, !definitivelyRejected, ex);
+            }
+            }
+        }
+    }
+
+    private bool ValidUploadedAttachmentUrl(string? value, Guid expectedId, out Uri attachmentUrl)
+    {
+        attachmentUrl = null!;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || !Uri.TryCreate(_orgUrl, UriKind.Absolute, out var organization)
+            || uri.Scheme != organization.Scheme || uri.Host != organization.Host || uri.Port != organization.Port
+            || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 || uri.Query.Length != 0)
+            return false;
+        var prefix = organization.AbsolutePath.TrimEnd('/') + "/_apis/wit/attachments/";
+        var suffix = uri.AbsolutePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? uri.AbsolutePath[prefix.Length..] : string.Empty;
+        if (!Guid.TryParseExact(suffix, "D", out var actualId) || actualId != expectedId) return false;
+        attachmentUrl = uri;
+        return true;
     }
 
     public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default)
@@ -1031,11 +1154,18 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         bool allowAuthRetry = true,
         string? effectKind = null,
         SeedPublishCorrelation? seedCorrelation = null,
-        int? maximumResponseBytes = null)
+        int? maximumResponseBytes = null,
+        string? remoteWritePayload = null,
+        string? remoteWriteEvidence = null)
     {
         try
         {
-            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation, maximumResponseBytes);
+            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation,
+                maximumResponseBytes, remoteWritePayload, remoteWriteEvidence);
+        }
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested && IsAttachmentWrite(effectKind))
+        {
+            throw new AdoAttachmentRemoteWriteNotDispatchedException(effectKind!, ex);
         }
         catch (Exception ex) when (allowAuthRetry && AdoErrorHandler.IsAuthChallenge(ex)
             && (effectKind is null || Twig.Infrastructure.Auth.ConnectionOperationAdmission.CanRenewAfterWriteRejection(ex)))
@@ -1045,7 +1175,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
             // disposes the content, so it can't be re-sent on writes. The invalidation
             // ensures the next call will use a fresh token.
             if (content is not null) throw;
-            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation, maximumResponseBytes);
+            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation,
+                maximumResponseBytes, remoteWritePayload, remoteWriteEvidence);
         }
     }
 
@@ -1057,7 +1188,9 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         CancellationToken ct,
         string? effectKind,
         SeedPublishCorrelation? seedCorrelation,
-        int? maximumResponseBytes)
+        int? maximumResponseBytes,
+        string? remoteWritePayload,
+        string? remoteWriteEvidence)
     {
 
         using var request = new HttpRequestMessage(method, url);
@@ -1079,7 +1212,15 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
             ? await _throttle.AcquireAsync(budget, ct)
             : null;
         var writeAdmission = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.BeginRemoteWriteAsync(
-            _authProvider, request, effectKind, ct, seedCorrelation).ConfigureAwait(false);
+            _authProvider, request, effectKind, ct, seedCorrelation, remoteWritePayload, remoteWriteEvidence).ConfigureAwait(false);
+        if (ct.IsCancellationRequested)
+        {
+            await Twig.Infrastructure.Auth.ConnectionOperationAdmission.RecordRemoteWriteNotDispatchedAsync(writeAdmission)
+                .ConfigureAwait(false);
+            if (IsAttachmentWrite(effectKind))
+                throw new AdoAttachmentRemoteWriteNotDispatchedException(effectKind!, new OperationCanceledException(ct));
+            ct.ThrowIfCancellationRequested();
+        }
 
         HttpResponseMessage response;
         try
@@ -1089,11 +1230,19 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         }
         catch (HttpRequestException ex)
         {
+            if (IsAttachmentWrite(effectKind))
+                throw new AdoAttachmentRemoteWriteUnknownException(effectKind!, ex);
             throw new AdoOfflineException(ex);
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
+            if (IsAttachmentWrite(effectKind))
+                throw new AdoAttachmentRemoteWriteUnknownException(effectKind!, ex);
             throw new AdoOfflineException(ex);
+        }
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested && IsAttachmentWrite(effectKind))
+        {
+            throw new AdoAttachmentRemoteWriteUnknownException(effectKind!, ex);
         }
 
 
@@ -1140,6 +1289,19 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
             _throttle?.SetPause(budget, ex.RetryAfter);
             throw;
         }
+        catch (AdoException ex) when (IsAttachmentWrite(effectKind)
+            && ex is not (AdoBadRequestException or AdoAuthenticationException or AdoNotFoundException
+                or AdoConflictException or AdoRateLimitException or AdoDuplicateRelationException))
+        {
+            response.Dispose();
+            throw new AdoAttachmentRemoteWriteUnknownException(effectKind!, ex);
+        }
+        catch (Exception ex) when (IsAttachmentWrite(effectKind)
+            && (ex is IOException or HttpRequestException or OperationCanceledException or InvalidOperationException))
+        {
+            response.Dispose();
+            throw new AdoAttachmentRemoteWriteUnknownException(effectKind!, ex);
+        }
         catch
         {
             response.Dispose();
@@ -1148,6 +1310,9 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
         return response;
     }
+
+    private static bool IsAttachmentWrite(string? effectKind) =>
+        effectKind is "attachment-upload" or "attachment-link";
 
     private static async Task<AdoWorkItemResponse> DeserializeWorkItemAsync(HttpResponseMessage response, CancellationToken ct)
     {

@@ -51,12 +51,23 @@ public sealed record SeedPublishCorrelation(StagedIdentity Identity, DateTimeOff
     internal static bool HasDescriptionMarkerContent(string? description) =>
         CountReservedMarkers(description) != 0;
 
+    internal static string? GetDescriptionPublishError(string? description)
+    {
+        if (HasDescriptionMarkerContent(description))
+            return "Seed Description contains reserved Twig publish origin content.";
+        if (!string.IsNullOrEmpty(description)
+            && !TryFindDescriptionMarker(description, out _, out _, out _, requireMarker: false))
+            return "Seed Description HTML is malformed or unsupported. Close all HTML tags and escape literal angle brackets as &lt; and &gt; (for example, &lt;guid&gt;).";
+        return null;
+    }
+
     private static bool TryFindDescriptionMarker(
-        string? description, out StagedIdentity identity, out int start, out int length)
+        string? description, out StagedIdentity identity, out int start, out int length,
+        bool requireMarker = true)
     {
         identity = default;
         start = length = 0;
-        if (string.IsNullOrEmpty(description) || CountReservedMarkers(description) != 1)
+        if (string.IsNullOrEmpty(description) || (requireMarker && CountReservedMarkers(description) != 1))
             return false;
 
         var ancestors = new List<(string Name, bool SupportsMarker)>();
@@ -127,7 +138,7 @@ public sealed record SeedPublishCorrelation(StagedIdentity Identity, DateTimeOff
             position = end;
         }
 
-        return found && ancestors.Count == 0;
+        return (!requireMarker || found) && ancestors.Count == 0;
     }
 
     private static bool TryReadTag(

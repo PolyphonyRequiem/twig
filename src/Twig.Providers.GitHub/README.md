@@ -67,8 +67,9 @@ refuse. These are multi-request observations, not a remote snapshot transaction.
 Native parent/sub-issue and blocking/dependency relationships are read and written
 only with their actual introspected schema shapes. Each mutation still checks its
 specific native mutation's presence; permission failures never switch transport.
-If the whole native semantic pair is absent, that kind is explicitly local.
-Partially present native pairs refuse rather than manufacture absence. Related is
+Only when the whole native read pair **and** its mutation family are absent is
+that kind explicitly local. Partially present native shapes, including mutations
+without a matching read pair, refuse rather than manufacture absence. Related is
 explicitly local because this adapter has no native Related transport. Local
 effects use digested Local provenance and exact edge/tombstone CAS; native effects
 use Provider provenance. Reads persist refreshed mirrors through `IStore` while

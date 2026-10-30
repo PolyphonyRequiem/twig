@@ -262,6 +262,23 @@ public sealed class GitHubProviderTests
     }
 
     [Theory]
+    [InlineData(Provider.Hierarchy)]
+    [InlineData(Provider.Dependency)]
+    public async Task NativeMutationWithoutReadShapeIsNotProofOfLocallyAbsentSemantics(string kind)
+    {
+        using var f = await Fixture.Create();
+        f.Http.Native = false;
+        f.Http.MutationOnlyRelation = kind;
+        f.Http.Native.ShouldBeFalse();
+        f.Http.MutationOnlyRelation.ShouldBe(kind);
+        var result = await f.Provider.DiscoverSchemaAsync(f.Connection, default);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unsupported);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Relationships.ShouldBeEmpty();
+    }
+
+    [Theory]
     [InlineData(Provider.Related, true)]
     [InlineData(Provider.Hierarchy, false)]
     [InlineData(Provider.Dependency, false)]
@@ -618,7 +635,7 @@ public sealed class GitHubProviderTests
     {
         internal string Owner = "O1", RepositoryId = "R1", Actor = "A1";
         internal bool Native = true, ForeignResource;
-        internal string? Defect, WriteFailure, LastPayload;
+        internal string? Defect, WriteFailure, LastPayload, MutationOnlyRelation;
         internal int Writes, WriteStatus = 200;
         internal Dictionary<string, JsonObject> Issues { get; } = new()
         {
@@ -683,13 +700,16 @@ public sealed class GitHubProviderTests
                 if (Native) fields.AddRange(["parent", "subIssues", "blockedBy", "blocking"]);
                 if (Defect == "partial-relations") fields.Remove("subIssues");
                 var inputs = new[] { "id", "title", "body", "state", "labelIds", "assigneeIds", "milestoneId" };
+                var mutations = new List<string> { "createIssue", "updateIssue", "addComment" };
+                if (Native || MutationOnlyRelation == Provider.Hierarchy) mutations.AddRange(["addSubIssue", "removeSubIssue"]);
+                if (Native || MutationOnlyRelation == Provider.Dependency) mutations.AddRange(["addBlockedBy", "removeBlockedBy"]);
                 data = new()
                 {
                     ["issue"] = new JsonObject { ["fields"] = Names(fields) },
                     ["issueType"] = new JsonObject { ["fields"] = Names(["id", "name", "isEnabled"]) },
                     ["repository"] = new JsonObject { ["fields"] = Names(["issues", "issueTypes"]) },
                     ["states"] = new JsonObject { ["enumValues"] = Names(Defect == "unknown-state" ? ["OPEN", "UNKNOWN"] : ["OPEN", "CLOSED"]) },
-                    ["mutations"] = new JsonObject { ["fields"] = Names(["createIssue", "updateIssue", "addComment", "addSubIssue", "removeSubIssue", "addBlockedBy", "removeBlockedBy"]) },
+                    ["mutations"] = new JsonObject { ["fields"] = Names(mutations) },
                     ["update"] = new JsonObject { ["inputFields"] = Names(Defect == "unknown-input" ? inputs.Where(i => i != "milestoneId") : inputs) },
                     ["create"] = new JsonObject { ["inputFields"] = Names(["repositoryId", "title", "body", "issueTypeId", "labelIds", "assigneeIds", "milestoneId"]) },
                 };

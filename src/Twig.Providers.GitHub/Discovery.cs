@@ -69,7 +69,9 @@ public sealed partial class GitHubProvider
             gaps.Add("Unsupported/incomplete native Issue protocol fields or state semantics.");
         var native = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
         if (fields.Contains("parent") != fields.Contains("subIssues")
-            || fields.Contains("blockedBy") != fields.Contains("blocking"))
+            || fields.Contains("blockedBy") != fields.Contains("blocking")
+            || !fields.Contains("parent") && (mutations.Contains("addSubIssue") || mutations.Contains("removeSubIssue"))
+            || !fields.Contains("blockedBy") && (mutations.Contains("addBlockedBy") || mutations.Contains("removeBlockedBy")))
             throw Wire.Refuse(ErrorCode.Unsupported, "Partial native relation schema cannot be replaced with a local fallback.");
         if (fields.Contains("parent") && fields.Contains("subIssues")) native.Add(Hierarchy);
         if (fields.Contains("blockedBy") && fields.Contains("blocking")) native.Add(Dependency);

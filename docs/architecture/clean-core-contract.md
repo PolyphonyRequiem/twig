@@ -1,6 +1,6 @@
 # Clean core contract
 
-Phases 1 and 2 of **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
+Phases 1-3 of **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
 
 ## Status and scope
 
@@ -8,6 +8,8 @@ Phases 1 and 2 of **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
 solution. Nothing in the CLI, TUI, Browser, Domain, Infrastructure or production dependency
 injection uses it yet. Phase 2 adds `Twig.Store.Sqlite` as an isolated persistence adapter,
 not a provider/command cutover, compatibility layer, or claim that the old domain is removed.
+Phase 3 adds the standalone `Twig.Providers.Ado` adapter and durable one-effect execution
+over `IStore`; live command/native authentication wiring remains unchanged.
 
 Feature publication remains operationally unresolved: the reviewed six-phase proposal's
 first creation has an indeterminate outcome without an acknowledged native Feature ID.
@@ -302,6 +304,15 @@ existing application composition remains unchanged.
 
 Phase 2 implements SQLite and qualifies actual local rollback/concurrency, source-generated
 roundtrips, receipt/mapping atomicity and durable uncertain-create fences with real SQLite.
-Phase 3 implements ADO; phase 4 GitHub; phase 5 retained commands; phase 6 legacy deletion.
-Provider dispatch/recovery and production command composition must be qualified in those
-later phases, not claimed by store or pure model tests.
+Phase 3 implements ADO discovery, bounded exact queries, item/relationship reads and
+revision-tested Create/Batch/Relate/Unrelate/history-comment effects. Applying acquisition,
+acknowledgement/mapping/mirror commits and separate readback use the accepted store CAS.
+Unknown outcomes fence their original targets, including replacement digests; recovery
+continues only durable acknowledgement readback and never searches titles or replays.
+Delete, unsupported native rule semantics and oversize query acquisition are explicit
+capability limits, not success stubs. The mandatory leased auth/native admission seam has
+no permissive default; a live-native bridge is deferred to command cutover, not claimed
+by the HTTP/auth-only boundary tests. See [ADO lifecycle, supported shapes and verification](../../src/Twig.Providers.Ado/README.md).
+
+Phase 4 implements GitHub; phase 5 retained commands; phase 6 legacy deletion.
+Production command composition must be qualified in phase 5, not claimed by these additive adapters.

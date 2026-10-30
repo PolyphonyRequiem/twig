@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Shouldly" />
+    <ProjectReference Include="..\..\src\Twig.Providers.Ado\Twig.Providers.Ado.csproj" />
+    <ProjectReference Include="..\..\src\Twig.Store.Sqlite\Twig.Store.Sqlite.csproj" />
+  </ItemGroup>
+</Project>

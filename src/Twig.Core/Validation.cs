@@ -305,7 +305,7 @@ public static partial class Core
         {
             var current = next.Journal.FirstOrDefault(j => j.Digest == prior.Digest && j.Operation == prior.Operation);
             if (current is null || current.Receipts.Length < prior.Receipts.Length
-                || !current.Receipts.Take(prior.Receipts.Length).SequenceEqual(prior.Receipts)
+                || !current.Receipts.Take(prior.Receipts.Length).Zip(prior.Receipts, SameReceipt).All(same => same)
                 || prior.Attempt != Guid.Empty && current.Attempt != prior.Attempt
                 || prior.Status != current.Status && (prior.Status switch
                 {
@@ -357,4 +357,12 @@ public static partial class Core
             errors.Add(new(ErrorCode.Conflict, "A durable creation UUID cannot begin another attempt under a replacement digest."));
         return errors.ToImmutable();
     }
+
+    private static bool SameReceipt(Receipt left, Receipt right)
+        => left.Digest == right.Digest && left.Operation == right.Operation && left.Attempt == right.Attempt
+            && left.Status == right.Status && left.Revision == right.Revision && left.PublishedKey == right.PublishedKey
+            && left.Evidence.SequenceEqual(right.Evidence, StringComparer.Ordinal)
+            && (left.Error is null ? right.Error is null
+                : right.Error is not null && left.Error.Code == right.Error.Code && left.Error.Message == right.Error.Message
+                    && left.Error.Evidence.SequenceEqual(right.Error.Evidence, StringComparer.Ordinal));
 }

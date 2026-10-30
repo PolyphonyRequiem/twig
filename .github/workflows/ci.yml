@@ -40,6 +40,17 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore
 
+      - name: Additive clean-core invariant regression
+        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Core.Tests/Twig.Core.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Core.Tests" --logger "trx;LogFileName=core.trx" --results-directory artifacts/test-logs/ci/core
+
+      - name: Preserve clean-core invariant results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-core-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/core/
+          if-no-files-found: warn
+
       - name: Virtual seed-link export, review and publication verification regression
         shell: python
         run: |

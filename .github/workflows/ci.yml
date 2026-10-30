@@ -73,6 +73,17 @@ jobs:
           path: artifacts/test-logs/ci/core-ado/
           if-no-files-found: warn
 
+      - name: Clean-core GitHub adapter HTTP and real SQLite boundary regression
+        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Providers.GitHub.Tests/Twig.Providers.GitHub.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.GitHub.Tests" --logger "trx;LogFileName=github.trx" --results-directory artifacts/test-logs/ci/core-github
+
+      - name: Preserve clean-core GitHub adapter results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-core-github-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/core-github/
+          if-no-files-found: warn
+
       - name: Virtual seed-link export, review and publication verification regression
         shell: python
         run: |

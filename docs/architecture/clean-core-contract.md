@@ -1,6 +1,6 @@
 # Clean core contract
 
-Phases 1-3 of **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
+Phases 1-4 of **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
 
 ## Status and scope
 
@@ -10,6 +10,25 @@ injection uses it yet. Phase 2 adds `Twig.Store.Sqlite` as an isolated persisten
 not a provider/command cutover, compatibility layer, or claim that the old domain is removed.
 Phase 3 adds the standalone `Twig.Providers.Ado` adapter and durable one-effect execution
 over `IStore`; live command/native authentication wiring remains unchanged.
+Phase 4 adds standalone `Twig.Providers.GitHub`, referencing only Core and using
+the same durable store contract. It does not rewire commands or remove legacy code.
+See its [authority, capabilities and practical limits](../../src/Twig.Providers.GitHub/README.md).
+
+GitHub binds immutable API origin, owner/repository IDs and selected native actor,
+never mutable repository locators. It implements bounded exact-AST reads, dynamic
+API schema/type acquisition, native hierarchy/dependency effects and explicit local
+missing-semantics/Related enrichment with durable provenance/tombstones. Runtime
+denial never changes native transport to local. Opaque observations and explicitly
+non-atomic requests never become exact revisions or atomic field batches.
+
+GitHub process/workflow rule discovery remains explicitly Unsupported, distinct from
+separately governed local policy. The mandatory host seam must supply complete,
+configured, connection/actor/projection-bound rule evidence with policy identity and
+revision, or discovery retains gaps and Core refuses writes. This is not an empty
+external ruleset, model-declared completeness, or a claim that arbitrary GitHub
+workflows can be discovered. No production leased admission bridge/evidence source
+is implemented here. Live wiring and any resulting unsupported workflows remain a
+phase-5 checkpoint, not a permissive fallback.
 
 Feature publication remains operationally unresolved: the reviewed six-phase proposal's
 first creation has an indeterminate outcome without an acknowledged native Feature ID.

@@ -512,6 +512,14 @@ never builds or runs test hosts. Use narrowly scoped regression checks for the
 proposed changeset when needed. Routine CI and pre-push use this smoke; complete
 platform validation runs on release candidates before signing or publication.
 
+The additive clean-core libraries include isolated ADO and
+[GitHub provider adapters](src/Twig.Providers.GitHub/README.md), built with the
+supported solution and covered by deterministic HTTP/auth plus real-SQLite
+regressions on Linux and Windows. They do not switch production commands or
+legacy databases. The GitHub adapter has no production leased write-admission
+bridge/governed rule-evidence source yet; its native process-rule discovery is
+explicitly unsupported, not an empty-rule permission grant.
+
 For a smoke deadline investigation, add `--trace <new-file.jsonl>` to preserve flushed
 worker/child boundaries outside captured output. Trace rows contain only fixed phase/event
 labels, process-relative elapsed seconds and exit codes, never command arguments, environment

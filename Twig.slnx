@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Twig.Core/Twig.Core.csproj" />
     <Project Path="src/Twig.Providers.Ado/Twig.Providers.Ado.csproj" />
+    <Project Path="src/Twig.Providers.GitHub/Twig.Providers.GitHub.csproj" />
     <Project Path="src/Twig.Store.Sqlite/Twig.Store.Sqlite.csproj" />
     <Project Path="src/Twig.RenderTree/Twig.RenderTree.csproj" />
     <Project Path="src/Twig.Domain/Twig.Domain.csproj" />
@@ -15,6 +16,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Twig.Core.Tests/Twig.Core.Tests.csproj" />
     <Project Path="tests/Twig.Providers.Ado.Tests/Twig.Providers.Ado.Tests.csproj" />
+    <Project Path="tests/Twig.Providers.GitHub.Tests/Twig.Providers.GitHub.Tests.csproj" />
     <Project Path="tests/Twig.Store.Sqlite.Tests/Twig.Store.Sqlite.Tests.csproj" />
     <Project Path="tests/Twig.TestKit/Twig.TestKit.csproj" />
     <Project Path="tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj" />

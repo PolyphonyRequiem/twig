@@ -73,6 +73,77 @@ public sealed class ConnectionBindingReadTests : IAsyncLifetime
         return Task.CompletedTask;
     }
 
+    [Theory]
+    [InlineData("json")]
+    [InlineData("human")]
+    [InlineData("minimal")]
+    public async Task StatusWithMissingLayoutReportsLocalRecoveryWithoutRebinding(string format)
+    {
+        await _bindings.CreateBindingAsync("fixture", "Corporate", "corporate", makeDefault: true);
+        (await _bindings.ResolveAsync(_config, _paths)).Identity.IdentityId.ShouldBe(_identity.IdentityId);
+        var marker = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.LayoutFileName);
+        File.Exists(marker).ShouldBeTrue();
+        File.Delete(marker);
+        Directory.Exists(_paths.TwigDir).ShouldBeTrue();
+        var attachmentPath = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
+        var originalAttachment = await File.ReadAllTextAsync(attachmentPath);
+        using var transport = new IdentityAwareAdoTransport(CorporatePrincipal);
+        using var services = CreateServices(transport);
+        var originalError = Console.Error;
+        using var error = new StringWriter();
+        int exit;
+        try
+        {
+            Console.SetError(error);
+            exit = await new TwigCommands(services).ConnectionStatus(format);
+        }
+        finally { Console.SetError(originalError); }
+
+        exit.ShouldBe(1);
+        var text = error.ToString();
+        var message = text;
+        if (format == "json")
+        {
+            using var document = JsonDocument.Parse(text);
+            message = document.RootElement.GetProperty("error").GetString().ShouldNotBeNull();
+        }
+        message.ShouldContain("Local Twig workspace");
+        message.ShouldContain(_paths.TwigDir);
+        message.ShouldContain("layout-marker-missing");
+        message.ShouldContain("--reinitialize");
+        message.ShouldNotContain("auth login");
+        message.ShouldNotContain("connection bind");
+        message.ShouldNotContain("No active connection binding");
+        File.Exists(marker).ShouldBeFalse();
+        (await File.ReadAllTextAsync(attachmentPath)).ShouldBe(originalAttachment);
+        transport.WorkRequests.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task StatusWithMissingBindingKeepsGuidanceInOneJsonError()
+    {
+        File.Exists(Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeTrue();
+        using var transport = new IdentityAwareAdoTransport(CorporatePrincipal);
+        using var services = CreateServices(transport);
+        var originalError = Console.Error;
+        using var error = new StringWriter();
+        int exit;
+        try
+        {
+            Console.SetError(error);
+            exit = await new TwigCommands(services).ConnectionStatus("json");
+        }
+        finally { Console.SetError(originalError); }
+
+        exit.ShouldBe(1);
+        using var document = JsonDocument.Parse(error.ToString());
+        var message = document.RootElement.GetProperty("error").GetString().ShouldNotBeNull();
+        message.ShouldContain("No explicit default binding");
+        message.ShouldContain("connection bind");
+        message.ShouldNotContain("--reinitialize");
+        transport.WorkRequests.ShouldBe(0);
+    }
+
     [Fact]
     public async Task RefreshedCliReadUsesTheSelectedPrincipalAndReturnsItsPrivateItem()
     {

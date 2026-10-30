@@ -170,6 +170,9 @@ jobs:
       - name: AAD canonical account and same-principal renewal regression
         run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~AadAccountClaimTests|FullyQualifiedName~IdTokenDecoderTests|FullyQualifiedName~JwtAccessTokenInspectorTests|FullyQualifiedName~DeviceCodeFlowTests|FullyQualifiedName~LoopbackPkceFlowTests" --logger "trx;LogFileName=aad-account.trx" --results-directory artifacts/test-logs/ci/aad-account
 
+      - name: Local layout and binding status diagnostics
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ConnectionBindingReadTests.StatusWithMissing|FullyQualifiedName~ConnectionBindingReadTests.StatusAttributesEffectiveIcons" --logger "trx;LogFileName=connection-status.trx" --results-directory artifacts/test-logs/ci/aad-account
+
       - name: Preserve AAD canonical account results
         if: always()
         uses: actions/upload-artifact@v4

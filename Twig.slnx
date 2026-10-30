@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Twig.Core/Twig.Core.csproj" />
+    <Project Path="src/Twig.Store.Sqlite/Twig.Store.Sqlite.csproj" />
     <Project Path="src/Twig.RenderTree/Twig.RenderTree.csproj" />
     <Project Path="src/Twig.Domain/Twig.Domain.csproj" />
     <Project Path="src/Twig.Infrastructure/Twig.Infrastructure.csproj" />
@@ -12,6 +13,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Twig.Core.Tests/Twig.Core.Tests.csproj" />
+    <Project Path="tests/Twig.Store.Sqlite.Tests/Twig.Store.Sqlite.Tests.csproj" />
     <Project Path="tests/Twig.TestKit/Twig.TestKit.csproj" />
     <Project Path="tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj" />
     <Project Path="tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj" />

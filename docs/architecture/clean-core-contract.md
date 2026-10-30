@@ -1,13 +1,13 @@
 # Clean core contract
 
-Phase 1 of **Epic #1220, Core domain consolidation**. Updated 2026-10-29.
+Phases 1 and 2 of **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
 
 ## Status and scope
 
 `Twig.Core` is an additive, standalone model and pure-function library in the supported
 solution. Nothing in the CLI, TUI, Browser, Domain, Infrastructure or production dependency
-injection uses it yet. This is not a provider cutover, persistence implementation, compatibility
-layer, or claim that the old domain has been removed.
+injection uses it yet. Phase 2 adds `Twig.Store.Sqlite` as an isolated persistence adapter,
+not a provider/command cutover, compatibility layer, or claim that the old domain is removed.
 
 Feature publication remains operationally unresolved: the reviewed six-phase proposal's
 first creation has an indeterminate outcome without an acknowledged native Feature ID.
@@ -241,8 +241,25 @@ refresh can replace provider observations but cannot delete local overlays, draf
 definitions, proposals, mappings or journal evidence. Explicit draft/Bench editing remains
 a separate deliberate local operation, not a side effect of selecting or refreshing a view.
 
-The fresh database/fresh-schema permission applies to phase 2; phase 1 creates or deletes
-no SQLite files and migrates nothing.
+Phase 2 implements this boundary in `Twig.Store.Sqlite`, referencing only Core and the
+central SQLite dependencies. An exact connection binding keys one source-generated,
+versioned snapshot document. An IMMEDIATE transaction checks CAS and commit invariants
+before atomically replacing that document. Read transactions return coherent observations;
+WAL with FULL synchronous writes supplies local durability, not HTTP atomicity. Whole
+snapshot serialization is intentional for the first adapter; SQL row deltas/indexed queries
+are deferred until scale warrants them.
+
+Initialization requires a new explicit absolute file path in an existing directory and
+reserves it without overwriting existing files. Opening requires the clean-core application
+ID, schema version 1 and WAL. Foreign/legacy, missing and incompatible files fail explicitly;
+there is no migration, reset, auto-discovered workspace path or CLI integration. Failed new
+files remain for inspection. See [the adapter lifecycle and verification guide](../../src/Twig.Store.Sqlite/README.md).
+
+Persistence reconstructs journal rows through legal transitions and verifies retained proposal
+digests. Unknown/duplicate/missing required DTO members, unknown formats and malformed payloads
+are refused. The only phase-2 Core adjustment compares retained receipt/error evidence by
+ordinal contents rather than immutable-array backing identity, allowing unchanged rehydrated
+history while still refusing evidence rewriting. Phase 1 itself created/deleted no databases.
 
 ## Bench and policy
 
@@ -277,13 +294,14 @@ limits, real three-way intent, journal transition/creation fences, atomic store 
 validation, Bench and evidence-backed policy. There are no fake provider/store adapters
 masquerading as production integration coverage.
 
-Routine gates remain the supported bounded solution build, focused Core tests through
+Routine gates remain the supported bounded solution build, focused Core and real-SQLite tests through
 the repository TRX reconciler, and the 15-second offline pre-push smoke. Core tests run in
-both supported CI platform jobs. This phase makes no native publish or release-candidate
+both supported CI platform jobs, as do the phase-2 store tests. These phases make no native publish or release-candidate
 qualification claim; AOT compatibility is enforced by shared-library analyzers and the
 existing application composition remains unchanged.
 
-Phase 2 implements SQLite; phase 3 ADO; phase 4 GitHub; phase 5 retained commands;
-phase 6 legacy deletion. Provider dispatch/recovery, actual store rollback/concurrency,
-source-generated persistence round trips and production command composition must be
-qualified in their owning phases, not claimed by pure model tests.
+Phase 2 implements SQLite and qualifies actual local rollback/concurrency, source-generated
+roundtrips, receipt/mapping atomicity and durable uncertain-create fences with real SQLite.
+Phase 3 implements ADO; phase 4 GitHub; phase 5 retained commands; phase 6 legacy deletion.
+Provider dispatch/recovery and production command composition must be qualified in those
+later phases, not claimed by store or pure model tests.

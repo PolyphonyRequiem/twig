@@ -51,6 +51,17 @@ jobs:
           path: artifacts/test-logs/ci/core/
           if-no-files-found: warn
 
+      - name: Clean-core real SQLite boundary regression
+        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Store.Sqlite.Tests/Twig.Store.Sqlite.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Store.Sqlite.Tests" --logger "trx;LogFileName=store.trx" --results-directory artifacts/test-logs/ci/core-store
+
+      - name: Preserve clean-core SQLite results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-core-store-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/core-store/
+          if-no-files-found: warn
+
       - name: Virtual seed-link export, review and publication verification regression
         shell: python
         run: |

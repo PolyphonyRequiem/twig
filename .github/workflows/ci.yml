@@ -62,6 +62,17 @@ jobs:
           path: artifacts/test-logs/ci/core-store/
           if-no-files-found: warn
 
+      - name: Clean-core ADO adapter HTTP and real SQLite boundary regression
+        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Providers.Ado.Tests/Twig.Providers.Ado.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.Ado.Tests" --logger "trx;LogFileName=ado.trx" --results-directory artifacts/test-logs/ci/core-ado
+
+      - name: Preserve clean-core ADO adapter results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-core-ado-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/core-ado/
+          if-no-files-found: warn
+
       - name: Virtual seed-link export, review and publication verification regression
         shell: python
         run: |

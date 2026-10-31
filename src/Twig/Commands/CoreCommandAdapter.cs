@@ -267,6 +267,41 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
+    internal async Task<int> SeedDiscardAsync(int id, bool yes, string output, CancellationToken ct)
+    {
+        if (id >= 0) return Error(output, "Seed discard requires an explicit negative seed ID.", 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var matches = KnownLocalKeys(snapshot.Value).Where(key => LocalAlias(key) == id).ToArray();
+        if (matches.Length != 1) return Error(output, "The seed alias is absent or ambiguous; nothing was discarded.");
+        var draft = snapshot.Value.Drafts.FirstOrDefault(draft => draft.Key == matches[0]);
+        if (draft is null) return Error(output, "The explicit seed no longer has an unpublished draft.");
+        if (!yes)
+        {
+            if (output != "human" || consoleInput.IsOutputRedirected)
+                return Error(output, "Seed discard requires --yes when interactive confirmation is unavailable.", 2);
+            Console.Write($"Discard local seed {id}? [y/N] ");
+            if (!string.Equals(consoleInput.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
+            {
+                renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text("Seed discard cancelled.")]));
+                return 0;
+            }
+        }
+        var discarded = await workspace.DiscardSeedAsync(draft, snapshot.Value.Version, ct);
+        if (!discarded.IsSuccess) return Error(output, discarded.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedDiscarded",
+            new Dictionary<string, RenderCell>
+            {
+                ["id"] = RenderCell.Integer(id), ["localId"] = RenderCell.String(draft.Key.LocalId.ToString("D")),
+                ["message"] = RenderCell.String("Discarded the unattempted local draft; journals and identity evidence were preserved."),
+            })]));
+        return 0;
+    }
+
     private static IEnumerable<ItemKey> KnownLocalKeys(StoreSnapshot snapshot)
         => snapshot.Drafts.Select(draft => draft.Key).Concat(snapshot.Mappings.Select(mapping => mapping.Local))
             .Concat(snapshot.Proposals.SelectMany(proposal => proposal.Operations)

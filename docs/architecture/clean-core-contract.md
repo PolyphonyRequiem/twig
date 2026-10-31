@@ -90,7 +90,10 @@ cache-only; negative alias detail continues to resolve after publication. This i
 host compatibility strategy for new explicit stores, not a migration of old aliases.
 Parented/linked creation, chains and branch-artifact creation still require typed
 creation-bound effects; the current rooted path refuses those shapes before publishing,
-never omits their links. Seed editor/edit/discard/reconciliation, active context and
+never omits their links. Explicit seed discard now checks the exact draft/store
+capture and refuses any attempted UUID or permanent mapping, even with `--yes`;
+unattempted abandonment preserves journals and local relationship tombstones.
+Seed editor/edit/reconciliation, active context and
 complete lifecycle/UI retention remain unfinished. These gaps prevent phase-5 delivery.
 
 The retained artifact-link path now has a typed `LinkResource` effect and

@@ -320,6 +320,30 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<int>.Ok(keys.Count) : Result<int>.Fail(committed.Error);
     }
+
+    internal async Task<Result<bool>> DiscardSeedAsync(Draft capture, long expectedVersion, CancellationToken ct)
+    {
+        if (!capture.Key.IsLocal)
+            return Result<bool>.Fail(ErrorCode.InvalidInput, "Seed discard requires the exact retained local UUID.");
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
+        var snapshot = current.Value;
+        if (snapshot.Version != expectedVersion || !snapshot.Drafts.Any(draft => SameDraft(draft, capture)))
+            return Result<bool>.Fail(ErrorCode.Conflict, "Seed intent changed after confirmation; nothing was discarded.");
+        if (snapshot.Mappings.Any(mapping => mapping.Local == capture.Key)
+            || snapshot.Journal.Any(row => row.Status != OpStatus.Planned
+                && snapshot.Proposals.Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation] is { } op
+                && (op.Item == capture.Key || op.Other == capture.Key)))
+            return Result<bool>.Fail(ErrorCode.Indeterminate, "An attempted operation or permanent mapping owns this UUID; preserve its draft and settle native evidence explicitly.");
+        var relationships = snapshot.Relationships.Select(edge => edge.Origin == RelationshipOrigin.Local
+                && !edge.Deleted && (edge.From == capture.Key || edge.To == capture.Key)
+            ? edge with { Deleted = true, LocalVersion = edge.LocalVersion + 1 } : edge);
+        var committed = await store.CommitAsync(connection, snapshot.Version,
+            Copy(snapshot, snapshot.Version + 1, drafts: snapshot.Drafts.Where(draft => draft.Key != capture.Key),
+                relationships: relationships), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
+    }
     internal async Task<Result<CoreExecution>> ApplyAsync(Proposal proposal, string confirmation, CancellationToken ct)
     {
         if (confirmation != proposal.Digest)

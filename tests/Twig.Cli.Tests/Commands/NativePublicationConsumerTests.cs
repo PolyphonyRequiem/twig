@@ -160,6 +160,24 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(unknownAlias, output: "human")).ShouldBe(1);
             _transport.PostCount.ShouldBe(2, "the unresolved UUID must fence replacement proposals, not only the old digest");
+            var requestsBeforeUnknownDiscard = _transport.TotalRequests;
+            (await commands.SeedDiscard(unknownAlias, yes: true, output: "json")).ShouldBe(1);
+            (await store.ReadAsync(connection, default)).Value.Drafts.ShouldHaveSingleItem().Key.ShouldBe(unknownSeed.Key);
+            _transport.TotalRequests.ShouldBe(requestsBeforeUnknownDiscard, "unknown seed abandonment must refuse locally without transport");
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedNew(title: "Unattempted discard", type: "Task", noParent: true, output: "json")).ShouldBe(0);
+            using var disposableSeed = JsonDocument.Parse(stdout.ToString());
+            var discardAlias = disposableSeed.RootElement.GetProperty("id").GetInt32();
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedDiscard(discardAlias, yes: false, output: "json")).ShouldBe(2);
+            (await store.ReadAsync(connection, default)).Value.Drafts.Length.ShouldBe(2);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedDiscard(discardAlias, yes: true, output: "json")).ShouldBe(0);
+            var afterDiscard = (await store.ReadAsync(connection, default)).Value;
+            afterDiscard.Drafts.ShouldHaveSingleItem().Key.ShouldBe(unknownSeed.Key);
+            afterDiscard.Journal.Length.ShouldBe(unknown.Journal.Length);
+            afterDiscard.Mappings.Length.ShouldBe(1);
+            _transport.PostCount.ShouldBe(2);
         }
         finally
         {

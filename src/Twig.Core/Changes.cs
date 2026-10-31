@@ -12,7 +12,7 @@ public sealed record Op
         FieldValues? fields = null, string? type = null, ItemKey? other = null, string? relation = null,
         RelationshipOrigin origin = RelationshipOrigin.Provider, FieldValue? body = null,
         ConcurrencyMode concurrency = ConcurrencyMode.ExactRevision, long? expectedLocalVersion = null,
-        ResourceLink? resource = null)
+        ResourceLink? resource = null, IEnumerable<CreationLink>? links = null)
     {
         Id = Contract.Text(id, nameof(id));
         Kind = kind;
@@ -27,6 +27,7 @@ public sealed record Op
         Concurrency = concurrency;
         ExpectedLocalVersion = expectedLocalVersion;
         Resource = resource;
+        Links = Contract.Copy(links ?? []);
     }
 
     public string Id { get; }
@@ -42,6 +43,7 @@ public sealed record Op
     public ConcurrencyMode Concurrency { get; }
     public long? ExpectedLocalVersion { get; }
     public ResourceLink? Resource { get; }
+    public ImmutableArray<CreationLink> Links { get; }
 }
 
 public sealed record Proposal

@@ -144,26 +144,34 @@ internal sealed record RelationshipData(KeyData FromKey, KeyData ToKey, string K
 }
 
 internal sealed record DraftData(KeyData Key, string Type, ItemData? Baseline, FieldData[] Changes,
-    KeyData? Parent = null, string? ParentRelation = null, ResourceData? Resource = null)
+    KeyData? Parent = null, string? ParentRelation = null, ResourceData? Resource = null, CreationLinkData[]? Links = null)
 {
     internal static DraftData From(Draft d)
         => new(KeyData.From(d.Key), d.Type, d.Baseline is null ? null : ItemData.From(d.Baseline), FieldData.From(d.Changes),
-            d.Parent is null ? null : KeyData.From(d.Parent), d.ParentRelation, d.Resource is null ? null : ResourceData.From(d.Resource));
+            d.Parent is null ? null : KeyData.From(d.Parent), d.ParentRelation, d.Resource is null ? null : ResourceData.From(d.Resource),
+            d.Links.IsEmpty ? null : d.Links.Select(CreationLinkData.From).ToArray());
     internal Draft ToCore() => new(Key.ToCore(), Type, Baseline?.ToCore(), FieldData.ToCore(Changes),
-        Parent?.ToCore(), ParentRelation, Resource?.ToCore());
+        Parent?.ToCore(), ParentRelation, Resource?.ToCore(), Links?.Select(link => link.ToCore()));
+}
+
+internal sealed record CreationLinkData(KeyData Other, string Relation, bool Outgoing)
+{
+    internal static CreationLinkData From(CreationLink link) => new(KeyData.From(link.Other), link.Relation, link.Outgoing);
+    internal CreationLink ToCore() => new(Other.ToCore(), Relation, Outgoing);
 }
 
 internal sealed record OpData(string Id, OpKind Kind, KeyData Item, RevisionData? ExpectedRevision, FieldData[] Fields,
     string? Type, KeyData? Other, string? Relation, RelationshipOrigin Origin, ValueData? Body,
-    ConcurrencyMode Concurrency, long? ExpectedLocalVersion, ResourceData? Resource)
+    ConcurrencyMode Concurrency, long? ExpectedLocalVersion, ResourceData? Resource, CreationLinkData[]? Links = null)
 {
     internal static OpData From(Op o) => new(o.Id, o.Kind, KeyData.From(o.Item), RevisionData.From(o.ExpectedRevision),
         FieldData.From(o.Fields), o.Type, o.Other is null ? null : KeyData.From(o.Other), o.Relation, o.Origin,
         o.Body is null ? null : ValueData.From(o.Body), o.Concurrency, o.ExpectedLocalVersion,
-        o.Resource is null ? null : ResourceData.From(o.Resource));
+        o.Resource is null ? null : ResourceData.From(o.Resource),
+        o.Links.IsEmpty ? null : o.Links.Select(CreationLinkData.From).ToArray());
     internal Op ToCore() => new(Id, Persistence.Defined(Kind), Item.ToCore(), ExpectedRevision?.ToCore(),
         FieldData.ToCore(Fields), Type, Other?.ToCore(), Relation, Persistence.Defined(Origin), Body?.ToCore(),
-        Persistence.Defined(Concurrency), ExpectedLocalVersion, Resource?.ToCore());
+        Persistence.Defined(Concurrency), ExpectedLocalVersion, Resource?.ToCore(), Links?.Select(link => link.ToCore()));
 }
 
 internal sealed record ProposalData(int Version, Connection Connection, string SchemaFingerprint, long ExpectedStoreVersion,

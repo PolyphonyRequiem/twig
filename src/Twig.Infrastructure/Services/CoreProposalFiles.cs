@@ -44,8 +44,10 @@ internal static class CoreProposalFiles
 
     private static Op Operation(JsonElement json)
     {
-        Object(json, "id", "kind", "item", "revision", "type", "fields", "other", "relation",
-            "origin", "concurrency", "localVersion", "body", "resource");
+        string[] members = ["id", "kind", "item", "revision", "type", "fields", "other", "relation",
+            "origin", "concurrency", "localVersion", "body", "resource"];
+        var hasLinks = json.TryGetProperty("links", out var creationLinks);
+        Object(json, hasLinks ? [.. members, "links"] : members);
         var key = Key(json.GetProperty("item"));
         var revision = json.GetProperty("revision");
         Revision? expected = null;
@@ -73,11 +75,23 @@ internal static class CoreProposalFiles
             Array(resource, 4);
             link = new(Text(resource[0]), Text(resource[1]), NullableText(resource[2]), NullableText(resource[3]));
         }
+        var links = new List<CreationLink>();
+        if (hasLinks)
+        {
+            if (creationLinks.ValueKind != JsonValueKind.Array || creationLinks.GetArrayLength() == 0)
+                throw new JsonException("Optional creation links must be a nonempty array.");
+            foreach (var value in creationLinks.EnumerateArray())
+            {
+                Array(value, 3);
+                links.Add(new(Key(value[0]), Text(value[1]), value[2].GetBoolean()));
+            }
+            if (links.Distinct().Count() != links.Count) throw new JsonException("Duplicate creation links.");
+        }
         return new(Text(json.GetProperty("id")), Defined<OpKind>(json.GetProperty("kind")), key, expected,
             new(values), NullableText(json.GetProperty("type")), other.ValueKind == JsonValueKind.Null ? null : Key(other),
             NullableText(json.GetProperty("relation")), Defined<RelationshipOrigin>(json.GetProperty("origin")),
             body.ValueKind == JsonValueKind.Null ? null : Value(body), Defined<ConcurrencyMode>(json.GetProperty("concurrency")),
-            local.ValueKind == JsonValueKind.Null ? null : local.GetInt64(), link);
+            local.ValueKind == JsonValueKind.Null ? null : local.GetInt64(), link, links);
     }
 
     private static ItemKey Key(JsonElement json)

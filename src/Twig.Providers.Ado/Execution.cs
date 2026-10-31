@@ -204,6 +204,8 @@ public sealed partial class AdoProvider
 
     private async Task<(string Route, byte[] Payload)> Patch(Bound bound, Discovery schema, Op op, CancellationToken ct)
     {
+        if (!op.Links.IsEmpty)
+            throw Wire.Refuse(ErrorCode.Unsupported, "Creation-link transport is not implemented; retained links cannot be omitted from dispatch.");
         if (op.Origin != RelationshipOrigin.Provider || !Capabilities.Operations.Contains(op.Kind))
             throw Wire.Refuse(ErrorCode.Unsupported, "Only explicitly supported native effects are dispatched.");
         if (op.Fields.Keys.Any(f => f is "System.Id" or "System.Rev" or "System.TeamProject" or "System.WorkItemType" or "System.History"))

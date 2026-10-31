@@ -49,6 +49,16 @@ public static partial class Core
                 w.WriteStartArray(); w.WriteStringValue(resource.Relation); w.WriteStringValue(resource.Target);
                 w.WriteStringValue(resource.Name); w.WriteStringValue(resource.Comment); w.WriteEndArray();
             }
+            if (!op.Links.IsEmpty)
+            {
+                w.WriteStartArray("links");
+                foreach (var link in op.Links)
+                {
+                    w.WriteStartArray(); WriteKey(w, link.Other); w.WriteStringValue(link.Relation);
+                    w.WriteBooleanValue(link.Outgoing); w.WriteEndArray();
+                }
+                w.WriteEndArray();
+            }
             w.WriteEndObject();
         }
         w.WriteEndArray(); w.WriteEndObject();

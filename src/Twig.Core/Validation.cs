@@ -77,6 +77,8 @@ public static partial class Core
         }
         var link = op.Kind is OpKind.Relate or OpKind.Unrelate;
         var local = link && op.Origin == RelationshipOrigin.Local;
+        if (!op.Links.IsEmpty && op.Kind != OpKind.Create)
+            Fail(ErrorCode.InvalidInput, "Creation links belong only to an explicit create effect.");
         if (!local && op.ExpectedLocalVersion is not null)
             Fail(ErrorCode.InvalidInput, "Only a local relationship can carry a local edge precondition.");
         if ((!link && op.Kind != OpKind.Create && (op.Other is not null || op.Relation is not null || op.Origin != RelationshipOrigin.Provider))
@@ -98,8 +100,27 @@ public static partial class Core
                 Fail(ErrorCode.Unsupported, "Creation has no provider revision CAS; that limitation must be explicit.");
             var draft = store.Drafts.FirstOrDefault(d => d.Key == op.Item);
             if (draft is null || draft.Type != op.Type || !draft.Changes.Equals(op.Fields)
-                || draft.Parent != op.Other || draft.ParentRelation != op.Relation || draft.Resource != op.Resource)
+                || draft.Parent != op.Other || draft.ParentRelation != op.Relation || draft.Resource != op.Resource
+                || !draft.Links.SequenceEqual(op.Links))
                 Fail(ErrorCode.Conflict, "Creation must bind the exact retained seed type, fields and creation-bound links.");
+            if (op.Links.Distinct().Count() != op.Links.Length || op.Links.Any(edge => edge.Other == op.Item))
+                Fail(ErrorCode.InvalidInput, "Creation link intent contains a duplicate or self edge.");
+            foreach (var edge in op.Links)
+            {
+                var kind = schema.Relations.FirstOrDefault(kind => kind.Reference == edge.Relation);
+                var endpoint = store.Mappings.FirstOrDefault(mapping => mapping.Local == edge.Other)?.Remote ?? edge.Other;
+                var predecessor = proposal.Operations.TakeWhile(candidate => candidate != op)
+                    .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == edge.Other);
+                if (!capabilities.AtomicFieldBatches || kind is null || kind.Shape is not (RelationShape.Dependency or RelationShape.Association)
+                    || !capabilities.NativeRelations.Contains(edge.Relation)
+                    || !edge.Outgoing && !kind.Directed)
+                    Fail(ErrorCode.Unsupported, "Creation links require discovered native dependency/association semantics and proven creation coupling.");
+                if (!(endpoint.BelongsTo(proposal.Connection)
+                    || endpoint.IsLocal && predecessor && store.Drafts.Any(draft => draft.Key == endpoint)))
+                    Fail(ErrorCode.Unsupported, "A creation link endpoint requires an in-scope observation or preceding captured creation.");
+                else if (!endpoint.IsLocal && !store.Items.Any(item => item.Key == endpoint && item.RelationshipsComplete))
+                    Fail(ErrorCode.Unavailable, "The creation link endpoint was not completely observed.");
+            }
             if (op.Origin != RelationshipOrigin.Provider || (op.Other is null) != (op.Relation is null))
                 Fail(ErrorCode.InvalidInput, "Creation-bound parent intent requires its explicit native relation.");
             if (op.Other is not null)

@@ -106,6 +106,16 @@ the qualified artifact into unchanged seed intent before proposal construction,
 including dry-run intent; there is no best-effort post-create artifact writer.
 Missing/ambiguous/paginated native metadata refuses without publishing.
 Dependency seed links/chains remain incomplete.
+Their model now captures a frozen `CreationLink` list with exact endpoint,
+discovered canonical relation and direction. The optional nonempty canonical
+`links` array binds list order and values; an empty list preserves existing bytes.
+File parsing rejects malformed tuples and duplicate links. Validation requires
+the exact retained draft capture, declared native creation coupling, complete
+remote observations or an earlier captured local creation, and refuses links on
+non-create effects. Provider dispatch and host seed-link wiring for this list are
+not yet implemented: ADO explicitly refuses these payloads before mutation
+admission rather than dropping links. This model work is not a linked-seed
+delivery claim.
 Explicit seed discard now checks the exact draft/store
 capture and refuses any attempted UUID or permanent mapping, even with `--yes`;
 unattempted abandonment preserves journals and local relationship tombstones.
@@ -151,7 +161,7 @@ type once, not hiding nested cases or counting the old Domain as removed. The ro
 45-type target and fewer-than-60 / roughly-5k-line guardrails leave room for safety
 without reproducing the old per-operation result families.
 
-Phase 5 adds one `ResourceLink` record, bringing the current inventory to 55.
+Phase 5 adds `ResourceLink` and `CreationLink` records, bringing the current inventory to 56.
 There are still exactly two Core ports. Host admission and policy-acquisition
 types live outside Core rather than expanding that port surface.
 

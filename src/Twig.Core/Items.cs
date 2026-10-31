@@ -4,6 +4,20 @@ namespace Twig.Core;
 
 public enum RelationshipOrigin { Provider, Local }
 
+public sealed record CreationLink
+{
+    public CreationLink(ItemKey other, string relation, bool outgoing)
+    {
+        Other = other ?? throw new ArgumentNullException(nameof(other));
+        Relation = Contract.Text(relation, nameof(relation));
+        Outgoing = outgoing;
+    }
+
+    public ItemKey Other { get; }
+    public string Relation { get; }
+    public bool Outgoing { get; }
+}
+
 public sealed record WorkItem
 {
     public WorkItem(ItemKey key, string type, FieldValues fields, Revision? revision,
@@ -55,7 +69,8 @@ public sealed record ResourceLink
 public sealed record Draft
 {
     public Draft(ItemKey key, string type, WorkItem? baseline, FieldValues changes,
-        ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null)
+        ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null,
+        IEnumerable<CreationLink>? links = null)
     {
         Key = key ?? throw new ArgumentNullException(nameof(key));
         Type = Contract.Text(type, nameof(type));
@@ -69,6 +84,10 @@ public sealed record Draft
         Parent = parent;
         ParentRelation = parentRelation is null ? null : Contract.Text(parentRelation, nameof(parentRelation));
         Resource = resource;
+        Links = Contract.Copy(links ?? []);
+        if (!key.IsLocal && !Links.IsEmpty || Links.Any(link => link.Other == key || string.IsNullOrWhiteSpace(link.Relation))
+            || Links.Distinct().Count() != Links.Length)
+            throw new ArgumentException("Creation links require a seed, distinct endpoints and explicit unique relations.", nameof(links));
     }
 
     public ItemKey Key { get; }
@@ -78,6 +97,7 @@ public sealed record Draft
     public ItemKey? Parent { get; }
     public string? ParentRelation { get; }
     public ResourceLink? Resource { get; }
+    public ImmutableArray<CreationLink> Links { get; }
 }
 
 public sealed record MergeResult(FieldValues Fields, ImmutableArray<string> Conflicts);

@@ -15,6 +15,41 @@ namespace Twig.Providers.Ado.Tests;
 
 public sealed class AdoProviderTests
 {
+    [Fact]
+    public async Task UnimplementedCreationLinkTransportCannotDispatchOrDropRetainedIntent()
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = "creation-links";
+        var target = (await f.Read(1)).Items.Single();
+        var schema = await f.Schema();
+        schema.Gaps.ShouldBeEmpty();
+        schema.Relations.ShouldContain(relation => relation.Reference == "Native.Association"
+            && relation.Shape == RelationShape.Association);
+        f.Provider.Capabilities.NativeRelations.ShouldContain("Native.Association");
+        var seed = ItemKey.Local(Guid.NewGuid());
+        var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
+            ("Custom.Empty", FieldValue.String("Retained dependency seed")));
+        CreationLink[] links = [new(target.Key, "Native.Association", true)];
+        var stored = await f.Stored();
+        (await f.Store.CommitAsync(f.Connection, stored.Version,
+            new(stored.Version + 1, [target], drafts: [new(seed, f.Http.Type, null, fields, links: links)]),
+            default)).IsSuccess.ShouldBeTrue();
+        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+            concurrency: ConcurrencyMode.ObservedNonAtomic, links: links));
+        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
+        var result = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unsupported);
+        f.Http.Writes.ShouldBe(0);
+        f.Access.SawDurableFence.ShouldBeFalse();
+        var retained = await f.Stored();
+        retained.Journal.Single().Status.ShouldBe(OpStatus.Planned);
+        retained.Mappings.ShouldBeEmpty();
+        retained.Drafts.Single().Links.ShouldBe(links);
+        retained.Proposals.Single().Operations.Single().Links.ShouldBe(links);
+    }
+
     [Theory]
     [InlineData("Hyperlink", "https://example.test/evidence?a=%2F", null, "exact comment")]
     [InlineData("ArtifactLink", "vstfs:///Git/Commit/project%2Frepository%2Fcommit", "Fixed in Commit", null)]
@@ -806,6 +841,7 @@ public sealed class AdoProviderTests
             if (Defect == "duplicate-json") return Json("""{"count":0,"value":[],"value":[]}""");
             HttpResponseMessage response;
             if (path.EndsWith("/workitemrelationtypes"))
+            {
                 response = Rows($$"""
                     {"referenceName":"Native.ParentForward","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":true,"topology":"tree","oppositeEndReferenceName":"Native.ParentReverse"} },
                     {"referenceName":"Native.ParentReverse","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":false,"topology":"tree","oppositeEndReferenceName":"Native.ParentForward"} },
@@ -813,6 +849,18 @@ public sealed class AdoProviderTests
                     {"referenceName":"Hyperlink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } },
                     {"referenceName":"ArtifactLink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } }
                     """);
+                if (Defect == "creation-links")
+                {
+                    var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
+                    var values = body["value"]!.AsArray();
+                    values.Add(JsonNode.Parse("""
+                        {"referenceName":"Native.Association","attributes":{"usage":"workItemLink","enabled":true,"directional":false,"topology":"network"}}
+                        """));
+                    body["count"] = values.Count;
+                    response.Dispose();
+                    response = Json(body.ToJsonString());
+                }
+            }
             else if (path.EndsWith("/workitemtypecategories")) response = Rows("");
             else if (path.EndsWith("/workitemtypes", StringComparison.OrdinalIgnoreCase) && query.Contains("$expand=all"))
                 response = Defect == "missing-transitions" ? Rows("") : Rows(string.Join(",",

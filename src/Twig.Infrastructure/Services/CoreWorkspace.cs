@@ -125,7 +125,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (previous is not null && previous.Type != type)
             return Result<Draft>.Fail(ErrorCode.Conflict, "The retained seed type differs; no existing intent was replaced.");
         var draft = new Draft(key, type, null, previous?.Changes.Overlay(fields) ?? fields,
-            parent ?? previous?.Parent, parentRelation ?? previous?.ParentRelation, resource ?? previous?.Resource);
+            parent ?? previous?.Parent, parentRelation ?? previous?.ParentRelation, resource ?? previous?.Resource,
+            previous?.Links);
         var committed = await store.CommitAsync(connection, snapshot.Version,
             Copy(snapshot, snapshot.Version + 1, drafts: snapshot.Drafts.Where(d => d.Key != key).Append(draft)), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<Draft>.Ok(draft) : Result<Draft>.Fail(committed.Error);
@@ -147,9 +148,38 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             return Result<bool>.Fail(ErrorCode.Indeterminate, "An attempted UUID owns this seed; branch intent cannot replace its unresolved creation.");
         var keys = drafts.Select(draft => draft.Key).ToHashSet();
         var next = current.Value.Drafts.Select(draft => keys.Contains(draft.Key)
-            ? new Draft(draft.Key, draft.Type, null, draft.Changes, draft.Parent, draft.ParentRelation, resource) : draft);
+            ? new Draft(draft.Key, draft.Type, null, draft.Changes, draft.Parent, draft.ParentRelation, resource, draft.Links) : draft);
         var committed = await store.CommitAsync(connection, expectedVersion,
             Copy(current.Value, expectedVersion + 1, drafts: next), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
+    }
+
+    internal async Task<Result<bool>> CaptureSeedLinksAsync(Draft capture, long expectedVersion,
+        ItemKey? parent, string? parentRelation, IEnumerable<CreationLink> links, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
+        if (current.Value.Version != expectedVersion || !capture.Key.IsLocal
+            || !current.Value.Drafts.Any(draft => SameDraft(draft, capture)))
+            return Result<bool>.Fail(ErrorCode.Conflict, "The exact seed changed before link capture.");
+        if (current.Value.Mappings.Any(mapping => mapping.Local == capture.Key)
+            || current.Value.Journal.Any(row => row.Status != OpStatus.Planned && current.Value.Proposals
+                .Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Item == capture.Key))
+            return Result<bool>.Fail(ErrorCode.Indeterminate, "An attempted creation UUID owns this seed; link intent cannot replace its fenced creation.");
+        var changed = new Draft(capture.Key, capture.Type, null, capture.Changes, parent, parentRelation, capture.Resource, links);
+        var drafts = current.Value.Drafts.Select(draft => draft.Key == capture.Key ? changed : draft).ToArray();
+        var remaining = drafts.Where(draft => draft.Key.IsLocal
+            && !current.Value.Mappings.Any(mapping => mapping.Local == draft.Key)).ToList();
+        while (remaining.Count != 0)
+        {
+            var ready = remaining.FirstOrDefault(draft => !remaining.Any(endpoint => endpoint.Key == draft.Parent
+                || draft.Links.Any(link => link.Other == endpoint.Key)));
+            if (ready is null) return Result<bool>.Fail(ErrorCode.Conflict, "Creation-bound links contain a cycle; no draft was changed.");
+            remaining.Remove(ready);
+        }
+        var committed = await store.CommitAsync(connection, expectedVersion,
+            Copy(current.Value, expectedVersion + 1, drafts: drafts), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
 
@@ -183,6 +213,17 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         Op op;
         if (draft.Key.IsLocal)
         {
+            foreach (var endpoint in draft.Links.Select(link => link.Other))
+            {
+                var target = Resolve(read.Value, endpoint);
+                if (!target.IsLocal)
+                {
+                    var observed = await ReadAsync(target, ct).ConfigureAwait(false);
+                    if (!observed.IsSuccess) return Result<CoreDraftPreview>.Fail(observed.Error);
+                }
+                else if (!read.Value.Drafts.Any(value => value.Key == target))
+                    return Result<CoreDraftPreview>.Fail(ErrorCode.Unavailable, "The exact local creation-link draft is missing.");
+            }
             if (draft.Parent is { } parent)
             {
                 var parentKey = Resolve(read.Value, parent);
@@ -196,7 +237,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             }
             op = new("create", OpKind.Create, draft.Key, fields: draft.Changes, type: draft.Type,
                 other: draft.Parent, relation: draft.ParentRelation, resource: draft.Resource,
-                concurrency: ConcurrencyMode.ObservedNonAtomic);
+                concurrency: ConcurrencyMode.ObservedNonAtomic, links: draft.Links);
         }
         else
         {
@@ -273,7 +314,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (changed)
         {
             if (draft.Key.IsLocal && (draft.Parent != preview.Draft.Parent
-                || draft.ParentRelation != preview.Draft.ParentRelation || draft.Resource != preview.Draft.Resource))
+                || draft.ParentRelation != preview.Draft.ParentRelation || draft.Resource != preview.Draft.Resource
+                || !draft.Links.SequenceEqual(preview.Draft.Links)))
                 return Retained(new(ErrorCode.Conflict, "Creation verified; later creation-bound link intent remains in the original local draft for explicit reconciliation."));
             var receipt = execution.Receipts.LastOrDefault(r => r.Status == OpStatus.Verified);
             var remoteKey = Resolve(snapshot, draft.Key);
@@ -318,7 +360,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             if (intended.Length != proposal.Operations.Length || intended.Where((op, index) =>
                     new Op(proposal.Operations[index].Id, op.Kind, op.Item, op.ExpectedRevision, op.Fields,
                         op.Type, op.Other, op.Relation, op.Origin, op.Body, op.Concurrency,
-                        op.ExpectedLocalVersion, op.Resource) != proposal.Operations[index]).Any())
+                        op.ExpectedLocalVersion, op.Resource, op.Links) != proposal.Operations[index]).Any())
                 return Result<CoreExecution>.Fail(ErrorCode.InvalidInput, "The reviewed proposal does not match the captured draft effects.");
         }
         foreach (var capture in captures.Where(capture => capture.Proposal is null))
@@ -462,7 +504,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (!captured.IsSuccess) return Result<bool>.Fail(captured.Error);
         var shapes = policy.Policy.Rules.Select(r => r.Kind == RuleKind.ParentType ? RelationShape.Hierarchy : RelationShape.Dependency).ToHashSet();
         var kinds = schema.Relations.Where(r => shapes.Contains(r.Shape)).Select(r => r.Reference).ToHashSet(StringComparer.Ordinal);
-        var pending = new Queue<ItemKey>(proposal.Operations.SelectMany(o => o.Other is null ? [o.Item] : new[] { o.Item, o.Other }).Distinct());
+        var pending = new Queue<ItemKey>(proposal.Operations.SelectMany(o => o.Links.Select(link => link.Other)
+            .Prepend(o.Item).Concat(o.Other is null ? [] : new[] { o.Other })).Distinct());
         var items = new Dictionary<ItemKey, WorkItem>();
         var edges = new HashSet<Relationship>();
         var bound = policy.Policy.Rules.Min(r => r.MaxNodes);
@@ -499,6 +542,13 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         var proposed = edges.ToHashSet();
         foreach (var op in proposal.Operations.Where(op => op.Kind == OpKind.Create && op.Other is not null))
             proposed.Add(new(Resolve(captured.Value, op.Other!), op.Item, op.Relation!, RelationshipOrigin.Provider));
+        foreach (var op in proposal.Operations.Where(op => op.Kind == OpKind.Create))
+            foreach (var link in op.Links.Where(link => kinds.Contains(link.Relation)))
+            {
+                var target = Resolve(captured.Value, link.Other);
+                proposed.Add(new(link.Outgoing ? op.Item : target, link.Outgoing ? target : op.Item,
+                    link.Relation, RelationshipOrigin.Provider));
+            }
         foreach (var op in proposal.Operations.Where(o => o.Kind is OpKind.Relate or OpKind.Unrelate))
         {
             var edge = new Relationship(op.Item, op.Other!, op.Relation!, op.Origin);
@@ -519,7 +569,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         => snapshot.Mappings.FirstOrDefault(m => m.Local == key)?.Remote ?? key;
     private static bool SameDraft(Draft left, Draft right) => left.Key == right.Key && left.Type == right.Type
         && left.Baseline?.Revision == right.Baseline?.Revision && left.Changes.Equals(right.Changes)
-        && left.Parent == right.Parent && left.ParentRelation == right.ParentRelation && left.Resource == right.Resource;
+        && left.Parent == right.Parent && left.ParentRelation == right.ParentRelation && left.Resource == right.Resource
+        && left.Links.SequenceEqual(right.Links);
     private static StoreSnapshot Copy(StoreSnapshot snapshot, long version, IEnumerable<WorkItem>? items = null,
         IEnumerable<Relationship>? relationships = null, IEnumerable<Draft>? drafts = null)
         => new(version, items ?? snapshot.Items, relationships ?? snapshot.Relationships, drafts ?? snapshot.Drafts,

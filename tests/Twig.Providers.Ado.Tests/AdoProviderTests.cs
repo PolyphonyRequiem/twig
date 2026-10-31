@@ -15,12 +15,15 @@ namespace Twig.Providers.Ado.Tests;
 
 public sealed class AdoProviderTests
 {
-    [Fact]
-    public async Task UnimplementedCreationLinkTransportCannotDispatchOrDropRetainedIntent()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreationLinksDispatchExactDirectionsAndRequireEveryReadback(bool missingReadback)
     {
         using var f = await Fixture.Create();
         f.Http.Defect = "creation-links";
         var target = (await f.Read(1)).Items.Single();
+        var dependency = (await f.Read(2)).Items.Single();
         var schema = await f.Schema();
         schema.Gaps.ShouldBeEmpty();
         schema.Relations.ShouldContain(relation => relation.Reference == "Native.Association"
@@ -29,25 +32,39 @@ public sealed class AdoProviderTests
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
             ("Custom.Empty", FieldValue.String("Retained dependency seed")));
-        CreationLink[] links = [new(target.Key, "Native.Association", true)];
+        CreationLink[] links = [new(target.Key, "Native.Association", true),
+            new(dependency.Key, "Native.DependencyForward", false)];
         var stored = await f.Stored();
         (await f.Store.CommitAsync(f.Connection, stored.Version,
-            new(stored.Version + 1, [target], drafts: [new(seed, f.Http.Type, null, fields, links: links)]),
+            new(stored.Version + 1, [target, dependency], drafts: [new(seed, f.Http.Type, null, fields, links: links)]),
             default)).IsSuccess.ShouldBeTrue();
         var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic, links: links));
         var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
         var result = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
-        result.IsSuccess.ShouldBeFalse();
-        result.Error.Code.ShouldBe(ErrorCode.Unsupported);
-        f.Http.Writes.ShouldBe(0);
-        f.Access.SawDurableFence.ShouldBeFalse();
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        result.Value.Status.ShouldBe(OpStatus.Applied);
+        f.Http.Writes.ShouldBe(1);
+        f.Access.SawDurableFence.ShouldBeTrue();
+        using var payload = JsonDocument.Parse(f.Http.LastPayload!);
+        var nativeLinks = payload.RootElement.EnumerateArray().Where(entry => entry.GetProperty("path").GetString() == "/relations/-")
+            .Select(entry => entry.GetProperty("value")).ToArray();
+        nativeLinks.Length.ShouldBe(2);
+        nativeLinks[0].GetProperty("rel").GetString().ShouldBe("Native.Association");
+        nativeLinks[0].GetProperty("url").GetString().ShouldEndWith("/1");
+        nativeLinks[1].GetProperty("rel").GetString().ShouldBe("Native.DependencyReverse");
+        nativeLinks[1].GetProperty("url").GetString().ShouldEndWith("/2");
+        if (missingReadback) f.Http.Defect = "creation-links-readback-mismatch";
+        var verified = await f.Provider.VerifyAsync(proposal, result.Value, default);
+        verified.IsSuccess.ShouldBeTrue();
+        verified.Value.Status.ShouldBe(missingReadback ? OpStatus.Partial : OpStatus.Verified);
         var retained = await f.Stored();
-        retained.Journal.Single().Status.ShouldBe(OpStatus.Planned);
-        retained.Mappings.ShouldBeEmpty();
+        retained.Journal.Single().Status.ShouldBe(missingReadback ? OpStatus.Partial : OpStatus.Verified);
+        retained.Mappings.Single().Local.ShouldBe(seed);
         retained.Drafts.Single().Links.ShouldBe(links);
         retained.Proposals.Single().Operations.Single().Links.ShouldBe(links);
+        f.Http.Writes.ShouldBe(1);
     }
 
     [Theory]
@@ -314,28 +331,45 @@ public sealed class AdoProviderTests
         snapshot.Drafts.Single().Key.ShouldBe(seed);
     }
 
-    [Fact]
-    public async Task OrderedCreationsResolveOnlyTheVerifiedOriginalParentUuid()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OrderedCreationsResolveOnlyTheVerifiedOriginalParentUuid(bool unknownParent)
     {
         using var f = await Fixture.Create();
+        f.Http.Defect = "creation-links";
         var parent = ItemKey.Local(Guid.CreateVersion7());
         var child = ItemKey.Local(Guid.CreateVersion7());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("seed")));
+        CreationLink[] links = [new(parent, "Native.DependencyForward", false)];
         var drafts = new[] { new Draft(parent, f.Http.Type, null, fields),
-            new Draft(child, f.Http.Type, null, fields, parent, "Native.ParentForward") };
+            new Draft(child, f.Http.Type, null, fields, parent, "Native.ParentForward", links: links) };
         (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: drafts), default)).IsSuccess.ShouldBeTrue();
         var schema = await f.Schema();
         var proposal = new Proposal(f.Connection, schema.Fingerprint, 1, [
             new("parent", OpKind.Create, parent, fields: fields, type: f.Http.Type, concurrency: ConcurrencyMode.ObservedNonAtomic),
             new("child", OpKind.Create, child, fields: fields, type: f.Http.Type, other: parent,
-                relation: "Native.ParentForward", concurrency: ConcurrencyMode.ObservedNonAtomic),
+                relation: "Native.ParentForward", concurrency: ConcurrencyMode.ObservedNonAtomic, links: links),
         ]);
         var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
         (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(0, "a local reference is not publication authority before its exact predecessor verifies");
+        if (unknownParent) f.Http.WriteFailure = "lost-create-response";
         var parentAck = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
         (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        if (unknownParent)
+        {
+            parentAck.Status.ShouldBe(OpStatus.Indeterminate);
+            f.Http.Writes.ShouldBe(1);
+            var fenced = await f.Stored();
+            fenced.Mappings.ShouldBeEmpty();
+            fenced.Drafts.ShouldContain(draft => draft.Key == child && draft.Links.SequenceEqual(links));
+            (await f.Provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
+            (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+            f.Http.Writes.ShouldBe(1);
+            return;
+        }
         (await f.Provider.VerifyAsync(proposal, parentAck, default)).Value.Status.ShouldBe(OpStatus.Verified);
         var childAck = (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).Value;
         childAck.Status.ShouldBe(OpStatus.Applied);
@@ -345,6 +379,9 @@ public sealed class AdoProviderTests
         snapshot.Relationships.ShouldContain(new Relationship(parentAck.PublishedKey!, childAck.PublishedKey!,
             "Native.ParentForward", RelationshipOrigin.Provider));
         snapshot.Proposals.Single().Operations[1].Other.ShouldBe(parent, "retained intent must not be rewritten to the native ID");
+        snapshot.Proposals.Single().Operations[1].Links.Single().Other.ShouldBe(parent);
+        snapshot.Relationships.ShouldContain(new Relationship(parentAck.PublishedKey!, childAck.PublishedKey!,
+            "Native.DependencyForward", RelationshipOrigin.Provider));
         f.Http.Writes.ShouldBe(2);
     }
 
@@ -830,6 +867,7 @@ public sealed class AdoProviderTests
                     var root = _revisions[(id, revision)].DeepClone();
                     if (Defect == "readback-mismatch") root["fields"]!["Custom.Empty"] = "not edited";
                     if (Defect == "resource-readback-mismatch") root["relations"] = new JsonArray();
+                    if (Defect == "creation-links-readback-mismatch") root["relations"]!.AsArray().RemoveAt(1);
                     return Json(root.ToJsonString());
                 }
                 if (!Items.TryGetValue(id, out var item)) return Status(404);
@@ -849,12 +887,18 @@ public sealed class AdoProviderTests
                     {"referenceName":"Hyperlink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } },
                     {"referenceName":"ArtifactLink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } }
                     """);
-                if (Defect == "creation-links")
+                if (Defect?.StartsWith("creation-links", StringComparison.Ordinal) == true)
                 {
                     var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
                     var values = body["value"]!.AsArray();
                     values.Add(JsonNode.Parse("""
                         {"referenceName":"Native.Association","attributes":{"usage":"workItemLink","enabled":true,"directional":false,"topology":"network"}}
+                        """));
+                    values.Add(JsonNode.Parse("""
+                        {"referenceName":"Native.DependencyForward","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":true,"topology":"dependency","oppositeEndReferenceName":"Native.DependencyReverse"}}
+                        """));
+                    values.Add(JsonNode.Parse("""
+                        {"referenceName":"Native.DependencyReverse","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":false,"topology":"dependency","oppositeEndReferenceName":"Native.DependencyForward"}}
                         """));
                     body["count"] = values.Count;
                     response.Dispose();
@@ -953,6 +997,18 @@ public sealed class AdoProviderTests
                     {
                         var parentId = int.Parse(relation["url"]!.GetValue<string>().Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
                         Items[parentId]["relations"]!.AsArray().Add(new JsonObject { ["rel"] = "Native.ParentForward",
+                            ["url"] = $"https://example.test/organization/_apis/wit/workItems/{id}" });
+                    }
+                    else if (relation["rel"]!.GetValue<string>() is "Native.Association" or "Native.DependencyForward" or "Native.DependencyReverse")
+                    {
+                        var endpoint = int.Parse(relation["url"]!.GetValue<string>().Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+                        var inverse = relation["rel"]!.GetValue<string>() switch
+                        {
+                            "Native.DependencyForward" => "Native.DependencyReverse",
+                            "Native.DependencyReverse" => "Native.DependencyForward",
+                            _ => "Native.Association",
+                        };
+                        Items[endpoint]["relations"]!.AsArray().Add(new JsonObject { ["rel"] = inverse,
                             ["url"] = $"https://example.test/organization/_apis/wit/workItems/{id}" });
                     }
                 }

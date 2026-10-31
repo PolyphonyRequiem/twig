@@ -105,17 +105,24 @@ and the exact requested branch through the same leased ADO identity. It freezes
 the qualified artifact into unchanged seed intent before proposal construction,
 including dry-run intent; there is no best-effort post-create artifact writer.
 Missing/ambiguous/paginated native metadata refuses without publishing.
-Dependency seed links/chains remain incomplete.
 Their model now captures a frozen `CreationLink` list with exact endpoint,
 discovered canonical relation and direction. The optional nonempty canonical
 `links` array binds list order and values; an empty list preserves existing bytes.
 File parsing rejects malformed tuples and duplicate links. Validation requires
 the exact retained draft capture, declared native creation coupling, complete
 remote observations or an earlier captured local creation, and refuses links on
-non-create effects. Provider dispatch and host seed-link wiring for this list are
-not yet implemented: ADO explicitly refuses these payloads before mutation
-admission rather than dropping links. This model work is not a linked-seed
-delivery claim.
+non-create effects. ADO emits each discovered canonical forward/inverse relation
+in the same creation POST, resolves local endpoints only from original Verified
+creation mappings, and checks every declared edge at the acknowledged immutable
+revision and in complete reciprocal current observations. Missing readback remains
+Partial; unknown creation stops all later effects. `seed link`, `seed unlink`, and
+`seed links` now capture/list that exact draft intent through Core; parent replacement
+and dependency publication ordering use one CAS-protected draft representation.
+Cycles refuse before capture, and branch/field capture and proposal settlement retain
+the frozen list. The production-root regression publishes a three-seed dependency
+chain with an association and branch resources without a post-create writer.
+GitHub still refuses unproven atomic creation-link coupling. The separate interactive
+chain authoring and reconciliation commands remain unfinished.
 Explicit seed discard now checks the exact draft/store
 capture and refuses any attempted UUID or permanent mapping, even with `--yes`;
 unattempted abandonment preserves journals and local relationship tombstones.

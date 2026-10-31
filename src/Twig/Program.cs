@@ -912,7 +912,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed link")]
     public async Task<int> SeedLink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedLinkCommand>().LinkAsync(sourceId, targetId, type, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedLinkAsync(sourceId, targetId, type, false, output, ct);
+        return await services.GetRequiredService<SeedLinkCommand>().LinkAsync(sourceId, targetId, type, output, ct);
+    }
 
     /// <summary>Remove a virtual link between two items.</summary>
     /// <param name="sourceId">Source item ID of the link to remove.</param>
@@ -921,14 +925,22 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed unlink")]
     public async Task<int> SeedUnlink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedLinkCommand>().UnlinkAsync(sourceId, targetId, type, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedLinkAsync(sourceId, targetId, type, true, output, ct);
+        return await services.GetRequiredService<SeedLinkCommand>().UnlinkAsync(sourceId, targetId, type, output, ct);
+    }
 
     /// <summary>List virtual links, optionally filtered by item ID.</summary>
     /// <param name="id">Item ID to filter links for; omit to show all links.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed links")]
     public async Task<int> SeedLinks([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedLinkCommand>().ListLinksAsync(id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedLinksAsync(id, output, ct);
+        return await services.GetRequiredService<SeedLinkCommand>().ListLinksAsync(id, output, ct);
+    }
 
     /// <summary>Create a chain of linked seeds — interactively or from explicit titles.</summary>
     /// <param name="parent">Parent work item ID to link the chain under.</param>

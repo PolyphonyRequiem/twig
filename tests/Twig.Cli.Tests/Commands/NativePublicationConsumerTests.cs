@@ -135,6 +135,46 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             complete.Journal.Where(row => row.Digest == ordered.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
             _transport.PostCount.ShouldBe(3);
             _transport.PatchAttempts.ShouldBe(0);
+            var aliases = new List<int>();
+            var uuids = new List<Guid>();
+            foreach (var title in new[] { "Design linked chain", "Build linked chain", "Review linked chain" })
+            {
+                stdout.GetStringBuilder().Clear();
+                (await commands.SeedNew(title: title, type: "Task", noParent: true, output: "json")).ShouldBe(0);
+                using var linked = JsonDocument.Parse(stdout.ToString());
+                aliases.Add(linked.RootElement.GetProperty("id").GetInt32());
+                uuids.Add(Guid.Parse(linked.RootElement.GetProperty("localId").GetString()!));
+            }
+            (await commands.SeedLink(aliases[0], aliases[1], "blocks", "human")).ShouldBe(0, stderr.ToString());
+            (await commands.SeedLink(aliases[1], aliases[2], "blocks", "human")).ShouldBe(0, stderr.ToString());
+            (await commands.SeedLink(aliases[2], aliases[0], "blocks", "human")).ShouldBe(1, "a cyclic creation graph must not be captured");
+            (await commands.SeedLink(aliases[2], 42, "related", "human")).ShouldBe(0, stderr.ToString());
+            (await commands.SeedUnlink(aliases[2], 42, "related", "human")).ShouldBe(0, stderr.ToString());
+            (await commands.SeedLink(aliases[2], 42, "related", "human")).ShouldBe(0, stderr.ToString());
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedLinks(output: "json")).ShouldBe(0, stderr.ToString());
+            using var capturedLinks = JsonDocument.Parse(stdout.ToString());
+            capturedLinks.RootElement.GetProperty("count").GetInt32().ShouldBe(3);
+            _transport.PostCount.ShouldBe(3, "link capture must not dispatch native work");
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(all: true, linkBranch: "feature/rooted", repo: "FixtureRepo", output: "human"))
+                .ShouldBe(0, stderr.ToString());
+            var linkedComplete = (await store.ReadAsync(connection, default)).Value;
+            linkedComplete.Drafts.ShouldBeEmpty();
+            var chain = linkedComplete.Proposals.Single(proposal => proposal.Operations.Length == 3);
+            chain.Operations[1].Links.Single().Other.LocalId.ShouldBe(uuids[0]);
+            chain.Operations[2].Links.ShouldContain(link => link.Other.LocalId == uuids[1]);
+            var linkedMappings = uuids.Select(uuid => linkedComplete.Mappings.Single(mapping => mapping.Local.LocalId == uuid)).ToArray();
+            linkedComplete.Relationships.ShouldContain(new CoreModel.Relationship(linkedMappings[0].Remote, linkedMappings[1].Remote,
+                "Native.DependencyForward", CoreModel.RelationshipOrigin.Provider));
+            linkedComplete.Relationships.ShouldContain(new CoreModel.Relationship(linkedMappings[1].Remote, linkedMappings[2].Remote,
+                "Native.DependencyForward", CoreModel.RelationshipOrigin.Provider));
+            linkedComplete.Journal.Where(row => row.Digest == chain.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
+            _transport.PostCount.ShouldBe(6);
+            _transport.PatchAttempts.ShouldBe(0);
+            root.GetService<SeedLinkCommand>().ShouldBeNull();
+            root.GetService<SeedPublishCommand>().ShouldBeNull();
+            root.GetService<IPendingChangeStore>().ShouldBeNull();
         }
         finally
         {
@@ -1356,7 +1396,8 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                     {
                         var parent = int.Parse(new Uri(value.GetProperty("url").GetString()!).Segments[^1], CultureInfo.InvariantCulture);
                         _items[parent].Principal.ShouldBe(principal);
-                        _links[createdId] = [("Native.ParentReverse", parent)];
+                        if (!_links.TryGetValue(createdId, out var parents)) _links[createdId] = parents = [];
+                        parents.Add(("Native.ParentReverse", parent));
                         if (!_links.TryGetValue(parent, out var children)) _links[parent] = children = [];
                         children.Add(("Native.ParentForward", createdId));
                     }
@@ -1367,6 +1408,16 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                             attributes.ValueKind == JsonValueKind.Object && attributes.TryGetProperty("name", out var name) ? name.GetString() : null,
                             attributes.ValueKind == JsonValueKind.Object && attributes.TryGetProperty("comment", out var comment) ? comment.GetString() : null);
                         _items[createdId] = _items[createdId] with { Resources = _items[createdId].Resources.Append(resource).ToArray() };
+                    }
+                    else if (kind is "Native.DependencyForward" or "Native.DependencyReverse" or "Native.Association")
+                    {
+                        var endpoint = int.Parse(new Uri(value.GetProperty("url").GetString()!).Segments[^1], CultureInfo.InvariantCulture);
+                        _items[endpoint].Principal.ShouldBe(principal);
+                        if (!_links.TryGetValue(createdId, out var links)) _links[createdId] = links = [];
+                        links.Add((kind, endpoint));
+                        if (!_links.TryGetValue(endpoint, out var reciprocal)) _links[endpoint] = reciprocal = [];
+                        reciprocal.Add((kind == "Native.DependencyForward" ? "Native.DependencyReverse"
+                            : kind == "Native.DependencyReverse" ? "Native.DependencyForward" : kind, createdId));
                     }
                     else throw new InvalidOperationException("Unexpected fixture creation relationship");
                 }
@@ -1513,6 +1564,9 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                     new { referenceName = "ArtifactLink", attributes = new { usage = "resourceLink", enabled = true } },
                     new { referenceName = "Native.ParentForward", attributes = new { usage = "workItemLink", enabled = true, directional = true, isForward = true, topology = "tree", oppositeEndReferenceName = "Native.ParentReverse" } },
                     new { referenceName = "Native.ParentReverse", attributes = new { usage = "workItemLink", enabled = true, directional = true, isForward = false, topology = "tree", oppositeEndReferenceName = "Native.ParentForward" } },
+                    new { referenceName = "Native.DependencyForward", attributes = new { usage = "workItemLink", enabled = true, directional = true, isForward = true, topology = "dependency", oppositeEndReferenceName = "Native.DependencyReverse" } },
+                    new { referenceName = "Native.DependencyReverse", attributes = new { usage = "workItemLink", enabled = true, directional = true, isForward = false, topology = "dependency", oppositeEndReferenceName = "Native.DependencyForward" } },
+                    new { referenceName = "Native.Association", attributes = new { usage = "workItemLink", enabled = true, directional = false, isForward = true, topology = "network", oppositeEndReferenceName = "Native.Association" } },
                 } });
             if (path.EndsWith("/workitemtypecategories", StringComparison.Ordinal)
                 || path.EndsWith("/rules", StringComparison.Ordinal))

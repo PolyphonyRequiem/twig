@@ -37,7 +37,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 var op = intent.Operations.Single();
                 operations.Add(new($"save-{operations.Count}", op.Kind, op.Item, op.ExpectedRevision,
                     op.Fields, op.Type, op.Other, op.Relation, op.Origin, op.Body,
-                    op.Concurrency, op.ExpectedLocalVersion, op.Resource));
+                    op.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links));
             }
         }
         Proposal? proposal = null;
@@ -275,8 +275,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var ordered = new List<Draft>();
         while (remaining.Count != 0)
         {
-            var next = remaining.FirstOrDefault(draft => draft.Parent is null
-                || !remaining.Any(parent => parent.Key == draft.Parent));
+            var next = remaining.FirstOrDefault(draft => !remaining.Any(other => other.Key == draft.Parent
+                || draft.Links.Any(link => link.Other == other.Key)));
             if (next is null) return Error(output, "Local publication parents contain a cycle; no creation was attempted.");
             ordered.Add(next);
             remaining.Remove(next);
@@ -288,7 +288,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             captures.Add(preview.Value);
             var op = preview.Value.Proposal!.Operations.Last();
             operations.Add(new($"create-{operations.Count}", op.Kind, op.Item, fields: op.Fields,
-                type: op.Type, other: op.Other, relation: op.Relation, resource: op.Resource, concurrency: op.Concurrency));
+                type: op.Type, other: op.Other, relation: op.Relation, resource: op.Resource, concurrency: op.Concurrency, links: op.Links));
         }
         var prepared = await workspace.PrepareAsync(operations, ct);
         if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
@@ -361,12 +361,126 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     private static IEnumerable<ItemKey> KnownLocalKeys(StoreSnapshot snapshot)
         => snapshot.Drafts.Select(draft => draft.Key).Concat(snapshot.Mappings.Select(mapping => mapping.Local))
+            .Concat(snapshot.Drafts.SelectMany(draft => draft.Links.Select(link => link.Other)
+                .Concat(draft.Parent is null ? [] : new[] { draft.Parent })))
             .Concat(snapshot.Proposals.SelectMany(proposal => proposal.Operations)
-                .SelectMany(op => op.Other is null ? new[] { op.Item } : new[] { op.Item, op.Other }))
+                .SelectMany(op => op.Links.Select(link => link.Other).Prepend(op.Item)
+                    .Concat(op.Other is null ? [] : new[] { op.Other })))
             .Concat(snapshot.Relationships.SelectMany(edge => new[] { edge.From, edge.To }))
             .Concat(snapshot.Benches.SelectMany(bench => bench.Selectors).Where(selector => selector.Item is not null)
                 .Select(selector => selector.Item!))
             .Where(key => key.IsLocal).Distinct();
+
+    internal async Task<int> SeedLinkAsync(int sourceId, int targetId, string? type, bool remove, string output, CancellationToken ct)
+    {
+        if (sourceId == 0 || targetId == 0 || sourceId == targetId || sourceId > 0 && targetId > 0)
+            return Error(output, "Two distinct nonzero targets, including a local seed, are required.", 2);
+        var shape = (type ?? "related").ToLowerInvariant() switch
+        {
+            "related" => RelationShape.Association,
+            "parent-child" => RelationShape.Hierarchy,
+            "blocks" or "blocked-by" or "depends-on" or "depended-on-by" or "successor" or "predecessor" => RelationShape.Dependency,
+            _ => (RelationShape?)null,
+        };
+        if (shape is null) return Error(output, "Unknown seed link type.", 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        ItemKey? Key(int id)
+        {
+            if (id > 0) return ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, id.ToString(CultureInfo.InvariantCulture));
+            var matches = KnownLocalKeys(snapshot.Value).Where(key => LocalAlias(key) == id).ToArray();
+            return matches.Length == 1 ? matches[0] : null;
+        }
+        var source = Key(sourceId);
+        var target = Key(targetId);
+        if (source is null || target is null) return Error(output, "A local target alias is absent or ambiguous.");
+        var schema = await workspace.SchemaAsync(ct);
+        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var kinds = schema.Value.Relations.Where(kind => kind.Shape == shape
+            && (shape != RelationShape.Association || !kind.Directed)).ToArray();
+        if (kinds.Length != 1) return Error(output, "The actual native schema has no unique relation for this seed link shape.");
+        var kind = kinds[0];
+        if (shape == RelationShape.Hierarchy && !source.IsLocal)
+            return Error(output, "Parenting an existing native child to an unpublished parent requires a later reviewed native effect; no link was dropped.");
+        var holder = shape == RelationShape.Hierarchy || !target.IsLocal ? source : target;
+        var endpoint = holder == source ? target : source;
+        var draft = snapshot.Value.Drafts.SingleOrDefault(value => value.Key == holder);
+        if (draft is null) return Error(output, "The creation-bound link owner is not an unpublished local seed.");
+        var mapped = snapshot.Value.Mappings.FirstOrDefault(value => value.Local == endpoint)?.Remote ?? endpoint;
+        if (!mapped.IsLocal)
+        {
+            var observed = await workspace.ReadAsync(mapped, ct);
+            if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+        }
+        else if (!snapshot.Value.Drafts.Any(value => value.Key == endpoint))
+            return Error(output, "The exact local link endpoint is missing.");
+        var forward = type?.ToLowerInvariant() is not ("blocked-by" or "depends-on" or "predecessor");
+        var link = new CreationLink(endpoint, kind.Reference, !kind.Directed || (holder == source ? forward : !forward));
+        var parent = draft.Parent;
+        var parentRelation = draft.ParentRelation;
+        var links = draft.Links;
+        if (shape == RelationShape.Hierarchy)
+        {
+            if (remove && (parent != endpoint || parentRelation != kind.Reference))
+                return Error(output, "The exact captured parent link is absent.");
+            if (!remove && parent == endpoint && parentRelation == kind.Reference)
+                return Error(output, "The parent link already exists.");
+            parent = remove ? null : endpoint;
+            parentRelation = remove ? null : kind.Reference;
+        }
+        else
+        {
+            if (remove && !links.Contains(link)) return Error(output, "The exact captured creation link is absent.");
+            if (!remove && links.Contains(link)) return Error(output, "The creation link already exists.");
+            links = remove ? links.Remove(link) : links.Add(link);
+        }
+        var fresh = await workspace.SnapshotAsync(ct);
+        if (!fresh.IsSuccess) return Error(output, fresh.Error.Message);
+        var captured = await workspace.CaptureSeedLinksAsync(draft, fresh.Value.Version, parent, parentRelation, links, ct);
+        if (!captured.IsSuccess) return Error(output, captured.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record(remove ? "seedUnlinked" : "seedLinked",
+            new Dictionary<string, RenderCell>
+            {
+                ["sourceId"] = RenderCell.Integer(sourceId), ["targetId"] = RenderCell.Integer(targetId),
+                ["linkType"] = RenderCell.String(type ?? "related"),
+                ["message"] = RenderCell.String(remove ? "Removed exact local creation-link intent; no native effect." : "Captured creation-link intent; publication requires its exact reviewed proposal."),
+            })]));
+        return 0;
+    }
+
+    internal async Task<int> SeedLinksAsync(int? id, string output, CancellationToken ct)
+    {
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var snapshot = await handle.Workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        if (KnownLocalKeys(snapshot.Value).GroupBy(LocalAlias).Any(group => group.Count() != 1))
+            return Error(output, "Local identity aliases are ambiguous; no link identity was guessed.");
+        int Id(ItemKey key) => key.IsLocal ? LocalAlias(key) : int.Parse(key.NativeId!, CultureInfo.InvariantCulture);
+        var rows = new List<RenderRow>();
+        foreach (var draft in snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal))
+        {
+            var links = draft.Links.Select(link => (From: link.Outgoing ? draft.Key : link.Other,
+                To: link.Outgoing ? link.Other : draft.Key, Kind: link.Relation))
+                .Concat(draft.Parent is null ? [] : new[] { (From: draft.Key, To: draft.Parent, Kind: draft.ParentRelation!) });
+            foreach (var link in links.Where(link => id is null || Id(link.From) == id || Id(link.To) == id))
+                rows.Add(new("seedLink", new Dictionary<string, RenderCell>
+                {
+                    ["sourceId"] = RenderCell.Integer(Id(link.From)), ["targetId"] = RenderCell.Integer(Id(link.To)),
+                    ["linkType"] = RenderCell.String(link.Kind),
+                    ["message"] = RenderCell.String("Captured local creation intent; not a native relationship acknowledgement."),
+                }));
+        }
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Document("seedLinks",
+            [new("links", new RenderNode.Table(null, [new("sourceId", "Source"), new("targetId", "Target"), new("linkType", "Type")], rows)),
+                new("count", new RenderNode.KeyValue("count", RenderCell.Integer(rows.Count)))])]));
+        return 0;
+    }
 
     private static int LocalAlias(ItemKey key)
     {
@@ -596,7 +710,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var draft = proposal.Operations.Length == 1 ? snapshot.Value.Drafts.FirstOrDefault(d =>
             d.Key == proposal.Operations[0].Item && d.Changes.Equals(proposal.Operations[0].Fields)
             && (proposal.Operations[0].Kind != OpKind.Create || d.Parent == proposal.Operations[0].Other
-                && d.ParentRelation == proposal.Operations[0].Relation && d.Resource == proposal.Operations[0].Resource)
+                && d.ParentRelation == proposal.Operations[0].Relation && d.Resource == proposal.Operations[0].Resource
+                && d.Links.SequenceEqual(proposal.Operations[0].Links))
             && (d.Key.IsLocal || d.Baseline?.Revision == proposal.Operations[0].ExpectedRevision)) : null;
         var applied = draft is null ? await workspace.ApplyAsync(proposal, confirmation, ct)
             : await workspace.SaveDraftAsync(new(draft, proposal), confirmation, ct);

@@ -69,6 +69,281 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreLinkRouteUsesNativeJournalWithoutLegacyGraph()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        _transport.SetItem(43, "Other endpoint", 7, Actor);
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "relationships-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["link", "related", "43", "--id", "42", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        root.GetService<CoreCommandAdapter>().ShouldNotBeNull("exercise the pinned Core composition");
+        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+        root.GetService<Twig.Domain.Services.Sync.SyncCoordinatorFactory>().ShouldBeNull();
+        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+        root.GetService<IWorkItemLinkRepository>().ShouldBeNull();
+        using (var handle = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value)
+        {
+            var localFrom = CoreModel.ItemKey.Local(Guid.CreateVersion7());
+            var localTo = CoreModel.ItemKey.Local(Guid.CreateVersion7());
+            var current = (await store.ReadAsync(connection, default)).Value;
+            (await store.CommitAsync(connection, current.Version, new(current.Version + 1, [], [
+                new(localFrom, localTo, "retained-local-kind", CoreModel.RelationshipOrigin.Local, 1, true)
+            ], [], [], [], [], []), default)).IsSuccess.ShouldBeTrue();
+        }
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            int Run(params string[] args)
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                return RunCoreLink(paths, args);
+            }
+            Run("link", "related", "43", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
+            using var result = JsonDocument.Parse(stdout.ToString());
+            result.RootElement.GetProperty("message").GetString().ShouldNotBeNullOrWhiteSpace();
+            result.RootElement.GetProperty("status").GetString().ShouldBe("Verified");
+            result.RootElement.GetProperty("links")[0].GetProperty("linkType").GetString().ShouldBe("related");
+            var snapshot = (await store.ReadAsync(connection, default)).Value;
+            snapshot.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            _transport.PatchAttempts.ShouldBe(1);
+            AssertPatch(42, 1, "Native.Association", 43);
+            Run("link", "unrelate", "43", "--id", "42", "-o", "json-full").ShouldBe(0, stderr.ToString());
+            AssertPatch(42, 2, null, null);
+            Run("link", "predecessor", "43", "--id", "42", "-o", "json-compact").ShouldBe(0, stderr.ToString());
+            AssertPatch(43, 9, "Native.DependencyForward", 42);
+            Run("link", "unlink", "predecessor", "43", "--id", "42", "-o", "minimal").ShouldBe(0, stderr.ToString());
+            AssertPatch(43, 10, null, null);
+            Run("link", "successor", "43", "--id", "42", "-o", "human").ShouldBe(0, stderr.ToString());
+            AssertPatch(42, 5, "Native.DependencyForward", 43);
+            Run("link", "unlink", "successor", "43", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
+            AssertPatch(42, 6, null, null);
+            Run("link", "parent", "43", "--child", "42", "-o", "json").ShouldBe(0, stderr.ToString());
+            AssertPatch(43, 13, "Native.ParentForward", 42);
+            Run("link", "unparent", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
+            AssertPatch(43, 14, null, null);
+            snapshot = (await store.ReadAsync(connection, default)).Value;
+            snapshot.Journal.Length.ShouldBe(8);
+            snapshot.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified
+                && row.Receipts.Length == 2 && row.Receipts[0].Status == CoreModel.OpStatus.Applied);
+            snapshot.Proposals.ShouldAllBe(proposal => proposal.Operations.Length == 1
+                && proposal.Operations[0].ExpectedRevision!.Item == proposal.Operations[0].Item);
+            snapshot.Relationships.Single(edge => edge.Origin == CoreModel.RelationshipOrigin.Local).Deleted.ShouldBeTrue();
+            snapshot.Relationships.Single(edge => edge.Origin == CoreModel.RelationshipOrigin.Local).LocalVersion.ShouldBe(1);
+            _transport.PostCount.ShouldBe(0);
+            _transport.ReadbacksAfterCommit.ShouldBeGreaterThan(8);
+
+            void AssertPatch(int source, int revision, string? relation, int? target)
+            {
+                var patch = _transport.RelationshipPatches.Last();
+                patch.Id.ShouldBe(source);
+                using var body = JsonDocument.Parse(patch.Body);
+                var entries = body.RootElement.EnumerateArray().ToArray();
+                entries.Length.ShouldBe(2);
+                entries[0].GetRawText().ShouldBe($$"""{"op":"test","path":"/rev","value":{{revision}}}""");
+                if (relation is null)
+                    entries[1].GetRawText().ShouldBe("""{"op":"remove","path":"/relations/0"}""");
+                else
+                {
+                    entries[1].GetProperty("op").GetString().ShouldBe("add");
+                    entries[1].GetProperty("path").GetString().ShouldBe("/relations/-");
+                    var value = entries[1].GetProperty("value");
+                    value.EnumerateObject().Count().ShouldBe(2);
+                    value.GetProperty("rel").GetString().ShouldBe(relation);
+                    value.GetProperty("url").GetString().ShouldBe("https://dev.azure.com/fixture/_apis/wit/workItems/" + target);
+                }
+            }
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task CoreLinkRefusalsAndAmbientSelectionNeverUseLegacyOrDispatchUnsupportedIntent()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            int Run(params string[] args)
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                return RunCoreLink(paths, args);
+            }
+            var requests = _transport.TotalRequests;
+            foreach (var invocation in new[]
+            {
+                new[] { "related", "43" }, ["related", "43", "--id", "0"], ["related", "-1", "--id", "42"],
+                ["related", "42", "--id", "42"], ["parent", "43", "42", "--id", "43"],
+                ["unlink", "bogus", "43", "--id", "42"], ["unlink", "parent", "43", "--id", "42"],
+                ["parent", "43", "--child", "42", "--id", "43"], ["parent", "43", "42"],
+            })
+            {
+                Run(["link", .. invocation, "-o", "json"]).ShouldBe(2, stderr.ToString());
+                stdout.ToString().ShouldBeEmpty();
+                using var error = JsonDocument.Parse(stderr.ToString());
+                error.RootElement.GetProperty("error").GetString().ShouldNotBeNullOrWhiteSpace();
+            }
+            Run("link", "related", "43", "--id", "42", "-o", "ids").ShouldBe(2);
+            Run("link", "reparent", "43", "--id", "42", "-o", "json").ShouldBe(1);
+            Run("link", "related", "43", "--id", "42", "--comment", "", "-o", "json").ShouldBe(1);
+            _transport.TotalRequests.ShouldBe(requests, "argument and unsupported-shape refusals precede native HTTP");
+            Run("link", "related", "999", "--id", "42", "-o", "json").ShouldBe(1);
+            _transport.PatchAttempts.ShouldBe(0);
+            Run("set", "42").ShouldBe(0, stderr.ToString());
+            requests = _transport.TotalRequests;
+            Run("link", "related", "43", "-o", "minimal").ShouldBe(2);
+            _transport.TotalRequests.ShouldBe(requests, "even a valid active context is not machine authority");
+            Run("link", "related", "43").ShouldBe(0, stderr.ToString());
+            Run("link", "related", "43", "--id", "42", "-o", "json").ShouldBe(1);
+            _transport.PatchAttempts.ShouldBe(1, "duplicate link is not replayed");
+            _transport.BeforeItemReadResponse = () =>
+            {
+                _transport.SetItem(42, "Concurrent removal revision", _transport.RevisionOf(42) + 1, Actor);
+                return Task.CompletedTask;
+            };
+            Run("link", "unrelate", "43", "--id", "42", "-o", "json").ShouldBe(1);
+            _transport.PatchAttempts.ShouldBe(1, "a removal with a moved revision refuses without dispatch");
+            Run("link", "unrelate", "43", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
+            _transport.BeforeItemReadResponse = () =>
+            {
+                _transport.SetItem(42, "Concurrent native revision", _transport.RevisionOf(42) + 1, Actor);
+                return Task.CompletedTask;
+            };
+            Run("link", "related", "43", "--id", "42", "-o", "json").ShouldBe(1);
+            _transport.PatchAttempts.ShouldBe(2, "a moved observed revision refuses before dispatch");
+            (await store.ReadAsync(connection, default)).Value.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
+            Run("link", "parent", "43", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
+            _transport.SetItem(44, "Another parent", 1, Actor);
+            Run("link", "parent", "44", "--id", "42", "-o", "json").ShouldBe(1);
+            _transport.PatchAttempts.ShouldBe(3, "parent must not silently become reparent");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task CoreLinkTelemetryUsesStaticMetadataAndCannotChangeTheOutcome()
+    {
+        var client = Substitute.For<ITelemetryClient>();
+        IReadOnlyDictionary<string, string>? captured = null;
+        client.When(value => value.TrackEvent(Arg.Any<string>(), Arg.Any<Dictionary<string, string>>(),
+            Arg.Any<Dictionary<string, double>>())).Do(call =>
+        {
+            captured = call.ArgAt<IReadOnlyDictionary<string, string>>(1);
+            throw new InvalidOperationException("Optional telemetry failed");
+        });
+        using var stderr = new StringWriter();
+        var command = new LinkCommand(new Twig.Rendering.RendererFactory(), telemetryClient: client, stderr: stderr);
+        (await command.UnlinkDependencyAsync("private-user-content", 43, 42, "json")).ShouldBe(2);
+        captured.ShouldNotBeNull();
+        captured["command"].ShouldBe("link-unlink");
+        captured["exit_code"].ShouldBe("2");
+        captured.Values.ShouldNotContain("private-user-content");
+        captured.Keys.Order().ShouldBe(new[] { "command", "exit_code", "os_platform", "output_format", "twig_version" });
+        using var error = JsonDocument.Parse(stderr.ToString());
+        error.RootElement.GetProperty("error").GetString().ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Theory]
+    [InlineData(false, CoreModel.OpStatus.Partial)]
+    [InlineData(true, CoreModel.OpStatus.Indeterminate)]
+    public async Task CoreLinkUnresolvedReadbackFencesBothEndpointsWithoutReplay(bool unknown, CoreModel.OpStatus expected)
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            _transport.LoseNextPatchAcknowledgement = unknown;
+            if (!unknown) _transport.AfterCommit = () =>
+            {
+                _transport.ForgetAssociation(42, 43);
+                return Task.CompletedTask;
+            };
+            var args = new[] { "link", "related", "43", "--id", "42", "-o", "json" };
+            RunCoreLink(paths, args).ShouldBe(1, stderr.ToString());
+            stdout.ToString().ShouldBeEmpty();
+            using (var error = JsonDocument.Parse(stderr.ToString()))
+                error.RootElement.GetProperty("error").GetString().ShouldNotBeNullOrWhiteSpace();
+            var retained = (await store.ReadAsync(connection, default)).Value;
+            retained.Journal.Single().Status.ShouldBe(expected);
+            retained.Journal.Single().Attempt.ShouldNotBe(Guid.Empty);
+            _transport.PatchAttempts.ShouldBe(1);
+            _transport.SetItem(44, "Next endpoint", 1, Actor);
+            stdout.GetStringBuilder().Clear();
+            stderr.GetStringBuilder().Clear();
+            RunCoreLink(paths, ["link", "successor", "44", "--id", "43", "-o", "json"]).ShouldBe(1);
+            _transport.PatchAttempts.ShouldBe(1, "the other endpoint is fenced under a different digest too");
+            var current = (await store.ReadAsync(connection, default)).Value;
+            current.Journal.Single().Status.ShouldBe(expected);
+            current.Proposals.Single().Digest.ShouldBe(retained.Proposals.Single().Digest);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> RelationshipWorkspaceAsync()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        _transport.SetItem(43, "Other endpoint", 7, Actor);
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "relationships-core.db");
+        var created = await CleanStore.CreateAsync(database);
+        created.IsSuccess.ShouldBeTrue();
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        return (paths, connection, created.Value);
+    }
+
+    private int RunCoreLink(TwigPaths paths, string[] args) => Twig.TwigConsoleApp.Run(args, registration =>
+    {
+        registration.AddSingleton<IConnectionBindingService>(_bindings);
+        registration.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        registration.AddTwigWorkspaceServices(paths.StartDir, args);
+    });
+
+    [Fact]
     public async Task CoreProcessInspectionUsesDiscoveredRulesWithoutLegacyCommandsOrWorkReads()
     {
         var native = await AttachAsync();
@@ -2318,6 +2593,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         private readonly Dictionary<int, Item> _items = new();
         private readonly Dictionary<(int Id, int Revision), Item> _history = new();
         private readonly Dictionary<int, List<(string Relation, int Target)>> _links = new();
+        private readonly Dictionary<(int Id, int Revision), (string Relation, int Target)[]> _linkHistory = new();
         public int WorkRequests { get; private set; }
         public int TotalRequests { get; private set; }
         public int PostCount { get; private set; }
@@ -2334,6 +2610,8 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         public bool CoreMetadataEnabled { get; set; }
         public bool CloseGateEnabled { get; set; }
         public bool FailSchema { get; set; }
+        public bool LoseNextPatchAcknowledgement { get; set; }
+        public List<(int Id, string Body)> RelationshipPatches { get; } = [];
         internal HttpMessageHandler NewHandle() => new Forward(this);
         private sealed class Forward(PrincipalTransport owner) : HttpMessageHandler
         {
@@ -2341,6 +2619,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 => owner.SendAsync(request, ct);
         }
         public string TitleOf(int id) => _items[id].Title;
+        public void ForgetAssociation(int source, int target)
+        {
+            _links[source].Remove(("Native.Association", target));
+            _links[target].Remove(("Native.Association", source));
+        }
         public int RevisionOf(int id) => _items[id].Revision;
         public void SetItem(int id, string title, int revision, string principal)
         {
@@ -2348,6 +2631,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             var item = new Item(title, revision, principal, prior?.History ?? "", prior?.Resources ?? [], prior?.State ?? "To Do");
             _items[id] = item;
             _history[(id, revision)] = item;
+            _linkHistory[(id, revision)] = _links.GetValueOrDefault(id, []).ToArray();
         }
         public void SetHierarchy(int parent, int child)
         {
@@ -2355,6 +2639,8 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             if (!_links.TryGetValue(child, out var parents)) _links[child] = parents = [];
             children.Add(("Native.ParentForward", child));
             parents.Add(("Native.ParentReverse", parent));
+            _linkHistory[(parent, _items[parent].Revision)] = children.ToArray();
+            _linkHistory[(child, _items[child].Revision)] = parents.ToArray();
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -2444,6 +2730,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                     else throw new InvalidOperationException("Unexpected fixture creation relationship");
                 }
                 _history[(createdId, 1)] = _items[createdId];
+                _linkHistory[(createdId, 1)] = _links.GetValueOrDefault(createdId, []).ToArray();
                 CommittedWrites++;
                 if (AfterCommit is { } afterCreate)
                 {
@@ -2477,7 +2764,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                     RejectNextPatch = false;
                     return Reply(HttpStatusCode.BadRequest, new { message = "Fixture rejected the transaction before committing" });
                 }
-                using var operations = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+                var patchBody = await request.Content!.ReadAsStringAsync(ct);
+                using var operations = JsonDocument.Parse(patchBody);
+                if (operations.RootElement.EnumerateArray().Any(operation =>
+                    operation.GetProperty("path").GetString()!.StartsWith("/relations/", StringComparison.Ordinal)))
+                    RelationshipPatches.Add((id, patchBody));
                 var title = item.Title;
                 var history = item.History;
                 var state = item.State;
@@ -2493,21 +2784,52 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                     if (target == "/relations/-")
                     {
                         var value = operation.GetProperty("value");
+                        var relation = value.GetProperty("rel").GetString()!;
+                        if (relation is "Native.ParentForward" or "Native.DependencyForward" or "Native.Association")
+                        {
+                            var endpoint = int.Parse(new Uri(value.GetProperty("url").GetString()!).Segments[^1], CultureInfo.InvariantCulture);
+                            _items[endpoint].Principal.ShouldBe(principal);
+                            if (!_links.TryGetValue(id, out var links)) _links[id] = links = [];
+                            if (links.Contains((relation, endpoint)))
+                                return Reply(HttpStatusCode.Conflict, new { message = "Duplicate relationship" });
+                            links.Add((relation, endpoint));
+                            if (!_links.TryGetValue(endpoint, out var reciprocal)) _links[endpoint] = reciprocal = [];
+                            reciprocal.Add((Inverse(relation), id));
+                            SetItem(endpoint, _items[endpoint].Title, _items[endpoint].Revision + 1, principal);
+                            continue;
+                        }
                         var attributes = value.TryGetProperty("attributes", out var linkAttributes) ? linkAttributes : default;
                         resources.Add(new(value.GetProperty("rel").GetString()!, value.GetProperty("url").GetString()!,
                             attributes.ValueKind == JsonValueKind.Object && attributes.TryGetProperty("name", out var name) ? name.GetString() : null,
                             attributes.ValueKind == JsonValueKind.Object && attributes.TryGetProperty("comment", out var comment) ? comment.GetString() : null));
                     }
+                    else if (target!.StartsWith("/relations/", StringComparison.Ordinal)
+                        && operation.GetProperty("op").GetString() == "remove")
+                    {
+                        var index = int.Parse(target["/relations/".Length..], CultureInfo.InvariantCulture) - resources.Count;
+                        var links = _links[id];
+                        var removed = links[index];
+                        links.RemoveAt(index);
+                        _links[removed.Target].Remove((Inverse(removed.Relation), id));
+                        var endpoint = _items[removed.Target];
+                        SetItem(removed.Target, endpoint.Title, endpoint.Revision + 1, principal);
+                    }
                 }
                 SetItem(id, title, item.Revision + 1, item.Principal);
                 _items[id] = _items[id] with { History = history, Resources = resources.ToArray(), State = state };
                 _history[(id, _items[id].Revision)] = _items[id];
+                _linkHistory[(id, _items[id].Revision)] = _links.GetValueOrDefault(id, []).ToArray();
                 item = _items[id];
                 CommittedWrites++;
                 if (AfterCommit is { } afterCommit)
                 {
                     AfterCommit = null;
                     await afterCommit();
+                }
+                if (LoseNextPatchAcknowledgement)
+                {
+                    LoseNextPatchAcknowledgement = false;
+                    throw new HttpRequestException("Fixture lost acknowledgement after commit");
                 }
             }
             else if (FailReadbackAfterCommit && CommittedWrites > 0)
@@ -2548,11 +2870,21 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 {
                     rel = resource.Relation, url = resource.Target,
                     attributes = new { name = resource.Name, comment = resource.Comment }
-                }).Cast<object>().Concat(NativeLinks(id)).ToArray()
+                }).Cast<object>().Concat(NativeLinks(id, segments.Length == 3 && segments[1] == "revisions"
+                    ? int.Parse(segments[2], CultureInfo.InvariantCulture) : null)).ToArray()
             });
         }
 
-        private object[] NativeLinks(int id) => _links.GetValueOrDefault(id, [])
+        private static string Inverse(string relation) => relation switch
+        {
+            "Native.ParentForward" => "Native.ParentReverse", "Native.ParentReverse" => "Native.ParentForward",
+            "Native.DependencyForward" => "Native.DependencyReverse", "Native.DependencyReverse" => "Native.DependencyForward",
+            "Native.Association" => "Native.Association", _ => throw new InvalidOperationException("Unknown fixture relationship"),
+        };
+
+        private object[] NativeLinks(int id, int? revision = null) => (revision.HasValue
+            ? _linkHistory.GetValueOrDefault((id, revision.Value), [])
+            : _links.GetValueOrDefault(id, []).ToArray())
             .Select(link => (object)new
             {
                 rel = link.Relation,

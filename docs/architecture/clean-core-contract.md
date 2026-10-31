@@ -266,7 +266,12 @@ types live outside Core rather than expanding that port surface.
 There is **no preserve-all acceptance requirement** for phase 5. Retention of
 TUI, Browser, companion and Claims/coordination remains undecided. This bounded
 CLI correction authorizes neither new UI parity/Claims work nor deletion inferred
-from silence. Existing legacy UI dependencies still block whole-Domain removal;
+from silence. The user's updated guidance is that UI/UX is **potentially forfeit**
+and a redesign candidate: presentation contracts, screens, DTO/envelope/layout
+fidelity are not blocking acceptance criteria for this CLI replacement. Essential
+capabilities and safety remain required. This is not blanket authorization to
+delete UI, data or history; final removals and replacement designs must be stated
+explicitly later. Existing legacy UI dependencies still block whole-Domain removal;
 MCP remains withdrawn pending its separate redesign.
 The ADO/GitHub adapters' already disclosed unsafe/unqualified Delete limitation
 must remain an explicit capability refusal, never a fictional strict revision
@@ -305,6 +310,7 @@ refuses with initialization guidance; legacy native layout reading is unchanged.
 | `CoreCommandAdapter.UpdateAsync` -> shared Core proposal/journal workflow | `UpdateCommand.cs`, its singleton registration and Program fallback |
 | `CoreCommandAdapter.SaveAsync` -> shared Core proposal/journal workflow | `SaveCommand.cs`, its singleton registration and Program fallback |
 | `CoreCommandAdapter.DiscardAsync` -> local typed-draft CAS, preserving seeds and journals | `DiscardCommand.cs`, its singleton registration and Program fallback |
+| Existing `LinkCommand` -> shared `CoreWorkspace.PrepareAsync/ApplyAsync` | Replaced its direct writer, active resolver, link repository, sync coordinator and hardcoded native hierarchy reference; removed superseded mock-based CLI-owner tests |
 
 Only superseded command-shell tests were removed/replaced; no CLI public API
 baseline entries existed for these wrappers. `CoreMutationAdmissionGuard` continues
@@ -317,6 +323,33 @@ flusher. Mixed Edit/prompt tests retain their unrelated cases. UI ownership is
 outside this deletion; removing these six CLI wrappers does not authorize deleting
 their shared workflows or resolving legacy writers into the Core graph.
 The Core inventory stays at 56 types/two ports and store/proposal format 3.
+
+The same native `link` owner is now registered in the pinned Core graph, not a
+new adapter family or parallel facade. Association add/remove, predecessor and
+successor add/remove, unparented parenting and single-parent unparenting discover
+one unambiguous canonical shape. Forward dependency is blocker -> blocked;
+hierarchy is parent -> child. The actual forward source's observed opaque revision
+binds one `Relate`/`Unrelate` request. Native schema/declared-policy acquisition,
+immutable acknowledgement readback and fresh reciprocal endpoint certification
+use the existing workspace/provider journal workflow. Mirror refresh preserves
+local edges and tombstones. A duplicate add refuses rather than claiming new
+verification; partial and indeterminate effects fence both endpoints under new
+digests without replay. Invalid/self/conflicting targets refuse with usage exit 2;
+machine invocations need an explicit `--id`/`--child` option. Human ambient selection uses only
+the bound Core host context. All JSON aliases emit one document; bare IDs refuse
+because they discard journal evidence. Optional telemetry contains static safe
+command metadata, never endpoints or native references.
+
+`link reparent` remains an explicit, pre-HTTP **unsupported gap**: the existing
+typed effect cannot express a safe single-request replacement. The old remove-
+then-add implementation was not atomic and has been deleted, not reproduced as
+two journal operations. `link related --comment` likewise refuses before HTTP,
+including an empty supplied value, because the typed relationship effect has no
+comment payload. Unknown/ambiguous shapes, seeds, GitHub CLI relationships and
+local-relationship/UI routes are not qualified by this slice. No Core types,
+ports, operation kinds, versions or `CoreCommandAdapter` methods were added.
+Shared legacy writers/sync/link repositories still serve other retained consumers;
+they were not deleted or registered in the Core graph. This does not complete phase 5.
 
 ## Identity, values and drafts
 

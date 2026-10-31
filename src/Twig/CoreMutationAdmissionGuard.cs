@@ -6,6 +6,21 @@ internal static class CoreMutationAdmissionGuard
 {
     internal static string? Validate(IReadOnlyList<string> args, string twigDirectory)
     {
+        var marker = Path.Combine(twigDirectory, CoreWorkspaceFactory.FileName);
+        if (File.Exists(marker) && args.Count != 0)
+        {
+            try
+            {
+                var workspace = System.Text.Json.JsonSerializer.Deserialize(File.ReadAllText(marker),
+                    CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument);
+                if (workspace?.Connection.Provider.Value == "github" && !GitHubQualified(args))
+                    return "This command family is not qualified for the native GitHub Core CLI profile; no provider HTTP or legacy writer was used.";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+                return "The pinned Core workspace marker is unavailable or invalid; no command fallback was used.";
+            }
+        }
         if (args.Count == 0 || !RequiresCore(args)
             || File.Exists(Path.Combine(twigDirectory, CoreWorkspaceFactory.FileName)))
             return null;
@@ -13,6 +28,20 @@ internal static class CoreMutationAdmissionGuard
             + "Existing legacy drafts, journals and creation fences were preserved; no legacy writer was opened. "
             + "Use a fresh isolated worktree and `twig init <org> <project> --core-store <new-absolute-file>`.";
     }
+
+    private static bool GitHubQualified(IReadOnlyList<string> args) => args[0] switch
+    {
+        "show" => !args.Contains("--tree"),
+        "show-batch" or "process" or "update" or "note" or "state" or "batch" or "patch"
+            or "save" or "discard" or "pending" or "query" => !args.Contains("--browser"),
+        "bench" => args.Count == 1 || args.Count > 1 && args[1] is "list" or "create" or "switch",
+        "workspace" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "view" or "track" or "untrack",
+        "seed" => args.Count > 1 && args[1] is "new" or "view" or "publish" or "discard" or "validate",
+        "new" => true,
+        "proposal" or "plan" => args.Count > 1 && args[1] is "preview" or "apply" or "status" or "validate",
+        "skills" or "help" => true,
+        _ => false,
+    };
 
     private static bool RequiresCore(IReadOnlyList<string> args) => args[0] switch
     {

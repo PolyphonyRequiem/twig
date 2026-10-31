@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Twig.Core;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Policy;
+using Twig.Providers.GitHub;
 using Model = Twig.Core.Core;
 
 namespace Twig.Infrastructure.Services;
@@ -19,10 +20,58 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot, Guid storeInstance = default)
 {
     internal Connection Connection => connection;
+    internal ConcurrencyMode Concurrency => provider.Capabilities.ExactRevisions
+        ? ConcurrencyMode.ExactRevision : ConcurrencyMode.ObservedNonAtomic;
     internal string NativeActor => nativeActor;
     internal CoreHostContext Context => new(worktreeRoot, connection, storeInstance);
     internal Task<Result<StoreSnapshot>> SnapshotAsync(CancellationToken ct) => store.ReadAsync(connection, ct);
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct) => provider.DiscoverSchemaAsync(connection, ct);
+
+    internal async Task<Result<ItemKey>> ResolveTargetAsync(int locator, bool allowNativeLookup, CancellationToken ct)
+    {
+        if (locator == 0) return Result<ItemKey>.Fail(ErrorCode.InvalidInput, "A nonzero target is required.");
+        var stored = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!stored.IsSuccess) return Result<ItemKey>.Fail(stored.Error);
+        if (locator < 0)
+        {
+            var matches = CoreHostContext.KnownLocalKeys(stored.Value).Where(key => CoreHostContext.LocalAlias(key) == locator).ToArray();
+            return matches.Length == 1 ? Result<ItemKey>.Ok(Resolve(stored.Value, matches[0]))
+                : Result<ItemKey>.Fail(ErrorCode.Conflict, "The local UUID alias is absent or ambiguous.");
+        }
+        if (connection.Provider.Value == "ado")
+            return Result<ItemKey>.Ok(ItemKey.Remote(connection.Provider, connection.ResourceScope,
+                locator.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        if (provider is not GitHubProvider github)
+            return Result<ItemKey>.Fail(ErrorCode.Unsupported, "This provider has no qualified numeric locator.");
+        var candidates = stored.Value.Items.Where(item => item.Fields.TryGetValue(GitHubProvider.Number, out var number)
+            && number.Kind == FieldKind.Integer && number.Number == locator).ToArray();
+        if (candidates.Length > 1 || candidates.Any(item => !item.Key.BelongsTo(connection)))
+            return Result<ItemKey>.Fail(ErrorCode.Conflict, "Cached GitHub number identity is ambiguous or mismatched.");
+        if (candidates.Length == 1) return Result<ItemKey>.Ok(candidates[0].Key);
+        if (!allowNativeLookup)
+            return Result<ItemKey>.Fail(ErrorCode.NotFound, $"Issue #{locator} is not cached; use show {locator} --refresh.");
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var acquired = await github.ReadNumberAsync(connection, locator, ct).ConfigureAwait(false);
+        return acquired.IsSuccess ? Result<ItemKey>.Ok(acquired.Value.Items.Single().Key) : Result<ItemKey>.Fail(acquired.Error);
+    }
+
+    internal static Result<int> DisplayId(Connection connection, StoreSnapshot snapshot, ItemKey key)
+    {
+        if (key.IsLocal) return Result<int>.Ok(CoreHostContext.LocalAlias(key));
+        if (!key.BelongsTo(connection))
+            return Result<int>.Fail(ErrorCode.Conflict, "Native identity belongs to another connection.");
+        if (connection.Provider.Value == "ado")
+            return int.TryParse(key.NativeId, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0
+                ? Result<int>.Ok(id) : Result<int>.Fail(ErrorCode.InvalidInput, "Invalid native ADO ID.");
+        var items = snapshot.Items.Where(item => item.Key == key).ToArray();
+        if (items.Length == 1 && items[0].Fields.TryGetValue(GitHubProvider.Number, out var number)
+            && number.Kind == FieldKind.Integer && number.Number > 0 && number.Number <= int.MaxValue
+            && decimal.Truncate(number.Number) == number.Number
+            && snapshot.Items.Count(item => item.Fields.TryGetValue(GitHubProvider.Number, out var other)
+                && other.Kind == FieldKind.Integer && other.Number == number.Number) == 1)
+            return Result<int>.Ok((int)number.Number);
+        return Result<int>.Fail(ErrorCode.Conflict, "A unique observed GitHub number is unavailable; native identity was not guessed.");
+    }
 
     internal async Task<Result<bool>> CaptureBenchesAsync(StoreSnapshot capture, IEnumerable<Bench> benches, CancellationToken ct)
     {
@@ -48,7 +97,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             var page = await provider.QueryAsync(connection, query, continuation, ct).ConfigureAwait(false);
             if (!page.IsSuccess) return Result<QueryPage>.Fail(page.Error);
             if (page.Value.Complete == (page.Value.Continuation is not null)
-                || page.Value.Items.Any(item => !item.RelationshipsComplete || !item.ResourcesComplete)
+                || page.Value.Items.Any(item => !item.RelationshipsComplete
+                    || provider.Capabilities.Operations.Contains(OpKind.LinkResource) && !item.ResourcesComplete)
                 || page.Value.Items.Any(item => !identities.Add(item.Key))
                 || page.Value.Continuation is { } cursor && !cursors.Add(cursor))
                 return Result<QueryPage>.Fail(ErrorCode.Unavailable, "Query exhaustion, incident completeness or keyset progress was not established; this page was not mirrored.");

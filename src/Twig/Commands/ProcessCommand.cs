@@ -83,8 +83,10 @@ internal sealed class ProcessCommand(
 
     internal static ItemType? FindType(ProcessSchema schema, string reference)
     {
-        var matches = schema.Types.Where(type => string.Equals(type.Reference, reference, StringComparison.OrdinalIgnoreCase)
-            || type.Rules.SelectMany(rule => rule.Values).Any(value => value.DataType == "ado.native-type-name"
+        var ado = schema.Connection.Provider.Value == "ado";
+        var matches = schema.Types.Where(type => string.Equals(type.Reference, reference,
+                ado ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+            || ado && type.Rules.SelectMany(rule => rule.Values).Any(value => value.DataType == "ado.native-type-name"
                 && string.Equals(value.Text, reference, StringComparison.OrdinalIgnoreCase))).ToArray();
         return matches.Length == 1 ? matches[0] : null;
     }

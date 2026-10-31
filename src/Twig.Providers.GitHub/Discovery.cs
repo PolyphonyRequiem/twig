@@ -7,6 +7,7 @@ namespace Twig.Providers.GitHub;
 public sealed partial class GitHubProvider
 {
     public const string Title = "github.title";
+    public const string Number = "github.number";
     public const string Body = "github.body";
     public const string StateField = "github.state";
     public const string Labels = "github.labelIds";
@@ -46,11 +47,15 @@ public sealed partial class GitHubProvider
         var update = Names(Wire.Member(metadata, "update"), "inputFields");
         var create = Names(Wire.Member(metadata, "create"), "inputFields");
         var states = Names(Wire.Member(metadata, "states"), "enumValues");
+        var nativeNumber = Wire.Member(Wire.Member(metadata, "issue"), "fields").EnumerateArray()
+            .SingleOrDefault(field => Wire.Text(field, "name") == "number");
+        if (nativeNumber.ValueKind == JsonValueKind.Undefined || Signature(Wire.Member(nativeNumber, "type")) != "Int")
+            throw Wire.Refuse(ErrorCode.Unsupported, "The native Issue.number Int protocol is unavailable.");
         var gaps = new List<string>();
         CheckTypes(Wire.Member(metadata, "issue"), "fields",
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["id"] = "ID", ["title"] = "String", ["body"] = "String", ["state"] = "IssueState",
+                ["id"] = "ID", ["number"] = "Int", ["title"] = "String", ["body"] = "String", ["state"] = "IssueState",
                 ["updatedAt"] = "DateTime", ["repository"] = "Repository", ["issueType"] = "IssueType",
                 ["milestone"] = "Milestone", ["labels"] = "LabelConnection", ["assignees"] = "UserConnection",
                 ["parent"] = "Issue", ["subIssues"] = "IssueConnection",
@@ -64,7 +69,7 @@ public sealed partial class GitHubProvider
         };
         CheckTypes(Wire.Member(metadata, "update"), "inputFields", inputTypes, gaps);
         CheckTypes(Wire.Member(metadata, "create"), "inputFields", inputTypes, gaps);
-        if (!new[] { "id", "repository", "title", "body", "state", "updatedAt" }.All(fields.Contains)
+        if (!new[] { "id", "number", "repository", "title", "body", "state", "updatedAt" }.All(fields.Contains)
             || !repositoryFields.Contains("issues") || !states.SetEquals(["OPEN", "CLOSED"]))
             gaps.Add("Unsupported/incomplete native Issue protocol fields or state semantics.");
         var native = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
@@ -84,6 +89,7 @@ public sealed partial class GitHubProvider
         var definitions = new List<FieldDef>
         {
             new(Title, FieldKind.Text), new(Body, FieldKind.Markdown), new(StateField, FieldKind.Text),
+            new(Number, FieldKind.Integer, true),
             new("github.updatedAt", FieldKind.Instant, true),
         };
         if (fields.Contains("labels")) definitions.Add(new(Labels, FieldKind.StringList));
@@ -120,7 +126,8 @@ public sealed partial class GitHubProvider
             states.Order(StringComparer.Ordinal).Select(s => new State(s, s == "OPEN" ? StateCategory.Proposed : StateCategory.Completed)),
             states.SelectMany(a => states.Where(b => b != a).Select(b => new Transition(a, b))),
             [new(Title, RuleAction.Required, [new(ConditionKind.Was, StateField, FieldValue.Null)]),
-             new(StateField, RuleAction.Allowed, [], states.Order(StringComparer.Ordinal).Select(FieldValue.String))],
+             new(StateField, RuleAction.Allowed, [], states.Order(StringComparer.Ordinal).Select(FieldValue.String)),
+             new(StateField, RuleAction.Allowed, [new(ConditionKind.Was, StateField, FieldValue.Null)], [FieldValue.String("OPEN")])],
             hidden: hidden.Contains(id))).ToArray();
         itemTypes = itemTypes.Select(t => new ItemType(t.Reference, t.StateField, t.Fields, t.States, t.Transitions,
             t.Rules.Concat(typeNames.TryGetValue(t.Reference, out var typeName)

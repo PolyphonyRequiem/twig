@@ -12,13 +12,17 @@ namespace Twig.Infrastructure.Services;
 internal static class CoreWorkspaceInitializer
 {
     internal static async Task<Result<bool>> InitializeAsync(TwigConfiguration configuration, TwigPaths paths,
-        IConnectionBindingService bindings, string databasePath, CancellationToken ct, CoreTransportOverride? transport = null)
+        IConnectionBindingService bindings, string databasePath, CancellationToken ct, CoreTransportOverride? transport = null,
+        Twig.Infrastructure.GitHub.IBoundedProcessRunner? githubProcesses = null)
     {
         if (!Path.IsPathFullyQualified(databasePath) || File.Exists(databasePath)
             || File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)))
             return Result<bool>.Fail(ErrorCode.InvalidInput, "Core initialization requires a genuinely new explicit absolute database file; nothing existing was adopted.");
         if (configuration.ResolveWorkItemProviderKind() != "ado")
-            return Result<bool>.Fail(ErrorCode.Unavailable, "GitHub Core initialization requires the retained native target/admission integration; no ADO target was substituted.");
+            return configuration.ResolveWorkItemProviderKind() == "github"
+                ? await new Twig.Infrastructure.GitHub.CoreGitHubWorkspaceHost(configuration, paths, bindings, transport: transport, processes: githubProcesses)
+                    .InitializeAsync(databasePath, ct).ConfigureAwait(false)
+                : Result<bool>.Fail(ErrorCode.Unsupported, "The selected native Core initialization provider is unsupported.");
         var origin = await bindings.ResolveAsync(configuration, paths, ct).ConfigureAwait(false);
         var authentication = bindings.CreateAuthenticationProvider(origin);
         try

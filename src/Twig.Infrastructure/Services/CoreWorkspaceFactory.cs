@@ -9,6 +9,7 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Policy;
 using Twig.Providers.Ado;
 using Twig.Store.Sqlite;
+using Twig.Infrastructure.GitHub;
 
 namespace Twig.Infrastructure.Services;
 
@@ -24,10 +25,12 @@ internal sealed class CoreWorkspaceHandle(CoreWorkspace workspace, IDisposable p
 }
 
 internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, TwigPaths paths,
-    IConnectionBindingService bindings, IAuthenticationProvider authentication, CoreTransportOverride? transport = null)
+    IConnectionBindingService bindings, IAuthenticationProvider authentication, CoreTransportOverride? transport = null,
+    CoreGitHubWorkspaceHost? github = null)
 {
     internal const string FileName = "core-workspace.json";
     internal string WorkspaceRoot => paths.RepoRoot;
+    internal bool IsGitHub => configuration.ResolveWorkItemProviderKind() == "github";
     internal (int Up, int Down, int Sideways) TreeContextDepths
         => (configuration.Display.TreeDepthUp, configuration.Display.TreeDepthDown, configuration.Display.TreeDepthSideways);
     internal IReadOnlyList<(string Path, bool IncludeChildren)> QueryAreaDefaults
@@ -57,7 +60,9 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var admitted = await store.CheckWorkspaceAsync(document.Connection, ct).ConfigureAwait(false);
         if (!admitted.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(admitted.Error);
         if (document.Connection.Provider.Value != "ado")
-            return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Unavailable, "The GitHub Core host admission bridge is not yet wired in this in-progress cutover.");
+            return document.Connection.Provider.Value == "github" && github is not null
+                ? await github.OpenAsync(document, store, ct).ConfigureAwait(false)
+                : Result<CoreWorkspaceHandle>.Fail(ErrorCode.Unavailable, "The selected Core native host is unavailable; no legacy writer was opened.");
         var origin = await bindings.ResolveAsync(configuration, paths, ct).ConfigureAwait(false);
         if (document.Connection.IdentityRef != CleanCoreAdoAccess.Identity(origin, document.PrincipalId)
             || origin.Identity.AdoPrincipalId is { } principal && principal != document.PrincipalId)
@@ -194,7 +199,11 @@ internal static class CoreWorkspaceRegistration
             }));
         services.AddSingleton(sp => new CoreWorkspaceFactory(configuration, paths,
             sp.GetRequiredService<IConnectionBindingService>(), sp.GetRequiredService<IAuthenticationProvider>(),
-            sp.GetService<CoreTransportOverride>()));
+            sp.GetService<CoreTransportOverride>(), configuration.ResolveWorkItemProviderKind() == "github"
+                ? sp.GetService<CoreGitHubWorkspaceHost>() : null));
+        services.AddSingleton(sp => new CoreGitHubWorkspaceHost(configuration, paths,
+            sp.GetRequiredService<IConnectionBindingService>(), sp.GetService<IGitHubTokenSource>(),
+            sp.GetService<CoreTransportOverride>(), sp.GetService<IBoundedProcessRunner>()));
         return services;
     }
 }

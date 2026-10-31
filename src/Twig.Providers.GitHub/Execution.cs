@@ -17,7 +17,8 @@ public sealed partial class GitHubProvider
             var acquired = await AcquireInputs(bound, schema, proposal, stored, token);
             var errors = Model.Validate(proposal, confirmation, schema.Schema, acquired, schema.Capabilities);
             Check(errors);
-            foreach (var op in proposal.Operations) await Shape(bound, schema, op, Guid.Empty, token);
+            for (var ordinal = 0; ordinal < proposal.Operations.Length; ordinal++)
+                await Shape(bound, schema, proposal, ordinal, Guid.Empty, token);
             if (stored.Proposals.Any(p => p.Digest == proposal.Digest))
                 throw Wire.Refuse(ErrorCode.Conflict, "Retained intent cannot be reset.");
             await bound.Session.ValidateAsync(token);
@@ -40,7 +41,7 @@ public sealed partial class GitHubProvider
             var acquired = await AcquireInputs(bound, schema, proposal, stored, token);
             Check(Model.ValidateEffect(proposal, operation, schema.Schema, acquired, schema.Capabilities));
             var op = proposal.Operations[operation];
-            var shape = await Shape(bound, schema, op, attempt, token);
+            var shape = await Shape(bound, schema, proposal, operation, attempt, token);
             if (op.ExpectedRevision is not null)
             {
                 var latest = await ReadItem(bound, schema, op.Item, token);
@@ -244,6 +245,15 @@ public sealed partial class GitHubProvider
 
     private static StoreSnapshot Mirror(StoreSnapshot stored, QueryPage page, long version)
     {
+        foreach (var item in page.Items)
+        {
+            if (!item.Fields.TryGetValue(Number, out var number) || number.Kind != FieldKind.Integer || number.Number <= 0
+                || page.Items.Any(other => other.Key != item.Key && other.Fields.TryGetValue(Number, out var observed) && observed.Equals(number))
+                || stored.Items.Any(other => other.Key != item.Key && other.Fields.TryGetValue(Number, out var observed) && observed.Equals(number))
+                || stored.Items.Any(other => other.Key == item.Key
+                    && (!other.Fields.TryGetValue(Number, out var observed) || !observed.Equals(number))))
+                throw Wire.Refuse(ErrorCode.Conflict, "Observed issue numbers conflict with retained native identity; no identity was rebound.");
+        }
         var keys = page.Items.Select(i => i.Key).ToHashSet();
         return Copy(stored, version, items: stored.Items.Where(i => !keys.Contains(i.Key)).Concat(page.Items),
             relationships: stored.Relationships.Where(r => r.Origin == RelationshipOrigin.Local

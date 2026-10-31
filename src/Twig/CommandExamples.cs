@@ -50,6 +50,7 @@ internal static class CommandExamples
             "twig init contoso Fabrikam                                             3) initialize the checkout",
             "twig init contoso Fabrikam --binding <id>                               Pin a registered binding for this fresh checkout only",
             "twig init contoso Fabrikam --core-store C:\\isolated\\core.db             Initialize a fresh isolated ADO checkout with a new explicitly bound Core store",
+            "twig init --provider github --host github.com --repository owner/repo --account me --core-store C:\\isolated\\github.db   Bind a fresh Core store using the explicitly selected gh account",
             "twig init --org contoso --project Fabrikam --team \"Team A\"             Initialize with an explicit team",
             "twig init contoso Fabrikam --profile <identity>                        Explicitly declare a compatible released profile (no default)",
             "twig process --refresh                                                 4) verify remote metadata access (refreshes local cache)",

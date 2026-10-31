@@ -3,8 +3,9 @@
 Phase 4 of Epic #1220 adds a standalone `IProvider` over Core and an explicitly
 opened `IStore`, normally the real SQLite adapter. The library references **only
 Core**, targets `net10.0;net11.0`, enables AOT/trim analysis and uses source-generated
-`TwigJsonContext` plus explicit UTF-8 writers. Production commands, credentials,
-legacy storage and migrations are unchanged. This is not a live-command bridge.
+`TwigJsonContext` plus explicit UTF-8 writers. Phase 5 now supplies a narrow native
+Core-host/CLI bridge; legacy storage is neither adopted nor migrated. See the
+[qualified profile and explicit refusals](../../docs/architecture/clean-core-contract.md#qualified-github-cli-spine).
 
 ## Authority and schema evidence
 
@@ -16,6 +17,13 @@ supplies the explicitly selected `Gh` or `GitHubApp` user credential, stable act
 attachment/credential acquisition context and GraphQL endpoint. The adapter verifies
 native viewer, repository and owner IDs and revalidates the host lease. It never
 changes accounts, requests grants, follows redirects or retries mutations.
+
+The CLI keeps integer locators. Read-only `github.number` is discovered from native
+`Issue.number: Int`, observed as a positive integer and included in observation hashes.
+`ReadNumberAsync` resolves inside the immutable repository and completely rereads the
+returned opaque node; it never scans candidates or creates an alias map. Conflicting
+cached numbers/node IDs refuse instead of rebinding. Cache-only command resolution
+uses only this retained metadata and performs zero total HTTP.
 
 The mandatory host `AdmitAsync` runs **after** durable Applying and receives the
 exact proposal, ordinal, attempt, method, endpoint and payload. The host must
@@ -56,9 +64,13 @@ the captured mechanical policy for application enforcement alongside the bound
 field-rule projection. A source acquisition alone is not enforcement or live
 write authority.
 
-**Live command writes are not switched.** Phase 5 must connect the real leased
-admission bridge and captured-policy enforcement explicitly; it cannot invent
-external rules or treat the test seam as a production authority.
+The native host now holds the selected attachment generation lease, validates actual
+configuration/store/policy evidence and requires a durable Applying attempt. Both
+provider shape and host admission use the same pure `GitHubWriteIntent.Project`;
+admission requires exact canonical UTF-8 equality against the retained proposal.
+Fsynced native intent/ack files only attribute transport: the Core journal remains
+the executor/recovery authority. This narrow CLI bridge cannot invent external rules
+or treat the test seam as a production authority.
 Tests supply unmistakably synthetic, test-only policy evidence and HTTP/auth
 boundaries; no live credentials or remote writes qualify this implementation.
 

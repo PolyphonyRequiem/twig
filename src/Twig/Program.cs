@@ -593,6 +593,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             return 1;
         }
 
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ShowBatchAsync(resolved, output, fields, sections, includeFields, ct);
         return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct, fields: fields, sections: sections, includeFields: includeFields);
     }
 

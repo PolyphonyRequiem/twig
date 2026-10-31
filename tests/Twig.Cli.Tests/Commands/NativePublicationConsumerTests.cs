@@ -330,6 +330,19 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             saved.Journal.Where(row => row.Digest == multi.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
             _transport.TitleOf(42).ShouldBe("Saved first draft");
             _transport.TitleOf(43).ShouldBe("Saved second draft");
+            stdout.GetStringBuilder().Clear();
+            var beforeBatchRead = _transport.TotalRequests;
+            (await show.ShowBatch("42,43", output: "json", includeFields: true)).ShouldBe(0, stderr.ToString());
+            using var batchRead = JsonDocument.Parse(stdout.ToString());
+            batchRead.RootElement.GetProperty("items").GetArrayLength().ShouldBe(2);
+            batchRead.RootElement.GetProperty("missingIds").GetArrayLength().ShouldBe(0);
+            _transport.TotalRequests.ShouldBe(beforeBatchRead);
+            stdout.GetStringBuilder().Clear();
+            (await show.ShowBatch("42,99999", output: "json")).ShouldBe(1);
+            using var missingRead = JsonDocument.Parse(stdout.ToString());
+            missingRead.RootElement.GetProperty("items").GetArrayLength().ShouldBe(1);
+            missingRead.RootElement.GetProperty("missingIds")[0].GetInt32().ShouldBe(99999);
+            _transport.TotalRequests.ShouldBe(beforeBatchRead, "missing cached items must not silently trigger network reads");
             (await workspace.StageEditAsync(key,
                 new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Never publish discarded intent"))]), default)).IsSuccess.ShouldBeTrue();
             var beforeDiscard = (await workspace.SnapshotAsync(default)).Value;

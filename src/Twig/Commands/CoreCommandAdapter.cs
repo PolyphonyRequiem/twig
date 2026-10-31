@@ -105,6 +105,64 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal int Delete(string output) => Error(output,
         "Delete is unavailable: the provider cannot prove the required revision-bound deletion precondition. No legacy writer or unqualified delete was used.");
 
+    internal async Task<int> ShowBatchAsync(string batch, string output, string? fields, string? sections,
+        bool includeFields, CancellationToken ct)
+    {
+        if (includeFields && (output != "json" || fields is not null || sections is not null))
+            return Error(output, "--include-fields requires -o json without field/section projection.", 2);
+        if (sections is not null)
+            return Error(output, "Section projection requires the retained hierarchy presentation integration; no partial section was reported as complete.");
+        var segments = batch.Split(',', StringSplitOptions.TrimEntries);
+        var ids = new List<int>();
+        foreach (var segment in segments)
+        {
+            if (!int.TryParse(segment, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
+                return Error(output, "Batch detail requires a nonempty comma-separated list of positive native IDs.", 2);
+            if (ids.Contains(id))
+            {
+                if (includeFields) return Error(output, "--include-fields requires distinct native IDs.", 2);
+                continue;
+            }
+            ids.Add(id);
+        }
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var selected = fields?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+        var rows = new List<RenderRow>();
+        var missing = new List<int>();
+        foreach (var id in ids)
+        {
+            var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
+                id.ToString(CultureInfo.InvariantCulture));
+            var item = snapshot.Value.Items.FirstOrDefault(item => item.Key == key);
+            if (item is null) { missing.Add(id); continue; }
+            rows.Add(new(null, new Dictionary<string, RenderCell>
+            {
+                ["id"] = RenderCell.Integer(id),
+                ["type"] = Cell(item.Fields.TryGetValue("System.WorkItemType", out var type) ? type : FieldValue.String(item.Type)),
+                ["title"] = Cell(item.Fields.TryGetValue("System.Title", out var title) ? title : FieldValue.Null),
+                ["state"] = Cell(item.Fields.TryGetValue("System.State", out var state) ? state : FieldValue.Null),
+                ["revision"] = item.Revision is null ? new("", new RenderValue.Null()) : RenderCell.String(item.Revision.Token),
+                ["cached"] = RenderCell.Boolean(true),
+                ["isDirty"] = RenderCell.Boolean(snapshot.Value.Drafts.Any(draft => draft.Key == key)),
+                ["fields"] = new("Fields", new RenderValue.Object(item.Fields.Where(field => selected is null || selected.Contains(field.Key))
+                    .ToDictionary(field => field.Key, field => Cell(field.Value), StringComparer.Ordinal))),
+            }));
+        }
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Document("batchDetail", [
+            new("count", new RenderNode.KeyValue("count", RenderCell.Integer(rows.Count))),
+            new("missingIds", new RenderNode.KeyValue("missingIds", new("", new RenderValue.Array(missing.Select(id => RenderCell.Integer(id)).ToArray())))),
+            new("items", new RenderNode.Table(null,
+                [new("id", "ID"), new("type", "Type"), new("state", "State"), new("title", "Title")], rows)),
+        ])]));
+        return missing.Count == 0 ? 0 : Error(output, $"Uncached target IDs: {string.Join(", ", missing)}. Use explicit show --refresh for each missing item.");
+    }
+
     internal async Task<int> ShowAsync(int? id, string output, bool tree, bool refresh,
         string? fields, string? sections, string? localId, CancellationToken ct)
     {

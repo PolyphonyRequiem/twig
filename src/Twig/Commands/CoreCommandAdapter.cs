@@ -99,6 +99,119 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
+    internal async Task<int> NavigateAsync(string direction, string? pattern, string output, CancellationToken ct)
+    {
+        if (output != "human") return Error(output, "Structured navigation is refused because it changes interactive context.", 2);
+        var target = await ResolveIdAsync(null, output, ct);
+        if (!target.IsSuccess) return Error(output, target.Error.Message);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var current = target.Value < 0 ? KnownLocalKeys(snapshot.Value).Single(key => LocalAlias(key) == target.Value)
+            : ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, target.Value.ToString(CultureInfo.InvariantCulture));
+        var schema = await workspace.SchemaAsync(ct);
+        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var relations = schema.Value.Relations.Where(relation => relation.Shape == RelationShape.Hierarchy && relation.Directed).ToArray();
+        if (relations.Length != 1) return Error(output, "Navigation requires a unique discovered hierarchy relation.");
+        var hierarchy = relations[0].Reference;
+        if (!current.IsLocal && snapshot.Value.Items.SingleOrDefault(item => item.Key == current)?.RelationshipsComplete != true)
+        {
+            var observed = await workspace.ReadAsync(current, ct);
+            if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+            snapshot = await workspace.SnapshotAsync(ct);
+            if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        }
+        ItemKey Resolve(ItemKey key) => snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        var edges = snapshot.Value.Relationships.Where(edge => !edge.Deleted && edge.Kind == hierarchy)
+            .Select(edge => (From: Resolve(edge.From), To: Resolve(edge.To)))
+            .Concat(snapshot.Value.Drafts.Where(draft => draft.Parent is not null && draft.ParentRelation == hierarchy)
+                .Select(draft => (From: Resolve(draft.Parent!), To: Resolve(draft.Key)))).Distinct().ToArray();
+        var parents = edges.Where(edge => edge.To == current).Select(edge => edge.From).Distinct().ToArray();
+        if (parents.Length > 1) return Error(output, "The active item's parent is ambiguous; no navigation target was guessed.");
+        ItemKey[] candidates;
+        if (direction == "up") candidates = parents;
+        else if (direction == "down") candidates = edges.Where(edge => edge.From == current).Select(edge => edge.To).Distinct().ToArray();
+        else
+        {
+            var siblings = parents.Length == 1 ? edges.Where(edge => edge.From == parents[0]).Select(edge => edge.To)
+                : snapshot.Value.Items.Select(item => item.Key).Concat(snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal).Select(draft => draft.Key))
+                    .Where(key => !edges.Any(edge => edge.To == key));
+            var ordered = siblings.Distinct().OrderBy(key => key.IsLocal ? LocalAlias(key) : int.Parse(key.NativeId!, CultureInfo.InvariantCulture)).ToArray();
+            var index = Array.IndexOf(ordered, current);
+            if (index < 0 || ordered.Length < 2) return Error(output, "No sibling is available for navigation.");
+            candidates = [ordered[(index + (direction == "next" ? 1 : ordered.Length - 1)) % ordered.Length]];
+        }
+        if (pattern is not null)
+            candidates = candidates.Where(key => (key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId) == pattern
+                || snapshot.Value.Items.Where(item => item.Key == key).Select(item => item.Fields.GetValueOrDefault("System.Title")?.Text)
+                    .Concat(snapshot.Value.Drafts.Where(draft => draft.Key == key).Select(draft => draft.Changes.GetValueOrDefault("System.Title")?.Text))
+                    .Any(title => title is not null && System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(
+                        pattern.Contains('*') || pattern.Contains('?') ? pattern : "*" + pattern + "*", title, ignoreCase: true))).ToArray();
+        if (candidates.Length != 1)
+        {
+            foreach (var key in candidates) Console.Error.WriteLine("#" + (key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId));
+            if (candidates.Length > 1 && !consoleInput.IsOutputRedirected)
+            {
+                Console.Write("Choose item ID: ");
+                var choice = consoleInput.ReadLine();
+                candidates = candidates.Where(key => (key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId) == choice).ToArray();
+            }
+        }
+        if (candidates.Length != 1) return Error(output, "No unique navigation target was selected; active context was preserved.");
+        return await SetAsync(candidates[0].IsLocal ? LocalAlias(candidates[0]).ToString(CultureInfo.InvariantCulture) : candidates[0].NativeId!, output, ct);
+    }
+
+    internal async Task<int> MoveHistoryAsync(int direction, string output, CancellationToken ct)
+    {
+        if (output != "human") return Error(output, "Structured history navigation is refused because it changes interactive context.", 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var context = await handle.Workspace.Context.ReadAsync(ct);
+        if (!context.IsSuccess) return Error(output, context.Error.Message);
+        var position = context.Value.Position + direction;
+        if (position < 0 || position >= context.Value.History.Length)
+            return Error(output, "No further active-item history is available.");
+        var selected = context.Value.History[position].Resolve(handle.Workspace.Connection);
+        var snapshot = await handle.Workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var key = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == selected)?.Remote ?? selected;
+        if (key.IsLocal && !snapshot.Value.Drafts.Any(draft => draft.Key == key))
+            return Error(output, "The historical local draft is no longer available; history was preserved.");
+        if (!key.IsLocal && !snapshot.Value.Items.Any(item => item.Key == key))
+        {
+            var observed = await handle.Workspace.ReadAsync(key, ct);
+            if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+        }
+        var saved = await handle.Workspace.Context.WriteAsync(context.Value, context.Value with { Position = position }, ct);
+        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text(
+            $"#{(key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId)} selected from history.", Severity.Success)]));
+        return 0;
+    }
+
+    internal async Task<int> NavigationHistoryAsync(string output, CancellationToken ct)
+    {
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var context = await handle.Workspace.Context.ReadAsync(ct);
+        if (!context.IsSuccess) return Error(output, context.Error.Message);
+        var rows = context.Value.History.Select((key, index) => new RenderRow("navigationHistory",
+            new Dictionary<string, RenderCell>
+            {
+                ["position"] = RenderCell.Integer(index), ["active"] = RenderCell.Boolean(index == context.Value.Position),
+                ["localId"] = key.LocalId is { } local ? RenderCell.String(local.ToString("D")) : new("", new RenderValue.Null()),
+                ["nativeId"] = key.NativeId is { } native ? RenderCell.String(native) : new("", new RenderValue.Null()),
+            })).ToArray();
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table(null,
+            [new("position", "Position"), new("nativeId", "Native ID"), new("localId", "Local UUID"), new("active", "Active")], rows)]));
+        return 0;
+    }
+
     internal async Task<int> SaveAsync(int? id, bool all, string output, CancellationToken ct)
     {
         if (id is null && !all)

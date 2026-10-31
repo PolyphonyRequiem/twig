@@ -130,8 +130,40 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             (await commands.Update("System.Title", "must not adopt context", output: "human")).ShouldBe(1);
             _transport.WorkRequests.ShouldBe(reads);
             _transport.CommittedWrites.ShouldBe(2);
+            await File.WriteAllTextAsync(Path.Combine(paths.RepoRoot, ".twig", "core-context.json"),
+                JsonSerializer.Serialize(selection, CoreContextJsonContext.Default.CoreContextDocument));
+            var children = new List<int>();
+            var childKeys = new List<Guid>();
+            foreach (var title in new[] { "Navigation child one", "Navigation child two" })
+            {
+                stdout.GetStringBuilder().Clear();
+                (await commands.SeedNew(title: title, type: "Task", parent: 42, output: "json")).ShouldBe(0, stderr.ToString());
+                using var child = JsonDocument.Parse(stdout.ToString());
+                children.Add(child.RootElement.GetProperty("id").GetInt32());
+                childKeys.Add(Guid.Parse(child.RootElement.GetProperty("localId").GetString()!));
+            }
+            (await commands.NavDown(children[0].ToString(CultureInfo.InvariantCulture), "json")).ShouldBe(2);
+            (await commands.NavDown(children[0].ToString(CultureInfo.InvariantCulture), "human")).ShouldBe(0, stderr.ToString());
+            (await commands.NavNext("human")).ShouldBe(0, stderr.ToString());
+            var siblingSelection = (await admitted.Workspace.Context.ReadAsync(default)).Value;
+            siblingSelection.History[siblingSelection.Position].LocalId.ShouldBe(childKeys[1]);
+            (await commands.NavPrev("human")).ShouldBe(0, stderr.ToString());
+            (await commands.NavUp("human")).ShouldBe(0, stderr.ToString());
+            (await commands.NavBack("human")).ShouldBe(0, stderr.ToString());
+            (await commands.NavFore("human")).ShouldBe(0, stderr.ToString());
+            var returned = (await admitted.Workspace.Context.ReadAsync(default)).Value;
+            returned.History[returned.Position].NativeId.ShouldBe("42");
+            stdout.GetStringBuilder().Clear();
+            var beforeHistory = _transport.WorkRequests;
+            (await commands.NavHistory(nonInteractive: true, output: "json")).ShouldBe(0, stderr.ToString());
+            using var history = JsonDocument.Parse(stdout.ToString());
+            history.RootElement.GetArrayLength().ShouldBeGreaterThanOrEqualTo(5);
+            _transport.WorkRequests.ShouldBe(beforeHistory);
+            _transport.CommittedWrites.ShouldBe(2, "context/navigation must not reach any tracker writer");
             root.GetService<EditCommand>().ShouldBeNull();
             root.GetService<SetCommand>().ShouldBeNull();
+            root.GetService<NavigationCommands>().ShouldBeNull();
+            root.GetService<NavigationHistoryCommands>().ShouldBeNull();
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
         }

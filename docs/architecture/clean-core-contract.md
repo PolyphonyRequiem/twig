@@ -148,7 +148,13 @@ selection use a separately persisted, source-generated host context bound to the
 admitted connection and SQLite instance, not the old context/writer database.
 Structured selection and active-dependent mutation remain refused; human update,
 edit, show, note, save and state can resolve that selected identity. Incompatible
-context is preserved and refused rather than adopted. Navigation/history UI and
+context is preserved and refused rather than adopted. Human hierarchy navigation
+(`up/down/next/prev`, including `nav` aliases) now discovers the canonical hierarchy
+and selects from the Core mirror plus explicit creation-bound parent intent.
+History back/forward retain the original local UUIDs and never change proposal
+identity; structured history inspection is read-only. None of these routes registers
+the legacy navigation/context repositories or tracker writer. Interactive navigation,
+native work-item history, hierarchy/detail presentation and
 complete lifecycle/UI retention remain unfinished. These gaps prevent phase-5 delivery.
 
 The retained artifact-link path now has a typed `LinkResource` effect and

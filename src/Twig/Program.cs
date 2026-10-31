@@ -752,7 +752,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav up")]
     public async Task<int> NavUp(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigateAsync("up", null, output, ct);
+        return await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
+    }
 
     /// <summary>Launch the interactive tree navigator.</summary>
     [Command("nav")]
@@ -764,70 +767,88 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav down")]
     public async Task<int> NavDown([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigateAsync("down", idOrPattern, output, ct);
+        return await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
+    }
 
     /// <summary>Navigate to the next sibling work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav next")]
     public async Task<int> NavNext(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigateAsync("next", null, output, ct);
+        return await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
+    }
 
     /// <summary>Navigate to the previous sibling work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav prev")]
     public async Task<int> NavPrev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigateAsync("prev", null, output, ct);
+        return await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
+    }
 
     /// <summary>Navigate backward in navigation history.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav back")]
     public async Task<int> NavBack(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().BackAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.MoveHistoryAsync(-1, output, ct);
+        return await services.GetRequiredService<NavigationHistoryCommands>().BackAsync(output, ct);
+    }
 
     /// <summary>Navigate forward in navigation history.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav fore")]
     public async Task<int> NavFore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.MoveHistoryAsync(1, output, ct);
+        return await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
+    }
 
     /// <summary>Display the navigation history.</summary>
     /// <param name="nonInteractive">Skip interactive selection and print the history list.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav history")]
     public async Task<int> NavHistory(bool nonInteractive = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().HistoryAsync(nonInteractive, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigationHistoryAsync(output, ct);
+        return await services.GetRequiredService<NavigationHistoryCommands>().HistoryAsync(nonInteractive, output, ct);
+    }
 
     // ── Backward-compat aliases (bare up/down/next/prev/back/fore/history) ─
 
     /// <summary>Navigate to the parent work item (alias for nav up).</summary>
     [Hidden]
     public async Task<int> Up(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
+        => await NavUp(output, ct);
 
     /// <summary>Navigate to a child work item (alias for nav down).</summary>
     [Hidden]
     public async Task<int> Down([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
+        => await NavDown(idOrPattern, output, ct);
 
     /// <summary>Navigate to the next sibling work item (alias for nav next).</summary>
     [Hidden]
     public async Task<int> Next(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
+        => await NavNext(output, ct);
 
     /// <summary>Navigate to the previous sibling work item (alias for nav prev).</summary>
     [Hidden]
     public async Task<int> Prev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
+        => await NavPrev(output, ct);
 
     /// <summary>Navigate backward in navigation history (alias for nav back).</summary>
     [Hidden]
     public async Task<int> Back(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().BackAsync(output, ct);
+        => await NavBack(output, ct);
 
     /// <summary>Navigate forward in navigation history (alias for nav fore).</summary>
     [Hidden]
     public async Task<int> Fore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
+        => await NavFore(output, ct);
 
     /// <summary>Show the revision history for a work item.</summary>
     /// <param name="id">Work item ID whose history to display (required).</param>

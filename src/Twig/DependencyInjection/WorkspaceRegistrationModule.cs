@@ -39,7 +39,8 @@ internal static class WorkspaceRegistrationModule
             services.AddSingleton(sp => new CoreCommandAdapter(sp.GetRequiredService<CoreWorkspaceFactory>(),
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
                 sp.GetRequiredService<Twig.Domain.Interfaces.IConsoleInput>(),
-                sp.GetRequiredService<Twig.Domain.Interfaces.IEditorLauncher>()));
+                sp.GetRequiredService<Twig.Domain.Interfaces.IEditorLauncher>(),
+                sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>()));
             return services;
         }
         services.AddConnectionServices(config, twigDir, startDir);

@@ -1247,13 +1247,17 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     }
 
 
-    /// <summary>Flush pending changes then refresh the local cache.</summary>
+    /// <summary>Save retained remote drafts through the proposal journal, then pull the selected Bench.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="pullOnly">Skip the flush phase and only pull from the active provider. Required for GitHub.</param>
+    /// <param name="pullOnly">Skip draft publication and only pull the selected Bench from the active provider. Default false; required for legacy GitHub.</param>
     public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool pullOnly = false, CancellationToken ct = default)
-        => services.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind() == "github"
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SyncAsync(output, pullOnly, ct);
+        return services.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind() == "github"
             ? await services.GetRequiredService<ProviderSyncCommand>().ExecuteAsync(output, pullOnly, ct)
             : await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, pullOnly, ct);
+    }
 
     /// <summary>Refresh the local cache from the active provider. Routes through sync --pull-only.</summary>
     [Hidden]
@@ -1347,7 +1351,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
     [Command("workspace sync")]
     public async Task<int> WorkspaceSync(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchSyncCommand>().ExecuteAsync(output, expectBench, expectBinding, expectIdentity, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SyncAsync(output, true, ct, true, expectBench, expectBinding, expectIdentity);
+        return await services.GetRequiredService<BenchSyncCommand>().ExecuteAsync(output, expectBench, expectBinding, expectIdentity, ct);
+    }
 
     /// <summary>Exclude a work item from workspace view.</summary>
     /// <param name="id">Work item ID to exclude.</param>

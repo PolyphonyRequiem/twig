@@ -345,8 +345,8 @@ internal static class CommandExamples
         ],
         ["sync"] =
         [
-            "twig sync                  Sync the working set from ADO",
-            "twig sync --pull-only      Skip the flush phase and only pull from ADO",
+            "twig sync                  Save retained remote drafts, then pull the selected Bench",
+            "twig sync --pull-only -o json  Pull selected scope without publishing drafts; emit one JSON result",
         ],
         ["workspace"] =
         [
@@ -369,7 +369,7 @@ internal static class CommandExamples
         ["workspace sync"] =
         [
             "twig workspace sync                    Pull only the current Bench scope, without flushing edits",
-            "twig workspace sync --expect-bench 7 -o json  Pull only if the captured Bench is still current",
+            "twig workspace sync --expect-bench <captured-bench-id> -o json  Pull only if the captured Bench is still current",
         ],
         ["workspace track"] =
         [

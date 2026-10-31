@@ -188,8 +188,23 @@ both explicit pin kinds when mode is omitted, and reports an absent pin as an
 explicit unchanged result without advancing the store version. Removing a
 subtree selector does not require current hierarchy discovery. Pinning an
 uncached target reselects the current captured-ID Bench after the native read,
-so concurrent selectors are not overwritten. Browser origin/settings envelopes,
-scoped Bench pull and the complete workspace/UI surface remain unfinished.
+so concurrent selectors are not overwritten. Browser origin/settings envelopes
+and the complete workspace/UI surface remain unfinished.
+
+Core `workspace sync`, `sync --pull-only` and the retained `refresh` alias now pull
+the selected Bench's captured query/pin/subtree scope. Existing draft debt is
+always protected; native mirrors can refresh without rewriting draft baselines,
+changes or journals. Machine pulls do not add the interactive active item or its
+context. Human pulls use configured ancestor/child/sideways depths. Unknown
+hierarchies, cycles, incomplete observations or changed Bench selection/selectors
+refuse a complete-pull claim while preserving earlier cached observations.
+Normal Core `sync` saves remote drafts through the same ordered proposal and
+verification path as explicit `save`, then pulls the selected scope; it does not
+publish local seeds. It emits one machine result rather than streaming separate
+save/pull documents. Missing or stale selected scope refuses before draft
+publication. Optional sync telemetry contains only generic command metadata and
+cannot change command outcomes. Remaining workspace rendering, captured browser
+admission, GitHub host and UI routes still prevent phase-5 completion.
 
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not

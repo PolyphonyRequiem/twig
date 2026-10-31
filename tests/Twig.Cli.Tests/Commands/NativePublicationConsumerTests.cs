@@ -69,6 +69,192 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreBenchPullKeepsDraftDebtAndExcludesImplicitMachineActiveContext()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        foreach (var id in new[] { 40, 42, 44, 45, 90, 91 })
+            _transport.SetItem(id, "native " + id.ToString(CultureInfo.InvariantCulture), 1, Actor);
+        _transport.SetHierarchy(40, 42);
+        _transport.SetHierarchy(42, 44);
+        _transport.SetHierarchy(90, 91);
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "scoped-pull-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["workspace", "sync", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        root.GetRequiredService<TwigConfiguration>().Display.TreeDepthUp = 1;
+        root.GetRequiredService<TwigConfiguration>().Display.TreeDepthDown = 1;
+        root.GetRequiredService<TwigConfiguration>().Display.TreeDepthSideways = 0;
+        using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var commands = new TwigCommands(root);
+            (await commands.BenchCreate("Scoped pull", "json")).ShouldBe(0, stderr.ToString());
+            (await commands.BenchSwitch("Scoped pull", "json")).ShouldBe(0, stderr.ToString());
+            (await commands.WorkspaceTrackTree(42, "json")).ShouldBe(0, stderr.ToString());
+            (await commands.Set("90", "human")).ShouldBe(0, stderr.ToString());
+            var debt = (await admitted.Workspace.ReadAsync(CoreModel.ItemKey.Remote(connection.Provider,
+                connection.ResourceScope, "45"), default)).Value;
+            var local = CoreModel.ItemKey.Local(Guid.NewGuid());
+            var changes = new CoreModel.FieldValues([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("local debt"))]);
+            var state = (await store.ReadAsync(connection, default)).Value;
+            (await store.CommitAsync(connection, state.Version, new(state.Version + 1, state.Items, state.Relationships,
+                [new(debt.Key, debt.Type, debt, changes),
+                    new(local, "Task", null, new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("seed debt")),
+                        KeyValuePair.Create("System.State", CoreModel.FieldValue.String("To Do"))]))],
+                state.Proposals, state.Journal, state.Mappings, state.Benches), default)).IsSuccess.ShouldBeTrue();
+            _transport.SetItem(45, "new native debt value", 2, Actor);
+            _transport.ItemReadIds.Clear();
+            stdout.GetStringBuilder().Clear();
+            (await commands.WorkspaceSync("json")).ShouldBe(0, stderr.ToString());
+            using var pulled = JsonDocument.Parse(stdout.ToString());
+            pulled.RootElement.GetProperty("itemCount").GetInt32().ShouldBe(4);
+            pulled.RootElement.GetProperty("memberCount").GetInt32().ShouldBe(3);
+            pulled.RootElement.GetProperty("itemsFlushed").GetInt32().ShouldBe(0);
+            _transport.ItemReadIds.ShouldContain(40);
+            _transport.ItemReadIds.ShouldContain(42);
+            _transport.ItemReadIds.ShouldContain(44);
+            _transport.ItemReadIds.ShouldContain(45);
+            _transport.ItemReadIds.ShouldNotContain(90);
+            _transport.ItemReadIds.ShouldNotContain(91);
+            var retained = (await store.ReadAsync(connection, default)).Value;
+            retained.Drafts.Single(draft => draft.Key == debt.Key).Baseline!.Fields["System.Title"].Text.ShouldBe("native 45");
+            retained.Drafts.Single(draft => draft.Key == debt.Key).Changes.ShouldBe(changes);
+            retained.Drafts.ShouldContain(draft => draft.Key == local);
+            retained.Items.Single(item => item.Key == debt.Key).Fields["System.Title"].Text.ShouldBe("new native debt value");
+            retained.Journal.ShouldBeEmpty();
+            _transport.CommittedWrites.ShouldBe(0);
+            _transport.ItemReadIds.Clear();
+            stdout.GetStringBuilder().Clear();
+            (await commands.Refresh("human")).ShouldBe(0, stderr.ToString());
+            _transport.ItemReadIds.ShouldContain(90);
+            _transport.ItemReadIds.ShouldContain(91);
+            _transport.CommittedWrites.ShouldBe(0);
+            _transport.ItemReadIds.Clear();
+            var added = new CoreModel.Selector(CoreModel.SelectorKind.Pin,
+                CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "90"));
+            _transport.BeforeItemReadResponse = async () =>
+            {
+                var current = (await store.ReadAsync(connection, default)).Value;
+                var selected = current.Benches.Single();
+                (await store.CommitAsync(connection, current.Version,
+                    new(current.Version + 1, current.Items, current.Relationships, current.Drafts,
+                        current.Proposals, current.Journal, current.Mappings,
+                        [new(selected.Id, selected.Name, selected.Selectors.Add(added))]),
+                    default)).IsSuccess.ShouldBeTrue();
+            };
+            (await commands.WorkspaceSync("json")).ShouldBe(1, "a changed selector set cannot broaden the captured pull");
+            (await store.ReadAsync(connection, default)).Value.Benches.Single().Selectors.ShouldContain(added);
+            _transport.ItemReadIds.ShouldNotContain(90);
+            _transport.ItemReadIds.ShouldNotContain(91);
+            _transport.CommittedWrites.ShouldBe(0);
+            root.GetService<SyncCommand>().ShouldBeNull();
+            root.GetService<BenchSyncCommand>().ShouldBeNull();
+            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task CoreSyncUsesOneProposalAndOneJsonResultWithSafeOptionalTelemetry()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "sync-save-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        var telemetry = Substitute.For<ITelemetryClient>();
+        services.AddSingleton(telemetry);
+        services.AddTwigWorkspaceServices(paths.StartDir, ["sync", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var commands = new TwigCommands(root);
+            (await commands.Sync("json")).ShouldBe(1);
+            _transport.CommittedWrites.ShouldBe(0);
+            (await commands.BenchCreate("Save then pull", "json")).ShouldBe(0, stderr.ToString());
+            (await commands.BenchSwitch("Save then pull", "json")).ShouldBe(0, stderr.ToString());
+            (await commands.WorkspaceTrack(42, "json")).ShouldBe(0, stderr.ToString());
+            var state = (await store.ReadAsync(connection, default)).Value;
+            var baseline = state.Items.Single(item => item.Key.NativeId == "42");
+            var changes = new CoreModel.FieldValues([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("saved by sync"))]);
+            (await store.CommitAsync(connection, state.Version, new(state.Version + 1, state.Items, state.Relationships,
+                [new(baseline.Key, baseline.Type, baseline, changes)], state.Proposals, state.Journal,
+                state.Mappings, state.Benches), default)).IsSuccess.ShouldBeTrue();
+            (await commands.WorkspaceSync("json", expectBench: Guid.NewGuid().ToString("D"))).ShouldBe(1);
+            _transport.CommittedWrites.ShouldBe(0);
+            stdout.GetStringBuilder().Clear();
+            stderr.GetStringBuilder().Clear();
+            telemetry.ClearReceivedCalls();
+            (await commands.Sync("json")).ShouldBe(0, stderr.ToString());
+            using var result = JsonDocument.Parse(stdout.ToString());
+            result.RootElement.GetProperty("itemsFlushed").GetInt32().ShouldBe(1);
+            var digest = result.RootElement.GetProperty("digest").GetString().ShouldNotBeNull();
+            var retained = (await store.ReadAsync(connection, default)).Value;
+            retained.Journal.Single().Digest.ShouldBe(digest);
+            retained.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            retained.Drafts.ShouldBeEmpty();
+            _transport.TitleOf(42).ShouldBe("saved by sync");
+            _transport.CommittedWrites.ShouldBe(1);
+            var call = telemetry.ReceivedCalls().ShouldHaveSingleItem();
+            var properties = ((Dictionary<string, string>)call.GetArguments()[1]!).ShouldNotBeNull();
+            properties["command"].ShouldBe("sync");
+            properties["exit_code"].ShouldBe("0");
+            properties["output_format"].ShouldBe("json");
+            properties.Keys.ShouldAllBe(key => new[] { "command", "exit_code", "output_format", "twig_version", "os_platform", "operation_id" }.Contains(key));
+            properties.Values.ShouldNotContain(Actor);
+            properties.Values.ShouldNotContain("Save then pull");
+            telemetry.WhenForAnyArgs(client => client.TrackEvent(default!, default, default))
+                .Do(_ => throw new InvalidOperationException("synthetic telemetry failure"));
+            stdout.GetStringBuilder().Clear();
+            (await commands.Sync("json", pullOnly: true)).ShouldBe(0, stderr.ToString());
+            using var repeated = JsonDocument.Parse(stdout.ToString());
+            repeated.RootElement.GetProperty("itemsFlushed").GetInt32().ShouldBe(0);
+            _transport.CommittedWrites.ShouldBe(1);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreBenchCrudPreservesSelectorKindsAndNeverResolvesLegacyWriters()
     {
         var native = await AttachAsync();
@@ -1747,6 +1933,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         public int PatchAttempts { get; private set; }
         public int ReadbacksAfterCommit { get; private set; }
         public List<int> QueryAfterIds { get; } = [];
+        public List<int> ItemReadIds { get; } = [];
         public bool RejectNextPatch { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
         public Func<Task>? BeforeReadback { get; set; }
@@ -1767,6 +1954,13 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             var item = new Item(title, revision, principal, prior?.History ?? "", prior?.Resources ?? [], prior?.State ?? "To Do");
             _items[id] = item;
             _history[(id, revision)] = item;
+        }
+        public void SetHierarchy(int parent, int child)
+        {
+            if (!_links.TryGetValue(parent, out var children)) _links[parent] = children = [];
+            if (!_links.TryGetValue(child, out var parents)) _links[child] = parents = [];
+            children.Add(("Native.ParentForward", child));
+            parents.Add(("Native.ParentReverse", parent));
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -1933,6 +2127,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 BeforeItemReadResponse = null;
                 await beforeItemRead();
             }
+            if (request.Method == HttpMethod.Get) ItemReadIds.Add(id);
             if (request.Method == HttpMethod.Get && CommittedWrites > 0)
             {
                 ReadbacksAfterCommit++;

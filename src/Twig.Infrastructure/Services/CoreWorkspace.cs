@@ -7,6 +7,7 @@ using Model = Twig.Core.Core;
 namespace Twig.Infrastructure.Services;
 
 internal sealed record CoreDraftPreview(Draft Draft, Proposal? Proposal);
+internal sealed record CoreBenchPull(Bench Bench, int ItemCount, int MemberCount, int ContextCount, int ProtectedCount);
 internal sealed record CoreExecution(ImmutableArray<Receipt> Receipts, Error? Error = null,
     bool AlreadyVerified = false, bool DraftRetained = false)
 {
@@ -67,6 +68,181 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
                 return Result<QueryPage>.Ok(new(items.ToImmutableArray(), relationships.ToImmutableArray(), continuation, page.Value.Complete));
         }
     }
+
+    internal async Task<Result<CoreBenchPull>> PullBenchAsync(string? expectedBench, bool includeActiveContext,
+        int depthUp, int depthDown, int depthSideways, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var context = await Context.ReadAsync(ct).ConfigureAwait(false);
+        if (!context.IsSuccess) return Result<CoreBenchPull>.Fail(context.Error);
+        var initial = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!initial.IsSuccess) return Result<CoreBenchPull>.Fail(initial.Error);
+        var bench = initial.Value.Benches.SingleOrDefault(value => value.Id == context.Value.BenchId);
+        if (bench is null)
+            return Result<CoreBenchPull>.Fail(ErrorCode.NotFound, "Select an existing Core Bench before pulling its scope.");
+        if (expectedBench is not null && (!Guid.TryParse(expectedBench, out var expectedId) || expectedId != bench.Id))
+            return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "The captured current Bench changed; no scope was pulled.");
+        var schema = await SchemaAsync(ct).ConfigureAwait(false);
+        if (!schema.IsSuccess) return Result<CoreBenchPull>.Fail(schema.Error);
+        var fetched = new HashSet<ItemKey>();
+        var members = new HashSet<ItemKey>();
+        var targets = initial.Value.Drafts.Select(draft => Resolve(initial.Value, draft.Key)).ToHashSet();
+        foreach (var selector in bench.Selectors)
+        {
+            if (selector.Kind != SelectorKind.Query)
+            {
+                targets.Add(Resolve(initial.Value, selector.Item!));
+                members.Add(Resolve(initial.Value, selector.Item!));
+                continue;
+            }
+            foreach (var item in initial.Value.Items)
+            {
+                var match = Model.Matches(selector.Query!, item);
+                if (!match.IsSuccess) return Result<CoreBenchPull>.Fail(match.Error);
+                if (match.Value) targets.Add(item.Key);
+            }
+            var queried = await QueryAsync(selector.Query!, ct).ConfigureAwait(false);
+            if (!queried.IsSuccess) return Result<CoreBenchPull>.Fail(queried.Error);
+            if (!queried.Value.Complete || queried.Value.Continuation is not null)
+                return Result<CoreBenchPull>.Fail(ErrorCode.Unavailable, "The selected Bench query was not exhausted; earlier observations remain cached.");
+            fetched.UnionWith(queried.Value.Items.Select(item => item.Key));
+        }
+        ItemKey? active = includeActiveContext && context.Value.Position >= 0
+            ? context.Value.History[context.Value.Position].Resolve(connection) : null;
+        if (active is not null) targets.Add(Resolve(initial.Value, active));
+        foreach (var key in targets)
+        {
+            var observed = await Fetch(key).ConfigureAwait(false);
+            if (!observed.IsSuccess) return Result<CoreBenchPull>.Fail(observed.Error);
+        }
+        foreach (var selector in bench.Selectors.Where(value => value.Kind == SelectorKind.Subtree))
+        {
+            if (!schema.Value.Relations.Any(kind => kind.Reference == selector.HierarchyRelation
+                && kind.Shape == RelationShape.Hierarchy && kind.Directed))
+                return Result<CoreBenchPull>.Fail(ErrorCode.Unsupported, "The subtree selector's declared hierarchy is unavailable.");
+            var expanded = await Children(selector.Item!, selector.HierarchyRelation!, int.MaxValue, true).ConfigureAwait(false);
+            if (!expanded.IsSuccess) return Result<CoreBenchPull>.Fail(expanded.Error);
+        }
+        var hierarchies = schema.Value.Relations.Where(kind => kind.Shape == RelationShape.Hierarchy && kind.Directed).ToArray();
+        if (hierarchies.Length > 1 && (depthUp > 0 || active is not null && (depthDown > 0 || depthSideways > 0)))
+            return Result<CoreBenchPull>.Fail(ErrorCode.Unsupported, "Automatic context expansion requires one discovered hierarchy; no kind was guessed.");
+        if (hierarchies.Length == 1)
+        {
+            var hierarchy = hierarchies[0].Reference;
+            if (active is not null)
+            {
+                var expanded = await Children(active, hierarchy, Math.Max(0, depthDown), false).ConfigureAwait(false);
+                if (!expanded.IsSuccess) return Result<CoreBenchPull>.Fail(expanded.Error);
+            }
+            var roots = fetched.Concat(targets).Distinct().ToArray();
+            foreach (var root in roots)
+            {
+                var path = new HashSet<ItemKey>();
+                var current = root;
+                for (var depth = 0; depth < Math.Max(0, depthUp); depth++)
+                {
+                    var state = await SnapshotAsync(ct).ConfigureAwait(false);
+                    if (!state.IsSuccess) return Result<CoreBenchPull>.Fail(state.Error);
+                    current = Resolve(state.Value, current);
+                    if (!path.Add(current)) return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "A hierarchy cycle prevents context expansion.");
+                    var parents = ParentKeys(state.Value, current, hierarchy).ToArray();
+                    if (parents.Length > 1) return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "Multiple parents prevent an unambiguous context pull.");
+                    if (parents.Length == 0) break;
+                    current = parents[0];
+                    if (path.Contains(current)) return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "A hierarchy cycle prevents context expansion.");
+                    var observed = await Fetch(current).ConfigureAwait(false);
+                    if (!observed.IsSuccess) return Result<CoreBenchPull>.Fail(observed.Error);
+                }
+            }
+            if (active is not null && depthSideways > 0)
+            {
+                var state = await SnapshotAsync(ct).ConfigureAwait(false);
+                if (!state.IsSuccess) return Result<CoreBenchPull>.Fail(state.Error);
+                foreach (var parent in ParentKeys(state.Value, Resolve(state.Value, active), hierarchy))
+                {
+                    var expanded = await Children(parent, hierarchy, depthSideways, false).ConfigureAwait(false);
+                    if (!expanded.IsSuccess) return Result<CoreBenchPull>.Fail(expanded.Error);
+                }
+            }
+        }
+        var final = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!final.IsSuccess) return Result<CoreBenchPull>.Fail(final.Error);
+        var finalContext = await Context.ReadAsync(ct).ConfigureAwait(false);
+        if (!finalContext.IsSuccess) return Result<CoreBenchPull>.Fail(finalContext.Error);
+        var retained = final.Value.Benches.SingleOrDefault(value => value.Id == bench.Id);
+        if (finalContext.Value.BenchId != bench.Id || retained is null || !SameBench(bench, retained))
+            return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "Bench selection or selectors changed during pull; newer scope and cached observations were preserved.");
+        members.UnionWith(final.Value.Drafts.Select(draft => Resolve(final.Value, draft.Key)));
+        foreach (var selector in bench.Selectors.Where(value => value.Kind == SelectorKind.Query))
+            foreach (var item in final.Value.Items)
+            {
+                var match = Model.Matches(selector.Query!, item);
+                if (!match.IsSuccess) return Result<CoreBenchPull>.Fail(match.Error);
+                if (match.Value) members.Add(item.Key);
+            }
+        var memberCount = fetched.Count(members.Contains);
+        return Result<CoreBenchPull>.Ok(new(bench, fetched.Count, memberCount, fetched.Count - memberCount,
+            final.Value.Drafts.Count(draft => draft.Key.IsLocal || fetched.Contains(Resolve(final.Value, draft.Key)))));
+
+        async Task<Result<bool>> Fetch(ItemKey key)
+        {
+            var state = await SnapshotAsync(ct).ConfigureAwait(false);
+            if (!state.IsSuccess) return Result<bool>.Fail(state.Error);
+            key = Resolve(state.Value, key);
+            if (key.IsLocal)
+                return state.Value.Drafts.Any(draft => draft.Key == key) ? Result<bool>.Ok(true)
+                    : Result<bool>.Fail(ErrorCode.Unavailable, "An explicitly scoped local item is unavailable.");
+            if (fetched.Contains(key)) return Result<bool>.Ok(true);
+            var read = await ReadAsync(key, ct).ConfigureAwait(false);
+            if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
+            if (!read.Value.RelationshipsComplete
+                || provider.Capabilities.Operations.Contains(OpKind.LinkResource) && !read.Value.ResourcesComplete)
+                return Result<bool>.Fail(ErrorCode.Unavailable, "Scoped item incident/resource evidence is incomplete; no complete pull is claimed.");
+            fetched.Add(key);
+            return Result<bool>.Ok(true);
+        }
+
+        async Task<Result<bool>> Children(ItemKey root, string hierarchy, int maximumDepth, bool asMembers)
+        {
+            var queue = new Queue<(ItemKey Key, int Depth)>();
+            var visited = new HashSet<ItemKey>();
+            queue.Enqueue((root, 0));
+            while (queue.TryDequeue(out var entry))
+            {
+                var state = await SnapshotAsync(ct).ConfigureAwait(false);
+                if (!state.IsSuccess) return Result<bool>.Fail(state.Error);
+                var key = Resolve(state.Value, entry.Key);
+                if (!visited.Add(key)) return Result<bool>.Fail(ErrorCode.Conflict, "A hierarchy cycle or repeated descendant prevents a complete subtree pull.");
+                var observed = await Fetch(key).ConfigureAwait(false);
+                if (!observed.IsSuccess) return observed;
+                if (asMembers) members.Add(key);
+                if (entry.Depth >= maximumDepth) continue;
+                state = await SnapshotAsync(ct).ConfigureAwait(false);
+                if (!state.IsSuccess) return Result<bool>.Fail(state.Error);
+                foreach (var child in ChildKeys(state.Value, key, hierarchy))
+                    queue.Enqueue((child, entry.Depth + 1));
+            }
+            return Result<bool>.Ok(true);
+        }
+    }
+
+    private static IEnumerable<ItemKey> ChildKeys(StoreSnapshot state, ItemKey parent, string hierarchy)
+        => state.Relationships.Where(edge => !edge.Deleted && edge.Kind == hierarchy && Resolve(state, edge.From) == parent)
+            .Select(edge => Resolve(state, edge.To)).Concat(state.Drafts.Where(draft => draft.Key.IsLocal
+                && !state.Mappings.Any(mapping => mapping.Local == draft.Key) && draft.Parent is not null
+                && draft.ParentRelation == hierarchy && Resolve(state, draft.Parent) == parent).Select(draft => draft.Key)).Distinct();
+
+    private static IEnumerable<ItemKey> ParentKeys(StoreSnapshot state, ItemKey child, string hierarchy)
+        => state.Relationships.Where(edge => !edge.Deleted && edge.Kind == hierarchy && Resolve(state, edge.To) == child)
+            .Select(edge => Resolve(state, edge.From)).Concat(state.Drafts.Where(draft => draft.Key == child
+                && draft.Parent is not null && draft.ParentRelation == hierarchy).Select(draft => Resolve(state, draft.Parent!))).Distinct();
+
+    private static bool SameBench(Bench left, Bench right) => left.Id == right.Id && left.Name == right.Name
+        && left.Selectors.Length == right.Selectors.Length && left.Selectors.Zip(right.Selectors).All(pair =>
+            pair.First.Kind == pair.Second.Kind && pair.First.Item == pair.Second.Item
+            && pair.First.HierarchyRelation == pair.Second.HierarchyRelation
+            && (pair.First.Query is null ? pair.Second.Query is null
+                : pair.Second.Query is not null && Model.QueryBytes(pair.First.Query).SequenceEqual(Model.QueryBytes(pair.Second.Query))));
 
     internal async Task<Result<Proposal>> PrepareAsync(IEnumerable<Op> operations, CancellationToken ct)
     {

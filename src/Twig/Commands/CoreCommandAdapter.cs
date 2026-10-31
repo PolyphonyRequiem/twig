@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Twig.Core;
@@ -10,7 +11,8 @@ using Twig.Rendering;
 namespace Twig.Commands;
 
 internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererFactory renderer,
-    Twig.Domain.Interfaces.IConsoleInput consoleInput, Twig.Domain.Interfaces.IEditorLauncher editorLauncher)
+    Twig.Domain.Interfaces.IConsoleInput consoleInput, Twig.Domain.Interfaces.IEditorLauncher editorLauncher,
+    Twig.Domain.Interfaces.ITelemetryClient? telemetry = null)
 {
     private async Task<Result<int>> ResolveIdAsync(int? id, string output, CancellationToken ct)
     {
@@ -579,17 +581,24 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
+        var saved = await SaveRemoteDraftsAsync(workspace, id, all, ct);
+        return saved.IsSuccess ? SaveResult(output, saved.Value.Count, saved.Value.Digest) : Error(output, saved.Error.Message);
+    }
+
+    private static async Task<Result<(int Count, string? Digest)>> SaveRemoteDraftsAsync(
+        CoreWorkspace workspace, int? id, bool all, CancellationToken ct)
+    {
         var snapshot = await workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        if (!snapshot.IsSuccess) return Result<(int, string?)>.Fail(snapshot.Error);
         var drafts = snapshot.Value.Drafts.Where(draft => !draft.Key.IsLocal
             && (all || draft.Key.NativeId == id!.Value.ToString(CultureInfo.InvariantCulture))).ToArray();
-        if (drafts.Length == 0) return SaveResult(output, 0, null);
+        if (drafts.Length == 0) return Result<(int, string?)>.Ok((0, null));
         var captures = new List<CoreDraftPreview>();
         var operations = new List<Op>();
         foreach (var draft in drafts)
         {
             var preview = await workspace.PreviewDraftAsync(draft.Key, ct);
-            if (!preview.IsSuccess) return Error(output, preview.Error.Message);
+            if (!preview.IsSuccess) return Result<(int, string?)>.Fail(preview.Error);
             captures.Add(preview.Value);
             if (preview.Value.Proposal is { } intent)
             {
@@ -603,14 +612,15 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (operations.Count != 0)
         {
             var prepared = await workspace.PrepareAsync(operations, ct);
-            if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
+            if (!prepared.IsSuccess) return Result<(int, string?)>.Fail(prepared.Error);
             proposal = prepared.Value;
         }
         var saved = await workspace.SaveDraftSetAsync(captures, proposal, proposal?.Digest, ct);
-        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
-        if (saved.Value.Error is { } error) return Error(output, error.Message);
-        if (!saved.Value.EffectsVerified) return Error(output, "Save has unresolved journal effects; drafts were retained without replay.");
-        return SaveResult(output, drafts.Length, proposal?.Digest);
+        if (!saved.IsSuccess) return Result<(int, string?)>.Fail(saved.Error);
+        if (saved.Value.Error is { } error) return Result<(int, string?)>.Fail(error);
+        if (!saved.Value.EffectsVerified)
+            return Result<(int, string?)>.Fail(ErrorCode.Indeterminate, "Save has unresolved journal effects; drafts were retained without replay.");
+        return Result<(int, string?)>.Ok((drafts.Length, proposal?.Digest));
     }
 
     private int SaveResult(string output, int count, string? digest)
@@ -624,6 +634,79 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["digest"] = digest is null ? new("", new RenderValue.Null()) : RenderCell.String(digest),
             })]));
         return 0;
+    }
+
+    internal async Task<int> SyncAsync(string output, bool pullOnly, CancellationToken ct, bool workspaceOnly = false,
+        string? expectBench = null, string? expectBinding = null, string? expectIdentity = null)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var format = OutputFormats.Normalize(output) ?? string.Empty;
+        var exit = 1;
+        (int Count, string? Digest) saved = (0, null);
+        try
+        {
+            if (format is not ("human" or "minimal" or "json" or "json-full" or "json-compact"))
+            {
+                format = "human";
+                return exit = Error(format, "Sync supports human, minimal and JSON output, not IDs.", 2);
+            }
+            if (expectBinding is not null || expectIdentity is not null)
+                return exit = Error(format, "Captured browser origin admission is not yet connected to Core sync; no operation was performed.");
+            using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+            var opened = await factory.OpenAsync(ct);
+            if (!opened.IsSuccess) return exit = Error(format, opened.Error.Message);
+            using var handle = opened.Value;
+            var workspace = handle.Workspace;
+            var context = await workspace.Context.ReadAsync(ct);
+            if (!context.IsSuccess) return exit = Error(format, context.Error.Message);
+            var snapshot = await workspace.SnapshotAsync(ct);
+            if (!snapshot.IsSuccess) return exit = Error(format, snapshot.Error.Message);
+            var bench = snapshot.Value.Benches.SingleOrDefault(value => value.Id == context.Value.BenchId);
+            if (bench is null)
+                return exit = Error(format, "Select an existing Core Bench before syncing; no draft was published.");
+            if (expectBench is not null && (!Guid.TryParse(expectBench, out var id) || id != bench.Id))
+                return exit = Error(format, "The captured current Bench changed; no draft was published or scope pulled.");
+            if (!pullOnly && !workspaceOnly)
+            {
+                var result = await SaveRemoteDraftsAsync(workspace, null, true, ct);
+                if (!result.IsSuccess) return exit = Error(format, result.Error.Message);
+                saved = result.Value;
+            }
+            var depths = factory.TreeContextDepths;
+            var pulled = await workspace.PullBenchAsync(bench.Id.ToString("D"), format == "human",
+                depths.Up, depths.Down, depths.Sideways, ct);
+            if (!pulled.IsSuccess)
+                return exit = Error(format, saved.Count == 0 ? pulled.Error.Message
+                    : $"Saved {saved.Count} draft(s) in proposal {saved.Digest}; pull did not complete: {pulled.Error.Message}");
+            var counts = pulled.Value;
+            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record(workspaceOnly ? "benchSync" : "sync",
+                new Dictionary<string, RenderCell>
+                {
+                    ["benchId"] = RenderCell.String(counts.Bench.Id.ToString("D")),
+                    ["benchName"] = RenderCell.String(counts.Bench.Name),
+                    ["itemCount"] = RenderCell.Integer(counts.ItemCount),
+                    ["memberCount"] = RenderCell.Integer(counts.MemberCount),
+                    ["relationshipCount"] = RenderCell.Integer(counts.ContextCount),
+                    ["protectedCount"] = RenderCell.Integer(counts.ProtectedCount),
+                    ["itemsFlushed"] = RenderCell.Integer(saved.Count),
+                    ["digest"] = saved.Digest is null ? new("", new RenderValue.Null()) : RenderCell.String(saved.Digest),
+                    ["message"] = RenderCell.String($"Pulled Bench '{counts.Bench.Name}' without changing its selectors; {saved.Count} draft(s) saved through the proposal journal."),
+                })]));
+            return exit = 0;
+        }
+        catch (OperationCanceledException)
+        {
+            return exit = Error(format, "Sync was cancelled; existing drafts and acknowledged journal effects were retained without replay.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return exit = Error(format, "Sync did not complete; preserved work and journal effects must be inspected: " + ex.Message);
+        }
+        finally
+        {
+            try { TelemetryHelper.TrackCommand(telemetry, workspaceOnly ? "workspace-sync" : "sync", format, exit, started); }
+            catch (Exception) { Debug.WriteLine("Optional Core sync telemetry failed; command outcome was preserved."); }
+        }
     }
 
     internal async Task<int> DiscardAsync(int? id, bool all, bool yes, string output, CancellationToken ct)

@@ -543,7 +543,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="idOrPattern">Work item ID (e.g., 1234) or title substring to match.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.SetAsync(idOrPattern, output, ct);
+        return await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
+    }
 
     /// <summary>Display a work item without changing context. Integer IDs are cache-only by default; --local-id reads a GitHub provider snapshot when configured.</summary>
     /// <param name="idArg">Work item ID, positionally. Omit only in human output to show the active work item.</param>
@@ -1174,8 +1177,12 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="fieldArg">Field to edit, positionally: twig edit System.Title. The shipped examples document this spelling.</param>
     /// <param name="field">Specific field to edit; omit to edit all editable fields.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> Edit([Argument] string? fieldArg = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<EditCommand>().ExecuteAsync(field ?? fieldArg, output, ct);
+    /// <param name="id">Explicit work item ID; required for structured output.</param>
+    public async Task<int> Edit([Argument] string? fieldArg = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, int? id = null)
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.EditAsync(id, field ?? fieldArg, output, ct);
+        return await services.GetRequiredService<EditCommand>().ExecuteAsync(field ?? fieldArg, output, ct);
+    }
 
     /// <summary>Discard pending changes for a single item or all dirty items.</summary>
     /// <param name="id">Work item ID to discard changes for.</param>

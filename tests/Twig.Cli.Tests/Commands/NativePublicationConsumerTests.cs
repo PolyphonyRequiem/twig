@@ -69,6 +69,80 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "editor-context-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        var editor = Substitute.For<IEditorLauncher>();
+        editor.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
+            Task.FromResult<string?>(call.ArgAt<string>(0).Replace("active scoped edit", "editor scoped edit", StringComparison.Ordinal)));
+        services.AddSingleton(editor);
+        services.AddTwigWorkspaceServices(paths.StartDir, ["set", "42"]);
+        using var root = services.BuildServiceProvider();
+        using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var commands = new TwigCommands(root);
+            (await commands.Set("42", "human")).ShouldBe(0, stderr.ToString());
+            var selection = (await admitted.Workspace.Context.ReadAsync(default)).Value;
+            selection.History[selection.Position].NativeId.ShouldBe("42");
+            (await commands.Set("43", "json")).ShouldBe(2);
+            (await commands.Edit(output: "json")).ShouldBe(2);
+            await editor.DidNotReceive().LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            (await commands.Update("System.Title", "active scoped edit", output: "human")).ShouldBe(0, stderr.ToString());
+            _transport.TitleOf(42).ShouldBe("active scoped edit");
+            (await commands.Edit(output: "human")).ShouldBe(0, stderr.ToString());
+            _transport.TitleOf(42).ShouldBe("editor scoped edit");
+            _transport.CommittedWrites.ShouldBe(2);
+            editor.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                _transport.SetItem(42, "native concurrent field", 100, Actor);
+                return Task.FromResult<string?>(call.ArgAt<string>(0).Replace("editor scoped edit", "stale editor field", StringComparison.Ordinal));
+            });
+            (await commands.Edit(output: "human")).ShouldBe(1, "the editor must merge against its actual activation baseline");
+            _transport.TitleOf(42).ShouldBe("native concurrent field");
+            _transport.CommittedWrites.ShouldBe(2, "a real conflict must not invoke an old retry writer");
+            var captured = (await store.ReadAsync(connection, default)).Value;
+            captured.Drafts.Single().Changes["System.Title"].Text.ShouldBe("stale editor field");
+            captured.Drafts.Single().Baseline!.Fields["System.Title"].Text.ShouldBe("editor scoped edit");
+            captured.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
+            var wrongInstance = selection with { StoreInstance = Guid.NewGuid() };
+            await File.WriteAllTextAsync(Path.Combine(paths.RepoRoot, ".twig", "core-context.json"),
+                JsonSerializer.Serialize(wrongInstance, CoreContextJsonContext.Default.CoreContextDocument));
+            var reads = _transport.WorkRequests;
+            (await commands.Update("System.Title", "must not adopt context", output: "human")).ShouldBe(1);
+            _transport.WorkRequests.ShouldBe(reads);
+            _transport.CommittedWrites.ShouldBe(2);
+            root.GetService<EditCommand>().ShouldBeNull();
+            root.GetService<SetCommand>().ShouldBeNull();
+            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            root.GetService<IPendingChangeStore>().ShouldBeNull();
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreChainAuthoringValidationAndReconciliationRetainOriginalCreationReferences()
     {
         var native = await AttachAsync();

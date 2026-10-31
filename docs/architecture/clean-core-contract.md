@@ -140,7 +140,15 @@ vocabulary. Duplicate/unknown/read-only sections and invalid typed values refuse
 Unchanged missing/null/empty values are not materialized, creation-bound links
 survive field edits, and activation-capture/store CAS rejects concurrent overwrite.
 An attempted creation refuses editing rather than replacing its UUID fence.
-Native general editor and active-context routing are still unfinished. Active context and
+The native general editor now captures its actual observed baseline before launching
+the existing editor, stages one typed draft against the activation store CAS, and
+merges again before digest-bound application. A genuinely concurrent native field
+change is retained as a conflict without retry or overwrite. Human `set` and active
+selection use a separately persisted, source-generated host context bound to the
+admitted connection and SQLite instance, not the old context/writer database.
+Structured selection and active-dependent mutation remain refused; human update,
+edit, show, note, save and state can resolve that selected identity. Incompatible
+context is preserved and refused rather than adopted. Navigation/history UI and
 complete lifecycle/UI retention remain unfinished. These gaps prevent phase-5 delivery.
 
 The retained artifact-link path now has a typed `LinkResource` effect and

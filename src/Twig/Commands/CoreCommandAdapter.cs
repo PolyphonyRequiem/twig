@@ -12,8 +12,102 @@ namespace Twig.Commands;
 internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererFactory renderer,
     Twig.Domain.Interfaces.IConsoleInput consoleInput, Twig.Domain.Interfaces.IEditorLauncher editorLauncher)
 {
+    private async Task<Result<int>> ResolveIdAsync(int? id, string output, CancellationToken ct)
+    {
+        if (id is not null) return id != 0 ? Result<int>.Ok(id.Value) : Result<int>.Fail(ErrorCode.InvalidInput, "A nonzero target is required.");
+        if (output != "human") return Result<int>.Fail(ErrorCode.InvalidInput, "Structured operations require an explicit target. Pass --id.");
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Result<int>.Fail(opened.Error);
+        using var handle = opened.Value;
+        var context = await handle.Workspace.Context.ReadAsync(ct);
+        if (!context.IsSuccess) return Result<int>.Fail(context.Error);
+        if (context.Value.Position < 0) return Result<int>.Fail(ErrorCode.NotFound, "No active Core item is selected. Run `twig set <id>` or pass --id.");
+        var key = context.Value.History[context.Value.Position].Resolve(handle.Workspace.Connection);
+        var snapshot = await handle.Workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Result<int>.Fail(snapshot.Error);
+        if (key.IsLocal)
+        {
+            if (!KnownLocalKeys(snapshot.Value).Contains(key)
+                || KnownLocalKeys(snapshot.Value).Count(local => LocalAlias(local) == LocalAlias(key)) != 1)
+                return Result<int>.Fail(ErrorCode.Conflict, "The retained active UUID is absent or ambiguous; it was not replaced.");
+            var mapped = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key);
+            if (mapped is not null) key = mapped.Remote;
+            else return Result<int>.Ok(LocalAlias(key));
+        }
+        return int.TryParse(key.NativeId, NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0
+            ? Result<int>.Ok(number) : Result<int>.Fail(ErrorCode.Unsupported, "This native identity has no qualified numeric command target.");
+    }
+
+    internal async Task<int> SetAsync(string target, string output, CancellationToken ct)
+    {
+        if (output != "human") return Error(output, "Structured set is refused because it changes interactive context.", 2);
+        if (string.IsNullOrWhiteSpace(target)) return Error(output, "Supply a work item ID or cached title pattern.", 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        if (KnownLocalKeys(snapshot.Value).GroupBy(LocalAlias).Any(group => group.Count() != 1))
+            return Error(output, "Local aliases are ambiguous; no active identity was guessed.");
+        ItemKey? selected = null;
+        if (int.TryParse(target, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) && number != 0)
+            selected = number < 0 ? KnownLocalKeys(snapshot.Value).SingleOrDefault(key => LocalAlias(key) == number)
+                : ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, number.ToString(CultureInfo.InvariantCulture));
+        else
+        {
+            var candidates = snapshot.Value.Items.Concat(snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal)
+                .Select(draft => new WorkItem(draft.Key, draft.Type, draft.Changes, null))).Where(item =>
+                    item.Fields.TryGetValue("System.Title", out var title) && title.Text is { } text
+                    && (target.Contains('*') || target.Contains('?')
+                        ? System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(target, text, ignoreCase: true)
+                        : text.Contains(target, StringComparison.OrdinalIgnoreCase))).ToArray();
+            if (candidates.Length == 1) selected = candidates[0].Key;
+            else if (candidates.Length > 1)
+            {
+                foreach (var item in candidates)
+                    Console.Error.WriteLine($"#{(item.Key.IsLocal ? LocalAlias(item.Key).ToString(CultureInfo.InvariantCulture) : item.Key.NativeId)} {item.Fields["System.Title"].Text}");
+                if (!consoleInput.IsOutputRedirected)
+                {
+                    Console.Write("Choose item ID: ");
+                    var chosen = consoleInput.ReadLine();
+                    if (int.TryParse(chosen, out var chosenId))
+                        selected = candidates.SingleOrDefault(item => item.Key.IsLocal
+                            ? LocalAlias(item.Key) == chosenId : item.Key.NativeId == chosenId.ToString(CultureInfo.InvariantCulture))?.Key;
+                }
+            }
+        }
+        if (selected is null) return Error(output, "The target is absent, ambiguous or selection was cancelled; active context was preserved.");
+        var key = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == selected)?.Remote ?? selected;
+        var shownItem = key.IsLocal
+            ? snapshot.Value.Drafts.Where(draft => draft.Key == key).Select(draft => new WorkItem(key, draft.Type, draft.Changes, null)).SingleOrDefault()
+            : snapshot.Value.Items.SingleOrDefault(item => item.Key == key);
+        if (shownItem is null && !key.IsLocal)
+        {
+            var fetched = await workspace.ReadAsync(key, ct);
+            if (!fetched.IsSuccess) return Error(output, fetched.Error.Message);
+            shownItem = fetched.Value;
+        }
+        if (shownItem is null) return Error(output, "The exact selected item is unavailable; active context was preserved.");
+        var context = await workspace.Context.ReadAsync(ct);
+        if (!context.IsSuccess) return Error(output, context.Error.Message);
+        var history = context.Value.History.Take(context.Value.Position + 1).Append(CoreContextKey.Capture(selected)).ToArray();
+        var saved = await workspace.Context.WriteAsync(context.Value, context.Value with { History = history, Position = history.Length - 1 }, ct);
+        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text(
+            $"#{(key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId)} {shownItem.Fields.GetValueOrDefault("System.Title")?.Text}", Severity.Success)]));
+        return 0;
+    }
+
     internal async Task<int> SaveAsync(int? id, bool all, string output, CancellationToken ct)
     {
+        if (id is null && !all)
+        {
+            var selected = await ResolveIdAsync(null, output, ct);
+            if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+            id = selected.Value;
+        }
+        if (id < 0 && !all) return await SeedPublishAsync(id, false, false, false, null, null, output, ct);
         if (id is not null && (id <= 0 || all)) return Error(output, "Specify one positive --id or --all, not both.", 2);
         if (id is null && !all) return Error(output, "No Core active scope is selected. Specify --id or --all.", 2);
         var opened = await factory.OpenAsync(ct);
@@ -135,7 +229,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     {
         if (noParent && parent is not null) return Error(output, "--parent and --no-parent are mutually exclusive.", 2);
         if (!noParent && parent is null)
-            return Error(output, "No Core active parent is selected. Supply --parent or --no-parent.", 2);
+        {
+            var selected = await ResolveIdAsync(null, output, ct);
+            if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+            parent = selected.Value;
+        }
         if (!editor && string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(requestedType))
             return Error(output, "Unparented seed creation requires --title and --type.", 2);
         var parsed = Twig.Domain.ValueObjects.FieldAssignment.ParseAll(fields, "--field");
@@ -258,15 +356,22 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
-    private async Task<Result<FieldValues?>> EditSeedFieldsAsync(ItemType type, FieldValues current, CancellationToken ct)
+    private async Task<Result<FieldValues?>> EditSeedFieldsAsync(ItemType type, FieldValues current, CancellationToken ct, string? selectedField = null)
     {
+        selectedField = selectedField?.ToLowerInvariant() switch
+        {
+            "title" => "System.Title", "description" => "System.Description", "state" => type.StateField,
+            "assignedto" => "System.AssignedTo", _ => selectedField,
+        };
         static string Display(string reference) => reference switch
         {
             "System.Title" => "Title", "System.Description" => "Description", "System.State" => "State",
             "System.AssignedTo" => "AssignedTo", _ => reference,
         };
-        var definitions = type.Fields.Select(field => new Twig.Domain.ValueObjects.FieldDefinition(field.Reference,
+        var definitions = type.Fields.Where(field => selectedField is null || field.Reference.Equals(selectedField, StringComparison.OrdinalIgnoreCase))
+            .Select(field => new Twig.Domain.ValueObjects.FieldDefinition(field.Reference,
             Display(field.Reference), field.Kind.ToString(), field.ReadOnly)).ToArray();
+        if (definitions.Length == 0) return Result<FieldValues?>.Fail(ErrorCode.InvalidInput, "The editor field is absent from the actual native type.");
         var values = type.Fields.ToDictionary(field => field.Reference, field =>
             current.TryGetValue(field.Reference, out var value) && value.Kind != FieldKind.Null ? Cell(value).DisplayText : null, StringComparer.OrdinalIgnoreCase);
         var initial = Twig.Domain.Services.Seed.SeedEditorFormat.Generate(values, definitions);
@@ -296,7 +401,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return Result<FieldValues?>.Ok(changes);
     }
 
-    internal async Task<int> SeedEditAsync(int id, string output, CancellationToken ct)
+    internal async Task<int> SeedEditAsync(int id, string output, CancellationToken ct, string? selectedField = null)
     {
         if (id >= 0) return Error(output, "Seed editing requires an unpublished local seed alias.", 2);
         var opened = await factory.OpenAsync(ct);
@@ -316,7 +421,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!schema.IsSuccess) return Error(output, schema.Error.Message);
         var type = schema.Value.Types.SingleOrDefault(type => type.Reference == draft.Type);
         if (type is null) return Error(output, "The seed type is absent from the actual native schema.");
-        var edited = await EditSeedFieldsAsync(type, draft.Changes, ct);
+        var edited = await EditSeedFieldsAsync(type, draft.Changes, ct, selectedField);
         if (!edited.IsSuccess) return Error(output, edited.Error.Message);
         if (edited.Value is { Count: > 0 } fields)
         {
@@ -328,6 +433,87 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             {
                 ["id"] = RenderCell.Integer(id), ["changedFieldCount"] = RenderCell.Integer(edited.Value?.Count ?? 0),
                 ["message"] = RenderCell.String(edited.Value is null ? "Seed editor cancelled." : "Retained typed seed edit; no native creation was attempted."),
+            })]));
+        return 0;
+    }
+
+    internal async Task<int> EditAsync(int? id, string? field, string output, CancellationToken ct)
+    {
+        var target = await ResolveIdAsync(id, output, ct);
+        if (!target.IsSuccess) return Error(output, target.Error.Message, target.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+        id = target.Value;
+        if (id < 0) return await SeedEditAsync(id.Value, output, ct, field);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, id.Value.ToString(CultureInfo.InvariantCulture));
+        var observed = await workspace.ReadAsync(key, ct);
+        if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+        var schema = await workspace.SchemaAsync(ct);
+        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var type = schema.Value.Types.SingleOrDefault(type => type.Reference == observed.Value.Type);
+        if (type is null) return Error(output, "The exact native editor type is unavailable.");
+        field = field?.ToLowerInvariant() switch
+        {
+            "title" => "System.Title", "description" => "System.Description", "state" => type.StateField,
+            "assignedto" => "System.AssignedTo", _ => field,
+        };
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var prior = snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == key);
+        var shown = prior is null ? observed.Value.Fields : observed.Value.Fields.Overlay(prior.Changes);
+        var names = field is null ? new[] { "System.Title", type.StateField, "System.AssignedTo" }
+            : new[] { field };
+        var definitions = type.Fields.Where(definition => names.Any(name => definition.Reference.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            .Where(definition => !definition.ReadOnly).ToArray();
+        if (definitions.Length == 0) return Error(output, "The requested native editor field is unavailable or read-only.", 2);
+        var buffer = new System.Text.StringBuilder($"# Editing #{id.Value}. Field values follow their exact native names.\n");
+        foreach (var definition in definitions)
+            buffer.Append(definition.Reference).Append(": ").AppendLine(shown.TryGetValue(definition.Reference, out var value)
+                && value.Kind != FieldKind.Null ? Cell(value).DisplayText : "");
+        var edited = await editorLauncher.LaunchAsync(buffer.ToString(), ct);
+        if (edited is null)
+        {
+            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text("Edit cancelled.", Severity.Info)]));
+            return 0;
+        }
+        var changes = FieldValues.Empty;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in edited.Split('\n'))
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#')) continue;
+            var colon = line.IndexOf(':');
+            if (colon <= 0) return Error(output, "Malformed editor field line; no edit was staged.", 2);
+            var name = line[..colon].Trim() switch
+            {
+                "Title" => "System.Title", "State" => type.StateField, "AssignedTo" => "System.AssignedTo", var exact => exact,
+            };
+            var definition = type.Fields.SingleOrDefault(definition => definition.Reference.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (definition is null || definition.ReadOnly || !seen.Add(definition.Reference))
+                return Error(output, "Unknown, read-only or duplicate editor field; no edit was staged.", 2);
+            var text = line[(colon + 1)..].Trim();
+            var before = shown.TryGetValue(definition.Reference, out var current) && current.Kind != FieldKind.Null ? Cell(current).DisplayText : "";
+            if (text == before) continue;
+            if (!TryParse(definition.Kind, text, null, out var value)) return Error(output, "The editor value has an invalid native type.", 2);
+            changes = changes.Set(definition.Reference, value);
+        }
+        if (changes.Count != 0)
+        {
+            var staged = await workspace.StageEditAsync(key, changes, ct, capturedBaseline: observed.Value, expectedVersion: snapshot.Value.Version);
+            if (!staged.IsSuccess) return Error(output, staged.Error.Message);
+            var preview = await workspace.PreviewDraftAsync(key, ct);
+            if (!preview.IsSuccess) return Error(output, preview.Error.Message);
+            var saved = await workspace.SaveDraftAsync(preview.Value, preview.Value.Proposal?.Digest, ct);
+            if (!saved.IsSuccess) return Error(output, saved.Error.Message);
+            if (saved.Value.Error is { } failure) return Error(output, failure.Message);
+            if (!saved.Value.EffectsVerified) return Error(output, "The editor effect remains unresolved; its journal and draft were retained.");
+        }
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record(changes.Count == 0 ? "editNoChanges" : "editPushed",
+            new Dictionary<string, RenderCell>
+            {
+                ["itemId"] = RenderCell.Integer(id.Value), ["changeCount"] = RenderCell.Integer(changes.Count),
+                ["message"] = RenderCell.String(changes.Count == 0 ? "No changes detected." : "Editor fields applied through one digest-bound proposal and verified journal."),
             })]));
         return 0;
     }
@@ -753,6 +939,12 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> ShowAsync(int? id, string output, bool tree, bool refresh,
         string? fields, string? sections, string? localId, CancellationToken ct)
     {
+        if (id is null && localId is null)
+        {
+            var activeTarget = await ResolveIdAsync(null, output, ct);
+            if (!activeTarget.IsSuccess) return Error(output, activeTarget.Error.Message, activeTarget.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+            id = activeTarget.Value;
+        }
         if (id is null && localId is null || id == 0)
             return Error(output, "No Core active target is selected. Pass an explicit work item ID or --local-id.", 2);
         if (tree || sections is not null)
@@ -830,7 +1022,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> UpdateAsync(string field, string? value, string output, string? format, string? file,
         bool stdin, int? id, bool append, CancellationToken ct)
     {
-        if (id is null || id == 0) return Error(output, "An explicit nonzero Core target is required. Pass --id.", 2);
+        var target = await ResolveIdAsync(id, output, ct);
+        if (!target.IsSuccess) return Error(output, target.Error.Message, target.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+        id = target.Value;
         var formatError = HtmlFieldFormatter.ValidateFormat(format);
         if (formatError is not null) return Error(output, formatError, 2);
         var body = await TextBodySource.ResolveAsync(value, file, stdin, Console.In, "inline value",
@@ -1009,7 +1203,19 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> NoteAsync(string? text, string? file, bool stdin, int? id,
         string output, string? format, CancellationToken ct)
     {
-        if (id is null || id <= 0) return Error(output, "An explicit Core note target is required. Pass --id.", 2);
+        var selected = await ResolveIdAsync(id, output, ct);
+        if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+        id = selected.Value;
+        if (id <= 0) return Error(output, "A note requires a published Core target; local note publication is not yet connected.");
+        if (text is null && file is null && !stdin && output == "human")
+        {
+            text = await editorLauncher.LaunchAsync("", ct);
+            if (text is null)
+            {
+                renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text("Note editor cancelled.", Severity.Info)]));
+                return 0;
+            }
+        }
         var formatError = HtmlFieldFormatter.ValidateFormat(format);
         if (formatError is not null) return Error(output, formatError, 2);
         var body = await TextBodySource.ResolveAsync(text, file, stdin, Console.In, "note text",
@@ -1034,7 +1240,10 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> StateAsync(string requested, int? id, string output, CancellationToken ct)
     {
-        if (id is null || id <= 0) return Error(output, "An explicit Core state target is required. Pass --id.", 2);
+        var selectedId = await ResolveIdAsync(id, output, ct);
+        if (!selectedId.IsSuccess) return Error(output, selectedId.Error.Message, selectedId.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+        id = selectedId.Value;
+        if (id <= 0) return await UpdateAsync("System.State", requested, output, null, null, false, id, false, ct);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;

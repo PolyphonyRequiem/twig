@@ -15,10 +15,11 @@ internal sealed record CoreExecution(ImmutableArray<Receipt> Receipts, Error? Er
 
 /// <summary>One draft/proposal/journal application path; no retry, note flush or legacy publisher.</summary>
 internal sealed class CoreWorkspace(Connection connection, IProvider provider, IStore store,
-    ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot)
+    ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot, Guid storeInstance = default)
 {
     internal Connection Connection => connection;
     internal string NativeActor => nativeActor;
+    internal CoreHostContext Context => new(worktreeRoot, connection, storeInstance);
     internal Task<Result<StoreSnapshot>> SnapshotAsync(CancellationToken ct) => store.ReadAsync(connection, ct);
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct) => provider.DiscoverSchemaAsync(connection, ct);
 
@@ -246,14 +247,19 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         return committed.IsSuccess ? Result<int>.Ok(settled.Count) : Result<int>.Fail(committed.Error);
     }
 
-    internal async Task<Result<Draft>> StageEditAsync(ItemKey key, FieldValues fields, CancellationToken ct, string? typeOverride = null)
+    internal async Task<Result<Draft>> StageEditAsync(ItemKey key, FieldValues fields, CancellationToken ct, string? typeOverride = null,
+        WorkItem? capturedBaseline = null, long? expectedVersion = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
-        var remote = await ReadAsync(key, ct).ConfigureAwait(false);
+        var remote = capturedBaseline is null ? await ReadAsync(key, ct).ConfigureAwait(false) : Result<WorkItem>.Ok(capturedBaseline);
         if (!remote.IsSuccess) return Result<Draft>.Fail(remote.Error);
+        if (remote.Value.Key != key || remote.Value.Revision is null)
+            return Result<Draft>.Fail(ErrorCode.Conflict, "The captured edit baseline does not belong to the exact native target.");
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<Draft>.Fail(read.Error);
         var snapshot = read.Value;
+        if (expectedVersion is not null && snapshot.Version != expectedVersion)
+            return Result<Draft>.Fail(ErrorCode.Conflict, "The local workspace changed during editing; the newer draft was preserved.");
         var previous = snapshot.Drafts.FirstOrDefault(d => d.Key == remote.Value.Key);
         var draft = new Draft(remote.Value.Key, typeOverride ?? previous?.Type ?? remote.Value.Type,
             previous?.Baseline ?? remote.Value, previous?.Changes.Overlay(fields) ?? fields);

@@ -15,7 +15,7 @@ Do not pass a legacy `twig.db`. A separate name such as `clean-core.db` in an
 isolated test/application directory is appropriate; no CLI creates it yet.
 
 `OpenAsync(absoluteFilePath)` requires an existing clean-core database. It checks
-application ID `0x54574353`, schema version `2`, the snapshot table, and WAL mode,
+application ID `0x54574353`, schema version `3`, the snapshot table, and WAL mode,
 without changing the existing database's format or journal mode. These checks
 also run inside every read/write transaction. Missing files, foreign/legacy
 databases, unsupported versions and incompatible journal modes return an explicit
@@ -24,11 +24,17 @@ retains its new file for inspection; deliberately choose a different new path or
 inspect/remove that exact failed file yourself. Cancellation propagates rather
 than becoming success or an empty snapshot.
 
-The in-progress phase-5 resource-link contract advances the database/snapshot
-format and proposal grammar to version 2. Version-1 clean-core files are refused
+The in-progress phase-5 policy/resource contract advances the database/snapshot
+format and proposal grammar to version 3. Earlier clean-core files are refused
 without modification, not silently adopted or migrated. Choose a deliberately
 new isolated path; do not reset a previous file or discard its drafts, retained
 proposals, mappings or unresolved attempts to make initialization succeed.
+
+Each new file stores a native `InstanceId`; `OpenAsync(..., expectedInstance: id)`
+checks it, and every read/commit through an opened handle refuses replacement.
+Host `PinWorkspaceAsync` is only for a genuinely empty new file, before any data
+partition exists. It records one immutable connection; `CheckWorkspaceAsync`
+refuses changed marker bindings instead of silently opening a new empty partition.
 
 ## Transaction and serialization boundary
 
@@ -70,7 +76,7 @@ before transport; commit acknowledgement, journal advance, creation mapping and
 available mirror together; then commit verification and acquired observations.
 Typed resource-link observations retain exact locators, null/empty names and
 comments and their explicit completeness certificate. Resource-link proposal
-effects round-trip with the version-2 canonical digest, not a fabricated item key.
+effects round-trip with the version-3 canonical digest, not a fabricated item key.
 The adapter has **no network calls** and provides local atomicity only. WAL is
 not distributed atomicity. A failed post-dispatch acknowledgement commit leaves
 the durable Applying fence, not permission to replay. Attempts, including unknown

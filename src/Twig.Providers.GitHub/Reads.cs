@@ -8,11 +8,11 @@ namespace Twig.Providers.GitHub;
 
 public sealed partial class GitHubProvider
 {
-    public Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct)
+    public Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false)
         => Guard(() => WithSession(connection, async (bound, token) =>
         {
             var schema = await Discover(bound, token);
-            return await Refresh(bound, schema, keys, token);
+            return await Refresh(bound, schema, keys, token, captureOnly);
         }, ct));
 
     public Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
@@ -49,7 +49,7 @@ public sealed partial class GitHubProvider
         foreach (var child in query.Children) CheckQuery(child, schema);
     }
 
-    private async Task<QueryPage> Refresh(Bound bound, Discovery schema, ImmutableArray<ItemKey> keys, CancellationToken ct)
+    private async Task<QueryPage> Refresh(Bound bound, Discovery schema, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false)
     {
         var stored = await Snapshot(ct);
         RefuseChangedActor(stored, bound);
@@ -57,6 +57,10 @@ public sealed partial class GitHubProvider
         await bound.Session.ValidateAsync(ct);
         if (keys.IsEmpty) return page;
         var next = Mirror(stored, page, stored.Version + 1);
+        if (captureOnly) return page with
+        {
+            Relationships = next.Relationships.Where(r => keys.Contains(r.From) || keys.Contains(r.To)).ToImmutableArray(),
+        };
         var commit = await _store.CommitAsync(_connection, stored.Version, next, ct);
         if (!commit.IsSuccess) throw new GitHubFailure(commit.Error);
         return page with

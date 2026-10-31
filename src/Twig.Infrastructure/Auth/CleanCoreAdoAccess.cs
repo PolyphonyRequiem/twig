@@ -5,7 +5,9 @@ using System.Text.Json;
 using Twig.Core;
 using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Policy;
 using Twig.Providers.Ado;
+using Twig.Store.Sqlite;
 
 namespace Twig.Infrastructure.Auth;
 
@@ -19,6 +21,8 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     private readonly Connection _connection = connection;
     private readonly string _principal = principal;
     private readonly IStore _store = store;
+    private readonly TwigPaths _paths = paths;
+    private readonly Guid _storeInstance = (store as SqliteStore)?.InstanceId ?? Guid.Empty;
 
     internal static string Identity(ResolvedConnectionBinding origin, string principal) => Json(writer =>
     {
@@ -32,7 +36,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
 
     public override async Task<Result<AdoSession>> AcquireAsync(Connection requested, CancellationToken ct)
     {
-        if (requested != _connection || _connection.Provider.Value != "ado"
+        if (requested != _connection || _connection.Provider.Value != "ado" || _storeInstance == Guid.Empty
             || _connection.IdentityRef != Identity(_origin, _principal)
             || configuration.Organization != _origin.Operation.Organization || configuration.Project != _origin.Operation.Project
             || _authentication is not IConnectionOperationGuard guard
@@ -68,8 +72,8 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
 
     private async Task RevalidateAsync(CancellationToken ct)
     {
-        var currentConfiguration = await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false);
-        var current = await bindings.ResolveAsync(currentConfiguration, paths, ct).ConfigureAwait(false);
+        var currentConfiguration = await TwigConfiguration.LoadSplitAsync(_paths, ct).ConfigureAwait(false);
+        var current = await bindings.ResolveAsync(currentConfiguration, _paths, ct).ConfigureAwait(false);
         if (!ConnectionRemoteWriteAdmission.SameAuthority(current, _origin)
             || current.Operation.Organization != _origin.Operation.Organization
             || current.Operation.Project != _origin.Operation.Project
@@ -114,13 +118,20 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
                 return Result<AdoWriteAdmission>.Fail(ErrorCode.Unsupported, "This operation has no qualified native transport.");
             var prefix = OrganizationUrl.AbsolutePath.TrimEnd('/') + "/" + Connection.Destination + "/_apis/wit/workitems/";
             if (!ConnectionRemoteWriteAdmission.IsWithinAuthority(access._origin, intent.Target)
+                || intent.Target.Query != "?api-version=7.1"
                 || !intent.Target.AbsolutePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                 || op.Kind != OpKind.Create && ConnectionRemoteWriteAdmission.TargetWorkItemId(intent.Target.AbsoluteUri)?.ToString(CultureInfo.InvariantCulture) != op.Item.NativeId
                 || !HasReviewedRevision(intent.Payload, op))
                 return Result<AdoWriteAdmission>.Fail(ErrorCode.Conflict, "The native request target or revision test differs from the retained effect.");
             await access.RevalidateAsync(ct).ConfigureAwait(false);
+            var policy = await new ConfiguredPolicyProjectionSource(access._paths.RepoRoot).ReadAsync(ct).ConfigureAwait(false);
+            if (!policy.IsSuccess) return Result<AdoWriteAdmission>.Fail(policy.Error);
+            if (proposal.PolicyIdentity != policy.Value.Identity || proposal.PolicyRevision != policy.Value.Revision)
+                return Result<AdoWriteAdmission>.Fail(ErrorCode.SchemaChanged,
+                    "The actual configured Twig policy appeared, disappeared or changed after preview.");
             var correlation = new CoreWriteCorrelation(ConnectionText(Connection), proposal.Digest, intent.Operation,
-                intent.Attempt, ItemText(op.Item), op.Kind == OpKind.Create ? op.Item.LocalId : null, op.ExpectedRevision?.Token);
+                intent.Attempt, ItemText(op.Item), op.Kind == OpKind.Create ? op.Item.LocalId : null,
+                op.ExpectedRevision?.Token, access._storeInstance);
             var admission = await ((IConnectionRemoteWriteGuard)access._authentication).BeginRemoteWriteAsync(
                 new(kind, intent.Method, intent.Target.AbsoluteUri, intent.Payload, null, CoreCorrelation: correlation), ct).ConfigureAwait(false);
             return Result<AdoWriteAdmission>.Ok(new Admission(admission, token, authorization.Parameter));

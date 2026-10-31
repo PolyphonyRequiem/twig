@@ -162,7 +162,8 @@ public static partial class Core
             Fail(ErrorCode.InvalidInput, "Comment must retain an explicit nonempty body and format.");
         if (op.Kind is OpKind.Batch or OpKind.Create)
         {
-            if (op.Fields.Count == 0) Fail(ErrorCode.InvalidInput, "A field effect cannot be empty.");
+            if (op.Fields.Count == 0 && (op.Kind != OpKind.Batch || op.Type is null))
+                Fail(ErrorCode.InvalidInput, "A field effect cannot be empty.");
             if (op.Kind == OpKind.Batch && !capabilities.AtomicFieldBatches
                 && (op.Type is not null || op.Fields.Count > 1 && op.Concurrency != ConcurrencyMode.ObservedNonAtomic))
                 Fail(ErrorCode.Unsupported, "Independent fields require explicit observed non-atomic intent; type changes require atomic support.");
@@ -270,6 +271,33 @@ public static partial class Core
         }
         return unknown ? Result<bool>.Fail(ErrorCode.Unavailable, "Rule predicates or their pre/post observations are unknown.")
             : Result<bool>.Ok(true);
+    }
+
+    public static Result<ImmutableArray<string>> CloseGates(ProcessSchema schema, WorkItem source,
+        FieldValues changes, string? typeOverride = null)
+    {
+        var unavailable = SchemaErrors(schema).FirstOrDefault();
+        if (unavailable is not null) return Result<ImmutableArray<string>>.Fail(unavailable);
+        var type = schema.Types.FirstOrDefault(t => t.Reference == (typeOverride ?? source.Type));
+        if (type is null || !source.Fields.TryGetValue(type.StateField, out var previous))
+            return Result<ImmutableArray<string>>.Fail(ErrorCode.Unavailable, "The type or pre-state needed to discover close gates is unobserved.");
+        var effective = source.Fields.Overlay(changes);
+        if (!effective.TryGetValue(type.StateField, out var state)
+            || !type.States.Any(s => s.Name == state.Text))
+            return Result<ImmutableArray<string>>.Fail(ErrorCode.InvalidInput, "The proposed state was not discovered for this type.");
+        if (Equals(previous, state) || !type.States.Any(s => s.Name == state.Text && s.Category == StateCategory.Completed))
+            return Result<ImmutableArray<string>>.Ok([]);
+        var active = new List<FieldRule>();
+        foreach (var rule in type.Rules.Where(r => !r.Disabled))
+        {
+            var matches = MatchesConditions(rule.Conditions, source.Fields, effective);
+            if (!matches.IsSuccess) return Result<ImmutableArray<string>>.Fail(matches.Error);
+            if (matches.Value) active.Add(rule);
+        }
+        return Result<ImmutableArray<string>>.Ok(active.Where(r => r.Action == RuleAction.Required && r.Field != type.StateField
+            && !active.Any(s => s.Field == r.Field && s.Action == RuleAction.Supplied
+                && (s.Values.IsEmpty || s.Values.Any(v => !v.IsEmpty))))
+            .Select(r => r.Field).Distinct(StringComparer.Ordinal).ToImmutableArray());
     }
 
     public static Result<MergeResult> Merge(Draft draft, WorkItem remote)

@@ -6,7 +6,7 @@ namespace Twig.Providers.Ado;
 
 public sealed partial class AdoProvider
 {
-    public Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct)
+    public Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false)
         => Guard(() => WithSession(connection, async (bound, token) =>
             await Read(bound, await Discover(bound, token), keys, token), ct));
 

@@ -46,9 +46,10 @@ public sealed record Op
 
 public sealed record Proposal
 {
-    public const int FormatVersion = 2;
+    public const int FormatVersion = 3;
 
-    public Proposal(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations)
+    public Proposal(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations,
+        string? policyIdentity = null, string? policyRevision = null)
     {
         Connection = connection ?? throw new ArgumentNullException(nameof(connection));
         SchemaFingerprint = Contract.Text(schemaFingerprint, nameof(schemaFingerprint));
@@ -56,12 +57,18 @@ public sealed record Proposal
         ExpectedStoreVersion = expectedStoreVersion;
         Operations = Contract.Unique(operations, o => o.Id);
         if (Operations.IsEmpty) throw new ArgumentException("A proposal must declare an effect.", nameof(operations));
+        if ((policyIdentity is null) != (policyRevision is null))
+            throw new ArgumentException("Configured policy identity and revision must be supplied together.", nameof(policyIdentity));
+        PolicyIdentity = policyIdentity is null ? null : Contract.Text(policyIdentity, nameof(policyIdentity));
+        PolicyRevision = policyRevision is null ? null : Contract.Text(policyRevision, nameof(policyRevision));
     }
 
     public Connection Connection { get; }
     public string SchemaFingerprint { get; }
     public long ExpectedStoreVersion { get; }
     public ImmutableArray<Op> Operations { get; }
+    public string? PolicyIdentity { get; }
+    public string? PolicyRevision { get; }
     public string Digest => Core.Digest(this);
 }
 

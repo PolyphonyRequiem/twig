@@ -70,7 +70,9 @@ internal sealed record ConnectionRemoteWriteRequest(string EffectKind, string Me
     SeedPublishCorrelation? SeedCorrelation = null, CoreWriteCorrelation? CoreCorrelation = null);
 
 internal sealed record CoreWriteCorrelation(string ConnectionIdentity, string ProposalDigest, int Operation,
-    Guid Attempt, string TargetIdentity, Guid? CreationIdentity, string? ExpectedRevision);
+    Guid Attempt, string TargetIdentity, Guid? CreationIdentity, string? ExpectedRevision,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    Guid StoreInstance = default);
 
 internal sealed record ConnectionRemoteWriteResponse(int StatusCode, string Body, string? RequestId, string? Location);
 

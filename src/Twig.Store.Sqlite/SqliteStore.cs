@@ -8,8 +8,9 @@ namespace Twig.Store.Sqlite;
 public sealed class SqliteStore : IStore
 {
     private const int ApplicationId = 0x54574353; // TWCS, not a legacy Twig cache.
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private readonly string _connectionString;
+    public Guid InstanceId { get; private set; }
 
     private SqliteStore(string path) => _connectionString = new SqliteConnectionStringBuilder
     {
@@ -29,6 +30,7 @@ public sealed class SqliteStore : IStore
             // Reserve a new file without ever opening an existing workspace for initialization.
             using (new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
             var store = new SqliteStore(path);
+            store.InstanceId = Guid.NewGuid();
             await using var db = new SqliteConnection(store._connectionString);
             await db.OpenAsync(ct);
             await Execute(db, null, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;", ct);
@@ -41,6 +43,8 @@ public sealed class SqliteStore : IStore
                     version INTEGER NOT NULL CHECK(version > 0),
                     document TEXT NOT NULL
                 ) STRICT;
+                CREATE TABLE core_identity (id TEXT PRIMARY KEY NOT NULL, workspace_connection TEXT) STRICT;
+                INSERT INTO core_identity(id) VALUES('{store.InstanceId:D}');
                 """, ct);
             transaction.Commit();
             return Result<SqliteStore>.Ok(store);
@@ -52,17 +56,21 @@ public sealed class SqliteStore : IStore
         }
     }
 
-    public static async Task<Result<SqliteStore>> OpenAsync(string path, CancellationToken ct = default)
+    public static async Task<Result<SqliteStore>> OpenAsync(string path, CancellationToken ct = default, Guid? expectedInstance = null)
     {
         if (!Path.IsPathFullyQualified(path))
             return Result<SqliteStore>.Fail(ErrorCode.InvalidInput, "An explicit absolute database file path is required.");
+        if (expectedInstance == Guid.Empty)
+            return Result<SqliteStore>.Fail(ErrorCode.InvalidInput, "An expected database instance must be a nonempty native store identity.");
         ct.ThrowIfCancellationRequested();
         try
         {
             var store = new SqliteStore(path);
             await using var db = new SqliteConnection(store._connectionString);
             await db.OpenAsync(ct);
-            await CheckFormat(db, null, ct);
+            await store.CheckFormat(db, null, ct);
+            if (expectedInstance is { } expected && store.InstanceId != expected)
+                throw new InvalidDataException("The selected file is not the explicitly initialized store instance; no replacement was adopted.");
             return Result<SqliteStore>.Ok(store);
         }
         catch (Exception ex) when (IsStorageFailure(ex))
@@ -89,6 +97,53 @@ public sealed class SqliteStore : IStore
         {
             return Result<StoreSnapshot>.Fail(ErrorCode.StorageUnavailable, $"Cannot read clean-core snapshot: {ex.Message}");
         }
+    }
+
+    public async Task<Result<bool>> PinWorkspaceAsync(Connection connection, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = new SqliteConnection(_connectionString);
+            await db.OpenAsync(ct);
+            using var transaction = db.BeginTransaction(deferred: false);
+            await CheckFormat(db, transaction, ct);
+            await using var command = db.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "SELECT workspace_connection FROM core_identity;";
+            if (await command.ExecuteScalarAsync(ct) is string)
+                return Result<bool>.Fail(ErrorCode.Conflict, "The workspace file is already pinned; it was not adopted or rebound.");
+            command.CommandText = "SELECT count(*) FROM core_snapshots;";
+            if (Convert.ToInt64(await command.ExecuteScalarAsync(ct)) != 0)
+                return Result<bool>.Fail(ErrorCode.Conflict, "An existing data partition cannot be adopted as a new workspace.");
+            command.CommandText = "UPDATE core_identity SET workspace_connection=$connection;";
+            command.Parameters.AddWithValue("$connection", Persistence.ConnectionText(connection));
+            await command.ExecuteNonQueryAsync(ct);
+            transaction.Commit();
+            return Result<bool>.Ok(true);
+        }
+        catch (Exception ex) when (IsStorageFailure(ex))
+        { return Result<bool>.Fail(ErrorCode.StorageUnavailable, $"Cannot pin the new workspace file: {ex.Message}"); }
+    }
+
+    public async Task<Result<bool>> CheckWorkspaceAsync(Connection connection, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = new SqliteConnection(_connectionString);
+            await db.OpenAsync(ct);
+            using var transaction = db.BeginTransaction(deferred: true);
+            await CheckFormat(db, transaction, ct);
+            await using var command = db.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "SELECT workspace_connection FROM core_identity;";
+            var actual = await command.ExecuteScalarAsync(ct) as string;
+            if (actual != Persistence.ConnectionText(connection))
+                return Result<bool>.Fail(ErrorCode.Conflict, "The initialized workspace belongs to a different immutable connection; no partition was adopted.");
+            transaction.Commit();
+            return Result<bool>.Ok(true);
+        }
+        catch (Exception ex) when (IsStorageFailure(ex))
+        { return Result<bool>.Fail(ErrorCode.StorageUnavailable, $"Cannot admit the workspace file: {ex.Message}"); }
     }
 
     public async Task<Result<long>> CommitAsync(Connection connection, long expectedVersion, StoreSnapshot next,
@@ -155,7 +210,7 @@ public sealed class SqliteStore : IStore
         return snapshot;
     }
 
-    private static async Task CheckFormat(SqliteConnection db, SqliteTransaction? transaction, CancellationToken ct)
+    private async Task CheckFormat(SqliteConnection db, SqliteTransaction? transaction, CancellationToken ct)
     {
         await using var command = db.CreateCommand();
         command.Transaction = transaction;
@@ -166,7 +221,13 @@ public sealed class SqliteStore : IStore
         command.CommandText = "PRAGMA journal_mode;";
         var mode = (string?)await command.ExecuteScalarAsync(ct);
         if (application != ApplicationId || version != SchemaVersion || mode != "wal")
-            throw new InvalidDataException("Not a supported clean-core schema version 1 / WAL database. No migration or reinitialization was attempted.");
+            throw new InvalidDataException($"Not a supported clean-core schema version {SchemaVersion} / WAL database. No migration or reinitialization was attempted.");
+        command.CommandText = "SELECT CASE WHEN count(*)=1 THEN min(id) END FROM core_identity;";
+        var identity = await command.ExecuteScalarAsync(ct) as string;
+        if (!Guid.TryParseExact(identity, "D", out var instance) || instance == Guid.Empty || identity != instance.ToString("D")
+            || InstanceId != Guid.Empty && InstanceId != instance)
+            throw new InvalidDataException("The selected clean-core file instance is invalid or changed; no replacement was adopted.");
+        InstanceId = instance;
         command.CommandText = "SELECT connection, version, document FROM core_snapshots LIMIT 0;";
         await using var reader = await command.ExecuteReaderAsync(ct);
     }

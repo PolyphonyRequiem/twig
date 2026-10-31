@@ -83,7 +83,7 @@ public sealed class CoreInvariantTests
         var key = ItemKey.Remote(connection.Provider, "s", "1");
         var proposal = new Proposal(connection, "schema", 0,
             [new("op", OpKind.Batch, key, new Revision(key, "r"), Fields(("state", FieldValue.String("open"))))]);
-        const string expected = """{"version":2,"connection":{"provider":"p","scope":"s","destination":"d","identity":"i"},"schema":"schema","storeVersion":0,"operations":[{"id":"op","kind":1,"item":["remote","p","s","1"],"revision":{"item":["remote","p","s","1"],"token":"r"},"type":null,"fields":{"state":[1,"open"]},"other":null,"relation":null,"origin":0,"concurrency":0,"localVersion":null,"body":null,"resource":null}]}""";
+        const string expected = """{"version":3,"connection":{"provider":"p","scope":"s","destination":"d","identity":"i"},"schema":"schema","storeVersion":0,"policyIdentity":null,"policyRevision":null,"operations":[{"id":"op","kind":1,"item":["remote","p","s","1"],"revision":{"item":["remote","p","s","1"],"token":"r"},"type":null,"fields":{"state":[1,"open"]},"other":null,"relation":null,"origin":0,"concurrency":0,"localVersion":null,"body":null,"resource":null}]}""";
         Encoding.UTF8.GetString(Rules.ProposalBytes(proposal)).ShouldBe(expected);
         proposal.Digest.ShouldBe(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(expected))).ToLowerInvariant());
         var output = Rules.ProposalBytes(proposal);
@@ -130,8 +130,12 @@ public sealed class CoreInvariantTests
             Batch(one.Operations[0].Fields, schema, "rev-2"),
             Batch(one.Operations[0].Fields, schema, concurrency: ConcurrencyMode.ObservedNonAtomic),
             Batch(Fields(("count", FieldValue.Integer(3)), ("gate", FieldValue.String("x"))), schema),
+            new Proposal(Connection, one.SchemaFingerprint, 0, one.Operations, "configured-policy", "sha256:one"),
+            new Proposal(Connection, one.SchemaFingerprint, 0, one.Operations, "configured-policy", "sha256:two"),
         };
         variants.All(v => v.Digest != one.Digest).ShouldBeTrue();
+        variants[^1].Digest.ShouldNotBe(variants[^2].Digest);
+        Should.Throw<ArgumentException>(() => new Proposal(Connection, one.SchemaFingerprint, 0, one.Operations, "policy"));
         var a = new Op("a", OpKind.Delete, Key, new Revision(Key, "rev-1"));
         var b = new Op("b", OpKind.Delete, ItemKey.Remote(Provider, "scope", "2"),
             new Revision(ItemKey.Remote(Provider, "scope", "2"), "rev-1"));
@@ -193,6 +197,19 @@ public sealed class CoreInvariantTests
                 type: "record", concurrency: ConcurrencyMode.ObservedNonAtomic)]);
         Rules.Validate(typed, typed.Digest, schema, new(0, [Item()]), capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unsupported);
+    }
+
+    [Fact]
+    public void CloseGateDiscoveryUsesEffectiveRulesAndNeverChoosesAnAuthoredGateValue()
+    {
+        var source = Item();
+        var fields = Fields(("phase", FieldValue.String("finished")));
+        Rules.CloseGates(Schema(), source, fields).Value.ShouldBe(["gate"]);
+        Rules.CloseGates(Schema(), source, Fields(("count", FieldValue.Integer(2)))).Value.ShouldBeEmpty();
+        var when = new[] { new RuleCondition(ConditionKind.Equal, "phase", FieldValue.String("finished")) };
+        var supplied = Schema([new("gate", RuleAction.Required, when), new("gate", RuleAction.Supplied, when)]);
+        Rules.CloseGates(supplied, source, fields).Value.ShouldBeEmpty();
+        Rules.CloseGates(Schema(gaps: ["unavailable native rules"]), source, fields).IsSuccess.ShouldBeFalse();
     }
 
     [Fact]

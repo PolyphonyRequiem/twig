@@ -5,8 +5,11 @@ Phases 1-4 and phase-5 implementation in progress for **Epic #1220, Core domain 
 ## Status and scope
 
 `Twig.Core` is an additive, standalone model and pure-function library in the supported
-solution. Production CLI/TUI/Browser routing and dependency injection have not switched
-to it yet; in-progress host bridges in Infrastructure now reference it. Phase 2 adds `Twig.Store.Sqlite` as an isolated persistence adapter,
+solution. Production cutover is in progress. An explicitly initialized, pinned Core ADO
+workspace now routes `show`, `update` and file-scoped `proposal apply` through
+the shared Core-only composition and application workflow. Other commands,
+default/legacy mode, TUI and Browser are not fully cut over; this is not yet the
+completed supported phase-5 surface. Phase 2 adds `Twig.Store.Sqlite` as an isolated persistence adapter,
 not a provider/command cutover, compatibility layer, or claim that the old domain is removed.
 Phase 3 adds the standalone `Twig.Providers.Ado` adapter and durable one-effect execution
 over `IStore`; live command/native authentication wiring remains unchanged.
@@ -29,22 +32,22 @@ connection, actor, native fingerprint, policy identity/revision and each type.
 An absent optional declaration means no declared local rules, not an empty
 external ruleset or model-declared completeness. The new host acquisition reads
 actual policy bytes and translates the supported mechanical rules; their
-application enforcement and GitHub leased native admission remain part of the
-unfinished cutover.
+application enforcement is in the shared Core workspace workflow; GitHub leased
+native admission and complete retained-surface routing remain unfinished.
 
 Phase 5 has also added the native ADO access/admission bridge with exact
 digest/ordinal/attempt attribution and creation fences in the existing native
 registry. It holds a real native binding/generation operation and refuses
-token-only access or missing durable Applying intent. Production command
-composition has **not** been switched yet; these changes are not a claim that
-the command routing or phase 5 is complete.
+token-only access or missing durable Applying intent. The rooted ADO slice has
+actual CAF/production-DI coverage, but these changes are not a claim that every
+retained command, UI surface or phase 5 is complete.
 
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not
 an invented work-item identity. The ADO adapter qualifies actual enabled native
 Hyperlink/ArtifactLink shapes and sends one revision-tested JSON-Patch request;
 exact attributes, acknowledgement, persistence and separate readback use the
-same journal path. Production command wiring remains unfinished.
+same journal path. Remaining artifact command/UI wiring is still unfinished.
 
 Feature publication remains operationally unresolved: the reviewed six-phase proposal's
 first creation has an indeterminate outcome without an acknowledged native Feature ID.
@@ -171,7 +174,7 @@ gaps block writes, even if the cached fields happen to look valid.
 
 ## Canonical proposals
 
-A proposal is immutable and connection-bound. Version 2 hashes:
+A proposal is immutable and connection-bound. Version 3 hashes:
 
 - The format version, provider scope, immutable destination and identity reference.
 - The complete schema fingerprint and expected local store CAS version.
@@ -179,12 +182,28 @@ A proposal is immutable and connection-bound. Version 2 hashes:
   revision and revision target, relationship endpoints/provenance/local CAS, type and concurrency mode.
 - A create's durable local UUID, carried in its item key.
 - A resource effect's exact relation, locator, nullable name and nullable comment.
+- Paired configured-Twig-policy identity/revision; null/null denotes an observed
+  absent optional declaration and must be rechecked against the actual source,
+  never inferred from failed acquisition.
 
-Version 2 adds an explicit resource slot to the fixed operation grammar. It does
-not reinterpret a version-1 digest. The SQLite database/snapshot format also
-advances to version 2: old files are refused and preserved, never reset or
+Version 2 introduced the resource slot; version 3 additionally binds configured
+policy presence and bytes. Neither reinterprets an earlier digest. The SQLite
+database/snapshot format now advances to version 3: old files are refused and preserved, never reset or
 silently migrated. Explicit initialization must choose a genuinely new isolated
 path while prior drafts, journals, creation fences and mappings remain intact.
+
+The store has a genuine persisted file-instance UUID. Opening an expected
+instance or using an already-open handle against a replaced file refuses.
+Explicit host initialization pins the immutable connection before any snapshot
+exists and records that exact instance; it cannot adopt an existing populated
+partition. The production factory checks both marker and on-disk binding before
+constructing the Core-only runtime.
+
+`IProvider.ImportAsync` and `RecoverAsync` expose the adapters' existing common
+operations through the same port, not new per-provider policy interfaces.
+Capture-only reads suppress optional mirror commits during policy acquisition;
+the application owns its explicit coherent mirror commit. The shared workflow
+does not retry patches, flush pending notes or invoke the legacy seed publisher.
 
 `Core.ProposalBytes` writes a fixed versioned UTF-8 JSON grammar directly with
 `Utf8JsonWriter`; `Digest` is lowercase hexadecimal SHA-256 of those exact bytes.

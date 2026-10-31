@@ -19,9 +19,11 @@ using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Policy;
 using Xunit;
 using CoreModel = Twig.Core;
 using CleanStore = Twig.Store.Sqlite.SqliteStore;
+using Twig.Infrastructure.Services;
 
 namespace Twig.Cli.Tests.Commands;
 
@@ -66,6 +68,88 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ExplicitCoreProductionRootReadsAndUpdatesThroughDraftDigestJournalWithoutLegacyWriters()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "production-core.db");
+        var created = await CleanStore.CreateAsync(database);
+        created.IsSuccess.ShouldBeTrue();
+        var store = created.Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var arguments = new[] { "update", "System.Title", "Core production title", "--id", "42", "-o", "json" };
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var exit = Twig.TwigConsoleApp.Run(arguments, services =>
+            {
+                services.AddSingleton<IConnectionBindingService>(_bindings);
+                services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+                services.AddTwigWorkspaceServices(paths.StartDir, arguments, Path.Combine(Home, "display.json"));
+            });
+            exit.ShouldBe(0, stderr.ToString());
+            using var output = JsonDocument.Parse(stdout.ToString());
+            output.RootElement.GetProperty("digest").GetString().ShouldNotBeNullOrWhiteSpace();
+            output.RootElement.GetProperty("journalStatus").GetString().ShouldBe("Verified");
+            _transport.CommittedWrites.ShouldBe(1);
+            var snapshot = (await store.ReadAsync(connection, default)).Value;
+            snapshot.Drafts.ShouldBeEmpty();
+            snapshot.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            snapshot.Proposals.Single().Digest.ShouldBe(output.RootElement.GetProperty("digest").GetString());
+            var check = new ServiceCollection();
+            check.AddSingleton<IConnectionBindingService>(_bindings);
+            check.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+            check.AddTwigWorkspaceServices(paths.StartDir, ["show", "42", "-o", "json"], Path.Combine(Home, "display.json"));
+            using var root = check.BuildServiceProvider();
+            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            root.GetService<IAdoWorkItemService>().ShouldBeNull();
+            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            stdout.GetStringBuilder().Clear();
+            var show = new TwigCommands(root);
+            (await show.Show(42, "json")).ShouldBe(0, stderr.ToString());
+            using var read = JsonDocument.Parse(stdout.ToString());
+            read.RootElement.GetProperty("title").GetString().ShouldBe("Core production title");
+            _transport.CommittedWrites.ShouldBe(1, "show must not flush unrelated pending state");
+            using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+            var workspace = admitted.Workspace;
+            var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+            (await workspace.StageEditAsync(key,
+                new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("File-reviewed production title"))]), default))
+                .IsSuccess.ShouldBeTrue();
+            var preview = (await workspace.PreviewDraftAsync(key, default)).Value;
+            var proposal = preview.Proposal.ShouldNotBeNull();
+            var proposalPath = Path.Combine(paths.TwigDir, "core-reviewed-proposal.json");
+            await File.WriteAllBytesAsync(proposalPath, CoreModel.Core.ProposalBytes(proposal));
+            var workReads = _transport.WorkRequests;
+            stdout.GetStringBuilder().Clear();
+            (await show.PlanApply(proposalPath, new string('0', 64), "json")).ShouldBe(1);
+            _transport.WorkRequests.ShouldBe(workReads, "wrong digest must refuse before native context or work HTTP");
+            stdout.GetStringBuilder().Clear();
+            (await show.PlanApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
+            _transport.CommittedWrites.ShouldBe(2);
+            (await store.ReadAsync(connection, default)).Value.Drafts.ShouldBeEmpty();
+            stdout.GetStringBuilder().Clear();
+            (await show.PlanApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
+            _transport.CommittedWrites.ShouldBe(2, "Verified file reapply must not dispatch");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CleanCoreAdmissionRetainsRealNativeLeaseAndExactDurableAttemptAttribution()
     {
         var runtime = await AttachAsync();
@@ -100,6 +184,8 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         (await session.AdmitAsync(intent with { Attempt = Guid.NewGuid() }, default)).IsSuccess.ShouldBeFalse();
         (await session.AdmitAsync(intent with { Payload = intent.Payload.Replace("\"value\":1", "\"value\":2", StringComparison.Ordinal) }, default))
             .IsSuccess.ShouldBeFalse();
+        (await session.AdmitAsync(intent with { Target = new Uri(intent.Target.AbsoluteUri + "&bypassRules=true") }, default))
+            .IsSuccess.ShouldBeFalse();
         var admitted = await session.AdmitAsync(intent, default);
         admitted.IsSuccess.ShouldBeTrue(admitted.IsSuccess ? "" : admitted.Error.Message);
         using var admission = admitted.Value;
@@ -107,6 +193,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         recorded.Intent.Request.CoreCorrelation.ShouldNotBeNull().ProposalDigest.ShouldBe(proposal.Digest);
         recorded.Intent.Request.CoreCorrelation!.Operation.ShouldBe(0);
         recorded.Intent.Request.CoreCorrelation.Attempt.ShouldBe(attempt);
+        recorded.Intent.Request.CoreCorrelation.StoreInstance.ShouldBe(store.InstanceId);
         recorded.Intent.Request.Payload.ShouldBe(intent.Payload);
         recorded.Intent.Origin.ShouldBe(origin);
         recorded.Receipt.ShouldBeNull();
@@ -123,6 +210,47 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         _transport.CommittedWrites.ShouldBe(1);
         await Should.ThrowAsync<InvalidOperationException>(() => session.AdmitAsync(intent, default));
         _transport.CommittedWrites.ShouldBe(1, "native attempt admission cannot replay after an acknowledgement");
+    }
+
+    [Theory]
+    [InlineData("appeared")]
+    [InlineData("disappeared")]
+    [InlineData("changed")]
+    public async Task CleanCoreAdmissionRechecksActualPolicyPresenceAndBytesAfterPreview(string change)
+    {
+        var runtime = await AttachAsync();
+        var config = runtime.GetRequiredService<TwigConfiguration>();
+        var paths = runtime.GetRequiredService<TwigPaths>();
+        const string policyText = """{"version":1,"rules":[]}""";
+        if (change != "appeared") await File.WriteAllTextAsync(paths.PolicyPath, policyText);
+        var observed = (await new ConfiguredPolicyProjectionSource(paths.RepoRoot).ReadAsync(default)).Value;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+        var proposal = new CoreModel.Proposal(connection, "native-schema", 0,
+            [new("edit", CoreModel.OpKind.Batch, key, new(key, "ado-rev:1"),
+                new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("reviewed"))]))],
+            observed.Identity, observed.Revision);
+        var store = (await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"))).Value;
+        var planned = CoreModel.JournalEntry.Planned(proposal.Digest, 0);
+        (await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
+        var attempt = Guid.NewGuid();
+        (await store.CommitAsync(connection, 1, new(2, proposals: [proposal], journal: [planned.Begin(attempt).Value]), default)).IsSuccess.ShouldBeTrue();
+        var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
+            config, paths, origin, connection, Actor, store);
+        using var session = (await access.AcquireAsync(connection, default)).Value;
+        if (change == "disappeared") File.Delete(paths.PolicyPath);
+        else await File.WriteAllTextAsync(paths.PolicyPath, policyText + (change == "changed" ? "\n" : ""));
+        var intent = new Twig.Providers.Ado.AdoWriteIntent(proposal, 0, attempt,
+            new Uri("https://dev.azure.com/fixture/" + connection.Destination + "/_apis/wit/workitems/42?api-version=7.1"),
+            "PATCH", "application/json-patch+json",
+            """[{"op":"test","path":"/rev","value":1},{"op":"add","path":"/fields/System.Title","value":"reviewed"}]""");
+        var refused = await session.AdmitAsync(intent, default);
+        refused.IsSuccess.ShouldBeFalse();
+        refused.Error.Code.ShouldBe(CoreModel.ErrorCode.SchemaChanged);
+        _transport.WorkRequests.ShouldBe(0);
+        (await _systemRegistry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint)).Value.ShouldBeEmpty();
     }
 
     [Fact]
@@ -750,6 +878,13 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         public bool FailReadbackAfterCommit { get; set; }
         public Func<Task>? BeforeReadback { get; set; }
         public Func<Task>? AfterCommit { get; set; }
+        public bool CoreMetadataEnabled { get; set; }
+        internal HttpMessageHandler NewHandle() => new Forward(this);
+        private sealed class Forward(PrincipalTransport owner) : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+                => owner.SendAsync(request, ct);
+        }
         public string TitleOf(int id) => _items[id].Title;
         public int RevisionOf(int id) => _items[id].Revision;
         public void SetItem(int id, string title, int revision, string principal)
@@ -775,6 +910,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
+            if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata) return metadata;
             const string route = "/_apis/wit/workitems/";
             var routeIndex = path.IndexOf(route, StringComparison.OrdinalIgnoreCase);
             if (routeIndex < 0) return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
@@ -833,11 +969,54 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 fields = new Dictionary<string, object>
                 {
                     ["System.Title"] = item.Title, ["System.WorkItemType"] = "Task", ["System.State"] = "To Do",
+                    ["System.TeamProject"] = "Project",
                     ["System.AreaPath"] = "fixture", ["System.IterationPath"] = "fixture",
-                    ["System.AssignedTo"] = new { displayName = "Same display", uniqueName = item.Principal }
+                    ["System.AssignedTo"] = new { id = item.Principal, displayName = "Same display", uniqueName = item.Principal }
                 },
                 relations = Array.Empty<object>()
             });
+        }
+
+        private static HttpResponseMessage? Metadata(string path, string query)
+        {
+            if (path.Contains("/_apis/projects/", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new
+                {
+                    id = "22222222-2222-2222-2222-222222222222", name = "Project",
+                    capabilities = new { processTemplate = new { templateTypeId = "33333333-3333-3333-3333-333333333333" } }
+                });
+            if (path.EndsWith("/fields", StringComparison.Ordinal))
+            {
+                var names = new[] { "System.Title", "System.State", "System.TeamProject", "System.WorkItemType",
+                    "System.AreaPath", "System.IterationPath", "System.AssignedTo" };
+                return Reply(HttpStatusCode.OK, new { value = names.Select(name => new
+                {
+                    referenceName = name, type = "string", readOnly = name is "System.TeamProject" or "System.WorkItemType",
+                    isIdentity = name == "System.AssignedTo", isPicklist = false, required = false
+                }).ToArray() });
+            }
+            if (path.EndsWith("/workitemrelationtypes", StringComparison.Ordinal)
+                || path.EndsWith("/workitemtypecategories", StringComparison.Ordinal)
+                || path.EndsWith("/rules", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { value = Array.Empty<object>() });
+            if (path.EndsWith("/workitemtypes", StringComparison.OrdinalIgnoreCase) && query.Contains("$expand=all"))
+                return Reply(HttpStatusCode.OK, new { value = new[] { new
+                {
+                    referenceName = "Fixture.Task", transitions = new Dictionary<string, object[]>
+                    {
+                        [""] = [new { to = "To Do" }], ["To Do"] = [new { to = "Doing" }],
+                        ["Doing"] = [new { to = "Done" }], ["Done"] = [new { to = "Doing" }]
+                    }
+                } } });
+            if (path.EndsWith("/workItemTypes", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { value = new[] { new { referenceName = "Fixture.Task", name = "Task", isDisabled = false } } });
+            if (path.EndsWith("/states", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { value = new[]
+                {
+                    new { name = "To Do", stateCategory = "Proposed" }, new { name = "Doing", stateCategory = "InProgress" },
+                    new { name = "Done", stateCategory = "Completed" }
+                } });
+            return null;
         }
 
         private static HttpResponseMessage Reply(HttpStatusCode status, object body) => new(status)

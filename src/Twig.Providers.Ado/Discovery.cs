@@ -183,6 +183,7 @@ public sealed partial class AdoProvider
             if (initialStates.Count == 0) gaps.Add($"{reference}: initial transition states are unavailable.");
             else rules.Add(new(stateField, RuleAction.Allowed,
                 [new(ConditionKind.Was, stateField, FieldValue.Null)], initialStates));
+            rules.Add(new(stateField, RuleAction.Unknown, [], [FieldValue.Raw(name, "ado.native-type-name")], disabled: true));
             types.Add(new(reference, stateField, typeFields, states, edges, rules,
                 Wire.Flag(row, "isDisabled") || hidden.Contains(name)));
         }

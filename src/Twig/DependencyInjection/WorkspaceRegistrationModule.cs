@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Twig.Commands;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
@@ -6,6 +7,7 @@ using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services;
 
 namespace Twig.DependencyInjection;
 
@@ -24,6 +26,15 @@ internal static class WorkspaceRegistrationModule
         var probePaths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"),
             startDir, globalDisplayPath);
         var config = TwigConfiguration.LoadSplit(probePaths);
+        if (File.Exists(Path.Combine(twigDir, CoreWorkspaceFactory.FileName)))
+        {
+            var corePaths = TwigPaths.BuildPaths(twigDir, config, startDir);
+            services.AddCoreWorkspaceServices(config, corePaths);
+            services.AddTwigRenderingServices();
+            services.AddSingleton(sp => new CoreCommandAdapter(sp.GetRequiredService<CoreWorkspaceFactory>(),
+                sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
+            return services;
+        }
         services.AddConnectionServices(config, twigDir, startDir);
 
         // Git discovery belongs to composition, never to a local navigation gesture.

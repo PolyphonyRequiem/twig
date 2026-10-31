@@ -23,15 +23,17 @@ public sealed class GitHubPolicyProjectionSourceTests : IDisposable
         var result = await Source().CaptureAsync(Connection, "native-actor", schema, default);
         result.IsSuccess.ShouldBeTrue();
         var capture = result.Value;
-        capture.IsDeclared.ShouldBeFalse();
+        capture.Document.Policy.ShouldBeNull();
+        capture.Document.Identity.ShouldBeNull();
+        capture.Document.Revision.ShouldBeNull();
         capture.Policy.Rules.ShouldBeEmpty();
-        capture.Evidence.Scope.ShouldBe(GitHubValidationScope.NativeApiAndDeclaredTwigPolicies);
-        capture.Evidence.Connection.ShouldBe(Connection);
-        capture.Evidence.ActorId.ShouldBe("native-actor");
-        capture.Evidence.NativeFingerprint.ShouldBe(schema.Fingerprint);
-        capture.Evidence.PolicyRevision.ShouldBe("absent");
-        capture.Evidence.Types.Keys.ShouldBe(["type-id"], ignoreOrder: true);
-        capture.Evidence.Types["type-id"].ShouldBeEmpty();
+        capture.ForGitHub().Scope.ShouldBe(GitHubValidationScope.NativeApiAndDeclaredTwigPolicies);
+        capture.Connection.ShouldBe(Connection);
+        capture.ActorId.ShouldBe("native-actor");
+        capture.NativeFingerprint.ShouldBe(schema.Fingerprint);
+        capture.ForGitHub().PolicyRevision.ShouldBe("absent");
+        capture.Types.Keys.ShouldBe(["type-id"], ignoreOrder: true);
+        capture.Types["type-id"].ShouldBeEmpty();
         GitHubProvider.RuleDiscovery.ShouldContain("unsupported");
         GitHubProvider.RuleDiscovery.ShouldContain("outside Twig validation");
     }
@@ -48,16 +50,16 @@ public sealed class GitHubPolicyProjectionSourceTests : IDisposable
         await File.WriteAllTextAsync(PolicyPath, json, new UTF8Encoding(false));
         var result = await Source().CaptureAsync(Connection, "actor", Schema(), default);
         result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
-        result.Value.IsDeclared.ShouldBeTrue();
+        result.Value.Document.Policy.ShouldNotBeNull();
         result.Value.Policy.Rules[0].ChildType.ShouldBe("type-id");
         result.Value.Policy.Rules[0].AllowedParentTypes.ShouldBe(["type-id"]);
         result.Value.Policy.Rules[1].MaxNodes.ShouldBe(25);
         result.Value.Policy.Rules[1].WarnOnly.ShouldBeTrue();
-        result.Value.Evidence.PolicyRevision.ShouldBe("sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json))));
+        result.Value.Document.Revision.ShouldBe("sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json))));
         await File.AppendAllTextAsync(PolicyPath, "\n");
-        (await Source().CaptureAsync(Connection, "actor", Schema(), default)).Value.Evidence.PolicyRevision
-            .ShouldNotBe(result.Value.Evidence.PolicyRevision);
-        (await Source().CaptureAsync(Connection, "other-actor", Schema(), default)).Value.Evidence.ActorId.ShouldBe("other-actor");
+        (await Source().CaptureAsync(Connection, "actor", Schema(), default)).Value.Document.Revision
+            .ShouldNotBe(result.Value.Document.Revision);
+        (await Source().CaptureAsync(Connection, "other-actor", Schema(), default)).Value.ActorId.ShouldBe("other-actor");
     }
 
     [Theory]
@@ -85,7 +87,7 @@ public sealed class GitHubPolicyProjectionSourceTests : IDisposable
     }
 
     private string PolicyPath => Path.Combine(_root, "twig.policy.json");
-    private GitHubPolicyProjectionSource Source() => new(_root);
+    private ConfiguredPolicyProjectionSource Source() => new(_root);
     private static ProcessSchema Schema() => new(Connection,
         [new("type-id", GitHubProvider.StateField,
             [new(GitHubProvider.StateField, FieldKind.Text), new(GitHubProvider.Title, FieldKind.Text)],

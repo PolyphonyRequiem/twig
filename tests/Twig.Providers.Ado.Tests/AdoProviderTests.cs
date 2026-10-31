@@ -78,6 +78,28 @@ public sealed class AdoProviderTests
     }
 
     [Fact]
+    public async Task TypeOnlyChangeUsesOneNativeRevisionTestAndNoSyntheticFieldEdit()
+    {
+        using var f = await Fixture.Create();
+        f.Http.AdditionalType = "Other.NativeType";
+        var item = (await f.Read(1)).Items.Single();
+        item.Type.ShouldNotBe(f.Http.AdditionalType);
+        var proposal = await f.Proposal(new("type", OpKind.Batch, item.Key, item.Revision, type: f.Http.AdditionalType));
+        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
+        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        ack.Status.ShouldBe(OpStatus.Applied);
+        using var patch = JsonDocument.Parse(f.Http.LastPayload!);
+        patch.RootElement.GetArrayLength().ShouldBe(2);
+        patch.RootElement[0].GetProperty("path").GetString().ShouldBe("/rev");
+        patch.RootElement[1].GetProperty("path").GetString().ShouldBe("/fields/System.WorkItemType");
+        patch.RootElement[1].GetProperty("value").GetString().ShouldBe(f.Http.AdditionalType);
+        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Stored()).Items.Single().Type.ShouldBe(f.Http.AdditionalType);
+        f.Http.Writes.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task DisabledResourceCapabilityDoesNotDisableOrdinaryReadsOrAuthorizeArtifactWrites()
     {
         using var f = await Fixture.Create();
@@ -615,6 +637,7 @@ public sealed class AdoProviderTests
     private sealed class NativeHttp : HttpMessageHandler
     {
         internal string Type;
+        internal string? AdditionalType;
         internal string Initial;
         internal string Completed;
         internal string NativeActor = Fixture.Actor;
@@ -701,11 +724,13 @@ public sealed class AdoProviderTests
                     """);
             else if (path.EndsWith("/workitemtypecategories")) response = Rows("");
             else if (path.EndsWith("/workitemtypes", StringComparison.OrdinalIgnoreCase) && query.Contains("$expand=all"))
-                response = Defect == "missing-transitions" ? Rows("") : Rows($$"""
-                    {"referenceName":"{{Type}}","transitions":{"":[{"to":"{{Initial}}"}],"{{Initial}}":[{"to":"{{Completed}}"}],"{{Completed}}":[{"to":"{{Initial}}"}]} }
-                    """);
+                response = Defect == "missing-transitions" ? Rows("") : Rows(string.Join(",",
+                    NativeTypes().Select(reference => $$"""
+                    {"referenceName":"{{reference}}","transitions":{"":[{"to":"{{Initial}}"}],"{{Initial}}":[{"to":"{{Completed}}"}],"{{Completed}}":[{"to":"{{Initial}}"}]} }
+                    """)));
             else if (path.EndsWith("/workItemTypes"))
-                response = Rows($$"""{"referenceName":"{{Type}}","name":"{{Type}}","isDisabled":false}""");
+                response = Rows(string.Join(",", NativeTypes().Select(reference =>
+                    $$"""{"referenceName":"{{reference}}","name":"{{reference}}","isDisabled":false}""")));
             else if (path.EndsWith("/states"))
                 response = Rows($$"""{"name":"{{Initial}}","stateCategory":"Proposed"},{"name":"{{Completed}}","stateCategory":"{{(Defect == "unknown-category" ? "Alien" : "Completed")}}"}""");
             else if (path.EndsWith("/rules"))
@@ -751,6 +776,7 @@ public sealed class AdoProviderTests
             if (Defect == "metadata-page") response.Headers.Add("x-ms-continuationtoken", "more");
             return response;
         }
+        private IEnumerable<string> NativeTypes() => AdditionalType is null ? [Type] : [Type, AdditionalType];
         private async Task<HttpResponseMessage> Write(HttpRequestMessage request, string path, CancellationToken ct)
         {
             Writes++;

@@ -536,6 +536,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Show([Argument] int? idArg = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null, string? localId = null, int? id = null)
     {
         id ??= idArg;
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ShowAsync(id, output, tree, refresh, fields, sections, localId, ct);
         if (localId is not null)
         {
             // Resolve only the provider snapshot route; the cache-first command has process,
@@ -1063,7 +1065,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="id">Work item ID to update; omit to use the active work item.</param>
     /// <param name="append">Append the value to the existing field content instead of replacing it.</param>
     public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, int? id = null, bool append = false, CancellationToken ct = default)
-        => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, id, append, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.UpdateAsync(field, value, output, format, file, stdin, id, append, ct);
+        return await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, id, append, ct);
+    }
 
     /// <summary>Atomically patch multiple fields on a work item via JSON input.</summary>
     /// <param name="json">JSON object with field name → value pairs (e.g., '{"System.Title":"New title"}').</param>
@@ -1945,7 +1951,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal apply|plan apply")]
     public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ApplyProposalAsync(file, confirm, output, ct);
+        return await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
+    }
 
     /// <summary>Show journal state for a proposal file. Exit 1 when no journal exists for its digest. Canonical verb is <c>proposal status</c>; <c>plan status</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>

@@ -16,6 +16,8 @@ public static partial class Core
         WriteConnection(w, proposal.Connection);
         w.WriteString("schema", proposal.SchemaFingerprint);
         w.WriteNumber("storeVersion", proposal.ExpectedStoreVersion);
+        w.WriteString("policyIdentity", proposal.PolicyIdentity);
+        w.WriteString("policyRevision", proposal.PolicyRevision);
         w.WriteStartArray("operations");
         foreach (var op in proposal.Operations)
         {

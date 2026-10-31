@@ -46,7 +46,7 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
                 || string.IsNullOrWhiteSpace(core.ConnectionIdentity) || string.IsNullOrWhiteSpace(core.TargetIdentity)
                 || core.ProposalDigest is not { Length: 64 } || core.ProposalDigest.Any(c => c is not (>= '0' and <= '9' or >= 'a' and <= 'f'))
                 || (request.EffectKind == "workitem-create") != (core.CreationIdentity is not null)
-                || core.CreationIdentity == Guid.Empty
+                || core.CreationIdentity == Guid.Empty || core.StoreInstance == Guid.Empty
                 || core.CreationIdentity is not null && core.ExpectedRevision is not null
                 || core.CreationIdentity is null && string.IsNullOrWhiteSpace(core.ExpectedRevision)))
             throw new InvalidOperationException("remote-write-core-correlation-invalid: exact connection, proposal, operation and attempt evidence is required.");

@@ -50,7 +50,7 @@ internal static class Persistence
 internal sealed record SnapshotData(int Version, long StoreVersion, ItemData[] Items, RelationshipData[] Relationships,
     DraftData[] Drafts, ProposalData[] Proposals, JournalData[] Journal, MappingData[] Mappings, BenchData[] Benches)
 {
-    internal static SnapshotData From(StoreSnapshot s) => new(2, s.Version,
+    internal static SnapshotData From(StoreSnapshot s) => new(3, s.Version,
         s.Items.Select(ItemData.From).ToArray(), s.Relationships.Select(RelationshipData.From).ToArray(),
         s.Drafts.Select(DraftData.From).ToArray(), s.Proposals.Select(ProposalData.From).ToArray(),
         s.Journal.Select(JournalData.From).ToArray(), s.Mappings.Select(MappingData.From).ToArray(),
@@ -58,7 +58,7 @@ internal sealed record SnapshotData(int Version, long StoreVersion, ItemData[] I
 
     internal StoreSnapshot ToCore()
     {
-        if (Version != 2) throw new JsonException("Unsupported snapshot format version.");
+        if (Version != 3) throw new JsonException("Unsupported snapshot format version.");
         return new(StoreVersion, Items.Select(i => i.ToCore()), Relationships.Select(r => r.ToCore()),
             Drafts.Select(d => d.ToCore()), Proposals.Select(p => p.ToCore()), Journal.Select(j => j.ToCore()),
             Mappings.Select(m => m.ToCore()), Benches.Select(b => b.ToCore()));
@@ -164,14 +164,16 @@ internal sealed record OpData(string Id, OpKind Kind, KeyData Item, RevisionData
 }
 
 internal sealed record ProposalData(int Version, Connection Connection, string SchemaFingerprint, long ExpectedStoreVersion,
-    OpData[] Operations, string Digest)
+    OpData[] Operations, string Digest, string? PolicyIdentity, string? PolicyRevision)
 {
     internal static ProposalData From(Proposal p)
-        => new(Proposal.FormatVersion, p.Connection, p.SchemaFingerprint, p.ExpectedStoreVersion, p.Operations.Select(OpData.From).ToArray(), p.Digest);
+        => new(Proposal.FormatVersion, p.Connection, p.SchemaFingerprint, p.ExpectedStoreVersion,
+            p.Operations.Select(OpData.From).ToArray(), p.Digest, p.PolicyIdentity, p.PolicyRevision);
     internal Proposal ToCore()
     {
         if (Version != Proposal.FormatVersion) throw new JsonException("Unsupported proposal format version.");
-        var proposal = new Proposal(Connection, SchemaFingerprint, ExpectedStoreVersion, Operations.Select(o => o.ToCore()));
+        var proposal = new Proposal(Connection, SchemaFingerprint, ExpectedStoreVersion, Operations.Select(o => o.ToCore()),
+            PolicyIdentity, PolicyRevision);
         if (proposal.Digest != Digest) throw new JsonException("Retained proposal digest does not match canonical intent.");
         return proposal;
     }

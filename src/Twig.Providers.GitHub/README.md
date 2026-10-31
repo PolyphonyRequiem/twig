@@ -46,7 +46,7 @@ refuses effects. Unknown enabled rules still refuse. Native type names are
 retained as fingerprinted evidence so configured policy names can resolve to
 actual stable native type IDs without guessing.
 
-The host `GitHubPolicyProjectionSource` reads the real optional `twig.policy.json`
+The shared host `ConfiguredPolicyProjectionSource` reads the real optional `twig.policy.json`
 once, hashes its exact bytes and translates only its supported mechanical
 parent-type/dependency rules. Duplicate/unknown members, invented `complete`
 flags, ambiguous/unknown types, unreadable declarations and excessive acquisition

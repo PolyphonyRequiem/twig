@@ -29,11 +29,13 @@ public interface IProvider
     ProviderCapabilities Capabilities { get; }
     Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct);
     Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct);
-    Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct);
+    Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false);
+    Task<Result<long>> ImportAsync(Proposal proposal, string confirmation, CancellationToken ct = default);
 
     // Exactly one already-journaled operation, never an opaque multi-request proposal execution.
     Task<Result<Receipt>> ApplyAsync(Proposal proposal, int operation, Guid attempt, CancellationToken ct);
     Task<Result<Receipt>> VerifyAsync(Proposal proposal, Receipt acknowledgement, CancellationToken ct);
+    Task<Result<Receipt>> RecoverAsync(Proposal proposal, int operation, CancellationToken ct = default);
 }
 
 public sealed record StoreSnapshot

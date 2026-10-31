@@ -68,6 +68,107 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreSeedPublicationUsesTheRetainedUuidAndPermanentVerifiedMapping()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "seed-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["seed", "view", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        root.GetService<SeedPublishCommand>().ShouldBeNull();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var commands = new TwigCommands(root);
+            (await commands.SeedNew(title: "Rooted creation", type: "Task", noParent: true, output: "json"))
+                .ShouldBe(0, stderr.ToString());
+            var seed = (await store.ReadAsync(connection, default)).Value.Drafts.ShouldHaveSingleItem();
+            seed.Key.LocalId.Version.ShouldBe(7);
+            seed.Changes["System.State"].Text.ShouldBe("To Do");
+            seed.Changes["System.AssignedTo"].Text.ShouldBe(Actor);
+            _transport.PostCount.ShouldBe(0);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedView("json")).ShouldBe(0, stderr.ToString());
+            using var view = JsonDocument.Parse(stdout.ToString());
+            var alias = view.RootElement[0].GetProperty("id").GetInt32();
+            alias.ShouldBeLessThan(0);
+            view.RootElement[0].GetProperty("localId").GetString().ShouldBe(seed.Key.LocalId.ToString("D"));
+            stdout.GetStringBuilder().Clear();
+            var requestsBeforeLocalRead = _transport.TotalRequests;
+            (await commands.Show(output: "json", localId: seed.Key.LocalId.ToString("D"))).ShouldBe(0);
+            using var localRead = JsonDocument.Parse(stdout.ToString());
+            localRead.RootElement.GetProperty("isSeed").GetBoolean().ShouldBeTrue();
+            localRead.RootElement.GetProperty("revision").ValueKind.ShouldBe(JsonValueKind.Null);
+            _transport.TotalRequests.ShouldBe(requestsBeforeLocalRead);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(alias, output: "json")).ShouldBe(2);
+            _transport.PostCount.ShouldBe(0);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(alias, output: "human")).ShouldBe(0, stderr.ToString());
+            var final = (await store.ReadAsync(connection, default)).Value;
+            final.Drafts.ShouldBeEmpty();
+            var mapping = final.Mappings.ShouldHaveSingleItem();
+            mapping.Local.ShouldBe(seed.Key);
+            mapping.Remote.NativeId.ShouldBe("45");
+            final.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            final.Proposals.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem().Item.ShouldBe(seed.Key);
+            _transport.PostCount.ShouldBe(1);
+            stdout.GetStringBuilder().Clear();
+            var requestsBeforeMappedRead = _transport.TotalRequests;
+            (await commands.Show(alias, output: "json")).ShouldBe(0);
+            using var mappedRead = JsonDocument.Parse(stdout.ToString());
+            mappedRead.RootElement.GetProperty("id").GetInt32().ShouldBe(45);
+            mappedRead.RootElement.GetProperty("localId").GetString().ShouldBe(seed.Key.LocalId.ToString("D"));
+            mappedRead.RootElement.GetProperty("isSeed").GetBoolean().ShouldBeFalse();
+            _transport.TotalRequests.ShouldBe(requestsBeforeMappedRead);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(alias, output: "human")).ShouldBe(1);
+            _transport.PostCount.ShouldBe(1, "the publication UUID must not be recreated after permanent mapping");
+            var unknownSeed = (await admitted.Workspace.StageSeedAsync("Fixture.Task",
+                new([
+                    KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Unacknowledged rooted creation")),
+                    KeyValuePair.Create("System.State", CoreModel.FieldValue.String("To Do")),
+                ]), default, Guid.CreateVersion7())).Value;
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedView("json")).ShouldBe(0);
+            using var unknownView = JsonDocument.Parse(stdout.ToString());
+            var unknownAlias = unknownView.RootElement[0].GetProperty("id").GetInt32();
+            _transport.AfterCommit = () => throw new IOException("Fixture lost create response after native commit");
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(unknownAlias, output: "human")).ShouldBe(1);
+            var unknown = (await store.ReadAsync(connection, default)).Value;
+            unknown.Drafts.ShouldHaveSingleItem().Key.ShouldBe(unknownSeed.Key);
+            unknown.Mappings.Length.ShouldBe(1, "unknown create must not guess the native identity");
+            unknown.Journal.ShouldContain(row => row.Status == CoreModel.OpStatus.Indeterminate);
+            _transport.PostCount.ShouldBe(2);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(unknownAlias, output: "human")).ShouldBe(1);
+            _transport.PostCount.ShouldBe(2, "the unresolved UUID must fence replacement proposals, not only the old digest");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreSaveUsesDraftJournalInsteadOfResolvingALegacyPendingFlusher()
     {
         var native = await AttachAsync();
@@ -1139,6 +1240,37 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             WorkRequests++;
             if (request.Method == HttpMethod.Post) PostCount++;
             var segments = path[(routeIndex + route.Length)..].Split('/');
+            if (CoreMetadataEnabled && request.Method == HttpMethod.Post && segments[0] == "$Task")
+            {
+                using var create = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+                var title = create.RootElement.EnumerateArray()
+                    .Single(operation => operation.GetProperty("path").GetString() == "/fields/System.Title")
+                    .GetProperty("value").GetString()!;
+                var state = create.RootElement.EnumerateArray()
+                    .Single(operation => operation.GetProperty("path").GetString() == "/fields/System.State")
+                    .GetProperty("value").GetString()!;
+                var createdId = _items.Keys.Max() + 1;
+                SetItem(createdId, title, 1, principal);
+                _items[createdId] = _items[createdId] with { State = state };
+                _history[(createdId, 1)] = _items[createdId];
+                CommittedWrites++;
+                if (AfterCommit is { } afterCreate)
+                {
+                    AfterCommit = null;
+                    await afterCreate();
+                }
+                return Reply(HttpStatusCode.Created, new
+                {
+                    id = createdId, rev = 1, fields = new Dictionary<string, object>
+                    {
+                        ["System.Title"] = title, ["System.WorkItemType"] = "Task", ["System.State"] = state,
+                        ["System.TeamProject"] = "Project", ["System.AreaPath"] = "fixture",
+                        ["System.IterationPath"] = "fixture", ["System.History"] = "",
+                        ["System.AssignedTo"] = new { id = principal, displayName = "Same display", uniqueName = principal }
+                    },
+                    relations = Array.Empty<object>(),
+                });
+            }
             if (!int.TryParse(segments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
                 || !_items.TryGetValue(id, out var item) || item.Principal != principal)
                 return Reply(HttpStatusCode.NotFound, new { message = "Not readable by the selected principal" });

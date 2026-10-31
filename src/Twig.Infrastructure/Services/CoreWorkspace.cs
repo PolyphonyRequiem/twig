@@ -18,6 +18,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot)
 {
     internal Connection Connection => connection;
+    internal string NativeActor => nativeActor;
     internal Task<Result<StoreSnapshot>> SnapshotAsync(CancellationToken ct) => store.ReadAsync(connection, ct);
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct) => provider.DiscoverSchemaAsync(connection, ct);
 
@@ -116,7 +117,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<Draft>.Fail(read.Error);
         var snapshot = read.Value;
-        var key = ItemKey.Local(id ?? Guid.NewGuid());
+        var key = ItemKey.Local(id ?? Guid.CreateVersion7());
         if (snapshot.Mappings.Any(m => m.Local == key))
             return Result<Draft>.Fail(ErrorCode.Conflict, "This local identity is already published; edit its mapped native draft.");
         var previous = snapshot.Drafts.FirstOrDefault(d => d.Key == key);

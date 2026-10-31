@@ -70,7 +70,28 @@ seeds and every journal/fence, and requires `--yes` without an interactive confi
 The retained Delete verb refuses its already disclosed unqualified transport instead
 of resolving the old delete writer. Cache-only `show` reads the Core mirror without
 schema/work HTTP; missing cached items require an explicit `--refresh`. Active scope,
-sync, local aliases and the other remaining read/UI families are still incomplete.
+sync and the other remaining read/UI families are still incomplete. Cached
+`show-batch` reads exact supplied targets and reports missing IDs with a nonzero
+exit; neither missing items nor field export cause implicit work/schema HTTP.
+
+Unparented `seed new --no-parent --type ...` now stages UUIDv7 drafts through Core.
+The initial state comes from the adapter's existing native initial-state allowed
+rule, not a guessed process category; the default assignee is the admitted native
+actor. `seed view` and human `seed publish` use the same workspace and ordered
+proposal/journal orchestration, not a separate publisher. Verified creation preserves
+the original UUID and permanent native mapping. An unacknowledged create keeps the
+draft and indeterminate UUID fence; another publication cannot recreate it.
+
+The fresh Core host derives negative integer presentation aliases deterministically
+from local UUIDs; UUIDs remain identity and all retained drafts, mappings, proposals,
+relationships and Bench selectors reserve their aliases. Collisions refuse ambiguous
+targeting rather than choose an item. `show --local-id` reads UUIDv7 drafts/mappings
+cache-only; negative alias detail continues to resolve after publication. This is a
+host compatibility strategy for new explicit stores, not a migration of old aliases.
+Parented/linked creation, chains and branch-artifact creation still require typed
+creation-bound effects; the current rooted path refuses those shapes before publishing,
+never omits their links. Seed editor/edit/discard/reconciliation, active context and
+complete lifecycle/UI retention remain unfinished. These gaps prevent phase-5 delivery.
 
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not

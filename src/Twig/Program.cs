@@ -854,7 +854,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
     [Hidden]
     public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string? description = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, description, field, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedNewAsync(title, type, editor, parent, noParent, description, field, output, ct);
+        return await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, description, field, output, ct);
+    }
 
     /// <summary>Create a new local seed work item.</summary>
     /// <param name="title">Title for the new seed work item.</param>
@@ -867,7 +871,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed new")]
     public async Task<int> SeedNew(string? title = null, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string? description = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, description, field, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedNewAsync(title, type, editor, parent, noParent, description, field, output, ct);
+        return await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, description, field, output, ct);
+    }
 
     /// <summary>Edit seed fields in an external editor.</summary>
     /// <param name="id">Seed ID to edit.</param>
@@ -888,7 +896,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed view")]
     public async Task<int> SeedView(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedViewCommand>().ExecuteAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.SeedViewAsync(output, ct);
+        return await services.GetRequiredService<SeedViewCommand>().ExecuteAsync(output, ct);
+    }
 
     /// <summary>Create a virtual link between two items (at least one must be a seed).</summary>
     /// <param name="sourceId">Source item ID for the link.</param>
@@ -941,7 +952,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed publish")]
     public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string? linkBranch = null, string? repo = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, linkBranch, repo, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedPublishAsync(id, all, force, dryRun, linkBranch, repo, output, ct);
+        return await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, linkBranch, repo, ct);
+    }
 
     /// <summary>Reconcile stale seed links and parent references after partial publishes.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

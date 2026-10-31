@@ -105,6 +105,184 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal int Delete(string output) => Error(output,
         "Delete is unavailable: the provider cannot prove the required revision-bound deletion precondition. No legacy writer or unqualified delete was used.");
 
+    internal async Task<int> SeedViewAsync(string output, CancellationToken ct)
+    {
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var snapshot = await handle.Workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var seeds = snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal).ToArray();
+        if (KnownLocalKeys(snapshot.Value).GroupBy(LocalAlias).Any(group => group.Count() != 1))
+            return Error(output, "Local integer aliases collide; use canonical UUID detail until the aliases are explicitly reconciled.");
+        var rows = seeds.Select(draft => new RenderRow(null, new Dictionary<string, RenderCell>
+        {
+            ["id"] = RenderCell.Integer(LocalAlias(draft.Key)),
+            ["localId"] = RenderCell.String(draft.Key.LocalId.ToString("D")),
+            ["type"] = RenderCell.String(draft.Type),
+            ["title"] = Cell(draft.Changes.TryGetValue("System.Title", out var title) ? title : FieldValue.Null),
+            ["isSeed"] = RenderCell.Boolean(true),
+            ["fields"] = new("Fields", new RenderValue.Object(draft.Changes.ToDictionary(field => field.Key, field => Cell(field.Value), StringComparer.Ordinal))),
+        })).ToArray();
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table("Local seeds",
+            [new("id", "ID"), new("type", "Type"), new("title", "Title")], rows)]));
+        return 0;
+    }
+
+    internal async Task<int> SeedNewAsync(string? title, string? requestedType, bool editor, int? parent,
+        bool noParent, string? description, string[]? fields, string output, CancellationToken ct)
+    {
+        if (noParent && parent is not null) return Error(output, "--parent and --no-parent are mutually exclusive.", 2);
+        if (editor) return Error(output, "The retained seed editor has not yet been connected to Core draft capture; no seed was staged.");
+        if (!noParent || parent is not null)
+            return Error(output, "Parented creation requires creation-bound relationship intent; no active-context parent or omitted link was inferred.");
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(requestedType))
+            return Error(output, "Unparented seed creation requires --title and --type.", 2);
+        var parsed = Twig.Domain.ValueObjects.FieldAssignment.ParseAll(fields, "--field");
+        if (!parsed.IsSuccess) return Error(output, parsed.Error, 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var schema = await workspace.SchemaAsync(ct);
+        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var types = schema.Value.Types.Where(type => !type.Hidden && (type.Reference.Equals(requestedType, StringComparison.OrdinalIgnoreCase)
+            || type.Rules.SelectMany(rule => rule.Values).Any(value => value.DataType == "ado.native-type-name"
+                && string.Equals(value.Text, requestedType, StringComparison.OrdinalIgnoreCase)))).ToArray();
+        if (types.Length != 1) return Error(output, "The requested seed type is absent or ambiguous in the actual process.", 2);
+        var type = types[0];
+        var changes = new Dictionary<string, FieldValue>(StringComparer.Ordinal)
+        {
+            ["System.Title"] = FieldValue.String(title),
+        };
+        var initial = type.Rules.Where(rule => !rule.Disabled && rule.Action == RuleAction.Allowed
+                && rule.Field == type.StateField && rule.Conditions.Length == 1
+                && rule.Conditions[0].Kind == ConditionKind.Was && rule.Conditions[0].Field == type.StateField
+                && rule.Conditions[0].Value?.Kind == FieldKind.Null)
+            .SelectMany(rule => rule.Values).Where(value => value.Kind == FieldKind.Text)
+            .Select(value => value.Text!).Distinct(StringComparer.Ordinal).ToArray();
+        if (initial.Length == 1) changes[type.StateField] = FieldValue.String(initial[0]);
+        var descriptionField = type.Fields.FirstOrDefault(field => field.Reference == "System.Description");
+        if (description is not null)
+        {
+            if (descriptionField is null || !TryParse(descriptionField.Kind, description, null, out var value))
+                return Error(output, "The actual seed type cannot accept the supplied description.", 2);
+            changes[descriptionField.Reference] = value;
+        }
+        foreach (var assignment in parsed.Value)
+        {
+            var definition = type.Fields.FirstOrDefault(field => field.Reference.Equals(assignment.FieldName, StringComparison.OrdinalIgnoreCase));
+            if (definition is null || definition.ReadOnly || !TryParse(definition.Kind, assignment.NewValue ?? "", null, out var value))
+                return Error(output, "A seed field is absent, read-only or not a valid typed value in the actual process.", 2);
+            changes[definition.Reference] = value;
+        }
+        if (!changes.ContainsKey(type.StateField))
+            return Error(output, "The process has no unique observed initial state. Supply its state field explicitly with --field.", 2);
+        var assigned = type.Fields.FirstOrDefault(field => field.Reference == "System.AssignedTo" && !field.ReadOnly);
+        if (assigned?.Kind == FieldKind.Identity && !changes.ContainsKey(assigned.Reference))
+            changes[assigned.Reference] = FieldValue.Identity(workspace.NativeActor);
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var aliases = KnownLocalKeys(snapshot.Value).Select(LocalAlias).ToHashSet();
+        var key = ItemKey.Local(Guid.CreateVersion7());
+        if (aliases.Contains(LocalAlias(key)))
+            return Error(output, "The allocated seed alias collides with retained local identity; no seed was staged.");
+        var staged = await workspace.StageSeedAsync(type.Reference, new(changes), ct, key.LocalId);
+        if (!staged.IsSuccess) return Error(output, staged.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedCreated",
+            new Dictionary<string, RenderCell>
+            {
+                ["id"] = RenderCell.Integer(LocalAlias(key)), ["localId"] = RenderCell.String(key.LocalId.ToString("D")),
+                ["type"] = RenderCell.String(requestedType), ["title"] = RenderCell.String(title),
+                ["isSeed"] = RenderCell.Boolean(true), ["isDirty"] = RenderCell.Boolean(true),
+                ["message"] = RenderCell.String("Created a local draft; no native creation was attempted."),
+            })]));
+        return 0;
+    }
+
+    internal async Task<int> SeedPublishAsync(int? id, bool all, bool force, bool dryRun,
+        string? branch, string? repository, string output, CancellationToken ct)
+    {
+        if (output != "human") return Error(output, "Structured seed publication is refused because it changes local publication context. Use an explicit reviewed proposal apply.", 2);
+        if (id is not null && (id >= 0 || all) || id is null && !all)
+            return Error(output, "Specify one negative seed ID or --all.", 2);
+        if (branch is not null || repository is not null)
+            return Error(output, "Seed branch-artifact capture is not yet connected to the reviewed Core creation intent; no seed was published.");
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        if (KnownLocalKeys(snapshot.Value).GroupBy(LocalAlias).Any(group => group.Count() != 1))
+            return Error(output, "Local integer aliases collide; no seed publication target was guessed.");
+        var drafts = snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal
+            && (all || LocalAlias(draft.Key) == id)).ToArray();
+        if (drafts.Length == 0) return Error(output, "No unpublished seed matches the explicit publication scope.");
+        var keys = drafts.Select(draft => draft.Key).ToHashSet();
+        if (snapshot.Value.Relationships.Any(edge => !edge.Deleted && (keys.Contains(edge.From) || keys.Contains(edge.To))))
+            return Error(output, "This seed has retained relationships requiring creation-bound publication effects; no link was dropped or seed published.");
+        var captures = new List<CoreDraftPreview>();
+        var operations = new List<Op>();
+        foreach (var draft in drafts)
+        {
+            var preview = await workspace.PreviewDraftAsync(draft.Key, ct);
+            if (!preview.IsSuccess) return Error(output, preview.Error.Message);
+            captures.Add(preview.Value);
+            var op = preview.Value.Proposal!.Operations.Single();
+            operations.Add(new($"create-{operations.Count}", op.Kind, op.Item, fields: op.Fields,
+                type: op.Type, concurrency: op.Concurrency));
+        }
+        var prepared = await workspace.PrepareAsync(operations, ct);
+        if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
+        var proposal = prepared.Value;
+        if (dryRun)
+        {
+            var retained = await workspace.RetainReviewAsync(proposal, ct);
+            if (!retained.IsSuccess) return Error(output, retained.Error.Message);
+            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedPublicationPreview",
+                new Dictionary<string, RenderCell>
+                {
+                    ["digest"] = RenderCell.String(proposal.Digest), ["seedCount"] = RenderCell.Integer(drafts.Length),
+                    ["message"] = RenderCell.String("Retained exact unattempted creation intent; no seed was published."),
+                })]));
+            return 0;
+        }
+        var published = await workspace.SaveDraftSetAsync(captures, proposal, proposal.Digest, ct);
+        if (!published.IsSuccess) return Error(output, published.Error.Message);
+        if (published.Value.Error is { } error) return Error(output, error.Message);
+        if (!published.Value.EffectsVerified) return Error(output, "Creation is unresolved; its UUID fence, drafts and receipts remain. No replay was performed.");
+        var final = await workspace.SnapshotAsync(ct);
+        if (!final.IsSuccess) return Error(output, final.Error.Message);
+        var rows = final.Value.Mappings.Where(mapping => keys.Contains(mapping.Local)).Select(mapping =>
+            new RenderRow(null, new Dictionary<string, RenderCell>
+            {
+                ["oldId"] = RenderCell.Integer(LocalAlias(mapping.Local)),
+                ["newId"] = RenderCell.String(mapping.Remote.NativeId!),
+                ["localId"] = RenderCell.String(mapping.Local.LocalId.ToString("D")),
+                ["status"] = RenderCell.String("Created"), ["digest"] = RenderCell.String(mapping.ProposalDigest),
+            })).ToArray();
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table("Published seeds",
+            [new("oldId", "Seed"), new("newId", "Native ID"), new("status", "Status")], rows)]));
+        return 0;
+    }
+
+    private static IEnumerable<ItemKey> KnownLocalKeys(StoreSnapshot snapshot)
+        => snapshot.Drafts.Select(draft => draft.Key).Concat(snapshot.Mappings.Select(mapping => mapping.Local))
+            .Concat(snapshot.Proposals.SelectMany(proposal => proposal.Operations)
+                .SelectMany(op => op.Other is null ? new[] { op.Item } : new[] { op.Item, op.Other }))
+            .Concat(snapshot.Relationships.SelectMany(edge => new[] { edge.From, edge.To }))
+            .Concat(snapshot.Benches.SelectMany(bench => bench.Selectors).Where(selector => selector.Item is not null)
+                .Select(selector => selector.Item!))
+            .Where(key => key.IsLocal).Distinct();
+
+    private static int LocalAlias(ItemKey key)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(key.LocalId.ToByteArray());
+        var value = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(bytes) & int.MaxValue;
+        return value == 0 ? int.MinValue : -value;
+    }
+
     internal async Task<int> ShowBatchAsync(string batch, string output, string? fields, string? sections,
         bool includeFields, CancellationToken ct)
     {
@@ -166,17 +344,44 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> ShowAsync(int? id, string output, bool tree, bool refresh,
         string? fields, string? sections, string? localId, CancellationToken ct)
     {
-        if (id is null || id <= 0) return Error(output, "No Core active target is selected. Pass an explicit work item ID.", 2);
-        if (tree || sections is not null || localId is not null)
-            return Error(output, "Tree/local-alias detail routing is not yet connected in this in-progress Core cutover.", 1);
+        if (id is null && localId is null || id == 0)
+            return Error(output, "No Core active target is selected. Pass an explicit work item ID or --local-id.", 2);
+        if (tree || sections is not null)
+            return Error(output, "Hierarchy/section detail routing is not yet connected in this in-progress Core cutover.", 1);
+        if (localId is not null && (id is not null || refresh || fields is not null || output is not ("json" or "json-full" or "json-compact")))
+            return Error(output, "--local-id requires JSON snapshot output without another target, refresh or projection.", 2);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
-        var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
-            id.Value.ToString(CultureInfo.InvariantCulture));
+        var original = await workspace.SnapshotAsync(ct);
+        if (!original.IsSuccess) return Error(output, original.Error.Message);
+        ItemKey key;
+        if (localId is not null)
+        {
+            if (!Guid.TryParseExact(localId, "D", out var uuid) || uuid.Version != 7 || uuid.ToString("D") != localId)
+                return Error(output, "A canonical lowercase UUIDv7 local identity is required.", 2);
+            key = ItemKey.Local(uuid);
+        }
+        else if (id < 0)
+        {
+            var matches = KnownLocalKeys(original.Value).Where(local => LocalAlias(local) == id).ToArray();
+            if (matches.Length != 1) return Error(output, "The local alias is absent or ambiguous; no target was guessed.");
+            key = matches[0];
+        }
+        else key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
+            id!.Value.ToString(CultureInfo.InvariantCulture));
+        var localKey = key.IsLocal ? key : original.Value.Mappings.FirstOrDefault(mapping => mapping.Remote == key)?.Local;
+        key = original.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
         WorkItem item;
-        if (refresh)
+        if (key.IsLocal)
+        {
+            var draft = original.Value.Drafts.FirstOrDefault(draft => draft.Key == key);
+            if (draft is null) return Error(output, "No retained local draft matches this identity.");
+            if (refresh) return Error(output, "An unpublished seed has no native observation to refresh.", 2);
+            item = new(key, draft.Type, draft.Changes, null);
+        }
+        else if (refresh)
         {
             var read = await workspace.ReadAsync(key, ct);
             if (!read.IsSuccess) return Error(output, read.Error.Message);
@@ -187,7 +392,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             var cached = await workspace.SnapshotAsync(ct);
             if (!cached.IsSuccess) return Error(output, cached.Error.Message);
             var found = cached.Value.Items.FirstOrDefault(value => value.Key == key);
-            if (found is null) return Error(output, $"Work item #{id.Value} is not cached. Use show {id.Value} --refresh.");
+            if (found is null) return Error(output, $"Work item #{key.NativeId} is not cached. Use show {key.NativeId} --refresh.");
             item = found;
         }
         var snapshot = await workspace.SnapshotAsync(ct);
@@ -195,12 +400,15 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var selected = fields?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
         var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
-            ["id"] = RenderCell.Integer(id.Value),
+            ["id"] = key.IsLocal ? RenderCell.Integer(LocalAlias(key))
+                : RenderCell.Integer(long.Parse(key.NativeId!, CultureInfo.InvariantCulture)),
+            ["localId"] = localKey is null ? new("", new RenderValue.Null()) : RenderCell.String(localKey.LocalId.ToString("D")),
+            ["isSeed"] = RenderCell.Boolean(key.IsLocal),
             ["type"] = Cell(item.Fields.TryGetValue("System.WorkItemType", out var nativeType)
                 ? nativeType : FieldValue.String(item.Type)),
             ["title"] = Cell(item.Fields.TryGetValue("System.Title", out var title) ? title : FieldValue.Null),
             ["state"] = Cell(item.Fields.TryGetValue("System.State", out var state) ? state : FieldValue.Null),
-            ["revision"] = RenderCell.String(item.Revision!.Token),
+            ["revision"] = item.Revision is null ? new("", new RenderValue.Null()) : RenderCell.String(item.Revision.Token),
             ["isDirty"] = RenderCell.Boolean(snapshot.Value.Drafts.Any(d => d.Key == key)),
             ["cached"] = RenderCell.Boolean(!refresh),
             ["fields"] = new("Fields", new RenderValue.Object(item.Fields.Where(f => selected is null || selected.Contains(f.Key))

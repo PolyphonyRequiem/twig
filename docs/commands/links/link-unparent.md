@@ -16,7 +16,7 @@ twig link unparent [child] [--id <n>] [--child <n>] [-o <format>]
 ```
 
 `child` (positional or `--child`) or `--id` selects a positive native child.
-Machine output requires `--id` or `--child`, not just the positional. Only human
+Every machine output requires `--id`, even when `--child` is supplied. Only human
 output may resolve the selected Core item. Conflicting targets refuse
 before HTTP.
 

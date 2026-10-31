@@ -18,6 +18,8 @@ twig link reparent <targetId> [child] [--id <n>] [--child <n>] [-o <format>]
 
 `targetId` is the proposed new parent; `child` (positional or `--child`) and
 `--id` name the child. Conflicting child/ID values are usage errors.
+Every non-human invocation requires `--id`; `--child` alone does not authorize a
+machine mutation, even though replacement itself remains unsupported.
 See [shared targeting, output and safety](./README.md).
 
 The old implementation removed and then added links in two HTTP requests. It

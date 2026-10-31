@@ -247,6 +247,7 @@ internal static class CommandExamples
             "twig link parent 5678      Set #5678 as the parent of the active item",
             "twig link parent 5678 1234  Set #5678 as the parent of item #1234",
             "twig link parent 5678 --id 1234 -o json  Apply and verify an explicit child",
+            "twig link parent 5678 --id 1234 --child 1234 -o json  Cross-check the mandatory machine --id",
         ],
         ["link unparent"] =
         [

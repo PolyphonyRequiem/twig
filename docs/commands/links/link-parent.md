@@ -16,7 +16,8 @@ twig link parent <targetId> [child] [--id <n>] [--child <n>] [-o <format>]
 ```
 
 `targetId` names the parent. `child` (positional or `--child`) or `--id` names
-the child; machine output requires `--id` or `--child`, not just the positional.
+the child; every machine output requires `--id`. `--child` or the positional
+alone is human convenience, not machine authorization; with `--id` they must match.
 Only human output may use the selected Core item. Supplying different
 child and ID values refuses before HTTP. Targets must be positive native IDs.
 

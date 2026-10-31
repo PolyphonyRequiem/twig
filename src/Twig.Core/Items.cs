@@ -7,7 +7,7 @@ public enum RelationshipOrigin { Provider, Local }
 public sealed record WorkItem
 {
     public WorkItem(ItemKey key, string type, FieldValues fields, Revision? revision,
-        bool relationshipsComplete = false)
+        bool relationshipsComplete = false, IEnumerable<ResourceLink>? resources = null, bool resourcesComplete = false)
     {
         Key = key ?? throw new ArgumentNullException(nameof(key));
         Type = Contract.Text(type, nameof(type));
@@ -16,6 +16,8 @@ public sealed record WorkItem
             throw new ArgumentException("A revision belongs to one exact remote identity.", nameof(revision));
         Revision = revision;
         RelationshipsComplete = relationshipsComplete;
+        Resources = Contract.Copy(resources ?? []);
+        ResourcesComplete = resourcesComplete;
     }
 
     public ItemKey Key { get; }
@@ -23,12 +25,32 @@ public sealed record WorkItem
     public FieldValues Fields { get; }
     public Revision? Revision { get; }
     public bool RelationshipsComplete { get; }
+    public ImmutableArray<ResourceLink> Resources { get; }
+    public bool ResourcesComplete { get; }
 }
 
 public sealed record Relationship(ItemKey From, ItemKey To, string Kind, RelationshipOrigin Origin,
     long LocalVersion = 0, bool Deleted = false);
 
 public sealed record AttachmentRef(string NativeId, string Name, Uri? DownloadUri);
+
+public sealed record ResourceLink
+{
+    public ResourceLink(string relation, string target, string? name = null, string? comment = null)
+    {
+        Relation = Contract.Text(relation, nameof(relation));
+        Target = Contract.Text(target, nameof(target));
+        if (!Uri.TryCreate(target, UriKind.Absolute, out var uri) || uri.UserInfo.Length != 0 || target.Any(char.IsControl))
+            throw new ArgumentException("A resource link requires an absolute locator without embedded credentials.", nameof(target));
+        Name = name;
+        Comment = comment;
+    }
+
+    public string Relation { get; }
+    public string Target { get; }
+    public string? Name { get; }
+    public string? Comment { get; }
+}
 
 public sealed record Draft
 {

@@ -83,12 +83,35 @@ public sealed class CoreInvariantTests
         var key = ItemKey.Remote(connection.Provider, "s", "1");
         var proposal = new Proposal(connection, "schema", 0,
             [new("op", OpKind.Batch, key, new Revision(key, "r"), Fields(("state", FieldValue.String("open"))))]);
-        const string expected = """{"version":1,"connection":{"provider":"p","scope":"s","destination":"d","identity":"i"},"schema":"schema","storeVersion":0,"operations":[{"id":"op","kind":1,"item":["remote","p","s","1"],"revision":{"item":["remote","p","s","1"],"token":"r"},"type":null,"fields":{"state":[1,"open"]},"other":null,"relation":null,"origin":0,"concurrency":0,"localVersion":null,"body":null}]}""";
+        const string expected = """{"version":2,"connection":{"provider":"p","scope":"s","destination":"d","identity":"i"},"schema":"schema","storeVersion":0,"operations":[{"id":"op","kind":1,"item":["remote","p","s","1"],"revision":{"item":["remote","p","s","1"],"token":"r"},"type":null,"fields":{"state":[1,"open"]},"other":null,"relation":null,"origin":0,"concurrency":0,"localVersion":null,"body":null,"resource":null}]}""";
         Encoding.UTF8.GetString(Rules.ProposalBytes(proposal)).ShouldBe(expected);
         proposal.Digest.ShouldBe(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(expected))).ToLowerInvariant());
         var output = Rules.ProposalBytes(proposal);
         output[0] = 0;
         Encoding.UTF8.GetString(Rules.ProposalBytes(proposal)).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void ResourceLinksKeepLocatorsSeparateFromItemIdentityAndDigestExactAttributes()
+    {
+        var schema = Schema();
+        schema = new(Connection, schema.Types, schema.Relations.Append(new("resource", RelationShape.Resource, false)));
+        var source = new WorkItem(Key, "record", Item().Fields, Item().Revision, true, [], true);
+        var resource = new ResourceLink("resource", "https://example.test/a%2Fb", "", null);
+        Proposal Link(ResourceLink link) => new(Connection, schema.Fingerprint, 0,
+            [new("link", OpKind.LinkResource, Key, source.Revision, resource: link)]);
+        var proposal = Link(resource);
+        Rules.Validate(proposal, proposal.Digest, schema, new(0, [source]), Capabilities).ShouldBeEmpty();
+        proposal.Operations[0].Other.ShouldBeNull();
+        proposal.Digest.ShouldNotBe(Link(new("resource", "https://example.test/a%2Fb", null, null)).Digest);
+        proposal.Digest.ShouldNotBe(Link(new("resource", "https://example.test/a/b", "", null)).Digest);
+        var incomplete = new WorkItem(Key, source.Type, source.Fields, source.Revision, true);
+        Rules.Validate(proposal, proposal.Digest, schema, new(0, [incomplete]), Capabilities)
+            .ShouldContain(e => e.Code == ErrorCode.Unavailable);
+        var existing = new WorkItem(Key, source.Type, source.Fields, source.Revision, true, [resource], true);
+        Rules.Validate(proposal, proposal.Digest, schema, new(0, [existing]), Capabilities)
+            .ShouldContain(e => e.Code == ErrorCode.Conflict);
+        Should.Throw<ArgumentException>(() => new ResourceLink("resource", "https://user:secret@example.test/a"));
     }
 
     [Fact]

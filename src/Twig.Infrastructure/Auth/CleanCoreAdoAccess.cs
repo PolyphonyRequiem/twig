@@ -106,7 +106,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
             {
                 OpKind.Create => "workitem-create",
                 OpKind.Batch or OpKind.Comment => "workitem-patch",
-                OpKind.Relate => "link-add",
+                OpKind.Relate or OpKind.LinkResource => "link-add",
                 OpKind.Unrelate => "link-remove",
                 _ => null,
             };

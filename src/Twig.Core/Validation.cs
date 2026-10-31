@@ -82,7 +82,8 @@ public static partial class Core
         if ((!link && (op.Other is not null || op.Relation is not null || op.Origin != RelationshipOrigin.Provider))
             || (op.Kind is not (OpKind.Batch or OpKind.Create) && op.Fields.Count != 0)
             || (op.Kind is not (OpKind.Create or OpKind.Batch) && op.Type is not null)
-            || (op.Kind != OpKind.Comment && op.Body is not null))
+            || (op.Kind != OpKind.Comment && op.Body is not null)
+            || (op.Kind == OpKind.LinkResource) != (op.Resource is not null))
             Fail(ErrorCode.InvalidInput, "Operation contains fields belonging to a different effect.");
         if (!local && !capabilities.Operations.Contains(op.Kind))
             Fail(ErrorCode.Unsupported, "Provider does not implement this operation.");
@@ -115,8 +116,20 @@ public static partial class Core
         }
         if (local && op.ExpectedRevision is not null)
             Fail(ErrorCode.InvalidInput, "A local relationship uses the store CAS, not a provider revision.");
+        if (op.Kind == OpKind.LinkResource && op.Resource is { } resource)
+        {
+            if (!schema.Relations.Any(r => r.Reference == resource.Relation && r.Shape == RelationShape.Resource))
+                Fail(ErrorCode.Unsupported, "The resource relation is not enabled in the discovered native schema.");
+            var source = store.Items.FirstOrDefault(i => i.Key == op.Item);
+            if (source?.ResourcesComplete != true)
+                Fail(ErrorCode.Unavailable, "Complete native resource-link observations are required.");
+            else if (source.Resources.Any(r => r.Relation == resource.Relation && r.Target == resource.Target))
+                Fail(ErrorCode.Conflict, "The reviewed native resource link already exists.");
+        }
         if (link)
         {
+            if (schema.Relations.Any(r => r.Reference == op.Relation && r.Shape == RelationShape.Resource))
+                Fail(ErrorCode.InvalidInput, "A resource locator cannot be represented as another work-item identity.");
             if (op.Other is null || string.IsNullOrWhiteSpace(op.Relation))
                 Fail(ErrorCode.InvalidInput, "A relationship effect needs both endpoints and a discovered relation kind.");
             else
@@ -216,7 +229,7 @@ public static partial class Core
                         fail(ErrorCode.InvalidInput, $"Close-gate field '{rule.Field}' must ride in the same batch as the transition.");
                     if (!supplied && changedState && target?.Category == StateCategory.Completed
                         && rule.Field != type.StateField && !atomicFields)
-                        fail(ErrorCode.Unsupported, $"Close-gate field '{rule.Field}' requires proven atomic coupling with the transition.");
+                        fail(ErrorCode.Unsupported, $"Close-gate field '{rule.Field}' must be applied atomically with the transition.");
                     break;
                 case RuleAction.ReadOnly:
                     if (op.Fields.ContainsKey(rule.Field)) fail(ErrorCode.InvalidInput, $"Rule makes '{rule.Field}' read-only.");

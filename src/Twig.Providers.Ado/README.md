@@ -100,13 +100,20 @@ can be discovered native fields and queried as such; they do not become Core por
    refuses unresolved effects on either target (also across replacement digests),
    then wins the store CAS and persists Applying **before** host write admission
    or mutation transport. Provider reads never run inside SQLite transactions.
-3. Supported native effects are Create, Batch, Relate, Unrelate and Comment.
+3. Supported native effects are Create, Batch, Relate, Unrelate, Comment and LinkResource.
    Batch/type change, relationship add/remove and history append use **one**
    JSON-Patch request with a numeric `/rev` test. State plus close gates therefore
    ride in the same atomic batch. No revision carry-forward/rebase/retry exists.
    Creation explicitly declares ObservedNonAtomic and retains its local UUID.
    Comment appends exact text/HTML through revision-checked `System.History`;
    Markdown requires conversion **before** confirmation, never in the adapter.
+   LinkResource keeps a native resource relation, exact locator and nullable
+   name/comment separate from item-to-item identities. Only actually enabled
+   Hyperlink/ArtifactLink metadata qualifies its transport; other attachment
+   metadata remains readable without implying write support. One `/rev`-tested
+   PATCH adds the reviewed shape, and separate immutable-revision readback checks
+   the complete resource observation. Existing links, moved revisions, unsupported
+   locator shapes and mismatched readback never authorize blind replay.
 4. A complete definitive native 400/401/403/404/405/409/412/415/422/429 rejection
    records Failed/no effect. After possible dispatch, 5xx, async responses,
    cancellation, network loss, malformed/misattributed acknowledgements and lost

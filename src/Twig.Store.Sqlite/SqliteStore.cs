@@ -8,7 +8,7 @@ namespace Twig.Store.Sqlite;
 public sealed class SqliteStore : IStore
 {
     private const int ApplicationId = 0x54574353; // TWCS, not a legacy Twig cache.
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private readonly string _connectionString;
 
     private SqliteStore(string path) => _connectionString = new SqliteConnectionStringBuilder

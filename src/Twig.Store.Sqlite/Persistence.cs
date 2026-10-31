@@ -50,7 +50,7 @@ internal static class Persistence
 internal sealed record SnapshotData(int Version, long StoreVersion, ItemData[] Items, RelationshipData[] Relationships,
     DraftData[] Drafts, ProposalData[] Proposals, JournalData[] Journal, MappingData[] Mappings, BenchData[] Benches)
 {
-    internal static SnapshotData From(StoreSnapshot s) => new(1, s.Version,
+    internal static SnapshotData From(StoreSnapshot s) => new(2, s.Version,
         s.Items.Select(ItemData.From).ToArray(), s.Relationships.Select(RelationshipData.From).ToArray(),
         s.Drafts.Select(DraftData.From).ToArray(), s.Proposals.Select(ProposalData.From).ToArray(),
         s.Journal.Select(JournalData.From).ToArray(), s.Mappings.Select(MappingData.From).ToArray(),
@@ -58,7 +58,7 @@ internal sealed record SnapshotData(int Version, long StoreVersion, ItemData[] I
 
     internal StoreSnapshot ToCore()
     {
-        if (Version != 1) throw new JsonException("Unsupported snapshot format version.");
+        if (Version != 2) throw new JsonException("Unsupported snapshot format version.");
         return new(StoreVersion, Items.Select(i => i.ToCore()), Relationships.Select(r => r.ToCore()),
             Drafts.Select(d => d.ToCore()), Proposals.Select(p => p.ToCore()), Journal.Select(j => j.ToCore()),
             Mappings.Select(m => m.ToCore()), Benches.Select(b => b.ToCore()));
@@ -119,11 +119,19 @@ internal sealed record FieldData(string Reference, ValueData Value)
         => new(fields.Select(f => KeyValuePair.Create(f.Reference, f.Value.ToCore())));
 }
 
-internal sealed record ItemData(KeyData Key, string Type, FieldData[] Fields, RevisionData? Revision, bool RelationshipsComplete)
+internal sealed record ResourceData(string Relation, string Target, string? Name, string? Comment)
+{
+    internal static ResourceData From(ResourceLink r) => new(r.Relation, r.Target, r.Name, r.Comment);
+    internal ResourceLink ToCore() => new(Relation, Target, Name, Comment);
+}
+
+internal sealed record ItemData(KeyData Key, string Type, FieldData[] Fields, RevisionData? Revision, bool RelationshipsComplete,
+    ResourceData[] Resources, bool ResourcesComplete)
 {
     internal static ItemData From(WorkItem i) => new(KeyData.From(i.Key), i.Type, FieldData.From(i.Fields),
-        RevisionData.From(i.Revision), i.RelationshipsComplete);
-    internal WorkItem ToCore() => new(Key.ToCore(), Type, FieldData.ToCore(Fields), Revision?.ToCore(), RelationshipsComplete);
+        RevisionData.From(i.Revision), i.RelationshipsComplete, i.Resources.Select(ResourceData.From).ToArray(), i.ResourcesComplete);
+    internal WorkItem ToCore() => new(Key.ToCore(), Type, FieldData.ToCore(Fields), Revision?.ToCore(),
+        RelationshipsComplete, Resources.Select(r => r.ToCore()), ResourcesComplete);
 }
 
 internal sealed record RelationshipData(KeyData FromKey, KeyData ToKey, string Kind, RelationshipOrigin Origin,
@@ -144,14 +152,15 @@ internal sealed record DraftData(KeyData Key, string Type, ItemData? Baseline, F
 
 internal sealed record OpData(string Id, OpKind Kind, KeyData Item, RevisionData? ExpectedRevision, FieldData[] Fields,
     string? Type, KeyData? Other, string? Relation, RelationshipOrigin Origin, ValueData? Body,
-    ConcurrencyMode Concurrency, long? ExpectedLocalVersion)
+    ConcurrencyMode Concurrency, long? ExpectedLocalVersion, ResourceData? Resource)
 {
     internal static OpData From(Op o) => new(o.Id, o.Kind, KeyData.From(o.Item), RevisionData.From(o.ExpectedRevision),
         FieldData.From(o.Fields), o.Type, o.Other is null ? null : KeyData.From(o.Other), o.Relation, o.Origin,
-        o.Body is null ? null : ValueData.From(o.Body), o.Concurrency, o.ExpectedLocalVersion);
+        o.Body is null ? null : ValueData.From(o.Body), o.Concurrency, o.ExpectedLocalVersion,
+        o.Resource is null ? null : ResourceData.From(o.Resource));
     internal Op ToCore() => new(Id, Persistence.Defined(Kind), Item.ToCore(), ExpectedRevision?.ToCore(),
         FieldData.ToCore(Fields), Type, Other?.ToCore(), Relation, Persistence.Defined(Origin), Body?.ToCore(),
-        Persistence.Defined(Concurrency), ExpectedLocalVersion);
+        Persistence.Defined(Concurrency), ExpectedLocalVersion, Resource?.ToCore());
 }
 
 internal sealed record ProposalData(int Version, Connection Connection, string SchemaFingerprint, long ExpectedStoreVersion,
@@ -229,4 +238,5 @@ internal sealed record BenchData(Guid Id, string Name, SelectorData[] Selectors)
     RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(SnapshotData))]
 [JsonSerializable(typeof(Connection))]
+[JsonSerializable(typeof(ResourceData))]
 internal sealed partial class TwigJsonContext : JsonSerializerContext;

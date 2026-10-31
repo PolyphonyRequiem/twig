@@ -99,7 +99,7 @@ public sealed partial class AdoProvider
                     receipt = new(proposal.Digest, operation, attempt, OpStatus.Applied, evidence,
                         mapped.Item.Revision, op.Kind == OpKind.Create ? key : null);
                     acknowledgedItems = new([new WorkItem(mapped.Item.Key, mapped.Item.Type, mapped.Item.Fields,
-                        mapped.Item.Revision, false)], [], null, false);
+                        mapped.Item.Revision, false, mapped.Item.Resources, false)], [], null, false);
                 }
             }
             catch (Exception ex) when (ex is AdoFailure or HttpRequestException or OperationCanceledException or IOException || Malformed(ex))
@@ -147,6 +147,7 @@ public sealed partial class AdoProvider
                         OpKind.Create or OpKind.Batch => (op.Type is null || op.Type == item.Type)
                             && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value)),
                         OpKind.Comment => item.Fields.TryGetValue("System.History", out var history) && history.Text == op.Body!.Text,
+                        OpKind.LinkResource => item.ResourcesComplete && item.Resources.Contains(op.Resource!),
                         OpKind.Relate => edges.Contains(Edge(op, discovery)),
                         OpKind.Unrelate => !edges.Contains(Edge(op, discovery)),
                         _ => false,
@@ -204,6 +205,13 @@ public sealed partial class AdoProvider
             throw Wire.Refuse(ErrorCode.Unsupported, "Native identity/type/history fields require their explicit operation shape.");
         if (op.Kind == OpKind.Comment && op.Body!.Kind is not (FieldKind.Text or FieldKind.Html))
             throw Wire.Refuse(ErrorCode.Unsupported, "ADO history append accepts exact text/HTML; convert Markdown before confirmation.");
+        if (op.Kind == OpKind.LinkResource && (op.Resource is not { } resource
+            || !schema.Schema.Relations.Any(r => r.Reference == resource.Relation && r.Shape == RelationShape.Resource)
+            || !Uri.TryCreate(resource.Target, UriKind.Absolute, out var locator)
+            || resource.Relation == "Hyperlink" && locator.Scheme is not ("http" or "https")
+            || resource.Relation == "ArtifactLink" && (locator.Scheme != "vstfs"
+                || !resource.Target.StartsWith("vstfs:///", StringComparison.OrdinalIgnoreCase))))
+            throw Wire.Refuse(ErrorCode.Unsupported, "Only enabled native artifact/hyperlink shapes with reviewed locators are supported.");
         int? remove = null;
         if (op.Kind is OpKind.Relate or OpKind.Unrelate)
         {
@@ -232,6 +240,20 @@ public sealed partial class AdoProvider
                 PatchEntry("add", "/fields/" + field.Replace("~", "~0").Replace("/", "~1"), () => Wire.WriteValue(json, value));
             if (op.Kind == OpKind.Comment)
                 PatchEntry("add", "/fields/System.History", () => json.WriteStringValue(op.Body!.Text));
+            if (op.Kind == OpKind.LinkResource)
+                PatchEntry("add", "/relations/-", () =>
+                {
+                    var reviewed = op.Resource!;
+                    json.WriteStartObject(); json.WriteString("rel", reviewed.Relation); json.WriteString("url", reviewed.Target);
+                    if (reviewed.Name is not null || reviewed.Comment is not null)
+                    {
+                        json.WriteStartObject("attributes");
+                        if (reviewed.Name is not null) json.WriteString("name", reviewed.Name);
+                        if (reviewed.Comment is not null) json.WriteString("comment", reviewed.Comment);
+                        json.WriteEndObject();
+                    }
+                    json.WriteEndObject();
+                });
             if (op.Kind == OpKind.Relate)
                 PatchEntry("add", "/relations/-", () =>
                 {

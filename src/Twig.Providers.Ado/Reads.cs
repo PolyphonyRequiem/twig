@@ -100,13 +100,25 @@ public sealed partial class AdoProvider
         foreach (var field in fields.EnumerateObject().Where(f => !definition.Fields.Any(d => d.Reference == f.Name)))
             values.Add(KeyValuePair.Create(field.Name, FieldValue.Raw(field.Value.GetRawText(), "undeclared-ado-field")));
         var edges = ImmutableArray.CreateBuilder<Relationship>();
+        var resources = ImmutableArray.CreateBuilder<ResourceLink>();
         if (root.TryGetProperty("relations", out var relations))
             foreach (var relation in relations.EnumerateArray())
             {
                 var name = Wire.Text(relation, "rel");
                 if (!schema.Relations.TryGetValue(name, out var kind))
                 {
-                    if (schema.NonItemRelations.Contains(name)) continue;
+                    if (schema.NonItemRelations.Contains(name))
+                    {
+                        string? Attribute(string attribute)
+                        {
+                            if (!relation.TryGetProperty("attributes", out var attributes)
+                                || !attributes.TryGetProperty(attribute, out var value) || value.ValueKind == JsonValueKind.Null)
+                                return null;
+                            return value.GetString();
+                        }
+                        resources.Add(new(name, Wire.Text(relation, "url"), Attribute("name"), Attribute("comment")));
+                        continue;
+                    }
                     throw Wire.Invalid("An incident relation has unknown native semantics.");
                 }
                 var other = RelationshipTarget(Wire.Text(relation, "url"), bound);
@@ -116,7 +128,7 @@ public sealed partial class AdoProvider
                 edges.Add(new(from, to, kind.Canonical, RelationshipOrigin.Provider));
             }
         if (edges.Distinct().Count() != edges.Count) throw Wire.Invalid("Duplicate native relationship observations.");
-        return (new(key, type, new(values), revision, true), edges.ToImmutable());
+        return (new(key, type, new(values), revision, true, resources, true), edges.ToImmutable());
     }
 
     private ItemKey RelationshipTarget(string value, Bound bound)

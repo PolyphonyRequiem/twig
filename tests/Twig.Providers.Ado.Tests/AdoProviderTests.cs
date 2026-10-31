@@ -16,6 +16,84 @@ namespace Twig.Providers.Ado.Tests;
 public sealed class AdoProviderTests
 {
     [Theory]
+    [InlineData("Hyperlink", "https://example.test/evidence?a=%2F", null, "exact comment")]
+    [InlineData("ArtifactLink", "vstfs:///Git/Commit/project%2Frepository%2Fcommit", "Fixed in Commit", null)]
+    public async Task ResourceLinksAreOneRevisionCheckedEffectWithExactPersistentIntentAndReadback(
+        string relation, string target, string? name, string? comment)
+    {
+        using var f = await Fixture.Create();
+        var item = (await f.Read(1)).Items.Single();
+        item.ResourcesComplete.ShouldBeTrue();
+        item.Resources.ShouldBeEmpty();
+        var resource = new ResourceLink(relation, target, name, comment);
+        var proposal = await f.Proposal(new("resource", OpKind.LinkResource, item.Key, item.Revision, resource: resource));
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        ack.Status.ShouldBe(OpStatus.Applied);
+        f.Access.SawDurableFence.ShouldBeTrue();
+        f.Http.Writes.ShouldBe(1);
+        using var patch = JsonDocument.Parse(f.Http.LastPayload!);
+        patch.RootElement.GetArrayLength().ShouldBe(2);
+        patch.RootElement[0].GetProperty("path").GetString().ShouldBe("/rev");
+        var payload = patch.RootElement[1].GetProperty("value");
+        payload.GetProperty("rel").GetString().ShouldBe(relation);
+        payload.GetProperty("url").GetString().ShouldBe(target);
+        var attributes = payload.GetProperty("attributes");
+        attributes.TryGetProperty(name is null ? "name" : "comment", out _).ShouldBeFalse();
+        attributes.GetProperty(name is null ? "comment" : "name").GetString().ShouldBe(name ?? comment);
+        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var reopened = (await SqliteStore.OpenAsync(f.Path)).Value;
+        var retained = (await reopened.ReadAsync(f.Connection, default)).Value;
+        retained.Proposals.Single().Digest.ShouldBe(proposal.Digest);
+        retained.Proposals.Single().Operations.Single().Resource.ShouldBe(resource);
+        retained.Items.Single().Resources.ShouldBe([resource]);
+        var again = await f.Proposal(new("again", OpKind.LinkResource, item.Key,
+            retained.Items.Single().Revision, resource: resource));
+        (await f.Provider.ImportAsync(again, again.Digest)).IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(false, OpStatus.Failed)]
+    [InlineData(true, OpStatus.Partial)]
+    public async Task ResourceRevisionRaceOrDifferentReadbackCannotBecomeVerifiedOrReplay(bool changedReadback, OpStatus expected)
+    {
+        using var f = await Fixture.Create();
+        var item = (await f.Read(1)).Items.Single();
+        var resource = new ResourceLink("Hyperlink", "https://example.test/retained", comment: "why this link");
+        var proposal = await f.Proposal(new("resource", OpKind.LinkResource, item.Key, item.Revision, resource: resource));
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        f.Http.MoveAtDispatch = !changedReadback;
+        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        if (changedReadback)
+        {
+            ack.Status.ShouldBe(OpStatus.Applied);
+            f.Http.Defect = "resource-readback-mismatch";
+            (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(expected);
+            (await f.Stored()).Journal.Single().Receipts[0].Status.ShouldBe(OpStatus.Applied);
+        }
+        else ack.Status.ShouldBe(expected);
+        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DisabledResourceCapabilityDoesNotDisableOrdinaryReadsOrAuthorizeArtifactWrites()
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = "resource-disabled";
+        var item = (await f.Read(1)).Items.Single();
+        item.ResourcesComplete.ShouldBeTrue();
+        var schema = await f.Schema();
+        schema.Gaps.ShouldBeEmpty();
+        f.Provider.Capabilities.Operations.ShouldNotContain(OpKind.LinkResource);
+        var proposal = await f.Proposal(new("resource", OpKind.LinkResource, item.Key, item.Revision,
+            resource: new("Hyperlink", "https://example.test/resource")));
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
     [InlineData("Contoso.Initiative", "Waiting", "Delivered")]
     [InlineData("Other.Finding", "Queued", "Settled")]
     public async Task DiscoveryAndAtomicCloseUseNativeVocabularyAndRealStore(string type, string initial, string completed)
@@ -602,6 +680,7 @@ public sealed class AdoProviderTests
                     var revision = int.Parse(tail[2], System.Globalization.CultureInfo.InvariantCulture);
                     var root = _revisions[(id, revision)].DeepClone();
                     if (Defect == "readback-mismatch") root["fields"]!["Custom.Empty"] = "not edited";
+                    if (Defect == "resource-readback-mismatch") root["relations"] = new JsonArray();
                     return Json(root.ToJsonString());
                 }
                 if (!Items.TryGetValue(id, out var item)) return Status(404);
@@ -613,10 +692,12 @@ public sealed class AdoProviderTests
             if (Defect == "duplicate-json") return Json("""{"count":0,"value":[],"value":[]}""");
             HttpResponseMessage response;
             if (path.EndsWith("/workitemrelationtypes"))
-                response = Rows("""
-                    {"referenceName":"Native.ParentForward","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":true,"topology":"tree","oppositeEndReferenceName":"Native.ParentReverse"}},
-                    {"referenceName":"Native.ParentReverse","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":false,"topology":"tree","oppositeEndReferenceName":"Native.ParentForward"}},
-                    {"referenceName":"AttachedFile","attributes":{"usage":"resourceLink"}}
+                response = Rows($$"""
+                    {"referenceName":"Native.ParentForward","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":true,"topology":"tree","oppositeEndReferenceName":"Native.ParentReverse"} },
+                    {"referenceName":"Native.ParentReverse","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":false,"topology":"tree","oppositeEndReferenceName":"Native.ParentForward"} },
+                    {"referenceName":"AttachedFile","attributes":{"usage":"resourceLink"} },
+                    {"referenceName":"Hyperlink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } },
+                    {"referenceName":"ArtifactLink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } }
                     """);
             else if (path.EndsWith("/workitemtypecategories")) response = Rows("");
             else if (path.EndsWith("/workitemtypes", StringComparison.OrdinalIgnoreCase) && query.Contains("$expand=all"))
@@ -697,9 +778,12 @@ public sealed class AdoProviderTests
                 {
                     var relation = JsonNode.Parse(entry.GetProperty("value").GetRawText())!;
                     item["relations"]!.AsArray().Add(relation.DeepClone());
-                    var other = Items[2];
-                    other["relations"]!.AsArray().Add(new JsonObject { ["rel"] = "Native.ParentReverse",
-                        ["url"] = $"https://example.test/organization/_apis/wit/workItems/{id}" });
+                    if (relation["rel"]!.GetValue<string>() == "Native.ParentForward")
+                    {
+                        var other = Items[2];
+                        other["relations"]!.AsArray().Add(new JsonObject { ["rel"] = "Native.ParentReverse",
+                            ["url"] = $"https://example.test/organization/_apis/wit/workItems/{id}" });
+                    }
                 }
                 else if (op == "remove" && field.StartsWith("/relations/"))
                 {

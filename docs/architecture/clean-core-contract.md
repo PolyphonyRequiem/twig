@@ -39,6 +39,13 @@ token-only access or missing durable Applying intent. Production command
 composition has **not** been switched yet; these changes are not a claim that
 the command routing or phase 5 is complete.
 
+The retained artifact-link path now has a typed `LinkResource` effect and
+separately certified `WorkItem.Resources` observations. A URL is a locator, not
+an invented work-item identity. The ADO adapter qualifies actual enabled native
+Hyperlink/ArtifactLink shapes and sends one revision-tested JSON-Patch request;
+exact attributes, acknowledgement, persistence and separate readback use the
+same journal path. Production command wiring remains unfinished.
+
 Feature publication remains operationally unresolved: the reviewed six-phase proposal's
 first creation has an indeterminate outcome without an acknowledged native Feature ID.
 The existing Epic temporarily tracks authorized implementation. This design neither settles
@@ -70,6 +77,10 @@ nonblank C# lines. This is measured across `src/Twig.Core/*.cs`, counting each p
 type once, not hiding nested cases or counting the old Domain as removed. The roughly
 45-type target and fewer-than-60 / roughly-5k-line guardrails leave room for safety
 without reproducing the old per-operation result families.
+
+Phase 5 adds one `ResourceLink` record, bringing the current inventory to 55.
+There are still exactly two Core ports. Host admission and policy-acquisition
+types live outside Core rather than expanding that port surface.
 
 The conservative phase-5 retention assumption is to preserve all currently supported
 CLI, Claims/coordination, TUI, Browser and companion behavior, not make a permanent
@@ -160,13 +171,20 @@ gaps block writes, even if the cached fields happen to look valid.
 
 ## Canonical proposals
 
-A proposal is immutable and connection-bound. Version 1 hashes:
+A proposal is immutable and connection-bound. Version 2 hashes:
 
 - The format version, provider scope, immutable destination and identity reference.
 - The complete schema fingerprint and expected local store CAS version.
 - Every operation in declared order, including ID, kind, typed values/body, explicit clears,
   revision and revision target, relationship endpoints/provenance/local CAS, type and concurrency mode.
 - A create's durable local UUID, carried in its item key.
+- A resource effect's exact relation, locator, nullable name and nullable comment.
+
+Version 2 adds an explicit resource slot to the fixed operation grammar. It does
+not reinterpret a version-1 digest. The SQLite database/snapshot format also
+advances to version 2: old files are refused and preserved, never reset or
+silently migrated. Explicit initialization must choose a genuinely new isolated
+path while prior drafts, journals, creation fences and mappings remain intact.
 
 `Core.ProposalBytes` writes a fixed versioned UTF-8 JSON grammar directly with
 `Utf8JsonWriter`; `Digest` is lowercase hexadecimal SHA-256 of those exact bytes.

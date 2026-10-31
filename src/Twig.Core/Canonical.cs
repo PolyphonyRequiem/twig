@@ -40,6 +40,13 @@ public static partial class Core
             else w.WriteNull("localVersion");
             w.WritePropertyName("body");
             if (op.Body is null) w.WriteNullValue(); else WriteValue(w, op.Body);
+            w.WritePropertyName("resource");
+            if (op.Resource is not { } resource) w.WriteNullValue();
+            else
+            {
+                w.WriteStartArray(); w.WriteStringValue(resource.Relation); w.WriteStringValue(resource.Target);
+                w.WriteStringValue(resource.Name); w.WriteStringValue(resource.Comment); w.WriteEndArray();
+            }
             w.WriteEndObject();
         }
         w.WriteEndArray(); w.WriteEndObject();

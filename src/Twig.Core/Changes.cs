@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace Twig.Core;
 
-public enum OpKind { Create, Batch, Relate, Unrelate, Comment, Delete }
+public enum OpKind { Create, Batch, Relate, Unrelate, Comment, Delete, LinkResource }
 public enum ConcurrencyMode { ExactRevision, ObservedNonAtomic }
 public enum OpStatus { Planned, Applying, Applied, Verified, Failed, Partial, Indeterminate }
 
@@ -11,7 +11,8 @@ public sealed record Op
     public Op(string id, OpKind kind, ItemKey item, Revision? expectedRevision = null,
         FieldValues? fields = null, string? type = null, ItemKey? other = null, string? relation = null,
         RelationshipOrigin origin = RelationshipOrigin.Provider, FieldValue? body = null,
-        ConcurrencyMode concurrency = ConcurrencyMode.ExactRevision, long? expectedLocalVersion = null)
+        ConcurrencyMode concurrency = ConcurrencyMode.ExactRevision, long? expectedLocalVersion = null,
+        ResourceLink? resource = null)
     {
         Id = Contract.Text(id, nameof(id));
         Kind = kind;
@@ -25,6 +26,7 @@ public sealed record Op
         Body = body;
         Concurrency = concurrency;
         ExpectedLocalVersion = expectedLocalVersion;
+        Resource = resource;
     }
 
     public string Id { get; }
@@ -39,11 +41,12 @@ public sealed record Op
     public FieldValue? Body { get; }
     public ConcurrencyMode Concurrency { get; }
     public long? ExpectedLocalVersion { get; }
+    public ResourceLink? Resource { get; }
 }
 
 public sealed record Proposal
 {
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
 
     public Proposal(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations)
     {

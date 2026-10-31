@@ -22,6 +22,7 @@ public sealed partial class AdoProvider
         var relationRows = Wire.Rows(await Get(bound, $"_apis/wit/workitemrelationtypes?api-version={Api}", ct));
         var relations = new Dictionary<string, NativeRelation>(StringComparer.Ordinal);
         var nonItems = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+        var resources = new List<RelationKind>();
         foreach (var row in relationRows)
         {
             var attributes = row.GetProperty("attributes");
@@ -29,6 +30,10 @@ public sealed partial class AdoProvider
             if (usage == "resourceLink")
             {
                 nonItems.Add(Wire.Text(row, "referenceName"));
+                var name = Wire.Text(row, "referenceName");
+                if (name is "ArtifactLink" or "Hyperlink"
+                    && attributes.TryGetProperty("enabled", out var enabled) && enabled.GetBoolean())
+                    resources.Add(new(name, RelationShape.Resource, false));
                 continue;
             }
             if (usage != "workItemLink") throw Wire.Invalid("Unknown relation usage cannot certify incident completeness.");
@@ -183,8 +188,10 @@ public sealed partial class AdoProvider
         }
         if (types.Count == 0) throw Wire.Invalid("The native process roster is empty.");
         var schema = new ProcessSchema(_connection, types, relations.Values.Where(r => r.Forward)
-            .Select(r => new RelationKind(r.Reference, r.Shape, r.Directed)), gaps);
-        _capabilities = new(_capabilities.Operations, schema.Relations.Select(r => r.Reference), [], true, true);
+            .Select(r => new RelationKind(r.Reference, r.Shape, r.Directed)).Concat(resources), gaps);
+        _capabilities = new(_capabilities.Operations.Where(o => o != OpKind.LinkResource)
+            .Concat(resources.Count > 0 ? [OpKind.LinkResource] : Array.Empty<OpKind>()),
+            schema.Relations.Select(r => r.Reference), [], true, true);
         return new(schema, names.ToImmutable(), relations.ToImmutableDictionary(StringComparer.Ordinal), definitions.ToImmutable(),
             nonItems.ToImmutable());
     }

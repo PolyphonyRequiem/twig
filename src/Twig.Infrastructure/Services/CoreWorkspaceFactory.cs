@@ -16,9 +16,10 @@ internal sealed record CoreWorkspaceDocument(int Version, string DatabasePath, G
     Connection Connection, string PrincipalId);
 internal sealed record CoreTransportOverride(Func<HttpMessageHandler> CreateHandler);
 
-internal sealed class CoreWorkspaceHandle(CoreWorkspace workspace, IDisposable provider) : IDisposable
+internal sealed class CoreWorkspaceHandle(CoreWorkspace workspace, IDisposable provider, AdoAccess? nativeAdoAccess = null) : IDisposable
 {
     internal CoreWorkspace Workspace { get; } = workspace;
+    internal AdoAccess? NativeAdoAccess { get; } = nativeAdoAccess;
     public void Dispose() => provider.Dispose();
 }
 
@@ -62,7 +63,87 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler());
         var workspace = new CoreWorkspace(document.Connection, provider, store,
             new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot);
-        return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider));
+        return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider, access));
+    }
+
+    internal async Task<Result<ResourceLink>> ResolveBranchAsync(string branch, string? repository, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(branch) || branch.Any(char.IsControl))
+            return Result<ResourceLink>.Fail(ErrorCode.InvalidInput, "An explicit branch name is required.");
+        var opened = await OpenAsync(ct).ConfigureAwait(false);
+        if (!opened.IsSuccess) return Result<ResourceLink>.Fail(opened.Error);
+        using var handle = opened.Value;
+        if (handle.NativeAdoAccess is null)
+            return Result<ResourceLink>.Fail(ErrorCode.Unsupported, "Native branch-artifact resolution is unavailable for this provider.");
+        var acquired = await handle.NativeAdoAccess.AcquireAsync(handle.Workspace.Connection, ct).ConfigureAwait(false);
+        if (!acquired.IsSuccess) return Result<ResourceLink>.Fail(acquired.Error);
+        using var session = acquired.Value;
+        using var http = new HttpClient(transport?.CreateHandler() ?? new SocketsHttpHandler { AllowAutoRedirect = false });
+        try
+        {
+            var organization = new Uri(session.OrganizationUrl.AbsoluteUri.TrimEnd('/') + "/");
+            var projectLocator = configuration.GetGitProject() ?? configuration.Project;
+            var project = await Read("_apis/projects/" + Uri.EscapeDataString(projectLocator) + "?api-version=7.1");
+            var projectId = NativeGuid(project.GetProperty("id"));
+            var repositoryLocator = repository ?? configuration.Git.Repository;
+            if (string.IsNullOrWhiteSpace(repositoryLocator))
+                return Result<ResourceLink>.Fail(ErrorCode.InvalidInput, "Branch linking requires --repo or an explicitly configured repository; no default repository was guessed.");
+            var nativeRepository = await Read(projectId + "/_apis/git/repositories/"
+                + Uri.EscapeDataString(repositoryLocator) + "?api-version=7.1");
+            var repositoryId = NativeGuid(nativeRepository.GetProperty("id"));
+            if (NativeGuid(nativeRepository.GetProperty("project").GetProperty("id")) != projectId)
+                return Result<ResourceLink>.Fail(ErrorCode.Conflict, "The observed Git repository belongs to another immutable project.");
+            var refs = await Read(projectId + "/_apis/git/repositories/" + repositoryId + "/refs?filter="
+                + Uri.EscapeDataString("heads/" + branch) + "&$top=2&api-version=7.1");
+            var observed = refs.GetProperty("value").EnumerateArray()
+                .Where(value => value.GetProperty("name").GetString() == "refs/heads/" + branch).ToArray();
+            if (observed.Length != 1)
+                return Result<ResourceLink>.Fail(ErrorCode.Unavailable, "The exact branch was not uniquely observed; no artifact or creation was staged.");
+            return Result<ResourceLink>.Ok(new("ArtifactLink",
+                $"vstfs:///Git/Ref/{projectId}/{repositoryId}/GB{Uri.EscapeDataString(branch)}", "Branch"));
+
+            async Task<JsonElement> Read(string route)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(organization, route));
+                request.Headers.Authorization = session.Authorization;
+                using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode || response.Headers.Contains("x-ms-continuationtoken"))
+                    throw new HttpRequestException("Native branch metadata was unavailable or paginated; no redirect/retry was used.");
+                await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                using var buffer = new MemoryStream();
+                var chunk = new byte[4096];
+                int read;
+                while ((read = await stream.ReadAsync(chunk, ct).ConfigureAwait(false)) != 0)
+                {
+                    if (buffer.Length + read > 2 * 1024 * 1024) throw new JsonException("Branch metadata exceeded the input bound.");
+                    buffer.Write(chunk, 0, read);
+                }
+                using var document = JsonDocument.Parse(buffer.ToArray());
+                Unique(document.RootElement);
+                return document.RootElement.Clone();
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or ArgumentException or KeyNotFoundException)
+        {
+            return Result<ResourceLink>.Fail(ErrorCode.Unavailable, "Native branch metadata could not bind the reviewed artifact: " + ex.Message);
+        }
+
+        static string NativeGuid(JsonElement value) => Guid.TryParse(value.GetString(), out var id) && id != Guid.Empty
+            ? id.ToString("D") : throw new JsonException("Invalid immutable native Git identity.");
+        static void Unique(JsonElement value)
+        {
+            if (value.ValueKind == JsonValueKind.Object)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in value.EnumerateObject())
+                {
+                    if (!names.Add(property.Name)) throw new JsonException("Duplicate native Git metadata member.");
+                    Unique(property.Value);
+                }
+            }
+            else if (value.ValueKind == JsonValueKind.Array)
+                foreach (var item in value.EnumerateArray()) Unique(item);
+        }
     }
 
     internal static async Task<Result<bool>> RecordNewAsync(TwigPaths paths, SqliteStore store, string databasePath,

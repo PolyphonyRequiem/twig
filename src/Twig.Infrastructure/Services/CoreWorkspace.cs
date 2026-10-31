@@ -131,6 +131,28 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         return committed.IsSuccess ? Result<Draft>.Ok(draft) : Result<Draft>.Fail(committed.Error);
     }
 
+    internal async Task<Result<bool>> CaptureSeedResourceAsync(IEnumerable<Draft> captures, long expectedVersion,
+        ResourceLink resource, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var drafts = captures.ToImmutableArray();
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
+        if (current.Value.Version != expectedVersion || drafts.Any(capture => !capture.Key.IsLocal
+                || !current.Value.Drafts.Any(draft => SameDraft(draft, capture))
+                || capture.Resource is not null && capture.Resource != resource))
+            return Result<bool>.Fail(ErrorCode.Conflict, "Seed or artifact intent changed before branch capture; no replacement was inferred.");
+        if (drafts.Any(draft => current.Value.Journal.Any(row => row.Status != OpStatus.Planned
+                && current.Value.Proposals.Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Item == draft.Key)))
+            return Result<bool>.Fail(ErrorCode.Indeterminate, "An attempted UUID owns this seed; branch intent cannot replace its unresolved creation.");
+        var keys = drafts.Select(draft => draft.Key).ToHashSet();
+        var next = current.Value.Drafts.Select(draft => keys.Contains(draft.Key)
+            ? new Draft(draft.Key, draft.Type, null, draft.Changes, draft.Parent, draft.ParentRelation, resource) : draft);
+        var committed = await store.CommitAsync(connection, expectedVersion,
+            Copy(current.Value, expectedVersion + 1, drafts: next), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
+    }
+
     internal async Task<Result<Draft>> StageEditAsync(ItemKey key, FieldValues fields, CancellationToken ct, string? typeOverride = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);

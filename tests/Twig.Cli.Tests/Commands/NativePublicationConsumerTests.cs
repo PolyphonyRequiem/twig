@@ -100,13 +100,15 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             var alias = created.RootElement.GetProperty("id").GetInt32();
             _transport.CommittedWrites.ShouldBe(0);
             stdout.GetStringBuilder().Clear();
-            (await commands.SeedPublish(alias, output: "human")).ShouldBe(0, stderr.ToString());
+            (await commands.SeedPublish(alias, linkBranch: "feature/rooted", repo: "FixtureRepo", output: "human")).ShouldBe(0, stderr.ToString());
             _transport.PostCount.ShouldBe(1);
             _transport.PatchAttempts.ShouldBe(0, "parenting must be in the creation call, not a reachable post-create writer");
             var snapshot = (await store.ReadAsync(connection, default)).Value;
             snapshot.Drafts.ShouldBeEmpty();
             snapshot.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
             var mapping = snapshot.Mappings.Single();
+            snapshot.Items.Single(item => item.Key == mapping.Remote).Resources.ShouldContain(new CoreModel.ResourceLink("ArtifactLink",
+                "vstfs:///Git/Ref/22222222-2222-2222-2222-222222222222/44444444-4444-4444-4444-444444444444/GBfeature%2Frooted", "Branch"));
             snapshot.Relationships.ShouldContain(new CoreModel.Relationship(
                 CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42"),
                 mapping.Remote, "Native.ParentForward", CoreModel.RelationshipOrigin.Provider));
@@ -1358,6 +1360,14 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                         if (!_links.TryGetValue(parent, out var children)) _links[parent] = children = [];
                         children.Add(("Native.ParentForward", createdId));
                     }
+                    else if (kind is "ArtifactLink" or "Hyperlink")
+                    {
+                        var attributes = value.TryGetProperty("attributes", out var names) ? names : default;
+                        var resource = new CoreModel.ResourceLink(kind, value.GetProperty("url").GetString()!,
+                            attributes.ValueKind == JsonValueKind.Object && attributes.TryGetProperty("name", out var name) ? name.GetString() : null,
+                            attributes.ValueKind == JsonValueKind.Object && attributes.TryGetProperty("comment", out var comment) ? comment.GetString() : null);
+                        _items[createdId] = _items[createdId] with { Resources = _items[createdId].Resources.Append(resource).ToArray() };
+                    }
                     else throw new InvalidOperationException("Unexpected fixture creation relationship");
                 }
                 _history[(createdId, 1)] = _items[createdId];
@@ -1376,7 +1386,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                         ["System.IterationPath"] = "fixture", ["System.History"] = "",
                         ["System.AssignedTo"] = new { id = principal, displayName = "Same display", uniqueName = principal }
                     },
-                    relations = NativeLinks(createdId),
+                    relations = _items[createdId].Resources.Select(resource => (object)new
+                    {
+                        rel = resource.Relation, url = resource.Target,
+                        attributes = new { name = resource.Name, comment = resource.Comment }
+                    }).Concat(NativeLinks(createdId)).ToArray(),
                 });
             }
             if (!int.TryParse(segments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
@@ -1469,6 +1483,13 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
 
         private static HttpResponseMessage? Metadata(string path, string query)
         {
+            if (path.Contains("/_apis/git/repositories/", StringComparison.Ordinal))
+            {
+                if (path.EndsWith("/refs", StringComparison.Ordinal))
+                    return Reply(HttpStatusCode.OK, new { value = new[] { new { name = "refs/heads/feature/rooted", objectId = new string('a', 40) } } });
+                return Reply(HttpStatusCode.OK, new { id = "44444444-4444-4444-4444-444444444444", name = "FixtureRepo",
+                    project = new { id = "22222222-2222-2222-2222-222222222222" } });
+            }
             if (path.Contains("/_apis/projects/", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new
                 {

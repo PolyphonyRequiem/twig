@@ -242,8 +242,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (output != "human") return Error(output, "Structured seed publication is refused because it changes local publication context. Use an explicit reviewed proposal apply.", 2);
         if (id is not null && (id >= 0 || all) || id is null && !all)
             return Error(output, "Specify one negative seed ID or --all.", 2);
-        if (branch is not null || repository is not null)
-            return Error(output, "Seed branch-artifact capture is not yet connected to the reviewed Core creation intent; no seed was published.");
+        if (repository is not null && branch is null)
+            return Error(output, "--repo requires --link-branch.", 2);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
@@ -255,6 +255,17 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var drafts = snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal
             && (all || LocalAlias(draft.Key) == id)).ToArray();
         if (drafts.Length == 0) return Error(output, "No unpublished seed matches the explicit publication scope.");
+        if (branch is not null)
+        {
+            var resource = await factory.ResolveBranchAsync(branch, repository, ct);
+            if (!resource.IsSuccess) return Error(output, resource.Error.Message);
+            var captured = await workspace.CaptureSeedResourceAsync(drafts, snapshot.Value.Version, resource.Value, ct);
+            if (!captured.IsSuccess) return Error(output, captured.Error.Message);
+            snapshot = await workspace.SnapshotAsync(ct);
+            if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+            var selected = drafts.Select(draft => draft.Key).ToHashSet();
+            drafts = snapshot.Value.Drafts.Where(draft => selected.Contains(draft.Key)).ToArray();
+        }
         var keys = drafts.Select(draft => draft.Key).ToHashSet();
         if (snapshot.Value.Relationships.Any(edge => !edge.Deleted && (keys.Contains(edge.From) || keys.Contains(edge.To))))
             return Error(output, "This seed has retained relationships requiring creation-bound publication effects; no link was dropped or seed published.");

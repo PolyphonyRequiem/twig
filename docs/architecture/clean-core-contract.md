@@ -100,7 +100,12 @@ Explicit parented seed creation and ordered local-parent publication now use thi
 path. A local parent UUID resolves only through its original permanent mapping
 after the preceding creation's acknowledgement is separately Verified. Retained
 proposal bytes keep the UUID; neither a guessed native ID nor revision arithmetic
-is used. Dependency seed links/chains and branch artifact capture remain incomplete.
+is used. Branch artifact capture now observes native immutable Git project/repository IDs
+and the exact requested branch through the same leased ADO identity. It freezes
+the qualified artifact into unchanged seed intent before proposal construction,
+including dry-run intent; there is no best-effort post-create artifact writer.
+Missing/ambiguous/paginated native metadata refuses without publishing.
+Dependency seed links/chains remain incomplete.
 Explicit seed discard now checks the exact draft/store
 capture and refuses any attempted UUID or permanent mapping, even with `--yes`;
 unattempted abandonment preserves journals and local relationship tombstones.

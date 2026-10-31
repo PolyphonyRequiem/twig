@@ -69,6 +69,189 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreProposalInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "inspection-core.db");
+        var created = await CleanStore.CreateAsync(database);
+        created.IsSuccess.ShouldBeTrue();
+        var store = created.Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["pending", "-o", "json"], Path.Combine(Home, "display.json"));
+        using var root = services.BuildServiceProvider();
+        root.GetService<PlanCommand>().ShouldBeNull("the fixture must exercise the missing Core route, not legacy inspection");
+        root.GetService<IPendingChangeReader>().ShouldBeNull();
+        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+        using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        var workspace = admitted.Workspace;
+        var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+        (await workspace.StageEditAsync(key,
+            new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Captured edit"))]), default)).IsSuccess.ShouldBeTrue();
+        var seed = (await workspace.StageSeedAsync("Fixture.Task",
+            new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Captured local seed")),
+                KeyValuePair.Create("System.Description", CoreModel.FieldValue.Null)]), default,
+            parent: key, parentRelation: "System.LinkTypes.Hierarchy-Forward",
+            resource: new("Hyperlink", "https://example.test/captured-evidence", "Captured evidence"),
+            links: [new(key, "System.LinkTypes.Dependency-Forward", true)])).Value;
+        var proposal = (await workspace.PreviewDraftAsync(key, default)).Value.Proposal.ShouldNotBeNull();
+        var file = Path.Combine(paths.TwigDir, "inspection-proposal.json");
+        await File.WriteAllBytesAsync(file, CoreModel.Core.ProposalBytes(proposal));
+        var capture = (await store.ReadAsync(connection, default)).Value;
+        capture.Drafts.Length.ShouldBe(2);
+        capture.Journal.ShouldBeEmpty();
+        var telemetry = Substitute.For<ITelemetryClient>();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            int Run(params string[] args)
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                return Twig.TwigConsoleApp.Run(args, registration =>
+                {
+                    registration.AddSingleton<IConnectionBindingService>(_bindings);
+                    registration.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+                    registration.AddSingleton(telemetry);
+                    registration.AddTwigWorkspaceServices(paths.StartDir, args, Path.Combine(Home, "display.json"));
+                });
+            }
+            var requests = _transport.TotalRequests;
+            Run("proposal", "validate", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
+            using (var validation = JsonDocument.Parse(stdout.ToString()))
+            {
+                validation.RootElement.GetProperty("digest").GetString().ShouldBe(proposal.Digest);
+                validation.RootElement.GetProperty("validationScope").GetString().ShouldBe("canonical-format");
+                validation.RootElement.GetProperty("applicationEvidenceChecked").GetBoolean().ShouldBeFalse();
+            }
+            Run("proposal", "status", "--file", file, "-o", "json").ShouldBe(1, stderr.ToString());
+            using (var status = JsonDocument.Parse(stdout.ToString()))
+                status.RootElement.GetProperty("found").GetBoolean().ShouldBeFalse();
+            Run("pending", "-o", "json").ShouldBe(0, stderr.ToString());
+            using (var pending = JsonDocument.Parse(stdout.ToString()))
+            {
+                pending.RootElement.GetProperty("count").GetInt32().ShouldBe(2);
+                var drafts = pending.RootElement.GetProperty("drafts").EnumerateArray().ToArray();
+                var remote = drafts.Single(d => !d.GetProperty("isSeed").GetBoolean());
+                var title = remote.GetProperty("fields").GetProperty("System.Title");
+                title.GetProperty("oldPresent").GetBoolean().ShouldBeTrue();
+                title.GetProperty("oldValue").GetString().ShouldBe(capture.Drafts.Single(d => d.Key == key).Baseline!.Fields["System.Title"].Text);
+                title.GetProperty("newValue").GetString().ShouldBe("Captured edit");
+                var local = drafts.Single(d => d.GetProperty("isSeed").GetBoolean());
+                local.GetProperty("item").GetProperty("localId")
+                    .GetString().ShouldBe(seed.Key.LocalId.ToString("D"));
+                local.GetProperty("parent").GetProperty("nativeId").GetString().ShouldBe("42");
+                local.GetProperty("links")[0].GetProperty("other").GetProperty("nativeId").GetString().ShouldBe("42");
+                local.GetProperty("links")[0].GetProperty("outgoing").GetBoolean().ShouldBeTrue();
+                local.GetProperty("resource").GetProperty("target").GetString().ShouldBe("https://example.test/captured-evidence");
+                var description = local.GetProperty("fields").GetProperty("System.Description");
+                description.GetProperty("oldPresent").GetBoolean().ShouldBeFalse();
+                description.GetProperty("newValue").ValueKind.ShouldBe(JsonValueKind.Null);
+            }
+            _transport.TotalRequests.ShouldBe(requests, "inspection must not acquire schema, refresh items, or flush drafts");
+            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(capture.Version);
+            (await workspace.RetainReviewAsync(proposal, default)).IsSuccess.ShouldBeTrue();
+            var retained = (await store.ReadAsync(connection, default)).Value;
+            Run("plan", "status", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
+            using (var status = JsonDocument.Parse(stdout.ToString()))
+            {
+                status.RootElement.GetProperty("digest").GetString().ShouldBe(proposal.Digest);
+                status.RootElement.GetProperty("allVerified").GetBoolean().ShouldBeFalse();
+                status.RootElement.GetProperty("operations")[0].GetProperty("status").GetString().ShouldBe("Planned");
+            }
+            var started = retained.Journal.Single().Begin(Guid.NewGuid()).Value;
+            var begun = await store.CommitAsync(connection, retained.Version, new CoreModel.StoreSnapshot(retained.Version + 1,
+                retained.Items, retained.Relationships, retained.Drafts, retained.Proposals, [started],
+                retained.Mappings, retained.Benches), default);
+            begun.IsSuccess.ShouldBeTrue(begun.IsSuccess ? "" : begun.Error.Message);
+            var applying = (await store.ReadAsync(connection, default)).Value;
+            var unknown = started.Record(new CoreModel.Receipt(proposal.Digest, 0, started.Attempt,
+                CoreModel.OpStatus.Indeterminate, ["No authoritative effect acknowledgment is available."],
+                error: new CoreModel.Error(CoreModel.ErrorCode.Unavailable, "Original attempt remains unresolved."))).Value;
+            var recorded = await store.CommitAsync(connection, applying.Version, new CoreModel.StoreSnapshot(applying.Version + 1,
+                applying.Items, applying.Relationships, applying.Drafts, applying.Proposals, [unknown],
+                applying.Mappings, applying.Benches), default);
+            recorded.IsSuccess.ShouldBeTrue(recorded.IsSuccess ? "" : recorded.Error.Message);
+            var fenced = (await store.ReadAsync(connection, default)).Value;
+            Run("proposal", "status", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
+            using (var status = JsonDocument.Parse(stdout.ToString()))
+            {
+                var operation = status.RootElement.GetProperty("operations")[0];
+                operation.GetProperty("status").GetString().ShouldBe("Indeterminate");
+                operation.GetProperty("attempt").GetString().ShouldBe(started.Attempt.ToString("D"));
+                operation.GetProperty("receipts")[0].GetProperty("error").GetProperty("message").GetString()
+                    .ShouldBe("Original attempt remains unresolved.");
+            }
+            foreach (var format in new[] { "human", "minimal", "json-compact" })
+            {
+                Run("pending", "-o", format).ShouldBe(0, stderr.ToString());
+                stdout.ToString().ShouldNotBeNullOrWhiteSpace();
+                Run("proposal", "status", "--file", file, "-o", format).ShouldBe(0, stderr.ToString());
+                Run("proposal", "validate", "--file", file, "-o", format).ShouldBe(0, stderr.ToString());
+            }
+            Run("proposal", "validate", "-o", "json").ShouldBe(2);
+            Run("proposal", "status", "--file", Path.Combine(_temp, "outside.json"), "-o", "json").ShouldBe(2);
+            Run("pending", "-o", "ids").ShouldBe(2);
+            var foreign = new CoreModel.Proposal(new(connection.Provider, connection.ResourceScope, connection.Destination,
+                "another principal"), proposal.SchemaFingerprint, proposal.ExpectedStoreVersion, proposal.Operations);
+            var foreignFile = Path.Combine(paths.TwigDir, "foreign-inspection.json");
+            await File.WriteAllBytesAsync(foreignFile, CoreModel.Core.ProposalBytes(foreign));
+            Run("proposal", "status", "--file", foreignFile, "-o", "json").ShouldBe(2);
+            using (var error = JsonDocument.Parse(stderr.ToString()))
+                error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("another immutable workspace");
+            var invalid = Path.Combine(paths.TwigDir, "old-inspection.json");
+            await File.WriteAllTextAsync(invalid, """{"version":2}""");
+            Run("proposal", "validate", "--file", invalid, "-o", "json").ShouldBe(2);
+            var calls = telemetry.ReceivedCalls().ToArray();
+            calls.ShouldNotBeEmpty();
+            foreach (var call in calls)
+            {
+                var properties = ((Dictionary<string, string>)call.GetArguments()[1]!).ShouldNotBeNull();
+                properties.Keys.ShouldAllBe(name => new[] { "command", "exit_code", "output_format", "twig_version", "os_platform", "operation_id" }.Contains(name));
+                properties["command"].ShouldBeOneOf("pending", "proposal status", "proposal validate");
+                properties.Values.ShouldNotContain(Actor);
+                properties.Values.ShouldNotContain(file);
+                properties.Values.ShouldNotContain("Captured edit");
+            }
+            telemetry.WhenForAnyArgs(client => client.TrackEvent(default!, default, default))
+                .Do(_ => throw new InvalidOperationException("synthetic inspection telemetry failure"));
+            Run("pending", "-o", "json").ShouldBe(0, stderr.ToString());
+            using (var pending = JsonDocument.Parse(stdout.ToString()))
+                pending.RootElement.GetProperty("count").GetInt32().ShouldBe(2);
+            _transport.TotalRequests.ShouldBe(requests);
+            _transport.CommittedWrites.ShouldBe(0);
+            var after = (await store.ReadAsync(connection, default)).Value;
+            after.Version.ShouldBe(fenced.Version);
+            after.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Indeterminate);
+            var preserved = after.Drafts.Single(d => d.Key == seed.Key);
+            preserved.Type.ShouldBe(seed.Type);
+            preserved.Changes.Equals(seed.Changes).ShouldBeTrue();
+            preserved.Parent.ShouldBe(seed.Parent);
+            preserved.ParentRelation.ShouldBe(seed.ParentRelation);
+            preserved.Resource.ShouldBe(seed.Resource);
+            preserved.Links.ToArray().ShouldBe(seed.Links.ToArray());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreBenchPullKeepsDraftDebtAndExcludesImplicitMachineActiveContext()
     {
         var native = await AttachAsync();

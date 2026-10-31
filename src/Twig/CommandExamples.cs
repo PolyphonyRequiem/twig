@@ -702,8 +702,8 @@ internal static class CommandExamples
         ],
         ["proposal validate"] =
         [
-            "twig proposal validate --file proposal.json    Validate a proposal v1 or v2 file. No provider calls.",
-            "twig proposal validate --file proposal.json --output json    Validate and emit issues/digest as JSON.",
+            "twig proposal validate --file proposal.json    Validate canonical file format offline, without application authority.",
+            "twig proposal validate --file proposal.json --output json    Report the exact digest and validation scope; preview checks current evidence.",
         ],
         ["policy assess"] =
         [
@@ -736,7 +736,7 @@ internal static class CommandExamples
         ["proposal status"] =
         [
             "twig proposal status --file proposal.json      Show journal state for the proposal's digest.",
-            "twig proposal status --file proposal.json --output json    Emit the journal snapshot as JSON.",
+            "twig proposal status --file proposal.json --output json    Emit exact attempt states, receipts and uncertainty evidence without replay.",
         ],
         ["proposal seed"] =
         [
@@ -752,8 +752,8 @@ internal static class CommandExamples
         ],
         ["pending"] =
         [
-            "twig pending                           List raw staged pending changes in exact staging order.",
-            "twig pending --output json             Emit the raw pending rows as JSON — values preserved verbatim.",
+            "twig pending                           Inspect captured drafts and seed links in retained draft order.",
+            "twig pending --output json             Emit typed original/proposed values and durable local identities without refreshing or flushing.",
         ],
         ["skills install"] =
         [

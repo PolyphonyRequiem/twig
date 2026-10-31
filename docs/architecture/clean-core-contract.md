@@ -55,6 +55,20 @@ remaining retained routes are implementation gaps, not supported empty results.
 
 Offline Core file preview retains exact unconfirmed intent as Planned with no
 attempt or receipt, and reports unavailable schema/rule evidence as blocking.
+Core `proposal validate` (and its `plan` alias) checks only canonical file format
+offline and explicitly reports that application evidence was not checked; it does
+not imply process/policy compliance or permission to apply. `proposal status` reads
+the current file's exact digest from the same immutable-connection store, reports
+Planned/attempt/receipt states including uncertainty, and never imports, settles or
+replays. An absent journal is a nonzero, explicitly absent result, not an invalid-file
+or successful execution claim. Original journal rows remain retained if file bytes
+change; status never substitutes another digest. `pending` projects every captured
+typed draft, original field presence/values, local UUID and frozen creation-bound
+parent/resources/links, without native refresh, journal changes or implicit flush.
+It preserves retained draft order, not a fabricated field-edit chronology. These
+inspection routes support human/structured/minimal output and safe optional command
+telemetry; bare-ID output is refused because it would discard the inspected evidence.
+Proposal latest/seed/reconciliation and rich interactive review remain cutover gaps.
 The fundamental smoke uses an isolated Core fixture and reaches that real
 evidence gate plus wrong-principal admission; initialization refusal is not a
 substitute. ADO `batch` fields/state and an authored note are one revision-tested

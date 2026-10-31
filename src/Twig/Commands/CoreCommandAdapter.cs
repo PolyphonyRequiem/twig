@@ -1670,6 +1670,180 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return code;
     }
 
+    internal Task<int> ValidateProposalAsync(string? file, string output, CancellationToken ct)
+        => InspectAsync("proposal validate", output, async format =>
+        {
+            if (string.IsNullOrWhiteSpace(file)) return Error(format, "An explicit Core proposal file is required.", 2);
+            var parsed = await CoreProposalFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
+            if (!parsed.IsSuccess) return Error(format, parsed.Error.Message, parsed.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("proposalValidation",
+                new Dictionary<string, RenderCell>
+                {
+                    ["isValid"] = RenderCell.Boolean(true),
+                    ["digest"] = RenderCell.String(parsed.Value.Digest),
+                    ["formatVersion"] = RenderCell.Integer(Proposal.FormatVersion),
+                    ["operationCount"] = RenderCell.Integer(parsed.Value.Operations.Length),
+                    ["validationScope"] = RenderCell.String("canonical-format"),
+                    ["applicationEvidenceChecked"] = RenderCell.Boolean(false),
+                    ["message"] = RenderCell.String("Canonical format is valid. Preview must separately acquire current process, policy and application evidence."),
+                })]));
+            return 0;
+        });
+
+    internal Task<int> ProposalStatusAsync(string? file, string output, CancellationToken ct)
+        => InspectAsync("proposal status", output, async format =>
+        {
+            if (string.IsNullOrWhiteSpace(file)) return Error(format, "An explicit Core proposal file is required.", 2);
+            var parsed = await CoreProposalFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
+            if (!parsed.IsSuccess) return Error(format, parsed.Error.Message, parsed.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+            var opened = await factory.OpenAsync(ct);
+            if (!opened.IsSuccess) return Error(format, opened.Error.Message);
+            using var handle = opened.Value;
+            var workspace = handle.Workspace;
+            if (parsed.Value.Connection != workspace.Connection)
+                return Error(format, "The proposal belongs to another immutable workspace connection.", 2);
+            var snapshot = await workspace.SnapshotAsync(ct);
+            if (!snapshot.IsSuccess) return Error(format, snapshot.Error.Message);
+            var proposal = snapshot.Value.Proposals.SingleOrDefault(value => value.Digest == parsed.Value.Digest);
+            var rows = snapshot.Value.Journal.Where(row => row.Digest == parsed.Value.Digest).OrderBy(row => row.Operation).ToArray();
+            var found = proposal is not null;
+            if (proposal is not null && (rows.Length != proposal.Operations.Length
+                || rows.Where((row, ordinal) => row.Operation != ordinal).Any()))
+                return Error(format, "The retained proposal has incomplete journal ordinals; no execution outcome was inferred.");
+            var operations = rows.Select(row => new RenderCell("", new RenderValue.Object(new Dictionary<string, RenderCell>
+            {
+                ["ordinal"] = RenderCell.Integer(row.Operation),
+                ["id"] = RenderCell.String(parsed.Value.Operations[row.Operation].Id),
+                ["kind"] = RenderCell.String(parsed.Value.Operations[row.Operation].Kind.ToString()),
+                ["item"] = InspectionKey(parsed.Value.Operations[row.Operation].Item),
+                ["status"] = RenderCell.String(row.Status.ToString()),
+                ["attempt"] = InspectionText(row.Attempt == Guid.Empty ? null : row.Attempt.ToString("D")),
+                ["receipts"] = new("Receipts", new RenderValue.Array(row.Receipts.Select(receipt =>
+                    new RenderCell("", new RenderValue.Object(new Dictionary<string, RenderCell>
+                    {
+                        ["status"] = RenderCell.String(receipt.Status.ToString()),
+                        ["attempt"] = RenderCell.String(receipt.Attempt.ToString("D")),
+                        ["evidence"] = new("Evidence", new RenderValue.Array(receipt.Evidence.Select(value => RenderCell.String(value)).ToArray())),
+                        ["publishedItem"] = InspectionKey(receipt.PublishedKey),
+                        ["revision"] = InspectionText(receipt.Revision?.Token),
+                        ["error"] = receipt.Error is { } error
+                            ? new("", new RenderValue.Object(new Dictionary<string, RenderCell>
+                            {
+                                ["code"] = RenderCell.String(error.Code.ToString()),
+                                ["message"] = RenderCell.String(error.Message),
+                                ["evidence"] = new("Evidence", new RenderValue.Array(error.Evidence.Select(value => RenderCell.String(value)).ToArray())),
+                            })) : new("", new RenderValue.Null()),
+                    }))).ToArray())),
+            }))).ToArray();
+            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("proposalStatus",
+                new Dictionary<string, RenderCell>
+                {
+                    ["digest"] = RenderCell.String(parsed.Value.Digest),
+                    ["found"] = RenderCell.Boolean(found),
+                    ["allVerified"] = RenderCell.Boolean(found && rows.All(row => row.Status == OpStatus.Verified)),
+                    ["operationCount"] = RenderCell.Integer(rows.Length),
+                    ["operations"] = new("Operations", new RenderValue.Array(operations)),
+                    ["message"] = RenderCell.String(found
+                        ? "Journal inspected without applying, settling or replaying any operation."
+                        : "No journal is retained for this exact canonical digest."),
+                })]));
+            return found ? 0 : 1;
+        });
+
+    internal Task<int> PendingAsync(string output, CancellationToken ct)
+        => InspectAsync("pending", output, async format =>
+        {
+            var opened = await factory.OpenAsync(ct);
+            if (!opened.IsSuccess) return Error(format, opened.Error.Message);
+            using var handle = opened.Value;
+            var snapshot = await handle.Workspace.SnapshotAsync(ct);
+            if (!snapshot.IsSuccess) return Error(format, snapshot.Error.Message);
+            var drafts = snapshot.Value.Drafts.Select(draft => new RenderCell("", new RenderValue.Object(
+                new Dictionary<string, RenderCell>
+                {
+                    ["item"] = InspectionKey(draft.Key),
+                    ["isSeed"] = RenderCell.Boolean(draft.Key.IsLocal),
+                    ["type"] = RenderCell.String(draft.Type),
+                    ["baselineRevision"] = InspectionText(draft.Baseline?.Revision?.Token),
+                    ["fields"] = new("Fields", new RenderValue.Object(draft.Changes.ToDictionary(field => field.Key, field =>
+                    {
+                        var present = draft.Baseline is not null && draft.Baseline.Fields.ContainsKey(field.Key);
+                        return new RenderCell(field.Key, new RenderValue.Object(new Dictionary<string, RenderCell>
+                        {
+                            ["oldPresent"] = RenderCell.Boolean(present),
+                            ["oldValue"] = present ? Cell(draft.Baseline!.Fields[field.Key]) : new("", new RenderValue.Null()),
+                            ["newValue"] = Cell(field.Value),
+                        }));
+                    }, StringComparer.Ordinal))),
+                    ["parent"] = InspectionKey(draft.Parent),
+                    ["parentRelation"] = InspectionText(draft.ParentRelation),
+                    ["resource"] = draft.Resource is { } resource
+                        ? new("", new RenderValue.Object(new Dictionary<string, RenderCell>
+                        {
+                            ["relation"] = RenderCell.String(resource.Relation),
+                            ["target"] = RenderCell.String(resource.Target),
+                            ["name"] = InspectionText(resource.Name),
+                            ["comment"] = InspectionText(resource.Comment),
+                        })) : new("", new RenderValue.Null()),
+                    ["links"] = new("Links", new RenderValue.Array(draft.Links.Select(link =>
+                        new RenderCell("", new RenderValue.Object(new Dictionary<string, RenderCell>
+                        {
+                            ["other"] = InspectionKey(link.Other),
+                            ["relation"] = RenderCell.String(link.Relation),
+                            ["outgoing"] = RenderCell.Boolean(link.Outgoing),
+                        }))).ToArray())),
+                }))).ToArray();
+            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("pending",
+                new Dictionary<string, RenderCell>
+                {
+                    ["storeVersion"] = RenderCell.Integer(snapshot.Value.Version),
+                    ["count"] = RenderCell.Integer(drafts.Length),
+                    ["fieldCount"] = RenderCell.Integer(snapshot.Value.Drafts.Sum(draft => draft.Changes.Count)),
+                    ["drafts"] = new("Drafts", new RenderValue.Array(drafts)),
+                    ["message"] = RenderCell.String("Captured typed drafts, in retained draft order; no journal or draft was changed."),
+                })]));
+            return 0;
+        });
+
+    private async Task<int> InspectAsync(string command, string output, Func<string, Task<int>> inspect)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var format = OutputFormats.Normalize(output) ?? string.Empty;
+        var exit = 1;
+        try
+        {
+            if (format.Length == 0 || format == "ids")
+                return exit = Error(format.Length == 0 ? OutputFormats.Default : format,
+                    "Inspection supports human, json, json-full, json-compact and minimal, not bare IDs.", 2);
+            return exit = await inspect(format);
+        }
+        catch (OperationCanceledException)
+        {
+            return exit = Error(format, "Inspection was cancelled; drafts and journal receipts were not changed.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return exit = Error(format, "Inspection did not complete: " + ex.Message);
+        }
+        finally
+        {
+            try { TelemetryHelper.TrackCommand(telemetry, command, format, exit, started); }
+            catch (Exception) { Debug.WriteLine("Optional Core inspection telemetry failed; command outcome was preserved."); }
+        }
+    }
+
+    private static RenderCell InspectionText(string? value)
+        => value is null ? new("", new RenderValue.Null()) : RenderCell.String(value);
+
+    private static RenderCell InspectionKey(ItemKey? key) => key is null ? new("", new RenderValue.Null())
+        : new("", new RenderValue.Object(new Dictionary<string, RenderCell>
+        {
+            ["provider"] = InspectionText(key.Provider?.Value),
+            ["scope"] = InspectionText(key.ResourceScope),
+            ["nativeId"] = InspectionText(key.NativeId),
+            ["localId"] = InspectionText(key.IsLocal ? key.LocalId.ToString("D") : null),
+        }));
+
     internal async Task<int> ApplyProposalAsync(string? file, string? confirmation, string output, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(confirmation))

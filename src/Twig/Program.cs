@@ -2081,12 +2081,16 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         int? parent = null, string output = OutputFormatterFactory.DefaultFormat, bool proposalOnly = false, CancellationToken ct = default)
         => await services.GetRequiredService<PolicyCommand>().ReconcileAsync(ids, evidence, finding, strategy, parent, output, proposalOnly, ct);
 
-    /// <summary>Validate a proposal v1 file. No ADO mutation. Canonical verb is <c>proposal validate</c>; <c>plan validate</c> is a retained deprecated alias.</summary>
-    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <summary>Validate a proposal's canonical file format offline. Preview separately checks application evidence; no mutation.</summary>
+    /// <param name="file">Required proposal JSON file inside the current workspace root; Core requires its current format without translating older bytes.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal validate|plan validate")]
     public async Task<int> PlanValidate(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().ValidateAsync(file, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ValidateProposalAsync(file, output, ct);
+        return await services.GetRequiredService<PlanCommand>().ValidateAsync(file, output, ct);
+    }
 
     /// <summary>Preview a proposal with an optional digest guard. No ADO mutation.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
@@ -2135,12 +2139,16 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         return await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
     }
 
-    /// <summary>Show journal state for a proposal file. Exit 1 when no journal exists for its digest. Canonical verb is <c>proposal status</c>; <c>plan status</c> is a retained deprecated alias.</summary>
-    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <summary>Inspect journal states and receipts for an exact proposal digest without applying or settling it; exit 1 when absent.</summary>
+    /// <param name="file">Required proposal JSON file inside the current workspace root; its current canonical digest selects the journal.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal status|plan status")]
     public async Task<int> PlanStatus(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().StatusAsync(file, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ProposalStatusAsync(file, output, ct);
+        return await services.GetRequiredService<PlanCommand>().StatusAsync(file, output, ct);
+    }
 
     /// <summary>Describe a staged seed (identity + fingerprint) for proposal authoring. Canonical verb is <c>proposal seed</c>; <c>plan seed</c> is a retained deprecated alias.</summary>
     /// <param name="id">Negative display alias of a currently-staged seed.</param>
@@ -2170,11 +2178,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await services.GetRequiredService<PlanCommand>().ReconcileAsync(
             file, confirm, operation, outcome, replacementDigest, replacementOperation, output, ct);
 
-    /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
+    /// <summary>Inspect captured typed draft fields, original baselines and seed relationships in retained draft order. Read-only.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("pending")]
     public async Task<int> Pending(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PendingCommand>().ExecuteAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PendingAsync(output, ct);
+        return await services.GetRequiredService<PendingCommand>().ExecuteAsync(output, ct);
+    }
 }
 
 /// <summary>

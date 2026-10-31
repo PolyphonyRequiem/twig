@@ -8,6 +8,31 @@ namespace Twig.Providers.GitHub;
 
 public sealed partial class GitHubProvider
 {
+    public Task<Result<QueryPage>> ReadNumberAsync(Connection connection, int number, CancellationToken ct)
+        => Guard(() => WithSession(connection, async (bound, token) =>
+        {
+            if (number <= 0) throw Wire.Refuse(ErrorCode.InvalidInput, "A positive native issue number is required.");
+            var data = await Graph(bound,
+                "query($id: ID!, $number: Int!) { node(id: $id) { __typename id ... on Repository { owner { id } issue(number: $number) { __typename id number repository { id owner { id } } } } } }",
+                json => { json.WriteString("id", _repository); json.WriteNumber("number", number); }, token);
+            var repository = Wire.Member(data, "node"); Repository(repository);
+            var issue = Wire.Member(repository, "issue");
+            if (Wire.Text(issue, "__typename") != "Issue" || Wire.Member(issue, "number").GetInt32() != number)
+                throw Wire.Refuse(ErrorCode.Conflict, "The repository did not return the exact requested issue number.");
+            Repository(Wire.Member(issue, "repository"));
+            var key = Key(Wire.Text(issue, "id"));
+            var schema = await Discover(bound, token);
+            var page = await Read(bound, schema, [key], token);
+            if (page.Items.Length != 1 || page.Items[0].Fields[Number].Number != number)
+                throw Wire.Refuse(ErrorCode.Conflict, "Issue number changed during complete native observation.");
+            var stored = await Snapshot(token);
+            RefuseChangedActor(stored, bound);
+            await bound.Session.ValidateAsync(token);
+            var committed = await _store.CommitAsync(connection, stored.Version, Mirror(stored, page, stored.Version + 1), token);
+            if (!committed.IsSuccess) throw new GitHubFailure(committed.Error);
+            return page;
+        }, ct));
+
     public Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false)
         => Guard(() => WithSession(connection, async (bound, token) =>
         {
@@ -92,7 +117,7 @@ public sealed partial class GitHubProvider
     private async Task<(WorkItem Item, HashSet<Relationship> Edges)> ReadItem(Bound bound, Discovery schema, ItemKey key, CancellationToken ct)
     {
         var id = Id(key);
-        var selection = "id title body state updatedAt repository { id owner { id } }";
+        var selection = "id number title body state updatedAt repository { id owner { id } }";
         if (schema.Fields.Contains("issueType")) selection += " issueType { id }";
         if (schema.Fields.Contains("milestone")) selection += " milestone { id }";
         if (schema.NativeRelations.Contains(Hierarchy)) selection += " parent { id repository { id owner { id } } }";
@@ -103,10 +128,13 @@ public sealed partial class GitHubProvider
         if (Wire.Text(node, "__typename") != "Issue" || Wire.Text(node, "id") != id)
             throw Wire.Invalid("Native response did not identify the requested issue.");
         Repository(Wire.Member(node, "repository"));
+        var number = Wire.Member(node, "number").GetInt32();
+        if (number <= 0) throw Wire.Invalid("Native issue number must be positive.");
         var timestamp = Wire.Text(node, "updatedAt");
         if (!DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var updated))
             throw Wire.Invalid("Native issue timestamp is unavailable.");
         var fields = FieldValues.Empty.Set(Title, FieldValue.String(Wire.Text(node, "title")))
+            .Set(Number, FieldValue.Integer(number))
             .Set(StateField, FieldValue.String(Wire.Text(node, "state")))
             .Set("github.updatedAt", FieldValue.At(updated));
         var body = Wire.Member(node, "body");
@@ -154,6 +182,7 @@ public sealed partial class GitHubProvider
             {
                 json.WritePropertyName(name); json.WriteStartArray(); json.WriteNumberValue((int)value.Kind);
                 if (value.Kind == FieldKind.Instant) json.WriteStringValue(value.Instant.ToString("O", CultureInfo.InvariantCulture));
+                else if (value.Kind == FieldKind.Integer) json.WriteNumberValue(value.Number);
                 else if (value.Kind == FieldKind.StringList) foreach (var entry in value.Values) json.WriteStringValue(entry);
                 else json.WriteStringValue(value.Text);
                 json.WriteEndArray();

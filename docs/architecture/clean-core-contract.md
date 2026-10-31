@@ -33,8 +33,9 @@ connection, actor, native fingerprint, policy identity/revision and each type.
 An absent optional declaration means no declared local rules, not an empty
 external ruleset or model-declared completeness. The new host acquisition reads
 actual policy bytes and translates the supported mechanical rules; their
-application enforcement is in the shared Core workspace workflow; GitHub leased
-native admission and complete retained-surface routing remain unfinished.
+application enforcement is in the shared Core workspace workflow. The narrow GitHub
+CLI profile now holds the actual native generation lease and admits canonical request
+bytes from the retained proposal. Complete retained-surface routing remains unfinished.
 
 Phase 5 has also added the native ADO access/admission bridge with exact
 digest/ordinal/attempt attribution and creation fences in the existing native
@@ -50,8 +51,51 @@ SQLite instance is pinned to that exact connection. Existing `.twig` directories
 existing selected files and reset flags are refused, not migrated or adopted.
 Uninitialized/legacy CLI mutation admission refuses before legacy writer registration
 with this preservation and initialization guidance. Preserved legacy proposal/journal
-inspection does not authorize legacy application. GitHub initialization and the
-remaining retained routes are implementation gaps, not supported empty results.
+inspection does not authorize legacy application. Fresh GitHub worktrees can use
+`twig init --provider github --host github.com --repository owner/name --account <gh-account> --core-store <new-absolute-file>`.
+This explicitly observes the selected native actor and immutable owner/repository,
+attaches that target and pins a new store; ordinary GitHub init stays offline.
+The explicit account selects the existing `gh` credential source; neither ambient
+token variables nor the currently active account supply authority.
+
+### Qualified GitHub CLI spine
+
+The qualified native profile is process/schema inspection, explicit unparented
+seed creation/publication, cache-only numeric `show`/`show-batch`, explicit numeric
+refresh, typed `update`/`patch`, Markdown `note`, native `state` and supported `batch`,
+remote-draft `save`/`discard`, bounded title/body/state queries, Bench list/create/switch,
+single-item pins and static workspace tables. This is native identity and field-role
+qualification, not old UI/envelope parity or completion of phase 5.
+
+CLI integers are locators, not GitHub keys. The read-only `github.number` integer
+comes from actual native `Issue.number: Int` metadata and observations; Core keys
+retain opaque issue node IDs. Cache-only resolution requires one exact observed
+number and performs no credential acquisition, schema or work HTTP. A miss requires
+explicit refresh. Allowed native lookup addresses `issue(number:)` inside the immutable
+repository, checks owner/repository/kind/number, then completely observes the node again.
+Missing or duplicate metadata and changed number-to-node bindings refuse. Original
+UUIDs, permanent mappings, proposals and history are never rewritten as numbers.
+
+Title/body/assignee roles use the native field references and kinds; state comes from
+the discovered type. GitHub body/comments retain Markdown, and default seed assignees
+are native actor-ID lists, not logins or ADO identities. Native creation's OPEN-only
+allowed rule supplies initial-state inference. Non-atomic concurrency is explicit in
+every GH effect and journal; it grants neither exact revisions nor atomic close gates.
+Already-required populated fields are not newly introduced completion gates. Newly
+required unsupplied fields still ride atomically with a completion transition.
+
+Tree/navigation, editor, chain/creation links, native/local CLI links, resource coupling,
+sync/context expansion, browser/TUI and other unconverted families explicitly refuse
+before provider HTTP or a legacy writer. Type/assignee/path/date query spellings are
+also refused. Queries retain the existing **100 total candidates** bound, with explicit
+refusal of further pages; no large-repository completeness is claimed.
+
+One provider-owned pure `GitHubWriteIntent.Project` projects final mutation documents
+and input bytes. Provider shape validation retains live capability/resource/edge
+checks; native host admission compares exact UTF-8 bytes against that same projection
+of the **retained** proposal/ordinal/attempt. Native fsynced intent/ack sidecars are
+subordinate transport evidence, never a second executor or recovery authority.
+Unknown creation remains fenced across root reopen without a second create.
 
 Offline Core file preview retains exact unconfirmed intent as Planned with no
 attempt or receipt, and reports unavailable schema/rule evidence as blocking.

@@ -272,10 +272,13 @@ public static partial class Core
                 case RuleAction.Required:
                     if (!supplied && (value is null || value.IsEmpty))
                         fail(ErrorCode.InvalidInput, $"Required field '{rule.Field}' has no effective value.");
-                    if (!supplied && changedState && target?.Category == StateCategory.Completed && !op.Fields.ContainsKey(rule.Field))
+                    var requiredBefore = RequiredBefore(type, rule.Field, old);
+                    if (!requiredBefore.IsSuccess) fail(requiredBefore.Error.Code, requiredBefore.Error.Message);
+                    var newGate = !supplied && changedState && target?.Category == StateCategory.Completed
+                        && (source is null || source.Type != type.Reference || !requiredBefore.IsSuccess || !requiredBefore.Value);
+                    if (newGate && !op.Fields.ContainsKey(rule.Field))
                         fail(ErrorCode.InvalidInput, $"Close-gate field '{rule.Field}' must ride in the same batch as the transition.");
-                    if (!supplied && changedState && target?.Category == StateCategory.Completed
-                        && rule.Field != type.StateField && !atomicFields)
+                    if (newGate && rule.Field != type.StateField && !atomicFields)
                         fail(ErrorCode.Unsupported, $"Close-gate field '{rule.Field}' must be applied atomically with the transition.");
                     break;
                 case RuleAction.ReadOnly:
@@ -294,6 +297,22 @@ public static partial class Core
         if (active.Where(r => r.Action == RuleAction.Supplied && !r.Values.IsEmpty)
             .GroupBy(r => r.Field, StringComparer.Ordinal).Any(g => g.SelectMany(r => r.Values).Distinct().Count() > 1))
             fail(ErrorCode.Unavailable, "Enabled suppliers disagree about the effective field value.");
+    }
+
+    private static Result<bool> RequiredBefore(ItemType type, string field, FieldValues before)
+    {
+        var required = false;
+        var supplied = false;
+        foreach (var rule in type.Rules.Where(rule => !rule.Disabled && rule.Field == field
+            && rule.Action is RuleAction.Required or RuleAction.Supplied))
+        {
+            var matches = MatchesConditions(rule.Conditions, before, before);
+            if (!matches.IsSuccess) return Result<bool>.Fail(matches.Error);
+            if (!matches.Value) continue;
+            required |= rule.Action == RuleAction.Required;
+            supplied |= rule.Action == RuleAction.Supplied && (rule.Values.IsEmpty || rule.Values.Any(value => !value.IsEmpty));
+        }
+        return Result<bool>.Ok(required && !supplied);
     }
 
     private static Result<bool> MatchesConditions(IEnumerable<RuleCondition> conditions, FieldValues before, FieldValues after)
@@ -324,6 +343,8 @@ public static partial class Core
     {
         var unavailable = SchemaErrors(schema).FirstOrDefault();
         if (unavailable is not null) return Result<ImmutableArray<string>>.Fail(unavailable);
+        if (typeOverride is not null && typeOverride != source.Type)
+            return Result<ImmutableArray<string>>.Fail(ErrorCode.Unsupported, "Close-gate pre-requiredness cannot be inferred across a type change.");
         var type = schema.Types.FirstOrDefault(t => t.Reference == (typeOverride ?? source.Type));
         if (type is null || !source.Fields.TryGetValue(type.StateField, out var previous))
             return Result<ImmutableArray<string>>.Fail(ErrorCode.Unavailable, "The type or pre-state needed to discover close gates is unobserved.");
@@ -340,10 +361,17 @@ public static partial class Core
             if (!matches.IsSuccess) return Result<ImmutableArray<string>>.Fail(matches.Error);
             if (matches.Value) active.Add(rule);
         }
-        return Result<ImmutableArray<string>>.Ok(active.Where(r => r.Action == RuleAction.Required && r.Field != type.StateField
+        var gates = new List<string>();
+        foreach (var field in active.Where(r => r.Action == RuleAction.Required && r.Field != type.StateField
             && !active.Any(s => s.Field == r.Field && s.Action == RuleAction.Supplied
                 && (s.Values.IsEmpty || s.Values.Any(v => !v.IsEmpty))))
-            .Select(r => r.Field).Distinct(StringComparer.Ordinal).ToImmutableArray());
+            .Select(r => r.Field).Distinct(StringComparer.Ordinal))
+        {
+            var before = RequiredBefore(type, field, source.Fields);
+            if (!before.IsSuccess) return Result<ImmutableArray<string>>.Fail(before.Error);
+            if (!before.Value) gates.Add(field);
+        }
+        return Result<ImmutableArray<string>>.Ok(gates.ToImmutableArray());
     }
 
     public static Result<MergeResult> Merge(Draft draft, WorkItem remote)

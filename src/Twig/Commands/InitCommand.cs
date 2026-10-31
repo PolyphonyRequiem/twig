@@ -38,6 +38,7 @@ public sealed class InitCommand
     private readonly Infrastructure.Auth.BootstrapEndpointSelection? _bootstrapEndpointSelection;
     private readonly Infrastructure.Auth.IConnectionBindingService? _bindings;
     private readonly CoreTransportOverride? _coreTransport;
+    private readonly Twig.Infrastructure.GitHub.IBoundedProcessRunner? _githubProcesses;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -65,7 +66,8 @@ public sealed class InitCommand
         AdoConcurrencyThrottle? throttle = null,
         Infrastructure.Auth.BootstrapEndpointSelection? bootstrapEndpointSelection = null,
         Infrastructure.Auth.IConnectionBindingService? bindings = null,
-        CoreTransportOverride? coreTransport = null)
+        CoreTransportOverride? coreTransport = null,
+        Twig.Infrastructure.GitHub.IBoundedProcessRunner? githubProcesses = null)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -82,6 +84,7 @@ public sealed class InitCommand
         _bootstrapEndpointSelection = bootstrapEndpointSelection;
         _bindings = bindings;
         _coreTransport = coreTransport;
+        _githubProcesses = githubProcesses;
     }
 
     /// <summary>
@@ -126,7 +129,7 @@ public sealed class InitCommand
         _systemRegistry = systemRegistry;
         _profileRegistry = profileRegistry;
     }
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null, string? account = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
@@ -139,7 +142,7 @@ public sealed class InitCommand
         {
             if (captured is not null) Console.SetOut(captured);
             (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force,
-                outputFormat, sprint, area, reinitialize, ct, profile, provider, host, repository, binding, coreStore);
+                outputFormat, sprint, area, reinitialize, ct, profile, provider, host, repository, binding, coreStore, account);
         }
         finally
         {
@@ -169,7 +172,7 @@ public sealed class InitCommand
         return exitCode;
     }
 
-    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile, string? provider, string? host, string? repository, string? binding, string? coreStore)
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile, string? provider, string? host, string? repository, string? binding, string? coreStore, string? account)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var telemetryHadGlobalProfile = false;
@@ -208,11 +211,10 @@ public sealed class InitCommand
         // rewriting an ancestor's `.twig/` — the exact defect §3.1 fixes.
         var twigDir = Path.Combine(worktreeAnchor.WorktreeRoot, ".twig");
         if (coreStore is not null && (!Path.IsPathFullyQualified(coreStore) || File.Exists(coreStore)
-            || Directory.Exists(twigDir) || force || reinitialize || _bindings is null
-            || WorkItemProviderSetting.Normalize(provider) == "github"))
+            || Directory.Exists(twigDir) || force || reinitialize || _bindings is null))
         {
             Console.Error.WriteLine(fmt.FormatError(
-                "Core initialization requires a fresh isolated ADO worktree and a new absolute --core-store file; existing work and unknown outcomes were preserved."));
+                "Core initialization requires a fresh isolated worktree and a new absolute --core-store file; existing work and unknown outcomes were preserved."));
             return (1, false, 0);
         }
         var invocationStartDir = worktreeAnchor.WorktreeRoot;
@@ -281,6 +283,21 @@ public sealed class InitCommand
 
         if (kind == "github")
         {
+            if (account is not null)
+            {
+                if (coreStore is null || string.IsNullOrWhiteSpace(account) || account != account.Trim()
+                    || account.Any(char.IsWhiteSpace) || account.Any(char.IsControl) || account.StartsWith('-'))
+                {
+                    Console.Error.WriteLine(fmt.FormatError("--account requires GitHub Core initialization and an explicit canonical gh account."));
+                    return (1, false, 0);
+                }
+                config.GitHubAccount = account;
+            }
+            if (coreStore is not null && string.IsNullOrWhiteSpace(config.GitHubAccount))
+            {
+                Console.Error.WriteLine(fmt.FormatError("GitHub Core initialization requires --account <gh-account>; the active gh account is never inferred."));
+                return (1, false, 0);
+            }
             if (preserveRepoManifest
                 && ((host is not null && host != config.GitHub?.Host)
                     || (repository is not null && repository != config.GitHub?.Repository)))
@@ -307,9 +324,9 @@ public sealed class InitCommand
         else
         {
             WorkItemProviderSetting.RequireAdo(config.Provider);
-            if (host is not null || repository is not null)
+            if (host is not null || repository is not null || account is not null)
             {
-                Console.Error.WriteLine(fmt.FormatError("--host and --repository require --provider github. The default provider is ado."));
+                Console.Error.WriteLine(fmt.FormatError("--host, --repository and --account require --provider github. The default provider is ado."));
                 return (1, false, 0);
             }
         }
@@ -548,6 +565,17 @@ public sealed class InitCommand
 
             if (kind == "github")
             {
+                if (coreStore is not null)
+                {
+                    var initializedCore = await CoreWorkspaceInitializer.InitializeAsync(config, invocationPaths,
+                        _bindings!, coreStore, ct, _coreTransport, _githubProcesses);
+                    if (!initializedCore.IsSuccess)
+                    {
+                        Console.Error.WriteLine(fmt.FormatError(initializedCore.Error.Message));
+                        return (1, false, 0);
+                    }
+                    return (0, false, 0);
+                }
                 rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.LayoutFileName));
                 rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.WorktreeFileName));
                 rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.AttachmentFileName));

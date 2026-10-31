@@ -496,10 +496,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="profile">Opaque released profile identity to explicitly select (default: none). Does not discover live-process compatibility.</param>
     /// <param name="provider">Explicit work-item provider: ado (default) or github. Never inferred from git remotes.</param>
     /// <param name="host">Explicit lowercase GitHub host, used with --provider github.</param>
-    /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Init stays offline; discover and bind separately.</param>
+    /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Without --core-store init stays offline; Core init observes and binds native identity.</param>
     /// <param name="binding">Registered ADO binding ID to pin locally in a fresh checkout (default: endpoint default). Cannot combine with --force/--reinitialize or replace existing local state.</param>
-    /// <param name="coreStore">New absolute Core database file in a fresh isolated ADO worktree. Existing workspace data is never adopted or reset.</param>
-    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null)
+    /// <param name="coreStore">New absolute Core database file in a fresh isolated ADO or GitHub worktree. Existing workspace data is never adopted or reset.</param>
+    /// <param name="account">Explicit gh account for fresh GitHub Core initialization; never inferred from the active gh account.</param>
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null, string? account = null)
     {
         // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
         // document (`twig init <org> <project>`) parses alongside the named one. The generated
@@ -536,7 +537,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
                 "Core initialization refuses existing workspaces/files and reset flags. Use a fresh isolated worktree and new absolute --core-store file.");
             return 1;
         }
-        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding, coreStore: coreStore);
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding, coreStore: coreStore, account: account);
     }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>

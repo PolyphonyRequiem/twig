@@ -16,6 +16,54 @@ namespace Twig.Providers.GitHub.Tests;
 
 public sealed class GitHubProviderTests
 {
+    [Fact]
+    public async Task ObservedIntegerNumberIsReadOnlyAndParticipatesInOpaqueObservation()
+    {
+        using var f = await Fixture.Create();
+        var schema = await f.Schema();
+        schema.Types.Single(t => t.Reference == "T1").Fields.Single(field => field.Reference == Provider.Number)
+            .ShouldBe(new FieldDef(Provider.Number, FieldKind.Integer, true));
+        var first = await f.Provider.ReadAsync(f.Connection, [f.Key("I1")], default, captureOnly: true);
+        first.IsSuccess.ShouldBeTrue(first.IsSuccess ? "" : first.Error.Message);
+        first.Value.Items.Single().Fields[Provider.Number].ShouldBe(FieldValue.Integer(1));
+        (await f.Stored()).Items.ShouldBeEmpty();
+        f.Http.Issues["I1"]["number"] = 42;
+        var second = await f.Provider.ReadAsync(f.Connection, [f.Key("I1")], default, captureOnly: true);
+        second.IsSuccess.ShouldBeTrue(second.IsSuccess ? "" : second.Error.Message);
+        second.Value.Items.Single().Revision.ShouldNotBe(first.Value.Items.Single().Revision);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task NativeCloseDistinguishesAlwaysRequiredTitleFromNewAtomicGate(bool gate, bool includeTitle)
+    {
+        using var f = await Fixture.Create();
+        f.Access.AlwaysRequiredTitle = !gate;
+        f.Access.CloseGate = gate;
+        var item = await f.Item();
+        item.Fields[Provider.Title].IsEmpty.ShouldBeFalse();
+        item.Fields[Provider.StateField].Text.ShouldBe("OPEN");
+        var fields = Fields((Provider.StateField, FieldValue.String("CLOSED")));
+        if (includeTitle) fields = fields.Set(Provider.Title, FieldValue.String("authored"));
+        var proposal = await f.Proposal(new("close", OpKind.Batch, item.Key, item.Revision, fields, concurrency: ConcurrencyMode.ObservedNonAtomic));
+        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        if (gate)
+        {
+            imported.IsSuccess.ShouldBeFalse();
+            f.Http.Writes.ShouldBe(0);
+            return;
+        }
+        imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
+        var applied = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var verified = await f.Provider.VerifyAsync(proposal, applied, default);
+        verified.Value.Status.ShouldBe(OpStatus.Verified);
+        f.Http.Writes.ShouldBe(1);
+        f.Http.Issues["I1"]["state"]!.GetValue<string>().ShouldBe("CLOSED");
+    }
+
     [Theory]
     [InlineData(GitHubCredentialSource.Gh)]
     [InlineData(GitHubCredentialSource.GitHubApp)]
@@ -593,7 +641,7 @@ public sealed class GitHubProviderTests
         internal string Actor = "A1";
         internal string Context = "binding-7/attachment-3/selected-gh-account";
         internal GitHubCredentialSource Source = GitHubCredentialSource.Gh;
-        internal bool InvalidLease, Deny, CloseGate, SawDurableAttempt, PauseAdmission;
+        internal bool InvalidLease, Deny, CloseGate, AlwaysRequiredTitle, SawDurableAttempt, PauseAdmission;
         internal TaskCompletionSource AdmissionEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource ResumeAdmission { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal string? RuleDefect;
@@ -625,6 +673,8 @@ public sealed class GitHubProviderTests
                 if (access.CloseGate)
                     map = map.ToImmutableDictionary(p => p.Key, _ => ImmutableArray.Create(new FieldRule(Provider.Title, RuleAction.Required,
                         [new(ConditionKind.Equal, Provider.StateField, FieldValue.String("CLOSED"))])));
+                if (access.AlwaysRequiredTitle)
+                    map = map.ToImmutableDictionary(p => p.Key, _ => ImmutableArray.Create(new FieldRule(Provider.Title, RuleAction.Required, [])));
                 return Task.FromResult(Result<GitHubRuleProjection>.Ok(new(fixture.Connection, access.Actor,
                     access.RuleDefect == "rules-stale" ? "stale" : nativeProjection.Fingerprint,
                     access.RuleDefect == "rules-scope" ? GitHubValidationScope.Unspecified
@@ -677,7 +727,7 @@ public sealed class GitHubProviderTests
 
         private static JsonObject Issue(string id) => new()
         {
-            ["id"] = id, ["__typename"] = "Issue", ["title"] = "original", ["body"] = "", ["state"] = "OPEN",
+            ["id"] = id, ["number"] = id == "I1" ? 1 : id == "I2" ? 2 : 3, ["__typename"] = "Issue", ["title"] = "original", ["body"] = "", ["state"] = "OPEN",
             ["updatedAt"] = "2026-10-30T12:00:00Z", ["issueType"] = new JsonObject { ["id"] = "T1" },
             ["milestone"] = null, ["labelIds"] = new JsonArray(), ["assigneeIds"] = new JsonArray(),
         };
@@ -692,7 +742,7 @@ public sealed class GitHubProviderTests
                 return new() { ["kind"] = "LIST", ["name"] = null, ["ofType"] = new JsonObject { ["kind"] = "SCALAR", ["name"] = "ID" } };
             var type = name switch
             {
-                "id" or "repositoryId" or "issueTypeId" or "milestoneId" => "ID",
+                "id" or "repositoryId" or "issueTypeId" or "milestoneId" => "ID", "number" => "Int",
                 "state" => "IssueState", "updatedAt" => "DateTime", "repository" => "Repository", "issueType" => "IssueType",
                 "milestone" => "Milestone", "labels" => "LabelConnection", "assignees" => "UserConnection",
                 "parent" => "Issue", "subIssues" or "blockedBy" or "blocking" => "IssueConnection",
@@ -726,7 +776,7 @@ public sealed class GitHubProviderTests
             else if (query.Contains("__type(", StringComparison.Ordinal))
             {
                 if (Defect == "metadata-denied") return new(HttpStatusCode.Forbidden);
-                var fields = new List<string> { "id", "repository", "title", "body", "state", "updatedAt", "labels", "assignees", "milestone", "issueType" };
+                var fields = new List<string> { "id", "number", "repository", "title", "body", "state", "updatedAt", "labels", "assignees", "milestone", "issueType" };
                 if (Native) fields.AddRange(["parent", "subIssues", "blockedBy", "blocking"]);
                 if (Defect == "partial-relations") fields.Remove("subIssues");
                 var inputs = new[] { "id", "title", "body", "state", "labelIds", "assigneeIds", "milestoneId" };

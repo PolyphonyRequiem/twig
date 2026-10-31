@@ -5,6 +5,7 @@ using Twig.Core;
 using Twig.Formatters;
 using Twig.Infrastructure.Content;
 using Twig.Infrastructure.Services;
+using Twig.Providers.GitHub;
 using Twig.RenderTree;
 using Twig.Rendering;
 using static Twig.Infrastructure.Services.CoreHostContext;
@@ -15,34 +16,52 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     Twig.Domain.Interfaces.IConsoleInput consoleInput, Twig.Domain.Interfaces.IEditorLauncher editorLauncher,
     Twig.Domain.Interfaces.ITelemetryClient? telemetry = null)
 {
-    private async Task<Result<int>> ResolveIdAsync(int? id, string output, CancellationToken ct)
+    private string TitleField => factory.IsGitHub ? GitHubProvider.Title : "System.Title";
+    private string BodyField => factory.IsGitHub ? GitHubProvider.Body : "System.Description";
+    private string AssigneeField => factory.IsGitHub ? GitHubProvider.Assignees : "System.AssignedTo";
+    private string StateField => factory.IsGitHub ? GitHubProvider.StateField : "System.State";
+
+    private async Task<Result<ItemKey>> ResolveKeyAsync(int? id, string output, CancellationToken ct, bool allowNativeLookup = false)
     {
-        if (id is not null) return id != 0 ? Result<int>.Ok(id.Value) : Result<int>.Fail(ErrorCode.InvalidInput, "A nonzero target is required.");
-        if (output != "human") return Result<int>.Fail(ErrorCode.InvalidInput, "Structured operations require an explicit target. Pass --id.");
+        if (id is null && output != "human") return Result<ItemKey>.Fail(ErrorCode.InvalidInput, "Structured operations require an explicit target. Pass --id.");
         var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Result<int>.Fail(opened.Error);
+        if (!opened.IsSuccess) return Result<ItemKey>.Fail(opened.Error);
         using var handle = opened.Value;
+        if (id is not null) return await handle.Workspace.ResolveTargetAsync(id.Value, allowNativeLookup, ct);
         var context = await handle.Workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Result<int>.Fail(context.Error);
-        if (context.Value.Position < 0) return Result<int>.Fail(ErrorCode.NotFound, "No active Core item is selected. Run `twig set <id>` or pass --id.");
+        if (!context.IsSuccess) return Result<ItemKey>.Fail(context.Error);
+        if (context.Value.Position < 0) return Result<ItemKey>.Fail(ErrorCode.NotFound, "No active Core item is selected. Run `twig set <id>` or pass --id.");
         var key = context.Value.History[context.Value.Position].Resolve(handle.Workspace.Connection);
         var snapshot = await handle.Workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Result<int>.Fail(snapshot.Error);
+        if (!snapshot.IsSuccess) return Result<ItemKey>.Fail(snapshot.Error);
         if (key.IsLocal)
         {
             if (!KnownLocalKeys(snapshot.Value).Contains(key)
                 || KnownLocalKeys(snapshot.Value).Count(local => LocalAlias(local) == LocalAlias(key)) != 1)
-                return Result<int>.Fail(ErrorCode.Conflict, "The retained active UUID is absent or ambiguous; it was not replaced.");
+                return Result<ItemKey>.Fail(ErrorCode.Conflict, "The retained active UUID is absent or ambiguous; it was not replaced.");
             var mapped = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key);
             if (mapped is not null) key = mapped.Remote;
-            else return Result<int>.Ok(LocalAlias(key));
+            else return Result<ItemKey>.Ok(key);
         }
-        return int.TryParse(key.NativeId, NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0
-            ? Result<int>.Ok(number) : Result<int>.Fail(ErrorCode.Unsupported, "This native identity has no qualified numeric command target.");
+        return key.BelongsTo(handle.Workspace.Connection) ? Result<ItemKey>.Ok(key)
+            : Result<ItemKey>.Fail(ErrorCode.Conflict, "The active native identity is outside this connection.");
+    }
+
+    private async Task<Result<int>> ResolveIdAsync(int? id, string output, CancellationToken ct, bool allowNativeLookup = false)
+    {
+        var key = await ResolveKeyAsync(id, output, ct, allowNativeLookup);
+        if (!key.IsSuccess) return Result<int>.Fail(key.Error);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Result<int>.Fail(opened.Error);
+        using var handle = opened.Value;
+        var snapshot = await handle.Workspace.SnapshotAsync(ct);
+        return snapshot.IsSuccess ? CoreWorkspace.DisplayId(handle.Workspace.Connection, snapshot.Value, key.Value)
+            : Result<int>.Fail(snapshot.Error);
     }
 
     internal async Task<int> SetAsync(string target, string output, CancellationToken ct)
     {
+        if (factory.IsGitHub) return Error(output, "GitHub interactive selection is not qualified; use explicit numeric targets.");
         if (output != "human") return Error(output, "Structured set is refused because it changes interactive context.", 2);
         if (string.IsNullOrWhiteSpace(target)) return Error(output, "Supply a work item ID or cached title pattern.", 2);
         var opened = await factory.OpenAsync(ct);
@@ -104,6 +123,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> NavigateAsync(string direction, string? pattern, string output, CancellationToken ct)
     {
+        if (factory.IsGitHub) return Error(output, "GitHub navigation is not qualified; use explicit numeric targets.");
         if (output != "human") return Error(output, "Structured navigation is refused because it changes interactive context.", 2);
         var target = await ResolveIdAsync(null, output, ct);
         if (!target.IsSuccess) return Error(output, target.Error.Message);
@@ -169,6 +189,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> MoveHistoryAsync(int direction, string output, CancellationToken ct)
     {
+        if (factory.IsGitHub) return Error(output, "GitHub history navigation is not qualified.");
         if (output != "human") return Error(output, "Structured history navigation is refused because it changes interactive context.", 2);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
@@ -217,6 +238,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> TreeAsync(int? id, bool all, int? depth, bool refresh, string output, CancellationToken ct)
     {
+        if (factory.IsGitHub) return Error(output, "GitHub tree presentation is not qualified; use show or query.");
         if (depth is < 0) return Error(output, "Tree depth cannot be negative.", 2);
         if (all && id is not null) return Error(output, "--all cannot be combined with an explicit tree target.", 2);
         if (!all)
@@ -328,6 +350,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         int top, string output, CancellationToken ct)
     {
         if (top < 1) return Error(output, "Query --top must be positive.", 2);
+        if (factory.IsGitHub && new[] { requestedType, assignedTo, area, iteration, createdSince, changedSince }.Any(value => value is not null))
+            return Error(output, "GitHub type, assignee, path and date query spellings are not qualified; use title, description or state.", 2);
         if (new[] { search, title, description, requestedType, state, assignedTo, area, iteration, createdSince, changedSince }
             .All(string.IsNullOrWhiteSpace))
         {
@@ -366,13 +390,13 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         {
             if (text is not null && Operand(kind, name, text) is { } operand) terms.Add(operand);
         }
-        Add(QueryKind.Contains, "System.Title", title);
-        Add(QueryKind.Contains, "System.Description", description);
-        Add(QueryKind.Equal, "System.State", state);
-        Add(QueryKind.Equal, "System.AssignedTo", assignedTo);
+        Add(QueryKind.Contains, TitleField, title);
+        Add(QueryKind.Contains, BodyField, description);
+        Add(QueryKind.Equal, StateField, state);
+        Add(QueryKind.Equal, AssigneeField, assignedTo);
         Add(QueryKind.Under, "System.AreaPath", area);
         Add(QueryKind.Under, "System.IterationPath", iteration);
-        if (area is null && factory.QueryAreaDefaults.Count != 0)
+        if (!factory.IsGitHub && area is null && factory.QueryAreaDefaults.Count != 0)
         {
             var scopes = factory.QueryAreaDefaults.Select(scope => Operand(scope.IncludeChildren ? QueryKind.Under : QueryKind.Equal,
                 "System.AreaPath", scope.Path)).Where(scope => scope is not null).Cast<Query>().ToArray();
@@ -389,9 +413,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         if (search is not null)
         {
-            var titleTerm = Operand(QueryKind.Contains, "System.Title", search);
-            var descriptionTerm = schema.Value.Types.Any(type => type.Fields.Any(field => field.Reference == "System.Description"))
-                ? Operand(QueryKind.Contains, "System.Description", search) : null;
+            var titleTerm = Operand(QueryKind.Contains, TitleField, search);
+            var descriptionTerm = schema.Value.Types.Any(type => type.Fields.Any(field => field.Reference == BodyField))
+                ? Operand(QueryKind.Contains, BodyField, search) : null;
             if (titleTerm is not null) terms.Add(descriptionTerm is null ? titleTerm : new(QueryKind.Or, children: [titleTerm, descriptionTerm]));
         }
         foreach (var time in new[] { (Field: "System.CreatedDate", Text: createdSince), (Field: "System.ChangedDate", Text: changedSince) })
@@ -417,10 +441,14 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var result = await workspace.QueryAsync(query, ct, top);
         if (!result.IsSuccess) return Error(output, result.Error.Message);
         var items = result.Value.Items.Take(top).ToArray();
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var display = items.Select(item => CoreWorkspace.DisplayId(workspace.Connection, snapshot.Value, item.Key)).ToArray();
+        if (display.Any(value => !value.IsSuccess)) return Error(output, "Query result has no unique observed numeric identity.");
         var rows = items.Select(item => new RenderRow("workItem", new Dictionary<string, RenderCell>
         {
-            ["id"] = RenderCell.Integer(int.Parse(item.Key.NativeId!, CultureInfo.InvariantCulture)),
-            ["title"] = Cell(item.Fields.GetValueOrDefault("System.Title") ?? FieldValue.Null),
+            ["id"] = RenderCell.Integer(CoreWorkspace.DisplayId(workspace.Connection, snapshot.Value, item.Key).Value),
+            ["title"] = Cell(item.Fields.GetValueOrDefault(TitleField) ?? FieldValue.Null),
             ["type"] = RenderCell.String(item.Type),
             ["state"] = Cell(item.Fields.GetValueOrDefault(schema.Value.Types.Single(type => type.Reference == item.Type).StateField) ?? FieldValue.Null),
         })).ToArray();
@@ -493,6 +521,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> PinAsync(int id, bool subtree, bool remove, string output, CancellationToken ct,
         string? expectBench, string? expectBinding, string? expectIdentity, string? expectSettings, string? mode = null)
     {
+        if (factory.IsGitHub && (subtree || mode == "tree"))
+            return Error(output, "GitHub subtree selectors are not qualified; pin an explicit cached item.");
         using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
         if (expectBinding is not null || expectIdentity is not null || expectSettings is not null)
             return Error(output, "Captured browser origin/settings admission is not yet connected; no selector was changed.");
@@ -512,9 +542,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (bench is null) return Error(output, "No existing Core Bench is selected. Create one and use `twig bench switch <name>`.");
         if (expectBench is not null && expectBench != bench.Id.ToString("D")) return Error(output, "The captured current Bench changed.");
         var capturedBenchId = bench.Id;
-        var key = id < 0 ? KnownLocalKeys(snapshot.Value).SingleOrDefault(key => LocalAlias(key) == id)
-            : ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, id.ToString(CultureInfo.InvariantCulture));
-        if (key is null) return Error(output, "The local pin alias is absent or ambiguous.");
+        var resolved = await workspace.ResolveTargetAsync(id, false, ct);
+        if (!resolved.IsSuccess) return Error(output, resolved.Error.Message);
+        var key = id < 0 ? KnownLocalKeys(snapshot.Value).Single(local => LocalAlias(local) == id) : resolved.Value;
         var mapped = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
         if (!remove && !mapped.IsLocal && !snapshot.Value.Items.Any(item => item.Key == mapped))
         {
@@ -591,8 +621,10 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     {
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Result<(int, string?)>.Fail(snapshot.Error);
+        var target = all ? null : await workspace.ResolveTargetAsync(id!.Value, false, ct);
+        if (target is { IsSuccess: false }) return Result<(int, string?)>.Fail(target.Error);
         var drafts = snapshot.Value.Drafts.Where(draft => !draft.Key.IsLocal
-            && (all || draft.Key.NativeId == id!.Value.ToString(CultureInfo.InvariantCulture))).ToArray();
+            && (all || draft.Key == target!.Value)).ToArray();
         if (drafts.Length == 0) return Result<(int, string?)>.Ok((0, null));
         var captures = new List<CoreDraftPreview>();
         var operations = new List<Op>();
@@ -720,8 +752,10 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var workspace = handle.Workspace;
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var target = all ? null : await workspace.ResolveTargetAsync(id!.Value, false, ct);
+        if (target is { IsSuccess: false }) return Error(output, target.Error.Message);
         var drafts = snapshot.Value.Drafts.Where(draft => !draft.Key.IsLocal
-            && (all || draft.Key.NativeId == id!.Value.ToString(CultureInfo.InvariantCulture))).ToArray();
+            && (all || draft.Key == target!.Value)).ToArray();
         if (!yes && drafts.Length != 0)
         {
             if (output != "human" || consoleInput.IsOutputRedirected)
@@ -763,7 +797,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             ["id"] = RenderCell.Integer(LocalAlias(draft.Key)),
             ["localId"] = RenderCell.String(draft.Key.LocalId.ToString("D")),
             ["type"] = RenderCell.String(draft.Type),
-            ["title"] = Cell(draft.Changes.TryGetValue("System.Title", out var title) ? title : FieldValue.Null),
+            ["title"] = Cell(draft.Changes.TryGetValue(TitleField, out var title) ? title : FieldValue.Null),
             ["isSeed"] = RenderCell.Boolean(true),
             ["fields"] = new("Fields", new RenderValue.Object(draft.Changes.ToDictionary(field => field.Key, field => Cell(field.Value), StringComparer.Ordinal))),
         })).ToArray();
@@ -777,6 +811,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         Action<Draft>? capture = null, ItemKey? predecessor = null)
     {
         if (noParent && parent is not null) return Error(output, "--parent and --no-parent are mutually exclusive.", 2);
+        if (factory.IsGitHub && (!noParent || editor || predecessor is not null))
+            return Error(output, "GitHub seed creation requires --no-parent and explicit native type/fields; editor and creation links are not qualified.", 2);
         if (!noParent && parent is null)
         {
             var selected = await ResolveIdAsync(null, output, ct);
@@ -821,8 +857,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         var schema = await workspace.SchemaAsync(ct);
         if (!schema.IsSuccess) return Error(output, schema.Error.Message);
-        var types = schema.Value.Types.Where(type => !type.Hidden && (type.Reference.Equals(requestedType, StringComparison.OrdinalIgnoreCase)
-            || type.Rules.SelectMany(rule => rule.Values).Any(value => value.DataType == "ado.native-type-name"
+        var types = schema.Value.Types.Where(type => !type.Hidden && (type.Reference.Equals(requestedType,
+                factory.IsGitHub ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)
+            || !factory.IsGitHub && type.Rules.SelectMany(rule => rule.Values).Any(value => value.DataType == "ado.native-type-name"
                 && string.Equals(value.Text, requestedType, StringComparison.OrdinalIgnoreCase)))).ToArray();
         if (types.Length != 1) return Error(output, "The requested seed type is absent or ambiguous in the actual process.", 2);
         var type = types[0];
@@ -835,7 +872,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         var changes = new Dictionary<string, FieldValue>(StringComparer.Ordinal)
         {
-            ["System.Title"] = FieldValue.String(title ?? ""),
+            [TitleField] = FieldValue.String(title ?? ""),
         };
         var initial = type.Rules.Where(rule => !rule.Disabled && rule.Action == RuleAction.Allowed
                 && rule.Field == type.StateField && rule.Conditions.Length == 1
@@ -844,7 +881,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             .SelectMany(rule => rule.Values).Where(value => value.Kind == FieldKind.Text)
             .Select(value => value.Text!).Distinct(StringComparer.Ordinal).ToArray();
         if (initial.Length == 1) changes[type.StateField] = FieldValue.String(initial[0]);
-        var descriptionField = type.Fields.FirstOrDefault(field => field.Reference == "System.Description");
+        var descriptionField = type.Fields.FirstOrDefault(field => field.Reference == BodyField);
         if (description is not null)
         {
             if (descriptionField is null || !TryParse(descriptionField.Kind, description, null, out var value))
@@ -860,9 +897,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         if (!changes.ContainsKey(type.StateField))
             return Error(output, "The process has no unique observed initial state. Supply its state field explicitly with --field.", 2);
-        var assigned = type.Fields.FirstOrDefault(field => field.Reference == "System.AssignedTo" && !field.ReadOnly);
+        var assigned = type.Fields.FirstOrDefault(field => field.Reference == AssigneeField && !field.ReadOnly);
         if (assigned?.Kind == FieldKind.Identity && !changes.ContainsKey(assigned.Reference))
             changes[assigned.Reference] = FieldValue.Identity(workspace.NativeActor);
+        else if (factory.IsGitHub && assigned?.Kind == FieldKind.StringList && !changes.ContainsKey(assigned.Reference))
+            changes[assigned.Reference] = FieldValue.Strings([workspace.NativeActor]);
         if (editor)
         {
             var edited = await EditSeedFieldsAsync(type, new(changes), ct);
@@ -875,7 +914,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             }
             foreach (var field in edited.Value) changes[field.Key] = field.Value;
         }
-        if (!changes.TryGetValue("System.Title", out var seedTitle) || string.IsNullOrWhiteSpace(seedTitle.Text))
+        if (!changes.TryGetValue(TitleField, out var seedTitle) || string.IsNullOrWhiteSpace(seedTitle.Text))
             return Error(output, "A seed title is required; no draft was staged.", 2);
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
@@ -952,6 +991,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> SeedEditAsync(int id, string output, CancellationToken ct, string? selectedField = null)
     {
+        if (factory.IsGitHub) return Error(output, "GitHub seed editor is not qualified; use explicit typed update.");
         if (id >= 0) return Error(output, "Seed editing requires an unpublished local seed alias.", 2);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
@@ -988,6 +1028,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> EditAsync(int? id, string? field, string output, CancellationToken ct)
     {
+        if (factory.IsGitHub) return Error(output, "GitHub editor is not qualified; use explicit update or patch.");
         var target = await ResolveIdAsync(id, output, ct);
         if (!target.IsSuccess) return Error(output, target.Error.Message, target.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         id = target.Value;
@@ -1161,7 +1202,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (preview.IsSuccess) passed++;
             rows.Add(new("seedValidation", new Dictionary<string, RenderCell>
             {
-                ["seedId"] = RenderCell.Integer(LocalAlias(draft.Key)), ["title"] = Cell(draft.Changes["System.Title"]),
+                ["seedId"] = RenderCell.Integer(LocalAlias(draft.Key)), ["title"] = Cell(draft.Changes[TitleField]),
                 ["passed"] = RenderCell.Boolean(preview.IsSuccess),
                 ["failures"] = RenderCell.String(preview.IsSuccess ? "" : preview.Error.Message),
                 ["warnings"] = RenderCell.String("Native schema and explicitly declared Twig policy scope; validation is not a publication acknowledgement."),
@@ -1177,6 +1218,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> SeedPublishAsync(int? id, bool all, bool force, bool dryRun,
         string? branch, string? repository, string output, CancellationToken ct)
     {
+        if (factory.IsGitHub && branch is not null) return Error(output, "GitHub creation-bound resources are not qualified.");
         if (output != "human") return Error(output, "Structured seed publication is refused because it changes local publication context. Use an explicit reviewed proposal apply.", 2);
         if (id is not null && (id >= 0 || all) || id is null && !all)
             return Error(output, "Specify one negative seed ID or --all.", 2);
@@ -1299,6 +1341,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> SeedLinkAsync(int sourceId, int targetId, string? type, bool remove, string output, CancellationToken ct)
     {
+        if (factory.IsGitHub) return Error(output, "GitHub creation links are not qualified.");
         if (sourceId == 0 || targetId == 0 || sourceId == targetId || sourceId > 0 && targetId > 0)
             return Error(output, "Two distinct nonzero targets, including a local seed, are required.", 2);
         var shape = (type ?? "related").ToLowerInvariant() switch
@@ -1380,6 +1423,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> SeedLinksAsync(int? id, string output, CancellationToken ct)
     {
+        if (factory.IsGitHub) return Error(output, "GitHub creation links are not qualified.");
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
@@ -1440,16 +1484,21 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var missing = new List<int>();
         foreach (var id in ids)
         {
-            var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
-                id.ToString(CultureInfo.InvariantCulture));
+            var resolved = await workspace.ResolveTargetAsync(id, false, ct);
+            if (!resolved.IsSuccess)
+            {
+                if (resolved.Error.Code != ErrorCode.NotFound) return Error(output, resolved.Error.Message);
+                missing.Add(id); continue;
+            }
+            var key = resolved.Value;
             var item = snapshot.Value.Items.FirstOrDefault(item => item.Key == key);
             if (item is null) { missing.Add(id); continue; }
             rows.Add(new(null, new Dictionary<string, RenderCell>
             {
                 ["id"] = RenderCell.Integer(id),
                 ["type"] = Cell(item.Fields.TryGetValue("System.WorkItemType", out var type) ? type : FieldValue.String(item.Type)),
-                ["title"] = Cell(item.Fields.TryGetValue("System.Title", out var title) ? title : FieldValue.Null),
-                ["state"] = Cell(item.Fields.TryGetValue("System.State", out var state) ? state : FieldValue.Null),
+                ["title"] = Cell(item.Fields.TryGetValue(TitleField, out var title) ? title : FieldValue.Null),
+                ["state"] = Cell(item.Fields.TryGetValue(StateField, out var state) ? state : FieldValue.Null),
                 ["revision"] = item.Revision is null ? new("", new RenderValue.Null()) : RenderCell.String(item.Revision.Token),
                 ["cached"] = RenderCell.Boolean(true),
                 ["isDirty"] = RenderCell.Boolean(snapshot.Value.Drafts.Any(draft => draft.Key == key)),
@@ -1502,8 +1551,12 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (matches.Length != 1) return Error(output, "The local alias is absent or ambiguous; no target was guessed.");
             key = matches[0];
         }
-        else key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
-            id!.Value.ToString(CultureInfo.InvariantCulture));
+        else
+        {
+            var resolved = await workspace.ResolveTargetAsync(id!.Value, refresh, ct);
+            if (!resolved.IsSuccess) return Error(output, resolved.Error.Message);
+            key = resolved.Value;
+        }
         var localKey = key.IsLocal ? key : original.Value.Mappings.FirstOrDefault(mapping => mapping.Remote == key)?.Local;
         key = original.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
         WorkItem item;
@@ -1531,16 +1584,17 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var selected = fields?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
+        var displayId = CoreWorkspace.DisplayId(workspace.Connection, snapshot.Value, key);
+        if (!displayId.IsSuccess) return Error(output, displayId.Error.Message);
         var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
-            ["id"] = key.IsLocal ? RenderCell.Integer(LocalAlias(key))
-                : RenderCell.Integer(long.Parse(key.NativeId!, CultureInfo.InvariantCulture)),
+            ["id"] = RenderCell.Integer(displayId.Value),
             ["localId"] = localKey is null ? new("", new RenderValue.Null()) : RenderCell.String(localKey.LocalId.ToString("D")),
             ["isSeed"] = RenderCell.Boolean(key.IsLocal),
             ["type"] = Cell(item.Fields.TryGetValue("System.WorkItemType", out var nativeType)
                 ? nativeType : FieldValue.String(item.Type)),
-            ["title"] = Cell(item.Fields.TryGetValue("System.Title", out var title) ? title : FieldValue.Null),
-            ["state"] = Cell(item.Fields.TryGetValue("System.State", out var state) ? state : FieldValue.Null),
+            ["title"] = Cell(item.Fields.TryGetValue(TitleField, out var title) ? title : FieldValue.Null),
+            ["state"] = Cell(item.Fields.TryGetValue(StateField, out var state) ? state : FieldValue.Null),
             ["revision"] = item.Revision is null ? new("", new RenderValue.Null()) : RenderCell.String(item.Revision.Token),
             ["isDirty"] = RenderCell.Boolean(snapshot.Value.Drafts.Any(d => d.Key == key)),
             ["cached"] = RenderCell.Boolean(!refresh),
@@ -1554,7 +1608,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> UpdateAsync(string field, string? value, string output, string? format, string? file,
         bool stdin, int? id, bool append, CancellationToken ct)
     {
-        var target = await ResolveIdAsync(id, output, ct);
+        var target = await ResolveIdAsync(id, output, ct, allowNativeLookup: true);
         if (!target.IsSuccess) return Error(output, target.Error.Message, target.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         id = target.Value;
         var formatError = HtmlFieldFormatter.ValidateFormat(format);
@@ -1566,8 +1620,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
-        var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
-            id.Value.ToString(CultureInfo.InvariantCulture));
+        var resolved = await workspace.ResolveTargetAsync(id.Value, true, ct);
+        if (!resolved.IsSuccess) return Error(output, resolved.Error.Message);
+        var key = resolved.Value;
         Draft? seed = null;
         StoreSnapshot? captured = null;
         if (id < 0)
@@ -1587,9 +1642,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!schema.IsSuccess) return Error(output, schema.Error.Message);
         var observed = seed is null ? await workspace.ReadAsync(key, ct) : Result<WorkItem>.Ok(new(seed.Key, seed.Type, seed.Changes, null));
         if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+        var nativeType = schema.Value.Types.SingleOrDefault(type => type.Reference == observed.Value.Type);
+        if (nativeType is null) return Error(output, "The observed item's native type is unavailable.");
         var name = field.ToLowerInvariant() switch
         {
-            "title" => "System.Title", "state" => "System.State", "description" => "System.Description", _ => field,
+            "title" => TitleField, "state" => nativeType.StateField, "description" => BodyField, "assignedto" => AssigneeField, _ => field,
         };
         var definitions = schema.Value.Types.Where(type => type.Reference == observed.Value.Type).SelectMany(t => t.Fields)
             .Where(f => f.Reference.Equals(name, StringComparison.OrdinalIgnoreCase)).Distinct().ToArray();
@@ -1633,7 +1690,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
             ["id"] = RenderCell.Integer(id.Value),
-            ["title"] = RenderCell.String(name == "System.Title" ? text : ""),
+            ["title"] = RenderCell.String(name == TitleField ? text : ""),
             ["field"] = RenderCell.String(name), ["valueDisplay"] = RenderCell.String(text),
             ["valueSource"] = RenderCell.String(body.Origin.ToString().ToLowerInvariant()),
             ["append"] = RenderCell.Boolean(append), ["wasSeed"] = RenderCell.Boolean(false),
@@ -1909,7 +1966,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> NoteAsync(string? text, string? file, bool stdin, int? id,
         string output, string? format, CancellationToken ct)
     {
-        var selected = await ResolveIdAsync(id, output, ct);
+        var selected = await ResolveIdAsync(id, output, ct, allowNativeLookup: true);
         if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         id = selected.Value;
         if (id <= 0) return Error(output, "A note requires a published Core target; local note publication is not yet connected.");
@@ -1928,9 +1985,10 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             "--file", "--stdin", trimTrailingNewline: true, ct);
         if (body.Outcome != TextBodySource.Outcome.Resolved || string.IsNullOrWhiteSpace(body.Value))
             return Error(output, body.Error ?? "A nonempty note body is required.", 2);
-        var value = HtmlFieldFormatter.ResolveComment(body.Value!, format).EffectiveValue;
+        var value = factory.IsGitHub ? body.Value! : HtmlFieldFormatter.ResolveComment(body.Value!, format).EffectiveValue;
         var executed = await ExecuteEffectAsync(id.Value,
-            item => new("note", OpKind.Comment, item.Key, item.Revision, body: FieldValue.RichText(value, FieldKind.Html)),
+            item => new("note", OpKind.Comment, item.Key, item.Revision,
+                body: FieldValue.RichText(value, factory.IsGitHub ? FieldKind.Markdown : FieldKind.Html)),
             output, ct);
         if (executed is null) return 1;
         var message = $"Note added to #{id.Value}.";
@@ -1946,20 +2004,24 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> StateAsync(string requested, int? id, string output, CancellationToken ct)
     {
-        var selectedId = await ResolveIdAsync(id, output, ct);
+        var selectedId = await ResolveIdAsync(id, output, ct, allowNativeLookup: true);
         if (!selectedId.IsSuccess) return Error(output, selectedId.Error.Message, selectedId.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         id = selectedId.Value;
-        if (id <= 0) return await UpdateAsync("System.State", requested, output, null, null, false, id, false, ct);
+        if (id <= 0) return await UpdateAsync(StateField, requested, output, null, null, false, id, false, ct);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
-        var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, id.Value.ToString(CultureInfo.InvariantCulture));
+        var resolved = await workspace.ResolveTargetAsync(id.Value, true, ct);
+        if (!resolved.IsSuccess) return Error(output, resolved.Error.Message);
+        var key = resolved.Value;
         var read = await workspace.ReadAsync(key, ct);
         if (!read.IsSuccess) return Error(output, read.Error.Message);
         var schema = await workspace.SchemaAsync(ct);
         if (!schema.IsSuccess) return Error(output, schema.Error.Message);
         var type = schema.Value.Types.Single(t => t.Reference == read.Value.Type);
+        if (type.Fields.SingleOrDefault(field => field.Reference == type.StateField)?.Kind != FieldKind.Text)
+            return Error(output, "The native state role requires its discovered text field.");
         var states = type.States.Where(s => s.Name.Equals(requested, StringComparison.OrdinalIgnoreCase)).ToArray();
         var category = false;
         if (states.Length == 0) states = type.States.Where(s => s.Name.StartsWith(requested, StringComparison.OrdinalIgnoreCase)).ToArray();
@@ -1983,7 +2045,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             return 0;
         }
         var proposal = await workspace.PrepareAsync([new("state", OpKind.Batch, key, read.Value.Revision,
-            new([KeyValuePair.Create(type.StateField, FieldValue.String(target))]))], ct);
+            new([KeyValuePair.Create(type.StateField, FieldValue.String(target))]), concurrency: workspace.Concurrency)], ct);
         if (!proposal.IsSuccess) return Error(output, proposal.Error.Message);
         var applied = await workspace.ApplyAsync(proposal.Value, proposal.Value.Digest, ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
@@ -1992,7 +2054,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("stateChanged",
             new Dictionary<string, RenderCell>
             {
-                ["id"] = RenderCell.Integer(id.Value), ["title"] = Cell(read.Value.Fields["System.Title"]),
+                ["id"] = RenderCell.Integer(id.Value), ["title"] = Cell(read.Value.Fields[TitleField]),
                 ["fromState"] = RenderCell.String(from), ["toState"] = RenderCell.String(target),
                 ["requestedState"] = RenderCell.String(requested), ["transitionCount"] = RenderCell.Integer(1),
                 ["isCategoryResolution"] = RenderCell.Boolean(category),
@@ -2023,7 +2085,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var operations = new List<Op>();
         foreach (var target in targets.Distinct())
         {
-            var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, target.ToString(CultureInfo.InvariantCulture));
+            var resolved = await workspace.ResolveTargetAsync(target, true, ct);
+            if (!resolved.IsSuccess) return Error(output, resolved.Error.Message);
+            var key = resolved.Value;
             var read = await workspace.ReadAsync(key, ct);
             if (!read.IsSuccess) return Error(output, read.Error.Message);
             var type = schema.Value.Types.Single(t => t.Reference == read.Value.Type);
@@ -2041,10 +2105,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 if (selected.Length != 1) return Error(output, "The batch state must name an actual unambiguous native state.", 2);
                 fields = fields.Set(type.StateField, FieldValue.String(selected[0].Name));
             }
-            var body = note is null ? null : FieldValue.RichText(HtmlFieldFormatter.ResolveComment(note, format).EffectiveValue, FieldKind.Html);
+            var body = note is null ? null : FieldValue.RichText(factory.IsGitHub ? note : HtmlFieldFormatter.ResolveComment(note, format).EffectiveValue,
+                factory.IsGitHub ? FieldKind.Markdown : FieldKind.Html);
             operations.Add(fields.Count == 0
-                ? new("note-" + target, OpKind.Comment, key, read.Value.Revision, body: body)
-                : new("batch-" + target, OpKind.Batch, key, read.Value.Revision, fields, body: body));
+                ? new("note-" + target, OpKind.Comment, key, read.Value.Revision, body: body, concurrency: workspace.Concurrency)
+                : new("batch-" + target, OpKind.Batch, key, read.Value.Revision, fields, body: body, concurrency: workspace.Concurrency));
         }
         var proposal = await workspace.PrepareAsync(operations, ct);
         if (!proposal.IsSuccess) return Error(output, proposal.Error.Message);
@@ -2052,6 +2117,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!executed.IsSuccess) return Error(output, executed.Error.Message);
         if (executed.Value.Error is { } failure) return Error(output, failure.Message);
         if (!executed.Value.EffectsVerified) return Error(output, "The ordered batch has unresolved effects; no remaining operation was replayed.");
+        var final = await workspace.SnapshotAsync(ct);
+        if (!final.IsSuccess) return Error(output, final.Error.Message);
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("batchCompleted",
             new Dictionary<string, RenderCell>
             {
@@ -2060,7 +2127,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["results"] = new("Results", new RenderValue.Array(operations.Select(op => new RenderCell(op.Item.NativeId!,
                     new RenderValue.Object(new Dictionary<string, RenderCell>
                     {
-                        ["itemId"] = RenderCell.Integer(long.Parse(op.Item.NativeId!, CultureInfo.InvariantCulture)),
+                        ["itemId"] = CoreWorkspace.DisplayId(workspace.Connection, final.Value, op.Item) is { IsSuccess: true } number
+                            ? RenderCell.Integer(number.Value) : RenderCell.String("(number unavailable)"),
                         ["success"] = RenderCell.Boolean(true),
                     }))).ToArray())),
             })]));
@@ -2079,6 +2147,17 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         else if (kind == FieldKind.Html)
             value = FieldValue.RichText(format == "raw" ? text : HtmlFieldFormatter.ResolveComment(text, format).EffectiveValue, FieldKind.Html);
         else if (kind == FieldKind.Markdown) value = FieldValue.RichText(text, FieldKind.Markdown);
+        else if (kind == FieldKind.StringList)
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize(text, CoreWorkspaceJsonContext.Default.JsonElement);
+                if (parsed.ValueKind != JsonValueKind.Array || parsed.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String))
+                    return false;
+                value = FieldValue.Strings(parsed.EnumerateArray().Select(item => item.GetString()!));
+            }
+            catch (JsonException) { return false; }
+        }
         else return false;
         return true;
     }
@@ -2099,7 +2178,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
-        var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, id.Value.ToString(CultureInfo.InvariantCulture));
+        var resolved = await workspace.ResolveTargetAsync(id.Value, true, ct);
+        if (!resolved.IsSuccess) return Error(output, resolved.Error.Message);
+        var key = resolved.Value;
         var read = await workspace.ReadAsync(key, ct);
         if (!read.IsSuccess) return Error(output, read.Error.Message);
         var schema = await workspace.SchemaAsync(ct);
@@ -2122,11 +2203,13 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 && property.Value.TryGetDecimal(out var number)) value = FieldValue.Decimal(number);
             else if (definition.Kind == FieldKind.Boolean && property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False)
                 value = FieldValue.Bool(property.Value.GetBoolean());
+            else if (definition.Kind == FieldKind.StringList && property.Value.ValueKind == JsonValueKind.Array
+                && TryParse(definition.Kind, property.Value.GetRawText(), format, out var list)) value = list;
             else return Error(output, "A patch value has an invalid native type.", 2);
             fields = fields.Set(definition.Reference, value);
         }
         if (fields.Count == 0) return Error(output, "At least one explicit patch field is required.", 2);
-        var proposal = await workspace.PrepareAsync([new("patch", OpKind.Batch, key, read.Value.Revision, fields)], ct);
+        var proposal = await workspace.PrepareAsync([new("patch", OpKind.Batch, key, read.Value.Revision, fields, concurrency: workspace.Concurrency)], ct);
         if (!proposal.IsSuccess) return Error(output, proposal.Error.Message);
         var applied = await workspace.ApplyAsync(proposal.Value, proposal.Value.Digest, ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
@@ -2135,7 +2218,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("fieldsPatched",
             new Dictionary<string, RenderCell>
             {
-                ["id"] = RenderCell.Integer(id.Value), ["title"] = Cell(read.Value.Fields["System.Title"]),
+                ["id"] = RenderCell.Integer(id.Value), ["title"] = Cell(read.Value.Fields[TitleField]),
                 ["fieldCount"] = RenderCell.Integer(fields.Count), ["wasSeed"] = RenderCell.Boolean(false),
                 ["message"] = RenderCell.String($"Patched {fields.Count} field(s) on #{id.Value}."),
                 ["digest"] = RenderCell.String(proposal.Value.Digest),
@@ -2176,10 +2259,14 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!opened.IsSuccess) { Error(output, opened.Error.Message); return null; }
         using var handle = opened.Value;
         var workspace = handle.Workspace;
-        var read = await workspace.ReadAsync(ItemKey.Remote(workspace.Connection.Provider,
-            workspace.Connection.ResourceScope, id.ToString(CultureInfo.InvariantCulture)), ct);
+        var key = await workspace.ResolveTargetAsync(id, true, ct);
+        if (!key.IsSuccess) { Error(output, key.Error.Message); return null; }
+        var read = await workspace.ReadAsync(key.Value, ct);
         if (!read.IsSuccess) { Error(output, read.Error.Message); return null; }
-        var proposal = await workspace.PrepareAsync([build(read.Value)], ct);
+        var op = build(read.Value);
+        op = new(op.Id, op.Kind, op.Item, op.ExpectedRevision, op.Fields, op.Type, op.Other, op.Relation,
+            op.Origin, op.Body, workspace.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links);
+        var proposal = await workspace.PrepareAsync([op], ct);
         if (!proposal.IsSuccess) { Error(output, proposal.Error.Message); return null; }
         var applied = await workspace.ApplyAsync(proposal.Value, proposal.Value.Digest, ct);
         if (!applied.IsSuccess) { Error(output, applied.Error.Message); return null; }

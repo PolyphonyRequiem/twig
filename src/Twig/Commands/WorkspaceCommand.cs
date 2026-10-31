@@ -68,8 +68,9 @@ internal sealed class WorkspaceCommand(
             if (!opened.IsSuccess) return Error(opened.Error.Message);
             using var handle = opened.Value;
             var workspace = handle.Workspace;
-            if (workspace.Connection.Provider.Value != "ado")
-                return Error("This CLI workspace projection is qualified only for native ADO identities.");
+            var github = workspace.Connection.Provider.Value == "github";
+            if (github && refresh)
+                return Error("GitHub workspace refresh/context expansion is not qualified; explicitly refresh numeric items.");
             var context = await workspace.Context.ReadAsync(ct);
             if (!context.IsSuccess) return Error(context.Error.Message);
             var read = await workspace.SnapshotAsync(ct);
@@ -102,8 +103,7 @@ internal sealed class WorkspaceCommand(
                 return Error("Local aliases are ambiguous; no workspace identity was guessed.");
             ItemKey Resolve(ItemKey key) => key.IsLocal
                 ? snapshot.Mappings.SingleOrDefault(mapping => mapping.Local == key)?.Remote ?? key : key;
-            bool Qualified(ItemKey key) => key.IsLocal || key.BelongsTo(workspace.Connection)
-                && int.TryParse(key.NativeId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0;
+            bool Qualified(ItemKey key) => CoreWorkspace.DisplayId(workspace.Connection, snapshot, key).IsSuccess;
             var selectors = selected.Selectors.Select(selector => selector.Item is null ? selector
                 : new Selector(selector.Kind, Resolve(selector.Item), hierarchyRelation: selector.HierarchyRelation)).ToArray();
             if (selectors.Any(selector => selector.Item is { } key && !Qualified(key))
@@ -139,9 +139,9 @@ internal sealed class WorkspaceCommand(
                     ?? baseline?.Fields.GetValueOrDefault(field))?.Text ?? "";
                 rows.Add(new("workspaceItem", new Dictionary<string, RenderCell>
                 {
-                    ["id"] = RenderCell.Integer(key.IsLocal ? LocalAlias(key) : int.Parse(key.NativeId!, CultureInfo.InvariantCulture)),
+                    ["id"] = RenderCell.Integer(CoreWorkspace.DisplayId(workspace.Connection, snapshot, key).Value),
                     ["localId"] = localKey is not null ? RenderCell.String(localKey.LocalId.ToString("D")) : new("", new RenderValue.Null()),
-                    ["title"] = RenderCell.String(Text("System.Title")),
+                    ["title"] = RenderCell.String(Text(github ? Twig.Providers.GitHub.GitHubProvider.Title : "System.Title")),
                     ["state"] = RenderCell.String(Text(type.StateField)),
                     ["type"] = RenderCell.String(draft?.Type ?? baseline!.Type),
                     ["source"] = RenderCell.String(draft is null ? "cached" : key.IsLocal ? "local-draft"

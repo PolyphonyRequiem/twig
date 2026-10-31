@@ -54,7 +54,8 @@ public sealed record ResourceLink
 
 public sealed record Draft
 {
-    public Draft(ItemKey key, string type, WorkItem? baseline, FieldValues changes)
+    public Draft(ItemKey key, string type, WorkItem? baseline, FieldValues changes,
+        ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null)
     {
         Key = key ?? throw new ArgumentNullException(nameof(key));
         Type = Contract.Text(type, nameof(type));
@@ -62,12 +63,21 @@ public sealed record Draft
             throw new ArgumentException("A remote draft requires its revision-bound base; a seed has no remote base.", nameof(baseline));
         Baseline = baseline;
         Changes = changes ?? throw new ArgumentNullException(nameof(changes));
+        if ((parent is null) != (parentRelation is null) || parent == key
+            || !key.IsLocal && (parent is not null || resource is not null))
+            throw new ArgumentException("Creation-bound parent/resource intent belongs to a seed and requires a distinct parent with its relation.");
+        Parent = parent;
+        ParentRelation = parentRelation is null ? null : Contract.Text(parentRelation, nameof(parentRelation));
+        Resource = resource;
     }
 
     public ItemKey Key { get; }
     public string Type { get; }
     public WorkItem? Baseline { get; }
     public FieldValues Changes { get; }
+    public ItemKey? Parent { get; }
+    public string? ParentRelation { get; }
+    public ResourceLink? Resource { get; }
 }
 
 public sealed record MergeResult(FieldValues Fields, ImmutableArray<string> Conflicts);

@@ -134,8 +134,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     {
         if (noParent && parent is not null) return Error(output, "--parent and --no-parent are mutually exclusive.", 2);
         if (editor) return Error(output, "The retained seed editor has not yet been connected to Core draft capture; no seed was staged.");
-        if (!noParent || parent is not null)
-            return Error(output, "Parented creation requires creation-bound relationship intent; no active-context parent or omitted link was inferred.");
+        if (!noParent && parent is null)
+            return Error(output, "No Core active parent is selected. Supply --parent or --no-parent.", 2);
         if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(requestedType))
             return Error(output, "Unparented seed creation requires --title and --type.", 2);
         var parsed = Twig.Domain.ValueObjects.FieldAssignment.ParseAll(fields, "--field");
@@ -144,6 +144,34 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
+        ItemKey? parentKey = null;
+        if (parent is not null)
+        {
+            if (parent == 0) return Error(output, "A nonzero explicit parent target is required.", 2);
+            if (parent < 0)
+            {
+                var current = await workspace.SnapshotAsync(ct);
+                if (!current.IsSuccess) return Error(output, current.Error.Message);
+                var matches = KnownLocalKeys(current.Value).Where(key => LocalAlias(key) == parent).ToArray();
+                if (matches.Length != 1) return Error(output, "The local parent alias is absent or ambiguous.");
+                parentKey = matches[0];
+                var mapping = current.Value.Mappings.FirstOrDefault(value => value.Local == parentKey);
+                if (mapping is not null)
+                {
+                    var observed = await workspace.ReadAsync(mapping.Remote, ct);
+                    if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+                }
+                else if (!current.Value.Drafts.Any(draft => draft.Key == parentKey))
+                    return Error(output, "The local parent has neither a retained draft nor a publication mapping.");
+            }
+            else
+            {
+                parentKey = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
+                    parent.Value.ToString(CultureInfo.InvariantCulture));
+                var observed = await workspace.ReadAsync(parentKey, ct);
+                if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+            }
+        }
         var schema = await workspace.SchemaAsync(ct);
         if (!schema.IsSuccess) return Error(output, schema.Error.Message);
         var types = schema.Value.Types.Where(type => !type.Hidden && (type.Reference.Equals(requestedType, StringComparison.OrdinalIgnoreCase)
@@ -151,6 +179,13 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 && string.Equals(value.Text, requestedType, StringComparison.OrdinalIgnoreCase)))).ToArray();
         if (types.Length != 1) return Error(output, "The requested seed type is absent or ambiguous in the actual process.", 2);
         var type = types[0];
+        string? parentRelation = null;
+        if (parentKey is not null)
+        {
+            var hierarchy = schema.Value.Relations.Where(relation => relation.Shape == RelationShape.Hierarchy && relation.Directed).ToArray();
+            if (hierarchy.Length != 1) return Error(output, "The native process has no unique observed parent/child relation.");
+            parentRelation = hierarchy[0].Reference;
+        }
         var changes = new Dictionary<string, FieldValue>(StringComparer.Ordinal)
         {
             ["System.Title"] = FieldValue.String(title),
@@ -187,7 +222,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var key = ItemKey.Local(Guid.CreateVersion7());
         if (aliases.Contains(LocalAlias(key)))
             return Error(output, "The allocated seed alias collides with retained local identity; no seed was staged.");
-        var staged = await workspace.StageSeedAsync(type.Reference, new(changes), ct, key.LocalId);
+        var staged = await workspace.StageSeedAsync(type.Reference, new(changes), ct, key.LocalId,
+            parentKey, parentRelation);
         if (!staged.IsSuccess) return Error(output, staged.Error.Message);
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedCreated",
             new Dictionary<string, RenderCell>
@@ -224,14 +260,24 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             return Error(output, "This seed has retained relationships requiring creation-bound publication effects; no link was dropped or seed published.");
         var captures = new List<CoreDraftPreview>();
         var operations = new List<Op>();
-        foreach (var draft in drafts)
+        var remaining = drafts.ToList();
+        var ordered = new List<Draft>();
+        while (remaining.Count != 0)
         {
-            var preview = await workspace.PreviewDraftAsync(draft.Key, ct);
+            var next = remaining.FirstOrDefault(draft => draft.Parent is null
+                || !remaining.Any(parent => parent.Key == draft.Parent));
+            if (next is null) return Error(output, "Local publication parents contain a cycle; no creation was attempted.");
+            ordered.Add(next);
+            remaining.Remove(next);
+        }
+        foreach (var draft in ordered)
+        {
+            var preview = await workspace.PreviewDraftAsync(draft.Key, ct, operations);
             if (!preview.IsSuccess) return Error(output, preview.Error.Message);
             captures.Add(preview.Value);
-            var op = preview.Value.Proposal!.Operations.Single();
+            var op = preview.Value.Proposal!.Operations.Last();
             operations.Add(new($"create-{operations.Count}", op.Kind, op.Item, fields: op.Fields,
-                type: op.Type, concurrency: op.Concurrency));
+                type: op.Type, other: op.Other, relation: op.Relation, resource: op.Resource, concurrency: op.Concurrency));
         }
         var prepared = await workspace.PrepareAsync(operations, ct);
         if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
@@ -538,6 +584,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var draft = proposal.Operations.Length == 1 ? snapshot.Value.Drafts.FirstOrDefault(d =>
             d.Key == proposal.Operations[0].Item && d.Changes.Equals(proposal.Operations[0].Fields)
+            && (proposal.Operations[0].Kind != OpKind.Create || d.Parent == proposal.Operations[0].Other
+                && d.ParentRelation == proposal.Operations[0].Relation && d.Resource == proposal.Operations[0].Resource)
             && (d.Key.IsLocal || d.Baseline?.Revision == proposal.Operations[0].ExpectedRevision)) : null;
         var applied = draft is null ? await workspace.ApplyAsync(proposal, confirmation, ct)
             : await workspace.SaveDraftAsync(new(draft, proposal), confirmation, ct);

@@ -22,6 +22,8 @@ public sealed partial class GitHubProvider
             throw Wire.Refuse(ErrorCode.Unsupported, "A nonempty observed field effect is required; type changes and atomic batches are not supported.");
         if (op.Kind == OpKind.Batch && op.Body is not null)
             throw Wire.Refuse(ErrorCode.Unsupported, "GitHub update and comment are separate transport effects; no atomic batch note is supported.");
+        if (op.Kind == OpKind.Create && (op.Other is not null || op.Resource is not null))
+            throw Wire.Refuse(ErrorCode.Unsupported, "This native GitHub create schema cannot couple the reviewed parent/resource effects in one creation call.");
         var mutation = op.Kind switch
         {
             OpKind.Create => "createIssue",

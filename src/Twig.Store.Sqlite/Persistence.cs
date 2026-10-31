@@ -143,11 +143,14 @@ internal sealed record RelationshipData(KeyData FromKey, KeyData ToKey, string K
         => new(FromKey.ToCore(), ToKey.ToCore(), Kind, Persistence.Defined(Origin), LocalVersion, Deleted);
 }
 
-internal sealed record DraftData(KeyData Key, string Type, ItemData? Baseline, FieldData[] Changes)
+internal sealed record DraftData(KeyData Key, string Type, ItemData? Baseline, FieldData[] Changes,
+    KeyData? Parent = null, string? ParentRelation = null, ResourceData? Resource = null)
 {
     internal static DraftData From(Draft d)
-        => new(KeyData.From(d.Key), d.Type, d.Baseline is null ? null : ItemData.From(d.Baseline), FieldData.From(d.Changes));
-    internal Draft ToCore() => new(Key.ToCore(), Type, Baseline?.ToCore(), FieldData.ToCore(Changes));
+        => new(KeyData.From(d.Key), d.Type, d.Baseline is null ? null : ItemData.From(d.Baseline), FieldData.From(d.Changes),
+            d.Parent is null ? null : KeyData.From(d.Parent), d.ParentRelation, d.Resource is null ? null : ResourceData.From(d.Resource));
+    internal Draft ToCore() => new(Key.ToCore(), Type, Baseline?.ToCore(), FieldData.ToCore(Changes),
+        Parent?.ToCore(), ParentRelation, Resource?.ToCore());
 }
 
 internal sealed record OpData(string Id, OpKind Kind, KeyData Item, RevisionData? ExpectedRevision, FieldData[] Fields,

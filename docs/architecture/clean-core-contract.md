@@ -88,9 +88,20 @@ relationships and Bench selectors reserve their aliases. Collisions refuse ambig
 targeting rather than choose an item. `show --local-id` reads UUIDv7 drafts/mappings
 cache-only; negative alias detail continues to resolve after publication. This is a
 host compatibility strategy for new explicit stores, not a migration of old aliases.
-Parented/linked creation, chains and branch-artifact creation still require typed
-creation-bound effects; the current rooted path refuses those shapes before publishing,
-never omits their links. Explicit seed discard now checks the exact draft/store
+Drafts now retain optional typed creation-bound parent/relation/resource intent.
+The existing canonical `Op.Other`, `Relation` and `Resource` payloads bind those
+effects without another Core port or a proposal/store version change. Older Core
+drafts contain no such declaration; older local relationship intent remains
+separate and is never reinterpreted as a native create instruction.
+ADO parent/resource effects share the create POST and are independently read back.
+GitHub refuses creation coupling not proven by its native schema; nothing is omitted.
+
+Explicit parented seed creation and ordered local-parent publication now use this
+path. A local parent UUID resolves only through its original permanent mapping
+after the preceding creation's acknowledgement is separately Verified. Retained
+proposal bytes keep the UUID; neither a guessed native ID nor revision arithmetic
+is used. Dependency seed links/chains and branch artifact capture remain incomplete.
+Explicit seed discard now checks the exact draft/store
 capture and refuses any attempted UUID or permanent mapping, even with `--yes`;
 unattempted abandonment preserves journals and local relationship tombstones.
 Seed editor/edit/reconciliation, active context and

@@ -79,11 +79,12 @@ public static partial class Core
         var local = link && op.Origin == RelationshipOrigin.Local;
         if (!local && op.ExpectedLocalVersion is not null)
             Fail(ErrorCode.InvalidInput, "Only a local relationship can carry a local edge precondition.");
-        if ((!link && (op.Other is not null || op.Relation is not null || op.Origin != RelationshipOrigin.Provider))
+        if ((!link && op.Kind != OpKind.Create && (op.Other is not null || op.Relation is not null || op.Origin != RelationshipOrigin.Provider))
             || (op.Kind is not (OpKind.Batch or OpKind.Create) && op.Fields.Count != 0)
             || (op.Kind is not (OpKind.Create or OpKind.Batch) && op.Type is not null)
             || (op.Kind is not (OpKind.Comment or OpKind.Batch) && op.Body is not null)
-            || (op.Kind == OpKind.LinkResource) != (op.Resource is not null))
+            || op.Kind == OpKind.LinkResource && op.Resource is null
+            || op.Kind is not (OpKind.Create or OpKind.LinkResource) && op.Resource is not null)
             Fail(ErrorCode.InvalidInput, "Operation contains fields belonging to a different effect.");
         if (!local && !capabilities.Operations.Contains(op.Kind))
             Fail(ErrorCode.Unsupported, "Provider does not implement this operation.");
@@ -96,8 +97,29 @@ public static partial class Core
             if (op.Concurrency != ConcurrencyMode.ObservedNonAtomic)
                 Fail(ErrorCode.Unsupported, "Creation has no provider revision CAS; that limitation must be explicit.");
             var draft = store.Drafts.FirstOrDefault(d => d.Key == op.Item);
-            if (draft is null || draft.Type != op.Type || !draft.Changes.Equals(op.Fields))
-                Fail(ErrorCode.Conflict, "Creation must bind the exact retained seed type and fields.");
+            if (draft is null || draft.Type != op.Type || !draft.Changes.Equals(op.Fields)
+                || draft.Parent != op.Other || draft.ParentRelation != op.Relation || draft.Resource != op.Resource)
+                Fail(ErrorCode.Conflict, "Creation must bind the exact retained seed type, fields and creation-bound links.");
+            if (op.Origin != RelationshipOrigin.Provider || (op.Other is null) != (op.Relation is null))
+                Fail(ErrorCode.InvalidInput, "Creation-bound parent intent requires its explicit native relation.");
+            if (op.Other is not null)
+            {
+                var mappedParent = store.Mappings.FirstOrDefault(mapping => mapping.Local == op.Other);
+                var parentKey = mappedParent?.Remote ?? op.Other;
+                var earlierCreate = proposal.Operations.TakeWhile(candidate => candidate != op)
+                    .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == op.Other);
+                if (!capabilities.AtomicFieldBatches
+                    || !(parentKey.BelongsTo(proposal.Connection) || parentKey.IsLocal && earlierCreate
+                        && store.Drafts.Any(parent => parent.Key == parentKey))
+                    || !schema.Relations.Any(relation => relation.Reference == op.Relation && relation.Shape == RelationShape.Hierarchy && relation.Directed)
+                    || !capabilities.NativeRelations.Contains(op.Relation!))
+                    Fail(ErrorCode.Unsupported, "Creation-bound parenting requires an in-scope observation or preceding captured creation and proven single-request native coupling.");
+                else if (!parentKey.IsLocal && !store.Items.Any(item => item.Key == parentKey && item.RelationshipsComplete))
+                    Fail(ErrorCode.Unavailable, "The creation-bound parent was not completely observed.");
+            }
+            if (op.Resource is not null && (!capabilities.AtomicFieldBatches
+                || !schema.Relations.Any(relation => relation.Reference == op.Resource.Relation && relation.Shape == RelationShape.Resource)))
+                Fail(ErrorCode.Unsupported, "Creation-bound resources require proven single-request native coupling and discovered resource semantics.");
             if (store.Mappings.Any(m => m.Local == op.Item) || store.Journal.Any(j =>
                 j.Status != OpStatus.Planned && store.Proposals.Any(p => p.Digest == j.Digest
                     && j.Operation < p.Operations.Length && p.Operations[j.Operation].Kind == OpKind.Create

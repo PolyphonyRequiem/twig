@@ -146,16 +146,20 @@ public sealed partial class AdoProvider
                     {
                         OpKind.Create or OpKind.Batch => (op.Type is null || op.Type == item.Type)
                             && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value))
-                            && (op.Body is null || item.Fields.TryGetValue("System.History", out var note) && note.Text == op.Body.Text),
+                            && (op.Body is null || item.Fields.TryGetValue("System.History", out var note) && note.Text == op.Body.Text)
+                            && (op.Kind != OpKind.Create || op.Other is null
+                                || edges.Contains(new(Resolve(stored, op.Other), key, op.Relation!, RelationshipOrigin.Provider)))
+                            && (op.Kind != OpKind.Create || op.Resource is null
+                                || item.ResourcesComplete && item.Resources.Contains(op.Resource)),
                         OpKind.Comment => item.Fields.TryGetValue("System.History", out var history) && history.Text == op.Body!.Text,
                         OpKind.LinkResource => item.ResourcesComplete && item.Resources.Contains(op.Resource!),
                         OpKind.Relate => edges.Contains(Edge(op, discovery)),
                         OpKind.Unrelate => !edges.Contains(Edge(op, discovery)),
                         _ => false,
                     };
-                    var keys = op.Other is null ? ImmutableArray.Create(key) : ImmutableArray.Create(key, op.Other);
+                    var keys = op.Other is null ? ImmutableArray.Create(key) : ImmutableArray.Create(key, Resolve(stored, op.Other));
                     observations = await Read(bound, discovery, keys, token);
-                    if (op.Other is not null)
+                    if (op.Other is not null && op.Kind != OpKind.Create)
                     {
                         var intended = Edge(op, discovery);
                         matches &= op.Kind == OpKind.Relate
@@ -206,13 +210,33 @@ public sealed partial class AdoProvider
             throw Wire.Refuse(ErrorCode.Unsupported, "Native identity/type/history fields require their explicit operation shape.");
         if (op.Body is not null && op.Body.Kind is not (FieldKind.Text or FieldKind.Html))
             throw Wire.Refuse(ErrorCode.Unsupported, "ADO history append accepts exact text/HTML; convert Markdown before confirmation.");
-        if (op.Kind == OpKind.LinkResource && (op.Resource is not { } resource
+        if (op.Resource is not null && (op.Resource is not { } resource
             || !schema.Schema.Relations.Any(r => r.Reference == resource.Relation && r.Shape == RelationShape.Resource)
             || !Uri.TryCreate(resource.Target, UriKind.Absolute, out var locator)
             || resource.Relation == "Hyperlink" && locator.Scheme is not ("http" or "https")
             || resource.Relation == "ArtifactLink" && (locator.Scheme != "vstfs"
                 || !resource.Target.StartsWith("vstfs:///", StringComparison.OrdinalIgnoreCase))))
             throw Wire.Refuse(ErrorCode.Unsupported, "Only enabled native artifact/hyperlink shapes with reviewed locators are supported.");
+        string? parentRelation = null;
+        ItemKey? parentKey = null;
+        if (op.Kind == OpKind.Create && op.Other is not null)
+        {
+            var current = await Snapshot(ct);
+            parentKey = Resolve(current, op.Other);
+            if (parentKey.IsLocal || !parentKey.BelongsTo(_connection))
+                throw Wire.Refuse(ErrorCode.Conflict, "The exact local parent has no verified in-scope publication mapping.");
+            if (op.Other.IsLocal)
+            {
+                var mapping = current.Mappings.Single(value => value.Local == op.Other);
+                if (!current.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+                    && row.Status == OpStatus.Verified))
+                    throw Wire.Refuse(ErrorCode.Indeterminate, "A local parent requires its separately verified creation receipt before child dispatch.");
+            }
+            var inverse = schema.Relations.Values.Where(relation => relation.Canonical == op.Relation
+                && relation.Shape == RelationShape.Hierarchy && !relation.Forward).ToArray();
+            if (inverse.Length != 1) throw Wire.Refuse(ErrorCode.Unsupported, "A unique native inverse hierarchy endpoint is required for atomic creation parenting.");
+            parentRelation = inverse[0].Reference;
+        }
         int? remove = null;
         if (op.Kind is OpKind.Relate or OpKind.Unrelate)
         {
@@ -241,7 +265,7 @@ public sealed partial class AdoProvider
                 PatchEntry("add", "/fields/" + field.Replace("~", "~0").Replace("/", "~1"), () => Wire.WriteValue(json, value));
             if (op.Kind == OpKind.Comment || op.Kind == OpKind.Batch && op.Body is not null)
                 PatchEntry("add", "/fields/System.History", () => json.WriteStringValue(op.Body!.Text));
-            if (op.Kind == OpKind.LinkResource)
+            if (op.Resource is not null)
                 PatchEntry("add", "/relations/-", () =>
                 {
                     var reviewed = op.Resource!;
@@ -253,6 +277,14 @@ public sealed partial class AdoProvider
                         if (reviewed.Comment is not null) json.WriteString("comment", reviewed.Comment);
                         json.WriteEndObject();
                     }
+                    json.WriteEndObject();
+                });
+            if (parentRelation is not null)
+                PatchEntry("add", "/relations/-", () =>
+                {
+                    json.WriteStartObject();
+                    json.WriteString("rel", parentRelation);
+                    json.WriteString("url", bound.Url($"_apis/wit/workItems/{Id(parentKey!)}").AbsoluteUri);
                     json.WriteEndObject();
                 });
             if (op.Kind == OpKind.Relate)
@@ -297,9 +329,12 @@ public sealed partial class AdoProvider
     private async Task<StoreSnapshot> AcquireInputs(Bound bound, Discovery schema, Proposal proposal, StoreSnapshot stored, CancellationToken ct)
     {
         var keys = proposal.Operations.SelectMany(o => o.Other is null ? new[] { o.Item } : new[] { o.Item, o.Other })
-            .Where(k => !k.IsLocal).Distinct().ToImmutableArray();
+            .Select(key => Resolve(stored, key)).Where(k => !k.IsLocal).Distinct().ToImmutableArray();
         return Mirror(stored, await Read(bound, schema, keys, ct));
     }
+
+    private static ItemKey Resolve(StoreSnapshot stored, ItemKey key)
+        => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
 
     private static StoreSnapshot Mirror(StoreSnapshot stored, QueryPage page)
     {

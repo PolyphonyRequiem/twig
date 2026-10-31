@@ -68,6 +68,80 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreParentedSeedPublishesItsHierarchyInTheCreationCallWithoutAPostCreateWriter()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "parented-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["seed", "new", "--parent", "42", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var commands = new TwigCommands(root);
+            (await commands.SeedNew(title: "Parented rooted seed", type: "Task", parent: 42, output: "json"))
+                .ShouldBe(0, stderr.ToString());
+            using var created = JsonDocument.Parse(stdout.ToString());
+            var alias = created.RootElement.GetProperty("id").GetInt32();
+            _transport.CommittedWrites.ShouldBe(0);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(alias, output: "human")).ShouldBe(0, stderr.ToString());
+            _transport.PostCount.ShouldBe(1);
+            _transport.PatchAttempts.ShouldBe(0, "parenting must be in the creation call, not a reachable post-create writer");
+            var snapshot = (await store.ReadAsync(connection, default)).Value;
+            snapshot.Drafts.ShouldBeEmpty();
+            snapshot.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            var mapping = snapshot.Mappings.Single();
+            snapshot.Relationships.ShouldContain(new CoreModel.Relationship(
+                CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42"),
+                mapping.Remote, "Native.ParentForward", CoreModel.RelationshipOrigin.Provider));
+            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedNew(title: "Local publication parent", type: "Task", noParent: true, output: "json")).ShouldBe(0);
+            using var localParent = JsonDocument.Parse(stdout.ToString());
+            var parentAlias = localParent.RootElement.GetProperty("id").GetInt32();
+            var parentUuid = Guid.Parse(localParent.RootElement.GetProperty("localId").GetString()!);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedNew(title: "Local publication child", type: "Task", parent: parentAlias, output: "json")).ShouldBe(0);
+            using var localChild = JsonDocument.Parse(stdout.ToString());
+            var childUuid = Guid.Parse(localChild.RootElement.GetProperty("localId").GetString()!);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(all: true, output: "human")).ShouldBe(0, stderr.ToString());
+            var complete = (await store.ReadAsync(connection, default)).Value;
+            complete.Drafts.ShouldBeEmpty();
+            var parentMapping = complete.Mappings.Single(value => value.Local.LocalId == parentUuid);
+            var childMapping = complete.Mappings.Single(value => value.Local.LocalId == childUuid);
+            complete.Relationships.ShouldContain(new CoreModel.Relationship(parentMapping.Remote, childMapping.Remote,
+                "Native.ParentForward", CoreModel.RelationshipOrigin.Provider));
+            var ordered = complete.Proposals.Single(value => value.Operations.Length == 2);
+            ordered.Operations[1].Other.ShouldBe(parentMapping.Local);
+            complete.Journal.Where(row => row.Digest == ordered.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
+            _transport.PostCount.ShouldBe(3);
+            _transport.PatchAttempts.ShouldBe(0);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreSeedPublicationUsesTheRetainedUuidAndPermanentVerifiedMapping()
     {
         var native = await AttachAsync();
@@ -1207,6 +1281,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     {
         private readonly Dictionary<int, Item> _items = new();
         private readonly Dictionary<(int Id, int Revision), Item> _history = new();
+        private readonly Dictionary<int, List<(string Relation, int Target)>> _links = new();
         public int WorkRequests { get; private set; }
         public int TotalRequests { get; private set; }
         public int PostCount { get; private set; }
@@ -1270,6 +1345,21 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 var createdId = _items.Keys.Max() + 1;
                 SetItem(createdId, title, 1, principal);
                 _items[createdId] = _items[createdId] with { State = state };
+                foreach (var relation in create.RootElement.EnumerateArray()
+                    .Where(operation => operation.GetProperty("path").GetString() == "/relations/-"))
+                {
+                    var value = relation.GetProperty("value");
+                    var kind = value.GetProperty("rel").GetString();
+                    if (kind == "Native.ParentReverse")
+                    {
+                        var parent = int.Parse(new Uri(value.GetProperty("url").GetString()!).Segments[^1], CultureInfo.InvariantCulture);
+                        _items[parent].Principal.ShouldBe(principal);
+                        _links[createdId] = [("Native.ParentReverse", parent)];
+                        if (!_links.TryGetValue(parent, out var children)) _links[parent] = children = [];
+                        children.Add(("Native.ParentForward", createdId));
+                    }
+                    else throw new InvalidOperationException("Unexpected fixture creation relationship");
+                }
                 _history[(createdId, 1)] = _items[createdId];
                 CommittedWrites++;
                 if (AfterCommit is { } afterCreate)
@@ -1286,7 +1376,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                         ["System.IterationPath"] = "fixture", ["System.History"] = "",
                         ["System.AssignedTo"] = new { id = principal, displayName = "Same display", uniqueName = principal }
                     },
-                    relations = Array.Empty<object>(),
+                    relations = NativeLinks(createdId),
                 });
             }
             if (!int.TryParse(segments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
@@ -1365,9 +1455,17 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 {
                     rel = resource.Relation, url = resource.Target,
                     attributes = new { name = resource.Name, comment = resource.Comment }
-                }).ToArray()
+                }).Cast<object>().Concat(NativeLinks(id)).ToArray()
             });
         }
+
+        private object[] NativeLinks(int id) => _links.GetValueOrDefault(id, [])
+            .Select(link => (object)new
+            {
+                rel = link.Relation,
+                url = "https://dev.azure.com/fixture/_apis/wit/workItems/" + link.Target.ToString(CultureInfo.InvariantCulture),
+                attributes = new { },
+            }).ToArray();
 
         private static HttpResponseMessage? Metadata(string path, string query)
         {
@@ -1388,10 +1486,12 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 }).ToArray() });
             }
             if (path.EndsWith("/workitemrelationtypes", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.OK, new { value = new[]
+                return Reply(HttpStatusCode.OK, new { value = new object[]
                 {
                     new { referenceName = "Hyperlink", attributes = new { usage = "resourceLink", enabled = true } },
-                    new { referenceName = "ArtifactLink", attributes = new { usage = "resourceLink", enabled = true } }
+                    new { referenceName = "ArtifactLink", attributes = new { usage = "resourceLink", enabled = true } },
+                    new { referenceName = "Native.ParentForward", attributes = new { usage = "workItemLink", enabled = true, directional = true, isForward = true, topology = "tree", oppositeEndReferenceName = "Native.ParentReverse" } },
+                    new { referenceName = "Native.ParentReverse", attributes = new { usage = "workItemLink", enabled = true, directional = true, isForward = false, topology = "tree", oppositeEndReferenceName = "Native.ParentForward" } },
                 } });
             if (path.EndsWith("/workitemtypecategories", StringComparison.Ordinal)
                 || path.EndsWith("/rules", StringComparison.Ordinal))

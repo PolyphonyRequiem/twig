@@ -111,7 +111,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         return committed.IsSuccess ? Result<WorkItem>.Ok(read.Value.Items[0]) : Result<WorkItem>.Fail(committed.Error);
     }
 
-    internal async Task<Result<Draft>> StageSeedAsync(string type, FieldValues fields, CancellationToken ct, Guid? id = null)
+    internal async Task<Result<Draft>> StageSeedAsync(string type, FieldValues fields, CancellationToken ct, Guid? id = null,
+        ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
@@ -123,7 +124,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         var previous = snapshot.Drafts.FirstOrDefault(d => d.Key == key);
         if (previous is not null && previous.Type != type)
             return Result<Draft>.Fail(ErrorCode.Conflict, "The retained seed type differs; no existing intent was replaced.");
-        var draft = new Draft(key, type, null, previous?.Changes.Overlay(fields) ?? fields);
+        var draft = new Draft(key, type, null, previous?.Changes.Overlay(fields) ?? fields,
+            parent ?? previous?.Parent, parentRelation ?? previous?.ParentRelation, resource ?? previous?.Resource);
         var committed = await store.CommitAsync(connection, snapshot.Version,
             Copy(snapshot, snapshot.Version + 1, drafts: snapshot.Drafts.Where(d => d.Key != key).Append(draft)), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<Draft>.Ok(draft) : Result<Draft>.Fail(committed.Error);
@@ -145,7 +147,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         return committed.IsSuccess ? Result<Draft>.Ok(draft) : Result<Draft>.Fail(committed.Error);
     }
 
-    internal async Task<Result<CoreDraftPreview>> PreviewDraftAsync(ItemKey key, CancellationToken ct)
+    internal async Task<Result<CoreDraftPreview>> PreviewDraftAsync(ItemKey key, CancellationToken ct,
+        IEnumerable<Op>? precedingCreates = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
@@ -157,8 +160,22 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         var schema = discovery.Value;
         Op op;
         if (draft.Key.IsLocal)
+        {
+            if (draft.Parent is { } parent)
+            {
+                var parentKey = Resolve(read.Value, parent);
+                if (!parentKey.IsLocal)
+                {
+                    var observed = await ReadAsync(parentKey, ct).ConfigureAwait(false);
+                    if (!observed.IsSuccess) return Result<CoreDraftPreview>.Fail(observed.Error);
+                }
+                else if (!read.Value.Drafts.Any(value => value.Key == parentKey))
+                    return Result<CoreDraftPreview>.Fail(ErrorCode.Unavailable, "The exact local parent draft is missing.");
+            }
             op = new("create", OpKind.Create, draft.Key, fields: draft.Changes, type: draft.Type,
+                other: draft.Parent, relation: draft.ParentRelation, resource: draft.Resource,
                 concurrency: ConcurrencyMode.ObservedNonAtomic);
+        }
         else
         {
             var remote = await ReadAsync(draft.Key, ct).ConfigureAwait(false);
@@ -190,7 +207,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (!current.IsSuccess) return Result<CoreDraftPreview>.Fail(current.Error);
         if (!current.Value.Drafts.Any(d => SameDraft(d, draft)))
             return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The local draft changed during preview; no intent was silently rebased.");
-        var proposal = new Proposal(connection, schema.Fingerprint, current.Value.Version, [op],
+        var operations = (precedingCreates ?? []).Append(op).ToImmutableArray();
+        var proposal = new Proposal(connection, schema.Fingerprint, current.Value.Version, operations,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
         var checkedPolicy = await CheckPolicyAsync(proposal, schema, policy.Value, ct).ConfigureAwait(false);
         if (!checkedPolicy.IsSuccess) return Result<CoreDraftPreview>.Fail(checkedPolicy.Error);
@@ -198,7 +216,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (!current.IsSuccess) return Result<CoreDraftPreview>.Fail(current.Error);
         if (!current.Value.Drafts.Any(d => SameDraft(d, draft)))
             return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The retained draft changed during policy acquisition.");
-        proposal = new(connection, schema.Fingerprint, current.Value.Version, [op],
+        proposal = new(connection, schema.Fingerprint, current.Value.Version, operations,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
         var errors = Model.Validate(proposal, proposal.Digest, schema, current.Value, provider.Capabilities);
         return errors.IsEmpty ? Result<CoreDraftPreview>.Ok(new(draft, proposal))
@@ -232,6 +250,9 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         var changed = !SameDraft(draft, preview.Draft);
         if (changed)
         {
+            if (draft.Key.IsLocal && (draft.Parent != preview.Draft.Parent
+                || draft.ParentRelation != preview.Draft.ParentRelation || draft.Resource != preview.Draft.Resource))
+                return Retained(new(ErrorCode.Conflict, "Creation verified; later creation-bound link intent remains in the original local draft for explicit reconciliation."));
             var receipt = execution.Receipts.LastOrDefault(r => r.Status == OpStatus.Verified);
             var remoteKey = Resolve(snapshot, draft.Key);
             if (receipt?.Revision is null || remoteKey.IsLocal)
@@ -271,7 +292,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (proposal is not null)
         {
             var intended = captures.Where(capture => capture.Proposal is not null)
-                .Select(capture => capture.Proposal!.Operations.Single()).ToArray();
+                .Select(capture => capture.Proposal!.Operations.Single(op => op.Item == capture.Draft.Key)).ToArray();
             if (intended.Length != proposal.Operations.Length || intended.Where((op, index) =>
                     new Op(proposal.Operations[index].Id, op.Kind, op.Item, op.ExpectedRevision, op.Fields,
                         op.Type, op.Other, op.Relation, op.Origin, op.Body, op.Concurrency,
@@ -454,6 +475,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         }
         var before = new StoreSnapshot(captured.Value.Version, items.Values, edges);
         var proposed = edges.ToHashSet();
+        foreach (var op in proposal.Operations.Where(op => op.Kind == OpKind.Create && op.Other is not null))
+            proposed.Add(new(Resolve(captured.Value, op.Other!), op.Item, op.Relation!, RelationshipOrigin.Provider));
         foreach (var op in proposal.Operations.Where(o => o.Kind is OpKind.Relate or OpKind.Unrelate))
         {
             var edge = new Relationship(op.Item, op.Other!, op.Relation!, op.Origin);
@@ -473,7 +496,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     private static ItemKey Resolve(StoreSnapshot snapshot, ItemKey key)
         => snapshot.Mappings.FirstOrDefault(m => m.Local == key)?.Remote ?? key;
     private static bool SameDraft(Draft left, Draft right) => left.Key == right.Key && left.Type == right.Type
-        && left.Baseline?.Revision == right.Baseline?.Revision && left.Changes.Equals(right.Changes);
+        && left.Baseline?.Revision == right.Baseline?.Revision && left.Changes.Equals(right.Changes)
+        && left.Parent == right.Parent && left.ParentRelation == right.ParentRelation && left.Resource == right.Resource;
     private static StoreSnapshot Copy(StoreSnapshot snapshot, long version, IEnumerable<WorkItem>? items = null,
         IEnumerable<Relationship>? relationships = null, IEnumerable<Draft>? drafts = null)
         => new(version, items ?? snapshot.Items, relationships ?? snapshot.Relationships, drafts ?? snapshot.Drafts,

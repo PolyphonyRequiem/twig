@@ -280,6 +280,77 @@ public sealed class AdoProviderTests
     }
 
     [Fact]
+    public async Task OrderedCreationsResolveOnlyTheVerifiedOriginalParentUuid()
+    {
+        using var f = await Fixture.Create();
+        var parent = ItemKey.Local(Guid.CreateVersion7());
+        var child = ItemKey.Local(Guid.CreateVersion7());
+        var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("seed")));
+        var drafts = new[] { new Draft(parent, f.Http.Type, null, fields),
+            new Draft(child, f.Http.Type, null, fields, parent, "Native.ParentForward") };
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: drafts), default)).IsSuccess.ShouldBeTrue();
+        var schema = await f.Schema();
+        var proposal = new Proposal(f.Connection, schema.Fingerprint, 1, [
+            new("parent", OpKind.Create, parent, fields: fields, type: f.Http.Type, concurrency: ConcurrencyMode.ObservedNonAtomic),
+            new("child", OpKind.Create, child, fields: fields, type: f.Http.Type, other: parent,
+                relation: "Native.ParentForward", concurrency: ConcurrencyMode.ObservedNonAtomic),
+        ]);
+        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
+        (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(0, "a local reference is not publication authority before its exact predecessor verifies");
+        var parentAck = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.VerifyAsync(proposal, parentAck, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var childAck = (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).Value;
+        childAck.Status.ShouldBe(OpStatus.Applied);
+        (await f.Provider.VerifyAsync(proposal, childAck, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var snapshot = await f.Stored();
+        snapshot.Mappings.Length.ShouldBe(2);
+        snapshot.Relationships.ShouldContain(new Relationship(parentAck.PublishedKey!, childAck.PublishedKey!,
+            "Native.ParentForward", RelationshipOrigin.Provider));
+        snapshot.Proposals.Single().Operations[1].Other.ShouldBe(parent, "retained intent must not be rewritten to the native ID");
+        f.Http.Writes.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task CreationBindsParentAndResourceIntoOneNativeCallAndPersistentDraft()
+    {
+        using var f = await Fixture.Create();
+        var seed = ItemKey.Local(Guid.CreateVersion7());
+        var parent = f.Key(1);
+        var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("parented seed")));
+        var resource = new ResourceLink("Hyperlink", "https://example.test/creation-evidence", comment: "reviewed during creation");
+        var draft = new Draft(seed, f.Http.Type, null, fields, parent, "Native.ParentForward", resource);
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [draft]), default)).IsSuccess.ShouldBeTrue();
+        var reopened = (await SqliteStore.OpenAsync(f.Path)).Value;
+        var retained = (await reopened.ReadAsync(f.Connection, default)).Value.Drafts.Single();
+        retained.Parent.ShouldBe(parent);
+        retained.Resource.ShouldBe(resource);
+        var omitted = await f.Proposal(new("omitted", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+            concurrency: ConcurrencyMode.ObservedNonAtomic));
+        (await f.Provider.ImportAsync(omitted, omitted.Digest)).IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(0);
+        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+            other: parent, relation: "Native.ParentForward", resource: resource, concurrency: ConcurrencyMode.ObservedNonAtomic));
+        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
+        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        ack.Status.ShouldBe(OpStatus.Applied);
+        f.Http.Writes.ShouldBe(1);
+        using var payload = JsonDocument.Parse(f.Http.LastPayload!);
+        payload.RootElement.EnumerateArray().Count(entry => entry.GetProperty("path").GetString() == "/relations/-").ShouldBe(2);
+        var verified = (await f.Provider.VerifyAsync(proposal, ack, default)).Value;
+        verified.Status.ShouldBe(OpStatus.Verified);
+        var snapshot = await f.Stored();
+        snapshot.Mappings.Single().Local.ShouldBe(seed);
+        snapshot.Relationships.ShouldContain(new Relationship(parent, ack.PublishedKey!, "Native.ParentForward", RelationshipOrigin.Provider));
+        snapshot.Items.Single(item => item.Key == ack.PublishedKey).Resources.ShouldContain(resource);
+        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task CreateAcknowledgementMappingMirrorAndReadbackSurviveReopen()
     {
         using var f = await Fixture.Create();
@@ -806,7 +877,7 @@ public sealed class AdoProviderTests
             if (WriteFailure == "malformed") return Json("{broken");
             if (WriteStatus is { } status) return Status(status);
             var create = request.Method == HttpMethod.Post;
-            var id = create ? 3 : int.Parse(path.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            var id = create ? Items.Keys.Max() + 1 : int.Parse(path.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
             var item = create ? Item(id) : Items[id];
             if (MoveAtDispatch) item["rev"] = item["rev"]!.GetValue<int>() + 1;
             using var patch = JsonDocument.Parse(LastPayload);
@@ -828,6 +899,12 @@ public sealed class AdoProviderTests
                     {
                         var other = Items[2];
                         other["relations"]!.AsArray().Add(new JsonObject { ["rel"] = "Native.ParentReverse",
+                            ["url"] = $"https://example.test/organization/_apis/wit/workItems/{id}" });
+                    }
+                    else if (relation["rel"]!.GetValue<string>() == "Native.ParentReverse")
+                    {
+                        var parentId = int.Parse(relation["url"]!.GetValue<string>().Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+                        Items[parentId]["relations"]!.AsArray().Add(new JsonObject { ["rel"] = "Native.ParentForward",
                             ["url"] = $"https://example.test/organization/_apis/wit/workItems/{id}" });
                     }
                 }

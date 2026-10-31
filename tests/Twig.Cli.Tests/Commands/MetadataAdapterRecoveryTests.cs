@@ -21,7 +21,6 @@ public sealed class MetadataAdapterRecoveryTests
 {
     [Theory]
     [InlineData("new")]
-    [InlineData("process")]
     public async Task SuccessfulRealMetadataSupportsRecoveryAndStructuredUnknown(string command)
     {
         using var handler = new MetadataHandler("no-failure", 0);
@@ -29,20 +28,10 @@ public sealed class MetadataAdapterRecoveryTests
         var service = new AdoIterationService(http, new Auth(), "https://dev.azure.com/example", "Example");
         var (exit, stdout, stderr, writes) = await RunCommand(command, service);
         writes.ShouldBe(0);
-        if (command == "new")
-        {
-            exit.ShouldBe(1);
-            stdout.ShouldBeEmpty();
-            using var error = JsonDocument.Parse(stderr);
-            error.RootElement.GetProperty("error").GetString()!.ShouldContain("Unknown field reference name(s): Custom.Unknown");
-        }
-        else
-        {
-            exit.ShouldBe(0);
-            stderr.ShouldBeEmpty();
-            using var output = JsonDocument.Parse(stdout);
-            output.RootElement.GetProperty("types").EnumerateArray().ShouldContain(row => row.GetProperty("typeName").GetString() == "Task");
-        }
+        exit.ShouldBe(1);
+        stdout.ShouldBeEmpty();
+        using var error = JsonDocument.Parse(stderr);
+        error.RootElement.GetProperty("error").GetString()!.ShouldContain("Unknown field reference name(s): Custom.Unknown");
         handler.Requests.ShouldContain(r => r.Path.EndsWith("/fields"));
     }
 
@@ -50,12 +39,6 @@ public sealed class MetadataAdapterRecoveryTests
     [InlineData("new", "fields", 401)]
     [InlineData("new", "fields", 403)]
     [InlineData("new", "fields", 0)]
-    [InlineData("process", "fields", 401)]
-    [InlineData("process", "fields", 403)]
-    [InlineData("process", "fields", 0)]
-    [InlineData("process", "processconfiguration", 401)]
-    [InlineData("process", "processconfiguration", 403)]
-    [InlineData("process", "processconfiguration", 0)]
     public async Task RealAdapterFailureProducesOneStructuredErrorAndNoWrites(string command, string route, int status)
     {
         using var handler = new MetadataHandler(route, status);
@@ -77,7 +60,6 @@ public sealed class MetadataAdapterRecoveryTests
 
     [Theory]
     [InlineData("new")]
-    [InlineData("process")]
     public async Task RealAdapterCancellationDoesNotBecomeMetadataFailure(string command)
     {
         using var cts = new CancellationTokenSource();
@@ -109,7 +91,14 @@ public sealed class MetadataAdapterRecoveryTests
         }
         finally { Console.SetError(original); }
         warning.ToString().ShouldContain("Could not fetch");
-        var (exit, stdout, stderr, writes) = await RunCommand(route == "fields" ? "new" : "process", service);
+        if (route != "fields")
+        {
+            var recovery = await MetadataCatalogRecovery.EnsureProcessTypesAsync(
+                Substitute.For<IProcessTypeStore>(), service, _ => false, default);
+            recovery.Outcome.ShouldBe(MetadataCatalogRecovery.State.RefreshFailed);
+            return;
+        }
+        var (exit, stdout, stderr, writes) = await RunCommand("new", service);
         exit.ShouldBe(1);
         stdout.ShouldBeEmpty();
         using var error = JsonDocument.Parse(stderr);
@@ -127,14 +116,6 @@ public sealed class MetadataAdapterRecoveryTests
             rows = call.Arg<IReadOnlyList<FieldDefinition>>();
             return Task.CompletedTask;
         });
-        var types = Substitute.For<IProcessTypeStore>();
-        var savedTypes = new List<ProcessTypeRecord>();
-        types.GetAllAsync(Arg.Any<CancellationToken>()).Returns(_ => savedTypes.ToArray());
-        types.SaveAsync(Arg.Any<ProcessTypeRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
-        {
-            savedTypes.Add(call.Arg<ProcessTypeRecord>());
-            return Task.CompletedTask;
-        });
         var ado = Substitute.For<IAdoWorkItemService>();
         var items = Substitute.For<IWorkItemRepository>();
         var formatter = new OutputFormatterFactory(new HumanOutputFormatter());
@@ -146,20 +127,12 @@ public sealed class MetadataAdapterRecoveryTests
         Console.SetError(stderr);
         try
         {
-            int exit;
-            if (command == "new")
-            {
-                var cmd = new NewCommand(ado, items, Substitute.For<IContextStore>(), fields,
-                    Substitute.For<IEditorLauncher>(), formatter, new HintEngine(new DisplayConfig { Hints = false }),
-                    new TwigConfiguration(), new SeedFactory(), Substitute.For<IStagedIdentityRegistry>(),
-                    ReferenceProfileBuilder.UnpinnedSprintPolicy(), service);
-                exit = await cmd.ExecuteAsync("Fixture", "Task", fields: ["Custom.Unknown=x"], outputFormat: "json", ct: ct);
-            }
-            else
-            {
-                var cmd = new ProcessCommand(null, types, fields, formatter, new RendererFactory(), stderr: stderr, iterationService: service);
-                exit = await cmd.ExecuteAsync(outputFormat: "json", refresh: true, ct: ct);
-            }
+            command.ShouldBe("new");
+            var cmd = new NewCommand(ado, items, Substitute.For<IContextStore>(), fields,
+                Substitute.For<IEditorLauncher>(), formatter, new HintEngine(new DisplayConfig { Hints = false }),
+                new TwigConfiguration(), new SeedFactory(), Substitute.For<IStagedIdentityRegistry>(),
+                ReferenceProfileBuilder.UnpinnedSprintPolicy(), service);
+            var exit = await cmd.ExecuteAsync("Fixture", "Task", fields: ["Custom.Unknown=x"], outputFormat: "json", ct: ct);
             return (exit, stdout.ToString(), stderr.ToString(), ado.ReceivedCalls().Count() + items.ReceivedCalls().Count());
         }
         finally { Console.SetOut(previousOut); Console.SetError(previousErr); }

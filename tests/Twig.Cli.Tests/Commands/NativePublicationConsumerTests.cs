@@ -69,6 +69,135 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreProcessInspectionUsesDiscoveredRulesWithoutLegacyCommandsOrWorkReads()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        _transport.CloseGateEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "process-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["process", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        root.GetService<CoreCommandAdapter>().ShouldNotBeNull();
+        root.GetService<IProcessTypeStore>().ShouldBeNull();
+        root.GetService<IFieldDefinitionStore>().ShouldBeNull();
+        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+        root.GetService<IPendingChangeStore>().ShouldBeNull();
+        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            int Run(params string[] args)
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                return Twig.TwigConsoleApp.Run(args, registration =>
+                {
+                    registration.AddSingleton<IConnectionBindingService>(_bindings);
+                    registration.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+                    registration.AddTwigWorkspaceServices(paths.StartDir, args);
+                });
+            }
+            var before = (await store.ReadAsync(connection, default)).Value;
+            var workReads = _transport.WorkRequests;
+            Run("process", "-o", "json").ShouldBe(0, stderr.ToString());
+            using (var list = JsonDocument.Parse(stdout.ToString()))
+            {
+                list.RootElement.GetProperty("totalTypes").GetInt32().ShouldBe(1);
+                list.RootElement.GetProperty("types")[0].GetProperty("typeName").GetString().ShouldBe("Fixture.Task");
+            }
+            Run("process", "Fixture.Task", "--refresh", "-o", "json").ShouldBe(0, stderr.ToString());
+            using (var detail = JsonDocument.Parse(stdout.ToString()))
+            {
+                detail.RootElement.GetProperty("states").GetArrayLength().ShouldBe(3);
+                detail.RootElement.GetProperty("fields").EnumerateArray().ShouldContain(field =>
+                    field.GetProperty("referenceName").GetString() == "Fixture.CloseEvidence");
+                var transitions = detail.RootElement.GetProperty("transitions");
+                transitions.GetArrayLength().ShouldBe(3, "use native edges, never an invented all-pairs graph");
+                transitions.EnumerateArray().ShouldNotContain(edge =>
+                    edge.GetProperty("from").GetString() == "To Do" && edge.GetProperty("to").GetString() == "Done");
+            }
+            Run("process", "description", "Fixture.Task", "-o", "json").ShouldBe(0, stderr.ToString());
+            var full = stdout.ToString();
+            using (var description = JsonDocument.Parse(full))
+            {
+                description.RootElement.GetProperty("descriptorVersion").GetString().ShouldBe("core-schema-1");
+                description.RootElement.GetProperty("scope").GetString().ShouldBe("provider-discovered-core-schema");
+                description.RootElement.GetProperty("knownGaps").EnumerateArray().ShouldContain(gap =>
+                    gap.GetString()!.Contains("layout", StringComparison.OrdinalIgnoreCase));
+                var rules = description.RootElement.GetProperty("types")[0].GetProperty("rules");
+                var gate = rules.EnumerateArray().Single(rule =>
+                    rule.GetProperty("field").GetString() == "Fixture.CloseEvidence");
+                gate.GetProperty("action").GetString().ShouldBe("Required");
+                gate.GetProperty("conditions")[0].GetProperty("field").GetString().ShouldBe("System.State");
+                gate.GetProperty("conditions")[0].GetProperty("value").GetProperty("value").GetString().ShouldBe("Done");
+                gate.GetProperty("disabled").GetBoolean().ShouldBeFalse();
+            }
+            var file = Path.Combine(paths.TwigDir, "process-description.json");
+            Run("process", "description", "Fixture.Task", "--out", file, "-o", "json").ShouldBe(0, stderr.ToString());
+            (await File.ReadAllTextAsync(file)).Trim().ShouldBe(full.Trim());
+            Run("process", "description", "Fixture.Task", "--sections", "requirements",
+                "--fields", "Fixture.CloseEvidence", "-o", "json").ShouldBe(0, stderr.ToString());
+            using (var compact = JsonDocument.Parse(stdout.ToString()))
+            {
+                compact.RootElement.GetProperty("types")[0].GetProperty("rules").GetArrayLength().ShouldBe(1);
+                compact.RootElement.GetProperty("types")[0].TryGetProperty("fields", out _).ShouldBeFalse();
+            }
+            foreach (var format in new[] { "human", "minimal", "json-compact" })
+            {
+                Run("process", "Fixture.Task", "-o", format).ShouldBe(0, stderr.ToString());
+                stdout.ToString().ShouldNotBeNullOrWhiteSpace();
+                Run("process", "description", "Fixture.Task", "-o", format).ShouldBe(0, stderr.ToString());
+                stdout.ToString().ShouldNotBeNullOrWhiteSpace();
+            }
+            Run("process", "Absent.Type", "-o", "json").ShouldBe(1);
+            stderr.ToString().ShouldContain("Unknown");
+            Run("process", "Task", "-o", "json").ShouldBe(0, stderr.ToString());
+            var requests = _transport.TotalRequests;
+            Run("states", "-o", "json").ShouldBe(2);
+            Run("process", "-o", "ids").ShouldBe(2);
+            Run("process", "layout", "Fixture.Task", "-o", "json").ShouldBe(1);
+            stderr.ToString().ShouldContain("layout");
+            Run("process", "--org", "fixture", "--project", "Project", "-o", "json").ShouldBe(1);
+            stderr.ToString().ShouldContain("override");
+            Run("process", "description", "Fixture.Task", "--sections", "bogus", "-o", "json").ShouldBe(2);
+            Run("process", "description", "Fixture.Task", "--fields", "Fixture.CloseEvidence", "-o", "json").ShouldBe(2);
+            _transport.TotalRequests.ShouldBe(requests, "capability/argument refusals must happen before any ambient or override HTTP");
+            _transport.FailSchema = true;
+            Run("process", "-o", "json").ShouldBe(1);
+            stdout.ToString().ShouldBeEmpty();
+            using (var error = JsonDocument.Parse(stderr.ToString()))
+                error.RootElement.GetProperty("error").GetString().ShouldNotBeNullOrWhiteSpace();
+            Run("process", "description", "Fixture.Task", "--out", file, "-o", "json").ShouldBe(1);
+            (await File.ReadAllTextAsync(file)).Trim().ShouldBe(full.Trim(), "failed reads must not replace a retained description");
+            _transport.WorkRequests.ShouldBe(workReads);
+            _transport.PatchAttempts.ShouldBe(0);
+            _transport.PostCount.ShouldBe(0);
+            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(before.Version);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreProposalInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders()
     {
         var native = await AttachAsync();
@@ -1221,15 +1350,18 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var legacy = await AttachAsync();
         var paths = legacy.GetRequiredService<TwigPaths>();
         var requests = _transport.WorkRequests;
-        var services = new ServiceCollection();
-        services.AddSingleton<IConnectionBindingService>(_bindings);
-        var failure = Should.Throw<InvalidOperationException>(() =>
-            services.AddTwigWorkspaceServices(paths.StartDir, ["update", "System.Title", "not admitted", "--id", "42", "-o", "json"]));
-        failure.Message.ShouldContain("Core workspace");
+        foreach (var verb in new[] { "update", "state", "note", "patch" })
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<IConnectionBindingService>(_bindings);
+            var failure = Should.Throw<InvalidOperationException>(() =>
+                services.AddTwigWorkspaceServices(paths.StartDir, [verb, "--id", "42", "-o", "json"]));
+            failure.Message.ShouldContain("Core workspace");
+            services.Any(s => s.ServiceType == typeof(IAdoWorkItemService)).ShouldBeFalse();
+            services.Any(s => s.ServiceType == typeof(IProviderWorkItemWriter)).ShouldBeFalse();
+        }
         _transport.WorkRequests.ShouldBe(requests);
         _transport.CommittedWrites.ShouldBe(0);
-        services.Any(s => s.ServiceType == typeof(IAdoWorkItemService)).ShouldBeFalse();
-        services.Any(s => s.ServiceType == typeof(IProviderWorkItemWriter)).ShouldBeFalse();
     }
 
     [Fact]
@@ -1279,6 +1411,15 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
             root.GetService<IAdoWorkItemService>().ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
+            foreach (var deleted in new[] { "StateCommand", "NoteCommand", "PatchCommand" })
+                typeof(TwigCommands).Assembly.GetType("Twig.Commands." + deleted).ShouldBeNull(
+                    "the old command ownership must be absent, not merely unregistered in this graph");
+            int Run(params string[] args) => Twig.TwigConsoleApp.Run(args, registration =>
+            {
+                registration.AddSingleton<IConnectionBindingService>(_bindings);
+                registration.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+                registration.AddTwigWorkspaceServices(paths.StartDir, args, Path.Combine(Home, "display.json"));
+            });
             stdout.GetStringBuilder().Clear();
             var show = new TwigCommands(root);
             var requestsBeforeCachedRead = _transport.TotalRequests;
@@ -1288,6 +1429,13 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             read.RootElement.GetProperty("cached").GetBoolean().ShouldBeTrue();
             _transport.TotalRequests.ShouldBe(requestsBeforeCachedRead, "a cached show must not acquire schema or work HTTP");
             _transport.CommittedWrites.ShouldBe(1, "show must not flush unrelated pending state");
+            stdout.GetStringBuilder().Clear();
+            Run("set", "42").ShouldBe(0, stderr.ToString());
+            stdout.GetStringBuilder().Clear();
+            var beforeStates = _transport.WorkRequests;
+            Run("states").ShouldBe(0, stderr.ToString());
+            stdout.ToString().ShouldContain("Fixture.Task");
+            _transport.WorkRequests.ShouldBe(beforeStates, "human states resolves the cached Core active type, not a work query");
             using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
             var workspace = admitted.Workspace;
             var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
@@ -1310,7 +1458,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             (await show.PlanApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(2, "Verified file reapply must not dispatch");
             stdout.GetStringBuilder().Clear();
-            (await show.Note(text: "Core root note", output: "json", id: 42, format: "raw")).ShouldBe(0, stderr.ToString());
+            Run("note", "--text", "Core root note", "--id", "42", "--format", "raw", "-o", "json").ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(3);
             stdout.GetStringBuilder().Clear();
             (await show.LinkArtifact("https://example.test/root-evidence", "Root evidence", 42, "json")).ShouldBe(0, stderr.ToString());
@@ -1320,7 +1468,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             final.Items.Single().Resources.ShouldContain(resource => resource.Target == "https://example.test/root-evidence");
             root.GetService<IWorkItemDiscussionWriter>().ShouldBeNull();
             stdout.GetStringBuilder().Clear();
-            (await show.State("Doing", "json", 42)).ShouldBe(0, stderr.ToString());
+            Run("state", "Doing", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(5);
             (await store.ReadAsync(connection, default)).Value.Items.Single().Fields["System.State"].Text.ShouldBe("Doing");
             stdout.GetStringBuilder().Clear();
@@ -1331,7 +1479,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             batchSnapshot.Items.Single().Fields["System.State"].Text.ShouldBe("Done");
             batchSnapshot.Items.Single().Fields["System.History"].Text.ShouldBe("Reviewed batch note");
             stdout.GetStringBuilder().Clear();
-            (await show.Patch(42, """{"System.Title":"Typed rooted patch"}""", output: "json")).ShouldBe(0, stderr.ToString());
+            Run("patch", "--id", "42", "--json", """{"System.Title":"Typed rooted patch"}""", "-o", "json").ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(7);
             (await store.ReadAsync(connection, default)).Value.Items.Single().Fields["System.Title"].Text.ShouldBe("Typed rooted patch");
             var otherKey = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "43");
@@ -2123,6 +2271,8 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         public Func<Task>? BeforeItemReadResponse { get; set; }
         public Func<Task>? AfterCommit { get; set; }
         public bool CoreMetadataEnabled { get; set; }
+        public bool CloseGateEnabled { get; set; }
+        public bool FailSchema { get; set; }
         internal HttpMessageHandler NewHandle() => new Forward(this);
         private sealed class Forward(PrincipalTransport owner) : HttpMessageHandler
         {
@@ -2163,6 +2313,8 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
+            if (FailSchema && path.EndsWith("/fields", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.BadRequest, new { message = "Fixture schema unavailable" });
             if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata) return metadata;
             if (CoreMetadataEnabled && path.EndsWith("/wiql", StringComparison.OrdinalIgnoreCase))
             {
@@ -2347,7 +2499,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 attributes = new { },
             }).ToArray();
 
-        private static HttpResponseMessage? Metadata(string path, string query)
+        private HttpResponseMessage? Metadata(string path, string query)
         {
             if (path.Contains("/_apis/git/repositories/", StringComparison.Ordinal))
             {
@@ -2365,7 +2517,8 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             if (path.EndsWith("/fields", StringComparison.Ordinal))
             {
                 var names = new[] { "System.Title", "System.State", "System.TeamProject", "System.WorkItemType",
-                    "System.AreaPath", "System.IterationPath", "System.AssignedTo", "System.History" };
+                    "System.AreaPath", "System.IterationPath", "System.AssignedTo", "System.History" }
+                    .Concat(CloseGateEnabled ? ["Fixture.CloseEvidence"] : Array.Empty<string>());
                 return Reply(HttpStatusCode.OK, new { value = names.Select(name => new
                 {
                     referenceName = name, type = "string", readOnly = name is "System.TeamProject" or "System.WorkItemType",
@@ -2383,6 +2536,13 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                     new { referenceName = "Native.DependencyReverse", attributes = new { usage = "workItemLink", enabled = true, directional = true, isForward = false, topology = "dependency", oppositeEndReferenceName = "Native.DependencyForward" } },
                     new { referenceName = "Native.Association", attributes = new { usage = "workItemLink", enabled = true, directional = false, isForward = true, topology = "network", oppositeEndReferenceName = "Native.Association" } },
                 } });
+            if (CloseGateEnabled && path.EndsWith("/rules", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { value = new[] { new
+                {
+                    conditions = new[] { new { conditionType = "$when", field = "System.State", value = "Done" } },
+                    actions = new[] { new { actionType = "$makeRequired", targetField = "Fixture.CloseEvidence" } },
+                    isDisabled = false
+                } } });
             if (path.EndsWith("/workitemtypecategories", StringComparison.Ordinal)
                 || path.EndsWith("/rules", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { value = Array.Empty<object>() });

@@ -1,6 +1,6 @@
 # Clean core contract
 
-Phases 1-4 and phase-5 implementation in progress for **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
+Phases 1-4 and phase-5 implementation in progress for **Epic #1220, Core domain consolidation**. Updated 2026-10-31.
 
 ## Status and scope
 
@@ -263,13 +263,53 @@ Phase 5 adds `ResourceLink` and `CreationLink` records, bringing the current inv
 There are still exactly two Core ports. Host admission and policy-acquisition
 types live outside Core rather than expanding that port surface.
 
-The conservative phase-5 retention assumption is to preserve all currently supported
-CLI, Claims/coordination, TUI, Browser and companion behavior, not make a permanent
-surface-pruning decision. Claims remain a host concern and MCP remains withdrawn.
+There is **no preserve-all acceptance requirement** for phase 5. Retention of
+TUI, Browser, companion and Claims/coordination remains undecided. This bounded
+CLI correction authorizes neither new UI parity/Claims work nor deletion inferred
+from silence. Existing legacy UI dependencies still block whole-Domain removal;
+MCP remains withdrawn pending its separate redesign.
 The ADO/GitHub adapters' already disclosed unsafe/unqualified Delete limitation
 must remain an explicit capability refusal, never a fictional strict revision
-precondition or a reachable alternate legacy writer. No production surface has
-been removed by the current in-progress changes.
+precondition or a reachable alternate legacy writer.
+
+### Deletion-first CLI correction
+
+The existing `ProcessCommand` and `ProcessDescriptionCommand` now inspect the same
+admitted Core workspace's live `ProcessSchema`, without legacy metadata stores,
+work queries, sync, pending flushes or writers. `process` lists canonical type
+references and exposes discovered states, fields and exact transition edges, not
+an invented all-pairs graph. Human `states` resolves only cached Core active context;
+structured callers must name a type with `process`.
+
+Descriptions use **`core-schema-1`**, scope `provider-discovered-core-schema`, with
+the schema fingerprint and explicit known gaps. This is intentionally not the legacy
+0.1 completeness contract: field display names, colors, category membership,
+behavior metadata and native form layout are not represented. Conditions, typed
+rule operands/values, disabled rules and provider discovery gaps remain visible.
+`--sections fields,requirements` and field filtering project that same schema;
+unknown selectors/fields refuse instead of silently dropping intent. All JSON aliases
+carry the projection. `--out` replaces a file only after discovery and rendering succeed.
+
+Native layout is not in Core schema. `process layout` on a Core workspace explicitly
+refuses before HTTP rather than failing DI or fabricating an empty layout. Pinned
+Core `--org/--project` overrides also explicitly refuse before HTTP; initialize a
+fresh isolated workspace for the requested target. Legacy/unpinned schema inspection
+refuses with initialization guidance; legacy native layout reading is unchanged.
+`--refresh` remains accepted, but Core schema inspection already discovers live metadata.
+
+| Existing Core route | Deleted CLI ownership |
+|---|---|
+| `CoreCommandAdapter.StateAsync` -> shared Core proposal/journal workflow | `StateCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.NoteAsync` -> shared Core proposal/journal workflow | `NoteCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.PatchAsync` -> shared Core proposal/journal workflow | `PatchCommand.cs`, its singleton registration and Program fallback |
+
+Only superseded command-shell tests were removed/replaced; no CLI public API
+baseline entries existed for these wrappers. `CoreMutationAdmissionGuard` continues
+to refuse unsupported legacy workspaces before old writer registration. Shared
+`StateTransitionWorkflow`, `NoteWorkflow`, `PatchWorkflow`, conflict handling and
+note-flush helpers remain: other consumers, including the withdrawn MCP draft,
+still reference them. Save/Update/Discard and UI ownership are outside this deletion.
+The Core inventory stays at 56 types/two ports and store/proposal format 3.
 
 ## Identity, values and drafts
 

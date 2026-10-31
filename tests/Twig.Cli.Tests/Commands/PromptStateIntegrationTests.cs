@@ -37,7 +37,6 @@ public class PromptStateIntegrationTests : IDisposable
     private readonly IAdoWorkItemService _adoService;
     private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IProcessTypeStore _processTypeStore;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IConsoleInput _consoleInput;
@@ -59,7 +58,6 @@ public class PromptStateIntegrationTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
@@ -68,7 +66,6 @@ public class PromptStateIntegrationTests : IDisposable
         _config = new TwigConfiguration();
         _paths = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
 
-        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.AgileUserStoryOnly());
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
     }
@@ -100,21 +97,6 @@ public class PromptStateIntegrationTests : IDisposable
         if (isDirty)
             wi.SetDirty();
         return wi;
-    }
-
-    private IRevisionBoundAdoWorkItemService CreateRevisionBoundSource()
-    {
-        var source = Substitute.For<IRevisionBoundAdoWorkItemService>();
-        source.FetchAtRevisionAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(async call =>
-            {
-                var id = call.ArgAt<int>(0);
-                var revision = call.ArgAt<int>(1);
-                var item = await _workItemRepo.GetByIdAsync(id, call.ArgAt<CancellationToken>(2))
-                    ?? throw new InvalidOperationException($"No cached fixture item for #{id}.");
-                return new WorkItemMapper().ToSnapshot(item) with { Revision = revision };
-            });
-        return source;
     }
 
     private JsonElement ReadPromptJson()
@@ -149,38 +131,6 @@ public class PromptStateIntegrationTests : IDisposable
         root.GetProperty("id").GetInt32().ShouldBe(12345);
         root.GetProperty("title").GetString().ShouldBe("Implement login");
         root.GetProperty("state").GetString().ShouldBe("Active");
-    }
-
-    // ── (d) twig state transition updates prompt.json ──────────────────
-
-    [Fact]
-    public async Task StateCommand_WritesPromptJson_AfterTransition()
-    {
-        var item = CreateWorkItem(99, "Story to resolve", state: "Active");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(99);
-        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns(item);
-
-        var remote = CreateWorkItem(99, "Story to resolve", state: "Active");
-        _adoService.FetchAsync(99, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(99, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-
-        // After state change, the writer sees the new state
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(99);
-
-        var writer = CreateWriter();
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new StateCommand(
-            new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
-            resolver, _workItemRepo, _writer,
-            _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: writer, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
-            _pendingChangeStore);
-
-        var result = await cmd.ExecuteAsync("Resolved");
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeTrue();
     }
 
     // ── (f) twig config display.icons regenerates prompt.json ──────────
@@ -270,31 +220,6 @@ public class PromptStateIntegrationTests : IDisposable
         File.Exists(PromptJsonPath).ShouldBeTrue();
         var root = ReadPromptJson();
         root.GetProperty("id").GetInt32().ShouldBe(88);
-    }
-
-    // ── (i) twig note writes prompt.json after adding note ─────────────
-
-    [Fact]
-    public async Task NoteCommand_WritesPromptJson_AfterAddingNote()
-    {
-        var item = CreateWorkItem(66, "Note target", state: "Active");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(66);
-        _workItemRepo.GetByIdAsync(66, Arg.Any<CancellationToken>()).Returns(item);
-
-        var editorLauncher = Substitute.For<IEditorLauncher>();
-
-        var writer = CreateWriter();
-        var noteResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var noteWorkflow = new Twig.Infrastructure.Services.Mutation.NoteWorkflow(
-            _workItemRepo, _writer, _pendingChangeStore, writer);
-        var cmd = new NoteCommand(noteResolver, editorLauncher, _formatterFactory, _hintEngine, noteWorkflow);
-
-        var result = await cmd.ExecuteAsync("A test note");
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeTrue();
-        var root = ReadPromptJson();
-        root.GetProperty("id").GetInt32().ShouldBe(66);
     }
 
     // ── (j) twig update writes prompt.json after field update ──────────

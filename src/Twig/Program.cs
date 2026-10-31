@@ -655,21 +655,21 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.StateAsync(name, id, output, ct);
-        return await services.GetRequiredService<StateCommand>().ExecuteAsync(name, id, output, ct);
+        throw new InvalidOperationException("An explicitly initialized Core workspace is required; no legacy state writer was registered.");
     }
 
     /// <summary>Show process configuration: list types (no args) or type details (with type name).</summary>
     /// <param name="type">Work item type name to show details for (omit to list all types).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO (announced on stderr); writes nothing.</param>
-    /// <param name="project">Azure DevOps project to describe instead of this workspace's. Requires --org.</param>
+    /// <param name="org">Legacy target option; requires --project. Pinned Core schema overrides explicitly refuse before HTTP; initialize an isolated target workspace instead.</param>
+    /// <param name="project">Legacy target option; requires --org. No ambient target is substituted on refusal.</param>
     /// <param name="includeHidden">Include types ADO reserves for its own tooling (Code Review, Feedback, Test Case and friends). Excluded by default: they cannot be created by hand.</param>
-    /// <param name="refresh">AB#879: force a targeted metadata-only sync (process types + field definitions) before rendering. This is the actionable "rerun me" surface behind a "Metadata not ready" message; it never pulls work items or flushes pending writes.</param>
+    /// <param name="refresh">Accepted for compatibility. Core schema inspection already discovers live metadata; it never pulls work items or flushes pending writes.</param>
     public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, bool includeHidden = false, bool refresh = false, CancellationToken ct = default)
         => await ProcessOverrideHost.RunAsync(
             services, org, project,
             sp => sp.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, includeHidden, refresh, ct),
-            output, ct);
+            output, ct, requiresCoreSchema: true);
 
     /// <summary>Show the server-defined form layout (tabs, boxes, ordered fields) for a work item type.</summary>
     /// <param name="type">Work item type name (e.g. Bug, Task, User Story).</param>
@@ -679,15 +679,23 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="project">Azure DevOps project to read the layout from instead of this workspace's. Requires --org.</param>
     [Command("process layout")]
     public async Task<int> ProcessLayout([Argument] string type, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, CancellationToken ct = default)
-        => await ProcessOverrideHost.RunAsync(
+    {
+        if (services.GetService<CoreCommandAdapter>() is not null)
+        {
+            CommandError.Write(services.GetRequiredService<RendererFactory>(), Console.Error, output,
+                "Native form layout is not available in the qualified Core workspace. The Core schema contains no presentation layout; no empty layout was fabricated.");
+            return 1;
+        }
+        return await ProcessOverrideHost.RunAsync(
             services, org, project,
             sp => sp.GetRequiredService<ProcessLayoutCommand>().ExecuteAsync(type, @out, output, ct),
             output, ct);
+    }
 
-    /// <summary>Write a byte-stable structural description of this project's process, for diffing against another.</summary>
+    /// <summary>Describe the admitted provider's Core schema (core-schema-1), with explicit scope and presentation gaps.</summary>
     /// <param name="type">Work item type REFERENCE name (e.g. Niflheim.Grilling); omit to describe every type.</param>
     /// <param name="out">Write the rendered description to this file instead of stdout.</param>
-    /// <param name="output">-o, Output format. Only json (and its aliases) is complete; others are abridged summaries.</param>
+    /// <param name="output">-o, Output format: human, json (and aliases), minimal. JSON carries typed rules; this is not the legacy complete layout/behavior descriptor.</param>
     /// <param name="sections">Comma-separated fields, requirements sections for opt-in compact JSON; requires a type.</param>
     /// <param name="fields">Comma-separated field reference names to select in compact JSON.</param>
     [Command("process description")]
@@ -1169,7 +1177,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.NoteAsync(text ?? textArg, file, stdin, id, output, format, ct);
-        return await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, file, stdin, ct);
+        throw new InvalidOperationException("An explicitly initialized Core workspace is required; no legacy note writer was registered.");
     }
 
     /// <summary>Update a field on the active work item.</summary>
@@ -1199,7 +1207,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.PatchAsync(id ?? workItemId, json, stdin, format, output, ct);
-        return await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id ?? workItemId, output, format, ct);
+        throw new InvalidOperationException("An explicitly initialized Core workspace is required; no legacy patch writer was registered.");
     }
 
     /// <summary>Edit work item fields in an external editor.</summary>

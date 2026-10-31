@@ -44,6 +44,7 @@ internal static class WorkspaceRegistrationModule
             services.AddSingleton<ProcessCommand>();
             services.AddSingleton<ProcessDescriptionCommand>();
             services.AddSingleton<LinkCommand>();
+            services.AddSingleton<WorkspaceCommand>();
             return services;
         }
         services.AddConnectionServices(config, twigDir, startDir);

@@ -360,6 +360,52 @@ ports, operation kinds, versions or `CoreCommandAdapter` methods were added.
 Shared legacy writers/sync/link repositories still serve other retained consumers;
 they were not deleted or registered in the Core graph. This does not complete phase 5.
 
+## Bounded CLI workspace-read correction
+
+The existing `WorkspaceCommand` now owns a small static Core Bench read, registered
+in the Core production DI branch. `workspace`/`ws` default to a cached item/draft
+table through existing RenderTree renderers; provider schema metadata is still
+acquired explicitly because `StoreSnapshot` has no persisted schema. No default
+Bench is guessed or created. `--bench` reads an existing name/GUID without
+switching context; `--expect-bench` guards that resolved GUID before HTTP.
+Core `ResolveBench` and typed `Matches` remain the domain engine. All protected
+draft debt, including local seeds, is added to selector membership. Query matching
+uses cached values; display overlays keep typed proposed values separate from cached
+fields, with no draft-baseline rewrite or false native freshness claim.
+
+Permanent mappings project selectors and relationship endpoints only in memory.
+The exact existing `KnownLocalKeys` and `LocalAlias` functions moved verbatim from
+`CoreCommandAdapter` to existing host owner `CoreHostContext`; both commands reuse
+the same reservation/collision rules. No Core type, port, schema or format changed.
+The adapter did not gain another workspace method or workflow facade.
+
+`--refresh` calls only existing `CoreWorkspace.PullBenchAsync`, freezing the current
+Bench GUID and using the shared factory depths with active context disabled.
+Named noncurrent refresh refuses without changing selection. Default reads do no
+work-item HTTP/query/sync/flush. Every format excludes implicit active context,
+but explicit Bench membership and draft debt still win. Missing/ambiguous scopes,
+missing pins, unavailable query fields and incomplete/cyclic subtrees refuse
+without broadening. JSON declares `core-bench-workspace-v1`, not browser parity or
+complete server membership; `ids` emits only row IDs.
+
+Deletion map: replaced `Commands/WorkspaceCommand.cs` aggregate/WorkingSet,
+SyncCoordinator, legacy HumanOutputFormatter/live/browser ownership and its
+legacy DI constructor/property initialization; deleted
+`Commands/WorkspaceCommand.BrowserV2.cs`, `WorkspaceCommand_TreeTests.cs` and
+`UserScopedWorkspaceTests.cs`. Removed only superseded workspace-owner cases from
+mixed cache-first, durable-overlay, structured-isolation, section-wiring and
+refresh tests. Shared renderer/configuration cases and targeted `show --tree`
+tests remain. `BrowserOriginGuard`, formerly embedded after WorkspaceCommand,
+moved unchanged to its own host file because Tracking/Bench/browser operations
+still consume it. Shared legacy Browser/TUI, WorkingSet, sync, formatters, stores,
+fences and history remain; none were pulled into the Core graph.
+
+`--all`, sprint/full-backlog tree, `--view tree`, browser envelopes and captured
+browser binding/identity/settings flags explicitly refuse before HTTP. Only static table
+spellings (`--no-live`, `--flat`, `--view table`) are accepted. Targeted
+`show --tree` and `workspace sync` are unchanged. GitHub CLI workspace reads and
+UI redesign are not qualified by this correction; phase 5 remains unfinished.
+
 ## Identity, values and drafts
 
 `ItemKey` has exactly two forms: a durable local UUID, or a remote

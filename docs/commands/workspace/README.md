@@ -3,10 +3,13 @@
 The `workspace` group is Twig's canonical entry point for viewing and shaping
 the local working set: what appears in the workspace view, which items are
 pinned or hidden, and which sprints and area paths the workspace subscribes to.
-`workspace` on its own renders the current view; the sub-commands mutate the
-workspace configuration or the local tracking tables.
+`workspace`/`ws` now read a static **Core Bench** table (preview), including all
+protected draft debt. They require an explicitly initialized Core ADO workspace,
+never guess a default Bench, and acquire provider schema metadata while leaving
+cached items untouched unless `--refresh` is explicit. Legacy tree/team/browser
+workspace layouts are unsupported. See [the read contract](workspace.md).
 
-Workspace views read cached items and workspace configuration. Self views also
+The remaining subcommands below are not all cut over to Core. Legacy self views also
 resolve the bound account's canonical ADO identity; that lookup can contact Azure
 DevOps and refuses if the identity cannot be established. `workspace area sync`
 reads team area paths to rebuild local configuration. No sub-command in this

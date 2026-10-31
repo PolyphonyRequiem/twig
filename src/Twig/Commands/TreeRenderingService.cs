@@ -14,8 +14,7 @@ namespace Twig.Commands;
 
 /// <summary>
 /// Shared service that builds and renders a <see cref="WorkTree"/> hierarchy.
-/// Extracted from the former <c>TreeCommand</c> so that <c>ShowCommand --tree</c>
-/// and <c>WorkspaceCommand --tree</c> can reuse the same rendering logic.
+/// Used by targeted <c>ShowCommand --tree</c>; workspace reads use a static Core Bench table.
 /// </summary>
 public sealed class TreeRenderingService(
     CommandContext ctx,

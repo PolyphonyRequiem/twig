@@ -17,66 +17,6 @@ public sealed class StructuredReadIsolationTests : IAsyncLifetime
     public Task InitializeAsync() => _fixture.InitializeNewStoreAsync();
     public Task DisposeAsync() => _fixture.DisposeAsync().AsTask();
 
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public async Task MachineWorkspaceNeverReadsOrExportsActiveContext(bool browser, bool refresh)
-    {
-        var (runtime, context) = await SeedAsync();
-        using var output = new StringWriter();
-        var before = Console.Out;
-        try
-        {
-            Console.SetOut(output);
-            var exit = await runtime.GetRequiredService<WorkspaceCommand>().ExecuteAsync(
-                "json", view: "tree", includeBrowser: browser, refresh: refresh);
-            exit.ShouldBe(0);
-        }
-        finally { Console.SetOut(before); }
-
-        context.ActiveReads.ShouldBe(0);
-        output.ToString().ShouldNotContain("Interactive secret");
-        using var json = JsonDocument.Parse(output.ToString());
-        json.RootElement.GetProperty("context").ValueKind.ShouldBe(JsonValueKind.Null);
-        json.RootElement.GetProperty("seeds").GetArrayLength().ShouldBe(1);
-        json.RootElement.GetProperty("sections").EnumerateArray()
-            .Single(section => section.GetProperty("modeName").GetString() == "Manual")
-            .GetProperty("itemCount").GetInt32().ShouldBe(2);
-        if (browser)
-        {
-            output.ToString().ShouldContain("Explicit target");
-            output.ToString().ShouldContain("Local unpublished intent");
-        }
-        (await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(43))!.Title
-            .ShouldBe("Local unpublished intent");
-        (await runtime.GetRequiredService<IPendingChangeStore>().GetChangesAsync(43)).Count.ShouldBe(1);
-        (await context.Inner.GetActiveWorkItemIdAsync()).ShouldBe(900);
-        _fixture.Transport.RequestedItems.Order().ShouldBe(refresh ? new[] { 42 } : []);
-        _fixture.Transport.Mutations.ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task ExplicitNamedBrowserWorkspaceDoesNotConsultActiveContext()
-    {
-        var (runtime, context) = await SeedAsync();
-        using var output = new StringWriter();
-        var before = Console.Out;
-        try
-        {
-            Console.SetOut(output);
-            (await runtime.GetRequiredService<WorkspaceCommand>().ExecuteAsync(
-                "json", view: "tree", includeBrowser: true, browserVersion: 2, bench: "explicit scope")).ShouldBe(0);
-        }
-        finally { Console.SetOut(before); }
-        context.ActiveReads.ShouldBe(0);
-        using var parsed = JsonDocument.Parse(output.ToString());
-        output.ToString().ShouldContain("Explicit target");
-        output.ToString().ShouldContain("Local unpublished intent");
-        output.ToString().ShouldNotContain("Interactive secret");
-        _fixture.Transport.RequestedItems.ShouldBeEmpty();
-    }
-
     [Fact]
     public async Task StructuredTreeRefreshDoesNotAddActiveContextToItsWorkingSet()
     {
@@ -163,22 +103,12 @@ public sealed class StructuredReadIsolationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task HumanStatesAndWorkspaceRetainInteractiveContext()
+    public async Task HumanStatesRetainInteractiveContext()
     {
         var (runtime, context) = await SeedAsync();
         var human = await StructuredReadProductionCliTests.RunInWorkspaceAsync(_fixture.Paths.StartDir, _fixture.Home, "states");
         human.Exit.ShouldBe(0, human.Error);
         human.Out.ShouldContain("To Do");
-        using var output = new StringWriter();
-        var before = Console.Out;
-        try
-        {
-            Console.SetOut(output);
-            (await runtime.GetRequiredService<WorkspaceCommand>().ExecuteAsync("human", noLive: true)).ShouldBe(0);
-        }
-        finally { Console.SetOut(before); }
-        context.ActiveReads.ShouldBeGreaterThan(0);
-        output.ToString().ShouldContain("Interactive secret");
         (await runtime.GetRequiredService<IContextStore>().GetActiveWorkItemIdAsync()).ShouldBe(900);
     }
 

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
 using Shouldly;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
@@ -83,6 +84,10 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        var editor = Substitute.For<IEditorLauncher>();
+        editor.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<string?>(call.ArgAt<string>(0).Replace("build locally updated", "build editor updated", StringComparison.Ordinal)));
+        services.AddSingleton(editor);
         services.AddTwigWorkspaceServices(paths.StartDir, ["seed", "chain", "--parent", "42", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
@@ -104,6 +109,34 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             var second = staged.Drafts.Single(draft => draft.Links.Any(link => link.Other == first.Key));
             var third = staged.Drafts.Single(draft => draft.Links.Any(link => link.Other == second.Key));
             _transport.PostCount.ShouldBe(0);
+            var secondAlias = chain.RootElement.GetProperty("seeds").EnumerateArray()
+                .Single(row => row.GetProperty("localId").GetString() == second.Key.LocalId.ToString("D")).GetProperty("id").GetInt32();
+            (await commands.Update("System.Title", "build locally updated", id: secondAlias, output: "human"))
+                .ShouldBe(0, stderr.ToString());
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedEdit(secondAlias, "json")).ShouldBe(0, stderr.ToString());
+            var edited = (await store.ReadAsync(connection, default)).Value.Drafts.Single(draft => draft.Key == second.Key);
+            edited.Changes["System.Title"].Text.ShouldBe("build editor updated");
+            edited.Links.ShouldBe(second.Links);
+            edited.Parent.ShouldBe(second.Parent);
+            edited.Changes.TryGetValue("System.IterationPath", out _).ShouldBeFalse("untouched missing values must not become null/empty fields");
+            _transport.PostCount.ShouldBe(0);
+            editor.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(call => Task.FromResult<string?>(call.ArgAt<string>(0) + "\n# Title\nduplicate field"));
+            (await commands.SeedEdit(secondAlias, "human")).ShouldBe(1, "duplicate editor sections must not silently overwrite a field");
+            (await store.ReadAsync(connection, default)).Value.Drafts.Single(draft => draft.Key == second.Key).Changes.ShouldBe(edited.Changes);
+            editor.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns<Task<string?>>(async call =>
+            {
+                var current = (await admitted.Workspace.SnapshotAsync(default)).Value;
+                var capture = current.Drafts.Single(draft => draft.Key == second.Key);
+                (await admitted.Workspace.CaptureSeedFieldsAsync(capture, current.Version,
+                    new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("build concurrent edit"))]), default))
+                    .IsSuccess.ShouldBeTrue();
+                return call.ArgAt<string>(0).Replace("build editor updated", "stale editor overwrite", StringComparison.Ordinal);
+            });
+            (await commands.SeedEdit(secondAlias, "human")).ShouldBe(1, "the editor must use its exact activation capture, not overwrite concurrent draft intent");
+            (await store.ReadAsync(connection, default)).Value.Drafts.Single(draft => draft.Key == second.Key)
+                .Changes["System.Title"].Text.ShouldBe("build concurrent edit");
             stdout.GetStringBuilder().Clear();
             (await commands.SeedValidate(output: "json")).ShouldBe(0, stderr.ToString());
             using var validation = JsonDocument.Parse(stdout.ToString());
@@ -136,6 +169,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             root.GetService<SeedChainCommand>().ShouldBeNull();
             root.GetService<SeedLinkRepairCommand>().ShouldBeNull();
             root.GetService<SeedValidateCommand>().ShouldBeNull();
+            root.GetService<SeedEditCommand>().ShouldBeNull();
             complete.Mappings.ShouldContain(mapping => mapping.Local == third.Key);
         }
         finally

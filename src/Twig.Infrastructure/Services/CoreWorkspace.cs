@@ -185,6 +185,26 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
 
+    internal async Task<Result<Draft>> CaptureSeedFieldsAsync(Draft capture, long expectedVersion,
+        FieldValues fields, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<Draft>.Fail(current.Error);
+        if (current.Value.Version != expectedVersion || !capture.Key.IsLocal
+            || !current.Value.Drafts.Any(draft => SameDraft(draft, capture)))
+            return Result<Draft>.Fail(ErrorCode.Conflict, "The captured seed changed during editing; neither draft was overwritten.");
+        if (current.Value.Mappings.Any(mapping => mapping.Local == capture.Key)
+            || current.Value.Journal.Any(row => row.Status != OpStatus.Planned && current.Value.Proposals
+                .Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Item == capture.Key))
+            return Result<Draft>.Fail(ErrorCode.Indeterminate, "An attempted UUID owns this seed; edits cannot replace its fenced creation.");
+        var changed = new Draft(capture.Key, capture.Type, null, capture.Changes.Overlay(fields),
+            capture.Parent, capture.ParentRelation, capture.Resource, capture.Links);
+        var committed = await store.CommitAsync(connection, expectedVersion,
+            Copy(current.Value, expectedVersion + 1, drafts: current.Value.Drafts.Where(draft => draft.Key != capture.Key).Append(changed)), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<Draft>.Ok(changed) : Result<Draft>.Fail(committed.Error);
+    }
+
     internal async Task<Result<int>> ReconcileSeedsAsync(CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);

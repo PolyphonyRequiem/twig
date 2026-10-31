@@ -10,7 +10,7 @@ using Twig.Rendering;
 namespace Twig.Commands;
 
 internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererFactory renderer,
-    Twig.Domain.Interfaces.IConsoleInput consoleInput)
+    Twig.Domain.Interfaces.IConsoleInput consoleInput, Twig.Domain.Interfaces.IEditorLauncher editorLauncher)
 {
     internal async Task<int> SaveAsync(int? id, bool all, string output, CancellationToken ct)
     {
@@ -134,10 +134,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         Action<Draft>? capture = null, ItemKey? predecessor = null)
     {
         if (noParent && parent is not null) return Error(output, "--parent and --no-parent are mutually exclusive.", 2);
-        if (editor) return Error(output, "The retained seed editor has not yet been connected to Core draft capture; no seed was staged.");
         if (!noParent && parent is null)
             return Error(output, "No Core active parent is selected. Supply --parent or --no-parent.", 2);
-        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(requestedType))
+        if (!editor && string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(requestedType))
             return Error(output, "Unparented seed creation requires --title and --type.", 2);
         var parsed = Twig.Domain.ValueObjects.FieldAssignment.ParseAll(fields, "--field");
         if (!parsed.IsSuccess) return Error(output, parsed.Error, 2);
@@ -189,7 +188,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         var changes = new Dictionary<string, FieldValue>(StringComparer.Ordinal)
         {
-            ["System.Title"] = FieldValue.String(title),
+            ["System.Title"] = FieldValue.String(title ?? ""),
         };
         var initial = type.Rules.Where(rule => !rule.Disabled && rule.Action == RuleAction.Allowed
                 && rule.Field == type.StateField && rule.Conditions.Length == 1
@@ -217,6 +216,20 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var assigned = type.Fields.FirstOrDefault(field => field.Reference == "System.AssignedTo" && !field.ReadOnly);
         if (assigned?.Kind == FieldKind.Identity && !changes.ContainsKey(assigned.Reference))
             changes[assigned.Reference] = FieldValue.Identity(workspace.NativeActor);
+        if (editor)
+        {
+            var edited = await EditSeedFieldsAsync(type, new(changes), ct);
+            if (!edited.IsSuccess) return Error(output, edited.Error.Message);
+            if (edited.Value is null)
+            {
+                renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedEditCancelled",
+                    new Dictionary<string, RenderCell> { ["message"] = RenderCell.String("Editor cancelled; no seed was staged.") })]));
+                return 0;
+            }
+            foreach (var field in edited.Value) changes[field.Key] = field.Value;
+        }
+        if (!changes.TryGetValue("System.Title", out var seedTitle) || string.IsNullOrWhiteSpace(seedTitle.Text))
+            return Error(output, "A seed title is required; no draft was staged.", 2);
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var aliases = KnownLocalKeys(snapshot.Value).Select(LocalAlias).ToHashSet();
@@ -238,9 +251,83 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             new Dictionary<string, RenderCell>
             {
                 ["id"] = RenderCell.Integer(LocalAlias(key)), ["localId"] = RenderCell.String(key.LocalId.ToString("D")),
-                ["type"] = RenderCell.String(requestedType), ["title"] = RenderCell.String(title),
+                ["type"] = RenderCell.String(requestedType), ["title"] = RenderCell.String(seedTitle.Text),
                 ["isSeed"] = RenderCell.Boolean(true), ["isDirty"] = RenderCell.Boolean(true),
                 ["message"] = RenderCell.String("Created a local draft; no native creation was attempted."),
+            })]));
+        return 0;
+    }
+
+    private async Task<Result<FieldValues?>> EditSeedFieldsAsync(ItemType type, FieldValues current, CancellationToken ct)
+    {
+        static string Display(string reference) => reference switch
+        {
+            "System.Title" => "Title", "System.Description" => "Description", "System.State" => "State",
+            "System.AssignedTo" => "AssignedTo", _ => reference,
+        };
+        var definitions = type.Fields.Select(field => new Twig.Domain.ValueObjects.FieldDefinition(field.Reference,
+            Display(field.Reference), field.Kind.ToString(), field.ReadOnly)).ToArray();
+        var values = type.Fields.ToDictionary(field => field.Reference, field =>
+            current.TryGetValue(field.Reference, out var value) && value.Kind != FieldKind.Null ? Cell(value).DisplayText : null, StringComparer.OrdinalIgnoreCase);
+        var initial = Twig.Domain.Services.Seed.SeedEditorFormat.Generate(values, definitions);
+        var edited = await editorLauncher.LaunchAsync(initial, ct);
+        if (edited is null) return Result<FieldValues?>.Ok(null);
+        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in edited.Split('\n').Where(line => line.StartsWith("# ", StringComparison.Ordinal)))
+        {
+            var display = line[2..].Trim();
+            var definition = definitions.SingleOrDefault(field => field.DisplayName.Equals(display, StringComparison.OrdinalIgnoreCase));
+            if (definition is null || definition.IsReadOnly || !sections.Add(definition.ReferenceName))
+                return Result<FieldValues?>.Fail(ErrorCode.InvalidInput, "Editor contains an unknown, read-only or duplicate field section.");
+        }
+        var parsed = Twig.Domain.Services.Seed.SeedEditorFormat.Parse(edited, definitions);
+        var changes = FieldValues.Empty;
+        foreach (var field in parsed)
+        {
+            var before = values.GetValueOrDefault(field.Key);
+            if (string.Equals(before ?? "", field.Value ?? "", StringComparison.Ordinal)) continue;
+            if (field.Key == "System.Title" && string.IsNullOrWhiteSpace(field.Value))
+                return Result<FieldValues?>.Fail(ErrorCode.InvalidInput, "A seed title cannot be cleared.");
+            var definition = type.Fields.Single(value => value.Reference == field.Key);
+            if (field.Value is null) changes = changes.Set(field.Key, FieldValue.Null);
+            else if (TryParse(definition.Kind, field.Value, null, out var value)) changes = changes.Set(field.Key, value);
+            else return Result<FieldValues?>.Fail(ErrorCode.InvalidInput, "The editor value does not match the actual native field type.");
+        }
+        return Result<FieldValues?>.Ok(changes);
+    }
+
+    internal async Task<int> SeedEditAsync(int id, string output, CancellationToken ct)
+    {
+        if (id >= 0) return Error(output, "Seed editing requires an unpublished local seed alias.", 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var matches = KnownLocalKeys(snapshot.Value).Where(key => LocalAlias(key) == id).ToArray();
+        var draft = matches.Length == 1 ? snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == matches[0]) : null;
+        if (draft is null) return Error(output, "The exact unpublished seed alias is absent or ambiguous.");
+        if (snapshot.Value.Mappings.Any(mapping => mapping.Local == draft.Key)
+            || snapshot.Value.Journal.Any(row => row.Status != OpStatus.Planned && snapshot.Value.Proposals
+                .Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Item == draft.Key))
+            return Error(output, "The original creation UUID has already been attempted; its captured editor intent remains fenced.");
+        var schema = await workspace.SchemaAsync(ct);
+        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var type = schema.Value.Types.SingleOrDefault(type => type.Reference == draft.Type);
+        if (type is null) return Error(output, "The seed type is absent from the actual native schema.");
+        var edited = await EditSeedFieldsAsync(type, draft.Changes, ct);
+        if (!edited.IsSuccess) return Error(output, edited.Error.Message);
+        if (edited.Value is { Count: > 0 } fields)
+        {
+            var captured = await workspace.CaptureSeedFieldsAsync(draft, snapshot.Value.Version, fields, ct);
+            if (!captured.IsSuccess) return Error(output, captured.Error.Message);
+        }
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record(edited.Value is null ? "seedEditCancelled"
+            : edited.Value.Count == 0 ? "seedEditNoChanges" : "seedEdited", new Dictionary<string, RenderCell>
+            {
+                ["id"] = RenderCell.Integer(id), ["changedFieldCount"] = RenderCell.Integer(edited.Value?.Count ?? 0),
+                ["message"] = RenderCell.String(edited.Value is null ? "Seed editor cancelled." : "Retained typed seed edit; no native creation was attempted."),
             })]));
         return 0;
     }
@@ -743,7 +830,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> UpdateAsync(string field, string? value, string output, string? format, string? file,
         bool stdin, int? id, bool append, CancellationToken ct)
     {
-        if (id is null || id <= 0) return Error(output, "An explicit Core target is required. Pass --id.", 2);
+        if (id is null || id == 0) return Error(output, "An explicit nonzero Core target is required. Pass --id.", 2);
         var formatError = HtmlFieldFormatter.ValidateFormat(format);
         if (formatError is not null) return Error(output, formatError, 2);
         var body = await TextBodySource.ResolveAsync(value, file, stdin, Console.In, "inline value",
@@ -755,29 +842,59 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var workspace = handle.Workspace;
         var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
             id.Value.ToString(CultureInfo.InvariantCulture));
+        Draft? seed = null;
+        StoreSnapshot? captured = null;
+        if (id < 0)
+        {
+            var snapshot = await workspace.SnapshotAsync(ct);
+            if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+            var matches = KnownLocalKeys(snapshot.Value).Where(local => LocalAlias(local) == id).ToArray();
+            if (matches.Length != 1) return Error(output, "The local target alias is absent or ambiguous.");
+            var mapping = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == matches[0]);
+            seed = snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == matches[0]);
+            if (mapping is not null) key = mapping.Remote;
+            else if (seed is null) return Error(output, "The local target has no retained draft or native mapping.");
+            if (mapping is not null) seed = null;
+            captured = snapshot.Value;
+        }
         var schema = await workspace.SchemaAsync(ct);
         if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var observed = seed is null ? await workspace.ReadAsync(key, ct) : Result<WorkItem>.Ok(new(seed.Key, seed.Type, seed.Changes, null));
+        if (!observed.IsSuccess) return Error(output, observed.Error.Message);
         var name = field.ToLowerInvariant() switch
         {
             "title" => "System.Title", "state" => "System.State", "description" => "System.Description", _ => field,
         };
-        var definitions = schema.Value.Types.SelectMany(t => t.Fields)
+        var definitions = schema.Value.Types.Where(type => type.Reference == observed.Value.Type).SelectMany(t => t.Fields)
             .Where(f => f.Reference.Equals(name, StringComparison.OrdinalIgnoreCase)).Distinct().ToArray();
         if (definitions.Length != 1) return Error(output, "The field is absent or ambiguous in the actual process schema.", 2);
         var definition = definitions[0];
+        if (definition.ReadOnly) return Error(output, "The actual native field is read-only.", 2);
         name = definition.Reference;
         var text = body.Value!;
         if (append)
         {
-            var current = await workspace.ReadAsync(key, ct);
-            if (!current.IsSuccess) return Error(output, current.Error.Message);
-            if (!current.Value.Fields.TryGetValue(name, out var observed)
-                || observed.Kind is not (FieldKind.Text or FieldKind.Html or FieldKind.Markdown))
+            if (!observed.Value.Fields.TryGetValue(name, out var current)
+                || current.Kind is not (FieldKind.Text or FieldKind.Html or FieldKind.Markdown))
                 return Error(output, "Append requires an actually observed text field.", 2);
-            text = observed.Text + text;
+            text = current.Text + text;
         }
         if (!TryParse(definition.Kind, text, format, out var parsed))
             return Error(output, "This typed field value is invalid or its CLI conversion is not yet connected.", 2);
+        if (seed is not null)
+        {
+            var changed = await workspace.CaptureSeedFieldsAsync(seed, captured!.Version, new([KeyValuePair.Create(name, parsed)]), ct);
+            if (!changed.IsSuccess) return Error(output, changed.Error.Message);
+            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("fieldUpdated",
+                new Dictionary<string, RenderCell>
+                {
+                    ["id"] = RenderCell.Integer(id.Value), ["field"] = RenderCell.String(name),
+                    ["valueDisplay"] = RenderCell.String(text), ["wasSeed"] = RenderCell.Boolean(true),
+                    ["append"] = RenderCell.Boolean(append), ["journalStatus"] = RenderCell.String("Draft"),
+                    ["message"] = RenderCell.String("Retained typed local seed edit; no native mutation was attempted."),
+                })]));
+            return 0;
+        }
         var staged = await workspace.StageEditAsync(key, new([KeyValuePair.Create(name, parsed)]), ct);
         if (!staged.IsSuccess) return Error(output, staged.Error.Message);
         var preview = await workspace.PreviewDraftAsync(key, ct);

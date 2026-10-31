@@ -882,7 +882,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed edit")]
     public async Task<int> SeedEdit([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedEditCommand>().ExecuteAsync(id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.SeedEditAsync(id, output, ct);
+        return await services.GetRequiredService<SeedEditCommand>().ExecuteAsync(id, output, ct);
+    }
 
     /// <summary>Discard (delete) a local seed.</summary>
     /// <param name="id">Seed ID to discard.</param>

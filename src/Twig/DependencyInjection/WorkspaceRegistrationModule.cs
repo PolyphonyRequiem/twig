@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Twig.Commands;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure;
@@ -34,9 +35,11 @@ internal static class WorkspaceRegistrationModule
             services.AddCoreWorkspaceServices(config, corePaths);
             services.AddTwigRenderingServices();
             services.AddSingleton<Twig.Domain.Interfaces.IConsoleInput, ConsoleInput>();
+            services.TryAddSingleton<Twig.Domain.Interfaces.IEditorLauncher, EditorLauncher>();
             services.AddSingleton(sp => new CoreCommandAdapter(sp.GetRequiredService<CoreWorkspaceFactory>(),
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-                sp.GetRequiredService<Twig.Domain.Interfaces.IConsoleInput>()));
+                sp.GetRequiredService<Twig.Domain.Interfaces.IConsoleInput>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IEditorLauncher>()));
             return services;
         }
         services.AddConnectionServices(config, twigDir, startDir);

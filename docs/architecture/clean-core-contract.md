@@ -133,7 +133,14 @@ parent/type inference is still part of the unfinished context cutover.
 Explicit seed discard now checks the exact draft/store
 capture and refuses any attempted UUID or permanent mapping, even with `--yes`;
 unattempted abandonment preserves journals and local relationship tombstones.
-Seed editor/edit, active context and
+`seed new --editor`, `seed edit`, and explicitly targeted updates of unpublished
+local aliases now use typed Core draft capture. The existing section editor format
+is shared as a pure formatter; the native type's fields supply its editable
+vocabulary. Duplicate/unknown/read-only sections and invalid typed values refuse.
+Unchanged missing/null/empty values are not materialized, creation-bound links
+survive field edits, and activation-capture/store CAS rejects concurrent overwrite.
+An attempted creation refuses editing rather than replacing its UUID fence.
+Native general editor and active-context routing are still unfinished. Active context and
 complete lifecycle/UI retention remain unfinished. These gaps prevent phase-5 delivery.
 
 The retained artifact-link path now has a typed `LinkResource` effect and

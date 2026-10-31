@@ -69,6 +69,147 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreLinkMachineChildOptionRequiresIdBeforeAnyHttp()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
+        (await store.ReadAsync(connection, default)).Value.Proposals.ShouldBeEmpty();
+        _transport.PatchAttempts.ShouldBe(0);
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var requests = _transport.TotalRequests;
+            foreach (var format in new[] { "json", "json-full", "json-compact", "minimal" })
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                RunCoreLink(paths, ["link", "parent", "43", "--child", "42", "-o", format])
+                    .ShouldBe(2, stderr.ToString());
+                stdout.ToString().ShouldBeEmpty();
+                stderr.ToString().ShouldContain("--id");
+                if (format.StartsWith("json", StringComparison.Ordinal))
+                {
+                    using var error = JsonDocument.Parse(stderr.ToString());
+                    error.RootElement.GetProperty("error").GetString().ShouldNotBeNullOrWhiteSpace();
+                }
+                _transport.TotalRequests.ShouldBe(requests, "--child is not machine authorization, even when valid");
+            }
+            _transport.PatchAttempts.ShouldBe(0);
+            (await store.ReadAsync(connection, default)).Value.Proposals.ShouldBeEmpty();
+            stdout.GetStringBuilder().Clear();
+            stderr.GetStringBuilder().Clear();
+            RunCoreLink(paths, ["link", "parent", "43", "--id", "42", "--child", "42", "-o", "json"])
+                .ShouldBe(0, stderr.ToString());
+            (await store.ReadAsync(connection, default)).Value.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            _transport.PatchAttempts.ShouldBe(1);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task CoreLinkHumanActivePublishedUuidUsesPermanentMappingWithoutRewritingHistory()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            int Run(params string[] args)
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                return RunCoreLink(paths, args);
+            }
+            Run("seed", "new", "--title", "Active UUID publication", "--type", "Task", "--no-parent", "-o", "json")
+                .ShouldBe(0, stderr.ToString());
+            using var seedOutput = JsonDocument.Parse(stdout.ToString());
+            var alias = seedOutput.RootElement.GetProperty("id").GetInt32();
+            var seed = (await store.ReadAsync(connection, default)).Value.Drafts.Single();
+            seed.Key.IsLocal.ShouldBeTrue();
+            Run("set", alias.ToString(CultureInfo.InvariantCulture)).ShouldBe(0, stderr.ToString());
+            var contextFile = Path.Combine(paths.TwigDir, "core-context.json");
+            var originalContext = await File.ReadAllBytesAsync(contextFile);
+            using (var context = JsonDocument.Parse(originalContext))
+                context.RootElement.GetProperty("history")[0].GetProperty("localId").GetGuid().ShouldBe(seed.Key.LocalId);
+            var beforeUnmapped = (await store.ReadAsync(connection, default)).Value;
+            beforeUnmapped.Mappings.ShouldBeEmpty();
+            Run("link", "related", "43").ShouldBe(1);
+            stderr.ToString().ShouldContain("seed");
+            _transport.PatchAttempts.ShouldBe(0);
+            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(beforeUnmapped.Version);
+            Run("seed", "publish", alias.ToString(CultureInfo.InvariantCulture)).ShouldBe(0, stderr.ToString());
+            var published = (await store.ReadAsync(connection, default)).Value;
+            var mapping = published.Mappings.Single();
+            mapping.Local.ShouldBe(seed.Key);
+            published.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            published.Drafts.ShouldBeEmpty();
+            var creation = CoreModel.Core.ProposalBytes(published.Proposals.Single());
+            (await File.ReadAllBytesAsync(contextFile)).ShouldBe(originalContext);
+            Run("link", "related", "43").ShouldBe(0, stderr.ToString());
+            var linked = (await store.ReadAsync(connection, default)).Value;
+            linked.Mappings.Single().ShouldBe(mapping);
+            linked.Drafts.ShouldBeEmpty();
+            CoreModel.Core.ProposalBytes(linked.Proposals.Single(value => value.Digest == published.Proposals.Single().Digest))
+                .ShouldBe(creation);
+            var relationship = linked.Proposals.Single(value => value.Digest != published.Proposals.Single().Digest);
+            relationship.Operations.Single().Item.ShouldBe(mapping.Remote);
+            linked.Journal.Single(row => row.Digest == relationship.Digest).Status.ShouldBe(CoreModel.OpStatus.Verified);
+            _transport.RelationshipPatches.Single().Id.ToString(CultureInfo.InvariantCulture).ShouldBe(mapping.Remote.NativeId);
+            (await File.ReadAllBytesAsync(contextFile)).ShouldBe(originalContext);
+
+            _transport.LoseNextPatchAcknowledgement = true;
+            Run("link", "successor", "43").ShouldBe(1);
+            var fenced = (await store.ReadAsync(connection, default)).Value;
+            fenced.Journal.ShouldContain(row => row.Status == CoreModel.OpStatus.Indeterminate);
+            var fencedWrites = _transport.CommittedWrites;
+            Run("link", "successor", "42").ShouldBe(1);
+            _transport.CommittedWrites.ShouldBe(fencedWrites, "mapped human context cannot bypass the shared native endpoint fence");
+            _transport.PatchAttempts.ShouldBe(2);
+            (await store.ReadAsync(connection, default)).Value.Journal.Select(row => (row.Digest, row.Operation, row.Attempt, row.Status, row.Receipts.Length))
+                .ShouldBe(fenced.Journal.Select(row => (row.Digest, row.Operation, row.Attempt, row.Status, row.Receipts.Length)));
+            (await File.ReadAllBytesAsync(contextFile)).ShouldBe(originalContext);
+
+            Run("seed", "new", "--title", "Unknown active UUID", "--type", "Task", "--no-parent", "-o", "json")
+                .ShouldBe(0, stderr.ToString());
+            using var unknownOutput = JsonDocument.Parse(stdout.ToString());
+            var unknownAlias = unknownOutput.RootElement.GetProperty("id").GetInt32().ToString(CultureInfo.InvariantCulture);
+            Run("set", unknownAlias).ShouldBe(0, stderr.ToString());
+            var unknownContext = await File.ReadAllBytesAsync(contextFile);
+            _transport.AfterCommit = () => throw new IOException("Fixture lost active seed acknowledgement");
+            Run("seed", "publish", unknownAlias).ShouldBe(1);
+            var unknown = (await store.ReadAsync(connection, default)).Value;
+            unknown.Journal.ShouldContain(row => row.Status == CoreModel.OpStatus.Indeterminate);
+            unknown.Mappings.ShouldHaveSingleItem();
+            var writes = _transport.CommittedWrites;
+            Run("link", "successor", "43").ShouldBe(1);
+            stderr.ToString().ShouldContain("seed");
+            _transport.CommittedWrites.ShouldBe(writes);
+            _transport.PatchAttempts.ShouldBe(2);
+            var retained = (await store.ReadAsync(connection, default)).Value;
+            retained.Version.ShouldBe(unknown.Version, "an unmapped active UUID must not change drafts, mappings or journal");
+            (await File.ReadAllBytesAsync(contextFile)).ShouldBe(unknownContext);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreLinkRouteUsesNativeJournalWithoutLegacyGraph()
     {
         var native = await AttachAsync();
@@ -135,7 +276,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             AssertPatch(42, 5, "Native.DependencyForward", 43);
             Run("link", "unlink", "successor", "43", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
             AssertPatch(42, 6, null, null);
-            Run("link", "parent", "43", "--child", "42", "-o", "json").ShouldBe(0, stderr.ToString());
+            Run("link", "parent", "43", "--child", "42", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
             AssertPatch(43, 13, "Native.ParentForward", 42);
             Run("link", "unparent", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
             AssertPatch(43, 14, null, null);

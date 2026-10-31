@@ -84,8 +84,8 @@ internal sealed class LinkCommand(
                 return Error(format, "Supported unlink types: predecessor, successor, related. Use link unparent for hierarchy.", 2);
             if (explicitId is not null && explicitId == targetId)
                 return Error(format, "Cannot link a work item to itself.", 2);
-            if (id is null && child is null && format != "human")
-                return Error(format, "Structured relationship operations require an explicit --id or --child option.", 2);
+            if (id is null && format != "human")
+                return Error(format, "Structured relationship operations require an explicit --id option; --child alone is not machine authorization.", 2);
             if (kind == "reparent")
                 return Error(format, "Reparent is unsupported: Core cannot bind parent replacement to one safe journaled request. No link was removed.");
             if (comment is not null)
@@ -107,6 +107,12 @@ internal sealed class LinkCommand(
                 if (context.Value.Position < 0)
                     return Error(format, "No active Core item is selected. Run 'twig set <id>' or pass --id.");
                 source = context.Value.History[context.Value.Position].Resolve(workspace.Connection);
+                if (source.IsLocal)
+                {
+                    var captured = await workspace.SnapshotAsync(ct);
+                    if (!captured.IsSuccess) return Error(format, captured.Error.Message);
+                    source = captured.Value.Mappings.FirstOrDefault(mapping => mapping.Local == source)?.Remote ?? source;
+                }
                 if (source.IsLocal || !source.BelongsTo(workspace.Connection))
                     return Error(format, "Select a published native item or pass --id. Unpublished links belong to seed link.");
             }

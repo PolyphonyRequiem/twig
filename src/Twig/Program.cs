@@ -1041,7 +1041,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="targetId">Work item ID to set as the parent.</param>
     /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
     /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
-    /// <param name="id">Explicit positive child ID; machine output needs --id or --child.</param>
+    /// <param name="id">Explicit positive child ID; required for all machine output, even when --child is supplied.</param>
     /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link parent")]
     public async Task<int> LinkParent([Argument] int targetId, [Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -1050,7 +1050,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Remove the one observed native parent through a verified Core proposal.</summary>
     /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
     /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
-    /// <param name="id">Explicit positive child ID; machine output needs --id or --child.</param>
+    /// <param name="id">Explicit positive child ID; required for all machine output, even when --child is supplied.</param>
     /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link unparent")]
     public async Task<int> LinkUnparent([Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -1060,7 +1060,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="targetId">Work item ID to set as the new parent.</param>
     /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
     /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
-    /// <param name="id">Explicit positive child ID; machine output needs --id or --child.</param>
+    /// <param name="id">Explicit positive child ID; required for all machine output, even when --child is supplied.</param>
     /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link reparent")]
     public async Task<int> LinkReparent([Argument] int targetId, [Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

@@ -335,10 +335,19 @@ use the existing workspace/provider journal workflow. Mirror refresh preserves
 local edges and tombstones. A duplicate add refuses rather than claiming new
 verification; partial and indeterminate effects fence both endpoints under new
 digests without replay. Invalid/self/conflicting targets refuse with usage exit 2;
-machine invocations need an explicit `--id`/`--child` option. Human ambient selection uses only
-the bound Core host context. All JSON aliases emit one document; bare IDs refuse
+machine invocations need an explicit `--id` option. Human ambient selection uses only
+the bound Core host context, resolving an original local UUID through its permanent
+store mapping after publication without rewriting UUID history or creation intent.
+Unmapped/unknown seeds still refuse; the shared proposal path retains authority
+over partial/unknown native endpoint fences. All JSON aliases emit one document; bare IDs refuse
 because they discard journal evidence. Optional telemetry contains static safe
 command metadata, never endpoints or native references.
+
+Correction to the earlier `c3446544` qualification: accepting `--child` alone
+for machine writes was incorrect. Every non-human mutation requires `--id`;
+`--child` and the positional child are human conveniences or matching cross-checks,
+never alternative machine authorization. Missing machine `--id` refuses with
+usage exit 2 before HTTP, including for a valid `--child`.
 
 `link reparent` remains an explicit, pre-HTTP **unsupported gap**: the existing
 typed effect cannot express a safe single-request replacement. The old remove-

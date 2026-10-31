@@ -38,10 +38,15 @@ local relationship store; they never write or translate the edge to a provider.
 - **Published-item targeting.** These verbs operate on the active work item by default. Pass
   `--id <n>` — or, for the hierarchy verbs, the optional second positional
   argument / `--child` — to target a specific item without changing active context.
-  Non-human output requires `--id` or `--child`; a positional child alone is
-  retained for human use only. Conflicting child/ID values and
+  Every non-human output requires **`--id`**. A positional child or `--child`
+  alone is human convenience, not machine authorization. With `--id`, either
+  child form is an optional cross-check and must match. Conflicting child/ID values and
   nonpositive/self targets refuse with usage exit `2` before HTTP. Unpublished
   seeds remain under `seed link`; native links never publish or rewrite local UUIDs.
+  Human selection can retain an original seed UUID after publication: the command
+  resolves its permanent store mapping to the native item without changing history
+  or retained creation proposals. Unmapped/unknown seeds still refuse, and mapped
+  endpoints remain subject to the same partial/unknown proposal fences.
 - **Local targeting.** `link local` requires explicit canonical local GUIDv7
   identities. Creating a link requires both local items to exist and be live;
   reading or removing an existing edge does not resolve a provider identity.

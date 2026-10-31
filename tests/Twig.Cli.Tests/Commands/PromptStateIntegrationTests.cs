@@ -222,35 +222,6 @@ public class PromptStateIntegrationTests : IDisposable
         root.GetProperty("id").GetInt32().ShouldBe(88);
     }
 
-    // ── (j) twig update writes prompt.json after field update ──────────
-
-    [Fact]
-    public async Task UpdateCommand_WritesPromptJson_AfterFieldUpdate()
-    {
-        var item = CreateWorkItem(33, "Update target", state: "Active");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(33);
-        _workItemRepo.GetByIdAsync(33, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchAsync(33, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.PatchAsync(33, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-
-        var writer = CreateWriter();
-        var updateResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var fieldUpdateWorkflow = new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(
-            _workItemRepo, _writer, _pendingChangeStore, writer);
-        var cmd = new UpdateCommand(updateResolver, _workItemRepo, _writer,
-            _consoleInput, _fieldDefinitionStore, _formatterFactory,
-            new SeedMutationProvider(_workItemRepo), fieldUpdateWorkflow, _pendingChangeStore,
-            promptStateWriter: writer);
-
-        var result = await cmd.ExecuteAsync("System.Title", "New Title");
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeTrue();
-        var root = ReadPromptJson();
-        root.GetProperty("id").GetInt32().ShouldBe(33);
-    }
-
     // ── (k) twig refresh writes prompt.json ────────────────────────────
 
     [Fact]

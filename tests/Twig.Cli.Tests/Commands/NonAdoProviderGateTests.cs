@@ -644,7 +644,6 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     /// path — refuses at resolution with no HTTP. GitHub writes stay unsupported.
     /// </summary>
     [Theory]
-    [InlineData(typeof(UpdateCommand))]
     [InlineData(typeof(EditCommand))]
     [InlineData(typeof(BatchCommand))]
     [InlineData(typeof(LinkCommand))]

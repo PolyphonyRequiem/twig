@@ -1249,13 +1249,23 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
         services.AddTwigWorkspaceServices(paths.StartDir, ["save", "--all", "-o", "json"]);
+        File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
+        services.ShouldNotContain(service => service.ServiceType == typeof(IProviderWorkItemWriter)
+            || service.ServiceType == typeof(IPendingChangeStore) || service.ServiceType == typeof(IPendingChangeFlusher));
         using var root = services.BuildServiceProvider();
         root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+        root.GetService<IPendingChangeStore>().ShouldBeNull();
+        foreach (var deleted in new[] { "UpdateCommand", "SaveCommand", "DiscardCommand" })
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands." + deleted).ShouldBeNull(
+                "remaining legacy CLI ownership must be deleted, not merely bypassed");
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
         (await admitted.Workspace.StageEditAsync(key,
             new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Explicit saved draft"))]), default)).IsSuccess.ShouldBeTrue();
         (await store.ReadAsync(connection, default)).Value.Drafts.ShouldHaveSingleItem();
+        var seed = (await admitted.Workspace.StageSeedAsync("Fixture.Task",
+            new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Preserved local draft"))]), default)).Value;
         var originalOut = Console.Out;
         var originalError = Console.Error;
         using var stdout = new StringWriter();
@@ -1264,10 +1274,42 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         {
             Console.SetOut(stdout);
             Console.SetError(stderr);
-            (await new TwigCommands(root).Save(all: true, output: "json")).ShouldBe(0, stderr.ToString());
+            int Run(params string[] args)
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                return Twig.TwigConsoleApp.Run(args, registration =>
+                {
+                    registration.AddSingleton<IConnectionBindingService>(_bindings);
+                    registration.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+                    registration.AddTwigWorkspaceServices(paths.StartDir, args);
+                });
+            }
+            Run("save", "--all", "--output", "json").ShouldBe(0, stderr.ToString());
             var saved = (await store.ReadAsync(connection, default)).Value;
-            saved.Drafts.ShouldBeEmpty();
+            saved.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
+            saved.Drafts.Single().Changes.ShouldBe(seed.Changes);
             saved.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            using (var result = JsonDocument.Parse(stdout.ToString()))
+                saved.Proposals.Single().Digest.ShouldBe(result.RootElement.GetProperty("digest").GetString());
+            saved.Items.Single().Fields["System.Title"].Text.ShouldBe("Explicit saved draft");
+            _transport.TitleOf(42).ShouldBe("Explicit saved draft");
+            _transport.CommittedWrites.ShouldBe(1);
+            (await admitted.Workspace.StageEditAsync(key,
+                new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Never publish discarded draft"))]), default))
+                .IsSuccess.ShouldBeTrue();
+            var beforeDiscard = (await store.ReadAsync(connection, default)).Value;
+            beforeDiscard.Drafts.Length.ShouldBe(2);
+            var requests = _transport.TotalRequests;
+            Run("discard", "42", "--yes", "-o", "json").ShouldBe(0, stderr.ToString());
+            var discarded = (await store.ReadAsync(connection, default)).Value;
+            discarded.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
+            discarded.Drafts.Single().Changes.ShouldBe(seed.Changes);
+            discarded.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            discarded.Journal.Single().Digest.ShouldBe(saved.Journal.Single().Digest);
+            discarded.Proposals.Single().Digest.ShouldBe(saved.Proposals.Single().Digest);
+            _transport.TotalRequests.ShouldBe(requests, "discard is a local CAS, not a native refresh or publication");
+            _transport.TitleOf(42).ShouldBe("Explicit saved draft");
             _transport.CommittedWrites.ShouldBe(1);
         }
         finally
@@ -1366,7 +1408,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var legacy = await AttachAsync();
         var paths = legacy.GetRequiredService<TwigPaths>();
         var requests = _transport.WorkRequests;
-        foreach (var verb in new[] { "update", "state", "note", "patch" })
+        foreach (var verb in new[] { "update", "state", "note", "patch", "save", "discard" })
         {
             var services = new ServiceCollection();
             services.AddSingleton<IConnectionBindingService>(_bindings);
@@ -1427,7 +1469,8 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
             root.GetService<IAdoWorkItemService>().ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
-            foreach (var deleted in new[] { "StateCommand", "NoteCommand", "PatchCommand" })
+            root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+            foreach (var deleted in new[] { "StateCommand", "NoteCommand", "PatchCommand", "UpdateCommand", "SaveCommand", "DiscardCommand" })
                 typeof(TwigCommands).Assembly.GetType("Twig.Commands." + deleted).ShouldBeNull(
                     "the old command ownership must be absent, not merely unregistered in this graph");
             int Run(params string[] args) => Twig.TwigConsoleApp.Run(args, registration =>
@@ -1506,7 +1549,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             var seed = (await workspace.StageSeedAsync("Fixture.Task",
                 new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Unpublished separate seed"))]), default)).Value;
             stdout.GetStringBuilder().Clear();
-            (await show.Save(all: true, output: "json")).ShouldBe(0, stderr.ToString());
+            Run("save", "--all", "--output", "json").ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(9);
             var saved = (await store.ReadAsync(connection, default)).Value;
             saved.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
@@ -1535,10 +1578,12 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Later local intent"))]), default)).IsSuccess.ShouldBeTrue();
             (await workspace.DiscardDraftsAsync(captured, beforeDiscard.Version, default)).IsSuccess.ShouldBeFalse();
             stdout.GetStringBuilder().Clear();
-            (await show.Discard(42, yes: false, output: "json")).ShouldBe(2);
+            var requestsBeforeDiscard = _transport.TotalRequests;
+            Run("discard", "42", "-o", "json").ShouldBe(2);
             (await store.ReadAsync(connection, default)).Value.Drafts.Length.ShouldBe(2);
             stdout.GetStringBuilder().Clear();
-            (await show.Discard(42, yes: true, output: "json")).ShouldBe(0, stderr.ToString());
+            Run("discard", "42", "--yes", "-o", "json").ShouldBe(0, stderr.ToString());
+            _transport.TotalRequests.ShouldBe(requestsBeforeDiscard);
             (await store.ReadAsync(connection, default)).Value.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
             var readsBeforeDelete = _transport.WorkRequests;
             (await show.Delete(42, force: true, output: "json")).ShouldBe(1);

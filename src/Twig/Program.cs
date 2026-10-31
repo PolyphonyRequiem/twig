@@ -727,22 +727,22 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> New([Argument] string? typeArg = null, [Argument] string? titleArg = null, string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, string? descriptionFile = null, bool descriptionStdin = false, CancellationToken ct = default)
         => await services.GetRequiredService<NewCommand>().ExecuteAsync(title ?? titleArg, type ?? typeArg, area, iteration, description, parent, set, editor, format, field, output, descriptionFile, descriptionStdin, ct);
 
-    /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
+    /// <summary>Display a targeted work item tree (hidden alias). The legacy --all workspace layout is unsupported.</summary>
     /// <param name="idArg">Positional work item ID; required for structured output unless --id or --all is supplied.</param>
     /// <param name="id">Explicit work item ID; conflicting positional and named IDs are refused.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
-    /// <param name="all">When set, routes to workspace --tree showing all team items as hierarchy.</param>
+    /// <param name="all">Unsupported legacy workspace layout; refuses before HTTP.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     [Hidden]
     public async Task<int> Tree([Argument] int? idArg = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, int? id = null)
     {
+        if (all)
+            return await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, refresh, ct, tree: true);
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.TreeAsync(id ?? idArg, all, depth, refresh, output, ct);
-        return all
-            ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, refresh, ct, tree: true)
-            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id ?? idArg, output, tree: true, refresh, ct, depth, noLive);
+        return await services.GetRequiredService<ShowCommand>().ExecuteAsync(id ?? idArg, output, tree: true, refresh, ct, depth, noLive);
     }
 
     /// <summary>Render an arbitrary working set of work items as a forest of annotated trees.</summary>
@@ -1280,39 +1280,41 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Refresh(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await Sync(output, pullOnly: true, ct);
 
-    /// <summary>Show the current workspace.</summary>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="all">Show all team members' items, not just yours.</param>
-    /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
-    /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
-    /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
-    /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
-    /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
-    /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
-    /// <param name="bench">Explicit saved Bench name or stable ID; requires --include-browser --browser-version 2 --view tree -o json. No refresh or alternate layouts.</param>
-    /// <param name="browserVersion">Semantic contract version: unset preserves v1; 2 requires --include-browser and --bench. Other values are refused.</param>
-    /// <param name="expectBench">Optional expected explicit Bench ID; only valid with --bench and --browser-version 2. Never selects the current Bench.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench);
+    /// <summary>Read cached Core Bench membership and all protected drafts as a static table. Acquires provider schema metadata.</summary>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal, ids.</param>
+    /// <param name="all">Unsupported legacy team layout; refused before HTTP.</param>
+    /// <param name="noLive">Compatibility flag; output is always static.</param>
+    /// <param name="refresh">Explicitly pull the current Bench through Core before rendering; never publishes drafts or adds active context.</param>
+    /// <param name="flat">Compatibility flag for the static table.</param>
+    /// <param name="tree">Unsupported full-backlog layout; use targeted show --tree instead.</param>
+    /// <param name="view">Optional table; tree and other views are unsupported.</param>
+    /// <param name="includeBrowser">Unsupported legacy browser envelope; refused before HTTP.</param>
+    /// <param name="expectBinding">Unsupported captured browser binding flag; refused before HTTP.</param>
+    /// <param name="expectIdentity">Unsupported captured browser identity flag; refused before HTTP.</param>
+    /// <param name="bench">Existing saved Bench name or GUID; never changes the current selection. Refresh requires this Bench to be current.</param>
+    /// <param name="browserVersion">Unsupported legacy browser contract; refused before HTTP.</param>
+    /// <param name="expectBench">Optional canonical GUID guard on the resolved current or named Bench, checked before refresh or schema HTTP.</param>
+    /// <param name="expectSettings">Unsupported captured browser settings flag; refused before HTTP.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default, string? expectSettings = null)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench, expectSettings: expectSettings);
 
-    /// <summary>Show the current workspace (short alias).</summary>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="all">Show all team members' items, not just yours.</param>
-    /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
-    /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
-    /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
-    /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
-    /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
-    /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
-    /// <param name="bench">Explicit saved Bench name or stable ID; requires --include-browser --browser-version 2 --view tree -o json. No refresh or alternate layouts.</param>
-    /// <param name="browserVersion">Semantic contract version: unset preserves v1; 2 requires --include-browser and --bench. Other values are refused.</param>
-    /// <param name="expectBench">Optional expected explicit Bench ID; only valid with --bench and --browser-version 2. Never selects the current Bench.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench);
+    /// <summary>Read the static cached Core Bench workspace (short alias); acquires provider schema metadata.</summary>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal, ids.</param>
+    /// <param name="all">Unsupported legacy team layout; refused before HTTP.</param>
+    /// <param name="noLive">Compatibility flag; output is always static.</param>
+    /// <param name="refresh">Pull only the current Bench, without publishing drafts or adding active context.</param>
+    /// <param name="flat">Compatibility flag for the static table.</param>
+    /// <param name="tree">Unsupported full-backlog layout.</param>
+    /// <param name="view">Optional table; other views are unsupported.</param>
+    /// <param name="includeBrowser">Unsupported legacy browser envelope.</param>
+    /// <param name="expectBinding">Unsupported captured browser binding flag.</param>
+    /// <param name="expectIdentity">Unsupported captured browser identity flag.</param>
+    /// <param name="bench">Existing Bench name or GUID; never changes selection. Refresh requires this Bench to be current.</param>
+    /// <param name="browserVersion">Unsupported legacy browser contract.</param>
+    /// <param name="expectBench">Optional canonical GUID guard on the resolved Bench, checked before refresh or schema HTTP.</param>
+    /// <param name="expectSettings">Unsupported captured browser settings flag; refused before HTTP.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default, string? expectSettings = null)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench, expectSettings: expectSettings);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
@@ -1758,7 +1760,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         return await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
     }
 
-    /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
+    /// <summary>Unsupported legacy sprint layout. Use workspace for static Core Bench membership.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>

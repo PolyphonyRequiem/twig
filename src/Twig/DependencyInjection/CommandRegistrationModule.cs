@@ -194,21 +194,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<DraftEditingCommand>(sp => new DraftEditingCommand(
             sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<RecoverableDraftEditingModule>()));
         services.AddSingleton<BenchAreaCandidatesCommand>();
-        services.AddSingleton<WorkspaceCommand>(sp => new WorkspaceCommand(
-            sp.GetRequiredService<CommandContext>(), sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(), sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<IProcessTypeStore>(), sp.GetRequiredService<IFieldDefinitionStore>(),
-            sp.GetRequiredService<ActiveItemResolver>(), sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<ITrackingService>(), sp.GetRequiredService<ISprintHierarchyBuilder>(),
-            sp.GetRequiredService<SprintIterationResolver>(), sp.GetService<TreeRenderingService>(),
-            sp.GetService<SyncCoordinatorFactory>(), sp.GetService<Twig.Rendering.RendererFactory>(),
-            sp.GetRequiredService<CurrentBenchResolver>(), sp.GetRequiredService<BenchEvaluator>(),
-            sp.GetRequiredService<IAuthenticationProvider>())
-        {
-            ResolveBrowserBindingAsync = ct => sp.GetRequiredService<IConnectionBindingService>().ResolveAsync(
-                sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(), ct),
-            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
-        });
+        services.AddSingleton<WorkspaceCommand>();
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<MigrateConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();

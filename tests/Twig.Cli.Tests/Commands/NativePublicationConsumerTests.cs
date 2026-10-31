@@ -29,7 +29,7 @@ using Twig.Infrastructure.Services;
 namespace Twig.Cli.Tests.Commands;
 
 /// <summary>Native receipts over real attached stores and independently maintained, principal-private remote state.</summary>
-public sealed class NativePublicationConsumerTests : IAsyncLifetime
+public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
 {
     private const string Actor = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     private const string Sibling = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";

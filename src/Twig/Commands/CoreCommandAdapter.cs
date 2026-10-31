@@ -7,6 +7,7 @@ using Twig.Infrastructure.Content;
 using Twig.Infrastructure.Services;
 using Twig.RenderTree;
 using Twig.Rendering;
+using static Twig.Infrastructure.Services.CoreHostContext;
 
 namespace Twig.Commands;
 
@@ -1296,18 +1297,6 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
-    private static IEnumerable<ItemKey> KnownLocalKeys(StoreSnapshot snapshot)
-        => snapshot.Drafts.Select(draft => draft.Key).Concat(snapshot.Mappings.Select(mapping => mapping.Local))
-            .Concat(snapshot.Drafts.SelectMany(draft => draft.Links.Select(link => link.Other)
-                .Concat(draft.Parent is null ? [] : new[] { draft.Parent })))
-            .Concat(snapshot.Proposals.SelectMany(proposal => proposal.Operations)
-                .SelectMany(op => op.Links.Select(link => link.Other).Prepend(op.Item)
-                    .Concat(op.Other is null ? [] : new[] { op.Other })))
-            .Concat(snapshot.Relationships.SelectMany(edge => new[] { edge.From, edge.To }))
-            .Concat(snapshot.Benches.SelectMany(bench => bench.Selectors).Where(selector => selector.Item is not null)
-                .Select(selector => selector.Item!))
-            .Where(key => key.IsLocal).Distinct();
-
     internal async Task<int> SeedLinkAsync(int sourceId, int targetId, string? type, bool remove, string output, CancellationToken ct)
     {
         if (sourceId == 0 || targetId == 0 || sourceId == targetId || sourceId > 0 && targetId > 0)
@@ -1417,13 +1406,6 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             [new("links", new RenderNode.Table(null, [new("sourceId", "Source"), new("targetId", "Target"), new("linkType", "Type")], rows)),
                 new("count", new RenderNode.KeyValue("count", RenderCell.Integer(rows.Count)))])]));
         return 0;
-    }
-
-    private static int LocalAlias(ItemKey key)
-    {
-        var bytes = System.Security.Cryptography.SHA256.HashData(key.LocalId.ToByteArray());
-        var value = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(bytes) & int.MaxValue;
-        return value == 0 ? int.MinValue : -value;
     }
 
     internal async Task<int> ShowBatchAsync(string batch, string output, string? fields, string? sections,
@@ -2206,7 +2188,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return proposal.Value;
     }
 
-    private static RenderCell Cell(FieldValue value) => value.Kind switch
+    internal static RenderCell Cell(FieldValue value) => value.Kind switch
     {
         FieldKind.Null => new("<unset>", new RenderValue.Null()),
         FieldKind.Integer => RenderCell.Integer(decimal.ToInt64(value.Number)),

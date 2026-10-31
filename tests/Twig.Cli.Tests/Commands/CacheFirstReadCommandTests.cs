@@ -283,40 +283,6 @@ public class CacheFirstReadCommandTests
         await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
     }
 
-    // ── WorkspaceCommand auto-fetch on cache miss ──────────────────
-
-    [Fact]
-    public async Task WorkspaceCommand_ActiveItemCacheMiss_AutoFetches()
-    {
-        var item = CreateWorkItem(1, "Auto-Fetched WS Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-
-        var iterationService = Substitute.For<IIterationService>();
-                iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
-        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var processTypeStore = Substitute.For<IProcessTypeStore>();
-        var fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
-        var config = new TwigConfiguration();
-        var wsCtx = new CommandContext(
-            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
-            _formatterFactory, _hintEngine, config);
-        var cmd = new WorkspaceCommand(wsCtx, _contextStore, _workItemRepo, iterationService,
-            processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
-            new SprintIterationResolver(iterationService, _workItemRepo));
-        var result = await cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        await _adoService.Received(1).FetchAsync(1, Arg.Any<CancellationToken>());
-    }
-
     // ── Non-TTY / piped output ─────────────────────────────────────
 
     [Fact]

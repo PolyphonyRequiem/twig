@@ -350,14 +350,9 @@ internal static class CommandExamples
         ],
         ["workspace"] =
         [
-            "twig workspace                 Show the current Bench as a tree",
-            "twig workspace --view table   Show the current Bench as a table",
-            "twig workspace --view tree    Explicitly show the current Bench as a hierarchy",
-            "twig workspace --view tree -o json --include-browser  Read semantic nodes and captured Bench/connection identity",
-            "twig workspace --bench Focused --include-browser --browser-version 2 --view tree -o json  Cache-only explicit Bench read; no refresh/alternate layouts",
-            "twig workspace --bench 7 --expect-bench 7 --include-browser --browser-version 2 --view tree -o json  Refuse a changed target; --expect-* requires browser mode",
-            "twig workspace --tree         Show the full backlog hierarchy",
-            "twig workspace --all --tree  Show all team items as a tree hierarchy",
+            "twig workspace                 Read cached current Bench items and all protected drafts as a static table",
+            "twig workspace --bench Focused -o json  Read an existing Bench without changing selection; acquires schema metadata",
+            "twig workspace --expect-bench <bench-guid> --refresh -o ids  Guard and pull only the current Bench; never publish drafts",
         ],
         ["workspace migrate"] =
         [
@@ -548,8 +543,8 @@ internal static class CommandExamples
         ],
         ["sprint"] =
         [
-            "twig sprint                Show the current sprint summary",
-            "twig sprint --output json  Output sprint info as JSON",
+            "twig workspace             Static Core Bench read replaces the unsupported legacy sprint layout",
+            "twig workspace --bench Focused -o json  Read a named scope without switching selection",
         ],
         ["config"] =
         [

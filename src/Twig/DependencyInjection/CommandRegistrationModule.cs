@@ -81,7 +81,6 @@ public static class CommandRegistrationModule
             sp.GetService<ITelemetryClient>(),
             sp.GetService<TextWriter>(),
             sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>()));
-        services.AddSingleton<StateCommand>();
         services.AddSingleton<ProviderSyncCommand>();
         services.AddSingleton<TreeRenderingService>(sp => new TreeRenderingService(
             sp.GetRequiredService<CommandContext>(),
@@ -162,9 +161,7 @@ public static class CommandRegistrationModule
             sp.GetService<IAdoGitService>()));
         services.AddSingleton<SeedLinkRepairCommand>();
         services.AddSingleton<WebCommand>();
-        services.AddSingleton<NoteCommand>();
         services.AddSingleton<UpdateCommand>();
-        services.AddSingleton<PatchCommand>();
         services.AddSingleton<EditCommand>();
 
         services.AddSingleton<RefreshCommand>();

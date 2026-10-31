@@ -41,6 +41,8 @@ internal static class WorkspaceRegistrationModule
                 sp.GetRequiredService<Twig.Domain.Interfaces.IConsoleInput>(),
                 sp.GetRequiredService<Twig.Domain.Interfaces.IEditorLauncher>(),
                 sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>()));
+            services.AddSingleton<ProcessCommand>();
+            services.AddSingleton<ProcessDescriptionCommand>();
             return services;
         }
         services.AddConnectionServices(config, twigDir, startDir);

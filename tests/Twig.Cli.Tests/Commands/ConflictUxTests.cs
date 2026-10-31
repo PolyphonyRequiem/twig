@@ -32,10 +32,8 @@ public class ConflictUxTests
     private readonly IProviderWorkItemWriter _writer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
-    private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly CommandContext _ctx;
     private readonly Domain.Services.Navigation.ActiveItemResolver _resolver;
 
     public ConflictUxTests()
@@ -46,109 +44,12 @@ public class ConflictUxTests
         _writer = AdoWriterFixture.Wrap(_adoService);
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
-        _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
         _fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((Twig.Domain.ValueObjects.FieldDefinition?)null);
 
-        _processConfigProvider.GetConfiguration()
-            .Returns(ProcessConfigBuilder.Agile());
-
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
-        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-        _ctx = new CommandContext(
-            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
-            _formatterFactory,
-            hintEngine,
-            new TwigConfiguration());
         _resolver = new Domain.Services.Navigation.ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-    }
-
-    [Fact]
-    public async Task State_Conflict_KeepLocal_Proceeds()
-    {
-        var local = CreateWorkItem(1, "Test", "New");
-        var remote = CreateWorkItem(1, "Test", "Active");
-        remote.MarkSynced(5); // Different revision
-
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(6);
-        // 0004 slice 3: a conflict needs BOTH sides off the base. Stage the local State edit
-        // so remote's move to "Active" genuinely collides instead of auto-merging.
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.State", "New", "Resolved") });
-
-        _consoleInput.ReadLine().Returns("l"); // keep local
-
-        var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _writer,
-            _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
-            _pendingChangeStore);
-
-        var result = await cmd.ExecuteAsync("c"); // c = Active
-
-        result.ShouldBe(0);
-        await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task State_Conflict_KeepRemote_UpdatesCache()
-    {
-        var local = CreateWorkItem(1, "Test", "New");
-        var remote = CreateWorkItem(1, "Test", "Active");
-        remote.MarkSynced(5);
-
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        // 0004 slice 3: a conflict needs BOTH sides off the base. Stage the local State edit
-        // so remote's move to "Active" genuinely collides instead of auto-merging.
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.State", "New", "Resolved") });
-
-        _consoleInput.ReadLine().Returns("r"); // keep remote
-
-        var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _writer,
-            _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
-            _pendingChangeStore);
-
-        var result = await cmd.ExecuteAsync("c"); // c = Active
-
-        result.ShouldBe(0);
-        // I-005/I-006: 'r' discards the local action — PatchAsync should NOT be called
-        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _workItemRepo.Received().SaveAsync(remote, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task State_Conflict_Abort_NoChange()
-    {
-        var local = CreateWorkItem(1, "Test", "New");
-        var remote = CreateWorkItem(1, "Test", "Active");
-        remote.MarkSynced(5);
-
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        // 0004 slice 3: a conflict needs BOTH sides off the base.
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.State", "New", "Resolved") });
-
-        _consoleInput.ReadLine().Returns("a"); // abort
-
-        var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _writer,
-            _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _writer, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance, revisionBound: CreateRevisionBoundSource()),
-            _pendingChangeStore);
-
-        var result = await cmd.ExecuteAsync("c");
-
-        result.ShouldBe(0);
-        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -213,21 +114,6 @@ public class ConflictUxTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);
         _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
-    }
-
-    private IRevisionBoundAdoWorkItemService CreateRevisionBoundSource()
-    {
-        var source = Substitute.For<IRevisionBoundAdoWorkItemService>();
-        source.FetchAtRevisionAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(async call =>
-            {
-                var id = call.ArgAt<int>(0);
-                var revision = call.ArgAt<int>(1);
-                var item = await _workItemRepo.GetByIdAsync(id, call.ArgAt<CancellationToken>(2))
-                    ?? throw new InvalidOperationException($"No cached fixture item for #{id}.");
-                return new WorkItemMapper().ToSnapshot(item) with { Revision = revision };
-            });
-        return source;
     }
 
     private static WorkItem CreateWorkItem(int id, string title, string state)

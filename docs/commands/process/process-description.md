@@ -1,166 +1,65 @@
 ---
 command: process description
 group: process
-summary: Write a byte-stable structural description of the process, for diffing against another.
+summary: Describe the admitted Core schema with explicit scope and gaps.
 stability: stable
 mutates: none
 ---
 
 # `twig process description`
 
-Assembles a structured document that describes the workspace's ADO process —
-types, states, fields, rules, behaviour membership, form layouts, picklist
-constraints, conditional requiredness — into a byte-stable rendering that
-ordinary diff tools can compare against another project's document. Every
-element of the description is discovered from the live process via
-`ProcessDescriptionAssembler`; the command itself resolves the type argument
-and the output target and decides nothing about the document
-(`src/Twig/Commands/ProcessDescriptionCommand.cs:15-27`).
-
-Byte stability matters: two runs against the same process must produce
-identical bytes so the diff is meaningful, and the timestamp used in the
-header is injected via `TimeProvider` for tests to hold fixed
-(`src/Twig/Commands/ProcessDescriptionCommand.cs:135-138`).
-
-## Synopsis
+Project the same admitted provider-discovered schema used by `twig process`.
+This is **`core-schema-1`**, scope **`provider-discovered-core-schema`**, not the
+legacy complete process descriptor 0.1. Consumers must select the version/scope
+explicitly rather than assuming old layout or behavior completeness.
 
 ```
-twig process description [<type>] [--out <path>] [-o|--output <format>]
+twig process description [<type>] [-o human|json|minimal] [--out <path>]
+twig process description <type> --sections fields,requirements [--fields <refs>] -o json
 ```
 
-## Arguments
+Omit the type for all types, including hidden types. Canonical type references
+are preferred; unambiguous provider-supplied native display names are accepted.
+JSON aliases `json-full` and `json-compact` also carry the complete selected Core
+projection. Human/minimal renderings are for inspection, not typed interchange.
 
-|Argument|Required|Description|
-|---|---|---|
-|`type`|no|Work item type **reference name** (e.g. `Niflheim.Grilling`); the display name is accepted too, matching `twig process layout`. Omit to describe every type in the process (`src/Twig/Commands/ProcessDescriptionCommand.cs:99-102`).|
+The document carries `descriptorVersion`, `scope`, `schemaFingerprint`,
+`knownGaps` and `types`. Each type has discovered states, exact transition edges,
+fields and rules. Rule rows preserve the target `field`, `action`, `conditions`,
+typed `values` and `disabled` flag. Each condition retains `kind`, `field` and its
+typed `value`; an absent operand differs from a typed Null. Provider gaps are
+retained, including unsupported native rules, rather than represented as completeness.
+Rules are evidence, not an item-specific gate evaluation or permission to transition.
 
-## Flags
+Native form layout, colors, category membership, general display-name metadata
+and behavior metadata are outside this projection and explicitly disclosed as gaps.
+There is no invented empty layout or external-automation guarantee.
 
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`--out`|`string?`|`null`|Write the rendered description to this file instead of stdout. Directory is created if needed. Writes go via a `.tmp-<random>` scratch file and atomically move into place so a mid-render crash never leaves a truncated document at the target path (`src/Twig/Commands/ProcessDescriptionCommand.cs:187-219`).|
-|`-o`, `--output`|`string`|`human`|Output format. **Only `json` (and aliases `json-full`, `json-compact`) produces the complete document**; every other format renders an abridged summary and self-declares the abridgement in its banner. `-o ids` is refused explicitly (`src/Twig/Commands/ProcessDescriptionCommand.cs:78-125`).|
-|`--sections`|`string?`|`null`|Opt-in compact JSON: `fields`, `requirements`, or both. Requires an explicit type and JSON output.|
-|`--fields`|`string?`|`null`|Comma-separated reference-name filter within selected compact sections. Requires `--sections`.|
+`--sections fields` selects field definitions; `requirements` selects rule rows.
+States and transitions remain available in either compact projection. `--fields`
+filters field definitions and rule **targets**, not their condition operands.
+Unknown sections/fields refuse instead of silently omitting requested evidence.
+Compact requests require an explicit type and a JSON format.
 
-## Behavior
-
-The command delegates the document to `ProcessDescriptionAssembler.AssembleAsync`,
-which returns one of four outcomes, matched exhaustively so each arm gets its
-own remedy (`src/Twig/Commands/ProcessDescriptionCommand.cs:127-177`):
-
-- `ProcessDescriptionAssembled` — the document is projected via
-  `ProcessDescriptionDocument.BuildTree` and rendered.
-- `ProcessDescriptionTypeNotFound` — the named type does not exist in this
-  process. Exit 1, hard error, no partial file: a script that banked "this
-  process has nothing" when the truth was "you asked for something that is
-  not here" would be worse than a failure
-  (`src/Twig/Commands/ProcessDescriptionCommand.cs:148-154`).
-- `ProcessIdentityUnresolved` — the workspace's project has no process at
-  all. A configuration problem; the message says so, and does not suggest
-  retrying (`src/Twig/Commands/ProcessDescriptionCommand.cs:156-162`).
-- `ProcessTypesUnfetchable` — transient or auth failure fetching the type
-  list. Exit 1; the message specifically suggests retrying or checking
-  `twig auth` — the opposite advice from the arm above, which is the whole
-  reason these are two arms (`src/Twig/Commands/ProcessDescriptionCommand.cs:164-172`).
-
-The projection lives in the domain layer (`ProcessDescriptionDocument`) so
-the MCP surface emits the same bytes as the CLI; the completeness decision
-stays here because it is a function of `-o`, which only the CLI has
-(`src/Twig/Commands/ProcessDescriptionCommand.cs:240-256`).
-
-`-o ids` is rejected up front: that renderer emits only integer-valued `id`
-cells, and a process description carries no numeric ids at all, so it would
-produce an empty file with a zero exit code and no notice
-(`src/Twig/Commands/ProcessDescriptionCommand.cs:113-125`).
-
-Without projection flags, `-o json`, `-o json-full`, and `-o json-compact` all
-produce the complete document and share a JSON renderer.
-
-### Compact type requirements
-
-`twig process description <type-reference> -o json --sections requirements`
-returns states, required-field rows and raw rules from the same assembled
-description, without layout or unrelated fields. `--sections fields --fields
-System.Title,System.State` selects field constraints instead. Connection/process
-identity, capture time, descriptor/compact versions, section coverage, warnings
-and a named full-read route remain in the response.
-
-Rules are not evaluated against an item. A known server default is distinguished
-from unknown supply; missing defaults do not imply that the caller must supply a
-field. Raw rule actions remain available, and all conditions (including unsupported
-ones) are explicitly unevaluated. Field filters never truncate the rules or their
-warnings. This view does not authorize a transition.
-
-No new metadata cache is created. Each invocation reassembles the live description;
-reuse is scoped to its connection/process/capture/completeness, not a fabricated
-server-wide revision. Rerun before relying on current requirements.
-
-Descriptor version is currently **0.1** (`under design`), and known gaps are
-declared positively — `KnownGaps` is emitted even when empty, so a future
-non-empty list reads as meaningful rather than as a suddenly-appearing
-warning (`src/Twig/Commands/ProcessDescriptionCommand.cs:28-44`).
-
-Unlike `twig process` and `twig process layout`, this command does **not**
-take `--org`/`--project`; it operates on the current workspace's process
-only.
-
-Read-only: no ADO mutations. Local writes are limited to the optional `--out`
-target (and its scratch sibling, which is deleted on the failure paths).
-
-## Examples
-
-### Summarise this project's process to the terminal
+For example:
 
 ```
-$ twig process description
-process description — abridged summary (descriptor 0.1)
-use -o json for the complete document (12 types, 84 fields, 3 behaviours).
+twig process description -o json --out process-schema.json
+twig process description Custom.Work --sections requirements --fields Custom.Evidence -o json
 ```
 
-The abridged banner names `json` explicitly — the same constant the
-completeness test asserts against, so the banner cannot ever name a format
-that does not produce the complete document
-(`src/Twig/Commands/ProcessDescriptionCommand.cs:60-76`).
+Substitute actual discovered references. `--out` renders completely before
+atomically replacing the file; a failed metadata read preserves an existing file.
+No capture timestamp is added, so unchanged discovered evidence can be diffed.
+No work-item queries, sync, mutation flushing or ADO writes occur.
 
-### Capture the complete document for diffing
-
-```
-$ twig process description -o json --out proc-a.json
-Wrote process description (12 type(s), descriptor 0.1) to proc-a.json
-```
-
-Then repeat on the other project and run any structural diff:
-
-```
-$ twig process description -o json --out proc-b.json
-$ diff proc-a.json proc-b.json
-```
-
-### Describe one type by its reference name
-
-```
-$ twig process description Niflheim.Grilling -o json --out grilling.json
-```
-
-The reference name is preferred; display names are accepted for symmetry with
-`twig process layout` (`src/Twig/Commands/ProcessDescriptionCommand.cs:99-102`).
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|`-o ids` requested.|Exit `1`; stderr `'-o ids' cannot render a process description: the document contains no numeric ids. Use '-o json' for the complete document.`|
-|Named type does not exist in this process.|Exit `1`; stderr `Work item type '<ref>' does not exist in this process. Run 'twig process' to list types.` No partial file.|
-|Workspace project has no ADO process.|Exit `1`; stderr configuration message, no retry hint.|
-|Type list route did not answer (transient / auth).|Exit `1`; stderr retry message pointing at `twig auth`.|
-|`--out` path cannot be written.|Exit `1`; stderr `Could not write '<path>': <detail>`. Scratch file is cleaned up.|
-|Assembler returns a description.|Exit `0`; document printed to stdout or written to `--out` (atomically).|
+The command requires an explicitly initialized, pinned Core workspace and has no
+target override options. Discovery/admission, unknown-type and file-write failures
+exit 1. Invalid selectors/filters, non-JSON compact requests and `-o ids` exit 2.
+Errors are structured for JSON formats.
 
 ## See also
 
-- [`twig process`](./process.md)
-- [`twig process layout`](./process-layout.md)
-- [`twig states`](./states.md)
+- [`twig process`](process.md)
+- [`twig process <type>`](process-type.md)
+- [`twig process layout`](process-layout.md)

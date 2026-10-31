@@ -180,12 +180,12 @@ public sealed class ProcessOverrideProductionCliTests : IDisposable
     /// "did stderr get written" check passes against one.
     /// </remarks>
     [Fact]
-    public async Task Override_AnnouncesTheLiveRead_OnStderr()
+    public async Task LayoutOverride_AnnouncesTheLiveRead_OnStderr()
     {
         await using var ado = ProcessAdoStub.Start();
 
         var (_, _, stderr) = await RunTwigAsync(
-            "process", "--org", ado.BaseUrl, "--project", "StubProject");
+            "process", "layout", "Fixture.Type", "--org", ado.BaseUrl, "--project", "StubProject");
 
         stderr.ShouldContain("live", Case.Insensitive);
         stderr.ShouldContain(ado.BaseUrl);
@@ -203,12 +203,12 @@ public sealed class ProcessOverrideProductionCliTests : IDisposable
     /// streams.
     /// </remarks>
     [Fact]
-    public async Task TheLiveReadNotice_NeverReachesStdout()
+    public async Task LayoutLiveReadNotice_NeverReachesStdout()
     {
         await using var ado = ProcessAdoStub.Start();
 
         var (_, stdout, stderr) = await RunTwigAsync(
-            "process", "--org", ado.BaseUrl, "--project", "StubProject", "-o", "json");
+            "process", "layout", "Fixture.Type", "--org", ado.BaseUrl, "--project", "StubProject", "-o", "json");
 
         stderr.ShouldContain("live", Case.Insensitive);
         stdout.ShouldNotContain("live from Azure DevOps");

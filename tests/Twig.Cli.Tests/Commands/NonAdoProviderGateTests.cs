@@ -645,8 +645,6 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     /// </summary>
     [Theory]
     [InlineData(typeof(UpdateCommand))]
-    [InlineData(typeof(StateCommand))]
-    [InlineData(typeof(PatchCommand))]
     [InlineData(typeof(EditCommand))]
     [InlineData(typeof(BatchCommand))]
     [InlineData(typeof(LinkCommand))]

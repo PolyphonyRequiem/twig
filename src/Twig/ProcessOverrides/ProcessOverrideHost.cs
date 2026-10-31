@@ -46,13 +46,15 @@ internal static class ProcessOverrideHost
     /// <param name="run">The command invocation, given the provider it should resolve from.</param>
     /// <param name="outputFormat">Output format, used to format a refusal on stderr.</param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="requiresCoreSchema">Schema inspection must use a pinned Core workspace; unpinned targets refuse before graph construction.</param>
     public static async Task<int> RunAsync(
         IServiceProvider workspaceServices,
         string? org,
         string? project,
         Func<IServiceProvider, Task<int>> run,
         string outputFormat,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool requiresCoreSchema = false)
     {
         var decision = ProcessOverrideResolver.Resolve(org, project, TryGetConfig(workspaceServices));
 
@@ -64,6 +66,22 @@ internal static class ProcessOverrideHost
                 .GetFormatter(outputFormat);
             Console.Error.WriteLine(fmt.FormatError(decision.Error));
             return ProcessOverrideResolver.UsageExitCode;
+        }
+
+        if (requiresCoreSchema && workspaceServices.GetService<Twig.Infrastructure.Services.CoreWorkspaceFactory>() is null)
+        {
+            Twig.Commands.CommandError.Write(new Twig.Rendering.RendererFactory(), Console.Error, outputFormat,
+                Twig.Commands.ProcessCommand.WorkspaceRequired);
+            return 1;
+        }
+
+        if ((!string.IsNullOrWhiteSpace(org) || !string.IsNullOrWhiteSpace(project))
+            && workspaceServices.GetService<Twig.Infrastructure.Services.CoreWorkspaceFactory>() is not null)
+        {
+            Twig.Commands.CommandError.Write(new Twig.Rendering.RendererFactory(), Console.Error, outputFormat,
+                "Process target override is not qualified for the pinned Core workspace; no ambient fallback or override HTTP was attempted. "
+                + "Initialize a fresh isolated Core workspace pinned to the requested target.");
+            return 1;
         }
 
         if (!decision.IsOverride)

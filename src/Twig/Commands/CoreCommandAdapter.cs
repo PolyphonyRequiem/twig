@@ -429,6 +429,141 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
+    internal async Task<int> BenchAsync(string action, string? name, string output, CancellationToken ct, string? expectBench = null,
+        string? expectBinding = null, string? expectIdentity = null, bool management = false)
+    {
+        using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        if (expectBinding is not null || expectIdentity is not null || management)
+            return Error(output, "The versioned browser management envelope is not yet connected to Core Bench admission; no operation was performed.");
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var context = await workspace.Context.ReadAsync(ct);
+        if (!context.IsSuccess) return Error(output, context.Error.Message);
+        if (action == "list")
+        {
+            var rows = snapshot.Value.Benches.Select(bench => new RenderRow("bench", new Dictionary<string, RenderCell>
+            {
+                ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
+                ["isCurrent"] = RenderCell.Boolean(context.Value.BenchId == bench.Id),
+                ["selectorCount"] = RenderCell.Integer(bench.Selectors.Length),
+            })).ToArray();
+            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table(null,
+                [new("name", "Bench"), new("id", "ID"), new("isCurrent", "Current"), new("selectorCount", "Selectors")], rows)]));
+            return 0;
+        }
+        if (string.IsNullOrWhiteSpace(name) || name != name.Trim()) return Error(output, "A nonempty, canonical Bench name is required.", 2);
+        var matches = snapshot.Value.Benches.Where(bench => bench.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+            || bench.Id.ToString("D").Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (action == "create")
+        {
+            if (matches.Length != 0) return Error(output, "A Bench with this name already exists; nothing was selected or replaced.");
+            var bench = new Bench(Guid.NewGuid(), name, []);
+            var saved = await workspace.CaptureBenchesAsync(snapshot.Value, snapshot.Value.Benches.Add(bench), ct);
+            if (!saved.IsSuccess) return Error(output, saved.Error.Message);
+            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("benchCreated",
+                new Dictionary<string, RenderCell>
+                {
+                    ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
+                    ["message"] = RenderCell.String($"Created Bench '{bench.Name}' without selecting it."),
+                })]));
+            return 0;
+        }
+        if (matches.Length != 1) return Error(output, "The named Bench is absent or ambiguous; no Bench was created or selected.");
+        var target = matches[0];
+        if (expectBench is not null && expectBench != target.Id.ToString("D"))
+            return Error(output, "The captured Bench identity changed; no replacement under the same name was adopted.");
+        var selected = await workspace.Context.WriteAsync(context.Value, context.Value with { BenchId = target.Id }, ct);
+        if (!selected.IsSuccess) return Error(output, selected.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("benchSwitched",
+            new Dictionary<string, RenderCell>
+            {
+                ["id"] = RenderCell.String(target.Id.ToString("D")), ["name"] = RenderCell.String(target.Name),
+                ["message"] = RenderCell.String($"Now on Bench '{target.Name}'."),
+            })]));
+        return 0;
+    }
+
+    internal async Task<int> PinAsync(int id, bool subtree, bool remove, string output, CancellationToken ct,
+        string? expectBench, string? expectBinding, string? expectIdentity, string? expectSettings, string? mode = null)
+    {
+        using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        if (expectBinding is not null || expectIdentity is not null || expectSettings is not null)
+            return Error(output, "Captured browser origin/settings admission is not yet connected; no selector was changed.");
+        if (id == 0) return Error(output, "A nonzero explicit pin target is required.", 2);
+        mode = mode?.ToLowerInvariant();
+        if (mode is not null && mode is not ("single" or "tree"))
+            return Error(output, "Untrack mode must be single or tree.", 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var context = await workspace.Context.ReadAsync(ct);
+        if (!context.IsSuccess) return Error(output, context.Error.Message);
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var bench = snapshot.Value.Benches.SingleOrDefault(bench => bench.Id == context.Value.BenchId);
+        if (bench is null) return Error(output, "No existing Core Bench is selected. Create one and use `twig bench switch <name>`.");
+        if (expectBench is not null && expectBench != bench.Id.ToString("D")) return Error(output, "The captured current Bench changed.");
+        var capturedBenchId = bench.Id;
+        var key = id < 0 ? KnownLocalKeys(snapshot.Value).SingleOrDefault(key => LocalAlias(key) == id)
+            : ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, id.ToString(CultureInfo.InvariantCulture));
+        if (key is null) return Error(output, "The local pin alias is absent or ambiguous.");
+        var mapped = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        if (!remove && !mapped.IsLocal && !snapshot.Value.Items.Any(item => item.Key == mapped))
+        {
+            var read = await workspace.ReadAsync(mapped, ct);
+            if (!read.IsSuccess) return Error(output, read.Error.Message);
+            snapshot = await workspace.SnapshotAsync(ct);
+            if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+            bench = snapshot.Value.Benches.SingleOrDefault(value => value.Id == capturedBenchId);
+            if (bench is null) return Error(output, "The captured Bench was removed while reading the target; no selector was changed.");
+        }
+        string? hierarchy = null;
+        if (subtree && !remove)
+        {
+            var schema = await workspace.SchemaAsync(ct);
+            if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+            var kinds = schema.Value.Relations.Where(kind => kind.Shape == RelationShape.Hierarchy && kind.Directed).ToArray();
+            if (kinds.Length != 1) return Error(output, "A subtree pin requires unique discovered hierarchy semantics.");
+            hierarchy = kinds[0].Reference;
+        }
+        var kind = subtree || mode == "tree" ? SelectorKind.Subtree : SelectorKind.Pin;
+        var removeBoth = remove && mode is null;
+        bool Matches(Selector selector) => selector.Item == key
+            && (removeBoth ? selector.Kind is SelectorKind.Pin or SelectorKind.Subtree : selector.Kind == kind);
+        var existing = bench.Selectors.Where(Matches).ToArray();
+        var modeLabel = removeBoth ? "both" : kind == SelectorKind.Pin ? "single" : "tree";
+        if (remove && existing.Length == 0)
+        {
+            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("untrackNotTracked",
+                new Dictionary<string, RenderCell>
+                {
+                    ["id"] = RenderCell.Integer(id), ["benchId"] = RenderCell.String(bench.Id.ToString("D")),
+                    ["mode"] = RenderCell.String(modeLabel), ["wasPinned"] = RenderCell.Boolean(false),
+                    ["message"] = RenderCell.String("No explicit selector matched; inherited query/subtree membership was preserved."),
+                })]));
+            return 0;
+        }
+        var selectors = remove ? bench.Selectors.Where(selector => !Matches(selector)).ToArray()
+            : existing.Length == 0 ? bench.Selectors.Add(new(kind, key, hierarchyRelation: hierarchy)).ToArray() : bench.Selectors.ToArray();
+        var changed = new Bench(bench.Id, bench.Name, selectors);
+        var saved = await workspace.CaptureBenchesAsync(snapshot.Value,
+            snapshot.Value.Benches.Select(value => value.Id == changed.Id ? changed : value), ct);
+        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record(remove ? "workspaceUntracked" : "workspaceTracked",
+            new Dictionary<string, RenderCell>
+            {
+                ["id"] = RenderCell.Integer(id), ["benchId"] = RenderCell.String(bench.Id.ToString("D")),
+                ["mode"] = RenderCell.String(modeLabel),
+                ["message"] = RenderCell.String(remove ? "Removed the exact local selector; inherited query membership was preserved." : "Retained the explicit Core Bench selector."),
+            })]));
+        return 0;
+    }
+
     internal async Task<int> SaveAsync(int? id, bool all, string output, CancellationToken ct)
     {
         if (id is null && !all)

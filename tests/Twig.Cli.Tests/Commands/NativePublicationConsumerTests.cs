@@ -69,6 +69,111 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreBenchCrudPreservesSelectorKindsAndNeverResolvesLegacyWriters()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "bench-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["bench", "list", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var commands = new TwigCommands(root);
+            (await commands.BenchCreate("Review scope", "json")).ShouldBe(0, stderr.ToString());
+            var created = (await store.ReadAsync(connection, default)).Value.Benches.ShouldHaveSingleItem();
+            (await admitted.Workspace.Context.ReadAsync(default)).Value.BenchId.ShouldBeNull();
+            (await commands.BenchCreate("review SCOPE", "json")).ShouldBe(1);
+            (await commands.BenchSwitch("missing scope", "json")).ShouldBe(1);
+            (await commands.BenchSwitch("Review scope", "json", expectBench: created.Id.ToString("D"))).ShouldBe(0, stderr.ToString());
+            (await commands.WorkspaceTrack(42, "json", expectBench: created.Id.ToString("D"))).ShouldBe(0, stderr.ToString());
+            (await commands.WorkspaceTrackTree(42, "json")).ShouldBe(0, stderr.ToString());
+            var snapshot = (await store.ReadAsync(connection, default)).Value;
+            snapshot.Benches.Single().Selectors.Select(selector => selector.Kind).ShouldBe([CoreModel.SelectorKind.Pin, CoreModel.SelectorKind.Subtree]);
+            var query = new CoreModel.Selector(CoreModel.SelectorKind.Query, query: new(CoreModel.QueryKind.All));
+            (await admitted.Workspace.CaptureBenchesAsync(snapshot,
+                [new(created.Id, created.Name, snapshot.Benches.Single().Selectors.Add(query))], default)).IsSuccess.ShouldBeTrue();
+            (await commands.WorkspaceUntrack(42, "json", mode: "SiNgLe")).ShouldBe(0, stderr.ToString());
+            var unpinned = (await store.ReadAsync(connection, default)).Value.Benches.Single();
+            unpinned.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Query);
+            unpinned.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Subtree);
+            unpinned.Selectors.ShouldNotContain(selector => selector.Kind == CoreModel.SelectorKind.Pin);
+            _transport.CoreMetadataEnabled = false;
+            (await commands.WorkspaceUntrack(42, "json", mode: "TrEe")).ShouldBe(0, stderr.ToString());
+            _transport.CoreMetadataEnabled = true;
+            var final = (await store.ReadAsync(connection, default)).Value;
+            final.Benches.Single().Selectors.ShouldHaveSingleItem().Kind.ShouldBe(CoreModel.SelectorKind.Query);
+            var version = final.Version;
+            (await commands.WorkspaceTrack(43, "json", expectBench: Guid.NewGuid().ToString("D"))).ShouldBe(1);
+            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(version);
+            (await commands.WorkspaceTrack(42, "json")).ShouldBe(0, stderr.ToString());
+            (await commands.WorkspaceTrackTree(42, "json")).ShouldBe(0, stderr.ToString());
+            (await store.ReadAsync(connection, default)).Value.Benches.Single().Selectors.Count(selector =>
+                selector.Kind is CoreModel.SelectorKind.Pin or CoreModel.SelectorKind.Subtree).ShouldBe(2);
+            _transport.CoreMetadataEnabled = false;
+            (await commands.WorkspaceUntrack(42, "json")).ShouldBe(0, stderr.ToString());
+            _transport.CoreMetadataEnabled = true;
+            var removed = (await store.ReadAsync(connection, default)).Value;
+            removed.Benches.Single().Selectors.ShouldHaveSingleItem().Kind.ShouldBe(CoreModel.SelectorKind.Query);
+            (await commands.WorkspaceUntrack(42, "json")).ShouldBe(0, stderr.ToString());
+            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(removed.Version);
+
+            var concurrentQuery = new CoreModel.Selector(CoreModel.SelectorKind.Query,
+                query: new(CoreModel.QueryKind.Equal, "System.Title", CoreModel.FieldValue.String("concurrent selector")));
+            _transport.SetItem(44, "new native pin target", 1, Actor);
+            _transport.BeforeItemReadResponse = async () =>
+            {
+                var latest = (await store.ReadAsync(connection, default)).Value;
+                var bench = latest.Benches.Single();
+                var changed = new CoreModel.Bench(bench.Id, bench.Name, bench.Selectors.Add(concurrentQuery));
+                (await store.CommitAsync(connection, latest.Version,
+                    new CoreModel.StoreSnapshot(latest.Version + 1, latest.Items, latest.Relationships, latest.Drafts,
+                        latest.Proposals, latest.Journal, latest.Mappings, [changed]), default)).IsSuccess.ShouldBeTrue();
+            };
+            (await commands.WorkspaceTrack(44, "json")).ShouldBe(0, stderr.ToString());
+            var afterRace = (await store.ReadAsync(connection, default)).Value.Benches.Single();
+            afterRace.Selectors.ShouldContain(concurrentQuery);
+            afterRace.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Pin
+                && selector.Item!.NativeId == "44");
+            stdout.GetStringBuilder().Clear();
+            (await commands.BenchList("json")).ShouldBe(0, stderr.ToString());
+            using var listed = JsonDocument.Parse(stdout.ToString());
+            listed.RootElement[0].GetProperty("isCurrent").GetBoolean().ShouldBeTrue();
+            listed.RootElement[0].GetProperty("id").GetString().ShouldBe(created.Id.ToString("D"));
+            _transport.CommittedWrites.ShouldBe(0);
+            _transport.PatchAttempts.ShouldBe(0);
+            _transport.PostCount.ShouldBe(0);
+            final.Drafts.ShouldBeEmpty();
+            final.Proposals.ShouldBeEmpty();
+            root.GetService<BenchCommand>().ShouldBeNull();
+            root.GetService<TrackingCommand>().ShouldBeNull();
+            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            root.GetService<IPendingChangeStore>().ShouldBeNull();
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields()
     {
         var native = await AttachAsync();
@@ -1645,6 +1750,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         public bool RejectNextPatch { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
         public Func<Task>? BeforeReadback { get; set; }
+        public Func<Task>? BeforeItemReadResponse { get; set; }
         public Func<Task>? AfterCommit { get; set; }
         public bool CoreMetadataEnabled { get; set; }
         internal HttpMessageHandler NewHandle() => new Forward(this);
@@ -1821,6 +1927,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 var revision = int.Parse(segments[2], CultureInfo.InvariantCulture);
                 if (!_history.TryGetValue((id, revision), out item))
                     return Reply(HttpStatusCode.NotFound, new { message = "No historical revision" });
+            }
+            if (request.Method == HttpMethod.Get && BeforeItemReadResponse is { } beforeItemRead)
+            {
+                BeforeItemReadResponse = null;
+                await beforeItemRead();
             }
             if (request.Method == HttpMethod.Get && CommittedWrites > 0)
             {

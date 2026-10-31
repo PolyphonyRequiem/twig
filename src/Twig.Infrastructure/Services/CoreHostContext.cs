@@ -17,7 +17,7 @@ internal sealed record CoreContextKey(Guid? LocalId, string? NativeId)
 }
 
 internal sealed record CoreContextDocument(int Version, Connection Connection, Guid StoreInstance,
-    CoreContextKey[] History, int Position);
+    CoreContextKey[] History, int Position, Guid? BenchId = null);
 
 internal sealed class CoreHostContext(string workspaceRoot, Connection connection, Guid storeInstance)
 {
@@ -55,7 +55,8 @@ internal sealed class CoreHostContext(string workspaceRoot, Connection connectio
         var current = await ReadAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
         if (current.Value.Connection != expected.Connection || current.Value.StoreInstance != expected.StoreInstance
-            || current.Value.Position != expected.Position || !current.Value.History.SequenceEqual(expected.History))
+            || current.Value.Position != expected.Position || current.Value.BenchId != expected.BenchId
+            || !current.Value.History.SequenceEqual(expected.History))
             return Result<bool>.Fail(ErrorCode.Conflict, "Active/history context changed during selection; the newer selection was preserved.");
         if (next.Connection != connection || next.StoreInstance != storeInstance)
             return Result<bool>.Fail(ErrorCode.Conflict, "The selected context is outside the admitted workspace.");

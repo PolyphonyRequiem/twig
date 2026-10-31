@@ -1303,7 +1303,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace track")]
     public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PinAsync(id, false, false, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+        return await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+    }
 
     /// <summary>Track a work item and its subtree.</summary>
     /// <param name="id">Work item ID to track (with descendants).</param>
@@ -1314,7 +1318,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace track-tree")]
     public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PinAsync(id, true, false, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+        return await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+    }
 
     /// <summary>Remove explicit pins, optionally only single or tree; inherited membership remains.</summary>
     /// <param name="id">Work item ID to stop tracking.</param>
@@ -1326,7 +1334,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="mode">Optional pin kind: single or tree (case-insensitive). Unset removes both explicit kinds.</param>
     [Command("workspace untrack")]
     public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, string? mode = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings, mode);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PinAsync(id, mode == "tree", true, output, ct, expectBench, expectBinding, expectIdentity, expectSettings, mode);
+        return await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings, mode);
+    }
 
     /// <summary>Pull only the current Bench's query, pin, and bounded relationship scope; never flush pending writes.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1361,7 +1373,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before creating.</param>
     [Command("bench create")]
     public async Task<int> BenchCreate([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().CreateAsync(name, output, ct, expectBinding, expectIdentity);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.BenchAsync("create", name, output, ct, expectBinding: expectBinding, expectIdentity: expectIdentity);
+        return await services.GetRequiredService<BenchCommand>().CreateAsync(name, output, ct, expectBinding, expectIdentity);
+    }
 
     /// <summary>List the Benches that exist, marking the current one.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1370,7 +1386,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before listing.</param>
     [Command("bench list")]
     public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, bool includeManagement = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().ListAsync(output, ct, includeManagement, expectBinding, expectIdentity);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.BenchAsync("list", null, output, ct, expectBinding: expectBinding, expectIdentity: expectIdentity, management: includeManagement);
+        return await services.GetRequiredService<BenchCommand>().ListAsync(output, ct, includeManagement, expectBinding, expectIdentity);
+    }
 
     /// <summary>Stand on another Bench. Naming one that does not exist fails; nothing is created.</summary>
     /// <param name="name">Name of an existing Bench.</param>
@@ -1380,7 +1400,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before selecting.</param>
     [Command("bench switch")]
     public async Task<int> BenchSwitch([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct, expectBench, expectBinding, expectIdentity);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.BenchAsync("switch", name, output, ct, expectBench, expectBinding, expectIdentity);
+        return await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct, expectBench, expectBinding, expectIdentity);
+    }
 
     /// <summary>Delete a Bench. One holding pins reports what it holds and deletes nothing.</summary>
     /// <param name="name">Name of the Bench to delete.</param>

@@ -179,6 +179,18 @@ These observational pages are not a globally atomic snapshot. GitHub's existing
 100-item acquisition bound remains an explicit limitation pending its host/query
 completion; this is not yet the complete retained query, Bench and sync surface.
 
+Core Bench create/list/switch and workspace single/subtree pinning now use
+`StoreSnapshot.Benches` and the connection/store-instance-bound host context.
+Creation does not select the new Bench; duplicate names and unknown selections
+refuse without substituting another scope. Selector updates use the store CAS
+and preserve queries and other pin kinds. Untracking is case-insensitive, removes
+both explicit pin kinds when mode is omitted, and reports an absent pin as an
+explicit unchanged result without advancing the store version. Removing a
+subtree selector does not require current hierarchy discovery. Pinning an
+uncached target reselects the current captured-ID Bench after the native read,
+so concurrent selectors are not overwritten. Browser origin/settings envelopes,
+scoped Bench pull and the complete workspace/UI surface remain unfinished.
+
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not
 an invented work-item identity. The ADO adapter qualifies actual enabled native

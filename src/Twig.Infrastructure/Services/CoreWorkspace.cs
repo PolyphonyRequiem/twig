@@ -23,6 +23,17 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     internal Task<Result<StoreSnapshot>> SnapshotAsync(CancellationToken ct) => store.ReadAsync(connection, ct);
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct) => provider.DiscoverSchemaAsync(connection, ct);
 
+    internal async Task<Result<bool>> CaptureBenchesAsync(StoreSnapshot capture, IEnumerable<Bench> benches, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
+        if (current.Value.Version != capture.Version)
+            return Result<bool>.Fail(ErrorCode.Conflict, "Bench contents changed during this operation; no newer selector was overwritten.");
+        var committed = await store.CommitAsync(connection, capture.Version, Copy(capture, capture.Version + 1, benches: benches), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
+    }
+
     internal async Task<Result<QueryPage>> QueryAsync(Query query, CancellationToken ct, int maximum = int.MaxValue)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
@@ -675,7 +686,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         && left.Parent == right.Parent && left.ParentRelation == right.ParentRelation && left.Resource == right.Resource
         && left.Links.SequenceEqual(right.Links);
     private static StoreSnapshot Copy(StoreSnapshot snapshot, long version, IEnumerable<WorkItem>? items = null,
-        IEnumerable<Relationship>? relationships = null, IEnumerable<Draft>? drafts = null)
+        IEnumerable<Relationship>? relationships = null, IEnumerable<Draft>? drafts = null, IEnumerable<Bench>? benches = null)
         => new(version, items ?? snapshot.Items, relationships ?? snapshot.Relationships, drafts ?? snapshot.Drafts,
-            snapshot.Proposals, snapshot.Journal, snapshot.Mappings, snapshot.Benches);
+            snapshot.Proposals, snapshot.Journal, snapshot.Mappings, benches ?? snapshot.Benches);
 }

@@ -165,6 +165,20 @@ from actual provider discovery; default tree rendering does not fetch work items
 Refresh-all, live UI refresh, working-set annotations and compact detail-section
 projection still require their remaining Bench/read/UI cutover.
 
+Retained `query` now builds typed Core operands, acquires a provider-observed
+superset, and caches native observations without flushing drafts or using the old
+WIQL writer composition. Case-insensitive text containment, path-component `Under`,
+and numeric/instant `GreaterOrEqual` are explicit Core query operators; ordinal
+typed `Equal` remains unchanged. Configured area scopes are retained, unavailable
+native fields refuse, and top truncation is disclosed. ADO now acquires ordered
+keyset pages of at most 200 item observations, using a 201st ID only as a
+continuation sentinel. Cursors bind the exact connection, actor, schema and
+canonical query bytes. Exact matches can come from later pages; each mirrored
+page requires complete incident/resource evidence and preserves local drafts.
+These observational pages are not a globally atomic snapshot. GitHub's existing
+100-item acquisition bound remains an explicit limitation pending its host/query
+completion; this is not yet the complete retained query, Bench and sync surface.
+
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not
 an invented work-item identity. The ADO adapter qualifies actual enabled native

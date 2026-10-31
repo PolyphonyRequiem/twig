@@ -28,6 +28,8 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
 {
     internal const string FileName = "core-workspace.json";
     internal string WorkspaceRoot => paths.RepoRoot;
+    internal IReadOnlyList<(string Path, bool IncludeChildren)> QueryAreaDefaults
+        => configuration.Defaults?.ResolveAreaPaths() ?? [];
 
     internal async Task<Result<CoreWorkspaceHandle>> OpenAsync(CancellationToken ct)
     {

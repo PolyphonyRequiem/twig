@@ -574,7 +574,7 @@ public sealed class AdoProviderTests
     }
 
     [Fact]
-    public async Task ExactQueryUsesOrdinalTypedAstAndExplicitlyRefusesOversizeAndUnknownShapes()
+    public async Task ExactQueryUsesOrdinalTypedAstAndRefusesMalformedCursorAndMissingNativeItems()
     {
         using var f = await Fixture.Create();
         f.Http.Items[1]["fields"]!["Custom.Empty"] = "One";
@@ -586,9 +586,66 @@ public sealed class AdoProviderTests
         result.Complete.ShouldBeTrue();
         (await f.Provider.QueryAsync(f.Connection, new(QueryKind.Equal, "Not.Native", FieldValue.String("x")), null, default))
             .Error.Code.ShouldBe(ErrorCode.Unsupported);
-        (await f.Provider.QueryAsync(f.Connection, query, "guessed", default)).Error.Code.ShouldBe(ErrorCode.Unsupported);
+        (await f.Provider.QueryAsync(f.Connection, query, "guessed", default)).Error.Code.ShouldBe(ErrorCode.InvalidInput);
         f.Http.Defect = "oversize-query";
-        (await f.Provider.QueryAsync(f.Connection, new(QueryKind.All), null, default)).Error.Code.ShouldBe(ErrorCode.Unsupported);
+        (await f.Provider.QueryAsync(f.Connection, new(QueryKind.All), null, default)).Error.Code.ShouldBe(ErrorCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ExactQueryFindsMatchesBeyondTheFirstKeysetPageWithoutDuplicatesOrMutation()
+    {
+        using var f = await Fixture.Create();
+        f.Http.KeysetQueries = true;
+        var prototype = f.Http.Items[1];
+        f.Http.Items.Clear();
+        for (var id = 1; id <= 205; id++)
+        {
+            var item = prototype.DeepClone().AsObject();
+            item["id"] = id;
+            item["fields"]!["Custom.Empty"] = id == 205 ? "later match" : "not selected";
+            f.Http.Items.Add(id, item);
+        }
+        f.Http.Items.Count.ShouldBe(205);
+        var query = new Query(QueryKind.Equal, "Custom.Empty", FieldValue.String("later match"));
+        var first = await f.Provider.QueryAsync(f.Connection, query, null, default);
+        first.IsSuccess.ShouldBeTrue(first.IsSuccess ? "" : first.Error.Message);
+        first.Value.Items.ShouldBeEmpty();
+        first.Value.Complete.ShouldBeFalse();
+        first.Value.Continuation.ShouldNotBeNullOrWhiteSpace();
+        f.Http.QueryAfterIds.ShouldBe([0]);
+
+        var wrongQuery = await f.Provider.QueryAsync(f.Connection,
+            new(QueryKind.Equal, "Custom.Empty", FieldValue.String("different query")),
+            first.Value.Continuation, default);
+        wrongQuery.IsSuccess.ShouldBeFalse();
+        wrongQuery.Error.Code.ShouldBe(ErrorCode.InvalidInput);
+        f.Http.QueryAfterIds.ShouldBe([0]);
+
+        var second = await f.Provider.QueryAsync(f.Connection, query, first.Value.Continuation, default);
+        second.IsSuccess.ShouldBeTrue(second.IsSuccess ? "" : second.Error.Message);
+        second.Value.Items.Single().Key.ShouldBe(f.Key(205));
+        second.Value.Items.Single().RelationshipsComplete.ShouldBeTrue();
+        second.Value.Items.Single().ResourcesComplete.ShouldBeTrue();
+        second.Value.Complete.ShouldBeTrue();
+        second.Value.Continuation.ShouldBeNull();
+        f.Http.QueryAfterIds.ShouldBe([0, 200]);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Journal.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(2, 1)]
+    public async Task QueryRejectsDuplicatedOrUnorderedNativePagesBeforeReadingItems(int first, int second)
+    {
+        using var f = await Fixture.Create();
+        f.Http.KeysetQueries = true;
+        f.Http.QueryIdsOverride = [first, second];
+        var result = await f.Provider.QueryAsync(f.Connection, new(QueryKind.All), null, default);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        f.Http.WorkItemReads.ShouldBe(0);
+        f.Http.Writes.ShouldBe(0);
     }
 
     [Theory]
@@ -810,6 +867,10 @@ public sealed class AdoProviderTests
         internal int? MetadataStatus;
         internal bool MoveAtDispatch;
         internal int Writes;
+        internal bool KeysetQueries;
+        internal int[]? QueryIdsOverride;
+        internal List<int> QueryAfterIds = [];
+        internal int WorkItemReads;
         internal string? LastPayload;
         internal Func<Task>? AfterWrite;
         internal Dictionary<int, JsonObject> Items = [];
@@ -851,12 +912,25 @@ public sealed class AdoProviderTests
                 return Json($$"""{"id":"{{(Defect == "wrong-project" ? Fixture.Process : Fixture.Project)}}","name":"Native Project","capabilities":{"processTemplate":{"templateTypeId":"{{Fixture.Process}}"} } }""");
             if (path.EndsWith("/wiql"))
             {
+                if (KeysetQueries)
+                {
+                    using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+                    var text = document.RootElement.GetProperty("query").GetString()!;
+                    var match = System.Text.RegularExpressions.Regex.Match(text, @"\[System\.Id\]\s*>\s*(\d+)");
+                    var after = match.Success
+                        ? int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : 0;
+                    QueryAfterIds.Add(after);
+                    var ids = QueryIdsOverride ?? Items.Keys.Where(id => id > after).Order().Take(201).ToArray();
+                    return Json(new JsonObject { ["queryType"] = "flat",
+                        ["workItems"] = new JsonArray(ids.Select(id => (JsonNode)new JsonObject { ["id"] = id }).ToArray()) }.ToJsonString());
+                }
                 var count = Defect == "oversize-query" ? 201 : Items.Count;
                 return Json(new JsonObject { ["queryType"] = "flat",
                     ["workItems"] = new JsonArray(Enumerable.Range(1, count).Select(i => (JsonNode)new JsonObject { ["id"] = i }).ToArray()) }.ToJsonString());
             }
             if (path.Contains("/workitems/", StringComparison.OrdinalIgnoreCase))
             {
+                WorkItemReads++;
                 var tail = path[(path.IndexOf("/workitems/", StringComparison.OrdinalIgnoreCase) + 11)..].Split('/');
                 var id = int.Parse(tail[0], System.Globalization.CultureInfo.InvariantCulture);
                 if (tail.Length > 1)

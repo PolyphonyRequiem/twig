@@ -320,6 +320,115 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
+    internal async Task<int> QueryAsync(string? search, string? title, string? description, string? requestedType,
+        string? state, string? assignedTo, string? area, string? iteration, string? createdSince, string? changedSince,
+        int top, string output, CancellationToken ct)
+    {
+        if (top < 1) return Error(output, "Query --top must be positive.", 2);
+        if (new[] { search, title, description, requestedType, state, assignedTo, area, iteration, createdSince, changedSince }
+            .All(string.IsNullOrWhiteSpace))
+        {
+            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("querySummary",
+                new Dictionary<string, RenderCell>
+                {
+                    ["message"] = RenderCell.String("Supply a search term or explicit title, description, type, state, assignee, path or time filter. No native query was sent."),
+                })]));
+            return 0;
+        }
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var schema = await workspace.SchemaAsync(ct);
+        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var terms = new List<Query>();
+        Error? failure = null;
+        Query? Operand(QueryKind kind, string name, string text)
+        {
+            var fields = schema.Value.Types.SelectMany(type => type.Fields).Where(field => field.Reference == name).Distinct().ToArray();
+            if (fields.Length != 1 || !TryParse(fields[0].Kind, text, null, out var value))
+            {
+                failure = new(ErrorCode.Unsupported, $"The actual native schema has no unique typed query field '{name}'.");
+                return null;
+            }
+            if (kind is QueryKind.Contains or QueryKind.Under && value.Kind is not (FieldKind.Text or FieldKind.Html or FieldKind.Markdown)
+                || kind == QueryKind.GreaterOrEqual && value.Kind is not (FieldKind.Integer or FieldKind.Decimal or FieldKind.Instant))
+            {
+                failure = new(ErrorCode.Unsupported, "The native field type does not support the requested typed query operator.");
+                return null;
+            }
+            return new(kind, name, value);
+        }
+        void Add(QueryKind kind, string name, string? text)
+        {
+            if (text is not null && Operand(kind, name, text) is { } operand) terms.Add(operand);
+        }
+        Add(QueryKind.Contains, "System.Title", title);
+        Add(QueryKind.Contains, "System.Description", description);
+        Add(QueryKind.Equal, "System.State", state);
+        Add(QueryKind.Equal, "System.AssignedTo", assignedTo);
+        Add(QueryKind.Under, "System.AreaPath", area);
+        Add(QueryKind.Under, "System.IterationPath", iteration);
+        if (area is null && factory.QueryAreaDefaults.Count != 0)
+        {
+            var scopes = factory.QueryAreaDefaults.Select(scope => Operand(scope.IncludeChildren ? QueryKind.Under : QueryKind.Equal,
+                "System.AreaPath", scope.Path)).Where(scope => scope is not null).Cast<Query>().ToArray();
+            if (scopes.Length != 0) terms.Add(scopes.Length == 1 ? scopes[0] : new(QueryKind.Or, children: scopes));
+        }
+        if (requestedType is not null)
+        {
+            var types = schema.Value.Types.Where(type => type.Reference.Equals(requestedType, StringComparison.OrdinalIgnoreCase)
+                || type.Rules.SelectMany(rule => rule.Values).Any(value => value.DataType == "ado.native-type-name"
+                    && value.Text!.Equals(requestedType, StringComparison.OrdinalIgnoreCase))).ToArray();
+            if (types.Length != 1) return Error(output, "The requested native query type is absent or ambiguous.", 2);
+            var native = types[0].Rules.SelectMany(rule => rule.Values).SingleOrDefault(value => value.DataType == "ado.native-type-name")?.Text;
+            Add(QueryKind.Equal, "System.WorkItemType", native ?? types[0].Reference);
+        }
+        if (search is not null)
+        {
+            var titleTerm = Operand(QueryKind.Contains, "System.Title", search);
+            var descriptionTerm = schema.Value.Types.Any(type => type.Fields.Any(field => field.Reference == "System.Description"))
+                ? Operand(QueryKind.Contains, "System.Description", search) : null;
+            if (titleTerm is not null) terms.Add(descriptionTerm is null ? titleTerm : new(QueryKind.Or, children: [titleTerm, descriptionTerm]));
+        }
+        foreach (var time in new[] { (Field: "System.CreatedDate", Text: createdSince), (Field: "System.ChangedDate", Text: changedSince) })
+        {
+            if (time.Text is null) continue;
+            var raw = time.Text.Trim();
+            if (DateTimeOffset.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var absolute))
+            {
+                Add(QueryKind.GreaterOrEqual, time.Field, absolute.ToString("O", CultureInfo.InvariantCulture));
+                continue;
+            }
+            raw = raw.ToLowerInvariant();
+            var multiplier = raw.EndsWith('w') ? 7 : 1;
+            var digits = raw.EndsWith('d') || raw.EndsWith('w') ? raw[..^1] : raw;
+            if (!int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var days) || days < 0 || days > 36500 / multiplier)
+                return Error(output, "Time filters require a nonnegative day count or d/w duration.", 2);
+            Add(QueryKind.GreaterOrEqual, time.Field, DateTimeOffset.UtcNow.AddDays(-days * multiplier).ToString("O", CultureInfo.InvariantCulture));
+        }
+        if (failure is not null) return Error(output, failure.Message);
+        if (terms.Count == 0) return Error(output, "No native query operand could be constructed.", 2);
+        var query = terms.Count == 1 ? terms[0] : new Query(QueryKind.And, children: terms);
+        var result = await workspace.QueryAsync(query, ct, top);
+        if (!result.IsSuccess) return Error(output, result.Error.Message);
+        var items = result.Value.Items.Take(top).ToArray();
+        var rows = items.Select(item => new RenderRow("workItem", new Dictionary<string, RenderCell>
+        {
+            ["id"] = RenderCell.Integer(int.Parse(item.Key.NativeId!, CultureInfo.InvariantCulture)),
+            ["title"] = Cell(item.Fields.GetValueOrDefault("System.Title") ?? FieldValue.Null),
+            ["type"] = RenderCell.String(item.Type),
+            ["state"] = Cell(item.Fields.GetValueOrDefault(schema.Value.Types.Single(type => type.Reference == item.Type).StateField) ?? FieldValue.Null),
+        })).ToArray();
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Document("queryResults",
+            [new("count", new RenderNode.KeyValue("count", RenderCell.Integer(items.Length))),
+                new("truncated", new RenderNode.KeyValue("truncated", RenderCell.Boolean(result.Value.Items.Length > top || !result.Value.Complete))),
+                new("query", new RenderNode.KeyValue("query", RenderCell.String("Exact typed native API query; explicitly declared Twig scope."))),
+                new("items", new RenderNode.Table(null, [new("id", "ID"), new("title", "Title"), new("state", "State"), new("type", "Type")], rows))])]));
+        return 0;
+    }
+
     internal async Task<int> SaveAsync(int? id, bool all, string output, CancellationToken ct)
     {
         if (id is null && !all)

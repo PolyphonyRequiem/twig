@@ -11,6 +11,22 @@ public static partial class Core
             return item.Fields.TryGetValue(query.Field!, out var value)
                 ? Result<bool>.Ok(value.Equals(query.Value))
                 : Result<bool>.Fail(ErrorCode.Unavailable, $"Field '{query.Field}' was not observed.");
+        if (query.Kind is QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual)
+        {
+            if (!item.Fields.TryGetValue(query.Field!, out var value))
+                return Result<bool>.Fail(ErrorCode.Unavailable, $"Field '{query.Field}' was not observed.");
+            if (value.Kind == FieldKind.Null) return Result<bool>.Ok(false);
+            if (value.Kind != query.Value!.Kind)
+                return Result<bool>.Fail(ErrorCode.Unavailable, "The observed query field does not have the declared operand type.");
+            return Result<bool>.Ok(query.Kind switch
+            {
+                QueryKind.Contains => value.Text!.Contains(query.Value.Text!, StringComparison.OrdinalIgnoreCase),
+                QueryKind.Under => value.Text!.Equals(query.Value.Text!.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
+                    || value.Text.StartsWith(query.Value.Text.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase),
+                QueryKind.GreaterOrEqual => value.Kind == FieldKind.Instant ? value.Instant >= query.Value.Instant : value.Number >= query.Value.Number,
+                _ => false,
+            });
+        }
         var children = query.Children.Select(c => Matches(c, item)).ToArray();
         if (query.Kind == QueryKind.And && children.Any(c => c.IsSuccess && !c.Value))
             return Result<bool>.Ok(false);

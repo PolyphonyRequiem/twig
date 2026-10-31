@@ -23,6 +23,40 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     internal Task<Result<StoreSnapshot>> SnapshotAsync(CancellationToken ct) => store.ReadAsync(connection, ct);
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct) => provider.DiscoverSchemaAsync(connection, ct);
 
+    internal async Task<Result<QueryPage>> QueryAsync(Query query, CancellationToken ct, int maximum = int.MaxValue)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var items = new List<WorkItem>();
+        var relationships = new HashSet<Relationship>();
+        var identities = new HashSet<ItemKey>();
+        var cursors = new HashSet<string>(StringComparer.Ordinal);
+        string? continuation = null;
+        while (true)
+        {
+            var page = await provider.QueryAsync(connection, query, continuation, ct).ConfigureAwait(false);
+            if (!page.IsSuccess) return Result<QueryPage>.Fail(page.Error);
+            if (page.Value.Complete == (page.Value.Continuation is not null)
+                || page.Value.Items.Any(item => !item.RelationshipsComplete || !item.ResourcesComplete)
+                || page.Value.Items.Any(item => !identities.Add(item.Key))
+                || page.Value.Continuation is { } cursor && !cursors.Add(cursor))
+                return Result<QueryPage>.Fail(ErrorCode.Unavailable, "Query exhaustion, incident completeness or keyset progress was not established; this page was not mirrored.");
+            var current = await SnapshotAsync(ct).ConfigureAwait(false);
+            if (!current.IsSuccess) return Result<QueryPage>.Fail(current.Error);
+            var received = page.Value.Items.Select(item => item.Key).ToHashSet();
+            var next = Copy(current.Value, current.Value.Version + 1,
+                items: current.Value.Items.Where(item => !received.Contains(item.Key)).Concat(page.Value.Items),
+                relationships: current.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Local
+                    || !received.Contains(edge.From) && !received.Contains(edge.To)).Concat(page.Value.Relationships).Distinct());
+            var committed = await store.CommitAsync(connection, current.Value.Version, next, ct).ConfigureAwait(false);
+            if (!committed.IsSuccess) return Result<QueryPage>.Fail(committed.Error);
+            items.AddRange(page.Value.Items);
+            relationships.UnionWith(page.Value.Relationships);
+            continuation = page.Value.Continuation;
+            if (page.Value.Complete || items.Count >= maximum)
+                return Result<QueryPage>.Ok(new(items.ToImmutableArray(), relationships.ToImmutableArray(), continuation, page.Value.Complete));
+        }
+    }
+
     internal async Task<Result<Proposal>> PrepareAsync(IEnumerable<Op> operations, CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);

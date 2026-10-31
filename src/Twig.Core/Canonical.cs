@@ -8,6 +8,27 @@ namespace Twig.Core;
 
 public static partial class Core
 {
+    public static byte[] QueryBytes(Query query)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            Write(query);
+            void Write(Query value)
+            {
+                writer.WriteStartArray();
+                writer.WriteNumberValue((int)value.Kind);
+                if (value.Field is null) writer.WriteNullValue(); else writer.WriteStringValue(value.Field);
+                if (value.Value is null) writer.WriteNullValue(); else WriteValue(writer, value.Value);
+                writer.WriteStartArray();
+                foreach (var child in value.Children) Write(child);
+                writer.WriteEndArray();
+                writer.WriteEndArray();
+            }
+        }
+        return stream.ToArray();
+    }
+
     public static string Digest(Proposal proposal) => Hash(ProposalBytes(proposal));
     public static byte[] ProposalBytes(Proposal proposal) => Write(w =>
     {

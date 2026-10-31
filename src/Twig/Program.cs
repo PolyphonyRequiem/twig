@@ -641,7 +641,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="top">Maximum number of results to return.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Query([Argument] string? searchText = null, string? title = null, string? description = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.QueryAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
+        return await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
+    }
 
     /// <summary>Change the state of the active work item by name.</summary>
     /// <param name="name">Target state name (e.g., Active, Resolved, Closed).</param>

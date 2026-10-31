@@ -176,10 +176,84 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             (await commands.Tree(42, "json", depth: 0)).ShouldBe(0, stderr.ToString());
             using var shallow = JsonDocument.Parse(stdout.ToString());
             shallow.RootElement[0].TryGetProperty("children", out _).ShouldBeFalse();
+            stdout.GetStringBuilder().Clear();
+            (await commands.Query(title: "NATIVE CONCURRENT", output: "json")).ShouldBe(0, stderr.ToString());
+            using var query = JsonDocument.Parse(stdout.ToString());
+            query.RootElement.GetProperty("count").GetInt32().ShouldBe(1);
+            query.RootElement.GetProperty("items")[0].GetProperty("id").GetInt32().ShouldBe(42);
+            query.RootElement.GetProperty("items")[0].GetProperty("title").GetString().ShouldBe("native concurrent field");
+            _transport.CommittedWrites.ShouldBe(2, "query must never flush the retained concurrent draft");
+            (await store.ReadAsync(connection, default)).Value.Drafts.ShouldContain(draft =>
+                !draft.Key.IsLocal && draft.Changes["System.Title"].Text == "stale editor field");
             root.GetService<EditCommand>().ShouldBeNull();
             root.GetService<SetCommand>().ShouldBeNull();
             root.GetService<NavigationCommands>().ShouldBeNull();
             root.GetService<NavigationHistoryCommands>().ShouldBeNull();
+            root.GetService<QueryCommand>().ShouldBeNull();
+            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            root.GetService<IPendingChangeStore>().ShouldBeNull();
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task CoreQueryFindsLaterPageMatchesAndPreservesUnpublishedDraftsWithoutWriters()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        for (var id = 1000; id <= 1205; id++)
+            _transport.SetItem(id, id == 1205 ? "later page match" : "not selected", 1, Actor);
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "paged-query-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        var initialized = await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default);
+        initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
+        var key = CoreModel.ItemKey.Local(Guid.NewGuid());
+        var fields = new CoreModel.FieldValues([
+            KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("unpublished draft")),
+            KeyValuePair.Create("System.State", CoreModel.FieldValue.String("To Do")),
+        ]);
+        (await store.CommitAsync(connection, 0,
+            new CoreModel.StoreSnapshot(1, drafts: [new(key, "Task", null, fields)]),
+            default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["query", "--title", "LATER PAGE", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var commands = new TwigCommands(root);
+            (await commands.Query(title: "LATER PAGE", output: "json", top: 1)).ShouldBe(0, stderr.ToString());
+            using var result = JsonDocument.Parse(stdout.ToString());
+            result.RootElement.GetProperty("count").GetInt32().ShouldBe(1);
+            result.RootElement.GetProperty("items")[0].GetProperty("id").GetInt32().ShouldBe(1205);
+            _transport.QueryAfterIds.Count.ShouldBeGreaterThanOrEqualTo(2);
+            _transport.QueryAfterIds[0].ShouldBe(0);
+            _transport.QueryAfterIds[1].ShouldBeGreaterThan(0);
+            _transport.CommittedWrites.ShouldBe(0);
+            _transport.PostCount.ShouldBe(0);
+            var retained = (await store.ReadAsync(connection, default)).Value;
+            retained.Drafts.Single().Key.ShouldBe(key);
+            retained.Drafts.Single().Changes.ShouldBe(fields);
+            retained.Items.ShouldContain(item => item.Key.NativeId == "1205"
+                && item.RelationshipsComplete && item.ResourcesComplete);
+            retained.Journal.ShouldBeEmpty();
+            root.GetService<QueryCommand>().ShouldBeNull();
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
         }
@@ -1567,6 +1641,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         public int CommittedWrites { get; private set; }
         public int PatchAttempts { get; private set; }
         public int ReadbacksAfterCommit { get; private set; }
+        public List<int> QueryAfterIds { get; } = [];
         public bool RejectNextPatch { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
         public Func<Task>? BeforeReadback { get; set; }
@@ -1606,6 +1681,20 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
             if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata) return metadata;
+            if (CoreMetadataEnabled && path.EndsWith("/wiql", StringComparison.OrdinalIgnoreCase))
+            {
+                using var queryBody = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+                var queryText = queryBody.RootElement.GetProperty("query").GetString().ShouldNotBeNull();
+                queryText.ShouldContain("System.TeamProject");
+                var afterMatch = System.Text.RegularExpressions.Regex.Match(queryText, @"\[System\.Id\]\s*>\s*(\d+)");
+                var after = afterMatch.Success
+                    ? int.Parse(afterMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+                QueryAfterIds.Add(after);
+                return Reply(HttpStatusCode.OK, new { queryType = "flat",
+                    workItems = _items.Where(pair => pair.Value.Principal == principal && pair.Key > after)
+                        .OrderBy(pair => pair.Key).Take(201)
+                        .Select(pair => new { id = pair.Key }).ToArray() });
+            }
             const string route = "/_apis/wit/workitems/";
             var routeIndex = path.IndexOf(route, StringComparison.OrdinalIgnoreCase);
             if (routeIndex < 0) return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });

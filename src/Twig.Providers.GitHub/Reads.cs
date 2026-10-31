@@ -43,7 +43,8 @@ public sealed partial class GitHubProvider
 
     private static void CheckQuery(Query query, Discovery schema)
     {
-        if (query.Kind == QueryKind.Equal && (!schema.Schema.Types.Any(t => t.Fields.Any(f =>
+        if (query.Kind is QueryKind.Equal or QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual
+            && (!schema.Schema.Types.Any(t => t.Fields.Any(f =>
             f.Reference == query.Field && (query.Value!.Kind == FieldKind.Null || f.Kind == query.Value.Kind)))))
             throw Wire.Refuse(ErrorCode.Unsupported, "Query requires a discovered field and its exact typed value.");
         foreach (var child in query.Children) CheckQuery(child, schema);

@@ -949,14 +949,22 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="titles">Seed titles, comma-separated. Quote the value: twig seed chain "design api,build api".</param>
     [Command("seed chain")]
     public async Task<int> SeedChain([Argument] string? titles = null, int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct, SplitSeedTitles(titles));
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedChainAsync(SplitSeedTitles(titles), parent, type, output, ct);
+        return await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct, SplitSeedTitles(titles));
+    }
 
     /// <summary>Validate seeds against publish rules.</summary>
     /// <param name="id">Seed ID to validate; omit to validate all seeds.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed validate")]
     public async Task<int> SeedValidate([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedValidateCommand>().ExecuteAsync(id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedValidateAsync(id, output, ct);
+        return await services.GetRequiredService<SeedValidateCommand>().ExecuteAsync(id, output, ct);
+    }
 
     /// <summary>Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation, --link-branch to link to a git branch.</summary>
     /// <param name="id">Seed ID to publish; omit when using --all.</param>
@@ -978,7 +986,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed reconcile")]
     public async Task<int> SeedReconcile(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedLinkRepairCommand>().ExecuteAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedReconcileAsync(output, ct);
+        return await services.GetRequiredService<SeedLinkRepairCommand>().ExecuteAsync(output, ct);
+    }
 
     // ── Link commands (published work items) ────────────────────────
 

@@ -68,6 +68,84 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreChainAuthoringValidationAndReconciliationRetainOriginalCreationReferences()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "chain-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["seed", "chain", "--parent", "42", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var commands = new TwigCommands(root);
+            (await commands.SeedChain("design,build,verify", 42, "Task", "json")).ShouldBe(0, stderr.ToString());
+            using var chain = JsonDocument.Parse(stdout.ToString());
+            chain.RootElement.GetProperty("count").GetInt32().ShouldBe(3);
+            var staged = (await store.ReadAsync(connection, default)).Value;
+            staged.Drafts.Length.ShouldBe(3);
+            var first = staged.Drafts.Single(draft => draft.Links.IsEmpty);
+            var second = staged.Drafts.Single(draft => draft.Links.Any(link => link.Other == first.Key));
+            var third = staged.Drafts.Single(draft => draft.Links.Any(link => link.Other == second.Key));
+            _transport.PostCount.ShouldBe(0);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedValidate(output: "json")).ShouldBe(0, stderr.ToString());
+            using var validation = JsonDocument.Parse(stdout.ToString());
+            validation.RootElement.GetProperty("passed").GetInt32().ShouldBe(3);
+            _transport.PostCount.ShouldBe(0);
+            var preview = (await admitted.Workspace.PreviewDraftAsync(first.Key, default)).Value;
+            var applied = await admitted.Workspace.ApplyAsync(preview.Proposal!, preview.Proposal!.Digest, default);
+            applied.IsSuccess.ShouldBeTrue();
+            applied.Value.EffectsVerified.ShouldBeTrue();
+            var beforeSettlement = (await store.ReadAsync(connection, default)).Value;
+            beforeSettlement.Drafts.Length.ShouldBe(3, "direct journal execution deliberately leaves captured drafts for reconciliation");
+            beforeSettlement.Mappings.ShouldHaveSingleItem().Local.ShouldBe(first.Key);
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedReconcile("json")).ShouldBe(0, stderr.ToString());
+            using var reconciliation = JsonDocument.Parse(stdout.ToString());
+            reconciliation.RootElement.GetProperty("seedsSettled").GetInt32().ShouldBe(1);
+            var reconciled = (await store.ReadAsync(connection, default)).Value;
+            reconciled.Drafts.Length.ShouldBe(2);
+            reconciled.Drafts.Single(draft => draft.Key == second.Key).Links.Single().Other.ShouldBe(first.Key);
+            _transport.PostCount.ShouldBe(1, "reconciliation must never replay creation or dispatch a later planned operation");
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedPublish(all: true, output: "human")).ShouldBe(0, stderr.ToString());
+            var complete = (await store.ReadAsync(connection, default)).Value;
+            complete.Drafts.ShouldBeEmpty();
+            complete.Mappings.Length.ShouldBe(3);
+            complete.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
+            complete.Proposals.Single(proposal => proposal.Operations.Length == 2).Operations[0].Links.Single().Other.ShouldBe(first.Key);
+            _transport.PostCount.ShouldBe(3);
+            _transport.PatchAttempts.ShouldBe(0);
+            root.GetService<SeedChainCommand>().ShouldBeNull();
+            root.GetService<SeedLinkRepairCommand>().ShouldBeNull();
+            root.GetService<SeedValidateCommand>().ShouldBeNull();
+            complete.Mappings.ShouldContain(mapping => mapping.Local == third.Key);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreParentedSeedPublishesItsHierarchyInTheCreationCallWithoutAPostCreateWriter()
     {
         var native = await AttachAsync();
@@ -277,6 +355,9 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             (await commands.SeedPublish(unknownAlias, output: "human")).ShouldBe(1);
             _transport.PostCount.ShouldBe(2, "the unresolved UUID must fence replacement proposals, not only the old digest");
             var requestsBeforeUnknownDiscard = _transport.TotalRequests;
+            (await commands.SeedReconcile("json")).ShouldBe(1);
+            _transport.PostCount.ShouldBe(2, "reconciliation cannot guess or replay the unknown creation UUID");
+            _transport.TotalRequests.ShouldBe(requestsBeforeUnknownDiscard);
             (await commands.SeedDiscard(unknownAlias, yes: true, output: "json")).ShouldBe(1);
             (await store.ReadAsync(connection, default)).Value.Drafts.ShouldHaveSingleItem().Key.ShouldBe(unknownSeed.Key);
             _transport.TotalRequests.ShouldBe(requestsBeforeUnknownDiscard, "unknown seed abandonment must refuse locally without transport");

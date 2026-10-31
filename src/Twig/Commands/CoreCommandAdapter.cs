@@ -130,7 +130,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     }
 
     internal async Task<int> SeedNewAsync(string? title, string? requestedType, bool editor, int? parent,
-        bool noParent, string? description, string[]? fields, string output, CancellationToken ct)
+        bool noParent, string? description, string[]? fields, string output, CancellationToken ct,
+        Action<Draft>? capture = null, ItemKey? predecessor = null)
     {
         if (noParent && parent is not null) return Error(output, "--parent and --no-parent are mutually exclusive.", 2);
         if (editor) return Error(output, "The retained seed editor has not yet been connected to Core draft capture; no seed was staged.");
@@ -222,9 +223,17 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var key = ItemKey.Local(Guid.CreateVersion7());
         if (aliases.Contains(LocalAlias(key)))
             return Error(output, "The allocated seed alias collides with retained local identity; no seed was staged.");
+        CreationLink[] links = [];
+        if (predecessor is not null)
+        {
+            var dependency = schema.Value.Relations.Where(relation => relation.Shape == RelationShape.Dependency && relation.Directed).ToArray();
+            if (dependency.Length != 1) return Error(output, "The native process has no unique observed dependency relation; no chain seed was staged.");
+            links = [new(predecessor, dependency[0].Reference, false)];
+        }
         var staged = await workspace.StageSeedAsync(type.Reference, new(changes), ct, key.LocalId,
-            parentKey, parentRelation);
+            parentKey, parentRelation, links: links);
         if (!staged.IsSuccess) return Error(output, staged.Error.Message);
+        if (capture is not null) { capture(staged.Value); return 0; }
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedCreated",
             new Dictionary<string, RenderCell>
             {
@@ -234,6 +243,113 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["message"] = RenderCell.String("Created a local draft; no native creation was attempted."),
             })]));
         return 0;
+    }
+
+    internal async Task<int> SeedChainAsync(string[]? titles, int? parent, string? type, string output, CancellationToken ct)
+    {
+        if (parent is null || string.IsNullOrWhiteSpace(type))
+            return Error(output, "Core chain authoring requires --parent and --type until active-context selection is connected.", 2);
+        var created = new List<Draft>();
+        var supplied = titles is { Length: > 0 };
+        IEnumerable<string> Source()
+        {
+            if (supplied)
+            {
+                foreach (var title in titles!) yield return title;
+                yield break;
+            }
+            while (true)
+            {
+                if (!consoleInput.IsOutputRedirected) Console.Write("Seed title (empty to finish): ");
+                var line = consoleInput.ReadLine();
+                if (string.IsNullOrEmpty(line)) yield break;
+                yield return line;
+            }
+        }
+        var exit = 0;
+        foreach (var title in Source())
+        {
+            ct.ThrowIfCancellationRequested();
+            exit = await SeedNewAsync(title, type, false, parent, false, null, null, output, ct,
+                created.Add, created.LastOrDefault()?.Key);
+            if (exit != 0) break;
+        }
+        var rows = created.Select(draft => new RenderRow("seed", new Dictionary<string, RenderCell>
+        {
+            ["id"] = RenderCell.Integer(LocalAlias(draft.Key)),
+            ["localId"] = RenderCell.String(draft.Key.LocalId.ToString("D")),
+            ["title"] = Cell(draft.Changes["System.Title"]),
+        })).ToArray();
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Document(created.Count == 0 ? "seedChainEmpty" : "seedChainCreated",
+            [new("count", new RenderNode.KeyValue("count", RenderCell.Integer(created.Count))),
+                new("chain", new RenderNode.KeyValue("chain", RenderCell.String(string.Join(" -> ", created.Select(draft => "#" + LocalAlias(draft.Key)))))),
+                new("seeds", new RenderNode.Table(null, [new("id", "ID"), new("title", "Title")], rows))])]));
+        return exit;
+    }
+
+    internal async Task<int> SeedReconcileAsync(string output, CancellationToken ct)
+    {
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var result = await handle.Workspace.ReconcileSeedsAsync(ct);
+        if (!result.IsSuccess) return Error(output, result.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedReconcile",
+            new Dictionary<string, RenderCell>
+            {
+                ["seedsSettled"] = RenderCell.Integer(result.Value),
+                ["nothingToDo"] = RenderCell.Boolean(result.Value == 0),
+                ["message"] = RenderCell.String(result.Value == 0 ? "No verified unchanged seed captures require settlement."
+                    : $"Settled {result.Value} unchanged seed capture(s) from original verified receipts; local UUID references remain permanent."),
+            })]));
+        return 0;
+    }
+
+    internal async Task<int> SeedValidateAsync(int? id, string output, CancellationToken ct)
+    {
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        if (KnownLocalKeys(snapshot.Value).GroupBy(LocalAlias).Any(group => group.Count() != 1))
+            return Error(output, "Local seed aliases are ambiguous.");
+        var remaining = snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal).ToList();
+        if (id is not null && !remaining.Any(draft => LocalAlias(draft.Key) == id))
+            return Error(output, "The exact unpublished seed was not found.");
+        var rows = new List<RenderRow>();
+        var operations = new List<Op>();
+        var passed = 0;
+        while (remaining.Count != 0)
+        {
+            var draft = remaining.FirstOrDefault(draft => !remaining.Any(endpoint => endpoint.Key == draft.Parent
+                || draft.Links.Any(link => link.Other == endpoint.Key)));
+            if (draft is null) return Error(output, "Local creation links contain a cycle; no success was inferred.");
+            remaining.Remove(draft);
+            var preview = await workspace.PreviewDraftAsync(draft.Key, ct, operations);
+            if (preview.IsSuccess)
+            {
+                var op = preview.Value.Proposal!.Operations.Last();
+                operations.Add(new($"validate-{operations.Count}", op.Kind, op.Item, fields: op.Fields,
+                    type: op.Type, other: op.Other, relation: op.Relation, resource: op.Resource,
+                    concurrency: op.Concurrency, links: op.Links));
+            }
+            if (id is not null && LocalAlias(draft.Key) != id) continue;
+            if (preview.IsSuccess) passed++;
+            rows.Add(new("seedValidation", new Dictionary<string, RenderCell>
+            {
+                ["seedId"] = RenderCell.Integer(LocalAlias(draft.Key)), ["title"] = Cell(draft.Changes["System.Title"]),
+                ["passed"] = RenderCell.Boolean(preview.IsSuccess),
+                ["failures"] = RenderCell.String(preview.IsSuccess ? "" : preview.Error.Message),
+                ["warnings"] = RenderCell.String("Native schema and explicitly declared Twig policy scope; validation is not a publication acknowledgement."),
+            }));
+        }
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Document("seedValidation",
+            [new("results", new RenderNode.Table(null, [new("seedId", "Seed"), new("title", "Title"), new("passed", "Passed"), new("failures", "Failures")], rows)),
+                new("passed", new RenderNode.KeyValue("passed", RenderCell.Integer(passed))),
+                new("total", new RenderNode.KeyValue("total", RenderCell.Integer(rows.Count)))])]));
+        return passed == rows.Count ? 0 : 1;
     }
 
     internal async Task<int> SeedPublishAsync(int? id, bool all, bool force, bool dryRun,

@@ -55,7 +55,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (!schema.IsSuccess) return Result<ImmutableArray<Error>>.Ok([schema.Error]);
         var stored = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!stored.IsSuccess) return Result<ImmutableArray<Error>>.Fail(stored.Error);
-        var keys = proposal.Operations.SelectMany(op => op.Other is null ? new[] { op.Item } : new[] { op.Item, op.Other })
+        var keys = proposal.Operations.SelectMany(op => op.Links.Select(link => link.Other).Prepend(op.Item)
+                .Concat(op.Other is null ? [] : new[] { op.Other })).Select(key => Resolve(stored.Value, key))
             .Where(key => !key.IsLocal).Distinct().ToImmutableArray();
         var acquired = await provider.ReadAsync(connection, keys, ct, captureOnly: true).ConfigureAwait(false);
         if (!acquired.IsSuccess) return Result<ImmutableArray<Error>>.Ok([acquired.Error]);
@@ -112,7 +113,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     }
 
     internal async Task<Result<Draft>> StageSeedAsync(string type, FieldValues fields, CancellationToken ct, Guid? id = null,
-        ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null)
+        ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null,
+        IEnumerable<CreationLink>? links = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
@@ -126,7 +128,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             return Result<Draft>.Fail(ErrorCode.Conflict, "The retained seed type differs; no existing intent was replaced.");
         var draft = new Draft(key, type, null, previous?.Changes.Overlay(fields) ?? fields,
             parent ?? previous?.Parent, parentRelation ?? previous?.ParentRelation, resource ?? previous?.Resource,
-            previous?.Links);
+            links ?? previous?.Links);
         var committed = await store.CommitAsync(connection, snapshot.Version,
             Copy(snapshot, snapshot.Version + 1, drafts: snapshot.Drafts.Where(d => d.Key != key).Append(draft)), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<Draft>.Ok(draft) : Result<Draft>.Fail(committed.Error);
@@ -181,6 +183,47 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         var committed = await store.CommitAsync(connection, expectedVersion,
             Copy(current.Value, expectedVersion + 1, drafts: drafts), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
+    }
+
+    internal async Task<Result<int>> ReconcileSeedsAsync(CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var captured = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!captured.IsSuccess) return Result<int>.Fail(captured.Error);
+        foreach (var row in captured.Value.Journal)
+        {
+            var proposal = captured.Value.Proposals.Single(proposal => proposal.Digest == row.Digest);
+            if (proposal.Operations[row.Operation].Kind != OpKind.Create || row.Status == OpStatus.Planned) continue;
+            if (row.Status is OpStatus.Applied or OpStatus.Applying)
+            {
+                var recovered = await provider.RecoverAsync(proposal, row.Operation, ct).ConfigureAwait(false);
+                if (!recovered.IsSuccess) return Result<int>.Fail(recovered.Error);
+                if (recovered.Value.Status != OpStatus.Verified)
+                    return Result<int>.Fail(recovered.Value.Error ?? new(ErrorCode.Indeterminate, "The original creation receipt remains unresolved; no creation was replayed."));
+            }
+            else if (row.Status != OpStatus.Verified)
+                return Result<int>.Fail(row.Receipts.LastOrDefault()?.Error
+                    ?? new(ErrorCode.Indeterminate, "A creation remains fenced; no identity or outcome was inferred."));
+        }
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<int>.Fail(current.Error);
+        var settled = new HashSet<ItemKey>();
+        foreach (var draft in current.Value.Drafts.Where(draft => draft.Key.IsLocal))
+        {
+            var mapping = current.Value.Mappings.SingleOrDefault(mapping => mapping.Local == draft.Key);
+            if (mapping is null) continue;
+            var row = current.Value.Journal.Single(entry => entry.Digest == mapping.ProposalDigest && entry.Operation == mapping.Operation);
+            var op = current.Value.Proposals.Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation];
+            if (row.Status != OpStatus.Verified || op.Item != draft.Key || op.Type != draft.Type || !op.Fields.Equals(draft.Changes)
+                || op.Other != draft.Parent || op.Relation != draft.ParentRelation || op.Resource != draft.Resource
+                || !op.Links.SequenceEqual(draft.Links))
+                return Result<int>.Fail(ErrorCode.Conflict, "A published seed has later or unverified intent; the original UUID, draft and receipt were preserved.");
+            settled.Add(draft.Key);
+        }
+        if (settled.Count == 0) return Result<int>.Ok(0);
+        var committed = await store.CommitAsync(connection, current.Value.Version,
+            Copy(current.Value, current.Value.Version + 1, drafts: current.Value.Drafts.Where(draft => !settled.Contains(draft.Key))), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<int>.Ok(settled.Count) : Result<int>.Fail(committed.Error);
     }
 
     internal async Task<Result<Draft>> StageEditAsync(ItemKey key, FieldValues fields, CancellationToken ct, string? typeOverride = null)

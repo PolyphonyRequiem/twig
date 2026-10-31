@@ -121,12 +121,19 @@ and dependency publication ordering use one CAS-protected draft representation.
 Cycles refuse before capture, and branch/field capture and proposal settlement retain
 the frozen list. The production-root regression publishes a three-seed dependency
 chain with an association and branch resources without a post-create writer.
-GitHub still refuses unproven atomic creation-link coupling. The separate interactive
-chain authoring and reconciliation commands remain unfinished.
+GitHub still refuses unproven atomic creation-link coupling. `seed chain` now authors
+the same typed drafts and predecessor links with an explicit parent/type, emits one
+structured result, and preserves any staged prefix after an authoring failure.
+`seed validate` acquires actual schema and declared-policy evidence for the ordered
+captures without importing or dispatching a proposal. `seed reconcile` recovers only
+existing Applying/Applied creation rows and settles unchanged captures from their
+original Verified mappings; it never applies Planned successors, rewrites UUID
+references, guesses native identities or replays an unknown creation. Human active
+parent/type inference is still part of the unfinished context cutover.
 Explicit seed discard now checks the exact draft/store
 capture and refuses any attempted UUID or permanent mapping, even with `--yes`;
 unattempted abandonment preserves journals and local relationship tombstones.
-Seed editor/edit/reconciliation, active context and
+Seed editor/edit, active context and
 complete lifecycle/UI retention remain unfinished. These gaps prevent phase-5 delivery.
 
 The retained artifact-link path now has a typed `LinkResource` effect and

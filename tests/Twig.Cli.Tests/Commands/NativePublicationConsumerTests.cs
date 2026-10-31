@@ -175,6 +175,22 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             stderr.ToString().ShouldContain("layout");
             Run("process", "--org", "fixture", "--project", "Project", "-o", "json").ShouldBe(1);
             stderr.ToString().ShouldContain("override");
+            foreach (var target in new[]
+            {
+                new[] { "--org", "fixture" },
+                ["--project", "Project"],
+                ["--org", "", "--project", ""],
+                ["--org", "fixture", "--project", " "],
+            })
+            {
+                Run(["process", .. target, "-o", "json"]).ShouldBe(2, stderr.ToString());
+                stdout.ToString().ShouldBeEmpty();
+                using var invalidTarget = JsonDocument.Parse(stderr.ToString());
+                invalidTarget.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("--project");
+            }
+            Run("process", "--org", "another-target", "--project", "Project", "-o", "json").ShouldBe(1);
+            using (var conflict = JsonDocument.Parse(stderr.ToString()))
+                conflict.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("manifest is authoritative");
             Run("process", "description", "Fixture.Task", "--sections", "bogus", "-o", "json").ShouldBe(2);
             Run("process", "description", "Fixture.Task", "--fields", "Fixture.CloseEvidence", "-o", "json").ShouldBe(2);
             _transport.TotalRequests.ShouldBe(requests, "capability/argument refusals must happen before any ambient or override HTTP");

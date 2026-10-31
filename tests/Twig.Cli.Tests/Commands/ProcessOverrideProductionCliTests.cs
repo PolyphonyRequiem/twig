@@ -144,7 +144,7 @@ public sealed class ProcessOverrideProductionCliTests : IDisposable
     {
         var (exitCode, _, stderr) = await RunTwigAsync("process", suppliedFlag, suppliedValue);
 
-        exitCode.ShouldBe(1);
+        exitCode.ShouldBe(2);
         stderr.ShouldContain(suppliedFlag);
         stderr.ShouldContain(missingFlag);
         stderr.ShouldNotContain("The manifest is authoritative");

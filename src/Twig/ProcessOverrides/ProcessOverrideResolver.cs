@@ -86,8 +86,8 @@ internal static class ProcessOverrideResolver
                     + $"'{workspaceConfig.Project}'. The manifest is authoritative.");
             }
 
-            // Flags agree with the manifest — the workspace path answers identically and is
-            // cheaper (cache rather than a live fetch), so prefer it.
+            // Flags agree with the manifest. The host still applies the current surface's
+            // capability checks before admitting this workspace target.
             return ProcessOverrideDecision.UseWorkspace();
         }
 

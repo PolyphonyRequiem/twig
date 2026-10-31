@@ -327,22 +327,24 @@ public class TelemetryClientTests
         // Regression test: verifies the paren-matching scanner actually extracts keys
         // from a known command file. Prevents the scanner from silently becoming a no-op.
         var dir = FindSolutionRoot();
-        if (dir is null) return;
+        dir.ShouldNotBeNull("the scanner positive control must locate the actual source tree");
 
-        var commandFile = Path.Combine(dir, "src", "Twig", "Commands", "DiscardCommand.cs");
-        if (!File.Exists(commandFile)) return;
+        var commandFile = Path.Combine(dir, "src", "Twig", "Commands", "InitCommand.cs");
+        File.Exists(commandFile).ShouldBeTrue("the scanner positive-control emitter must exist");
 
         var content = File.ReadAllText(commandFile);
         var trackIdx = content.IndexOf(".TrackEvent(", StringComparison.Ordinal);
-        trackIdx.ShouldBeGreaterThan(-1, "DiscardCommand.cs should contain a .TrackEvent( call");
+        trackIdx.ShouldBeGreaterThan(-1, "InitCommand.cs should contain a .TrackEvent( call");
 
         var end = FindCallEnd(content, trackIdx);
         var callBlock = content[trackIdx..(end + 1)];
         callBlock.Length.ShouldBeGreaterThan(20, "callBlock should span the full TrackEvent call, not just '.T'");
 
         var keys = KeyPattern.Matches(callBlock).Select(m => m.Groups[1].Value).ToList();
-        keys.Count.ShouldBeGreaterThan(0, "Scanner should extract at least one key from DiscardCommand.cs");
+        keys.Count.ShouldBeGreaterThan(0, "Scanner should extract keys from the actual InitCommand.cs emitter");
         keys.ShouldContain("command");
+        keys.ShouldContain("exit_code");
+        keys.ShouldContain("duration_ms");
     }
 
     [Fact]

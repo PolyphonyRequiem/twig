@@ -161,11 +161,9 @@ public static class CommandRegistrationModule
             sp.GetService<IAdoGitService>()));
         services.AddSingleton<SeedLinkRepairCommand>();
         services.AddSingleton<WebCommand>();
-        services.AddSingleton<UpdateCommand>();
         services.AddSingleton<EditCommand>();
 
         services.AddSingleton<RefreshCommand>();
-        services.AddSingleton<DiscardCommand>();
         services.AddSingleton<DeleteCommand>();
         services.AddSingleton<SyncCommand>();
         services.AddSingleton<BenchSyncCommand>();
@@ -196,9 +194,6 @@ public static class CommandRegistrationModule
         services.AddSingleton<DraftEditingCommand>(sp => new DraftEditingCommand(
             sp.GetRequiredService<CommandContext>(), () => sp.GetRequiredService<RecoverableDraftEditingModule>()));
         services.AddSingleton<BenchAreaCandidatesCommand>();
-        // 'twig save' is deprecated but still dispatches to SaveCommand
-        // (Program.cs Save handler); without this it throws at runtime.
-        services.AddSingleton<SaveCommand>();
         services.AddSingleton<WorkspaceCommand>(sp => new WorkspaceCommand(
             sp.GetRequiredService<CommandContext>(), sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(), sp.GetRequiredService<IIterationService>(),

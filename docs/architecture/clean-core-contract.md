@@ -302,13 +302,20 @@ refuses with initialization guidance; legacy native layout reading is unchanged.
 | `CoreCommandAdapter.StateAsync` -> shared Core proposal/journal workflow | `StateCommand.cs`, its singleton registration and Program fallback |
 | `CoreCommandAdapter.NoteAsync` -> shared Core proposal/journal workflow | `NoteCommand.cs`, its singleton registration and Program fallback |
 | `CoreCommandAdapter.PatchAsync` -> shared Core proposal/journal workflow | `PatchCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.UpdateAsync` -> shared Core proposal/journal workflow | `UpdateCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.SaveAsync` -> shared Core proposal/journal workflow | `SaveCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.DiscardAsync` -> local typed-draft CAS, preserving seeds and journals | `DiscardCommand.cs`, its singleton registration and Program fallback |
 
 Only superseded command-shell tests were removed/replaced; no CLI public API
 baseline entries existed for these wrappers. `CoreMutationAdmissionGuard` continues
 to refuse unsupported legacy workspaces before old writer registration. Shared
 `StateTransitionWorkflow`, `NoteWorkflow`, `PatchWorkflow`, conflict handling and
 note-flush helpers remain: other consumers, including the withdrawn MCP draft,
-still reference them. Save/Update/Discard and UI ownership are outside this deletion.
+still reference them. `FieldUpdateWorkflow`, `DiscardWorkflow` and
+`PendingChangeFlusher` remain shared; in particular `SyncCommand` still uses the
+flusher. Mixed Edit/prompt tests retain their unrelated cases. UI ownership is
+outside this deletion; removing these six CLI wrappers does not authorize deleting
+their shared workflows or resolving legacy writers into the Core graph.
 The Core inventory stays at 56 types/two ports and store/proposal format 3.
 
 ## Identity, values and drafts

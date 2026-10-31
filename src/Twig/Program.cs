@@ -1193,7 +1193,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.UpdateAsync(field, value, output, format, file, stdin, id, append, ct);
-        return await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, id, append, ct);
+        throw new InvalidOperationException("An explicitly initialized Core workspace is required; no legacy update writer was registered.");
     }
 
     /// <summary>Atomically patch multiple fields on a work item via JSON input.</summary>
@@ -1230,7 +1230,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.DiscardAsync(id, all, yes, output, ct);
-        return await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
+        throw new InvalidOperationException("An explicitly initialized Core workspace is required; no legacy discard command was registered.");
     }
 
     /// <summary>Permanently delete a work item from Azure DevOps. This is irreversible — consider 'twig state Closed' instead.</summary>
@@ -1250,8 +1250,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.SaveAsync(id, all, output, ct);
-        await Console.Error.WriteLineAsync("hint: 'twig save' is deprecated. Use 'twig sync' instead.");
-        return await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
+        throw new InvalidOperationException("An explicitly initialized Core workspace is required; no legacy save writer was registered.");
     }
 
 

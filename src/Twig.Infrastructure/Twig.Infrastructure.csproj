@@ -71,6 +71,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Twig.Domain\Twig.Domain.csproj" />
+    <ProjectReference Include="..\Twig.Providers.Ado\Twig.Providers.Ado.csproj" />
+    <ProjectReference Include="..\Twig.Providers.GitHub\Twig.Providers.GitHub.csproj" />
+    <ProjectReference Include="..\Twig.Store.Sqlite\Twig.Store.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>

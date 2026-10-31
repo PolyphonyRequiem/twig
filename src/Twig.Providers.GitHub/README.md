@@ -31,23 +31,34 @@ assumed project process. Unknown state semantics and incomplete catalogs refuse
 writes. Native capabilities describe implemented schema shapes, **not** runtime
 permissions or availability; denial remains an error.
 
-**GitHub process/workflow rule discovery is Unsupported.** This fact remains
-fingerprinted in disabled, explicitly typed schema evidence, even when governed
-local rules are available. It must not be interpreted as a discovered empty
-external ruleset. `ReadGovernedRulesAsync` is a separate trusted host authority:
-it must acquire a real configured, complete policy for this supported projection,
-including any applicable gates, with immutable connection, native actor, native
-projection fingerprint, stable policy identity/revision and rules for **every**
-discovered type. The projection fingerprint also binds acquisition context.
-Absent, stale, mismatched or unsupported evidence creates `ProcessSchema.Gaps`;
-Core consequently refuses every effect, including comments/local relationships.
-Unknown enabled supplied rules also refuse. Policy identity/revision and rules
-participate in confirmation. Model text or an arbitrary "complete" flag is not an
-evidence source. This adapter does not discover arbitrary GitHub workflows.
+**GitHub process/workflow rule discovery is Unsupported.** This remains
+fingerprinted in disabled, typed schema evidence. The user-approved phase-5
+validation scope is **native API constraints plus explicitly configured Twig
+policies**, not external repository automation. An absent optional Twig
+declaration means no declared local rules, never that external workflows have
+been discovered, satisfied or waived.
 
-**Live writes remain unavailable without a real leased admission bridge and
-governed evidence source.** Phase 5 must establish these explicitly; it cannot
-invent missing external rules or treat this test seam as a production authority.
+`ReadRuleProjectionAsync` must acquire connection/actor/native-fingerprint-bound
+`GitHubRuleProjection` evidence explicitly naming that scope. Policy identity,
+actual revision and per-type field rules participate in confirmation. Missing,
+stale, mismatched, unknown-scope or unsupported evidence creates schema gaps and
+refuses effects. Unknown enabled rules still refuse. Native type names are
+retained as fingerprinted evidence so configured policy names can resolve to
+actual stable native type IDs without guessing.
+
+The host `GitHubPolicyProjectionSource` reads the real optional `twig.policy.json`
+once, hashes its exact bytes and translates only its supported mechanical
+parent-type/dependency rules. Duplicate/unknown members, invented `complete`
+flags, ambiguous/unknown types, unreadable declarations and excessive acquisition
+sizes refuse. Its current declaration format has no field-rule/close-gate kind;
+it does not manufacture one or infer business rules from model text. It returns
+the captured mechanical policy for application enforcement alongside the bound
+field-rule projection. A source acquisition alone is not enforcement or live
+write authority.
+
+**Live command writes are not switched.** Phase 5 must connect the real leased
+admission bridge and captured-policy enforcement explicitly; it cannot invent
+external rules or treat the test seam as a production authority.
 Tests supply unmistakably synthetic, test-only policy evidence and HTTP/auth
 boundaries; no live credentials or remote writes qualify this implementation.
 
@@ -86,17 +97,21 @@ and persists a fresh Applying attempt **before** admission or native dispatch.
 Every native effect explicitly declares `ObservedNonAtomic`. No exact-revision or
 atomic-batch guarantees are claimed, even for one native request.
 
-Supported effects are one-request creation, one-field replacement, Markdown
+Supported effects are one-request creation, independent field replacement groups, Markdown
 comment, and native/local relate/unrelate. Writable fields are title, Markdown body,
 native state, milestone ID/null, sorted unique label IDs and assignee IDs where
 their native input exists; resource identity/kind/repository is checked. Empty
 Markdown explicitly clears a body; null body is refused, not silently coerced.
 Creation binds its native OPEN initial state and optional discovered issue type in
 one request. Comment readback uses its acknowledged native ID, subject and author.
-Multi-field/type-change batches and Delete refuse. Independent multi-request edits
-must be exposed as separately ordered operations **before** digest confirmation.
-A close gate must ride with its transition; non-atomic consent cannot bypass that
-invariant, so such multi-field transitions refuse. Original observations are never
+Independent fields may share one `updateIssue` request only with digested
+`ObservedNonAtomic` intent. This does not claim atomic application: separate
+readback checks every field and records Partial when any differs, retaining the
+acknowledgement and replay fence. Type changes and Delete refuse. Independent
+multi-request effects must be exposed as separately ordered operations **before**
+digest confirmation. A close gate must ride atomically with its transition;
+non-atomic consent cannot bypass that invariant, so coupled closes refuse.
+Original observations are never
 carried forward or rebased after an earlier effect.
 
 Complete HTTP rejection records Failed/no effect; GraphQL errors/partial data,

@@ -63,10 +63,14 @@ internal interface IConnectionOperationGuard
 internal interface IAdmittedConnectionOperation : IDisposable
 {
     ResolvedConnectionBinding? GetOrigin(IConnectionBindingService resolver, TwigConfiguration configuration, TwigPaths paths);
+    ResolvedConnectionBinding? GetAuthority(IConnectionBindingService resolver);
 }
 
 internal sealed record ConnectionRemoteWriteRequest(string EffectKind, string Method, string Target, string Payload, string? IfMatch,
-    SeedPublishCorrelation? SeedCorrelation = null);
+    SeedPublishCorrelation? SeedCorrelation = null, CoreWriteCorrelation? CoreCorrelation = null);
+
+internal sealed record CoreWriteCorrelation(string ConnectionIdentity, string ProposalDigest, int Operation,
+    Guid Attempt, string TargetIdentity, Guid? CreationIdentity, string? ExpectedRevision);
 
 internal sealed record ConnectionRemoteWriteResponse(int StatusCode, string Body, string? RequestId, string? Location);
 
@@ -132,7 +136,7 @@ internal static class ConnectionOperationAdmission
     internal static bool CanRenewAfterWriteRejection(Exception exception)
         => exception.Data[RejectedWriteAdmissionKey] is IConnectionRemoteWriteAdmission { IsDefinitivelyRejected: true };
 
-    private static string RedactCredential(string value, string credential, string? authorizationParameter)
+    internal static string RedactCredential(string value, string credential, string? authorizationParameter)
     {
         value = Redact(value, credential);
         if (!string.IsNullOrEmpty(authorizationParameter)) value = Redact(value, authorizationParameter);

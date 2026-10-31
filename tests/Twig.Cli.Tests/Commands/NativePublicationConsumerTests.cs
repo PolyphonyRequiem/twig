@@ -20,6 +20,8 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
 using Xunit;
+using CoreModel = Twig.Core;
+using CleanStore = Twig.Store.Sqlite.SqliteStore;
 
 namespace Twig.Cli.Tests.Commands;
 
@@ -61,6 +63,86 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         SqliteConnection.ClearPool(pool);
         Directory.Delete(_temp, recursive: true);
         return Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task CleanCoreAdmissionRetainsRealNativeLeaseAndExactDurableAttemptAttribution()
+    {
+        var runtime = await AttachAsync();
+        var config = runtime.GetRequiredService<TwigConfiguration>();
+        var paths = runtime.GetRequiredService<TwigPaths>();
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+        var fields = new CoreModel.FieldValues([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Core reviewed title"))]);
+        var proposal = new CoreModel.Proposal(connection, "native-schema", 0,
+            [new("edit", CoreModel.OpKind.Batch, key, new(key, "ado-rev:1"), fields)]);
+        var created = await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"));
+        created.IsSuccess.ShouldBeTrue();
+        var store = created.Value;
+        var planned = CoreModel.JournalEntry.Planned(proposal.Digest, 0);
+        (await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
+        var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
+            config, paths, origin, connection, Actor, store);
+        var acquired = await access.AcquireAsync(connection, default);
+        acquired.IsSuccess.ShouldBeTrue(acquired.IsSuccess ? "" : acquired.Error.Message);
+        using var session = acquired.Value;
+        var attempt = Guid.NewGuid();
+        var intent = new Twig.Providers.Ado.AdoWriteIntent(proposal, 0, attempt,
+            new Uri("https://dev.azure.com/fixture/" + connection.Destination + "/_apis/wit/workitems/42?api-version=7.1"),
+            "PATCH", "application/json-patch+json",
+            """[{"op":"test","path":"/rev","value":1},{"op":"add","path":"/fields/System.Title","value":"Core reviewed title"}]""");
+        (await session.AdmitAsync(intent, default)).IsSuccess.ShouldBeFalse("Planned is not durable Applying");
+        (await _systemRegistry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint)).Value.ShouldBeEmpty();
+        var applying = planned.Begin(attempt).Value;
+        (await store.CommitAsync(connection, 1, new(2, proposals: [proposal], journal: [applying]), default)).IsSuccess.ShouldBeTrue();
+        (await session.AdmitAsync(intent with { Attempt = Guid.NewGuid() }, default)).IsSuccess.ShouldBeFalse();
+        (await session.AdmitAsync(intent with { Payload = intent.Payload.Replace("\"value\":1", "\"value\":2", StringComparison.Ordinal) }, default))
+            .IsSuccess.ShouldBeFalse();
+        var admitted = await session.AdmitAsync(intent, default);
+        admitted.IsSuccess.ShouldBeTrue(admitted.IsSuccess ? "" : admitted.Error.Message);
+        using var admission = admitted.Value;
+        var recorded = (await _systemRegistry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint)).Value.ShouldHaveSingleItem();
+        recorded.Intent.Request.CoreCorrelation.ShouldNotBeNull().ProposalDigest.ShouldBe(proposal.Digest);
+        recorded.Intent.Request.CoreCorrelation!.Operation.ShouldBe(0);
+        recorded.Intent.Request.CoreCorrelation.Attempt.ShouldBe(attempt);
+        recorded.Intent.Request.Payload.ShouldBe(intent.Payload);
+        recorded.Intent.Origin.ShouldBe(origin);
+        recorded.Receipt.ShouldBeNull();
+        _transport.CommittedWrites.ShouldBe(0, "native admission does not dispatch");
+        using var request = new HttpRequestMessage(HttpMethod.Patch, intent.Target);
+        request.Headers.Authorization = session.Authorization;
+        request.Content = new StringContent(intent.Payload, Encoding.UTF8, intent.MediaType);
+        using var response = await _http.SendAsync(request);
+        await admission.ObserveAsync((int)response.StatusCode, await response.Content.ReadAsStringAsync(), default);
+        var outcome = (await _systemRegistry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint)).Value.ShouldHaveSingleItem();
+        outcome.Observations.ShouldHaveSingleItem().IntentId.ShouldBe(recorded.Intent.IntentId);
+        outcome.Receipt.ShouldNotBeNull().RequestDigest.ShouldBe(recorded.Intent.RequestDigest);
+        outcome.Receipt!.Kind.ShouldBe("acknowledged");
+        _transport.CommittedWrites.ShouldBe(1);
+        await Should.ThrowAsync<InvalidOperationException>(() => session.AdmitAsync(intent, default));
+        _transport.CommittedWrites.ShouldBe(1, "native attempt admission cannot replay after an acknowledgement");
+    }
+
+    [Fact]
+    public async Task CleanCoreAccessRefusesANewSelectedActorBeforeWorkTransport()
+    {
+        var runtime = await AttachAsync();
+        var config = runtime.GetRequiredService<TwigConfiguration>();
+        var paths = runtime.GetRequiredService<TwigPaths>();
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var store = (await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"))).Value;
+        var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
+            config, paths, origin, connection, Actor, store);
+        var replacement = await _bindings.CreateBindingAsync(config.Organization, config.Project, "sibling", false);
+        SwapSelection(config, replacement.BindingId);
+        (await access.AcquireAsync(connection, default)).IsSuccess.ShouldBeFalse();
+        _transport.WorkRequests.ShouldBe(0);
+        (await _systemRegistry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint)).Value.ShouldBeEmpty();
+        (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(0);
     }
 
     [Fact]

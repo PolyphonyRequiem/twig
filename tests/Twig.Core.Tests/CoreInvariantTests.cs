@@ -154,6 +154,25 @@ public sealed class CoreInvariantTests
     }
 
     [Fact]
+    public void ObservedIndependentFieldsDoNotGrantAtomicCloseGateOrTypeChangeAuthority()
+    {
+        var schema = Schema();
+        var capabilities = new ProviderCapabilities(Enum.GetValues<OpKind>(), ["hierarchy"], ["related"], false, false);
+        var independent = Batch(Fields(("gate", FieldValue.String("edited")), ("count", FieldValue.Integer(2))), schema,
+            concurrency: ConcurrencyMode.ObservedNonAtomic);
+        Rules.Validate(independent, independent.Digest, schema, new(0, [Item()]), capabilities).ShouldBeEmpty();
+        var close = Batch(Fields(("phase", FieldValue.String("finished")), ("gate", FieldValue.String("evidence"))),
+            schema, concurrency: ConcurrencyMode.ObservedNonAtomic);
+        Rules.Validate(close, close.Digest, schema, new(0, [Item()]), capabilities)
+            .ShouldContain(e => e.Code == ErrorCode.Unsupported);
+        var typed = new Proposal(Connection, schema.Fingerprint, 0,
+            [new("type", OpKind.Batch, Key, new Revision(Key, "rev-1"), independent.Operations[0].Fields,
+                type: "record", concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+        Rules.Validate(typed, typed.Digest, schema, new(0, [Item()]), capabilities)
+            .ShouldContain(e => e.Code == ErrorCode.Unsupported);
+    }
+
+    [Fact]
     public void PairedSupplierIsNotAnAuthoredCloseGateAndDisabledSupplierDoesNotCount()
     {
         var when = new[] { new RuleCondition(ConditionKind.Equal, "phase", FieldValue.String("finished")) };

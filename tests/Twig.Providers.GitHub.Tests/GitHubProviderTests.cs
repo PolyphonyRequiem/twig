@@ -92,6 +92,7 @@ public sealed class GitHubProviderTests
     [InlineData("rules-unsupported")]
     [InlineData("rules-stale")]
     [InlineData("rules-incomplete")]
+    [InlineData("rules-scope")]
     [InlineData("unknown-rule")]
     [InlineData("unknown-state")]
     [InlineData("types-page")]
@@ -118,17 +119,13 @@ public sealed class GitHubProviderTests
     }
 
     [Fact]
-    public async Task ExactRevisionAtomicBatchesAndSameOperationCloseGatesAreRefused()
+    public async Task ExactRevisionAndSameOperationCloseGatesAreRefused()
     {
         using var f = await Fixture.Create();
         var item = await f.Item();
         var exact = await f.Proposal(new("exact", OpKind.Batch, item.Key, item.Revision,
             Fields((Provider.Title, FieldValue.String("changed")))));
         (await f.Provider.ImportAsync(exact, exact.Digest)).Error.Code.ShouldBe(ErrorCode.Unsupported);
-        var batch = await f.Proposal(new("multi", OpKind.Batch, item.Key, item.Revision,
-            Fields((Provider.Title, FieldValue.String("changed")), (Provider.Body, FieldValue.RichText("body", FieldKind.Markdown))),
-            concurrency: ConcurrencyMode.ObservedNonAtomic));
-        (await f.Provider.ImportAsync(batch, batch.Digest)).Error.Code.ShouldBe(ErrorCode.Unsupported);
         f.Access.CloseGate = true;
         var close = await f.Proposal(new("close", OpKind.Batch, item.Key, item.Revision,
             Fields((Provider.StateField, FieldValue.String("CLOSED"))), concurrency: ConcurrencyMode.ObservedNonAtomic));
@@ -140,6 +137,36 @@ public sealed class GitHubProviderTests
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(coupled, coupled.Digest)).Error.Code.ShouldBe(ErrorCode.Unsupported);
         f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(false, OpStatus.Verified)]
+    [InlineData(true, OpStatus.Partial)]
+    public async Task IndependentObservedFieldsUseOneDurableEffectWithoutClaimingAtomicity(bool interleaved, OpStatus expected)
+    {
+        using var f = await Fixture.Create();
+        var item = await f.Item();
+        f.Provider.Capabilities.AtomicFieldBatches.ShouldBeFalse();
+        item.Fields[Provider.Title].ShouldBe(FieldValue.String("original"));
+        item.Fields[Provider.Body].ShouldBe(FieldValue.RichText("", FieldKind.Markdown));
+        var proposal = await f.Proposal(new("independent-fields", OpKind.Batch, item.Key, item.Revision,
+            Fields((Provider.Title, FieldValue.String("changed")),
+                (Provider.Body, FieldValue.RichText("**reviewed body**", FieldKind.Markdown))),
+            concurrency: ConcurrencyMode.ObservedNonAtomic));
+        await f.Import(proposal);
+        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        ack.Status.ShouldBe(OpStatus.Applied);
+        f.Access.SawDurableAttempt.ShouldBeTrue();
+        f.Http.Writes.ShouldBe(1);
+        f.Http.LastPayload.ShouldNotBeNull().ShouldContain("**reviewed body**");
+        ack.Evidence.ShouldContain(e => e.Contains("no remote CAS or atomic batch guarantee", StringComparison.Ordinal));
+        if (interleaved) f.Http.Issues["I1"]["body"] = "another writer";
+        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(expected);
+        var stored = await f.Stored();
+        stored.Journal.Single().Receipts.Select(r => r.Status).ShouldBe([OpStatus.Applied, expected]);
+        var replay = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        replay.IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(1);
     }
 
     [Theory]
@@ -587,10 +614,10 @@ public sealed class GitHubProviderTests
                 if (access.InvalidLease) throw new InvalidOperationException("Selected lease changed.");
                 ct.ThrowIfCancellationRequested(); return Task.CompletedTask;
             }
-            public override Task<Result<GitHubGovernedRules>> ReadGovernedRulesAsync(ProcessSchema nativeProjection, CancellationToken ct)
+            public override Task<Result<GitHubRuleProjection>> ReadRuleProjectionAsync(ProcessSchema nativeProjection, CancellationToken ct)
             {
                 if (access.RuleDefect == "rules-unsupported")
-                    return Task.FromResult(Result<GitHubGovernedRules>.Fail(ErrorCode.Unsupported, "No governed workflow-rule evidence."));
+                    return Task.FromResult(Result<GitHubRuleProjection>.Fail(ErrorCode.Unsupported, "Configured Twig policy evidence unavailable."));
                 var map = nativeProjection.Types.ToImmutableDictionary(t => t.Reference, _ => ImmutableArray<FieldRule>.Empty);
                 if (access.RuleDefect == "rules-incomplete") map = map.Remove("T1");
                 if (access.RuleDefect == "unknown-rule")
@@ -598,8 +625,11 @@ public sealed class GitHubProviderTests
                 if (access.CloseGate)
                     map = map.ToImmutableDictionary(p => p.Key, _ => ImmutableArray.Create(new FieldRule(Provider.Title, RuleAction.Required,
                         [new(ConditionKind.Equal, Provider.StateField, FieldValue.String("CLOSED"))])));
-                return Task.FromResult(Result<GitHubGovernedRules>.Ok(new(fixture.Connection, access.Actor,
-                    access.RuleDefect == "rules-stale" ? "stale" : nativeProjection.Fingerprint, "synthetic-test-only-policy", "v1", map)));
+                return Task.FromResult(Result<GitHubRuleProjection>.Ok(new(fixture.Connection, access.Actor,
+                    access.RuleDefect == "rules-stale" ? "stale" : nativeProjection.Fingerprint,
+                    access.RuleDefect == "rules-scope" ? GitHubValidationScope.Unspecified
+                        : GitHubValidationScope.NativeApiAndDeclaredTwigPolicies,
+                    "synthetic-test-only-policy", "v1", map)));
             }
             public override async Task<Result<GitHubWriteAdmission>> AdmitAsync(GitHubWriteIntent intent, CancellationToken ct)
             {

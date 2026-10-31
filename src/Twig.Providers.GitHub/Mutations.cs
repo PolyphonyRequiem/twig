@@ -18,8 +18,8 @@ public sealed partial class GitHubProvider
         }
         if (!schema.Capabilities.Operations.Contains(op.Kind) || op.Concurrency != ConcurrencyMode.ObservedNonAtomic)
             throw Wire.Refuse(ErrorCode.Unsupported, "Only declared observed-non-atomic effects are supported.");
-        if (op.Kind == OpKind.Batch && (op.Fields.Count != 1 || op.Type is not null))
-            throw Wire.Refuse(ErrorCode.Unsupported, "Expand independent edits into ordered effects before confirmation; type changes and atomic batches are not supported.");
+        if (op.Kind == OpKind.Batch && (op.Fields.Count == 0 || op.Type is not null))
+            throw Wire.Refuse(ErrorCode.Unsupported, "A nonempty observed field effect is required; type changes and atomic batches are not supported.");
         var mutation = op.Kind switch
         {
             OpKind.Create => "createIssue",

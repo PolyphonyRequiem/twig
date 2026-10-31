@@ -150,16 +150,17 @@ public static partial class Core
         if (op.Kind is OpKind.Batch or OpKind.Create)
         {
             if (op.Fields.Count == 0) Fail(ErrorCode.InvalidInput, "A field effect cannot be empty.");
-            if (op.Kind == OpKind.Batch && op.Fields.Count + (op.Type is null ? 0 : 1) > 1 && !capabilities.AtomicFieldBatches)
-                Fail(ErrorCode.Unsupported, "Provider cannot apply this field batch atomically; expand independent effects before digesting.");
+            if (op.Kind == OpKind.Batch && !capabilities.AtomicFieldBatches
+                && (op.Type is not null || op.Fields.Count > 1 && op.Concurrency != ConcurrencyMode.ObservedNonAtomic))
+                Fail(ErrorCode.Unsupported, "Independent fields require explicit observed non-atomic intent; type changes require atomic support.");
             var source = store.Items.FirstOrDefault(i => i.Key == op.Item);
             var type = schema.Types.FirstOrDefault(t => t.Reference == (op.Type ?? source?.Type));
             if (type is null) Fail(ErrorCode.Unavailable, "The item's discovered type is unavailable.");
-            else ValidateFields(op, source, type, Fail);
+            else ValidateFields(op, source, type, capabilities.AtomicFieldBatches, Fail);
         }
     }
 
-    private static void ValidateFields(Op op, WorkItem? source, ItemType type, Action<ErrorCode, string> fail)
+    private static void ValidateFields(Op op, WorkItem? source, ItemType type, bool atomicFields, Action<ErrorCode, string> fail)
     {
         var old = source?.Fields ?? new FieldValues(type.Fields.Select(f =>
             KeyValuePair.Create(f.Reference, FieldValue.Null)));
@@ -213,6 +214,9 @@ public static partial class Core
                         fail(ErrorCode.InvalidInput, $"Required field '{rule.Field}' has no effective value.");
                     if (!supplied && changedState && target?.Category == StateCategory.Completed && !op.Fields.ContainsKey(rule.Field))
                         fail(ErrorCode.InvalidInput, $"Close-gate field '{rule.Field}' must ride in the same batch as the transition.");
+                    if (!supplied && changedState && target?.Category == StateCategory.Completed
+                        && rule.Field != type.StateField && !atomicFields)
+                        fail(ErrorCode.Unsupported, $"Close-gate field '{rule.Field}' requires proven atomic coupling with the transition.");
                     break;
                 case RuleAction.ReadOnly:
                     if (op.Fields.ContainsKey(rule.Field)) fail(ErrorCode.InvalidInput, $"Rule makes '{rule.Field}' read-only.");

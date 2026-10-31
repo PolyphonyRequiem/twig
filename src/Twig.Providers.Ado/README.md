@@ -31,8 +31,16 @@ durably admit those exact bytes under the original actor/binding. Its returned
 Neither method may dispatch/retry the mutation itself; disposal must be nonthrowing.
 There is no permissive token-only implementation. Tests implement only these
 external auth/admission and HTTP boundaries; the adapter, validation, journal and
-SQLite store are real. This phase does **not** claim a live-native admission bridge:
-implementing that bridge and wiring retained commands belongs to phase 5.
+SQLite store are real. Phase 5 now supplies `CleanCoreAdoAccess` in Infrastructure. It requires the
+existing native admitted binding/generation lease (not a token-only substitute),
+rechecks the selected authority, binds immutable native actor identity and
+requires the exact Core operation's durable Applying attempt before native
+admission. Native intents/responses retain proposal digest, ordinal, attempt,
+target and creation UUID correlation; acknowledged attempts and creation UUIDs
+cannot acquire replacement requests. Absent correlation is omitted from legacy
+JSON so historical immutable request bytes are not rewritten. This bridge has a
+real native-auth/SQLite composition regression; retained command cutover is
+still in progress and production registration is not yet switched.
 
 The default HTTP transport disables redirects and retries. A supplied handler
 is a trusted external transport seam and must preserve those properties. Response

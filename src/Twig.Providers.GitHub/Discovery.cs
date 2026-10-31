@@ -16,7 +16,7 @@ public sealed partial class GitHubProvider
     public const string Dependency = "github.blocks";
     public const string Related = "github.related";
     public const string Untyped = "github.issue";
-    public const string RuleDiscovery = "unsupported: GitHub does not expose process/workflow field rules; complete governed host evidence is required for writes";
+    public const string RuleDiscovery = "unsupported: GitHub does not expose process/workflow field rules; external repository automation is outside Twig validation";
 
     private sealed record Discovery(ProcessSchema Schema, ImmutableHashSet<string> Fields,
         ImmutableHashSet<string> Mutations, ImmutableHashSet<string> UpdateInputs,
@@ -90,6 +90,7 @@ public sealed partial class GitHubProvider
         if (fields.Contains("assignees")) definitions.Add(new(Assignees, FieldKind.StringList));
         if (fields.Contains("milestone")) definitions.Add(new(Milestone, FieldKind.Identity));
         var types = new List<string> { Untyped };
+        var typeNames = new Dictionary<string, string>(StringComparer.Ordinal);
         var hidden = new HashSet<string>(StringComparer.Ordinal);
         if (fields.Contains("issueType"))
         {
@@ -110,6 +111,7 @@ public sealed partial class GitHubProvider
                     var id = Wire.Id(Wire.Text(type, "id"));
                     if (id == Untyped || types.Contains(id, StringComparer.Ordinal)) throw Wire.Invalid("Duplicate/invalid issue type identity.");
                     types.Add(id);
+                    typeNames.Add(id, Wire.Text(type, "name"));
                     if (!Wire.Member(type, "isEnabled").GetBoolean()) hidden.Add(id);
                 }
             }
@@ -121,18 +123,21 @@ public sealed partial class GitHubProvider
              new(StateField, RuleAction.Allowed, [], states.Order(StringComparer.Ordinal).Select(FieldValue.String))],
             hidden: hidden.Contains(id))).ToArray();
         itemTypes = itemTypes.Select(t => new ItemType(t.Reference, t.StateField, t.Fields, t.States, t.Transitions,
-            t.Rules.Append(new FieldRule(Title, RuleAction.Unknown, [],
+            t.Rules.Concat(typeNames.TryGetValue(t.Reference, out var typeName)
+                ? [new FieldRule(Title, RuleAction.Unknown, [], [FieldValue.Raw(typeName, "github.native-type-name")], disabled: true)]
+                : Array.Empty<FieldRule>()).Append(new FieldRule(Title, RuleAction.Unknown, [],
                 [FieldValue.Raw(bound.Authority, "github.acquired-authority")], disabled: true))
                 .Append(new FieldRule(Title, RuleAction.Unknown, [],
                     [FieldValue.Raw(RuleDiscovery, "github.native-rule-discovery")], disabled: true)), t.Hidden)).ToArray();
         var nativeSchema = new ProcessSchema(_connection, itemTypes, relations, gaps);
-        var rules = await bound.Session.ReadGovernedRulesAsync(nativeSchema, ct);
+        var rules = await bound.Session.ReadRuleProjectionAsync(nativeSchema, ct);
         if (!rules.IsSuccess) gaps.Add($"{RuleDiscovery}; {rules.Error.Code}: {rules.Error.Message}");
         else if (rules.Value.Connection != _connection || rules.Value.ActorId != bound.Actor
             || rules.Value.NativeFingerprint != nativeSchema.Fingerprint
+            || rules.Value.Scope != GitHubValidationScope.NativeApiAndDeclaredTwigPolicies
             || string.IsNullOrWhiteSpace(rules.Value.PolicyIdentity) || string.IsNullOrWhiteSpace(rules.Value.PolicyRevision)
             || !rules.Value.Types.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(types))
-            gaps.Add("Governed rule evidence is incomplete or bound to a different native schema.");
+            gaps.Add("Twig rule projection has an unknown scope or is bound to a different native schema, connection or actor.");
         else
         {
             // Evidence identity participates in consent even when the governed rule arrays are empty.
@@ -140,9 +145,10 @@ public sealed partial class GitHubProvider
                 t.Rules.Concat(rules.Value.Types[t.Reference]).Append(new FieldRule(Title, RuleAction.Unknown, [],
                     [FieldValue.Raw(Wire.Utf8(Wire.Json(json =>
                     {
-                        json.WriteStartArray(); json.WriteStringValue(rules.Value.PolicyIdentity);
+                        json.WriteStartArray(); json.WriteNumberValue((int)rules.Value.Scope);
+                        json.WriteStringValue(rules.Value.PolicyIdentity);
                         json.WriteStringValue(rules.Value.PolicyRevision); json.WriteEndArray();
-                    })), "github.governed-rule-evidence")], disabled: true)), t.Hidden)).ToArray();
+                    })), "github.twig-policy-projection")], disabled: true)), t.Hidden)).ToArray();
         }
         var operations = new List<OpKind>();
         if (mutations.Contains("createIssue") && create.Contains("repositoryId") && create.Contains("title")) operations.Add(OpKind.Create);

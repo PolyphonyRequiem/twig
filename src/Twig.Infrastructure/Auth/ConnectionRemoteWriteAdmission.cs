@@ -41,6 +41,15 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
     {
         using var operation = ConnectionOperationGate.Acquire(binding.WorktreeRoot);
         ValidateRequest(binding, request);
+        if (request.CoreCorrelation is { } core
+            && (request.SeedCorrelation is not null || core.Operation < 0 || core.Attempt == Guid.Empty
+                || string.IsNullOrWhiteSpace(core.ConnectionIdentity) || string.IsNullOrWhiteSpace(core.TargetIdentity)
+                || core.ProposalDigest is not { Length: 64 } || core.ProposalDigest.Any(c => c is not (>= '0' and <= '9' or >= 'a' and <= 'f'))
+                || (request.EffectKind == "workitem-create") != (core.CreationIdentity is not null)
+                || core.CreationIdentity == Guid.Empty
+                || core.CreationIdentity is not null && core.ExpectedRevision is not null
+                || core.CreationIdentity is null && string.IsNullOrWhiteSpace(core.ExpectedRevision)))
+            throw new InvalidOperationException("remote-write-core-correlation-invalid: exact connection, proposal, operation and attempt evidence is required.");
         if (request.SeedCorrelation is not null
             && (request.EffectKind != "workitem-create" || request.Method != "POST"))
             throw new InvalidOperationException("remote-write-seed-correlation-invalid: native staged create metadata cannot authorize another mutation kind.");
@@ -79,6 +88,8 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
             request.Target, request.IfMatch, request.Payload);
         if (request.SeedCorrelation is { } seed)
             evidence += "\nseed\n" + seed.Identity;
+        if (request.CoreCorrelation is { } core)
+            evidence += "\ncore\n" + JsonSerializer.Serialize(core, TwigJsonContext.Default.CoreWriteCorrelation);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(evidence)));
     }
 
@@ -216,6 +227,10 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
             if (request.EffectKind != "workitem-create" && TargetWorkItemId(request.Target) != id) return null;
             if (request.IfMatch is not null && (!int.TryParse(request.IfMatch, NumberStyles.None, CultureInfo.InvariantCulture, out var expectedRevision)
                 || revision <= expectedRevision)) return null;
+            if (request.CoreCorrelation?.ExpectedRevision is { } token
+                && (!token.StartsWith("ado-rev:", StringComparison.Ordinal)
+                    || !int.TryParse(token.AsSpan(8), NumberStyles.None, CultureInfo.InvariantCulture, out var expectedCoreRevision)
+                    || expectedCoreRevision <= 0 || revision <= expectedCoreRevision)) return null;
             return "acknowledged";
         }
         catch (JsonException) { return null; }

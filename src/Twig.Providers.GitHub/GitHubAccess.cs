@@ -5,6 +5,7 @@ using Twig.Core;
 namespace Twig.Providers.GitHub;
 
 public enum GitHubCredentialSource { Gh, GitHubApp }
+public enum GitHubValidationScope { Unspecified, NativeApiAndDeclaredTwigPolicies }
 
 public abstract class GitHubAccess
 {
@@ -22,15 +23,15 @@ public abstract class GitHubSession : IDisposable
     public abstract GitHubCredentialSource CredentialSource { get; }
     public abstract AuthenticationHeaderValue Authorization { get; }
     public abstract Task ValidateAsync(CancellationToken ct);
-    public abstract Task<Result<GitHubGovernedRules>> ReadGovernedRulesAsync(ProcessSchema nativeProjection, CancellationToken ct);
+    public abstract Task<Result<GitHubRuleProjection>> ReadRuleProjectionAsync(ProcessSchema nativeProjection, CancellationToken ct);
     public abstract Task<Result<GitHubWriteAdmission>> AdmitAsync(GitHubWriteIntent intent, CancellationToken ct);
     public abstract void Dispose();
 }
 
-// An explicit governed host authority, not a claim that GitHub exposes process rules.
-// Failure/unsupported evidence becomes a schema gap; an empty dictionary is never complete.
-public sealed record GitHubGovernedRules(Connection Connection, string ActorId, string NativeFingerprint,
-    string PolicyIdentity, string PolicyRevision,
+// The scope is a product validation boundary, not authority over external repository automation.
+// The host supplies actual configured Twig policy evidence; native protocol facts come from discovery.
+public sealed record GitHubRuleProjection(Connection Connection, string ActorId, string NativeFingerprint,
+    GitHubValidationScope Scope, string PolicyIdentity, string PolicyRevision,
     ImmutableDictionary<string, ImmutableArray<FieldRule>> Types);
 
 public sealed record GitHubWriteIntent(Proposal Proposal, int Operation, Guid Attempt, Uri Target,

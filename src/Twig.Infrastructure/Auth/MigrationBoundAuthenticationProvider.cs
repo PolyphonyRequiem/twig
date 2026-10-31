@@ -115,6 +115,11 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
             }
         }
 
+        internal ResolvedConnectionBinding? GetAuthority()
+        {
+            lock (this) return _active ? _origin : null;
+        }
+
         internal bool TryRetain()
         {
             lock (this)
@@ -146,6 +151,10 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
             if (Volatile.Read(ref _disposed) != 0 || !ReferenceEquals(resolver, provider._bindings)) return null;
             return scope.GetOrigin(configuration, paths);
         }
+
+        public ResolvedConnectionBinding? GetAuthority(IConnectionBindingService resolver)
+            => Volatile.Read(ref _disposed) == 0 && ReferenceEquals(resolver, provider._bindings)
+                ? scope.GetAuthority() : null;
 
         public void Dispose()
         {

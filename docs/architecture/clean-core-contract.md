@@ -1,12 +1,12 @@
 # Clean core contract
 
-Phases 1-4 of **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
+Phases 1-4 and phase-5 implementation in progress for **Epic #1220, Core domain consolidation**. Updated 2026-10-30.
 
 ## Status and scope
 
 `Twig.Core` is an additive, standalone model and pure-function library in the supported
-solution. Nothing in the CLI, TUI, Browser, Domain, Infrastructure or production dependency
-injection uses it yet. Phase 2 adds `Twig.Store.Sqlite` as an isolated persistence adapter,
+solution. Production CLI/TUI/Browser routing and dependency injection have not switched
+to it yet; in-progress host bridges in Infrastructure now reference it. Phase 2 adds `Twig.Store.Sqlite` as an isolated persistence adapter,
 not a provider/command cutover, compatibility layer, or claim that the old domain is removed.
 Phase 3 adds the standalone `Twig.Providers.Ado` adapter and durable one-effect execution
 over `IStore`; live command/native authentication wiring remains unchanged.
@@ -21,14 +21,23 @@ missing-semantics/Related enrichment with durable provenance/tombstones. Runtime
 denial never changes native transport to local. Opaque observations and explicitly
 non-atomic requests never become exact revisions or atomic field batches.
 
-GitHub process/workflow rule discovery remains explicitly Unsupported, distinct from
-separately governed local policy. The mandatory host seam must supply complete,
-configured, connection/actor/projection-bound rule evidence with policy identity and
-revision, or discovery retains gaps and Core refuses writes. This is not an empty
-external ruleset, model-declared completeness, or a claim that arbitrary GitHub
-workflows can be discovered. No production leased admission bridge/evidence source
-is implemented here. Live wiring and any resulting unsupported workflows remain a
-phase-5 checkpoint, not a permissive fallback.
+GitHub process/workflow rule discovery remains explicitly Unsupported. The user
+has approved the narrower validation projection: native API constraints plus
+explicitly configured Twig policies, without claiming to validate external
+repository automation. Host rule evidence names this scope and binds the actual
+connection, actor, native fingerprint, policy identity/revision and each type.
+An absent optional declaration means no declared local rules, not an empty
+external ruleset or model-declared completeness. The new host acquisition reads
+actual policy bytes and translates the supported mechanical rules; their
+application enforcement and GitHub leased native admission remain part of the
+unfinished cutover.
+
+Phase 5 has also added the native ADO access/admission bridge with exact
+digest/ordinal/attempt attribution and creation fences in the existing native
+registry. It holds a real native binding/generation operation and refuses
+token-only access or missing durable Applying intent. Production command
+composition has **not** been switched yet; these changes are not a claim that
+the command routing or phase 5 is complete.
 
 Feature publication remains operationally unresolved: the reviewed six-phase proposal's
 first creation has an indeterminate outcome without an acknowledged native Feature ID.
@@ -62,9 +71,13 @@ type once, not hiding nested cases or counting the old Domain as removed. The ro
 45-type target and fewer-than-60 / roughly-5k-line guardrails leave room for safety
 without reproducing the old per-operation result families.
 
-No ownership decision below implies that Claims/coordination, TUI or Browser survives
-or is removed. Their retention, and the retained CLI command inventory, remain explicit
-checkpoints blocking the affected phase-5 cutover and phase-6 deletions. Phase 1 changes none.
+The conservative phase-5 retention assumption is to preserve all currently supported
+CLI, Claims/coordination, TUI, Browser and companion behavior, not make a permanent
+surface-pruning decision. Claims remain a host concern and MCP remains withdrawn.
+The ADO/GitHub adapters' already disclosed unsafe/unqualified Delete limitation
+must remain an explicit capability refusal, never a fictional strict revision
+precondition or a reachable alternate legacy writer. No production surface has
+been removed by the current in-progress changes.
 
 ## Identity, values and drafts
 
@@ -202,7 +215,11 @@ cannot invalidate this precondition, and another writer's edge change cannot eva
 `ObservedNonAtomic` must be explicit in digested mutation intent when exact CAS is
 unavailable. The adapter checks the observed token immediately before dispatch but
 cannot promise the race is closed. Later readback can verify observed effects, **not
-retroactively manufacture atomicity**. All creation explicitly declares this limitation:
+retroactively manufacture atomicity**. Independent fields may share one native
+request with this explicitly non-atomic intent; the capability remains non-atomic
+and readback must check every intended field. Type changes still require atomic
+support, and an authored Completed-state gate requires proven atomic coupling
+even when the fields appear in one non-atomic request. All creation explicitly declares this limitation:
 neither current provider has a conditional-create/idempotency guarantee.
 
 Operations retain their exact declared revision. There is no implicit carry-forward,

@@ -26,6 +26,8 @@ internal static class WorkspaceRegistrationModule
         var probePaths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"),
             startDir, globalDisplayPath);
         var config = TwigConfiguration.LoadSplit(probePaths);
+        var admission = Twig.CoreMutationAdmissionGuard.Validate(args, twigDir);
+        if (admission is not null) throw new InvalidOperationException(admission);
         if (File.Exists(Path.Combine(twigDir, CoreWorkspaceFactory.FileName)))
         {
             var corePaths = TwigPaths.BuildPaths(twigDir, config, startDir);

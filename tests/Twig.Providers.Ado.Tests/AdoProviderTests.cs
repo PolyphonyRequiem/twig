@@ -78,6 +78,26 @@ public sealed class AdoProviderTests
     }
 
     [Fact]
+    public async Task BatchFieldsAndReviewedNoteUseOneAtomicRevisionCheckedRequest()
+    {
+        using var f = await Fixture.Create();
+        var item = (await f.Read(1)).Items.Single();
+        var proposal = await f.Proposal(new("batch-note", OpKind.Batch, item.Key, item.Revision,
+            Fields(("Custom.Empty", FieldValue.String("updated"))), body: FieldValue.RichText("<p>Reviewed note</p>", FieldKind.Html)));
+        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
+        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        ack.Status.ShouldBe(OpStatus.Applied);
+        f.Http.Writes.ShouldBe(1);
+        using var patch = JsonDocument.Parse(f.Http.LastPayload!);
+        patch.RootElement.GetArrayLength().ShouldBe(3);
+        patch.RootElement[0].GetProperty("path").GetString().ShouldBe("/rev");
+        patch.RootElement[2].GetProperty("path").GetString().ShouldBe("/fields/System.History");
+        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Stored()).Journal.Single().Receipts.Length.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task TypeOnlyChangeUsesOneNativeRevisionTestAndNoSyntheticFieldEdit()
     {
         using var f = await Fixture.Create();

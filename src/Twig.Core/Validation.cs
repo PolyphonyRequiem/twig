@@ -82,7 +82,7 @@ public static partial class Core
         if ((!link && (op.Other is not null || op.Relation is not null || op.Origin != RelationshipOrigin.Provider))
             || (op.Kind is not (OpKind.Batch or OpKind.Create) && op.Fields.Count != 0)
             || (op.Kind is not (OpKind.Create or OpKind.Batch) && op.Type is not null)
-            || (op.Kind != OpKind.Comment && op.Body is not null)
+            || (op.Kind is not (OpKind.Comment or OpKind.Batch) && op.Body is not null)
             || (op.Kind == OpKind.LinkResource) != (op.Resource is not null))
             Fail(ErrorCode.InvalidInput, "Operation contains fields belonging to a different effect.");
         if (!local && !capabilities.Operations.Contains(op.Kind))
@@ -160,6 +160,9 @@ public static partial class Core
         }
         if (op.Kind == OpKind.Comment && (op.Body is null || op.Body.Kind is not (FieldKind.Text or FieldKind.Html or FieldKind.Markdown) || op.Body.IsEmpty))
             Fail(ErrorCode.InvalidInput, "Comment must retain an explicit nonempty body and format.");
+        if (op.Kind == OpKind.Batch && op.Body is not null
+            && (op.Body.Kind is not (FieldKind.Text or FieldKind.Html or FieldKind.Markdown) || op.Body.IsEmpty || !capabilities.AtomicFieldBatches))
+            Fail(ErrorCode.Unsupported, "A batch note requires a nonempty typed body and proven single-request atomic coupling.");
         if (op.Kind is OpKind.Batch or OpKind.Create)
         {
             if (op.Fields.Count == 0 && (op.Kind != OpKind.Batch || op.Type is null))

@@ -101,8 +101,38 @@ def worker(binary, directory, trace):
     with sqlite3.connect(cache) as db:
         db.execute('INSERT INTO work_items (id,type,title,state,iteration_path,area_path,revision,is_seed,fields_json,is_dirty,last_synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                    (42, 'Task', 'Offline smoke item', 'New', 'PresenterSmoke', 'PresenterSmoke', 1, 0, '{}', 0, '2026-01-01T00:00:00+00:00'))
-    proposal = {'version': 1, 'workspace': {'organization': 'fixture.invalid', 'project': 'PresenterSmoke'},
-                'operations': [{'id': 'offline-smoke', 'kind': 'batch', 'workItemId': 42, 'expectedRevision': 1, 'fields': {'System.Title': 'Reviewed smoke item'}}]}
+    collection, project_id = '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222'
+    actor = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+    identity_ref = json.dumps(['fixture-binding', 'fixture-identity', 'aad', actor], separators=(',', ':'))
+    connection_data = {'Provider': {'Value': 'ado'}, 'ResourceScope': collection,
+                       'Destination': project_id, 'IdentityRef': identity_ref}
+    connection_text = json.dumps(connection_data, separators=(',', ':')).replace('\\"', '\\u0022')
+    instance = '33333333-3333-3333-3333-333333333333'
+    core_db = workspace / '.twig/core.db'
+    with sqlite3.connect(core_db) as db:
+        db.execute(f'PRAGMA application_id={0x54574353}')
+        db.execute('PRAGMA user_version=3')
+        db.execute('PRAGMA journal_mode=WAL')
+        db.execute('CREATE TABLE core_identity(id TEXT PRIMARY KEY NOT NULL,workspace_connection TEXT) STRICT')
+        db.execute('INSERT INTO core_identity VALUES (?,?)', (instance, connection_text))
+        db.execute('CREATE TABLE core_snapshots(connection TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL CHECK(version>0),document TEXT NOT NULL) STRICT')
+        snapshot = {'Version': 3, 'StoreVersion': 1, 'Items': [], 'Relationships': [], 'Drafts': [],
+                    'Proposals': [], 'Journal': [], 'Mappings': [], 'Benches': []}
+        db.execute('INSERT INTO core_snapshots VALUES (?,?,?)', (connection_text, 1, json.dumps(snapshot, separators=(',', ':'))))
+    (workspace / '.twig/core-workspace.json').write_text(json.dumps({
+        'version': 1, 'databasePath': str(core_db), 'databaseInstance': instance,
+        'connection': {'provider': {'value': 'ado'}, 'resourceScope': collection,
+                       'destination': project_id, 'identityRef': identity_ref}, 'principalId': actor}))
+    key = ['remote', 'ado', collection, '42']
+    proposal = {'version': 3, 'connection': {'provider': 'ado', 'scope': collection,
+                    'destination': project_id, 'identity': identity_ref},
+                'schema': 'fictional-offline-schema', 'storeVersion': 1,
+                'policyIdentity': None, 'policyRevision': None,
+                'operations': [{'id': 'offline-smoke', 'kind': 1, 'item': key,
+                    'revision': {'item': key, 'token': 'ado-rev:1'}, 'type': None,
+                    'fields': {'System.Title': [1, 'Reviewed smoke item']}, 'other': None,
+                    'relation': None, 'origin': 0, 'concurrency': 0, 'localVersion': None,
+                    'body': None, 'resource': None}]}
     (workspace / 'smoke.json').write_text(json.dumps(proposal))
     preview = json.loads(run('preview', 'proposal', 'preview', '--file', 'smoke.json', '-o', 'json').stdout)
     if len(preview.get('operations', [])) != 1:
@@ -126,9 +156,13 @@ def worker(binary, directory, trace):
     if 'bound principal' not in error:
         raise RuntimeError('Wrong-account refusal was not established')
     trace.write('journal', 'start')
-    with sqlite3.connect(workspace / '.twig/cache/pending.db') as db:
-        if db.execute('SELECT state,confirmed_at FROM proposal_journals').fetchall() != [('Planned', None)]:
-            raise RuntimeError('Smoke must leave its proposal unconfirmed and never apply')
+    with sqlite3.connect(core_db) as db:
+        retained = json.loads(db.execute('SELECT document FROM core_snapshots WHERE connection=?', (connection_text,)).fetchone()[0])
+        if len(retained['Proposals']) != 1 or len(retained['Journal']) != 1:
+            raise RuntimeError('Core preview must retain the exact unconfirmed proposal')
+        row = retained['Journal'][0]
+        if row['Status'] != 0 or row['Attempt'] != '00000000-0000-0000-0000-000000000000' or row['Receipts']:
+            raise RuntimeError('Core smoke must never acquire Applying or a transport attempt')
     trace.write('journal', 'end')
     trace.write('worker', 'end', 0)
     print('SMOKE PASSED: startup/help, current schema/binding, offline fail-closed proposal preview, wrong-account refusal; no work HTTP or apply')

@@ -6,9 +6,10 @@ Phases 1-4 and phase-5 implementation in progress for **Epic #1220, Core domain 
 
 `Twig.Core` is an additive, standalone model and pure-function library in the supported
 solution. Production cutover is in progress. An explicitly initialized, pinned Core ADO
-workspace now routes `show`, `update` and file-scoped `proposal apply` through
-the shared Core-only composition and application workflow. Other commands,
-default/legacy mode, TUI and Browser are not fully cut over; this is not yet the
+workspace now routes explicit-target `show`, `update`, `note`, artifact links,
+single-hop `state`, `batch`, typed `patch`, and file-scoped `proposal preview/apply`
+through the shared Core-only composition and application workflow. Other commands,
+TUI and Browser are not fully cut over; this is not yet the
 completed supported phase-5 surface. Phase 2 adds `Twig.Store.Sqlite` as an isolated persistence adapter,
 not a provider/command cutover, compatibility layer, or claim that the old domain is removed.
 Phase 3 adds the standalone `Twig.Providers.Ado` adapter and durable one-effect execution
@@ -41,6 +42,23 @@ registry. It holds a real native binding/generation operation and refuses
 token-only access or missing durable Applying intent. The rooted ADO slice has
 actual CAF/production-DI coverage, but these changes are not a claim that every
 retained command, UI surface or phase 5 is complete.
+
+Fresh ADO checkouts can deliberately initialize this composition with
+`twig init <org> <project> --core-store <new-absolute-file>`. The selected native
+binding lease supplies collection, project and principal identities; the new
+SQLite instance is pinned to that exact connection. Existing `.twig` directories,
+existing selected files and reset flags are refused, not migrated or adopted.
+Uninitialized/legacy CLI mutation admission refuses before legacy writer registration
+with this preservation and initialization guidance. Preserved legacy proposal/journal
+inspection does not authorize legacy application. GitHub initialization and the
+remaining retained routes are implementation gaps, not supported empty results.
+
+Offline Core file preview retains exact unconfirmed intent as Planned with no
+attempt or receipt, and reports unavailable schema/rule evidence as blocking.
+The fundamental smoke uses an isolated Core fixture and reaches that real
+evidence gate plus wrong-principal admission; initialization refusal is not a
+substitute. ADO `batch` fields/state and an authored note are one revision-tested
+request. GitHub refuses that combined shape rather than silently losing its note.
 
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not

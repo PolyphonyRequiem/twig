@@ -60,6 +60,10 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
             lease = null;
             return Result<AdoSession>.Ok(session);
         }
+        catch (ConnectionIdentityMismatchException ex)
+        {
+            return Result<AdoSession>.Fail(ErrorCode.Conflict, ex.Message);
+        }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or ArgumentException
             or Twig.Infrastructure.Ado.Exceptions.AdoAuthenticationException)
         {

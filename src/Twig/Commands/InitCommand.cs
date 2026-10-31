@@ -12,6 +12,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Services;
 
 namespace Twig.Commands;
 
@@ -36,6 +37,7 @@ public sealed class InitCommand
     private readonly AdoConcurrencyThrottle? _throttle;
     private readonly Infrastructure.Auth.BootstrapEndpointSelection? _bootstrapEndpointSelection;
     private readonly Infrastructure.Auth.IConnectionBindingService? _bindings;
+    private readonly CoreTransportOverride? _coreTransport;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -62,7 +64,8 @@ public sealed class InitCommand
         Twig.Domain.Services.Attachment.IProfileRegistrySource profileRegistry,
         AdoConcurrencyThrottle? throttle = null,
         Infrastructure.Auth.BootstrapEndpointSelection? bootstrapEndpointSelection = null,
-        Infrastructure.Auth.IConnectionBindingService? bindings = null)
+        Infrastructure.Auth.IConnectionBindingService? bindings = null,
+        CoreTransportOverride? coreTransport = null)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -78,6 +81,7 @@ public sealed class InitCommand
         _throttle = throttle;
         _bootstrapEndpointSelection = bootstrapEndpointSelection;
         _bindings = bindings;
+        _coreTransport = coreTransport;
     }
 
     /// <summary>
@@ -122,13 +126,33 @@ public sealed class InitCommand
         _systemRegistry = systemRegistry;
         _profileRegistry = profileRegistry;
     }
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
         int fieldCount;
         bool hadGlobalProfile;
-        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, reinitialize, ct, profile, provider, host, repository, binding);
+        var structuredCore = coreStore is not null && outputFormat is "json" or "json-full" or "json-compact" or "minimal" or "ids";
+        var originalOutput = Console.Out;
+        using var captured = structuredCore ? new StringWriter() : null;
+        try
+        {
+            if (captured is not null) Console.SetOut(captured);
+            (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force,
+                outputFormat, sprint, area, reinitialize, ct, profile, provider, host, repository, binding, coreStore);
+        }
+        finally
+        {
+            if (captured is not null) Console.SetOut(originalOutput);
+        }
+        if (structuredCore && exitCode == 0)
+            new Twig.Rendering.RendererFactory().GetRenderer(outputFormat).Render(new RenderTree.RenderTree(
+                [new RenderTree.RenderNode.Record("initialized", new Dictionary<string, RenderTree.RenderCell>
+                {
+                    ["coreInitialized"] = RenderTree.RenderCell.Boolean(true),
+                    ["databasePath"] = RenderTree.RenderCell.String(coreStore!),
+                    ["message"] = RenderTree.RenderCell.String("Initialized a new explicitly bound Core workspace; no existing work was adopted."),
+                })]));
         _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "init",
@@ -145,7 +169,7 @@ public sealed class InitCommand
         return exitCode;
     }
 
-    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile, string? provider, string? host, string? repository, string? binding)
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile, string? provider, string? host, string? repository, string? binding, string? coreStore)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var telemetryHadGlobalProfile = false;
@@ -183,6 +207,14 @@ public sealed class InitCommand
         // startup-discovered ancestor. This prevents a nested repo from
         // rewriting an ancestor's `.twig/` — the exact defect §3.1 fixes.
         var twigDir = Path.Combine(worktreeAnchor.WorktreeRoot, ".twig");
+        if (coreStore is not null && (!Path.IsPathFullyQualified(coreStore) || File.Exists(coreStore)
+            || Directory.Exists(twigDir) || force || reinitialize || _bindings is null
+            || WorkItemProviderSetting.Normalize(provider) == "github"))
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                "Core initialization requires a fresh isolated ADO worktree and a new absolute --core-store file; existing work and unknown outcomes were preserved."));
+            return (1, false, 0);
+        }
         var invocationStartDir = worktreeAnchor.WorktreeRoot;
 
         // Derive context-specific paths from the supplied org/project args
@@ -911,6 +943,17 @@ public sealed class InitCommand
                 {
                     Console.WriteLine($"  \u26a0 Could not refresh sprint items: {ex.Message}");
                     Console.WriteLine("Run 'twig sync' to populate your workspace.");
+                }
+            }
+
+            if (coreStore is not null)
+            {
+                var initializedCore = await CoreWorkspaceInitializer.InitializeAsync(config, invocationPaths,
+                    _bindings!, coreStore, ct, _coreTransport);
+                if (!initializedCore.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError(initializedCore.Error.Message));
+                    return (1, telemetryHadGlobalProfile, telemetryFieldCount);
                 }
             }
 

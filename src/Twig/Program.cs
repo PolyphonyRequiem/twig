@@ -210,6 +210,19 @@ if (structuredMutationError is not null)
     return;
 }
 
+if (!isBrowserCommand)
+{
+    var root = WorkspaceDiscovery.FindWorkspaceRoot(Directory.GetCurrentDirectory()) ?? Directory.GetCurrentDirectory();
+    var coreAdmissionError = Twig.CoreMutationAdmissionGuard.Validate(args, Path.Combine(root, ".twig"));
+    if (coreAdmissionError is not null)
+    {
+        CommandError.Write(new RendererFactory(), Console.Error,
+            StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default, coreAdmissionError);
+        Environment.ExitCode = 1;
+        return;
+    }
+}
+
 // Skills are an explicit offline utility: do not resolve workspace/network services
 // or run binary cleanup/companion installation for this command family.
 if (args.Length > 0 && args[0] == "skills")
@@ -485,7 +498,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="host">Explicit lowercase GitHub host, used with --provider github.</param>
     /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Init stays offline; discover and bind separately.</param>
     /// <param name="binding">Registered ADO binding ID to pin locally in a fresh checkout (default: endpoint default). Cannot combine with --force/--reinitialize or replace existing local state.</param>
-    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null)
+    /// <param name="coreStore">New absolute Core database file in a fresh isolated ADO worktree. Existing workspace data is never adopted or reset.</param>
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null)
     {
         // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
         // document (`twig init <org> <project>`) parses alongside the named one. The generated
@@ -515,7 +529,14 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             return 1;
         }
 
-        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding);
+        if (coreStore is not null && (Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), ".twig"))
+            || !Path.IsPathFullyQualified(coreStore) || File.Exists(coreStore) || force || reinitialize))
+        {
+            CommandError.Write(new RendererFactory(), Console.Error, output,
+                "Core initialization refuses existing workspaces/files and reset flags. Use a fresh isolated worktree and new absolute --core-store file.");
+            return 1;
+        }
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding, coreStore: coreStore);
     }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>
@@ -622,7 +643,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, int? id = null, CancellationToken ct = default)
-        => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.StateAsync(name, id, output, ct);
+        return await services.GetRequiredService<StateCommand>().ExecuteAsync(name, id, output, ct);
+    }
 
     /// <summary>Show process configuration: list types (no args) or type details (with type name).</summary>
     /// <param name="type">Work item type name to show details for (omit to list all types).</param>
@@ -1030,7 +1055,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link artifact")]
     public async Task<int> LinkArtifact([Argument] string url, string? name = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ArtifactLinkCommand>().ExecuteAsync(url, name, id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.LinkResourceAsync(url, name, id, output, ct);
+        return await services.GetRequiredService<ArtifactLinkCommand>().ExecuteAsync(url, name, id, output, ct);
+    }
 
     /// <summary>Batch state transitions, field updates, and notes in a single call.</summary>
     /// <param name="state">Target state name (e.g. Active, Closed).</param>
@@ -1042,7 +1071,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="format">Convert --set values before sending. Supported: "markdown".</param>
     [Command("batch")]
     public async Task<int> Batch(string? state = null, string[]? set = null, string? note = null, int? id = null, string? ids = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BatchCommand>().ExecuteAsync(state, set, note, id, ids, output, format, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.BatchAsync(state, set, note, id, ids, output, format, ct);
+        return await services.GetRequiredService<BatchCommand>().ExecuteAsync(state, set, note, id, ids, output, format, ct);
+    }
 
     /// <summary>Add a note to the active work item.</summary>
     /// <param name="textArg">Note text, positionally. Quote multi-word text: twig note "hello world".</param>
@@ -1053,7 +1086,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="file">Read the note body from a file instead of an inline argument.</param>
     /// <param name="stdin">Read the note body from piped standard input.</param>
     public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, string? file = null, bool stdin = false, CancellationToken ct = default)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, file, stdin, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.NoteAsync(text ?? textArg, file, stdin, id, output, format, ct);
+        return await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, file, stdin, ct);
+    }
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>
@@ -1079,7 +1116,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="id">Work item ID to target; equivalent to the positional form. Omit to use the active work item.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Patch([Argument] int? workItemId = null, string? json = null, bool stdin = false, string? format = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id ?? workItemId, output, format, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PatchAsync(id ?? workItemId, json, stdin, format, output, ct);
+        return await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id ?? workItemId, output, format, ct);
+    }
 
     /// <summary>Edit work item fields in an external editor.</summary>
     /// <param name="fieldArg">Field to edit, positionally: twig edit System.Title. The shipped examples document this spelling.</param>
@@ -1936,8 +1977,20 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string? file = null, string output = OutputFormatterFactory.DefaultFormat, bool full = false,
         bool interactive = false, bool includeRendering = false, int? width = null, string color = "never",
         string? expectDigest = null, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().PreviewAsync(
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+        {
+            if (interactive || includeRendering)
+            {
+                CommandError.Write(new RendererFactory(), Console.Error, output,
+                    "Core interactive proposal presentation is not yet connected in this in-progress cutover.");
+                return 1;
+            }
+            return await core.PreviewProposalAsync(file, output, ct, expectDigest);
+        }
+        return await services.GetRequiredService<PlanCommand>().PreviewAsync(
             file, output, full, interactive, ct, includeRendering, width, color, expectDigest);
+    }
 
     /// <summary>Show the latest successfully previewed unresolved proposal in the current workspace.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

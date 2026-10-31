@@ -21,6 +21,73 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     internal Task<Result<StoreSnapshot>> SnapshotAsync(CancellationToken ct) => store.ReadAsync(connection, ct);
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct) => provider.DiscoverSchemaAsync(connection, ct);
 
+    internal async Task<Result<Proposal>> PrepareAsync(IEnumerable<Op> operations, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var intent = operations.ToImmutableArray();
+        var schema = await SchemaAsync(ct).ConfigureAwait(false);
+        if (!schema.IsSuccess) return Result<Proposal>.Fail(schema.Error);
+        var policy = await policies.CaptureAsync(connection, nativeActor, schema.Value, ct).ConfigureAwait(false);
+        if (!policy.IsSuccess) return Result<Proposal>.Fail(policy.Error);
+        var snapshot = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!snapshot.IsSuccess) return Result<Proposal>.Fail(snapshot.Error);
+        var proposal = new Proposal(connection, schema.Value.Fingerprint, snapshot.Value.Version, intent,
+            policy.Value.Document.Identity, policy.Value.Document.Revision);
+        var checkedPolicy = await CheckPolicyAsync(proposal, schema.Value, policy.Value, ct).ConfigureAwait(false);
+        if (!checkedPolicy.IsSuccess) return Result<Proposal>.Fail(checkedPolicy.Error);
+        snapshot = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!snapshot.IsSuccess) return Result<Proposal>.Fail(snapshot.Error);
+        proposal = new(connection, schema.Value.Fingerprint, snapshot.Value.Version, intent,
+            policy.Value.Document.Identity, policy.Value.Document.Revision);
+        var errors = Model.Validate(proposal, proposal.Digest, schema.Value, snapshot.Value, provider.Capabilities);
+        return errors.IsEmpty ? Result<Proposal>.Ok(proposal) : Result<Proposal>.Fail(errors[0] with
+        {
+            Evidence = errors.Select(e => e.Message).ToImmutableArray(),
+        });
+    }
+
+    internal async Task<Result<ImmutableArray<Error>>> CheckProposalAsync(Proposal proposal, CancellationToken ct)
+    {
+        if (proposal.Connection != connection)
+            return Result<ImmutableArray<Error>>.Fail(ErrorCode.Conflict, "The proposal belongs to another immutable connection.");
+        var schema = await SchemaAsync(ct).ConfigureAwait(false);
+        if (!schema.IsSuccess) return Result<ImmutableArray<Error>>.Ok([schema.Error]);
+        var stored = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!stored.IsSuccess) return Result<ImmutableArray<Error>>.Fail(stored.Error);
+        var keys = proposal.Operations.SelectMany(op => op.Other is null ? new[] { op.Item } : new[] { op.Item, op.Other })
+            .Where(key => !key.IsLocal).Distinct().ToImmutableArray();
+        var acquired = await provider.ReadAsync(connection, keys, ct, captureOnly: true).ConfigureAwait(false);
+        if (!acquired.IsSuccess) return Result<ImmutableArray<Error>>.Ok([acquired.Error]);
+        var refreshed = Copy(stored.Value, stored.Value.Version,
+            items: stored.Value.Items.Where(item => !keys.Contains(item.Key)).Concat(acquired.Value.Items),
+            relationships: stored.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Local
+                || !keys.Contains(edge.From) && !keys.Contains(edge.To)).Concat(acquired.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Provider)));
+        var errors = Model.Validate(proposal, proposal.Digest, schema.Value, refreshed, provider.Capabilities);
+        if (!errors.IsEmpty) return Result<ImmutableArray<Error>>.Ok(errors);
+        var policy = await policies.CaptureAsync(connection, nativeActor, schema.Value, ct).ConfigureAwait(false);
+        if (!policy.IsSuccess) return Result<ImmutableArray<Error>>.Ok([policy.Error]);
+        var checkedPolicy = await CheckPolicyAsync(proposal, schema.Value, policy.Value, ct).ConfigureAwait(false);
+        return Result<ImmutableArray<Error>>.Ok(checkedPolicy.IsSuccess ? [] : [checkedPolicy.Error]);
+    }
+
+    internal async Task<Result<bool>> RetainReviewAsync(Proposal proposal, CancellationToken ct)
+    {
+        if (proposal.Connection != connection)
+            return Result<bool>.Fail(ErrorCode.Conflict, "The review belongs to another immutable connection.");
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
+        if (current.Value.Proposals.Any(value => value.Digest == proposal.Digest)) return Result<bool>.Ok(true);
+        if (current.Value.Version != proposal.ExpectedStoreVersion)
+            return Result<bool>.Fail(ErrorCode.Conflict, "Local state changed before review retention.");
+        var next = new StoreSnapshot(current.Value.Version + 1, current.Value.Items, current.Value.Relationships,
+            current.Value.Drafts, current.Value.Proposals.Append(proposal),
+            current.Value.Journal.Concat(proposal.Operations.Select((_, ordinal) => JournalEntry.Planned(proposal.Digest, ordinal))),
+            current.Value.Mappings, current.Value.Benches);
+        var committed = await store.CommitAsync(connection, current.Value.Version, next, ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
+    }
+
     internal async Task<Result<WorkItem>> ReadAsync(ItemKey key, CancellationToken ct)
     {
         var stored = await SnapshotAsync(ct).ConfigureAwait(false);

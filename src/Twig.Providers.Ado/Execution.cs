@@ -145,7 +145,8 @@ public sealed partial class AdoProvider
                     var matches = op.Kind switch
                     {
                         OpKind.Create or OpKind.Batch => (op.Type is null || op.Type == item.Type)
-                            && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value)),
+                            && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value))
+                            && (op.Body is null || item.Fields.TryGetValue("System.History", out var note) && note.Text == op.Body.Text),
                         OpKind.Comment => item.Fields.TryGetValue("System.History", out var history) && history.Text == op.Body!.Text,
                         OpKind.LinkResource => item.ResourcesComplete && item.Resources.Contains(op.Resource!),
                         OpKind.Relate => edges.Contains(Edge(op, discovery)),
@@ -203,7 +204,7 @@ public sealed partial class AdoProvider
             throw Wire.Refuse(ErrorCode.Unsupported, "Only explicitly supported native effects are dispatched.");
         if (op.Fields.Keys.Any(f => f is "System.Id" or "System.Rev" or "System.TeamProject" or "System.WorkItemType" or "System.History"))
             throw Wire.Refuse(ErrorCode.Unsupported, "Native identity/type/history fields require their explicit operation shape.");
-        if (op.Kind == OpKind.Comment && op.Body!.Kind is not (FieldKind.Text or FieldKind.Html))
+        if (op.Body is not null && op.Body.Kind is not (FieldKind.Text or FieldKind.Html))
             throw Wire.Refuse(ErrorCode.Unsupported, "ADO history append accepts exact text/HTML; convert Markdown before confirmation.");
         if (op.Kind == OpKind.LinkResource && (op.Resource is not { } resource
             || !schema.Schema.Relations.Any(r => r.Reference == resource.Relation && r.Shape == RelationShape.Resource)
@@ -238,7 +239,7 @@ public sealed partial class AdoProvider
                 PatchEntry("add", "/fields/System.WorkItemType", () => json.WriteStringValue(schema.TypeNames[op.Type]));
             foreach (var (field, value) in op.Fields)
                 PatchEntry("add", "/fields/" + field.Replace("~", "~0").Replace("/", "~1"), () => Wire.WriteValue(json, value));
-            if (op.Kind == OpKind.Comment)
+            if (op.Kind == OpKind.Comment || op.Kind == OpKind.Batch && op.Body is not null)
                 PatchEntry("add", "/fields/System.History", () => json.WriteStringValue(op.Body!.Text));
             if (op.Kind == OpKind.LinkResource)
                 PatchEntry("add", "/relations/-", () =>

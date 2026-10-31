@@ -49,6 +49,7 @@ internal static class CommandExamples
             "twig connection bind --org contoso --project Fabrikam --identity work --default   2) bind the endpoint",
             "twig init contoso Fabrikam                                             3) initialize the checkout",
             "twig init contoso Fabrikam --binding <id>                               Pin a registered binding for this fresh checkout only",
+            "twig init contoso Fabrikam --core-store C:\\isolated\\core.db             Initialize a fresh isolated ADO checkout with a new explicitly bound Core store",
             "twig init --org contoso --project Fabrikam --team \"Team A\"             Initialize with an explicit team",
             "twig init contoso Fabrikam --profile <identity>                        Explicitly declare a compatible released profile (no default)",
             "twig process --refresh                                                 4) verify remote metadata access (refreshes local cache)",

@@ -33,8 +33,10 @@ internal static class WorkspaceRegistrationModule
             var corePaths = TwigPaths.BuildPaths(twigDir, config, startDir);
             services.AddCoreWorkspaceServices(config, corePaths);
             services.AddTwigRenderingServices();
+            services.AddSingleton<Twig.Domain.Interfaces.IConsoleInput, ConsoleInput>();
             services.AddSingleton(sp => new CoreCommandAdapter(sp.GetRequiredService<CoreWorkspaceFactory>(),
-                sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
+                sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IConsoleInput>()));
             return services;
         }
         services.AddConnectionServices(config, twigDir, startDir);

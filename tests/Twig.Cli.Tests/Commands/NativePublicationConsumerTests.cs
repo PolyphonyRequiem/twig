@@ -68,6 +68,51 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreSaveUsesDraftJournalInsteadOfResolvingALegacyPendingFlusher()
+    {
+        var native = await AttachAsync();
+        var config = native.GetRequiredService<TwigConfiguration>();
+        var paths = native.GetRequiredService<TwigPaths>();
+        _transport.CoreMetadataEnabled = true;
+        var origin = await _bindings.ResolveAsync(config, paths);
+        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
+        var database = Path.Combine(paths.TwigDir, "save-core.db");
+        var store = (await CleanStore.CreateAsync(database)).Value;
+        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, ["save", "--all", "-o", "json"]);
+        using var root = services.BuildServiceProvider();
+        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+        using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+        (await admitted.Workspace.StageEditAsync(key,
+            new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Explicit saved draft"))]), default)).IsSuccess.ShouldBeTrue();
+        (await store.ReadAsync(connection, default)).Value.Drafts.ShouldHaveSingleItem();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            (await new TwigCommands(root).Save(all: true, output: "json")).ShouldBe(0, stderr.ToString());
+            var saved = (await store.ReadAsync(connection, default)).Value;
+            saved.Drafts.ShouldBeEmpty();
+            saved.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            _transport.CommittedWrites.ShouldBe(1);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task CoreInitCliCreatesAnAdmittedWorkspaceAndRefusesReinitializationWithoutChangingIt()
     {
         await AttachAsync();
@@ -216,9 +261,12 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             root.GetService<IPendingChangeStore>().ShouldBeNull();
             stdout.GetStringBuilder().Clear();
             var show = new TwigCommands(root);
+            var requestsBeforeCachedRead = _transport.TotalRequests;
             (await show.Show(42, "json")).ShouldBe(0, stderr.ToString());
             using var read = JsonDocument.Parse(stdout.ToString());
             read.RootElement.GetProperty("title").GetString().ShouldBe("Core production title");
+            read.RootElement.GetProperty("cached").GetBoolean().ShouldBeTrue();
+            _transport.TotalRequests.ShouldBe(requestsBeforeCachedRead, "a cached show must not acquire schema or work HTTP");
             _transport.CommittedWrites.ShouldBe(1, "show must not flush unrelated pending state");
             using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
             var workspace = admitted.Workspace;
@@ -266,6 +314,39 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             (await show.Patch(42, """{"System.Title":"Typed rooted patch"}""", output: "json")).ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(7);
             (await store.ReadAsync(connection, default)).Value.Items.Single().Fields["System.Title"].Text.ShouldBe("Typed rooted patch");
+            var otherKey = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "43");
+            (await workspace.StageEditAsync(key,
+                new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Saved first draft"))]), default)).IsSuccess.ShouldBeTrue();
+            (await workspace.StageEditAsync(otherKey,
+                new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Saved second draft"))]), default)).IsSuccess.ShouldBeTrue();
+            var seed = (await workspace.StageSeedAsync("Fixture.Task",
+                new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Unpublished separate seed"))]), default)).Value;
+            stdout.GetStringBuilder().Clear();
+            (await show.Save(all: true, output: "json")).ShouldBe(0, stderr.ToString());
+            _transport.CommittedWrites.ShouldBe(9);
+            var saved = (await store.ReadAsync(connection, default)).Value;
+            saved.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
+            var multi = saved.Proposals.Single(intent => intent.Operations.Length == 2);
+            saved.Journal.Where(row => row.Digest == multi.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
+            _transport.TitleOf(42).ShouldBe("Saved first draft");
+            _transport.TitleOf(43).ShouldBe("Saved second draft");
+            (await workspace.StageEditAsync(key,
+                new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Never publish discarded intent"))]), default)).IsSuccess.ShouldBeTrue();
+            var beforeDiscard = (await workspace.SnapshotAsync(default)).Value;
+            var captured = beforeDiscard.Drafts.Where(draft => !draft.Key.IsLocal).ToArray();
+            (await workspace.StageEditAsync(key,
+                new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Later local intent"))]), default)).IsSuccess.ShouldBeTrue();
+            (await workspace.DiscardDraftsAsync(captured, beforeDiscard.Version, default)).IsSuccess.ShouldBeFalse();
+            stdout.GetStringBuilder().Clear();
+            (await show.Discard(42, yes: false, output: "json")).ShouldBe(2);
+            (await store.ReadAsync(connection, default)).Value.Drafts.Length.ShouldBe(2);
+            stdout.GetStringBuilder().Clear();
+            (await show.Discard(42, yes: true, output: "json")).ShouldBe(0, stderr.ToString());
+            (await store.ReadAsync(connection, default)).Value.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
+            var readsBeforeDelete = _transport.WorkRequests;
+            (await show.Delete(42, force: true, output: "json")).ShouldBe(1);
+            _transport.WorkRequests.ShouldBe(readsBeforeDelete);
+            _transport.CommittedWrites.ShouldBe(9, "discard and unsupported delete must never dispatch");
         }
         finally
         {
@@ -995,6 +1076,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         private readonly Dictionary<int, Item> _items = new();
         private readonly Dictionary<(int Id, int Revision), Item> _history = new();
         public int WorkRequests { get; private set; }
+        public int TotalRequests { get; private set; }
         public int PostCount { get; private set; }
         public int CommittedWrites { get; private set; }
         public int PatchAttempts { get; private set; }
@@ -1022,6 +1104,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            TotalRequests++;
             var header = request.Headers.Authorization;
             if (header?.Scheme != "Basic") return Reply(HttpStatusCode.Unauthorized, new { message = "No fixture credential" });
             var secret = Encoding.UTF8.GetString(Convert.FromBase64String(header.Parameter!))[1..];

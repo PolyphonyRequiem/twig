@@ -60,6 +60,18 @@ evidence gate plus wrong-principal admission; initialization refusal is not a
 substitute. ADO `batch` fields/state and an authored note are one revision-tested
 request. GitHub refuses that combined shape rather than silently losing its note.
 
+Explicit `save <id>` and `save --all` now select remote Core drafts, freeze one
+ordered proposal for the invocation, execute through that same journal, and consume
+only unchanged captured drafts after every effect verifies. Local seeds remain a
+distinct publication request. A partial/unknown outcome retains drafts and receipts;
+later local edits prevent settlement rather than being silently cleared.
+`discard <id>`/`--all` uses the reviewed local store CAS and draft content, preserves
+seeds and every journal/fence, and requires `--yes` without an interactive confirmation.
+The retained Delete verb refuses its already disclosed unqualified transport instead
+of resolving the old delete writer. Cache-only `show` reads the Core mirror without
+schema/work HTTP; missing cached items require an explicit `--refresh`. Active scope,
+sync, local aliases and the other remaining read/UI families are still incomplete.
+
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not
 an invented work-item identity. The ADO adapter qualifies actual enabled native

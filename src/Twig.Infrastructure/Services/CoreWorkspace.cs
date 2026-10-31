@@ -251,10 +251,74 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
 
         Result<CoreExecution> Retained(Error error) => Result<CoreExecution>.Ok(execution with
         {
-            Error = error, DraftRetained = true,
+            Error = error,
+            DraftRetained = true,
         });
     }
 
+    internal async Task<Result<CoreExecution>> SaveDraftSetAsync(IEnumerable<CoreDraftPreview> previews,
+        Proposal? proposal, string? confirmation, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var captures = previews.ToImmutableArray();
+        var before = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!before.IsSuccess) return Result<CoreExecution>.Fail(before.Error);
+        if (captures.Any(capture => !before.Value.Drafts.Any(draft => SameDraft(draft, capture.Draft))))
+            return Result<CoreExecution>.Fail(ErrorCode.Conflict, "A captured draft changed before save; no replacement intent was dispatched.");
+        if (proposal is null && captures.Any(capture => capture.Proposal is not null))
+            return Result<CoreExecution>.Fail(ErrorCode.InvalidInput, "Authored effects require their exact reviewed proposal before settlement.");
+        if (proposal is not null)
+        {
+            var intended = captures.Where(capture => capture.Proposal is not null)
+                .Select(capture => capture.Proposal!.Operations.Single()).ToArray();
+            if (intended.Length != proposal.Operations.Length || intended.Where((op, index) =>
+                    new Op(proposal.Operations[index].Id, op.Kind, op.Item, op.ExpectedRevision, op.Fields,
+                        op.Type, op.Other, op.Relation, op.Origin, op.Body, op.Concurrency,
+                        op.ExpectedLocalVersion, op.Resource) != proposal.Operations[index]).Any())
+                return Result<CoreExecution>.Fail(ErrorCode.InvalidInput, "The reviewed proposal does not match the captured draft effects.");
+        }
+        foreach (var capture in captures.Where(capture => capture.Proposal is null))
+        {
+            var fresh = await PreviewDraftAsync(capture.Draft.Key, ct).ConfigureAwait(false);
+            if (!fresh.IsSuccess) return Result<CoreExecution>.Fail(fresh.Error);
+            if (fresh.Value.Proposal is not null || !SameDraft(fresh.Value.Draft, capture.Draft))
+                return Result<CoreExecution>.Fail(ErrorCode.Conflict, "A converged draft changed before settlement.");
+        }
+        var applied = proposal is null
+            ? Result<CoreExecution>.Ok(new([], AlreadyVerified: true))
+            : await ApplyAsync(proposal, confirmation ?? "", ct).ConfigureAwait(false);
+        if (!applied.IsSuccess || !applied.Value.EffectsVerified) return applied;
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Retained(current.Error);
+        if (captures.Any(capture => current.Value.Drafts.Any(draft => draft.Key == capture.Draft.Key
+                && !SameDraft(draft, capture.Draft))))
+            return Retained(new(ErrorCode.Conflict, "Remote effects verified; later local edits and their captured drafts were retained."));
+        var keys = captures.Select(capture => capture.Draft.Key).ToHashSet();
+        var committed = await store.CommitAsync(connection, current.Value.Version,
+            Copy(current.Value, current.Value.Version + 1, drafts: current.Value.Drafts.Where(draft => !keys.Contains(draft.Key))),
+            ct).ConfigureAwait(false);
+        return committed.IsSuccess ? applied : Retained(committed.Error);
+
+        Result<CoreExecution> Retained(Error error) => Result<CoreExecution>.Ok(applied.Value with { Error = error, DraftRetained = true });
+    }
+
+    internal async Task<Result<int>> DiscardDraftsAsync(IEnumerable<Draft> captures, long expectedVersion, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var drafts = captures.ToImmutableArray();
+        if (drafts.Any(draft => draft.Key.IsLocal))
+            return Result<int>.Fail(ErrorCode.InvalidInput, "Seed abandonment is a distinct explicit operation; no seed was discarded.");
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<int>.Fail(current.Error);
+        if (current.Value.Version != expectedVersion
+            || drafts.Any(capture => !current.Value.Drafts.Any(draft => SameDraft(draft, capture))))
+            return Result<int>.Fail(ErrorCode.Conflict, "Local intent changed after discard confirmation; no draft was removed.");
+        var keys = drafts.Select(draft => draft.Key).ToHashSet();
+        var committed = await store.CommitAsync(connection, expectedVersion,
+            Copy(current.Value, expectedVersion + 1, drafts: current.Value.Drafts.Where(draft => !keys.Contains(draft.Key))),
+            ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<int>.Ok(keys.Count) : Result<int>.Fail(committed.Error);
+    }
     internal async Task<Result<CoreExecution>> ApplyAsync(Proposal proposal, string confirmation, CancellationToken ct)
     {
         if (confirmation != proposal.Digest)

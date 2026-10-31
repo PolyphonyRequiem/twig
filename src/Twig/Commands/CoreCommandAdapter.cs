@@ -9,8 +9,102 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererFactory renderer)
+internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererFactory renderer,
+    Twig.Domain.Interfaces.IConsoleInput consoleInput)
 {
+    internal async Task<int> SaveAsync(int? id, bool all, string output, CancellationToken ct)
+    {
+        if (id is not null && (id <= 0 || all)) return Error(output, "Specify one positive --id or --all, not both.", 2);
+        if (id is null && !all) return Error(output, "No Core active scope is selected. Specify --id or --all.", 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var drafts = snapshot.Value.Drafts.Where(draft => !draft.Key.IsLocal
+            && (all || draft.Key.NativeId == id!.Value.ToString(CultureInfo.InvariantCulture))).ToArray();
+        if (drafts.Length == 0) return SaveResult(output, 0, null);
+        var captures = new List<CoreDraftPreview>();
+        var operations = new List<Op>();
+        foreach (var draft in drafts)
+        {
+            var preview = await workspace.PreviewDraftAsync(draft.Key, ct);
+            if (!preview.IsSuccess) return Error(output, preview.Error.Message);
+            captures.Add(preview.Value);
+            if (preview.Value.Proposal is { } intent)
+            {
+                var op = intent.Operations.Single();
+                operations.Add(new($"save-{operations.Count}", op.Kind, op.Item, op.ExpectedRevision,
+                    op.Fields, op.Type, op.Other, op.Relation, op.Origin, op.Body,
+                    op.Concurrency, op.ExpectedLocalVersion, op.Resource));
+            }
+        }
+        Proposal? proposal = null;
+        if (operations.Count != 0)
+        {
+            var prepared = await workspace.PrepareAsync(operations, ct);
+            if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
+            proposal = prepared.Value;
+        }
+        var saved = await workspace.SaveDraftSetAsync(captures, proposal, proposal?.Digest, ct);
+        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
+        if (saved.Value.Error is { } error) return Error(output, error.Message);
+        if (!saved.Value.EffectsVerified) return Error(output, "Save has unresolved journal effects; drafts were retained without replay.");
+        return SaveResult(output, drafts.Length, proposal?.Digest);
+    }
+
+    private int SaveResult(string output, int count, string? digest)
+    {
+        var message = count == 0 ? "Nothing to save." : $"Saved {count} draft(s); all effects verified.";
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([output == "human"
+            ? new RenderNode.Text(message, Severity.Success)
+            : new RenderNode.Record("draftsSaved", new Dictionary<string, RenderCell>
+            {
+                ["message"] = RenderCell.String(message), ["itemsFlushed"] = RenderCell.Integer(count),
+                ["digest"] = digest is null ? new("", new RenderValue.Null()) : RenderCell.String(digest),
+            })]));
+        return 0;
+    }
+
+    internal async Task<int> DiscardAsync(int? id, bool all, bool yes, string output, CancellationToken ct)
+    {
+        if (id is not null && (id <= 0 || all) || id is null && !all)
+            return Error(output, "Specify one positive --id or --all. Seeds require seed discard.", 2);
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var drafts = snapshot.Value.Drafts.Where(draft => !draft.Key.IsLocal
+            && (all || draft.Key.NativeId == id!.Value.ToString(CultureInfo.InvariantCulture))).ToArray();
+        if (!yes && drafts.Length != 0)
+        {
+            if (output != "human" || consoleInput.IsOutputRedirected)
+                return Error(output, "Discard requires explicit --yes when interactive confirmation is unavailable.", 2);
+            Console.Write($"Discard local field edits for {drafts.Length} item(s)? [y/N] ");
+            if (!string.Equals(consoleInput.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
+            {
+                renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text("Discard cancelled.")]));
+                return 0;
+            }
+        }
+        var removed = drafts.Length == 0 ? Result<int>.Ok(0)
+            : await workspace.DiscardDraftsAsync(drafts, snapshot.Value.Version, ct);
+        if (!removed.IsSuccess) return Error(output, removed.Error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("draftsDiscarded",
+            new Dictionary<string, RenderCell>
+            {
+                ["itemCount"] = RenderCell.Integer(removed.Value),
+                ["message"] = RenderCell.String($"Discarded local edits for {removed.Value} item(s); no journal or seed was removed."),
+            })]));
+        return 0;
+    }
+
+    internal int Delete(string output) => Error(output,
+        "Delete is unavailable: the provider cannot prove the required revision-bound deletion precondition. No legacy writer or unqualified delete was used.");
+
     internal async Task<int> ShowAsync(int? id, string output, bool tree, bool refresh,
         string? fields, string? sections, string? localId, CancellationToken ct)
     {
@@ -23,24 +117,34 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var workspace = handle.Workspace;
         var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope,
             id.Value.ToString(CultureInfo.InvariantCulture));
-        var read = await workspace.ReadAsync(key, ct);
-        if (!read.IsSuccess) return Error(output, read.Error.Message);
-        var schema = await workspace.SchemaAsync(ct);
-        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
-        var item = read.Value;
-        var type = schema.Value.Types.Single(t => t.Reference == item.Type);
+        WorkItem item;
+        if (refresh)
+        {
+            var read = await workspace.ReadAsync(key, ct);
+            if (!read.IsSuccess) return Error(output, read.Error.Message);
+            item = read.Value;
+        }
+        else
+        {
+            var cached = await workspace.SnapshotAsync(ct);
+            if (!cached.IsSuccess) return Error(output, cached.Error.Message);
+            var found = cached.Value.Items.FirstOrDefault(value => value.Key == key);
+            if (found is null) return Error(output, $"Work item #{id.Value} is not cached. Use show {id.Value} --refresh.");
+            item = found;
+        }
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var selected = fields?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
         var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
             ["id"] = RenderCell.Integer(id.Value),
-            ["type"] = RenderCell.String(type.Rules.SelectMany(r => r.Values)
-                .FirstOrDefault(v => v.DataType == "ado.native-type-name")?.Text ?? item.Type),
+            ["type"] = Cell(item.Fields.TryGetValue("System.WorkItemType", out var nativeType)
+                ? nativeType : FieldValue.String(item.Type)),
             ["title"] = Cell(item.Fields.TryGetValue("System.Title", out var title) ? title : FieldValue.Null),
-            ["state"] = Cell(item.Fields.TryGetValue(type.StateField, out var state) ? state : FieldValue.Null),
+            ["state"] = Cell(item.Fields.TryGetValue("System.State", out var state) ? state : FieldValue.Null),
             ["revision"] = RenderCell.String(item.Revision!.Token),
             ["isDirty"] = RenderCell.Boolean(snapshot.Value.Drafts.Any(d => d.Key == key)),
+            ["cached"] = RenderCell.Boolean(!refresh),
             ["fields"] = new("Fields", new RenderValue.Object(item.Fields.Where(f => selected is null || selected.Contains(f.Key))
                 .ToDictionary(f => f.Key, f => Cell(f.Value), StringComparer.Ordinal))),
         };

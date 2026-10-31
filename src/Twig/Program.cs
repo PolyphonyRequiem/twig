@@ -1135,7 +1135,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="yes">Skip confirmation prompt.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Discard([Argument] int? id = null, bool all = false, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.DiscardAsync(id, all, yes, output, ct);
+        return await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
+    }
 
     /// <summary>Permanently delete a work item from Azure DevOps. This is irreversible — consider 'twig state Closed' instead.</summary>
     /// <param name="id">Work item ID to delete (required).</param>
@@ -1143,12 +1147,17 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("delete")]
     public async Task<int> Delete([Argument] int id, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<DeleteCommand>().ExecuteAsync(id, force, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return core.Delete(output);
+        return await services.GetRequiredService<DeleteCommand>().ExecuteAsync(id, force, output, ct);
+    }
 
     /// <summary>Push pending changes to Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
     [Hidden]
     public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SaveAsync(id, all, output, ct);
         await Console.Error.WriteLineAsync("hint: 'twig save' is deprecated. Use 'twig sync' instead.");
         return await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
     }

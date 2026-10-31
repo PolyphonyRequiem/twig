@@ -246,19 +246,18 @@ internal static class CommandExamples
         [
             "twig link parent 5678      Set #5678 as the parent of the active item",
             "twig link parent 5678 1234  Set #5678 as the parent of item #1234",
-            "twig link parent 5678 --id 1234  Same, naming the child by option",
+            "twig link parent 5678 --id 1234 -o json  Apply and verify an explicit child",
         ],
         ["link unparent"] =
         [
             "twig link unparent         Remove the parent link from the active item",
             "twig link unparent 1234    Remove the parent link from item #1234",
-            "twig link unparent --id 1234  Same, naming the item by option",
+            "twig link unparent --id 1234 -o json  Remove and verify the observed parent",
         ],
         ["link reparent"] =
         [
-            "twig link reparent 5678        Move the active item under parent #5678",
-            "twig link reparent 5678 1234   Move item #1234 under parent #5678",
-            "twig link reparent 5678 --id 1234  Same, naming the item by option",
+            "twig link reparent 5678        Unsupported: refuses without removing the current parent",
+            "twig link reparent 5678 --id 1234 -o json  Report the unsupported replacement as JSON",
         ],
         ["link predecessor"] =
         [
@@ -273,8 +272,8 @@ internal static class CommandExamples
         ["link related"] =
         [
             "twig link related 615           Relate the active item to #615",
-            "twig link related 615 --comment \"same root cause\"  Record WHY they relate",
-            "twig link related 615 --id 619  Relate #619 to #615",
+            "twig link related 615 --comment \"same root cause\"  Unsupported: refuses rather than dropping the comment",
+            "twig link related 615 --id 619 -o json  Apply and verify #619's association",
         ],
         ["link unrelate"] =
         [

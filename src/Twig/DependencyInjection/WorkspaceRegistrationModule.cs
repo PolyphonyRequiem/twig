@@ -43,6 +43,7 @@ internal static class WorkspaceRegistrationModule
                 sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>()));
             services.AddSingleton<ProcessCommand>();
             services.AddSingleton<ProcessDescriptionCommand>();
+            services.AddSingleton<LinkCommand>();
             return services;
         }
         services.AddConnectionServices(config, twigDir, startDir);

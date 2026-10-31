@@ -1,85 +1,41 @@
 ---
 command: link related
 group: links
-summary: Add a symmetric Related link between two work items, optionally with a comment.
-stability: stable
+summary: Add a discovered symmetric native association through a verified Core proposal.
+stability: experimental
 mutates: ado
 ---
 
 # `twig link related`
 
-Record a symmetric `System.LinkTypes.Related` edge between two published work
-items. Related is non-directional: ADO materialises the reverse edge itself,
-so writing it from either endpoint makes it visible from both. There is no
-"relate the other way" command.
-
-## Synopsis
+Add a symmetric association between published items in an explicitly initialized
+Core ADO workspace. The relation reference comes from the discovered schema,
+not a hardcoded process or native name.
 
 ```
-twig link related <targetId> [-c <comment>] [--id <n>] [-o <format>]
+twig link related <targetId> [--id <n>] [-c <comment>] [-o <format>]
 ```
 
-## Arguments
+`targetId` names the other endpoint; `--id` names the source. Only human output
+may use the selected Core item. Both IDs must be positive native identities.
+`-c`/`--comment` is retained syntax but **unsupported**: any supplied value,
+including an empty string, refuses before HTTP. The typed relationship effect
+has no comment payload; the command never silently drops it or emits a separate note.
 
-|Argument|Required|Description|
-|---|---|---|
-|`targetId`|yes|Work item ID to relate this item to.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-c`, `--comment`|`string?`|`null`|Why the two items are related. Persisted on the link itself.|
-|`--id`|`int?`|`null`|Target a specific work item by ID instead of the active item.|
-|`-o`, `--output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
-
-## Behavior
-
-Delegates to the shared dependency core with `linkType = Related` and the
-optional `comment` piped through to `AddLinkWithCommentAsync`
-(`src/Twig/Commands/LinkCommand.cs:266`, `src/Twig/Commands/LinkCommand.cs:386`).
-The same guards apply as for `link predecessor` / `link successor`: self-links
-are rejected, the target must exist in ADO, and a duplicate edge short-circuits
-to `linkUnchanged` and exits `0`. Both endpoints are resynced on success
-because the reverse edge lands on the other side too
-(`src/Twig/Commands/LinkCommand.cs:261`).
+One discovered non-directional association is required. The source's observed
+revision binds one add-link PATCH. The shared proposal/journal workflow requires
+independent acknowledgement and fresh reciprocal readback, not a best-effort resync.
 
 ## Examples
 
-Relate the active item to `#615`:
-
-```
-$ twig link related 615
-#1234 now has related #615.
-  #1234 ──related──▶ #615
+```text
+twig link related 615
+twig link related 615 --id 619 -o json
 ```
 
-Relate two items and record why, JSON output:
+Success exits `0` with `linkAdded`, `status: Verified`, proposal digest and
+native link records. Duplicate adds, unsupported comments, missing observations
+and unresolved outcomes exit `1`; invalid/self/missing machine targets exit `2`.
 
-```
-$ twig link related 615 --comment "same root cause" --id 619 -o json
-{
-  "kind": "linkAdded",
-  "message": "#619 now has related #615.",
-  "count": 1,
-  "links": [ { "sourceId": 619, "targetId": 615, "linkType": "related" } ]
-}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Related edge added, or already present|`0`|
-|Active/target item not found in cache|`1`|
-|Self-link attempted|`1`|
-|Target work item not found in ADO|`1`|
-|ADO rejected the write|`1`|
-
-## See also
-
-- [`link unrelate`](./link-unrelate.md)
-- [`link unlink`](./link-unlink.md)
-- [Group overview](./README.md)
+See [shared behavior and output](./README.md),
+[`link unrelate`](./link-unrelate.md) and [`link unlink`](./link-unlink.md).

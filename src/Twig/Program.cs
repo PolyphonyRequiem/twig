@@ -1037,55 +1037,64 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
 
     // ── Link commands (published work items) ────────────────────────
 
-    /// <summary>Set the parent of the active work item.</summary>
+    /// <summary>Set the parent of an unparented published item through a verified Core proposal.</summary>
     /// <param name="targetId">Work item ID to set as the parent.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
+    /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
+    /// <param name="id">Explicit positive child ID; machine output needs --id or --child.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link parent")]
-    public async Task<int> LinkParent([Argument] int targetId, [Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, child ?? id, output, ct);
+    public async Task<int> LinkParent([Argument] int targetId, [Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, id, output, ct, child, childId);
 
-    /// <summary>Remove the parent link from the active work item.</summary>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <summary>Remove the one observed native parent through a verified Core proposal.</summary>
+    /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
+    /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
+    /// <param name="id">Explicit positive child ID; machine output needs --id or --child.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link unparent")]
-    public async Task<int> LinkUnparent([Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().UnparentAsync(child ?? id, output, ct);
+    public async Task<int> LinkUnparent([Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().UnparentAsync(id, output, ct, child, childId);
 
-    /// <summary>Remove the current parent and set a new one.</summary>
+    /// <summary>Parent replacement is unsupported; refuses before HTTP without removing any link.</summary>
     /// <param name="targetId">Work item ID to set as the new parent.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
+    /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
+    /// <param name="id">Explicit positive child ID; machine output needs --id or --child.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link reparent")]
-    public async Task<int> LinkReparent([Argument] int targetId, [Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, child ?? id, output, ct);
+    public async Task<int> LinkReparent([Argument] int targetId, [Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, id, output, ct, child, childId);
 
     /// <summary>Mark the active work item as blocked by another item (Predecessor link).</summary>
     /// <param name="targetId">Work item ID that must complete first (the blocker).</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link predecessor")]
     public async Task<int> LinkPredecessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Predecessor, targetId, id, output, ct);
 
     /// <summary>Mark the active work item as blocking another item (Successor link).</summary>
     /// <param name="targetId">Work item ID that this item blocks.</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link successor")]
     public async Task<int> LinkSuccessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Successor, targetId, id, output, ct);
 
     /// <summary>Relate the active work item to another item (symmetric Related link).</summary>
     /// <param name="targetId">Work item ID to relate this item to.</param>
-    /// <param name="comment">-c, Why the two items are related. Recorded on the link itself.</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="comment">-c, Retained syntax; unsupported by Core relationship intent, so any supplied value refuses before HTTP.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link related")]
     public async Task<int> LinkRelated([Argument] int targetId, string? comment = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().RelatedAsync(targetId, id, comment, output, ct);
 
     /// <summary>Remove a Related link between the active work item and another item.</summary>
     /// <param name="targetId">Work item ID at the other end of the link.</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link unrelate")]
     public async Task<int> LinkUnrelate([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().UnrelateAsync(targetId, id, output, ct);
@@ -1130,8 +1139,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Remove a non-hierarchy link (predecessor, successor, or related) from a work item.</summary>
     /// <param name="linkType">Link type to remove: predecessor, successor, or related.</param>
     /// <param name="targetId">Work item ID at the other end of the link.</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link unlink")]
     public async Task<int> LinkUnlink([Argument] string linkType, [Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().UnlinkDependencyAsync(linkType, targetId, id, output, ct);

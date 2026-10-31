@@ -725,9 +725,13 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     [Hidden]
     public async Task<int> Tree([Argument] int? idArg = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, int? id = null)
-        => all
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.TreeAsync(id ?? idArg, all, depth, refresh, output, ct);
+        return all
             ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, refresh, ct, tree: true)
             : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id ?? idArg, output, tree: true, refresh, ct, depth, noLive);
+    }
 
     /// <summary>Render an arbitrary working set of work items as a forest of annotated trees.</summary>
     /// <param name="items">Comma-separated work item IDs, or @file (one per line), or @- for stdin.</param>

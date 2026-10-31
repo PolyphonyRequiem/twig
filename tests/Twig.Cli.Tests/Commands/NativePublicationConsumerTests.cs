@@ -160,6 +160,22 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
             history.RootElement.GetArrayLength().ShouldBeGreaterThanOrEqualTo(5);
             _transport.WorkRequests.ShouldBe(beforeHistory);
             _transport.CommittedWrites.ShouldBe(2, "context/navigation must not reach any tracker writer");
+            stdout.GetStringBuilder().Clear();
+            var beforeTree = _transport.WorkRequests;
+            (await commands.Show(42, "json", tree: true)).ShouldBe(0, stderr.ToString());
+            using var tree = JsonDocument.Parse(stdout.ToString());
+            tree.RootElement.ValueKind.ShouldBe(JsonValueKind.Array);
+            tree.RootElement.GetArrayLength().ShouldBe(1);
+            tree.RootElement[0].GetProperty("children").GetArrayLength().ShouldBe(2);
+            tree.RootElement[0].GetProperty("children").EnumerateArray().Select(child => child.GetProperty("id").GetInt32())
+                .ShouldBe(children, ignoreOrder: true);
+            tree.RootElement[0].GetProperty("children").EnumerateArray().ShouldAllBe(child =>
+                child.GetProperty("isSeed").GetBoolean() && child.GetProperty("relationshipOrigin").GetString() == "local");
+            _transport.WorkRequests.ShouldBe(beforeTree, "cached tree detail must not fetch work items implicitly");
+            stdout.GetStringBuilder().Clear();
+            (await commands.Tree(42, "json", depth: 0)).ShouldBe(0, stderr.ToString());
+            using var shallow = JsonDocument.Parse(stdout.ToString());
+            shallow.RootElement[0].TryGetProperty("children", out _).ShouldBeFalse();
             root.GetService<EditCommand>().ShouldBeNull();
             root.GetService<SetCommand>().ShouldBeNull();
             root.GetService<NavigationCommands>().ShouldBeNull();

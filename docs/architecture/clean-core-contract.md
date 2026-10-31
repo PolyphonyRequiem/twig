@@ -154,8 +154,16 @@ and selects from the Core mirror plus explicit creation-bound parent intent.
 History back/forward retain the original local UUIDs and never change proposal
 identity; structured history inspection is read-only. None of these routes registers
 the legacy navigation/context repositories or tracker writer. Interactive navigation,
-native work-item history, hierarchy/detail presentation and
+native work-item history, compact detail sections and
 complete lifecycle/UI retention remain unfinished. These gaps prevent phase-5 delivery.
+Cached `show --tree` and targeted `tree` now compose the actual Core mirror,
+ancestor chain and local creation-bound parent declarations through the existing
+typed tree renderer. Missing cached descendants are explicit placeholders; native
+relationship completeness and local origin are not fabricated. Depth counts below
+the requested item, and repeated descendants/cycles refuse. Schema semantics come
+from actual provider discovery; default tree rendering does not fetch work items.
+Refresh-all, live UI refresh, working-set annotations and compact detail-section
+projection still require their remaining Bench/read/UI cutover.
 
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not

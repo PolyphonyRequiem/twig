@@ -212,6 +212,114 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
+    internal async Task<int> TreeAsync(int? id, bool all, int? depth, bool refresh, string output, CancellationToken ct)
+    {
+        if (depth is < 0) return Error(output, "Tree depth cannot be negative.", 2);
+        if (all && id is not null) return Error(output, "--all cannot be combined with an explicit tree target.", 2);
+        if (!all)
+        {
+            var selected = await ResolveIdAsync(id, output, ct);
+            if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
+            id = selected.Value;
+        }
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        ItemKey? requested = all ? null : id < 0
+            ? KnownLocalKeys(snapshot.Value).SingleOrDefault(key => LocalAlias(key) == id)
+            : ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, id!.Value.ToString(CultureInfo.InvariantCulture));
+        if (!all && requested is null) return Error(output, "The local tree target is absent or ambiguous.");
+        ItemKey Resolve(ItemKey key) => snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        if (requested is not null) requested = Resolve(requested);
+        if (refresh && all) return Error(output, "Refresh-all requires the retained Bench/query scope; that route is not yet connected.");
+        if (refresh && requested is { IsLocal: false })
+        {
+            var observed = await workspace.ReadAsync(requested, ct);
+            if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+            snapshot = await workspace.SnapshotAsync(ct);
+            if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        }
+        var schema = await workspace.SchemaAsync(ct);
+        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var kinds = schema.Value.Relations.Where(relation => relation.Shape == RelationShape.Hierarchy && relation.Directed).ToArray();
+        if (kinds.Length != 1) return Error(output, "Tree display requires a unique discovered hierarchy relation.");
+        var hierarchy = kinds[0].Reference;
+        var items = snapshot.Value.Items.ToDictionary(item => item.Key);
+        foreach (var draft in snapshot.Value.Drafts)
+        {
+            if (draft.Key.IsLocal)
+            {
+                if (!snapshot.Value.Mappings.Any(mapping => mapping.Local == draft.Key))
+                    items[draft.Key] = new(draft.Key, draft.Type, draft.Changes, null);
+            }
+            else if (items.TryGetValue(draft.Key, out var item))
+                items[draft.Key] = new(item.Key, draft.Type, item.Fields.Overlay(draft.Changes), item.Revision,
+                    item.RelationshipsComplete, item.Resources, item.ResourcesComplete);
+        }
+        if (requested is not null && !items.ContainsKey(requested))
+            return Error(output, "The explicit tree target is not cached. Use --refresh to observe it.");
+        var edges = snapshot.Value.Relationships.Where(edge => !edge.Deleted && edge.Kind == hierarchy)
+            .Select(edge => (From: Resolve(edge.From), To: Resolve(edge.To), edge.Origin))
+            .Concat(snapshot.Value.Drafts.Where(draft => draft.Parent is not null && draft.ParentRelation == hierarchy)
+                .Select(draft => (From: Resolve(draft.Parent!), To: Resolve(draft.Key), Origin: RelationshipOrigin.Local))).Distinct().ToArray();
+        var roots = requested is null ? items.Keys.Where(key => !edges.Any(edge => edge.To == key && items.ContainsKey(edge.From))).ToArray() : [requested];
+        if (roots.Length == 0 && items.Count != 0) return Error(output, "The cached hierarchy has no root; a cycle prevents a trustworthy tree.");
+        var ancestors = new List<ItemKey>();
+        if (requested is not null)
+        {
+            var current = requested;
+            var seen = new HashSet<ItemKey> { current };
+            while (true)
+            {
+                var parents = edges.Where(edge => edge.To == current).Select(edge => edge.From).Distinct().ToArray();
+                if (parents.Length > 1) return Error(output, "The requested item's ancestor chain is ambiguous.");
+                if (parents.Length == 0) break;
+                current = parents[0];
+                if (!seen.Add(current)) return Error(output, "A cycle prevents the requested ancestor chain.");
+                ancestors.Add(current);
+                if (!items.ContainsKey(current)) break;
+            }
+            if (ancestors.Count != 0) roots = [ancestors[^1]];
+        }
+        var path = requested is null ? [] : ancestors.AsEnumerable().Reverse().Append(requested).ToArray();
+        var visited = new HashSet<ItemKey>();
+        Error? error = null;
+        RenderTreeBranch Build(ItemKey key, int level)
+        {
+            if (!visited.Add(key))
+            {
+                error = new(ErrorCode.Conflict, "A repeated descendant or hierarchy cycle prevents a trustworthy tree.");
+                return new(new("unavailable", new Dictionary<string, RenderCell> { ["message"] = RenderCell.String(error.Message) }), []);
+            }
+            items.TryGetValue(key, out var item);
+            var cells = new Dictionary<string, RenderCell>
+            {
+                ["id"] = key.IsLocal ? RenderCell.Integer(LocalAlias(key)) : RenderCell.Integer(int.Parse(key.NativeId!, CultureInfo.InvariantCulture)),
+                ["title"] = item is null ? RenderCell.String("(not cached)") : Cell(item.Fields.GetValueOrDefault("System.Title") ?? FieldValue.Null),
+                ["type"] = item is null ? new("", new RenderValue.Null()) : RenderCell.String(item.Type),
+                ["cached"] = RenderCell.Boolean(item is not null), ["isSeed"] = RenderCell.Boolean(key.IsLocal),
+                ["relationshipsComplete"] = RenderCell.Boolean(!key.IsLocal && item?.RelationshipsComplete == true),
+            };
+            var incoming = edges.Where(edge => edge.To == key).Select(edge => edge.Origin).Distinct().ToArray();
+            cells["relationshipOrigin"] = incoming.Length == 1 ? RenderCell.String(incoming[0].ToString().ToLowerInvariant())
+                : new("", new RenderValue.Null());
+            if (item is not null && schema.Value.Types.SingleOrDefault(type => type.Reference == item.Type) is { } actualType)
+                cells["state"] = Cell(item.Fields.GetValueOrDefault(actualType.StateField) ?? FieldValue.Null);
+            var pathIndex = Array.IndexOf(path, key);
+            var children = pathIndex >= 0 && pathIndex < path.Length - 1 ? new[] { Build(path[pathIndex + 1], level + 1) }
+                : level - ancestors.Count >= (depth ?? int.MaxValue) ? [] : edges.Where(edge => edge.From == key)
+                    .Select(edge => edge.To).Distinct().Select(child => Build(child, level + 1)).ToArray();
+            return new(new(item is null ? "missingItem" : "workItem", cells), children);
+        }
+        var branches = roots.Select(key => Build(key, 0)).ToArray();
+        if (error is not null) return Error(output, error.Message);
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree(branches.Select(branch => (RenderNode)new RenderNode.TreeView(branch)).ToArray()));
+        return 0;
+    }
+
     internal async Task<int> SaveAsync(int? id, bool all, string output, CancellationToken ct)
     {
         if (id is null && !all)
@@ -1052,6 +1160,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> ShowAsync(int? id, string output, bool tree, bool refresh,
         string? fields, string? sections, string? localId, CancellationToken ct)
     {
+        if (tree && localId is null && fields is null && sections is null)
+            return await TreeAsync(id, false, null, refresh, output, ct);
         if (id is null && localId is null)
         {
             var activeTarget = await ResolveIdAsync(null, output, ct);

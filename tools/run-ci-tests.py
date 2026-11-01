@@ -532,10 +532,17 @@ class RunnerSelfTests(unittest.TestCase):
         self.assertEqual(supported, {f"Twig.{suite}.Tests" for suite in ASSEMBLIES})
         self.assertIn("src/Twig.Domain/Twig.Domain.csproj", projects)
         self.assertIn("samples/Twig.DetailHost/Twig.DetailHost.csproj", projects)
-        for retired in ("Domain.Tests", "Benchmarks"):
+        for retired in ("Domain.Tests", "Benchmarks", "Mcp.Tests", "Tui.Tests"):
             path = f"tests/Twig.{retired}/Twig.{retired}.csproj"
             self.assertNotIn(path, projects)
-            self.assertTrue((ROOT / path).is_file(), "withdrawal does not delete historical source")
+            self.assertFalse((ROOT / path).exists(), "retired project source must be removed")
+            self.assertFalse(list((ROOT / f"tests/Twig.{retired}").rglob("*.cs")),
+                             "retired tests must not remain as orphan source")
+        for retired in ("Mcp", "Tui"):
+            directory = ROOT / f"src/Twig.{retired}"
+            self.assertFalse((directory / f"Twig.{retired}.csproj").exists())
+            self.assertFalse(list(directory.rglob("*.cs")),
+                             "retired hosts must not remain as orphan source")
         self.assertNotIn("Domain", ASSEMBLIES)
         self.assertNotIn("Tui", ASSEMBLIES)
         self.assertNotIn("Mcp", ASSEMBLIES)

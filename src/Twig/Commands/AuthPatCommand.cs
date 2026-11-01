@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
 using Spectre.Console;
 using Twig.Domain.Interfaces;

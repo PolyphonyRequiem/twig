@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Telemetry;
 using NSubstitute;
 using Shouldly;
 using Spectre.Console.Testing;

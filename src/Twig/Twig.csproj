@@ -38,7 +38,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Twig.Cli.Tests" />
-    <InternalsVisibleTo Include="Twig.Benchmarks" />
   </ItemGroup>
 
   <ItemGroup>

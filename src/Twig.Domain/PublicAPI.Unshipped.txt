@@ -1,4 +1,11 @@
 #nullable enable
+*REMOVED*Twig.Domain.Interfaces.IConsoleInput
+*REMOVED*Twig.Domain.Interfaces.IConsoleInput.IsOutputRedirected.get -> bool
+*REMOVED*Twig.Domain.Interfaces.IConsoleInput.ReadLine() -> string?
+*REMOVED*Twig.Domain.Interfaces.IEditorLauncher
+*REMOVED*Twig.Domain.Interfaces.IEditorLauncher.LaunchAsync(string! initialContent, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<string?>!
+*REMOVED*Twig.Domain.Interfaces.ITelemetryClient
+*REMOVED*Twig.Domain.Interfaces.ITelemetryClient.TrackEvent(string! eventName, System.Collections.Generic.Dictionary<string!, string!>? properties = null, System.Collections.Generic.Dictionary<string!, double>? metrics = null) -> void
 Twig.Domain.Services.Workspace.WorkingSetService.ComputeScopedAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>? iterationPaths, System.Threading.CancellationToken ct, bool includeActiveContext) -> System.Threading.Tasks.Task<Twig.Domain.Services.Workspace.WorkingSet!>!
 Twig.Domain.Services.Plan.PlanOperationKind.Create = 6 -> Twig.Domain.Services.Plan.PlanOperationKind
 Twig.Domain.Services.Plan.ProviderMutationOperation.Concurrency.get -> string!

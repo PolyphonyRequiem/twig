@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;

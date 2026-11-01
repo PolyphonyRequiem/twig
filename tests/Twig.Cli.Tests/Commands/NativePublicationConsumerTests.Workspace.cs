@@ -167,23 +167,31 @@ public sealed partial class NativePublicationConsumerTests
         var (paths, connection, store, bench, _) = await WorkspaceReadScopeAsync();
         var initial = (await store.ReadAsync(connection, default)).Value;
         var requests = _transport.TotalRequests;
-        foreach (var args in new[]
+        foreach (var (args, expectedExit, retired) in new[]
         {
-                new[] { "workspace", "--all", "--refresh" }, new[] { "sprint", "--refresh" },
-                new[] { "tree", "--all", "--refresh" }, new[] { "workspace", "--tree", "--refresh" },
-                new[] { "workspace", "--view", "tree" }, new[] { "workspace", "--include-browser" },
-                new[] { "workspace", "--browser-version", "2" }, new[] { "workspace", "--expect-binding", "captured" },
-                new[] { "workspace", "--expect-identity", "captured" }, new[] { "workspace", "--view", "bogus" },
-                new[] { "workspace", "--expect-settings", "captured" },
-                new[] { "workspace", "--expect-bench", "7" },
+                (new[] { "workspace", "--all", "--refresh" }, 1, true),
+                (new[] { "sprint", "--refresh" }, 1, true),
+                (new[] { "tree", "--all", "--refresh" }, 1, true),
+                (new[] { "workspace", "--tree", "--refresh" }, 1, true),
+                (new[] { "workspace", "--include-browser" }, 1, true),
+                (new[] { "workspace", "--browser-version", "2" }, 1, true),
+                (new[] { "workspace", "--expect-binding", "captured" }, 1, true),
+                (new[] { "workspace", "--expect-identity", "captured" }, 1, true),
+                (new[] { "workspace", "--expect-settings", "captured" }, 1, true),
+                (new[] { "workspace", "--view", "tree" }, 2, false),
+                (new[] { "workspace", "--view", "bogus" }, 2, false),
+                (new[] { "workspace", "--expect-bench", "7" }, 2, false),
             })
         {
             var result = WorkspaceInvoke(paths, [.. args, "-o", "json"]);
-            result.Exit.ShouldBe(2, result.Error);
+            result.Exit.ShouldBe(expectedExit, string.Join(" ", args) + ": " + result.Error);
             result.Output.ShouldBeEmpty();
             using var error = JsonDocument.Parse(result.Error);
-            error.RootElement.GetProperty("error").GetString().ShouldNotBeNullOrWhiteSpace();
+            var message = error.RootElement.GetProperty("error").GetString();
+            message.ShouldNotBeNullOrWhiteSpace();
+            if (retired) message.ShouldNotBeNull().ShouldContain("retired from current delivery");
             _transport.TotalRequests.ShouldBe(requests);
+            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(initial.Version);
         }
         foreach (var args in new[]
         {

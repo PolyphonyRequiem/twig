@@ -565,16 +565,24 @@ The build and validation are separate gates. The offline smoke checks the actual
 CLI's startup/help, source-generated JSON, current store/binding admission,
 proposal preview, and wrong-account refusal with a hard 15-second deadline; it
 never builds or runs test hosts. Use narrowly scoped regression checks for the
-proposed changeset when needed. Routine CI and pre-push use this smoke; complete
-platform validation runs on release candidates before signing or publication.
+proposed changeset when needed. Local pre-push runs this smoke. Required CI on
+Linux and Windows also qualifies the closed Core/native-host profile through
+existing production CAF/DI roots, synthetic native auth/HTTP and real SQLite.
+Each selector group has a hard 60-second process-tree deadline and a verified TRX;
+missing selectors, zero cases, skipped/aborted runs and missing results after
+execution are failures. Uploads do not demand results from steps that never ran.
+Complete supported-platform suites remain a release-candidate gate before
+signing or publication, not a routine local or draft-PR requirement.
 
-The additive clean-core libraries include isolated ADO and
-[GitHub provider adapters](src/Twig.Providers.GitHub/README.md), built with the
-supported solution and covered by deterministic HTTP/auth plus real-SQLite
-regressions on Linux and Windows. They do not switch production commands or
-legacy databases. The GitHub adapter has no production leased write-admission
-bridge/governed rule-evidence source yet; its native process-rule discovery is
-explicitly unsupported, not an empty-rule permission grant.
+CI retains the pure Core invariants, real store and both provider boundary suites.
+The ADO and [GitHub native roots](src/Twig.Providers.GitHub/README.md) qualify fresh
+default/explicit-path init, the marker/no-marker catalog, cache-only numeric and
+original UUID reads, typed patches, Markdown/close, save/discard, Bench/draft debt,
+seed/link capture and ordered creation, digest/policy/native admission, permanent
+mappings, local tombstone CAS/ABA and unknown-create restart without replay.
+Read-only native transport inspection never supplies Core execution authority.
+GitHub's declared-policy/native-API scope, non-atomic writes and bounded query
+limitations are asserted, not treated as complete process-rule discovery.
 
 For a smoke deadline investigation, add `--trace <new-file.jsonl>` to preserve flushed
 worker/child boundaries outside captured output. Trace rows contain only fixed phase/event
@@ -583,22 +591,17 @@ or work-item payloads. CI uploads these boundaries even on failure. This is diag
 evidence, not a larger timeout or a correction for a latency failure. The deterministic
 harness regression is `python tools/test-verify-build.py`.
 
-`twig workspace migrate -o json` reviews preservation movement and rollback
-preconditions for an already-admitted ADO workspace; it is not an automatic
-upgrade. Cutover requires its exact `--confirm` digest. It retains local work,
-context and navigation, requires restore-qualified workspace-local backups under
-`.twig/backups`, and refuses unclassified data rather than discarding originals.
-CI qualifies native host-inventory migration and retained-publication recovery on
-Windows; macOS lacks that admission and Linux can refuse inaccessible `/proc` handles.
-Normal cross-platform gates remain; these checks never authorize existing-store migration.
-See [guided preservation migration](docs/commands/workspace/migrate.md) for
-explicit cutover, interruption recovery and conditional rollback. Provider-native
-GitHub cutover remains unsupported until it has its own storage generation.
+Legacy ShowCommand/projection envelopes, Canvas/Browser/TUI/MCP gestures, old
+claim/writer graphs, onboarding and preservation migration are retired delivery
+gates. Their source/tests remain historical phase-6 context, not alternate product
+routes. Current root tests require explicit refusal before provider/input I/O and
+absence of legacy writers. Existing stores are not migrated, adopted or reset.
+The external RenderTree consumer probe remains supported and qualified.
 
 `SqliteBackupPathProbeTests` is an opt-in `Integration` diagnostic, excluded from
 routine and release-candidate eligibility. Select it explicitly only to investigate
 a host's native SQLite path-failure behavior; a different failure signature is not
-evidence that preservation regressed. Portable preservation checks run separately.
+evidence that the supported Core store regressed.
 
 ## Next Topics
 

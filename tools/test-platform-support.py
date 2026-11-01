@@ -16,13 +16,13 @@ BASH = r"C:\Program Files\Git\bin\bash.exe" if os.name == "nt" else shutil.which
 
 
 class PlatformSupportTests(unittest.TestCase):
-    def test_linux_installer_still_installs_exact_native_aliases(self):
+    def test_linux_installer_installs_core_and_excludes_retired_companions(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive = root / "release.tar.gz"
             image = b"#!/usr/bin/env bash\necho 1.0.0\n"
             with tarfile.open(archive, "w:gz") as payload:
-                for name in ("twig", "twig-tui", "twig-bench-tui"):
+                for name in ("twig", "twig-tui", "twig-bench-tui", "twig-mcp"):
                     info = tarfile.TarInfo(name)
                     info.size, info.mode = len(image), 0o755
                     payload.addfile(info, io.BytesIO(image))
@@ -43,8 +43,9 @@ source ./install.sh
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("twig installed successfully!", result.stdout)
-            for name in ("twig", "twig-tui", "twig-bench-tui"):
-                self.assertEqual((root / ".twig" / "bin" / name).read_bytes(), image)
+            self.assertEqual((root / ".twig" / "bin" / "twig").read_bytes(), image)
+            for name in ("twig-tui", "twig-bench-tui", "twig-mcp"):
+                self.assertFalse((root / ".twig" / "bin" / name).exists(), name)
 
     def test_candidate_tool_refuses_macos_before_arguments_or_files(self):
         spec = importlib.util.spec_from_file_location("candidate", ROOT / "tools" / "tui-candidate.py")

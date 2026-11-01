@@ -29,6 +29,9 @@ One existing Core proposal carries one local-origin `Relate` operation. The shar
 prepare/apply/verify workflow retains its digest and journal. `Verified` means
 **local CAS**, never a native tracker link. Output identifies every edge as
 `LOCAL`, `local-only`, `non-native`. Provider-origin edges are untouched.
+JSON `source`/`target` are exact stored identity objects: a local endpoint has
+`localId` (canonical lowercase GUID), while a remote endpoint has `provider`,
+`scope`, and opaque `nativeId`. They are not debug strings or numeric locators.
 
 An initial edge has no expected local version. Resurrection binds the exact
 retained tombstone version and increments it; there is no delete/compaction.

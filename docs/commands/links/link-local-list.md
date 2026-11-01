@@ -24,8 +24,13 @@ tombstones and native-origin observations, and labels provenance `LOCAL`,
 `local-only`, `non-native`. Original Verified seed mappings let both UUID and
 native number find the same unchanged edge keys.
 
-JSON variants retain typed endpoint strings, kind, local version and deletion
-flag. Human/minimal output is static. `ids` emits explicit numeric neighbor
+JSON variants retain typed endpoint objects, kind, local version and deletion
+flag. Each `source`/`target` is either `{ "localId": "<canonical-guid>" }` or
+`{ "provider": "<provider>", "scope": "<scope>", "nativeId": "<opaque-id>" }`.
+These are the original stored edge identities, even after a seed publishes;
+the separately supplied list target remains an explicit locator.
+Human/minimal output is static and displays UUIDs/native IDs, not record dumps.
+`ids` emits explicit numeric neighbor
 locators (negative aliases for live local seeds) only when every neighbor can be
 resolved uniquely from cached evidence; otherwise it explicitly refuses. No
 endpoint is silently dropped to make an IDs result look complete.

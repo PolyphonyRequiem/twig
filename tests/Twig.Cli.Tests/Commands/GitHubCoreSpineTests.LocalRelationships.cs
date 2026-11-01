@@ -46,7 +46,7 @@ public sealed partial class GitHubCoreSpineTests
         using (var result = JsonDocument.Parse(f.Output))
         {
             result.RootElement.GetProperty("status").GetString().ShouldBe("Verified");
-            result.RootElement.GetProperty("relationship").GetProperty("origin").GetString().ShouldBe("LOCAL");
+            AssertLocalRelationship(result.RootElement.GetProperty("relationship"), original);
         }
         var requests = f.Http.Requests;
         var credentials = f.CredentialCalls;
@@ -55,6 +55,14 @@ public sealed partial class GitHubCoreSpineTests
             f.Run("link", "local", "list", "42", "-o", format).ShouldBe(0, f.Error);
             if (format == "ids") f.Output.Trim().ShouldBe(CoreHostContext.LocalAlias(seed.Key).ToString(CultureInfo.InvariantCulture));
             else f.Output.ShouldContain("LOCAL");
+            f.Output.ShouldNotContain("ItemKey {");
+            if (format.StartsWith("json", StringComparison.Ordinal))
+            {
+                using var result = JsonDocument.Parse(f.Output);
+                var edges = result.RootElement.GetProperty("localRelationships");
+                edges.GetArrayLength().ShouldBe(1);
+                AssertLocalRelationship(edges[0], original);
+            }
         }
         f.Http.Requests.ShouldBe(requests, "list must perform zero TOTAL HTTP, including viewer, schema and number lookup");
         f.CredentialCalls.ShouldBe(credentials);
@@ -65,11 +73,15 @@ public sealed partial class GitHubCoreSpineTests
         f.Run("link", "local", "unrelate", "42", "--id", uuid, "-o", "json").ShouldBe(0, f.Error);
         var removed = await f.Snapshot();
         removed.Relationships.Single().ShouldBe(original with { Deleted = true, LocalVersion = 2 });
+        using (var result = JsonDocument.Parse(f.Output))
+            AssertLocalRelationship(result.RootElement.GetProperty("relationship"), original with { Deleted = true, LocalVersion = 2 });
         removed.Proposals.Last().Operations.Single().ExpectedLocalVersion.ShouldBe(1);
         f.Run("link", "local", "unrelate", uuid, "--id", "42", "-o", "json").ShouldBe(1);
         f.Run("link", "local", "related", "42", "--id", uuid, "-o", "json").ShouldBe(0, f.Error);
         var resurrected = await f.Snapshot();
         resurrected.Relationships.Single().ShouldBe(original with { LocalVersion = 3 });
+        using (var result = JsonDocument.Parse(f.Output))
+            AssertLocalRelationship(result.RootElement.GetProperty("relationship"), original with { LocalVersion = 3 });
         resurrected.Proposals.Last().Operations.Single().ExpectedLocalVersion.ShouldBe(2);
         resurrected.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified);
         f.Http.Writes.ShouldBe(0, "metadata/read acquisition is allowed; native GraphQL mutations are not");
@@ -99,6 +111,8 @@ public sealed partial class GitHubCoreSpineTests
         f.Run("link", "local", "related", other, "--id", uuid, "-o", "json").ShouldBe(0, f.Error);
         var linked = await f.Snapshot();
         var original = linked.Relationships.Single();
+        using (var output = JsonDocument.Parse(f.Output))
+            AssertLocalRelationship(output.RootElement.GetProperty("relationship"), original);
         var bytes = Core.Core.ProposalBytes(linked.Proposals.Single());
         f.Run("seed", "publish", CoreHostContext.LocalAlias(source.Key).ToString(CultureInfo.InvariantCulture)).ShouldBe(0, f.Error);
         var published = await f.Snapshot();
@@ -112,11 +126,16 @@ public sealed partial class GitHubCoreSpineTests
             f.Run("link", "local", "list", locator, "-o", "json").ShouldBe(0, f.Error);
             using var output = JsonDocument.Parse(f.Output);
             output.RootElement.GetProperty("localRelationships").GetArrayLength().ShouldBe(1);
+            AssertLocalRelationship(output.RootElement.GetProperty("localRelationships")[0], original);
             f.Http.Requests.ShouldBe(requests);
         }
         f.Run("link", "local", "related", other, "--id", "42", "-o", "json").ShouldBe(1);
         f.Run("link", "local", "unrelate", other, "--id", "42", "-o", "json").ShouldBe(0, f.Error);
+        using (var output = JsonDocument.Parse(f.Output))
+            AssertLocalRelationship(output.RootElement.GetProperty("relationship"), original with { Deleted = true, LocalVersion = 2 });
         f.Run("link", "local", "related", other, "--id", uuid, "-o", "json").ShouldBe(0, f.Error);
+        using (var output = JsonDocument.Parse(f.Output))
+            AssertLocalRelationship(output.RootElement.GetProperty("relationship"), original with { LocalVersion = 3 });
         var final = await f.Snapshot();
         final.Relationships.Single().ShouldBe(original with { LocalVersion = 3 });
         final.Mappings.Single().ShouldBe(published.Mappings.Single());
@@ -200,5 +219,32 @@ public sealed partial class GitHubCoreSpineTests
         var before = await f.Snapshot();
         f.Run("seed", "new", "--title", title, "--type", GitHubProvider.Untyped, "--no-parent", "-o", "json").ShouldBe(0, f.Error);
         return (await f.Snapshot()).Drafts.Single(draft => !before.Drafts.Any(old => old.Key == draft.Key));
+    }
+
+    private static void AssertLocalRelationship(JsonElement relationship, Relationship stored)
+    {
+        relationship.ValueKind.ShouldBe(JsonValueKind.Object);
+        AssertEndpoint(relationship.GetProperty("source"), stored.From);
+        AssertEndpoint(relationship.GetProperty("target"), stored.To);
+        relationship.GetProperty("kind").GetString().ShouldBe(stored.Kind);
+        relationship.GetProperty("origin").GetString().ShouldBe("LOCAL");
+        relationship.GetProperty("storage").GetString().ShouldBe("local-only");
+        relationship.GetProperty("publication").GetString().ShouldBe("non-native");
+        relationship.GetProperty("localVersion").GetInt64().ShouldBe(stored.LocalVersion);
+        relationship.GetProperty("deleted").GetBoolean().ShouldBe(stored.Deleted);
+    }
+
+    private static void AssertEndpoint(JsonElement endpoint, ItemKey stored)
+    {
+        endpoint.ValueKind.ShouldBe(JsonValueKind.Object);
+        endpoint.EnumerateObject().Count().ShouldBe(stored.IsLocal ? 1 : 3);
+        if (stored.IsLocal)
+            endpoint.GetProperty("localId").GetString().ShouldBe(stored.LocalId.ToString("D"));
+        else
+        {
+            endpoint.GetProperty("provider").GetString().ShouldBe(stored.Provider.ShouldNotBeNull().Value);
+            endpoint.GetProperty("scope").GetString().ShouldBe(stored.ResourceScope);
+            endpoint.GetProperty("nativeId").GetString().ShouldBe(stored.NativeId);
+        }
     }
 }

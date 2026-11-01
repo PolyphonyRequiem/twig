@@ -128,6 +128,9 @@ remove/resurrect bind its exact positive version, including physical tombstones.
 Duplicate/absent effects refuse instead of faking verification. Output is static
 typed RenderTree with `LOCAL`, `local-only`, `non-native` provenance; Verified
 means local CAS only. List IDs require explicit uniquely cached neighbor IDs.
+JSON edge endpoints are typed original identity objects (`localId`, or
+`provider`/`scope`/`nativeId`), not C# record debug text or number-derived keys.
+Human/minimal display uses concise UUID/native-ID text.
 
 Original Verified create mappings provide logical read/dedup after publication,
 but existing edges always mutate their original UUID keys and local version.

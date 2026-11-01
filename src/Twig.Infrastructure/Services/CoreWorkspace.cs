@@ -47,9 +47,9 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             && number.Kind == FieldKind.Integer && number.Number == locator).ToArray();
         if (candidates.Length > 1 || candidates.Any(item => !item.Key.BelongsTo(connection)))
             return Result<ItemKey>.Fail(ErrorCode.Conflict, "Cached GitHub number identity is ambiguous or mismatched.");
-        if (candidates.Length == 1) return Result<ItemKey>.Ok(candidates[0].Key);
         if (!allowNativeLookup)
-            return Result<ItemKey>.Fail(ErrorCode.NotFound, $"Issue #{locator} is not cached; use show {locator} --refresh.");
+            return candidates.Length == 1 ? Result<ItemKey>.Ok(candidates[0].Key)
+                : Result<ItemKey>.Fail(ErrorCode.NotFound, $"Issue #{locator} is not cached; use show {locator} --refresh.");
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var acquired = await github.ReadNumberAsync(connection, locator, ct).ConfigureAwait(false);
         return acquired.IsSuccess ? Result<ItemKey>.Ok(acquired.Value.Items.Single().Key) : Result<ItemKey>.Fail(acquired.Error);

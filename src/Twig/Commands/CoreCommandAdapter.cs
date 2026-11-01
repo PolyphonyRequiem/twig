@@ -49,6 +49,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     private async Task<Result<int>> ResolveIdAsync(int? id, string output, CancellationToken ct, bool allowNativeLookup = false)
     {
+        if (id is > 0) return Result<int>.Ok(id.Value);
         var key = await ResolveKeyAsync(id, output, ct, allowNativeLookup);
         if (!key.IsSuccess) return Result<int>.Fail(key.Error);
         var opened = await factory.OpenAsync(ct);
@@ -621,7 +622,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     {
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Result<(int, string?)>.Fail(snapshot.Error);
-        var target = all ? null : await workspace.ResolveTargetAsync(id!.Value, false, ct);
+        var target = all ? null : await workspace.ResolveTargetAsync(id!.Value, true, ct);
         if (target is { IsSuccess: false }) return Result<(int, string?)>.Fail(target.Error);
         var drafts = snapshot.Value.Drafts.Where(draft => !draft.Key.IsLocal
             && (all || draft.Key == target!.Value)).ToArray();

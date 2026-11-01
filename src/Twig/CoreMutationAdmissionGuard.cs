@@ -6,6 +6,7 @@ internal static class CoreMutationAdmissionGuard
 {
     internal static string? Validate(IReadOnlyList<string> args, string twigDirectory)
     {
+        if (args.Contains("--help") || args.Contains("-h")) return null;
         var marker = Path.Combine(twigDirectory, CoreWorkspaceFactory.FileName);
         if (File.Exists(marker) && args.Count != 0)
         {
@@ -35,11 +36,10 @@ internal static class CoreMutationAdmissionGuard
         "show-batch" or "process" or "update" or "note" or "state" or "batch" or "patch"
             or "save" or "discard" or "pending" or "query" => !args.Contains("--browser"),
         "bench" => args.Count == 1 || args.Count > 1 && args[1] is "list" or "create" or "switch",
-        "workspace" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "view" or "track" or "untrack",
+        "workspace" or "ws" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "view" or "track" or "untrack",
         "seed" => args.Count > 1 && args[1] is "new" or "view" or "publish" or "discard" or "validate",
-        "new" => true,
         "proposal" or "plan" => args.Count > 1 && args[1] is "preview" or "apply" or "status" or "validate",
-        "skills" or "help" => true,
+        "skills" or "help" or "version" => true,
         _ => false,
     };
 

@@ -8,6 +8,39 @@ namespace Twig.Core.Tests;
 public sealed class RequirednessTransitionTests
 {
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void UnknownPreRequirednessMattersOnlyForAnUnsuppliedCompletionTransition(bool close, bool supplied)
+    {
+        var connection = new Connection(new("github"), "https://api.github.com", "immutable", "actor");
+        var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "opaque-node");
+        var before = FieldValues.Empty.Set("state", FieldValue.String("OPEN"))
+            .Set("value", supplied ? FieldValue.Null : FieldValue.String("known effective value"));
+        before.ContainsKey("trigger").ShouldBeFalse("the pre-condition operand must really be absent, not null or observed");
+        var source = new WorkItem(key, "native", before, new(key, "observed"));
+        var when = new[] { new RuleCondition(ConditionKind.Equal, "trigger", FieldValue.String("on")) };
+        var rules = new List<FieldRule> { new("value", RuleAction.Required, when) };
+        if (supplied) rules.Add(new("value", RuleAction.Supplied, when));
+        var schema = new ProcessSchema(connection, [new("native", "state",
+            [new("state", FieldKind.Text), new("trigger", FieldKind.Text), new("value", FieldKind.Text)],
+            [new("OPEN", StateCategory.Proposed), new("CLOSED", StateCategory.Completed)], [new("OPEN", "CLOSED")], rules)], []);
+        var fields = FieldValues.Empty.Set("trigger", FieldValue.String("on"));
+        if (close) fields = fields.Set("state", FieldValue.String("CLOSED"));
+        var proposal = new Proposal(connection, schema.Fingerprint, 0,
+            [new("edit", OpKind.Batch, key, source.Revision, fields, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+        var errors = Model.Validate(proposal, proposal.Digest, schema, new(0, [source]),
+            new([OpKind.Batch], [], [], false, false));
+        if (close && !supplied)
+        {
+            errors.ShouldContain(error => error.Code == ErrorCode.Unavailable);
+            Model.CloseGates(schema, source, fields).IsSuccess.ShouldBeFalse();
+        }
+        else errors.ShouldBeEmpty();
+    }
+
+    [Theory]
     [InlineData(true, false, false)]
     [InlineData(false, false, false)]
     [InlineData(true, true, false)]

@@ -16,6 +16,31 @@ namespace Twig.Providers.GitHub.Tests;
 
 public sealed class GitHubProviderTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcreteNumberLookupCannotRebindEitherSideOfTheCapturedCache(bool sameNode)
+    {
+        using var f = await Fixture.Create();
+        var original = await f.Item("I1");
+        original.Fields[Provider.Number].ShouldBe(FieldValue.Integer(1));
+        var stored = await f.Stored();
+        if (sameNode) f.Http.Issues["I1"]["number"] = 7;
+        else
+        {
+            f.Http.Issues["I1"]["number"] = 7;
+            f.Http.Issues["I2"]["number"] = 1;
+        }
+        var read = await f.Provider.ReadNumberAsync(f.Connection, sameNode ? 7 : 1, default);
+        read.IsSuccess.ShouldBeFalse();
+        read.Error.Code.ShouldBe(ErrorCode.Conflict);
+        var after = await f.Stored();
+        after.Version.ShouldBe(stored.Version);
+        after.Items.Single().ShouldBe(original);
+        after.Proposals.ShouldBeEmpty();
+        f.Http.Writes.ShouldBe(0);
+    }
+
     [Fact]
     public async Task ObservedIntegerNumberIsReadOnlyAndParticipatesInOpaqueObservation()
     {
@@ -795,6 +820,14 @@ public sealed class GitHubProviderTests
                 };
                 if (Defect == "field-signature") data["issue"]!["fields"]!.AsArray()
                     .Single(n => n!["name"]!.GetValue<string>() == "title")!["type"]!["name"] = "Int";
+            }
+            else if (query.Contains("issue(number:", StringComparison.Ordinal))
+            {
+                var number = variables["number"]!.GetValue<int>();
+                var issue = (JsonObject)Issues.Values.Single(value => value["number"]!.GetValue<int>() == number).DeepClone();
+                issue["repository"] = Repo();
+                var repo = Repo(); repo["__typename"] = "Repository"; repo["issue"] = issue;
+                data = new() { ["node"] = repo };
             }
             else if (query.Contains("issueTypes(first:", StringComparison.Ordinal))
             {

@@ -248,11 +248,9 @@ public sealed partial class GitHubProvider
         foreach (var item in page.Items)
         {
             if (!item.Fields.TryGetValue(Number, out var number) || number.Kind != FieldKind.Integer || number.Number <= 0
-                || page.Items.Any(other => other.Key != item.Key && other.Fields.TryGetValue(Number, out var observed) && observed.Equals(number))
-                || stored.Items.Any(other => other.Key != item.Key && other.Fields.TryGetValue(Number, out var observed) && observed.Equals(number))
-                || stored.Items.Any(other => other.Key == item.Key
-                    && (!other.Fields.TryGetValue(Number, out var observed) || !observed.Equals(number))))
+                || page.Items.Any(other => other.Key != item.Key && other.Fields.TryGetValue(Number, out var observed) && observed.Equals(number)))
                 throw Wire.Refuse(ErrorCode.Conflict, "Observed issue numbers conflict with retained native identity; no identity was rebound.");
+            CheckNumberIdentity(stored, item.Key, number);
         }
         var keys = page.Items.Select(i => i.Key).ToHashSet();
         return Copy(stored, version, items: stored.Items.Where(i => !keys.Contains(i.Key)).Concat(page.Items),

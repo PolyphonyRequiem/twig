@@ -71,10 +71,15 @@ CLI integers are locators, not GitHub keys. The read-only `github.number` intege
 comes from actual native `Issue.number: Int` metadata and observations; Core keys
 retain opaque issue node IDs. Cache-only resolution requires one exact observed
 number and performs no credential acquisition, schema or work HTTP. A miss requires
-explicit refresh. Allowed native lookup addresses `issue(number:)` inside the immutable
-repository, checks owner/repository/kind/number, then completely observes the node again.
+explicit refresh. Explicit refresh and number-targeted native mutations, including
+cache hits and explicit draft save, requalify `issue(number:)` inside the immutable
+repository, check owner/repository/kind/number, then completely observe the node again.
 Missing or duplicate metadata and changed number-to-node bindings refuse. Original
 UUIDs, permanent mappings, proposals and history are never rewritten as numbers.
+Number lookup compares both sides of the captured cache binding before complete
+acquisition and commits its mirror only against that capture's store CAS. A mismatch
+does not refresh the cache, retain a proposal or dispatch an effect. Historical
+cache-only reads remain available without claiming fresh native authority.
 
 Title/body/assignee roles use the native field references and kinds; state comes from
 the discovered type. GitHub body/comments retain Markdown, and default seed assignees
@@ -83,6 +88,14 @@ allowed rule supplies initial-state inference. Non-atomic concurrency is explici
 every GH effect and journal; it grants neither exact revisions nor atomic close gates.
 Already-required populated fields are not newly introduced completion gates. Newly
 required unsupplied fields still ride atomically with a completion transition.
+Pre-requiredness is evaluated only for an unsupplied completion-transition candidate;
+ordinary edits and post-supplied requirements use their understood effective values,
+not an invented obligation to observe every pre-condition operand.
+
+The canonical `ws` alias uses the same static workspace owner. Version and help remain
+offline utilities. Machine qualification refusals are one format-aware error, including
+failures during CAF service composition. Quick `new` remains unqualified; use the
+explicit `seed new` profile instead.
 
 Tree/navigation, editor, chain/creation links, native/local CLI links, resource coupling,
 sync/context expansion, browser/TUI and other unconverted families explicitly refuse

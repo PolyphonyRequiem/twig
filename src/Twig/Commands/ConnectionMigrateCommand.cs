@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
 using System.Text.Json;
 using Twig.Domain.Interfaces;

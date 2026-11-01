@@ -13,7 +13,7 @@ namespace Twig.Commands;
 /// <remarks>
 /// The raw <see cref="PendingChangeDetail.OldValue"/>/<see cref="PendingChangeDetail.NewValue"/>
 /// strings are preserved character-for-character in stdout, deliberately not routed
-/// through <see cref="Twig.Domain.Interfaces.ITelemetryClient"/> — customer field content
+/// through <see cref="Twig.Infrastructure.Telemetry.ITelemetryClient"/> — customer field content
 /// is command output, never telemetry.
 /// </remarks>
 public sealed class PendingCommand(

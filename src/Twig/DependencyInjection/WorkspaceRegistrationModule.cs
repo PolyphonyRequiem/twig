@@ -29,7 +29,7 @@ internal static class WorkspaceRegistrationModule
             services.AddSingleton(sp => new InitCommand(sp.GetRequiredService<TwigPaths>(),
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
                 () => sp.GetRequiredService<IConnectionBindingService>(),
-                sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>(), sp.GetService<CoreTransportOverride>(),
+                sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>(), sp.GetService<CoreTransportOverride>(),
                 sp.GetService<Twig.Infrastructure.GitHub.IBoundedProcessRunner>()));
             return services;
         }
@@ -50,19 +50,19 @@ internal static class WorkspaceRegistrationModule
         {
             var corePaths = TwigPaths.BuildPaths(twigDir, config, startDir);
             services.AddCoreWorkspaceServices(config, corePaths);
-            services.AddSingleton<Twig.Domain.Interfaces.IConsoleInput, ConsoleInput>();
-            services.TryAddSingleton<Twig.Domain.Interfaces.IEditorLauncher, EditorLauncher>();
+            services.AddSingleton<Twig.Commands.IConsoleInput, ConsoleInput>();
+            services.TryAddSingleton<Twig.Commands.IEditorLauncher, EditorLauncher>();
             services.AddSingleton(sp => new CoreCommandAdapter(sp.GetRequiredService<CoreWorkspaceFactory>(),
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-                sp.GetRequiredService<Twig.Domain.Interfaces.IConsoleInput>(),
-                sp.GetRequiredService<Twig.Domain.Interfaces.IEditorLauncher>(),
-                sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>()));
+                sp.GetRequiredService<Twig.Commands.IConsoleInput>(),
+                sp.GetRequiredService<Twig.Commands.IEditorLauncher>(),
+                sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>()));
             services.AddSingleton<ProcessCommand>();
             services.AddSingleton<ProcessDescriptionCommand>();
             services.AddSingleton<LinkCommand>();
             services.AddSingleton(sp => new LocalRelationshipCommand(sp.GetRequiredService<CoreWorkspaceFactory>(),
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-                sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>(), sp.GetService<TextWriter>()));
+                sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>(), sp.GetService<TextWriter>()));
             services.AddSingleton<WorkspaceCommand>();
             return services;
         }

@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Telemetry;
 using Twig.Domain.Interfaces;
 using Twig.Formatters;
 using Twig.Hints;

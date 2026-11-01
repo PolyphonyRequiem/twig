@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Telemetry;

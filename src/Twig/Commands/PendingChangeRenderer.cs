@@ -18,7 +18,7 @@ namespace Twig.Commands;
 /// <para>
 /// This renderer is deliberately not a telemetry vehicle. Pending values may contain
 /// customer field content; commands MUST render them only to their own stdout, never to
-/// <see cref="Twig.Domain.Interfaces.ITelemetryClient"/>.
+/// <see cref="Twig.Infrastructure.Telemetry.ITelemetryClient"/>.
 /// </para>
 /// </remarks>
 internal static class PendingChangeRenderer

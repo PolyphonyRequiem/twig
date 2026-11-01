@@ -8,7 +8,7 @@ namespace Twig.Commands;
 
 /// <summary>Shared native TUI, standalone or in a source-scoped native Herdr pane.</summary>
 internal sealed class BrowserHostCommand(RendererFactory renderers, BrowserRuntimeFactory factory,
-    Twig.Domain.Interfaces.ITelemetryClient? telemetryClient = null)
+    Twig.Infrastructure.Telemetry.ITelemetryClient? telemetryClient = null)
 {
     internal async Task<int> ExecuteAsync(string? cwd = null, string view = "tree", string? file = null,
         bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,

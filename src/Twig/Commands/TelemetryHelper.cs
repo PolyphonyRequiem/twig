@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Twig.Domain.Interfaces;

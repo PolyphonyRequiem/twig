@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Telemetry;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Domain.Interfaces;

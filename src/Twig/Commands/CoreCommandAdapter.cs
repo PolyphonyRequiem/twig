@@ -13,8 +13,8 @@ using static Twig.Infrastructure.Services.CoreHostContext;
 namespace Twig.Commands;
 
 internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererFactory renderer,
-    Twig.Domain.Interfaces.IConsoleInput consoleInput, Twig.Domain.Interfaces.IEditorLauncher editorLauncher,
-    Twig.Domain.Interfaces.ITelemetryClient? telemetry = null)
+    Twig.Commands.IConsoleInput consoleInput, Twig.Commands.IEditorLauncher editorLauncher,
+    Twig.Infrastructure.Telemetry.ITelemetryClient? telemetry = null)
 {
     private string TitleField => factory.IsGitHub ? GitHubProvider.Title : "System.Title";
     private string BodyField => factory.IsGitHub ? GitHubProvider.Body : "System.Description";

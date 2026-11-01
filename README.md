@@ -579,10 +579,10 @@ RenderTree test roots plus the external RenderTree consumer. The old
 `Twig.Domain.Tests` and `Twig.Benchmarks` roots are withdrawn from that build and
 its required assembly inventory: neither supplies a current retained-profile
 selector, and the benchmarks exercise the old Domain/cache/rendering graph.
-Their projects and source remain historical diagnostics for phase 6, not routine
-build or delivery requirements. `src/Twig.Domain` remains a real supported build
+Their projects and source, together with the withdrawn MCP/TUI hosts and tests,
+have now been deleted. `src/Twig.Domain` remains a real supported build
 dependency while Infrastructure/CLI still reference it; this is not source deletion
-or a disabled dependency build. The full supported solution still has the same
+of Domain itself or a disabled dependency build. The full supported solution still has the same
 120-second deadline.
 
 CI retains the pure Core invariants, real store and both provider boundary suites.

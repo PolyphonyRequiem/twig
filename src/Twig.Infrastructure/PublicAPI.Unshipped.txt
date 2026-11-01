@@ -1,4 +1,6 @@
 #nullable enable
+Twig.Infrastructure.Telemetry.ITelemetryClient
+Twig.Infrastructure.Telemetry.ITelemetryClient.TrackEvent(string! eventName, System.Collections.Generic.Dictionary<string!, string!>? properties = null, System.Collections.Generic.Dictionary<string!, double>? metrics = null) -> void
 Twig.Infrastructure.Config.TwigConfiguration.GitHubCredentialSource.get -> string?
 Twig.Infrastructure.Config.TwigConfiguration.GitHubCredentialSource.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.GitHubAppClientId.get -> string?

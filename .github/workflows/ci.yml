@@ -31,7 +31,7 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore
       - name: Supported solution build (120-second deadline)
-        run: python tools/run-bounded.py --timeout 120 -- dotnet build --no-restore -m:1
+        run: python tools/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:1"
 
       - name: Clean-core invariant regression
         id: core

@@ -26,7 +26,7 @@
 # USAGE
 #     tools/run-tests.sh                 # 15-second fundamental smoke; no build or test host
 #     tools/run-tests.sh Cli             # one suite by short name
-#     tools/run-tests.sh Cli Domain      # several
+#     tools/run-tests.sh Cli Infrastructure # several
 #     tools/run-tests.sh --pre-push       # the same fast smoke, never the full suites
 #     tools/run-tests.sh --selftest      # prove the guards can fail AND pass
 #
@@ -92,12 +92,11 @@ suite_project() {
   case "$1" in
     Cli)            echo "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj" ;;
     Infrastructure) echo "tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj" ;;
-    Domain)         echo "tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj" ;;
     *)              echo "" ;;
   esac
 }
 
-ALL_SUITES="Cli Infrastructure Domain"
+ALL_SUITES="Cli Infrastructure"
 
 PRE_PUSH=0
 SELFTEST=0

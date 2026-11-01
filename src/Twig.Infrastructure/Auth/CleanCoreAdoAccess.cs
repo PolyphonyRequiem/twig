@@ -3,7 +3,9 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Twig.Core;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Policy;
 using Twig.Providers.Ado;
@@ -91,7 +93,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     {
         private int _disposed;
         public override Connection Connection => access._connection;
-        public override Uri OrganizationUrl => new(Twig.Infrastructure.Ado.AdoRestClient.NormalizeOrgUrl(access._origin.Operation.Organization));
+        public override Uri OrganizationUrl => new(AdoEndpoint.NormalizeOrgUrl(access._origin.Operation.Organization));
         public override string PrincipalId => access._principal;
         public override AuthenticationHeaderValue Authorization => authorization;
 

@@ -38,7 +38,7 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
         var current = await _bindings.ResolveAsync(configuration, paths, ct).ConfigureAwait(false);
         var histories = await _registry.ReadConnectionRemoteWritesAsync(
             current.Operation.WorktreeFingerprint, ct: ct).ConfigureAwait(false);
-        if (!histories.IsSuccess) throw new InvalidOperationException(histories.Error);
+        if (!histories.IsSuccess) throw new InvalidOperationException(histories.Error.Message);
         return histories.Value.Select(history => new ConnectionRemoteWriteInspection(
             history.Receipt is null ? "unknown" : "settled", history.Intent.IntentId,
             history.Intent.RequestDigest, false, history.Intent.Origin.WorktreeRoot,

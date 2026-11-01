@@ -12,7 +12,7 @@ using Twig.Providers.GitHub;
 using Twig.Store.Sqlite;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Services;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Persistence;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.GitHub;
@@ -71,8 +71,8 @@ public sealed class CleanCoreGitHubAccessTests
         var wrongActor = await runtime.Workspace.ReadAsync(key, default);
         wrongActor.IsSuccess.ShouldBeFalse();
         network.Writes.ShouldBe(1);
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<IPendingChangeStore>().ShouldBeNull();
+        typeof(CoreWorkspaceFactory).Assembly.GetReferencedAssemblies()
+            .ShouldNotContain(reference => reference.Name == "Twig.Domain");
     }
 
     [Fact]

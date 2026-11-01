@@ -1,10 +1,11 @@
 using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
 using Spectre.Console;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Formatters;
 using Twig.Infrastructure.Ado.Exceptions;
-using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;

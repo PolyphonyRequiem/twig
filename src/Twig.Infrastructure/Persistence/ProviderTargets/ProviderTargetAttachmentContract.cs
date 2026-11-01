@@ -1,5 +1,5 @@
 using System.Text.Json.Serialization;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 
 namespace Twig.Infrastructure.Persistence.ProviderTargets;
 
@@ -41,15 +41,15 @@ internal sealed record ProviderTargetAttachmentDocument(
 
 internal interface IProviderTargetAttachmentStore
 {
-    Task<Twig.Domain.Common.Result<VersionedProviderTargetAttachment>> ReadWithRevisionAsync(
+    Task<Twig.Core.Result<VersionedProviderTargetAttachment>> ReadWithRevisionAsync(
         CancellationToken ct = default);
 
-    Task<Twig.Domain.Common.Result<ProviderTargetAttachmentWriteOutcome>> WriteAsync(
+    Task<Twig.Core.Result<ProviderTargetAttachmentWriteOutcome>> WriteAsync(
         ProviderTargetBindingId bindingId,
         long expectedRevision,
         CancellationToken ct = default);
 
-    Task<Twig.Domain.Common.Result<ProviderTargetAttachmentWriteOutcome>> ClearAsync(
+    Task<Twig.Core.Result<ProviderTargetAttachmentWriteOutcome>> ClearAsync(
         ProviderTargetBindingId expectedBindingId,
         long expectedRevision,
         CancellationToken ct = default);
@@ -60,14 +60,14 @@ internal sealed record ProviderTargetAttachmentCommit(
     long AttachmentRevision);
 
 internal sealed class ProviderTargetAttachmentService(
-    Twig.Domain.Interfaces.IProviderTargetBindingStore bindings,
+    IProviderTargetBindingStore bindings,
     IProviderTargetAttachmentStore attachment)
 {
     /// <summary>
     /// Commits the durable identity row before CAS-replacing the worktree pointer.
     /// A pointer-write failure intentionally leaves the idempotent row for retry.
     /// </summary>
-    public async Task<Twig.Domain.Common.Result<ProviderTargetAttachmentCommit>> AttachAsync(
+    public async Task<Twig.Core.Result<ProviderTargetAttachmentCommit>> AttachAsync(
         ProviderTargetIdentity identity,
         string? locator,
         string? displayName,
@@ -76,13 +76,13 @@ internal sealed class ProviderTargetAttachmentService(
     {
         var binding = await bindings.GetOrCreateAsync(identity, locator, displayName, ct).ConfigureAwait(false);
         if (!binding.IsSuccess)
-            return Twig.Domain.Common.Result.Fail<ProviderTargetAttachmentCommit>(binding.Error);
+            return NativeResults.Fail<ProviderTargetAttachmentCommit>(binding.Error);
 
         var written = await attachment.WriteAsync(binding.Value.Id, expectedRevision, ct).ConfigureAwait(false);
         if (!written.IsSuccess)
-            return Twig.Domain.Common.Result.Fail<ProviderTargetAttachmentCommit>(written.Error);
+            return NativeResults.Fail<ProviderTargetAttachmentCommit>(written.Error);
 
-        return Twig.Domain.Common.Result.Ok(new ProviderTargetAttachmentCommit(
+        return NativeResults.Ok(new ProviderTargetAttachmentCommit(
             binding.Value,
             written.Value.WrittenRevision));
     }

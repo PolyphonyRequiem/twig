@@ -1,8 +1,9 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
-using Twig.Domain.Common;
-using Twig.Domain.Interfaces;
-using Twig.Domain.ValueObjects;
+using Twig.Core;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 
 namespace Twig.Infrastructure.Persistence;
 
@@ -39,7 +40,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IProviderTargetBind
         CancellationToken ct = default)
     {
         if (id.Value == Guid.Empty)
-            return Task.FromResult(Result.Fail<ProviderTargetBinding?>(
+            return Task.FromResult(NativeResults.Fail<ProviderTargetBinding?>(
                 ProviderTargetBindingFailures.InvalidBindingId));
 
         return ExecuteReadAsync<ProviderTargetBinding?>(async connection =>
@@ -49,10 +50,10 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IProviderTargetBind
             command.Parameters.AddWithValue("$id", id.ToString());
             await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result.Ok<ProviderTargetBinding?>(null);
+                return NativeResults.Missing<ProviderTargetBinding?>();
             return TryReadProviderTargetBinding(reader, out var binding)
-                ? Result.Ok<ProviderTargetBinding?>(binding)
-                : Result.Fail<ProviderTargetBinding?>(ProviderTargetBindingFailures.RecordInvalid);
+                ? NativeResults.Ok<ProviderTargetBinding?>(binding)
+                : NativeResults.Fail<ProviderTargetBinding?>(ProviderTargetBindingFailures.RecordInvalid);
         }, ct);
     }
 
@@ -74,10 +75,10 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IProviderTargetBind
             BindIdentity(command, identity);
             await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result.Ok<ProviderTargetBinding?>(null);
+                return NativeResults.Missing<ProviderTargetBinding?>();
             return TryReadProviderTargetBinding(reader, out var binding)
-                ? Result.Ok<ProviderTargetBinding?>(binding)
-                : Result.Fail<ProviderTargetBinding?>(ProviderTargetBindingFailures.RecordInvalid);
+                ? NativeResults.Ok<ProviderTargetBinding?>(binding)
+                : NativeResults.Fail<ProviderTargetBinding?>(ProviderTargetBindingFailures.RecordInvalid);
         }, ct);
     }
 
@@ -119,7 +120,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IProviderTargetBind
                 insert.Parameters.AddWithValue("$created", FormatTimestamp(now));
                 insert.Parameters.AddWithValue("$updated", FormatTimestamp(now));
                 if (await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1)
-                    return Result.Ok(candidate);
+                    return NativeResults.Ok(candidate);
             }
 
             using var existing = connection.CreateCommand();
@@ -134,10 +135,10 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IProviderTargetBind
             BindIdentity(existing, identity);
             await using var reader = await existing.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.CreateConflict);
+                return NativeResults.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.CreateConflict);
             return TryReadProviderTargetBinding(reader, out var binding)
-                ? Result.Ok(binding!)
-                : Result.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.RecordInvalid);
+                ? NativeResults.Ok(binding!)
+                : NativeResults.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.RecordInvalid);
         }, ct);
     }
 
@@ -151,10 +152,10 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IProviderTargetBind
     {
         ArgumentNullException.ThrowIfNull(confirmedIdentity);
         if (id.Value == Guid.Empty)
-            return Task.FromResult(Result.Fail<ProviderTargetBinding>(
+            return Task.FromResult(NativeResults.Fail<ProviderTargetBinding>(
                 ProviderTargetBindingFailures.InvalidBindingId));
         if (expectedRevision < 1)
-            return Task.FromResult(Result.Fail<ProviderTargetBinding>(
+            return Task.FromResult(NativeResults.Fail<ProviderTargetBinding>(
                 ProviderTargetBindingFailures.RevisionMismatch));
 
         return ExecuteWriteAsync<ProviderTargetBinding>(async (connection, transaction) =>
@@ -167,15 +168,15 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IProviderTargetBind
                 select.Parameters.AddWithValue("$id", id.ToString());
                 await using var reader = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                    return Result.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.NotFound);
+                    return NativeResults.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.NotFound);
                 if (!TryReadProviderTargetBinding(reader, out current))
-                    return Result.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.RecordInvalid);
+                    return NativeResults.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.RecordInvalid);
             }
 
             if (current!.Identity != confirmedIdentity)
-                return Result.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.IdentityMismatch);
+                return NativeResults.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.IdentityMismatch);
             if (current.Revision != expectedRevision)
-                return Result.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.RevisionMismatch);
+                return NativeResults.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.RevisionMismatch);
 
             var updatedAt = _clock.GetUtcNow();
             using var update = connection.CreateCommand();
@@ -200,9 +201,9 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IProviderTargetBind
             update.Parameters.AddWithValue("$revision", expectedRevision);
             BindIdentity(update, confirmedIdentity);
             if (await update.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
-                return Result.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.RevisionMismatch);
+                return NativeResults.Fail<ProviderTargetBinding>(ProviderTargetBindingFailures.RevisionMismatch);
 
-            return Result.Ok(current with
+            return NativeResults.Ok(current with
             {
                 Locator = locator,
                 DisplayName = displayName,

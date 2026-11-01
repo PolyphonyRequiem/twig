@@ -1,9 +1,8 @@
 using Twig.Core;
-using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Auth;
-using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Persistence.ProviderTargets;
+using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Policy;
 using Twig.Infrastructure.Services;
 using Twig.Providers.GitHub;
@@ -37,12 +36,12 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
             using var registry = new SqliteSystemWorktreeRegistry(nativeBindings.RegistryPath, TimeProvider.System);
             using var attachment = new WorktreeLocalProviderTargetAttachmentStore(paths, registry, TimeProvider.System);
             var selected = await attachment.ReadWithRevisionAsync(ct).ConfigureAwait(false);
-            if (!selected.IsSuccess) return Result<bool>.Fail(ErrorCode.StorageUnavailable, selected.Error);
+            if (!selected.IsSuccess) return Result<bool>.Fail(ErrorCode.StorageUnavailable, selected.Error.Message);
             if (selected.Value.Envelope is null)
             {
                 var attached = await new ProviderTargetAttachmentService(registry, attachment)
                     .AttachAsync(observed.Target.ToIdentity(scope.GraphQlEndpoint), observed.Locator, null, selected.Value.Revision, ct).ConfigureAwait(false);
-                if (!attached.IsSuccess) return Result<bool>.Fail(ErrorCode.Conflict, attached.Error);
+                if (!attached.IsSuccess) return Result<bool>.Fail(ErrorCode.Conflict, attached.Error.Message);
             }
             var targets = new GitHubBoundTargetResolver(attachment, registry, scope);
             using var generation = new FileStream(Path.Combine(paths.TwigDir, ProviderTargetAttachmentDocument.LockFileName),

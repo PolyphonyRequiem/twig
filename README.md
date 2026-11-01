@@ -70,7 +70,7 @@ tree-set/full backlog/live/sprint/team/area/exclusion UI, old policy assessment
 and repair selection, native history/layout exports, proposal latest/seed/old
 reconcile UX, migration/reset/reinitialize, identity/target hot-switches and shell
 presentation integration. Retired calls fail explicitly before provider or legacy
-DI/input I/O. Source and older feature documentation remain as phase-6 deletion
+DI/input I/O. Older feature documentation remains historical deletion
 context, **not supported alternate application routes**. Nothing here closes the
 tracking Epic or settles its historical unknown publication.
 
@@ -587,10 +587,15 @@ Infrastructure's unused connection/network business-registration graph, mutation
 and claim executors, and legacy migration/identity-change execution services are
 deleted as well. Native uncertain-write inspection retains original request,
 observation and receipt evidence but has no settlement or replay implementation.
-`src/Twig.Domain` remains a real supported build
-dependency while Infrastructure/CLI still reference it; this is not source deletion
-of Domain itself or a disabled dependency build. The full supported solution still has the same
-120-second deadline.
+The actual `Twig.Domain` project, source and build references are now removed,
+together with the obsolete shared TestKit and legacy cache/process/plan/provider
+business graph. Native authentication, target binding, attachment provenance and
+declared-policy data have small host-owned contracts; legacy business models were
+not relocated into Infrastructure. Core, store and provider semantics are unchanged.
+Compiled CLI/Infrastructure PE tests verify the absence of Domain assembly/type
+dependencies; `python tools/verify-domain-cut.py` separately verifies current
+source, project, public API and release-build references. The full supported
+solution still has the same 120-second deadline.
 
 CI retains the pure Core invariants, real store and both provider boundary suites.
 The ADO and [GitHub native roots](src/Twig.Providers.GitHub/README.md) qualify fresh
@@ -611,8 +616,8 @@ harness regression is `python tools/test-verify-build.py`.
 
 Legacy ShowCommand/projection envelopes, Canvas/Browser/TUI/MCP gestures, old
 claim/writer graphs, onboarding and preservation migration are retired delivery
-gates. Their source/tests remain historical phase-6 context, not alternate product
-routes. Current root tests require explicit refusal before provider/input I/O and
+gates. Their superseded source/tests are removed; older documentation and captured
+evidence are historical context, not alternate product routes. Current root tests require explicit refusal before provider/input I/O and
 absence of legacy writers. Existing stores are not migrated, adopted or reset.
 The external RenderTree consumer probe remains supported and qualified.
 

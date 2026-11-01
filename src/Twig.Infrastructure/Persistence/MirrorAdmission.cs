@@ -63,9 +63,9 @@ internal sealed class MirrorAdmission
         var document = ReadDocument(marker);
         ValidateDocument(document);
         var expectedRegistry = registryPath ?? Path.Combine(Auth.ConnectionBindingService.ResolveUserHome(), "system.db");
-        if (!SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(Path.GetFullPath(document.RegistryPath), Path.GetFullPath(expectedRegistry)))
+        if (!NativePathComparer.Instance.Equals(Path.GetFullPath(document.RegistryPath), Path.GetFullPath(expectedRegistry)))
             throw new InvalidOperationException("migration-authority-mismatch: the mirror belongs to another metadata home. Reconnect using the original explicit binding authority; no cache or work request is admitted.");
-        if (!SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(Path.GetFullPath(paths.DbPath), Path.GetFullPath(Path.Combine(paths.TwigDir, "cache", document.MirrorFile))))
+        if (!NativePathComparer.Instance.Equals(Path.GetFullPath(paths.DbPath), Path.GetFullPath(Path.Combine(paths.TwigDir, "cache", document.MirrorFile))))
             throw new InvalidOperationException("legacy-store-retired: reconnect using freshly resolved workspace paths.");
         var current = validatedAttachmentAnchor ?? WorktreeAnchorDetector.Detect(paths.StartDir);
         if (current is null || document.Fingerprint != WorktreeFingerprintProvider.CanonicalJson(current.Value))
@@ -73,7 +73,7 @@ internal sealed class MirrorAdmission
         var admission = new MirrorAdmission(paths.TwigDir, document);
         // Reuse this discovery for the root only when it is the same canonical root.
         // An aliased or different path still needs its own fresh Git proof.
-        var sameRoot = SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(
+        var sameRoot = NativePathComparer.Instance.Equals(
             current.Value.WorktreeRoot, WorktreeAnchorDetector.CanonicalPath(admission.WorktreeRoot, paths.StartDir));
         admission.Validate(sameRoot ? current : null);
         return admission;
@@ -94,7 +94,7 @@ internal sealed class MirrorAdmission
             && admittedOrigin.Binding.ConnectionRef == _document.ConnectionRef
             && admittedOrigin.Binding.BindingId == _document.BindingId
             && admittedOrigin.StorageGeneration == _document.Generation
-            && SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(
+            && NativePathComparer.Instance.Equals(
                 WorktreeAnchorDetector.CanonicalPath(WorktreeRoot, WorktreeRoot), admittedOrigin.WorktreeRoot);
         if (!sameOrigin)
         {
@@ -108,7 +108,7 @@ internal sealed class MirrorAdmission
         var native = ReadNativeState(_document.RegistryPath, _document.Fingerprint);
         if (native is null || native.Version != 1 || native.State != "active"
             || native.Generation != _document.Generation || native.ConnectionRef != _document.ConnectionRef
-            || native.BindingId != _document.BindingId || !SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(Path.GetFullPath(native.CurrentMirror), Path.GetFullPath(MirrorPath)))
+            || native.BindingId != _document.BindingId || !NativePathComparer.Instance.Equals(Path.GetFullPath(native.CurrentMirror), Path.GetFullPath(MirrorPath)))
             throw new InvalidOperationException("migration-incomplete: native activation is not complete for this mirror generation. Resume the original migration; no cached/read or work HTTP access is admitted.");
     }
 

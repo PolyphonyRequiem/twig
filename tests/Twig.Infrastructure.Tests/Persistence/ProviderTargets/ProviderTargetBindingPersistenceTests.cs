@@ -2,10 +2,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Shouldly;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
-using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Serialization;
 using Xunit;
 
@@ -62,7 +61,7 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
         var original = creates[0].Value;
         var repeated = await _registry.GetOrCreateAsync(identity, "new-locator", "new-display");
 
-        repeated.IsSuccess.ShouldBeTrue(repeated.Error);
+        repeated.IsSuccess.ShouldBeTrue(repeated.IsSuccess ? null : repeated.Error.Message);
         repeated.Value.ShouldBe(original);
         repeated.Value.Locator.ShouldBe(original.Locator);
         repeated.Value.DisplayName.ShouldBe(original.DisplayName);
@@ -88,9 +87,9 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
 
         updates.Count(result => result.IsSuccess).ShouldBe(1);
         updates.Count(result => !result.IsSuccess
-            && result.Error == ProviderTargetBindingFailures.RevisionMismatch).ShouldBe(1);
+            && result.Error.Message == ProviderTargetBindingFailures.RevisionMismatch).ShouldBe(1);
         var persisted = await _registry.FindByIdAsync(creates[0].Value.Id);
-        persisted.IsSuccess.ShouldBeTrue(persisted.Error);
+        persisted.IsSuccess.ShouldBeTrue(persisted.IsSuccess ? null : persisted.Error.Message);
         persisted.Value!.Revision.ShouldBe(creates[0].Value.Revision + 1);
         new[] { ("winner-a", "Winner A"), ("winner-b", "Winner B") }
             .ShouldContain((persisted.Value.Locator!, persisted.Value.DisplayName!));
@@ -121,22 +120,22 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
     {
         var identity = Identity();
         var created = await _registry.GetOrCreateAsync(identity, "old-locator", "Old name");
-        created.IsSuccess.ShouldBeTrue(created.Error);
+        created.IsSuccess.ShouldBeTrue(created.IsSuccess ? null : created.Error.Message);
 
         var differentIdentity = Identity(descriptorValue: "repo:other");
         var identityMismatch = await _registry.UpdateMetadataAfterIdentityConfirmationAsync(
             created.Value.Id, differentIdentity, created.Value.Revision, "wrong", "Wrong");
         identityMismatch.IsSuccess.ShouldBeFalse();
-        identityMismatch.Error.ShouldBe(ProviderTargetBindingFailures.IdentityMismatch);
+        identityMismatch.Error.Message.ShouldBe(ProviderTargetBindingFailures.IdentityMismatch);
 
         var revisionMismatch = await _registry.UpdateMetadataAfterIdentityConfirmationAsync(
             created.Value.Id, identity, created.Value.Revision + 1, "stale", "Stale");
         revisionMismatch.IsSuccess.ShouldBeFalse();
-        revisionMismatch.Error.ShouldBe(ProviderTargetBindingFailures.RevisionMismatch);
+        revisionMismatch.Error.Message.ShouldBe(ProviderTargetBindingFailures.RevisionMismatch);
 
         var updated = await _registry.UpdateMetadataAfterIdentityConfirmationAsync(
             created.Value.Id, identity, created.Value.Revision, "new-locator", "New name");
-        updated.IsSuccess.ShouldBeTrue(updated.Error);
+        updated.IsSuccess.ShouldBeTrue(updated.IsSuccess ? null : updated.Error.Message);
         updated.Value.Identity.ShouldBe(identity);
         updated.Value.Locator.ShouldBe("new-locator");
         updated.Value.DisplayName.ShouldBe("New name");
@@ -148,7 +147,7 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
     {
         var result = await _service.AttachAsync(Identity(), "owner/repository", "Repository", expectedRevision: 0);
 
-        result.IsSuccess.ShouldBeTrue(result.Error);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? null : result.Error.Message);
         result.Value.AttachmentRevision.ShouldBe(1);
         var path = Path.Combine(_twigDir, ProviderTargetAttachmentDocument.FileName);
         File.Exists(path).ShouldBeTrue();
@@ -162,7 +161,7 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
         document.BindingId.ShouldBe(result.Value.Binding.Id.ToString());
 
         var read = await _attachmentStore.ReadWithRevisionAsync();
-        read.IsSuccess.ShouldBeTrue(read.Error);
+        read.IsSuccess.ShouldBeTrue(read.IsSuccess ? null : read.Error.Message);
         read.Value.Envelope.ShouldNotBeNull();
         read.Value.Envelope!.BindingId.ShouldBe(result.Value.Binding.Id);
         read.Value.Revision.ShouldBe(1);
@@ -172,23 +171,23 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
     public async Task Stale_attachment_cas_keeps_old_pointer_and_retry_reuses_the_durable_binding()
     {
         var first = await _service.AttachAsync(Identity(descriptorValue: "repo:first"), null, null, 0);
-        first.IsSuccess.ShouldBeTrue(first.Error);
+        first.IsSuccess.ShouldBeTrue(first.IsSuccess ? null : first.Error.Message);
 
         var secondIdentity = Identity(descriptorValue: "repo:second");
         var refused = await _service.AttachAsync(secondIdentity, "second", "Second", expectedRevision: 0);
         refused.IsSuccess.ShouldBeFalse();
-        refused.Error.ShouldBe(ProviderTargetAttachmentFailures.RevisionMismatch);
+        refused.Error.Message.ShouldBe(ProviderTargetAttachmentFailures.RevisionMismatch);
 
         var secondBinding = await _registry.FindByIdentityAsync(secondIdentity);
-        secondBinding.IsSuccess.ShouldBeTrue(secondBinding.Error);
+        secondBinding.IsSuccess.ShouldBeTrue(secondBinding.IsSuccess ? null : secondBinding.Error.Message);
         secondBinding.Value.ShouldNotBeNull();
         var afterRefusal = await _attachmentStore.ReadWithRevisionAsync();
-        afterRefusal.IsSuccess.ShouldBeTrue(afterRefusal.Error);
+        afterRefusal.IsSuccess.ShouldBeTrue(afterRefusal.IsSuccess ? null : afterRefusal.Error.Message);
         afterRefusal.Value.Envelope!.BindingId.ShouldBe(first.Value.Binding.Id);
         afterRefusal.Value.Revision.ShouldBe(1);
 
         var retried = await _service.AttachAsync(secondIdentity, "ignored", "Ignored", expectedRevision: 1);
-        retried.IsSuccess.ShouldBeTrue(retried.Error);
+        retried.IsSuccess.ShouldBeTrue(retried.IsSuccess ? null : retried.Error.Message);
         retried.Value.Binding.Id.ShouldBe(secondBinding.Value!.Id);
         retried.Value.Binding.Locator.ShouldBe("second");
         retried.Value.Binding.DisplayName.ShouldBe("Second");
@@ -200,7 +199,7 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
     public async Task Attachment_fails_closed_when_its_binding_row_is_missing()
     {
         var attached = await _service.AttachAsync(Identity(), null, null, 0);
-        attached.IsSuccess.ShouldBeTrue(attached.Error);
+        attached.IsSuccess.ShouldBeTrue(attached.IsSuccess ? null : attached.Error.Message);
 
         await using (var connection = new SqliteConnection($"Data Source={_systemDbPath}"))
         {
@@ -213,24 +212,24 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
 
         var read = await _attachmentStore.ReadWithRevisionAsync();
         read.IsSuccess.ShouldBeFalse();
-        read.Error.ShouldBe(ProviderTargetAttachmentFailures.BindingMissing);
+        read.Error.Message.ShouldBe(ProviderTargetAttachmentFailures.BindingMissing);
     }
 
     [Fact]
     public async Task Attachment_directory_at_document_path_fails_closed_without_replacement()
     {
         var binding = await _registry.GetOrCreateAsync(Identity(), null, null);
-        binding.IsSuccess.ShouldBeTrue(binding.Error);
+        binding.IsSuccess.ShouldBeTrue(binding.IsSuccess ? null : binding.Error.Message);
         var path = Path.Combine(_twigDir, ProviderTargetAttachmentDocument.FileName);
         Directory.CreateDirectory(path);
 
         var read = await _attachmentStore.ReadWithRevisionAsync();
         read.IsSuccess.ShouldBeFalse();
-        read.Error.ShouldBe(ProviderTargetAttachmentFailures.ReadFailed);
+        read.Error.Message.ShouldBe(ProviderTargetAttachmentFailures.ReadFailed);
 
         var write = await _attachmentStore.WriteAsync(binding.Value.Id, expectedRevision: 0);
         write.IsSuccess.ShouldBeFalse();
-        write.Error.ShouldBe(ProviderTargetAttachmentFailures.ReadFailed);
+        write.Error.Message.ShouldBe(ProviderTargetAttachmentFailures.ReadFailed);
         Directory.Exists(path).ShouldBeTrue();
     }
 
@@ -238,7 +237,7 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
     public async Task Invalid_attachment_document_cannot_be_overwritten_as_a_missing_pointer()
     {
         var binding = await _registry.GetOrCreateAsync(Identity(), null, null);
-        binding.IsSuccess.ShouldBeTrue(binding.Error);
+        binding.IsSuccess.ShouldBeTrue(binding.IsSuccess ? null : binding.Error.Message);
         Directory.CreateDirectory(_twigDir);
         var path = Path.Combine(_twigDir, ProviderTargetAttachmentDocument.FileName);
         const string invalidDocument = "{\"schema\":\"foreign-document\"}";
@@ -246,7 +245,7 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
 
         var write = await _attachmentStore.WriteAsync(binding.Value.Id, expectedRevision: 0);
         write.IsSuccess.ShouldBeFalse();
-        write.Error.ShouldBe(ProviderTargetAttachmentFailures.InvalidDocument);
+        write.Error.Message.ShouldBe(ProviderTargetAttachmentFailures.InvalidDocument);
         (await File.ReadAllTextAsync(path)).ShouldBe(invalidDocument);
     }
 
@@ -254,7 +253,7 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
     public async Task Attachment_refuses_a_different_live_worktree_fingerprint()
     {
         var attached = await _service.AttachAsync(Identity(), null, null, 0);
-        attached.IsSuccess.ShouldBeTrue(attached.Error);
+        attached.IsSuccess.ShouldBeTrue(attached.IsSuccess ? null : attached.Error.Message);
         var path = Path.Combine(_twigDir, ProviderTargetAttachmentDocument.FileName);
         var document = JsonSerializer.Deserialize(
             await File.ReadAllTextAsync(path),
@@ -265,32 +264,32 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
 
         var read = await _attachmentStore.ReadWithRevisionAsync();
         read.IsSuccess.ShouldBeFalse();
-        read.Error.ShouldBe(ProviderTargetAttachmentFailures.WorktreeFingerprintMismatch);
+        read.Error.Message.ShouldBe(ProviderTargetAttachmentFailures.WorktreeFingerprintMismatch);
     }
 
     [Fact]
     public async Task Clear_advances_revision_and_keeps_a_tombstone_for_safe_reattachment()
     {
         var attached = await _service.AttachAsync(Identity(), null, null, 0);
-        attached.IsSuccess.ShouldBeTrue(attached.Error);
+        attached.IsSuccess.ShouldBeTrue(attached.IsSuccess ? null : attached.Error.Message);
 
         var cleared = await _attachmentStore.ClearAsync(attached.Value.Binding.Id, expectedRevision: 1);
-        cleared.IsSuccess.ShouldBeTrue(cleared.Error);
+        cleared.IsSuccess.ShouldBeTrue(cleared.IsSuccess ? null : cleared.Error.Message);
         cleared.Value.WrittenRevision.ShouldBe(2);
 
         var read = await _attachmentStore.ReadWithRevisionAsync();
-        read.IsSuccess.ShouldBeTrue(read.Error);
+        read.IsSuccess.ShouldBeTrue(read.IsSuccess ? null : read.Error.Message);
         read.Value.Envelope!.State.ShouldBe(ProviderTargetAttachmentState.Detached);
         read.Value.Envelope.BindingId.ShouldBeNull();
         read.Value.Revision.ShouldBe(2);
 
         var staleWrite = await _attachmentStore.WriteAsync(attached.Value.Binding.Id, expectedRevision: 0);
         staleWrite.IsSuccess.ShouldBeFalse();
-        staleWrite.Error.ShouldBe(ProviderTargetAttachmentFailures.RevisionMismatch);
+        staleWrite.Error.Message.ShouldBe(ProviderTargetAttachmentFailures.RevisionMismatch);
         (await _attachmentStore.ReadWithRevisionAsync()).Value.Revision.ShouldBe(2);
 
         var reattached = await _attachmentStore.WriteAsync(attached.Value.Binding.Id, expectedRevision: 2);
-        reattached.IsSuccess.ShouldBeTrue(reattached.Error);
+        reattached.IsSuccess.ShouldBeTrue(reattached.IsSuccess ? null : reattached.Error.Message);
         reattached.Value.WrittenRevision.ShouldBe(3);
     }
 
@@ -303,8 +302,8 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
 
         var firstBinding = await _registry.GetOrCreateAsync(Identity(descriptorValue: "repo:first"), null, null);
         var secondBinding = await secondRegistry.GetOrCreateAsync(Identity(descriptorValue: "repo:second"), null, null);
-        firstBinding.IsSuccess.ShouldBeTrue(firstBinding.Error);
-        secondBinding.IsSuccess.ShouldBeTrue(secondBinding.Error);
+        firstBinding.IsSuccess.ShouldBeTrue(firstBinding.IsSuccess ? null : firstBinding.Error.Message);
+        secondBinding.IsSuccess.ShouldBeTrue(secondBinding.IsSuccess ? null : secondBinding.Error.Message);
         (await _attachmentStore.WriteAsync(firstBinding.Value.Id, expectedRevision: 0)).IsSuccess.ShouldBeTrue();
 
         var writes = await Task.WhenAll(
@@ -313,9 +312,9 @@ public sealed class ProviderTargetBindingPersistenceTests : IDisposable
 
         writes.Count(result => result.IsSuccess).ShouldBe(1);
         writes.Count(result => !result.IsSuccess
-            && result.Error == ProviderTargetAttachmentFailures.RevisionMismatch).ShouldBe(1);
+            && result.Error.Message == ProviderTargetAttachmentFailures.RevisionMismatch).ShouldBe(1);
         var final = await _attachmentStore.ReadWithRevisionAsync();
-        final.IsSuccess.ShouldBeTrue(final.Error);
+        final.IsSuccess.ShouldBeTrue(final.IsSuccess ? null : final.Error.Message);
         final.Value.Revision.ShouldBe(2);
         new[] { firstBinding.Value.Id, secondBinding.Value.Id }
             .ShouldContain(final.Value.Envelope!.BindingId!.Value);

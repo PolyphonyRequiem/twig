@@ -103,6 +103,12 @@ jobs:
                               "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
                               "--results-directory", "artifacts/test-logs/ci/catalog"], check=True)
           subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", "FullyQualifiedName=Twig.Cli.Tests.Architecture.HostContractOwnershipTests.Compiled_native_assembly_has_no_legacy_domain_dependency",
+                              "--logger", "trx;LogFileName=compiled-domain-dependency.trx",
+                              "--results-directory", "artifacts/test-logs/ci/catalog"], check=True)
+          subprocess.run([sys.executable, "tools/verify-domain-cut.py"], check=True)
+          subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
                           "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
                           "--filter", "FullyQualifiedName=Twig.Cli.Tests.Architecture.HostContractOwnershipTests.Compiled_implementation_uses_host_owned_contract",
                           "--logger", "trx;LogFileName=host-contract-ownership.trx",

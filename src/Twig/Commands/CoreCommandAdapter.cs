@@ -822,8 +822,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         if (!editor && string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(requestedType))
             return Error(output, "Unparented seed creation requires --title and --type.", 2);
-        var parsed = Twig.Domain.ValueObjects.FieldAssignment.ParseAll(fields, "--field");
-        if (!parsed.IsSuccess) return Error(output, parsed.Error, 2);
+        var parsed = FieldAssignment.ParseAll(fields, "--field");
+        if (!parsed.IsSuccess) return Error(output, parsed.Error.Message, 2);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
@@ -907,13 +907,13 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         {
             var edited = await EditSeedFieldsAsync(type, new(changes), ct);
             if (!edited.IsSuccess) return Error(output, edited.Error.Message);
-            if (edited.Value is null)
+            if (edited.Value.Cancelled)
             {
                 renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedEditCancelled",
                     new Dictionary<string, RenderCell> { ["message"] = RenderCell.String("Editor cancelled; no seed was staged.") })]));
                 return 0;
             }
-            foreach (var field in edited.Value) changes[field.Key] = field.Value;
+            foreach (var field in edited.Value.Fields) changes[field.Key] = field.Value;
         }
         if (!changes.TryGetValue(TitleField, out var seedTitle) || string.IsNullOrWhiteSpace(seedTitle.Text))
             return Error(output, "A seed title is required; no draft was staged.", 2);
@@ -945,7 +945,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
-    private async Task<Result<FieldValues?>> EditSeedFieldsAsync(ItemType type, FieldValues current, CancellationToken ct, string? selectedField = null)
+    private async Task<Result<(bool Cancelled, FieldValues Fields)>> EditSeedFieldsAsync(ItemType type, FieldValues current, CancellationToken ct, string? selectedField = null)
     {
         selectedField = selectedField?.ToLowerInvariant() switch
         {
@@ -958,36 +958,36 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             "System.AssignedTo" => "AssignedTo", _ => reference,
         };
         var definitions = type.Fields.Where(field => selectedField is null || field.Reference.Equals(selectedField, StringComparison.OrdinalIgnoreCase))
-            .Select(field => new Twig.Domain.ValueObjects.FieldDefinition(field.Reference,
-            Display(field.Reference), field.Kind.ToString(), field.ReadOnly)).ToArray();
-        if (definitions.Length == 0) return Result<FieldValues?>.Fail(ErrorCode.InvalidInput, "The editor field is absent from the actual native type.");
+            .Select(field => (ReferenceName: field.Reference, DisplayName: Display(field.Reference),
+                IsReadOnly: field.ReadOnly || SeedFieldEditor.IsSystemManaged(field.Reference))).ToArray();
+        if (definitions.Length == 0) return Result<(bool, FieldValues)>.Fail(ErrorCode.InvalidInput, "The editor field is absent from the actual native type.");
         var values = type.Fields.ToDictionary(field => field.Reference, field =>
             current.TryGetValue(field.Reference, out var value) && value.Kind != FieldKind.Null ? Cell(value).DisplayText : null, StringComparer.OrdinalIgnoreCase);
-        var initial = Twig.Domain.Services.Seed.SeedEditorFormat.Generate(values, definitions);
+        var initial = SeedFieldEditor.Generate(values, definitions);
         var edited = await editorLauncher.LaunchAsync(initial, ct);
-        if (edited is null) return Result<FieldValues?>.Ok(null);
+        if (edited is null) return Result<(bool, FieldValues)>.Ok((true, FieldValues.Empty));
         var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in edited.Split('\n').Where(line => line.StartsWith("# ", StringComparison.Ordinal)))
         {
             var display = line[2..].Trim();
             var definition = definitions.SingleOrDefault(field => field.DisplayName.Equals(display, StringComparison.OrdinalIgnoreCase));
-            if (definition is null || definition.IsReadOnly || !sections.Add(definition.ReferenceName))
-                return Result<FieldValues?>.Fail(ErrorCode.InvalidInput, "Editor contains an unknown, read-only or duplicate field section.");
+            if (definition.ReferenceName is null || definition.IsReadOnly || !sections.Add(definition.ReferenceName))
+                return Result<(bool, FieldValues)>.Fail(ErrorCode.InvalidInput, "Editor contains an unknown, read-only or duplicate field section.");
         }
-        var parsed = Twig.Domain.Services.Seed.SeedEditorFormat.Parse(edited, definitions);
+        var parsed = SeedFieldEditor.Parse(edited, definitions);
         var changes = FieldValues.Empty;
         foreach (var field in parsed)
         {
             var before = values.GetValueOrDefault(field.Key);
             if (string.Equals(before ?? "", field.Value ?? "", StringComparison.Ordinal)) continue;
             if (field.Key == "System.Title" && string.IsNullOrWhiteSpace(field.Value))
-                return Result<FieldValues?>.Fail(ErrorCode.InvalidInput, "A seed title cannot be cleared.");
+                return Result<(bool, FieldValues)>.Fail(ErrorCode.InvalidInput, "A seed title cannot be cleared.");
             var definition = type.Fields.Single(value => value.Reference == field.Key);
             if (field.Value is null) changes = changes.Set(field.Key, FieldValue.Null);
             else if (TryParse(definition.Kind, field.Value, null, out var value)) changes = changes.Set(field.Key, value);
-            else return Result<FieldValues?>.Fail(ErrorCode.InvalidInput, "The editor value does not match the actual native field type.");
+            else return Result<(bool, FieldValues)>.Fail(ErrorCode.InvalidInput, "The editor value does not match the actual native field type.");
         }
-        return Result<FieldValues?>.Ok(changes);
+        return Result<(bool, FieldValues)>.Ok((false, changes));
     }
 
     internal async Task<int> SeedEditAsync(int id, string output, CancellationToken ct, string? selectedField = null)
@@ -1013,16 +1013,17 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (type is null) return Error(output, "The seed type is absent from the actual native schema.");
         var edited = await EditSeedFieldsAsync(type, draft.Changes, ct, selectedField);
         if (!edited.IsSuccess) return Error(output, edited.Error.Message);
-        if (edited.Value is { Count: > 0 } fields)
+        var fields = edited.Value.Fields;
+        if (!edited.Value.Cancelled && fields.Count > 0)
         {
             var captured = await workspace.CaptureSeedFieldsAsync(draft, snapshot.Value.Version, fields, ct);
             if (!captured.IsSuccess) return Error(output, captured.Error.Message);
         }
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record(edited.Value is null ? "seedEditCancelled"
-            : edited.Value.Count == 0 ? "seedEditNoChanges" : "seedEdited", new Dictionary<string, RenderCell>
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record(edited.Value.Cancelled ? "seedEditCancelled"
+            : fields.Count == 0 ? "seedEditNoChanges" : "seedEdited", new Dictionary<string, RenderCell>
             {
-                ["id"] = RenderCell.Integer(id), ["changedFieldCount"] = RenderCell.Integer(edited.Value?.Count ?? 0),
-                ["message"] = RenderCell.String(edited.Value is null ? "Seed editor cancelled." : "Retained typed seed edit; no native creation was attempted."),
+                ["id"] = RenderCell.Integer(id), ["changedFieldCount"] = RenderCell.Integer(fields.Count),
+                ["message"] = RenderCell.String(edited.Value.Cancelled ? "Seed editor cancelled." : "Retained typed seed edit; no native creation was attempted."),
             })]));
         return 0;
     }
@@ -2073,8 +2074,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var targets = ids is null ? (id is { } single ? [single] : Array.Empty<int>()) : ids.Split(',')
             .Select(value => int.TryParse(value.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0).ToArray();
         if (targets.Length == 0 || targets.Any(value => value <= 0)) return Error(output, "Explicit valid batch targets are required.", 2);
-        var parsed = Twig.Domain.ValueObjects.FieldAssignment.ParseAll(set, "--set");
-        if (!parsed.IsSuccess) return Error(output, parsed.Error, 2);
+        var parsed = FieldAssignment.ParseAll(set, "--set");
+        if (!parsed.IsSuccess) return Error(output, parsed.Error.Message, 2);
         var formatError = HtmlFieldFormatter.ValidateFormat(format);
         if (formatError is not null) return Error(output, formatError, 2);
         if (parsed.Value.Count == 0 && state is null && note is null) return Error(output, "At least one batch effect is required.", 2);

@@ -132,7 +132,7 @@ internal static class LegacyHostQuiescence
                     }
                 }
             }
-            foreach (var path in paths.Distinct(SqlitePlanJournalRepository.CreateDefaultSourcePathComparer()))
+            foreach (var path in paths.Distinct(NativePathComparer.Instance))
             {
                 if (!File.Exists(path)) continue;
                 // Deny readers and writers while allowing our own rename into the fenced layout.

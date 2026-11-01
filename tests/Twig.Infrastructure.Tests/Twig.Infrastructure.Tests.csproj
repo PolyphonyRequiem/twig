@@ -17,7 +17,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Twig.Infrastructure\Twig.Infrastructure.csproj" />
-    <ProjectReference Include="..\Twig.TestKit\Twig.TestKit.csproj" />
   </ItemGroup>
 
   <ItemGroup>

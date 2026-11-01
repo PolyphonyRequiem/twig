@@ -29,7 +29,7 @@ public sealed class GitHubRepositoryDiscoveryTests
         tokens.Calls.ShouldBe(1);
         network.Requests.ShouldBe(1);
         var row = await fixture.Registry.FindByIdentityAsync(observation.Target.ToIdentity(Endpoint));
-        row.IsSuccess.ShouldBeTrue(row.Error);
+        row.IsSuccess.ShouldBeTrue(row.IsSuccess ? null : row.Error.Message);
         row.Value.ShouldBeNull();
         (await fixture.Attachment.ReadWithRevisionAsync()).Value.Revision.ShouldBe(0);
         File.Exists(Path.Combine(fixture.Paths.TwigDir, "provider-target.json")).ShouldBeFalse();

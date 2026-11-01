@@ -31,7 +31,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Twig.RenderTree.Tests" />
-    <InternalsVisibleTo Include="Twig.Domain" />
     <InternalsVisibleTo Include="Twig.Infrastructure" />
     <InternalsVisibleTo Include="Twig.Infrastructure.Tests" />
     <InternalsVisibleTo Include="Twig.Cli.Tests" />

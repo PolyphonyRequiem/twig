@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Config;
@@ -833,8 +833,7 @@ public sealed class TwigConfiguration
                         includeChildren = true;
                     }
 
-                    var parsed = AreaPath.Parse(pathPart);
-                    if (!parsed.IsSuccess)
+                    if (string.IsNullOrWhiteSpace(pathPart) || pathPart.Trim().Split('\\').Any(string.IsNullOrWhiteSpace))
                         return false;
 
                     entries.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = includeChildren });
@@ -1312,7 +1311,7 @@ public sealed class UserConfig
 
 public sealed class GitConfig
 {
-    public string BranchPattern { get; set; } = BranchNameTemplate.DefaultPattern;
+    public string BranchPattern { get; set; } = @"(?:^|/)(?<id>\d{3,})(?:-|/|$)";
 
     public string? Project { get; set; }
     public string? Repository { get; set; }

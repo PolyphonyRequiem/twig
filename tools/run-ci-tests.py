@@ -515,7 +515,8 @@ class RunnerSelfTests(unittest.TestCase):
             if path.startswith("tests/") and ET.parse(ROOT / path).getroot().findtext("PropertyGroup/IsTestProject") == "true":
                 supported.add(Path(path).stem)
         self.assertEqual(supported, {f"Twig.{suite}.Tests" for suite in ASSEMBLIES})
-        self.assertIn("src/Twig.Domain/Twig.Domain.csproj", projects)
+        self.assertNotIn("src/Twig.Domain/Twig.Domain.csproj", projects)
+        self.assertFalse((ROOT / "src/Twig.Domain/Twig.Domain.csproj").exists())
         self.assertIn("samples/Twig.DetailHost/Twig.DetailHost.csproj", projects)
         for retired in ("Domain.Tests", "Benchmarks", "Mcp.Tests", "Tui.Tests"):
             path = f"tests/Twig.{retired}/Twig.{retired}.csproj"

@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Twig.Commands;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;

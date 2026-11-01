@@ -11,6 +11,31 @@ namespace Twig.Cli.Tests.Architecture;
 public sealed class HostContractOwnershipTests
 {
     [Theory]
+    [InlineData("twig")]
+    [InlineData("Twig.Infrastructure")]
+    public void Compiled_native_assembly_has_no_legacy_domain_dependency(string assemblyName)
+    {
+        var baselineDirectory = Environment.GetEnvironmentVariable("TWIG_OWNERSHIP_ASSEMBLY_DIR");
+        var assemblyPath = baselineDirectory is null
+            ? assemblyName == "twig" ? typeof(EditorLauncher).Assembly.Location : typeof(TwigConfiguration).Assembly.Location
+            : Path.Combine(baselineDirectory, assemblyName + ".dll");
+        File.Exists(assemblyPath).ShouldBeTrue("the real production assembly must exist");
+        if (baselineDirectory is not null)
+            FileVersionInfo.GetVersionInfo(assemblyPath).ProductVersion.ShouldNotBeNull()
+                .EndsWith("+cea0ee45e57e9312efdf307677b2bf553de270ee", StringComparison.Ordinal).ShouldBeTrue(
+                    "the red fixture must be the exact phase-5 production binary");
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        pe.HasMetadata.ShouldBeTrue();
+        var metadata = pe.GetMetadataReader();
+        metadata.GetString(metadata.GetAssemblyDefinition().Name).ShouldBe(assemblyName);
+        metadata.AssemblyReferences.Select(handle => metadata.GetString(metadata.GetAssemblyReference(handle).Name))
+            .ShouldNotContain("Twig.Domain");
+        metadata.TypeReferences.Select(handle => metadata.GetString(metadata.GetTypeReference(handle).Namespace))
+            .ShouldNotContain(value => value == "Twig.Domain" || value.StartsWith("Twig.Domain.", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("Twig.Commands", "ConsoleInput", "IConsoleInput", "Twig.Commands", "twig")]
     [InlineData("Twig.Commands", "EditorLauncher", "IEditorLauncher", "Twig.Commands", "twig")]
     [InlineData("Twig.Infrastructure.Telemetry", "TelemetryClient", "ITelemetryClient",

@@ -3,12 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Formatters;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
-using Twig.ProcessOverrides;
 using Twig.Rendering;
 
 if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
@@ -627,10 +626,22 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="includeHidden">Include types ADO reserves for its own tooling (Code Review, Feedback, Test Case and friends). Excluded by default: they cannot be created by hand.</param>
     /// <param name="refresh">Accepted for compatibility. Core schema inspection already discovers live metadata; it never pulls work items or flushes pending writes.</param>
     public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, bool includeHidden = false, bool refresh = false, CancellationToken ct = default)
-        => await ProcessOverrideHost.RunAsync(
-            services, org, project,
-            sp => sp.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, includeHidden, refresh, ct),
-            output, ct, requiresCoreSchema: true);
+    {
+        if (org is not null || project is not null)
+        {
+            var invalidPair = string.IsNullOrWhiteSpace(org) || string.IsNullOrWhiteSpace(project);
+            var config = invalidPair ? null : services.GetService<TwigConfiguration>();
+            var conflict = config is not null && !string.IsNullOrWhiteSpace(config.Organization)
+                && (!string.Equals(config.Organization, org, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(config.Project, project, StringComparison.OrdinalIgnoreCase));
+            CommandError.Write(new RendererFactory(), Console.Error, output, invalidPair
+                ? "--org and --project must both be nonempty when an explicit target is supplied; no ambient fallback was used."
+                : conflict ? "--org or --project conflicts with existing twig.json values. The manifest is authoritative."
+                : "Process target override is not qualified for the pinned Core workspace; no ambient fallback or override HTTP was attempted. Initialize a fresh isolated Core workspace pinned to the requested target.");
+            return invalidPair ? 2 : 1;
+        }
+        return await services.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, includeHidden, refresh, ct);
+    }
 
     /// <summary>Show the server-defined form layout (tabs, boxes, ordered fields) for a work item type.</summary>
     /// <param name="type">Work item type name (e.g. Bug, Task, User Story).</param>
@@ -1019,7 +1030,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link predecessor")]
     public async Task<int> LinkPredecessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Predecessor, targetId, id, output, ct);
+        => await services.GetRequiredService<LinkCommand>().DependencyAsync("Predecessor", targetId, id, output, ct);
 
     /// <summary>Mark the active work item as blocking another item (Successor link).</summary>
     /// <param name="targetId">Work item ID that this item blocks.</param>
@@ -1027,7 +1038,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link successor")]
     public async Task<int> LinkSuccessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Successor, targetId, id, output, ct);
+        => await services.GetRequiredService<LinkCommand>().DependencyAsync("Successor", targetId, id, output, ct);
 
     /// <summary>Relate the active work item to another item (symmetric Related link).</summary>
     /// <param name="targetId">Work item ID to relate this item to.</param>
@@ -2155,51 +2166,10 @@ internal static class VersionHelper
 }
 
 /// <summary>
-/// Pre-DI first-run companion check. Detects missing companion binaries after an
-/// upgrade and installs them from the matching GitHub release archive. Failures are
-/// silently swallowed so the check never blocks normal CLI startup.
+/// Repository metadata used by the explicit native self-update command.
 /// </summary>
 internal static class CompanionStartup
 {
-    /// <summary>
-    /// Runs the companion first-run check with manually-wired dependencies.
-    /// Safe to call synchronously — no <see cref="System.Threading.SynchronizationContext"/>
-    /// exists before <c>ConsoleApp.Create()</c>.
-    /// </summary>
-    internal static void RunFirstRunCheck()
-    {
-        try
-        {
-            RunFirstRunCheckCore(
-                Environment.ProcessPath,
-                VersionHelper.GetVersion(),
-                new DefaultFileSystem());
-        }
-        catch (Exception)
-        {
-            // First-run check must never block CLI startup.
-        }
-    }
-
-    /// <summary>
-    /// Testable core: accepts injectable dependencies for file I/O and process path.
-    /// </summary>
-    internal static void RunFirstRunCheckCore(
-        string? processPath,
-        string currentVersion,
-        IFileSystem fileSystem)
-    {
-        using var httpClient = NativeHttpClient.Create();
-        var repoSlug = ResolveRepoSlug();
-        var releaseService = new GitHubReleaseClient(httpClient, repoSlug);
-        var selfUpdater = new SelfUpdater(httpClient);
-        var firstRunCheck = new CompanionFirstRunCheck(releaseService, selfUpdater, fileSystem);
-
-        // Pre-ConsoleApp.Create(): no SynchronizationContext exists, blocking is safe.
-        firstRunCheck.EnsureCompanionsAsync(processPath, currentVersion)
-            .GetAwaiter().GetResult();
-    }
-
     // Duplicates the lookup in CommandRegistrationModule.AddSelfUpdateCommands() intentionally.
     internal static string ResolveRepoSlug() =>
         typeof(TwigCommands).Assembly

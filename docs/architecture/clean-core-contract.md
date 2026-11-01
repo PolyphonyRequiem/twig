@@ -1,6 +1,6 @@
 # Clean core contract
 
-Phases 1-4 and phase-5 code closure for **Epic #1220, Core domain consolidation**. Updated 2026-10-31.
+Phases 1-4, phase-5 code closure and phase-6 source removal for **Epic #1220, Core domain consolidation**. Updated 2026-10-31.
 
 ## Status and scope
 
@@ -14,7 +14,7 @@ never installing `AddConnectionServices`, `AddTwigNetworkServices`,
 `AddTwigCommandServices` or their old writer/projection graph. The retained static
 RenderTree renderer does not register the asynchronous/aggregate workspace pipeline.
 Actual descriptors and retained-owner resolution are proven both with and without a
-marker. Core remains 56 types/two ports/format 3; Domain/source deletion is phase 6.
+marker. Core remains 56 contract types/two ports/format 3; the phase-6 source cut is described below.
 
 The finite data catalog is process/description, cached show/show-batch with explicit
 refresh, bounded query, update/patch/state/note/batch, pending/save/discard,
@@ -40,7 +40,7 @@ fallback resolutions are removed, not hidden behind missing DI. Retired root lea
 explicitly refuse without resolving a command. CAF/catalog admission refuses retired
 verbs and captured envelopes before production composition or input/provider I/O.
 The current help filters retired declarations; released/installable UI aliases and the
-standalone TUI solution entry are withdrawn. The UI source remains historical context.
+standalone TUI solution entry are withdrawn. Superseded UI source is deleted; older documents remain historical context.
 
 Retired surfaces include quick new, Browser/TUI/MCP and captured draft/edit/review/save,
 tree-set/full backlog/live/sprint/team/area/exclusion UI, old policy assessment/repair,
@@ -62,6 +62,32 @@ digest rewrite, fence clearing or evidence cleanup.
 The tracking Epic and original unknown Feature publication remain open. Parent review,
 integration and one phase-5 PR follow this code qualification; this contract does not
 claim operational close-out.
+
+### Phase-6 source and dependency boundary
+
+The actual Domain source/project and references are removed from the solution,
+CLI, Infrastructure, tests, public API inventory and release packing. The obsolete
+TestKit, legacy ADO/cache/process/plan/provider/mutation graphs and their superseded
+tests are deleted. This is not a renamed Domain library, a disabled build, or a
+recreation of old interfaces solely for absence assertions.
+
+Only host-required contracts change ownership: authentication and release lookup,
+native provider target/binding records, attachment provenance, and declared-policy
+data. Historical seed correlation retains its original serialized identity/tag
+shape for inspection but cannot admit a new legacy create. The registry retains
+native identity/generation/lease and original request/observation/receipt evidence;
+obsolete claim executors and profile-cache readers/writers are absent while their
+historical tables and safety fences are not erased. Core/provider/store source and
+semantics stay unchanged, with one result/error family and digest-bound journal.
+
+Real compiled CLI and Infrastructure PE regressions independently inspect assembly
+and type references, including an exact phase-5 binary red fixture. The separate
+`tools/verify-domain-cut.py` check inspects current source, project/build references
+and public APIs; source absence alone is not binary/runtime proof. All existing
+retained CI method groups remain required. The external .NET 10 sample now directly
+uses the public RenderTree boundary and preserves typed, null, absent and complete
+caller values without native services. These code boundaries do not close the
+tracking Epic, merge a PR, or settle historical unknown publications.
 
 ### Historical qualification notes
 

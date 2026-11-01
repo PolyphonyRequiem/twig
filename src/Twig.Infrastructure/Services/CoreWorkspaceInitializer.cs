@@ -1,9 +1,10 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Twig.Core;
-using Twig.Domain.Interfaces;
-using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
+using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;
 using Twig.Store.Sqlite;
 
@@ -37,7 +38,7 @@ internal static class CoreWorkspaceInitializer
             var authorization = token.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase)
                 || token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
                 ? AuthenticationHeaderValue.Parse(token) : new AuthenticationHeaderValue("Bearer", token);
-            var organization = new Uri(AdoRestClient.NormalizeOrgUrl(origin.Operation.Organization).TrimEnd('/') + "/");
+            var organization = new Uri(AdoEndpoint.NormalizeOrgUrl(origin.Operation.Organization).TrimEnd('/') + "/");
             if (organization.Scheme != "https" || organization.UserInfo.Length != 0
                 || organization.Query.Length != 0 || organization.Fragment.Length != 0)
                 return Result<bool>.Fail(ErrorCode.InvalidInput, "An explicit secure native organization locator is required.");

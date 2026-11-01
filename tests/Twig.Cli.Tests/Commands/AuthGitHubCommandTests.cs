@@ -114,28 +114,6 @@ public sealed class AuthGitHubCommandTests : IDisposable
         wire.Calls.ShouldBe(0);
     }
 
-    [Theory]
-    [InlineData("github.credentialsource", "github-app")]
-    [InlineData("github.appclientid", AppId)]
-    [InlineData("github.oauthidentity", "personal")]
-    public async Task Configuration_RoundTripsUserOnlyWithoutAcquiringCredentials(string key, string value)
-    {
-        Directory.CreateDirectory(_directory);
-        var twig = Path.Combine(_directory, ".twig");
-        Directory.CreateDirectory(twig);
-        var paths = new TwigPaths(twig, Path.Combine(twig, "config"), Path.Combine(twig, "db"), _directory);
-        var config = new TwigConfiguration();
-        var command = new ConfigCommand(config, paths, _formatters);
-        var (exit, _) = await StdoutCapture.RunAsync(() => command.ExecuteAsync(key, value, "json"));
-        exit.ShouldBe(0);
-        var (read, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync(key, outputFormat: "json"));
-        read.ShouldBe(0);
-        using var json = JsonDocument.Parse(output);
-        json.RootElement.GetProperty("value").GetString().ShouldBe(value);
-        (await File.ReadAllTextAsync(paths.RepoConfigPath)).ShouldNotContain(value);
-        (await TwigConfiguration.LoadSplitAsync(paths)).GetValue(key).Value.ShouldBe(value);
-    }
-
     private AuthGitHubCommand Command(TwigConfiguration config, Wire wire) => new(
         config, _formatters, createAuthentication: (client, alias) => new(
             new(_directory, client, alias),

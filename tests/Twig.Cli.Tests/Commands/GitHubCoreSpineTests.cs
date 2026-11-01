@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Telemetry;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -10,10 +11,10 @@ using Shouldly;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Core;
 using Twig.DependencyInjection;
-using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Auth;
-using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
+using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Services;
 using Twig.Providers.GitHub;
 using Twig.Store.Sqlite;
@@ -395,7 +396,7 @@ public sealed partial class GitHubCoreSpineTests
                     services.AddSingleton(new CoreTransportOverride(Http.NewHandle));
                     if (Telemetry is not null) services.AddSingleton(Telemetry);
                     services.AddTwigWorkspaceServices(Root, args, Path.Combine(Root, "display.json"));
-                    services.AddSingleton<ISystemWorktreeRegistry>(_registry);
+                    services.AddSingleton(_registry);
                 });
             }
             finally

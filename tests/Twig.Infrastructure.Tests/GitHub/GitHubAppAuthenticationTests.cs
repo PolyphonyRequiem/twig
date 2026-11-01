@@ -225,18 +225,15 @@ public sealed class GitHubAppAuthenticationTests
             Provider = "github", GitHub = new() { Host = "github.com", Repository = "owner/repo" },
             GitHubCredentialSource = source, GitHubAppClientId = client, GitHubOAuthIdentity = alias,
         };
-        var services = new ServiceCollection();
-        services.AddSingleton(config);
-        services.AddTwigNetworkServices(config);
-        using var provider = services.BuildServiceProvider();
+        GitHubWorkspaceScope.TryCreate(config.GitHub, out var scope, out _).ShouldBeTrue();
         if (source == "repo")
         {
-            Should.Throw<GitHubCredentialUnavailableException>(() => provider.GetRequiredService<IGitHubTokenSource>())
-                .Message.ShouldContain("unsupported explicit credential selection");
+            Should.Throw<InvalidOperationException>(() => CoreGitHubWorkspaceHost.SelectCredential(config, scope!))
+                .Message.ShouldContain("unsupported");
         }
         else
         {
-            Should.Throw<GitHubDeviceFlowException>(() => provider.GetRequiredService<IGitHubTokenSource>())
+            Should.Throw<GitHubDeviceFlowException>(() => CoreGitHubWorkspaceHost.SelectCredential(config, scope!))
                 .Message.ShouldContain(alias == "../bad" ? "explicit identity alias" : "registered GitHub App client ID");
         }
     }
@@ -249,18 +246,12 @@ public sealed class GitHubAppAuthenticationTests
             Provider = "github", GitHub = new() { Host = "github.com", Repository = "owner/repo" },
             GitHubCredentialSource = "github-app", GitHubAppClientId = AppId, GitHubOAuthIdentity = "personal",
         };
-        var services = new ServiceCollection();
-        services.AddSingleton(config);
-        services.AddTwigNetworkServices(config);
-        using var provider = services.BuildServiceProvider();
-        provider.GetRequiredService<IGitHubTokenSource>().ShouldBeOfType<GitHubAppAuthentication>();
+        GitHubWorkspaceScope.TryCreate(config.GitHub, out var scope, out _).ShouldBeTrue();
+        CoreGitHubWorkspaceHost.SelectCredential(config, scope!).ShouldBeOfType<GitHubAppAuthentication>();
 
         config.GitHub.Host = "github.enterprise.example";
-        var enterprise = new ServiceCollection();
-        enterprise.AddSingleton(config);
-        enterprise.AddTwigNetworkServices(config);
-        using var unsupported = enterprise.BuildServiceProvider();
-        Should.Throw<GitHubCredentialUnavailableException>(() => unsupported.GetRequiredService<IGitHubTokenSource>());
+        GitHubWorkspaceScope.TryCreate(config.GitHub, out var enterpriseScope, out _).ShouldBeTrue();
+        Should.Throw<InvalidOperationException>(() => CoreGitHubWorkspaceHost.SelectCredential(config, enterpriseScope!));
     }
     [Fact]
     public async Task Configuration_UserOnly_RoundTripsAndCannotBeSelectedByManifest()

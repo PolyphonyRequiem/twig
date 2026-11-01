@@ -1,4 +1,6 @@
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 
 namespace Twig.Infrastructure.Content;
 
@@ -44,43 +46,6 @@ public static class HtmlFieldFormatter
         if (string.Equals(format, MarkdownFormat, StringComparison.OrdinalIgnoreCase)) return null;
         if (string.Equals(format, RawFormat, StringComparison.OrdinalIgnoreCase)) return null;
         return $"Unknown format '{format}'. Supported formats: markdown, raw";
-    }
-
-    /// <summary>
-    /// Auto-detect resolution for arbitrary fields. Used by <c>twig new</c>,
-    /// <c>twig patch</c>, <c>twig update</c>, <c>twig_update</c>, <c>twig_patch</c>.
-    /// </summary>
-    /// <param name="onMissingFieldDef">
-    /// Optional callback invoked once when format is auto and the field
-    /// definition cannot be found. Used by CLI to surface a stderr warning;
-    /// MCP passes <see langword="null"/>.
-    /// </param>
-    public static async Task<FormatResult> ResolveAsync(
-        string fieldRefName,
-        string value,
-        string? format,
-        IFieldDefinitionStore fieldDefStore,
-        Action<string>? onMissingFieldDef = null,
-        CancellationToken ct = default)
-    {
-        if (string.Equals(format, MarkdownFormat, StringComparison.OrdinalIgnoreCase))
-            return new FormatResult(MarkdownConverter.ToHtml(value), IsHtml: true);
-
-        var fieldDef = await fieldDefStore.GetByReferenceNameAsync(fieldRefName, ct);
-        var fieldIsHtml = fieldDef is not null
-            && string.Equals(fieldDef.DataType, "html", StringComparison.OrdinalIgnoreCase);
-
-        if (string.Equals(format, RawFormat, StringComparison.OrdinalIgnoreCase))
-            return new FormatResult(value, IsHtml: fieldIsHtml);
-
-        // format == null → auto
-        if (fieldDef is null)
-            onMissingFieldDef?.Invoke(fieldRefName);
-
-        if (fieldIsHtml)
-            return new FormatResult(MarkdownConverter.ToHtml(value), IsHtml: true);
-
-        return new FormatResult(value, IsHtml: false);
     }
 
     /// <summary>

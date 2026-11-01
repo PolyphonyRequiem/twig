@@ -31,14 +31,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Twig.Domain\Twig.Domain.csproj" />
     <ProjectReference Include="..\Twig.Infrastructure\Twig.Infrastructure.csproj" />
     <ProjectReference Include="..\Twig.RenderTree\Twig.RenderTree.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Twig.Cli.Tests" />
-    <InternalsVisibleTo Include="Twig.Benchmarks" />
   </ItemGroup>
 
   <ItemGroup>

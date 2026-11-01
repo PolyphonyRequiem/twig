@@ -15,7 +15,3 @@ internal sealed record GitHubIssueGraphQlResponse
     [JsonPropertyName("errors")]
     public JsonElement Errors { get; init; }
 }
-
-internal sealed record GitHubIssueAssignee(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("login")] string Login);

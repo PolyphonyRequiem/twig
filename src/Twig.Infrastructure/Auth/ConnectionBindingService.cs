@@ -1,10 +1,11 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.Persistence;
 
 namespace Twig.Infrastructure.Auth;
 
@@ -152,8 +153,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         //    identities" guarantee. Same alias + same principal is a benign
         //    credential refresh that updates the stored RT in place.
         var existingRes = await _registry.FindIdentityByNameAsync(normalizedName, ct).ConfigureAwait(false);
-        if (!existingRes.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {existingRes.Error}");
-        var existing = existingRes.Value;
+        if ((!existingRes.IsSuccess && existingRes.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused identity lookup: {existingRes.Error.Message}");
+        var existing = existingRes.Optional();
         var now = _clock.GetUtcNow();
 
         // Freshly materialized blob so the caller's instance is never mutated
@@ -189,7 +190,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             // stay valid, and bump the identity row's refresh stamp.
             WriteCredentialAtomic(existing.CredentialRef, persisted);
             var stamp = await _registry.UpdateIdentityRefreshStampAsync(existing.IdentityId, accountName, now, ct).ConfigureAwait(false);
-            if (!stamp.IsSuccess) throw new InvalidOperationException($"Registry refused identity refresh stamp: {stamp.Error}");
+            if (!stamp.IsSuccess) throw new InvalidOperationException($"Registry refused identity refresh stamp: {stamp.Error.Message}");
             return ToIdentity(existing with { AccountName = accountName, UpdatedAt = now });
         }
 
@@ -213,7 +214,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             // Credential blob was written but the row failed — clean up so the
             // credentials directory does not accumulate orphan files.
             TryDeleteCredential(credentialRef);
-            throw new InvalidOperationException($"Registry refused new identity: {insert.Error}");
+            throw new InvalidOperationException($"Registry refused new identity: {insert.Error.Message}");
         }
         return ToIdentity(row);
     }
@@ -229,8 +230,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         var alias = name.Trim();
         var authority = PatPrincipalAttestor.NormalizeAuthority(organization);
         var lookup = await _registry.FindIdentityByNameAsync(alias, ct).ConfigureAwait(false);
-        if (!lookup.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {lookup.Error}");
-        var existing = lookup.Value;
+        if ((!lookup.IsSuccess && lookup.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused identity lookup: {lookup.Error.Message}");
+        var existing = lookup.Optional();
         if (existing is not null && (existing.Method != "pat"
             || !string.Equals(existing.AdoAuthority, authority, StringComparison.Ordinal)))
             throw new InvalidOperationException($"Identity '{alias}' already has different method or authority requirements. Register a separate identity; renewal cannot change authority.");
@@ -245,7 +246,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         {
             new PatCredentialStore(ResolveCredentialPath(existing.CredentialRef)).Write(pat);
             var stamp = await _registry.UpdateIdentityRefreshStampAsync(existing.IdentityId, principal.AccountName, now, ct).ConfigureAwait(false);
-            if (!stamp.IsSuccess) throw new InvalidOperationException($"Registry refused identity refresh stamp: {stamp.Error}");
+            if (!stamp.IsSuccess) throw new InvalidOperationException($"Registry refused identity refresh stamp: {stamp.Error.Message}");
             // Neither selection/binding revisions nor mirror/durable state change on renewal.
             return ToIdentity(existing with { AccountName = principal.AccountName, UpdatedAt = now });
         }
@@ -259,7 +260,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (!insert.IsSuccess)
         {
             TryDeleteCredential(credentialRef);
-            throw new InvalidOperationException($"Registry refused new identity: {insert.Error}");
+            throw new InvalidOperationException($"Registry refused new identity: {insert.Error.Message}");
         }
         return ToIdentity(row);
     }
@@ -269,8 +270,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         var result = await _registry.FindIdentityByNameAsync(name.Trim(), ct).ConfigureAwait(false);
-        if (!result.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {result.Error}");
-        var row = result.Value ?? throw new InvalidOperationException($"No identity named '{name}' is registered.");
+        if ((!result.IsSuccess && result.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused identity lookup: {result.Error.Message}");
+        var row = result.Optional() ?? throw new InvalidOperationException($"No identity named '{name}' is registered.");
         if (row.Method == "pat")
             new PatCredentialStore(ResolveCredentialPath(row.CredentialRef)).ResetAdmission();
         else
@@ -281,7 +282,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
     {
         ThrowIfDisposed();
         var rows = await _registry.ListIdentitiesAsync(ct).ConfigureAwait(false);
-        if (!rows.IsSuccess) throw new InvalidOperationException($"Registry refused identity list: {rows.Error}");
+        if (!rows.IsSuccess) throw new InvalidOperationException($"Registry refused identity list: {rows.Error.Message}");
         var result = new List<AuthenticationIdentity>(rows.Value.Count);
         foreach (var row in rows.Value) result.Add(ToIdentity(row));
         return result;
@@ -303,8 +304,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             throw new ArgumentException("identityName must be non-empty.", nameof(identityName));
 
         var identityRes = await _registry.FindIdentityByNameAsync(identityName.Trim(), ct).ConfigureAwait(false);
-        if (!identityRes.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {identityRes.Error}");
-        var identity = identityRes.Value
+        if ((!identityRes.IsSuccess && identityRes.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused identity lookup: {identityRes.Error.Message}");
+        var identity = identityRes.Optional()
             ?? throw new InvalidOperationException(
                 $"No identity named '{identityName}' is registered. Run 'twig auth login --identity {identityName}' first.");
         EnsurePatAuthority(ToIdentity(identity), organization);
@@ -315,7 +316,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         // tables, but downstream join/report code expects a row for every
         // referenced connection_ref.
         var upsertConn = await _registry.EnsureBindingConnectionAsync(connectionRef, organization, project, ct).ConfigureAwait(false);
-        if (!upsertConn.IsSuccess) throw new InvalidOperationException($"Registry refused connection upsert: {upsertConn.Error}");
+        if (!upsertConn.IsSuccess) throw new InvalidOperationException($"Registry refused connection upsert: {upsertConn.Error.Message}");
 
         var now = _clock.GetUtcNow();
         var bindingId = ComputeBindingId(connectionRef, identity.IdentityId);
@@ -327,7 +328,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             CreatedAt: now,
             UpdatedAt: now);
         var upsert = await _registry.InsertOrGetBindingAsync(pending, ct).ConfigureAwait(false);
-        if (!upsert.IsSuccess) throw new InvalidOperationException($"Registry refused binding insert: {upsert.Error}");
+        if (!upsert.IsSuccess) throw new InvalidOperationException($"Registry refused binding insert: {upsert.Error.Message}");
         var row = upsert.Value;
 
         if (makeDefault)
@@ -340,12 +341,12 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             var setDefault = await _registry.UpsertDefaultBindingAsync(defaultRow, ct).ConfigureAwait(false);
             if (!setDefault.IsSuccess)
             {
-                if (string.Equals(setDefault.Error, "default-binding-exists", StringComparison.Ordinal))
+                if (string.Equals(setDefault.Error.Message, "default-binding-exists", StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException(
                         $"A different default binding is already set for {organization}/{project}. Identity transitions are deliberate guarded management operations and not a side effect of 'twig connection bind --default'.");
                 }
-                throw new InvalidOperationException($"Registry refused default binding: {setDefault.Error}");
+                throw new InvalidOperationException($"Registry refused default binding: {setDefault.Error.Message}");
             }
         }
 
@@ -360,7 +361,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         var connectionRef = ConnectionRefResolver.Compute(organization, project);
         var rows = await _registry.ListBindingsForConnectionAsync(connectionRef, ct).ConfigureAwait(false);
-        if (!rows.IsSuccess) throw new InvalidOperationException($"Registry refused binding list: {rows.Error}");
+        if (!rows.IsSuccess) throw new InvalidOperationException($"Registry refused binding list: {rows.Error.Message}");
         var result = new List<IdentityBinding>(rows.Value.Count);
         foreach (var row in rows.Value) result.Add(ToBinding(row));
         return result;
@@ -380,15 +381,15 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         using var attachmentStore = new WorktreeLocalAttachmentStore(paths, configuration, _clock);
         var read = await attachmentStore.ReadForBindingAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
-            throw new ConnectionBindingResolutionException(read.Error, $"Managed attachment validation refused: {read.Error}");
+            throw new ConnectionBindingResolutionException(read.Error.Message, $"Managed attachment validation refused: {read.Error.Message}");
         // This anchor was freshly discovered and validated against this attachment.
         var attachment = read.Value.Attachment;
         var anchor = read.Value.Anchor;
         var storageAdmission = MirrorAdmission.Acquire(paths, RegistryPath, anchor);
         var fingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
         var worktreeRow = await _registry.FindWorktreeAsync(fingerprint, ct).ConfigureAwait(false);
-        if (!worktreeRow.IsSuccess) throw new ConnectionBindingResolutionException(worktreeRow.Error, $"Registry refused worktree lookup: {worktreeRow.Error}");
-        if (worktreeRow.Value is not { } wt)
+        if ((!worktreeRow.IsSuccess && worktreeRow.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new ConnectionBindingResolutionException(worktreeRow.Error.Message, $"Registry refused worktree lookup: {worktreeRow.Error.Message}");
+        if (worktreeRow.Optional() is not { } wt)
             throw new InvalidOperationException(
                 $"Managed worktree at {anchor.WorktreeRoot} is not registered in system.db. Run 'twig init' to attach it before issuing work HTTP.");
         if (wt.RetiredAt is not null)
@@ -405,8 +406,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (selectedId is null)
         {
             var defaultRow = await _registry.FindDefaultBindingAsync(connectionRef, ct).ConfigureAwait(false);
-            if (!defaultRow.IsSuccess) throw new ConnectionBindingResolutionException(defaultRow.Error, $"Registry refused default lookup: {defaultRow.Error}");
-            if (defaultRow.Value is not { } d)
+            if ((!defaultRow.IsSuccess && defaultRow.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new ConnectionBindingResolutionException(defaultRow.Error.Message, $"Registry refused default lookup: {defaultRow.Error.Message}");
+            if (defaultRow.Optional() is not { } d)
                 throw new InvalidOperationException($"No explicit default binding is selected for {configuration.Organization}/{configuration.Project}. Set a connection default or explicitly pin this checkout; no account fallback is admitted.");
             selectedId = d.BindingId;
             selectionSource = "connection-default-binding";
@@ -414,14 +415,14 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         }
 
         var bindingRes = await _registry.FindBindingByIdAsync(selectedId, ct).ConfigureAwait(false);
-        if (!bindingRes.IsSuccess) throw new ConnectionBindingResolutionException(bindingRes.Error, $"Registry refused binding lookup: {bindingRes.Error}");
-        if (bindingRes.Value is not { } b)
+        if ((!bindingRes.IsSuccess && bindingRes.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new ConnectionBindingResolutionException(bindingRes.Error.Message, $"Registry refused binding lookup: {bindingRes.Error.Message}");
+        if (bindingRes.Optional() is not { } b)
             throw new InvalidOperationException($"Selected binding {selectedId} is missing. Repair the explicit pin/default; no account fallback is admitted.");
         if (!string.Equals(b.ConnectionRef, connectionRef, StringComparison.Ordinal))
             throw new InvalidOperationException("Selected binding belongs to another declared connection; refusing account crossover.");
         var identityRes = await _registry.FindIdentityByIdAsync(b.IdentityId, ct).ConfigureAwait(false);
-        if (!identityRes.IsSuccess) throw new ConnectionBindingResolutionException(identityRes.Error, $"Registry refused identity lookup: {identityRes.Error}");
-        if (identityRes.Value is not { } idRow)
+        if ((!identityRes.IsSuccess && identityRes.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new ConnectionBindingResolutionException(identityRes.Error.Message, $"Registry refused identity lookup: {identityRes.Error.Message}");
+        if (identityRes.Optional() is not { } idRow)
             throw new InvalidOperationException(
                 $"Binding {b.BindingId} references a missing identity row — the identity registry is inconsistent.");
         EnsurePatAuthority(ToIdentity(idRow), configuration.Organization);
@@ -457,23 +458,23 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (bindingId is null)
         {
             var defaultRow = await _registry.FindDefaultBindingAsync(connectionRef, ct).ConfigureAwait(false);
-            if (!defaultRow.IsSuccess) throw new InvalidOperationException($"Registry refused default lookup: {defaultRow.Error}");
-            if (defaultRow.Value is not { } d)
+            if ((!defaultRow.IsSuccess && defaultRow.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused default lookup: {defaultRow.Error.Message}");
+            if (defaultRow.Optional() is not { } d)
                 throw new InvalidOperationException(
                     $"No default identity is bound to {configuration.Organization}/{configuration.Project}. Bootstrap requires an explicitly-selected identity; run 'twig connection bind --identity <name> --default' first.");
             bindingId = d.BindingId;
         }
 
         var bindingRes = await _registry.FindBindingByIdAsync(bindingId, ct).ConfigureAwait(false);
-        if (!bindingRes.IsSuccess) throw new InvalidOperationException($"Registry refused binding lookup: {bindingRes.Error}");
-        if (bindingRes.Value is not { } b)
+        if ((!bindingRes.IsSuccess && bindingRes.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused binding lookup: {bindingRes.Error.Message}");
+        if (bindingRes.Optional() is not { } b)
             throw new InvalidOperationException(
                 $"binding-unknown: binding {bindingId} is not registered. Inspect 'twig connection list' or register it with 'twig connection bind' first.");
         if (!string.Equals(b.ConnectionRef, connectionRef, StringComparison.Ordinal))
             throw new InvalidOperationException("binding-endpoint-mismatch: bootstrap binding belongs to another declared connection; refusing account crossover.");
         var identityRes = await _registry.FindIdentityByIdAsync(b.IdentityId, ct).ConfigureAwait(false);
-        if (!identityRes.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {identityRes.Error}");
-        if (identityRes.Value is not { } idRow)
+        if ((!identityRes.IsSuccess && identityRes.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused identity lookup: {identityRes.Error.Message}");
+        if (identityRes.Optional() is not { } idRow)
             throw new InvalidOperationException(
                 $"Binding {b.BindingId} references a missing identity row — the identity registry is inconsistent.");
         EnsurePatAuthority(ToIdentity(idRow), configuration.Organization);
@@ -493,9 +494,10 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
     {
         ThrowIfDisposed();
         var lookup = await _registry.FindIdentityByNameAsync(identityName.Trim(), ct).ConfigureAwait(false);
-        if (!lookup.IsSuccess || lookup.Value is null)
+        var row = lookup.Optional();
+        if (row is null)
             throw new InvalidOperationException("migration-identity-unavailable: enroll the explicit identity before setting up its mapping.");
-        var identity = ToIdentity(lookup.Value);
+        var identity = ToIdentity(row);
         EnsurePatAuthority(identity, organization);
         var provider = CreateProvider(identity);
         _ = await provider.GetAccessTokenAsync(ct).ConfigureAwait(false);

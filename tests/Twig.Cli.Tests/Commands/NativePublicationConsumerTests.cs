@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Telemetry;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -9,17 +10,13 @@ using Shouldly;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
-using Twig.Domain.Aggregates;
-using Twig.Domain.Interfaces;
-using Twig.Domain.Services.Attachment;
-using Twig.Domain.Services.Plan;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Formatters;
 using Twig.Infrastructure;
-using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
-using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Policy;
 using Xunit;
 using CoreModel = Twig.Core;
@@ -31,6 +28,19 @@ namespace Twig.Cli.Tests.Commands;
 /// <summary>Native receipts over real attached stores and independently maintained, principal-private remote state.</summary>
 public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
 {
+    private static void AssertNativeDependencyClosure()
+    {
+        foreach (var assembly in new[] { typeof(TwigCommands).Assembly, typeof(ConnectionBindingService).Assembly })
+            assembly.GetReferencedAssemblies().ShouldNotContain(reference => reference.Name == "Twig.Domain");
+    }
+
+    private static void AssertNativeRegistrations(IServiceCollection services)
+    {
+        AssertNativeDependencyClosure();
+        services.ShouldNotContain(service => service.ServiceType.Assembly.GetName().Name == "Twig.Domain"
+            || service.ServiceType.Name == "IPendingChangeFlusher");
+    }
+
     private const string Actor = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     private const string Sibling = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
     private const string ActorPat = "fixture-actor-pat";
@@ -260,10 +270,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddTwigWorkspaceServices(paths.StartDir, ["link", "related", "43", "--id", "42", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         root.GetService<CoreCommandAdapter>().ShouldNotBeNull("exercise the pinned Core composition");
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<Twig.Domain.Services.Sync.SyncCoordinatorFactory>().ShouldBeNull();
-        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
-        root.GetService<IWorkItemLinkRepository>().ShouldBeNull();
+        AssertNativeDependencyClosure();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
+        AssertNativeDependencyClosure();
         using (var handle = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value)
         {
             var localFrom = CoreModel.ItemKey.Local(Guid.CreateVersion7());
@@ -535,11 +544,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddTwigWorkspaceServices(paths.StartDir, ["process", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         root.GetService<CoreCommandAdapter>().ShouldNotBeNull();
-        root.GetService<IProcessTypeStore>().ShouldBeNull();
-        root.GetService<IFieldDefinitionStore>().ShouldBeNull();
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<IPendingChangeStore>().ShouldBeNull();
-        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+        AssertNativeDependencyClosure();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
         var originalOut = Console.Out;
         var originalError = Console.Error;
         using var stdout = new StringWriter();
@@ -679,9 +685,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
         services.AddTwigWorkspaceServices(paths.StartDir, ["pending", "-o", "json"], Path.Combine(Home, "display.json"));
         using var root = services.BuildServiceProvider();
-        root.GetService<PlanCommand>().ShouldBeNull("the fixture must exercise the missing Core route, not legacy inspection");
-        root.GetService<IPendingChangeReader>().ShouldBeNull();
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.PlanCommand").ShouldBeNull("the fixture must exercise the missing Core route, not legacy inspection");
+        AssertNativeDependencyClosure();
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var workspace = admitted.Workspace;
         var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
@@ -937,10 +942,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.ItemReadIds.ShouldNotContain(90);
             _transport.ItemReadIds.ShouldNotContain(91);
             _transport.CommittedWrites.ShouldBe(0);
-            root.GetService<SyncCommand>().ShouldBeNull();
-            root.GetService<BenchSyncCommand>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SyncCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.BenchSyncCommand").ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1121,10 +1125,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.PostCount.ShouldBe(0);
             final.Drafts.ShouldBeEmpty();
             final.Proposals.ShouldBeEmpty();
-            root.GetService<BenchCommand>().ShouldBeNull();
-            root.GetService<TrackingCommand>().ShouldBeNull();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.BenchCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.TrackingCommand").ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1252,13 +1255,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.CommittedWrites.ShouldBe(2, "query must never flush the retained concurrent draft");
             (await store.ReadAsync(connection, default)).Value.Drafts.ShouldContain(draft =>
                 !draft.Key.IsLocal && draft.Changes["System.Title"].Text == "stale editor field");
-            root.GetService<EditCommand>().ShouldBeNull();
-            root.GetService<SetCommand>().ShouldBeNull();
-            root.GetService<NavigationCommands>().ShouldBeNull();
-            root.GetService<NavigationHistoryCommands>().ShouldBeNull();
-            root.GetService<QueryCommand>().ShouldBeNull();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.EditCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SetCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.NavigationCommands").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.NavigationHistoryCommands").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.QueryCommand").ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1320,9 +1322,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             retained.Items.ShouldContain(item => item.Key.NativeId == "1205"
                 && item.RelationshipsComplete && item.ResourcesComplete);
             retained.Journal.ShouldBeEmpty();
-            root.GetService<QueryCommand>().ShouldBeNull();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.QueryCommand").ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1429,10 +1430,10 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             complete.Proposals.Single(proposal => proposal.Operations.Length == 2).Operations[0].Links.Single().Other.ShouldBe(first.Key);
             _transport.PostCount.ShouldBe(3);
             _transport.PatchAttempts.ShouldBe(0);
-            root.GetService<SeedChainCommand>().ShouldBeNull();
-            root.GetService<SeedLinkRepairCommand>().ShouldBeNull();
-            root.GetService<SeedValidateCommand>().ShouldBeNull();
-            root.GetService<SeedEditCommand>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedChainCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedLinkRepairCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedValidateCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedEditCommand").ShouldBeNull();
             complete.Mappings.ShouldContain(mapping => mapping.Local == third.Key);
         }
         finally
@@ -1487,7 +1488,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             snapshot.Relationships.ShouldContain(new CoreModel.Relationship(
                 CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42"),
                 mapping.Remote, "Native.ParentForward", CoreModel.RelationshipOrigin.Provider));
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            AssertNativeDependencyClosure();
             stdout.GetStringBuilder().Clear();
             (await commands.SeedNew(title: "Local publication parent", type: "Task", noParent: true, output: "json")).ShouldBe(0);
             using var localParent = JsonDocument.Parse(stdout.ToString());
@@ -1557,9 +1558,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             linkedComplete.Journal.Where(row => row.Digest == chain.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
             _transport.PostCount.ShouldBe(6);
             _transport.PatchAttempts.ShouldBe(0);
-            root.GetService<SeedLinkCommand>().ShouldBeNull();
-            root.GetService<SeedPublishCommand>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedLinkCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedPublishCommand").ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1587,7 +1588,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddTwigWorkspaceServices(paths.StartDir, ["seed", "view", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
-        root.GetService<SeedPublishCommand>().ShouldBeNull();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedPublishCommand").ShouldBeNull();
         var originalOut = Console.Out;
         var originalError = Console.Error;
         using var stdout = new StringWriter();
@@ -1708,12 +1709,10 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
         services.AddTwigWorkspaceServices(paths.StartDir, ["save", "--all", "-o", "json"]);
         File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
-        services.ShouldNotContain(service => service.ServiceType == typeof(IProviderWorkItemWriter)
-            || service.ServiceType == typeof(IPendingChangeStore) || service.ServiceType == typeof(IPendingChangeFlusher));
+        AssertNativeRegistrations(services);
         using var root = services.BuildServiceProvider();
-        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<IPendingChangeStore>().ShouldBeNull();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
+        AssertNativeDependencyClosure();
         foreach (var deleted in new[] { "UpdateCommand", "SaveCommand", "DiscardCommand" })
             typeof(TwigCommands).Assembly.GetType("Twig.Commands." + deleted).ShouldBeNull(
                 "remaining legacy CLI ownership must be deleted, not merely bypassed");
@@ -1823,7 +1822,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             services.AddSingleton(_http);
             services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
             services.AddTwigWorkspaceServices(root, arguments, Path.Combine(Home, "display.json"));
-            services.AddSingleton<ISystemWorktreeRegistry>(_systemRegistry);
+            services.AddSingleton(_systemRegistry);
             registrations = services;
         });
         try
@@ -1832,9 +1831,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             Console.SetError(stderr);
             Run().ShouldBe(0, stderr.ToString());
             Directory.Exists(Path.Combine(root, ".twig", "cache")).ShouldBeFalse("native init must never initialize the legacy cache");
-            registrations!.Any(s => s.ServiceType == typeof(IWorkItemRepository)
-                || s.ServiceType == typeof(IIterationService) || s.ServiceType == typeof(IManagedWorktreeInitializer)
-                || s.ServiceType == typeof(IGlobalProfileStore)).ShouldBeFalse("init must not register the legacy application");
+            registrations.ShouldNotBeNull();
+            AssertNativeRegistrations(registrations);
             _transport.WorkRequests.ShouldBe(requests, "init only observes native identity/project metadata");
             _transport.ObservedPaths.ShouldNotBeEmpty();
             _transport.ObservedPaths.ShouldAllBe(path => path == "/fixture/_apis/connectionData" || path == "/fixture/_apis/projects/Project");
@@ -1995,8 +1993,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var failure = Should.Throw<InvalidOperationException>(() =>
                 services.AddTwigWorkspaceServices(paths.StartDir, [verb, "--id", "42", "-o", "json"]));
             failure.Message.ShouldContain("Core workspace");
-            services.Any(s => s.ServiceType == typeof(IAdoWorkItemService)).ShouldBeFalse();
-            services.Any(s => s.ServiceType == typeof(IProviderWorkItemWriter)).ShouldBeFalse();
+            AssertNativeRegistrations(services);
         }
         _transport.WorkRequests.ShouldBe(requests);
         _transport.CommittedWrites.ShouldBe(0);
@@ -2046,10 +2043,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             check.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
             check.AddTwigWorkspaceServices(paths.StartDir, ["show", "42", "-o", "json"], Path.Combine(Home, "display.json"));
             using var root = check.BuildServiceProvider();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-            root.GetService<IAdoWorkItemService>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
-            root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+            AssertNativeDependencyClosure();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
             foreach (var deleted in new[] { "StateCommand", "NoteCommand", "PatchCommand", "UpdateCommand", "SaveCommand", "DiscardCommand" })
                 typeof(TwigCommands).Assembly.GetType("Twig.Commands." + deleted).ShouldBeNull(
                     "the old command ownership must be absent, not merely unregistered in this graph");
@@ -2121,7 +2116,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var final = (await store.ReadAsync(connection, default)).Value;
             final.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
             final.Items.Single().Resources.ShouldContain(resource => resource.Target == "https://example.test/root-evidence");
-            root.GetService<IWorkItemDiscussionWriter>().ShouldBeNull();
+            AssertNativeDependencyClosure();
             stdout.GetStringBuilder().Clear();
             Run("state", "Doing", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(5);
@@ -2241,6 +2236,18 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         recorded.Intent.Request.Payload.ShouldBe(intent.Payload);
         recorded.Intent.Origin.ShouldBe(origin);
         recorded.Receipt.ShouldBeNull();
+        using var inspection = new ConnectionRemoteWriteReconciliationService(Home, _bindings);
+        var unknown = (await inspection.InspectAsync(config, paths)).ShouldHaveSingleItem();
+        unknown.State.ShouldBe("unknown");
+        unknown.CanReconcile.ShouldBeFalse();
+        unknown.Request.ShouldBe(recorded.Intent.Request);
+        unknown.Digest.ShouldBe(recorded.Intent.RequestDigest);
+        unknown.Receipt.ShouldBeNull();
+        var afterInspection = (await _systemRegistry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint))
+            .Value.ShouldHaveSingleItem();
+        afterInspection.Intent.ShouldBe(recorded.Intent, "inspection must not alter the original attempt");
+        afterInspection.Receipt.ShouldBeNull();
+        afterInspection.Observations.ShouldBeEmpty();
         _transport.CommittedWrites.ShouldBe(0, "native admission does not dispatch");
         using var request = new HttpRequestMessage(HttpMethod.Patch, intent.Target);
         request.Headers.Authorization = session.Authorization;
@@ -2251,6 +2258,10 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         outcome.Observations.ShouldHaveSingleItem().IntentId.ShouldBe(recorded.Intent.IntentId);
         outcome.Receipt.ShouldNotBeNull().RequestDigest.ShouldBe(recorded.Intent.RequestDigest);
         outcome.Receipt!.Kind.ShouldBe("acknowledged");
+        var acknowledged = (await inspection.InspectAsync(config, paths)).ShouldHaveSingleItem();
+        acknowledged.Receipt.ShouldBe(outcome.Receipt);
+        acknowledged.Observations.ShouldBe(outcome.Observations);
+        acknowledged.CanReconcile.ShouldBeFalse();
         _transport.CommittedWrites.ShouldBe(1);
         await Should.ThrowAsync<InvalidOperationException>(() => session.AdmitAsync(intent, default));
         _transport.CommittedWrites.ShouldBe(1, "native attempt admission cannot replay after an acknowledgement");
@@ -2317,501 +2328,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(0);
     }
 
-    [Fact]
-    public async Task OfflineProviderLifecycle_ReadAuthorApplyReadbackUsesRealAdoComposition()
-    {
-        var runtime = await AttachAsync();
-        var reader = runtime.GetRequiredService<IProviderWorkItemReader>();
-        var repository = runtime.GetRequiredService<IWorkItemRepository>();
-        var before = await reader.FetchAsync(42);
-        before.Revision.ShouldBe(1);
-        await repository.SaveAsync(before);
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var path = await ProposalAsync(runtime, "qualification", "edit", before.Id,
-            before.Revision, "Offline qualified ADO title");
-        var policyPath = runtime.GetRequiredService<TwigPaths>().PolicyPath;
-        await File.WriteAllTextAsync(policyPath, """{"version":2,"rules":[]}""");
-        (await lifecycle.PreviewAsync(path)).CanApply.ShouldBeFalse("invalid declared policy must fail closed");
-        _transport.CommittedWrites.ShouldBe(0);
-        File.Delete(policyPath);
-
-        var preview = await lifecycle.PreviewAsync(path);
-        preview.CanApply.ShouldBeTrue(string.Join("; ", preview.Issues.Select(i => i.Message)));
-        preview.ReviewModel.ShouldNotBeNull().Operations.Single().Consequences
-            .Single(e => e.Field == "System.Title").To.ShouldBe("Offline qualified ADO title");
-        _transport.CommittedWrites.ShouldBe(0, "authoring and preview must not publish");
-        (await lifecycle.ApplyAsync(path, new string('0', 64))).Failed.ShouldBeTrue();
-        _transport.CommittedWrites.ShouldBe(0, "a different digest cannot authorize the effect");
-        var result = await lifecycle.ApplyAsync(path, preview.Digest!);
-        result.Failed.ShouldBeFalse(result.Error);
-        result.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
-        _transport.CommittedWrites.ShouldBe(1);
-        var readback = await reader.FetchAsync(42);
-        readback.Title.ShouldBe("Offline qualified ADO title");
-        readback.Revision.ShouldBe(before.Revision + 1);
-
-        var reopened = BuildRuntime(runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
-        var retained = await reopened.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42);
-        retained.ShouldNotBeNull().Title.ShouldBe(readback.Title);
-        retained.Revision.ShouldBe(readback.Revision);
-        (await reopened.GetRequiredService<IPlanJournalRepository>().GetAsync(preview.Digest!))!
-            .Operations.Single().State.ShouldBe(PlanOperationState.Verified);
-        (await reopened.GetRequiredService<IPlanLifecycleService>().ApplyAsync(path, preview.Digest!)).Failed.ShouldBeFalse();
-        _transport.CommittedWrites.ShouldBe(1, "verified replay must not write again");
-    }
-
-    [Fact]
-    public async Task RetiredConfirmedIntentCannotReplayBeforeOrAfterRebindingOrReimport()
-    {
-        var runtime = await AttachAsync();
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
-        var file = await ProposalAsync(runtime, "original", "retired", 42, 1, "Refined actor plan");
-        var bytes = await File.ReadAllBytesAsync(file);
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        await journal.TryTransitionOperationAsync(digest, "retired", PlanOperationState.Planned, PlanOperationState.Confirmed, DateTimeOffset.UtcNow);
-        await journal.ConfirmAsync(digest, DateTimeOffset.UtcNow);
-        var unknown = await ProposalAsync(runtime, "unrelated-unknown", "unknown", 43, 1, "Another intent");
-        var unknownDigest = (await lifecycle.PreviewAsync(unknown)).Digest!;
-        await journal.SaveOperationErrorAsync(unknownDigest, "unknown", "Unacknowledged earlier outcome", PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
-
-        using var stdout = new StringWriter();
-        using var stderr = new StringWriter();
-        var command = new PlanCommand(lifecycle, runtime.GetRequiredService<OutputFormatterFactory>(),
-            stdout: stdout, stderr: stderr);
-        (await command.ReconcileAsync(file, digest, "retired", "retire",
-            null, null, "json", CancellationToken.None)).ShouldBe(0, stderr.ToString());
-        using (var receiptOutput = JsonDocument.Parse(stdout.ToString()))
-            receiptOutput.RootElement.GetProperty("receipt").GetProperty("kind").GetString().ShouldBe("Retired");
-        var workRequests = _transport.WorkRequests;
-        (await lifecycle.ApplyAsync(file, digest)).Failed.ShouldBeTrue();
-        _transport.WorkRequests.ShouldBe(workRequests, "saved apply must refuse before any work HTTP");
-        _transport.CommittedWrites.ShouldBe(0);
-        _transport.RevisionOf(42).ShouldBe(1, "the original ADO revision is still admissible absent the native fence");
-        (await lifecycle.PreviewAsync(file)).CanApply.ShouldBeFalse();
-        var imported = await lifecycle.ValidateAsync(file);
-        var captured = (await journal.GetAsync(digest))!.Origin;
-        await journal.ImportAsync(imported.Plan!, imported.CanonicalJson!, digest, file, DateTimeOffset.UtcNow, origin: captured);
-        (await lifecycle.ApplyAsync(file, digest)).Failed.ShouldBeTrue();
-        var stored = (await journal.GetAsync(digest))!.Operations.Single();
-        stored.State.ShouldBe(PlanOperationState.Confirmed);
-        stored.OutcomeReceipt!.Kind.ShouldBe(PlanOutcomeKind.Retired);
-        (await journal.GetUnresolvedAsync()).Select(j => j.Digest).ShouldBe(new[] { unknownDigest });
-
-        var fresh = await ProposalAsync(runtime, "fresh", "fresh", 43, 1, "Fresh permitted plan");
-        var freshDigest = (await lifecycle.PreviewAsync(fresh)).Digest!;
-        (await lifecycle.ApplyAsync(fresh, freshDigest)).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
-        _transport.TitleOf(43).ShouldBe("Fresh permitted plan");
-        var config = runtime.GetRequiredService<TwigConfiguration>();
-        var paths = runtime.GetRequiredService<TwigPaths>();
-        var siblingBinding = await _bindings.CreateBindingAsync(config.Organization, config.Project, "sibling", makeDefault: false);
-        SwapSelection(config, siblingBinding.BindingId);
-        var reconnected = BuildRuntime(config, paths);
-        var newLifecycle = reconnected.GetRequiredService<IPlanLifecycleService>();
-        workRequests = _transport.WorkRequests;
-        (await newLifecycle.ApplyAsync(file, digest)).Failed.ShouldBeTrue();
-        _transport.WorkRequests.ShouldBe(workRequests);
-        (await newLifecycle.PreviewAsync(file)).CanApply.ShouldBeFalse();
-        (await reconnected.GetRequiredService<IPlanJournalRepository>().GetAsync(digest))!.Origin.ShouldBe(captured);
-        (await File.ReadAllBytesAsync(file)).ShouldBe(bytes);
-        _transport.RevisionOf(42).ShouldBe(1);
-        (await reconnected.GetRequiredService<IPlanJournalRepository>().GetUnresolvedAsync()).Select(j => j.Digest).ShouldContain(unknownDigest);
-    }
-
-    [Fact]
-    public async Task AcknowledgedCommitWithUnavailableReadbackIsSettledWithoutReissuingTheWrite()
-    {
-        var runtime = await AttachAsync();
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var repository = runtime.GetRequiredService<IWorkItemRepository>();
-        var original = await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
-        await repository.SaveAsync(original);
-        var file = await ProposalAsync(runtime, "acknowledged", "attempt", 42, 1, "Committed actor plan");
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        _transport.FailReadbackAfterCommit = true;
-        var attempted = await lifecycle.ApplyAsync(file, digest);
-        attempted.Operations.Single().State.ShouldBe(PlanOperationState.Indeterminate);
-        _transport.CommittedWrites.ShouldBe(1);
-        _transport.FailReadbackAfterCommit = false;
-        var reconciled = await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback);
-        reconciled.Settled.ShouldBeTrue(reconciled.Error);
-        var row = (await runtime.GetRequiredService<IPlanJournalRepository>().GetAsync(digest))!.Operations.Single();
-        row.State.ShouldBe(PlanOperationState.Indeterminate);
-        row.OutcomeReceipt!.Kind.ShouldBe(PlanOutcomeKind.Readback);
-        _transport.TitleOf(42).ShouldBe("Committed actor plan");
-        _transport.CommittedWrites.ShouldBe(1);
-        var cached = (await repository.GetByIdAsync(42))!;
-        cached.Title.ShouldBe(original.Title);
-        cached.Revision.ShouldBe(original.Revision);
-        (await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback))
-            .Settled.ShouldBeTrue();
-        (await repository.GetByIdAsync(42))!.Title.ShouldBe(original.Title);
-        _transport.CommittedWrites.ShouldBe(1);
-    }
-
-    [Theory]
-    [InlineData(PlanOperationState.Failed)]
-    [InlineData(PlanOperationState.Indeterminate)]
-    [InlineData(PlanOperationState.Applied)]
-    [InlineData(PlanOperationState.Verified)]
-    [InlineData(PlanOperationState.Applied, "{")]
-    [InlineData(PlanOperationState.Verified, "{")]
-    public async Task AcknowledgedCommitAfterLostAppliedCasReturnsReceiptWithoutOverwritingWinner(
-        PlanOperationState winningState, string winningJson = """{"rev":99}""")
-    {
-        var runtime = await AttachAsync();
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
-        journal.ShouldBeOfType<SqlitePlanJournalRepository>();
-        runtime.GetRequiredService<ISystemWorktreeRegistry>().ShouldBeSameAs(_systemRegistry);
-        var repository = runtime.GetRequiredService<IWorkItemRepository>();
-        await repository.SaveAsync(await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42));
-        (await repository.GetByIdAsync(42))!.Revision.ShouldBe(1, "mirror admission and persistence must succeed before forcing the race");
-        var competing = BuildRuntime(runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
-        var competingJournal = competing.GetRequiredService<IPlanJournalRepository>();
-        competingJournal.ShouldBeOfType<SqlitePlanJournalRepository>();
-        competingJournal.ShouldNotBeSameAs(journal);
-        var file = await ProposalAsync(runtime, "acknowledgment-fence-loss", "attempt", 42, 1, "Committed actor plan", includeTail: true);
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        PlanJournalOperation? winner = null;
-        _transport.AfterCommit = async () =>
-        {
-            var applying = (await competingJournal.GetAsync(digest))!.Operations.Single(row => row.OpId == "attempt");
-            applying.State.ShouldBe(PlanOperationState.Applying);
-            applying.AppliedAt.ShouldBeNull();
-            if (winningState is PlanOperationState.Applied or PlanOperationState.Verified)
-            {
-                (await competingJournal.TryRecordAppliedAsync(digest, "attempt", winningJson, DateTimeOffset.UtcNow))
-                    .ShouldBeTrue();
-                if (winningState == PlanOperationState.Verified)
-                    (await competingJournal.TryTransitionOperationAsync(digest, "attempt", PlanOperationState.Applied,
-                        PlanOperationState.Verified, DateTimeOffset.UtcNow)).ShouldBeTrue();
-            }
-            else
-                await competingJournal.SaveOperationErrorAsync(digest, "attempt", "Competing unresolved classification",
-                    winningState, DateTimeOffset.UtcNow, resultJson: """{"winner":"competing classification"}""");
-            winner = (await competingJournal.GetAsync(digest))!.Operations.Single(row => row.OpId == "attempt");
-            winner.State.ShouldBe(winningState);
-            (await competingJournal.TryRecordAppliedAsync(digest, "attempt", """{"rev":999}""", DateTimeOffset.UtcNow))
-                .ShouldBeFalse("the real SQLite Applying-to-Applied fence must already have been lost");
-        };
-
-        var attempted = await lifecycle.ApplyAsync(file, digest);
-
-        winner.ShouldNotBeNull();
-        _transport.CommittedWrites.ShouldBe(1);
-        _transport.RevisionOf(42).ShouldBe(2);
-        _transport.TitleOf(42).ShouldBe("Committed actor plan");
-        _transport.ReadbacksAfterCommit.ShouldBe(0);
-        (await journal.GetAsync(digest))!.Operations.Single(row => row.OpId == "attempt").ShouldBe(winner);
-        attempted.Operations.Single(row => row.OpId == "tail").State.ShouldBe(PlanOperationState.Confirmed);
-        _transport.TitleOf(43).ShouldBe("Another actor plan");
-        var native = await InspectAcknowledgedWriteAsync(runtime);
-        var reopened = await InspectAcknowledgedWriteAsync(competing);
-        reopened.Receipt.ShouldBe(native.Receipt, "the native acknowledgment must remain recoverable through another registry reader");
-        attempted.Failed.ShouldBeTrue();
-        if (winningState is PlanOperationState.Failed or PlanOperationState.Indeterminate)
-        {
-            var resumed = await lifecycle.ApplyAsync(file, digest);
-            resumed.Operations.Single(row => row.OpId == "attempt").ShouldBe(winner);
-        }
-        _transport.CommittedWrites.ShouldBe(1, "neither the losing attempt nor resume may repeat an acknowledged write");
-        _transport.PatchAttempts.ShouldBe(1, "a rejected duplicate PATCH is still an unsafe duplicate send");
-        (await competingJournal.GetAsync(digest))!.Operations.Single(row => row.OpId == "attempt").ShouldBe(winner);
-
-        attempted.Error.ShouldNotBeNull().ShouldStartWith("acknowledged-effect-unsettled:");
-        attempted.Error.ShouldContain("Do not retry");
-        attempted.UnsettledAcknowledgments.Keys.ShouldBe(new[] { "attempt" });
-        using var returned = JsonDocument.Parse(attempted.UnsettledAcknowledgments["attempt"]);
-        returned.RootElement.GetProperty("rev").GetInt32().ShouldBe(2);
-    }
-
-    [Theory]
-    [InlineData(PlanOperationState.Applied)]
-    [InlineData(PlanOperationState.Verified)]
-    public async Task AcknowledgedCommitAfterLostAppliedCasResumesMatchingWinningReceipt(
-        PlanOperationState winningState)
-    {
-        var runtime = await AttachAsync();
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
-        var repository = runtime.GetRequiredService<IWorkItemRepository>();
-        await repository.SaveAsync(await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42));
-        (await repository.GetByIdAsync(42))!.Revision.ShouldBe(1);
-        var competing = BuildRuntime(runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
-        var competingJournal = competing.GetRequiredService<IPlanJournalRepository>();
-        var file = await ProposalAsync(runtime, "acknowledgment-winning-receipt", "attempt", 42, 1, "Committed actor plan");
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        _transport.AfterCommit = async () =>
-        {
-            (await competingJournal.GetAsync(digest))!.Operations.Single().State.ShouldBe(PlanOperationState.Applying);
-            (await competingJournal.TryRecordAppliedAsync(digest, "attempt", """{"rev":2}""", DateTimeOffset.UtcNow))
-                .ShouldBeTrue();
-            if (winningState == PlanOperationState.Verified)
-                (await competingJournal.TryTransitionOperationAsync(digest, "attempt", PlanOperationState.Applied,
-                    PlanOperationState.Verified, DateTimeOffset.UtcNow)).ShouldBeTrue();
-            (await competingJournal.TryRecordAppliedAsync(digest, "attempt", """{"rev":999}""", DateTimeOffset.UtcNow))
-                .ShouldBeFalse();
-        };
-
-        var attempted = await lifecycle.ApplyAsync(file, digest);
-
-        attempted.Failed.ShouldBeFalse(attempted.Error);
-        attempted.UnsettledAcknowledgments.ShouldBeEmpty();
-        attempted.Operations.Single().State.ShouldBe(PlanOperationState.Verified);
-        using (var evidence = JsonDocument.Parse(attempted.Operations.Single().ResultJson!))
-            evidence.RootElement.GetProperty("rev").GetInt32().ShouldBe(2);
-        (await InspectAcknowledgedWriteAsync(runtime)).Receipt.ShouldNotBeNull();
-        var winner = (await journal.GetAsync(digest))!.Operations.Single();
-        var readbacks = _transport.ReadbacksAfterCommit;
-        (await lifecycle.ApplyAsync(file, digest)).Failed.ShouldBeFalse();
-        (await competingJournal.GetAsync(digest))!.Operations.Single().ShouldBe(winner);
-        _transport.CommittedWrites.ShouldBe(1);
-        _transport.PatchAttempts.ShouldBe(1);
-        _transport.ReadbacksAfterCommit.ShouldBe(readbacks);
-    }
-
-    private static async Task<ConnectionRemoteWriteInspection> InspectAcknowledgedWriteAsync(ServiceProvider runtime)
-    {
-        var records = await runtime.GetRequiredService<IConnectionRemoteWriteReconciliationService>().InspectAsync(
-            runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
-        var native = records.ShouldHaveSingleItem();
-        native.State.ShouldBe("settled");
-        native.Blockers.ShouldBeEmpty();
-        native.Request.Method.ShouldBe("PATCH");
-        native.Request.EffectKind.ShouldBe("workitem-patch");
-        var response = native.Observations.ShouldHaveSingleItem();
-        response.Response.StatusCode.ShouldBe(200);
-        using (var body = JsonDocument.Parse(response.Response.Body))
-        {
-            body.RootElement.GetProperty("id").GetInt32().ShouldBe(42);
-            body.RootElement.GetProperty("rev").GetInt32().ShouldBe(2);
-            body.RootElement.GetProperty("fields").GetProperty("System.Title").GetString().ShouldBe("Committed actor plan");
-        }
-        var receipt = native.Receipt.ShouldNotBeNull();
-        receipt.Kind.ShouldBe("acknowledged");
-        receipt.IntentId.ShouldBe(native.IntentId);
-        receipt.RequestDigest.ShouldBe(native.Digest);
-        receipt.ObservationId.ShouldBe(response.ObservationId);
-        return native;
-    }
-
-    [Fact]
-    public async Task RejectedReadbackReceiptWithUnattributableRevisionPreservesCleanCachedValues()
-    {
-        var runtime = await AttachAsync();
-        var repository = runtime.GetRequiredService<IWorkItemRepository>();
-        var original = await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
-        await repository.SaveAsync(original);
-        original.IsDirty.ShouldBeFalse();
-        original.Revision.ShouldBe(1);
-        original.Title.ShouldBe("Original actor plan");
-
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
-        var file = await ProposalAsync(runtime, "unattributable", "attempt", 42, 1, "Committed actor plan");
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        _transport.FailReadbackAfterCommit = true;
-        (await lifecycle.ApplyAsync(file, digest)).Operations.Single().State
-            .ShouldBe(PlanOperationState.Indeterminate);
-        var attempted = (await journal.GetAsync(digest))!.Operations.Single();
-        using (var acknowledged = JsonDocument.Parse(attempted.ResultJson!))
-            acknowledged.RootElement.GetProperty("rev").GetInt32().ShouldBe(2);
-
-        // A later edit retained the expected title but is not this attempt's acknowledged revision.
-        _transport.FailReadbackAfterCommit = false;
-        _transport.SetItem(42, "Committed actor plan", 3, Actor);
-        var result = await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback);
-
-        result.Settled.ShouldBeFalse();
-        (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
-        (await journal.GetUnresolvedAsync()).Select(j => j.Digest).ShouldContain(digest);
-        var cached = (await repository.GetByIdAsync(42))!;
-        cached.Title.ShouldBe(original.Title);
-        cached.Revision.ShouldBe(original.Revision);
-        cached.IsDirty.ShouldBeFalse();
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task VerifiedPublicationPreservesLocalWorkCreatedDuringReadback(bool dirtyMirror)
-    {
-        var runtime = await AttachAsync();
-        var repository = runtime.GetRequiredService<IWorkItemRepository>();
-        var pending = runtime.GetRequiredService<IPendingChangeStore>();
-        var original = await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
-        await repository.SaveAsync(original);
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var file = await ProposalAsync(runtime, "concurrent-local-work", "attempt", 42, 1, "Committed actor plan");
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        _transport.BeforeReadback = async () =>
-        {
-            if (dirtyMirror)
-            {
-                var editing = (await repository.GetByIdAsync(42))!;
-                editing.UpdateField("System.Description", "Unpublished actor draft");
-                await repository.SaveAsync(editing);
-            }
-            else
-                await pending.AddChangeAsync(42, "note", null, null, "Unpublished actor note");
-        };
-
-        (await lifecycle.ApplyAsync(file, digest)).Operations.Single().State
-            .ShouldBe(PlanOperationState.Verified);
-
-        _transport.TitleOf(42).ShouldBe("Committed actor plan");
-        var cached = (await repository.GetByIdAsync(42))!;
-        cached.Title.ShouldBe(original.Title);
-        cached.Revision.ShouldBe(original.Revision);
-        cached.IsDirty.ShouldBe(dirtyMirror);
-        if (dirtyMirror)
-            cached.Fields["System.Description"].ShouldBe("Unpublished actor draft");
-        else
-            (await pending.GetChangesAsync(42)).ShouldHaveSingleItem().NewValue.ShouldBe("Unpublished actor note");
-    }
-
-    [Fact]
-    public async Task ConcurrentDraftAfterProtectionSnapshotSurvivesVerifiedCacheRefresh()
-    {
-        IWorkItemRepository? competingRepository = null;
-        WorkItem? draft = null;
-        var attempted = false;
-        var blocked = false;
-        var runtime = await AttachAsync(async () =>
-        {
-            if (_transport.CommittedWrites == 0 || attempted) return;
-            attempted = true;
-            try { await competingRepository!.SaveAsync(draft!); }
-            catch (SqliteException ex) when (ex.SqliteErrorCode == 5)
-            {
-                // A writer may finish immediately after the readback transaction commits.
-                blocked = true;
-            }
-        });
-        var original = await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
-        await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(original);
-        var competing = BuildRuntime(runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
-        competing.GetRequiredService<SqliteCacheStore>().GetConnection().DefaultTimeout = 1;
-        competingRepository = competing.GetRequiredService<IWorkItemRepository>();
-        draft = (await competingRepository.GetByIdAsync(42))!;
-        draft.UpdateField("System.Description", "Concurrent unpublished draft");
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var file = await ProposalAsync(runtime, "snapshot-race", "attempt", 42, 1, "Committed actor plan");
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-
-        (await lifecycle.ApplyAsync(file, digest)).Operations.Single().State
-            .ShouldBe(PlanOperationState.Verified);
-        if (blocked) await competingRepository.SaveAsync(draft);
-
-        var cached = (await competingRepository.GetByIdAsync(42))!;
-        cached.Fields.GetValueOrDefault("System.Description").ShouldBe("Concurrent unpublished draft");
-        cached.IsDirty.ShouldBeTrue();
-        _transport.TitleOf(42).ShouldBe("Committed actor plan");
-    }
-
-    [Fact]
-    public async Task MatchingNewerRemoteStateWithoutAcknowledgementDoesNotSettleAnUnknownAttempt()
-    {
-        var runtime = await AttachAsync();
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
-        var file = await ProposalAsync(runtime, "unknown", "unknown", 42, 1, "Coincidental newer title");
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        await journal.SaveOperationErrorAsync(digest, "unknown", "Unknown transport outcome", PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
-        _transport.SetItem(42, "Coincidental newer title", 2, Actor);
-        var result = await lifecycle.ReconcileAsync(file, digest, "unknown", PlanOutcomeKind.Readback);
-        result.Settled.ShouldBeFalse();
-        (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
-        (await journal.GetUnresolvedAsync()).Select(j => j.Digest).ShouldContain(digest);
-        _transport.CommittedWrites.ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task OnlyAnActuallyVerifiedReplacementOfTheOriginalEffectSettlesItsFailedAttempt()
-    {
-        var runtime = await AttachAsync();
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
-        var original = await ProposalAsync(runtime, "original", "original", 42, 1, "Replacement actor plan");
-        var digest = (await lifecycle.PreviewAsync(original)).Digest!;
-        _transport.RejectNextPatch = true;
-        (await lifecycle.ApplyAsync(original, digest)).Operations.Single().State.ShouldBe(PlanOperationState.Failed);
-        var unrelated = await ProposalAsync(runtime, "unrelated", "unrelated", 43, 1, "Unrelated successful plan");
-        var unrelatedDigest = (await lifecycle.PreviewAsync(unrelated)).Digest!;
-        (await lifecycle.ApplyAsync(unrelated, unrelatedDigest)).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
-        (await lifecycle.ReconcileAsync(original, digest, "original", PlanOutcomeKind.Superseded, unrelatedDigest, "unrelated")).Settled.ShouldBeFalse();
-        (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
-        var replacement = await ProposalAsync(runtime, "replacement", "replacement", 42, 1, "Replacement actor plan");
-        var replacementDigest = (await lifecycle.PreviewAsync(replacement)).Digest!;
-        (await lifecycle.ApplyAsync(replacement, replacementDigest)).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
-        var cachedReplacement = (await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!;
-        cachedReplacement.Title.ShouldBe("Replacement actor plan");
-        cachedReplacement.Revision.ShouldBe(2);
-        var writes = _transport.CommittedWrites;
-        var settled = await lifecycle.ReconcileAsync(original, digest, "original", PlanOutcomeKind.Superseded, replacementDigest, "replacement");
-        settled.Settled.ShouldBeTrue(settled.Error);
-        var row = (await journal.GetAsync(digest))!.Operations.Single();
-        row.State.ShouldBe(PlanOperationState.Failed);
-        row.OutcomeReceipt!.ReplacementDigest.ShouldBe(replacementDigest);
-        (await journal.GetUnresolvedAsync()).ShouldBeEmpty();
-        _transport.CommittedWrites.ShouldBe(writes);
-    }
-
-    [Fact]
-    public async Task ChangedAndUnknownOriginsCannotAdoptTheCurrentActorBeforeWorkHttp()
-    {
-        var runtime = await AttachAsync();
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
-        var original = await ProposalAsync(runtime, "bound", "bound", 42, 1, "Bound original intent");
-        var digest = (await lifecycle.PreviewAsync(original)).Digest!;
-        var legacy = await ProposalAsync(runtime, "legacy", "legacy", 43, 1, "Unknown legacy intent");
-        var parsed = await lifecycle.ValidateAsync(legacy);
-        await journal.ImportAsync(parsed.Plan!, parsed.CanonicalJson!, parsed.Digest!, legacy, DateTimeOffset.UtcNow);
-        var requests = _transport.WorkRequests;
-        (await lifecycle.ApplyAsync(legacy, parsed.Digest!)).Failed.ShouldBeTrue();
-        _transport.WorkRequests.ShouldBe(requests);
-        var config = runtime.GetRequiredService<TwigConfiguration>();
-        var selected = await _bindings.CreateBindingAsync(config.Organization, config.Project, "sibling", false);
-        SwapSelection(config, selected.BindingId);
-        (await lifecycle.ApplyAsync(original, digest)).Failed.ShouldBeTrue();
-        (await lifecycle.PreviewAsync(original)).CanApply.ShouldBeFalse();
-        var reconnected = BuildRuntime(config, runtime.GetRequiredService<TwigPaths>());
-        (await reconnected.GetRequiredService<IPlanLifecycleService>().ApplyAsync(original, digest)).Failed.ShouldBeTrue();
-        _transport.WorkRequests.ShouldBe(requests);
-        (await journal.GetAsync(parsed.Digest!))!.Origin.ShouldBeNull();
-        _transport.CommittedWrites.ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task OpenSeedIntentReadbackNeverRedrivesPublicationOrClearsTheUnknownBlocker()
-    {
-        var runtime = await AttachAsync();
-        var paths = runtime.GetRequiredService<TwigPaths>();
-        var config = runtime.GetRequiredService<TwigConfiguration>();
-        var identity = StagedIdentity.New();
-        var file = Path.Combine(paths.TwigDir, "seed-unknown.json");
-        await File.WriteAllTextAsync(file, JsonSerializer.Serialize(new
-        {
-            version = 1, workspace = new { organization = config.Organization, project = config.Project },
-            operations = new[] { new { id = "seed", kind = "publish-seed", stagedIdentity = identity.ToString(), expectedFingerprint = "unproved-fingerprint" } }
-        }));
-        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
-        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
-        var intents = runtime.GetRequiredService<IPublishIntentRepository>();
-        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
-        var originalIntent = await intents.RecordIntentAsync(identity, "Unknown create", "Task");
-        await journal.SaveOperationErrorAsync(digest, "seed", "Unknown create outcome", PlanOperationState.Indeterminate, DateTimeOffset.UtcNow);
-        var result = await lifecycle.ReconcileAsync(file, digest, "seed", PlanOutcomeKind.Readback);
-        result.Settled.ShouldBeFalse();
-        (await intents.GetOpenIntentsAsync()).Single().RecordedAt.ShouldBe(originalIntent.RecordedAt);
-        (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
-        _transport.PostCount.ShouldBe(0);
-        _transport.CommittedWrites.ShouldBe(0);
-    }
-
-    private async Task<ServiceProvider> AttachAsync(Func<Task>? afterPendingRead = null)
+    private async Task<ServiceProvider> AttachAsync()
     {
         var root = Path.Combine(_temp, "checkout");
         Directory.CreateDirectory(root);
@@ -2836,56 +2353,20 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         _transport.SetItem(42, "Original actor plan", 1, Actor);
         _transport.SetItem(43, "Another actor plan", 1, Actor);
         _transport.SetItem(44, "Sibling private plan", 1, Sibling);
-        return BuildRuntime(config, paths, afterPendingRead);
+        return BuildRuntime(config, paths);
     }
 
-    private ServiceProvider BuildRuntime(TwigConfiguration config, TwigPaths paths, Func<Task>? afterPendingRead = null)
+    private ServiceProvider BuildRuntime(TwigConfiguration config, TwigPaths paths)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
-        services.AddConnectionServices(config, paths.TwigDir, paths.StartDir);
-        services.AddSingleton<ISystemWorktreeRegistry>(_systemRegistry);
-        services.AddSingleton(paths);
+        services.AddCoreWorkspaceServices(config, paths);
+        services.AddSingleton(_systemRegistry);
         services.AddSingleton(_http);
-        services.AddTwigNetworkServices(config);
         services.AddTwigRenderingServices();
-        if (afterPendingRead is not null)
-            services.AddSingleton<IPendingChangeReader>(sp => new InterleavedPendingReader(
-                (IPendingChangeReader)sp.GetRequiredService<IPendingChangeStore>(), afterPendingRead));
         var runtime = services.BuildServiceProvider();
         _runtimes.Add(runtime);
         return runtime;
-    }
-
-    private sealed class InterleavedPendingReader(IPendingChangeReader inner, Func<Task> afterRead) : IPendingChangeReader
-    {
-        public async Task<IReadOnlyList<PendingChangeDetail>> GetAllChangesAsync(CancellationToken ct = default)
-        {
-            var snapshot = await inner.GetAllChangesAsync(ct);
-            await afterRead();
-            return snapshot;
-        }
-    }
-
-    private static async Task<string> ProposalAsync(ServiceProvider runtime, string name, string opId, int itemId, int revision, string title,
-        bool includeTail = false)
-    {
-        var config = runtime.GetRequiredService<TwigConfiguration>();
-        var file = Path.Combine(runtime.GetRequiredService<TwigPaths>().TwigDir, name + ".json");
-        var operations = new[]
-        {
-            new { id = opId, kind = "batch", workItemId = itemId, expectedRevision = revision,
-                fields = new Dictionary<string, string> { ["System.Title"] = title } }
-        }.ToList();
-        if (includeTail)
-            operations.Add(new { id = "tail", kind = "batch", workItemId = 43, expectedRevision = 1,
-                fields = new Dictionary<string, string> { ["System.Title"] = "Must not send the tail" } });
-        await File.WriteAllTextAsync(file, JsonSerializer.Serialize(new
-        {
-            version = 1, workspace = new { organization = config.Organization, project = config.Project },
-            operations
-        }));
-        return file;
     }
 
     private void SwapSelection(TwigConfiguration config, string binding)

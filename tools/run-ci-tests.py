@@ -30,24 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 ASSEMBLIES = ("Cli", "Core", "Store.Sqlite", "Providers.Ado", "Providers.GitHub",
               "Infrastructure", "RenderTree")
 HOST_CLASSES = {
-    "Twig.Cli.Tests.Commands.ConnectionBindingTransitionConsumerTests",
-    "Twig.Cli.Tests.Commands.ConnectionMigrateCommandTests",
-    "Twig.Cli.Tests.Commands.SeedLifecycleIntegrationTests",
-    "Twig.Cli.Tests.Browser.BrowserApplicationScenarioTests",
-    "Twig.Cli.Tests.Browser.BrowserBenchModuleTests",
-    "Twig.Cli.Tests.Browser.BrowserEditingModuleTests",
-    "Twig.Cli.Tests.Browser.BrowserReadModuleTests",
-    "Twig.Cli.Tests.Browser.BrowserReviewModuleTests",
-    "Twig.Cli.Tests.Browser.BrowserDiscussionModuleTests",
-    "Twig.Cli.Tests.Browser.BrowserExplicitBenchCompositionTests",
-    "Twig.Cli.Tests.Browser.NativeFixtureExportTests",
-    "Twig.Cli.Tests.Browser.RecoverableDraftEditingTests",
-    "Twig.Cli.Tests.Commands.BenchDiscussionCommandTests",
-    "Twig.Cli.Tests.Commands.BenchDiscussionParserBaselineTests",
-    "Twig.Cli.Tests.Commands.DraftCaptureCommandTests",
-    "Twig.Cli.Tests.Commands.DraftCommandTests",
-    "Twig.Cli.Tests.Commands.DraftEditingProductionCliTests",
 }
+HOST_CLASSES = set(HOST_CLASSES)
 MAX_CLI_CASES = 200
 MAX_HOST_CASES = 10
 MAX_FILTER_LENGTH = 6000  # Leave room in Windows' command-line limit for SDK/artifact paths.
@@ -233,7 +217,7 @@ def partition_cli(cases, host_methods, base_filter):
     methods = {method_name(name) for name in cases}
     require(host_methods <= methods, "HostInventory discovery includes ineligible methods")
     expected_host = {method for method in methods if method.rsplit(".", 1)[0] in HOST_CLASSES}
-    require(host_methods == expected_host and bool(host_methods), "HostInventory trait does not match the declared inventory classes")
+    require(host_methods == expected_host, "HostInventory trait does not match the declared inventory classes")
     require({method.rsplit(".", 1)[0] for method in host_methods} == HOST_CLASSES, "an inventory class is missing")
     groups = {}
     for name, count in cases.items():
@@ -489,7 +473,8 @@ class Runner:
                 methods = self.discover_methods(dll, self.base_filter, f"{assembly}-eligible")
                 cases = eligible_cases(all_cases, methods)
                 if assembly == "Cli":
-                    host_methods = self.discover_methods(dll, f"({self.base_filter})&Category=HostInventory", "Cli-host-discovery")
+                    host_methods = (self.discover_methods(dll, f"({self.base_filter})&Category=HostInventory", "Cli-host-discovery")
+                                    if HOST_CLASSES else set())
                     partitions = partition_cli(cases, host_methods, self.base_filter)
                 else:
                     partitions = [Partition(assembly, self.base_filter, cases)]
@@ -530,12 +515,20 @@ class RunnerSelfTests(unittest.TestCase):
             if path.startswith("tests/") and ET.parse(ROOT / path).getroot().findtext("PropertyGroup/IsTestProject") == "true":
                 supported.add(Path(path).stem)
         self.assertEqual(supported, {f"Twig.{suite}.Tests" for suite in ASSEMBLIES})
-        self.assertIn("src/Twig.Domain/Twig.Domain.csproj", projects)
+        self.assertNotIn("src/Twig.Domain/Twig.Domain.csproj", projects)
+        self.assertFalse((ROOT / "src/Twig.Domain/Twig.Domain.csproj").exists())
         self.assertIn("samples/Twig.DetailHost/Twig.DetailHost.csproj", projects)
-        for retired in ("Domain.Tests", "Benchmarks"):
+        for retired in ("Domain.Tests", "Benchmarks", "Mcp.Tests", "Tui.Tests"):
             path = f"tests/Twig.{retired}/Twig.{retired}.csproj"
             self.assertNotIn(path, projects)
-            self.assertTrue((ROOT / path).is_file(), "withdrawal does not delete historical source")
+            self.assertFalse((ROOT / path).exists(), "retired project source must be removed")
+            self.assertFalse(list((ROOT / f"tests/Twig.{retired}").rglob("*.cs")),
+                             "retired tests must not remain as orphan source")
+        for retired in ("Mcp", "Tui"):
+            directory = ROOT / f"src/Twig.{retired}"
+            self.assertFalse((directory / f"Twig.{retired}.csproj").exists())
+            self.assertFalse(list(directory.rglob("*.cs")),
+                             "retired hosts must not remain as orphan source")
         self.assertNotIn("Domain", ASSEMBLIES)
         self.assertNotIn("Tui", ASSEMBLIES)
         self.assertNotIn("Mcp", ASSEMBLIES)
@@ -651,6 +644,7 @@ class RunnerSelfTests(unittest.TestCase):
             timeout=10,
         )
 
+    @patch(__name__ + ".HOST_CLASSES", {"Twig.Cli.Tests.Commands.SyntheticHost"})
     def test_partition_coverage_is_complete_disjoint_and_bounded(self):
         cases = Counter({f"Twig.Cli.Tests.Commands.Ordinary{index // 15}.Case{index}": 1 for index in range(421)})
         cases.update({f"Twig.Cli.Tests.Commands.Oversized.Case{index}": 1 for index in range(250)})

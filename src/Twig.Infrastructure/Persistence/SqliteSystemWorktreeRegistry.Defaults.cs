@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
-using Twig.Domain.Common;
+using Twig.Core;
+using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Serialization;
 
@@ -36,7 +37,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
 
     internal Task<Result<IReadOnlyList<ConnectionDefaultWorktreeRow>>> ReadDefaultWorktreesAsync(string connectionRef, CancellationToken ct = default)
         => ExecuteReadAsync<IReadOnlyList<ConnectionDefaultWorktreeRow>>(async connection =>
-            Result.Ok<IReadOnlyList<ConnectionDefaultWorktreeRow>>(await ReadDefaultWorktreesAsync(connection, null, connectionRef, ct).ConfigureAwait(false)), ct);
+            NativeResults.Ok<IReadOnlyList<ConnectionDefaultWorktreeRow>>(await ReadDefaultWorktreesAsync(connection, null, connectionRef, ct).ConfigureAwait(false)), ct);
 
     private static async Task<List<ConnectionDefaultWorktreeRow>> ReadDefaultWorktreesAsync(SqliteConnection connection,
         SqliteTransaction? tx, string connectionRef, CancellationToken ct)
@@ -59,18 +60,18 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$ref", connectionRef);
             cmd.Parameters.AddWithValue("$digest", (object?)digest ?? DBNull.Value);
             using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return Result.Ok<ConnectionDefaultTransitionRecord?>(null);
+            if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return NativeResults.Missing<ConnectionDefaultTransitionRecord?>();
             var record = JsonSerializer.Deserialize(reader.GetString(2), TwigJsonContext.Default.ConnectionDefaultTransitionRecord);
             return record is not null && record.Version == 1 && record.Digest == reader.GetString(0)
                 && record.State == reader.GetString(1) && record.ConnectionRef == connectionRef
-                ? Result.Ok<ConnectionDefaultTransitionRecord?>(record)
-                : Result.Fail<ConnectionDefaultTransitionRecord?>("binding-default-intent-inconsistent: restore the original native family record; no new intent is admitted.");
+                ? NativeResults.Ok<ConnectionDefaultTransitionRecord?>(record)
+                : NativeResults.Fail<ConnectionDefaultTransitionRecord?>("binding-default-intent-inconsistent: restore the original native family record; no new intent is admitted.");
         }, ct);
 
-    internal Task<Result> InspectDefaultTransitionAuthorityAsync(ConnectionDefaultTransitionRecord record, CancellationToken ct = default)
+    internal Task<Result<bool>> InspectDefaultTransitionAuthorityAsync(ConnectionDefaultTransitionRecord record, CancellationToken ct = default)
         => ExecuteWriteAsync((connection, tx) => ValidateDefaultAuthorityAsync(connection, tx, record, ct), ct);
 
-    internal Task<Result> BeginDefaultTransitionAsync(ConnectionDefaultTransitionRecord record, CancellationToken ct = default)
+    internal Task<Result<bool>> BeginDefaultTransitionAsync(ConnectionDefaultTransitionRecord record, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             var admitted = await ValidateDefaultAuthorityAsync(connection, tx, record, ct).ConfigureAwait(false);
@@ -82,7 +83,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$ref", record.ConnectionRef);
             cmd.Parameters.AddWithValue("$json", SerializeDefault(record));
             if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
-                return Result.Fail("binding-default-intent-conflict: recover the original default intent and exact digest.");
+                return NativeResults.Fail("binding-default-intent-conflict: recover the original default intent and exact digest.");
             foreach (var member in record.Members.Where(x => x.Transition is not null))
             {
                 cmd.CommandText = "INSERT INTO connection_default_transition_members(digest,worktree_fingerprint) VALUES($digest,$fp);";
@@ -93,16 +94,16 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 cmd.Parameters.AddWithValue("$prepared", JsonSerializer.Serialize(local.OriginalMigration with { State = "preparing" }, TwigJsonContext.Default.ConnectionMigrationRecord));
                 cmd.Parameters.AddWithValue("$original", JsonSerializer.Serialize(local.OriginalMigration, TwigJsonContext.Default.ConnectionMigrationRecord));
                 if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
-                    return Result.Fail("binding-default-preparation-cas-mismatch: no member preparation was committed.");
+                    return NativeResults.Fail("binding-default-preparation-cas-mismatch: no member preparation was committed.");
                 cmd.Parameters.RemoveAt("$fp"); cmd.Parameters.RemoveAt("$prepared"); cmd.Parameters.RemoveAt("$original");
             }
-            return Result.Ok();
+            return NativeResults.Ok();
         }, ct);
 
-    internal Task<Result> CommitDefaultTransitionAsync(ConnectionDefaultTransitionRecord record, CancellationToken ct = default)
+    internal Task<Result<bool>> CommitDefaultTransitionAsync(ConnectionDefaultTransitionRecord record, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
-            if (record.State != "preparing") return Result.Fail("binding-default-state-mismatch");
+            if (record.State != "preparing") return NativeResults.Fail("binding-default-state-mismatch");
             var admitted = await ValidateDefaultAuthorityAsync(connection, tx, record, ct).ConfigureAwait(false);
             if (!admitted.IsSuccess) return admitted;
             using var cmd = connection.CreateCommand();
@@ -114,7 +115,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$original", record.OriginalDefault.BindingId);
             cmd.Parameters.AddWithValue("$old", record.OriginalDefault.Revision);
             cmd.Parameters.AddWithValue("$now", _clock.GetUtcNow().ToString("o"));
-            if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1) return Result.Fail("binding-default-selection-cas-mismatch");
+            if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1) return NativeResults.Fail("binding-default-selection-cas-mismatch");
             foreach (var member in record.Members)
             {
                 if (member.Transition is not { } local) continue;
@@ -125,7 +126,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 cmd.Parameters.AddWithValue("$fp", local.Fingerprint);
                 cmd.Parameters.AddWithValue("$prior", local.OriginalMigration.Generation);
                 cmd.Parameters.AddWithValue("$priorJson", JsonSerializer.Serialize(local.OriginalMigration with { State = "preparing" }, TwigJsonContext.Default.ConnectionMigrationRecord));
-                if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1) return Result.Fail("binding-default-generation-cas-mismatch: no member was admitted.");
+                if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1) return NativeResults.Fail("binding-default-generation-cas-mismatch: no member was admitted.");
                 cmd.Parameters.RemoveAt("$generation"); cmd.Parameters.RemoveAt("$json"); cmd.Parameters.RemoveAt("$fp");
                 cmd.Parameters.RemoveAt("$prior"); cmd.Parameters.RemoveAt("$priorJson");
             }
@@ -134,72 +135,72 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             return await WriteDefaultProgressAsync(connection, tx, record, desired, ct).ConfigureAwait(false);
         }, ct);
 
-    internal Task<Result> AdvanceDefaultTransitionAsync(ConnectionDefaultTransitionRecord original, ConnectionDefaultTransitionRecord desired, CancellationToken ct = default)
+    internal Task<Result<bool>> AdvanceDefaultTransitionAsync(ConnectionDefaultTransitionRecord original, ConnectionDefaultTransitionRecord desired, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             if (original.State != "central-committed" || desired.Digest != original.Digest || desired.ConnectionRef != original.ConnectionRef
                 || desired.State is not ("central-committed" or "completed") || original.Members.Count != desired.Members.Count)
-                return Result.Fail("binding-default-progress-invalid");
+                return NativeResults.Fail("binding-default-progress-invalid");
             var changes = 0;
             for (var i = 0; i < original.Members.Count; i++)
             {
                 var before = original.Members[i]; var after = desired.Members[i];
                 if (before.Transition == after.Transition)
                 {
-                    if (before != after) return Result.Fail("binding-default-member-context-changed");
+                    if (before != after) return NativeResults.Fail("binding-default-member-context-changed");
                     continue;
                 }
                 if (before.Transition is not { } local || after != (before with { Transition = after.Transition })
                     || after.Transition != (local with { State = after.Transition?.State ?? "" }))
-                    return Result.Fail("binding-default-member-context-changed");
+                    return NativeResults.Fail("binding-default-member-context-changed");
                 var next = local.State switch { "central-committed" => "attachment-completed", "attachment-completed" => "mirror-completed", "mirror-completed" => "completed", _ => null };
-                if (after.Transition!.State != next) return Result.Fail("binding-default-member-progress-invalid");
+                if (after.Transition!.State != next) return NativeResults.Fail("binding-default-member-progress-invalid");
                 changes++;
             }
             if (desired.State == "completed" ? changes != 0 || desired.Members.Any(x => x.Transition is { State: not "completed" }) : changes != 1)
-                return Result.Fail("binding-default-family-incomplete: all members must complete before any new runtime is admitted.");
+                return NativeResults.Fail("binding-default-family-incomplete: all members must complete before any new runtime is admitted.");
             var admitted = await ValidateDefaultAuthorityAsync(connection, tx, original, ct).ConfigureAwait(false);
             return admitted.IsSuccess ? await WriteDefaultProgressAsync(connection, tx, original, desired, ct).ConfigureAwait(false) : admitted;
         }, ct);
 
-    private static async Task<Result> WriteDefaultProgressAsync(SqliteConnection connection, SqliteTransaction tx,
+    private static async Task<Result<bool>> WriteDefaultProgressAsync(SqliteConnection connection, SqliteTransaction tx,
         ConnectionDefaultTransitionRecord original, ConnectionDefaultTransitionRecord desired, CancellationToken ct)
     {
         using var cmd = connection.CreateCommand(); cmd.Transaction = tx;
         cmd.CommandText = "UPDATE connection_default_transitions SET state=$state,record_json=$json WHERE digest=$digest AND state=$expected AND record_json=$original;";
         cmd.Parameters.AddWithValue("$state", desired.State); cmd.Parameters.AddWithValue("$json", SerializeDefault(desired));
         cmd.Parameters.AddWithValue("$digest", original.Digest); cmd.Parameters.AddWithValue("$expected", original.State); cmd.Parameters.AddWithValue("$original", SerializeDefault(original));
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1 ? Result.Ok() : Result.Fail("binding-default-progress-cas-mismatch: recover the exact native family intent.");
+        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1 ? NativeResults.Ok() : NativeResults.Fail("binding-default-progress-cas-mismatch: recover the exact native family intent.");
     }
 
-    private static async Task<Result> ValidateDefaultAuthorityAsync(SqliteConnection connection, SqliteTransaction tx,
+    private static async Task<Result<bool>> ValidateDefaultAuthorityAsync(SqliteConnection connection, SqliteTransaction tx,
         ConnectionDefaultTransitionRecord record, CancellationToken ct)
     {
         var currentRows = await ReadDefaultWorktreesAsync(connection, tx, record.ConnectionRef, ct).ConfigureAwait(false);
         if (!currentRows.SequenceEqual(record.Members.Select(x => x.Registration)))
-            return Result.Fail("binding-default-worktree-set-cas-mismatch: complete registered membership or registration revision changed.");
+            return NativeResults.Fail("binding-default-worktree-set-cas-mismatch: complete registered membership or registration revision changed.");
         using var cmd = connection.CreateCommand(); cmd.Transaction = tx;
         cmd.CommandText = "SELECT 1 FROM connection_default_transitions WHERE connection_ref=$ref AND state<>'completed' AND digest<>$digest LIMIT 1;";
         cmd.Parameters.AddWithValue("$ref", record.ConnectionRef); cmd.Parameters.AddWithValue("$digest", record.Digest);
-        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null) return Result.Fail("binding-default-intent-conflict");
+        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null) return NativeResults.Fail("binding-default-intent-conflict");
         cmd.CommandText = "SELECT record_json FROM connection_default_transitions WHERE digest=$digest AND state='preparing';";
         var preparationJson = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
         var preparationRecorded = preparationJson is not null;
         if (preparationRecorded && preparationJson != SerializeDefault(record))
-            return Result.Fail("binding-default-preparation-cas-mismatch: the exact recorded native family changed.");
+            return NativeResults.Fail("binding-default-preparation-cas-mismatch: the exact recorded native family changed.");
         var expected = record.State == "preparing" ? record.OriginalDefault : record.DesiredDefault;
         cmd.CommandText = "SELECT 1 FROM connection_defaults WHERE connection_ref=$ref AND binding_id=$binding AND revision=$revision;";
         cmd.Parameters.AddWithValue("$binding", expected.BindingId); cmd.Parameters.AddWithValue("$revision", expected.Revision);
-        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null) return Result.Fail("binding-default-selection-cas-mismatch");
+        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null) return NativeResults.Fail("binding-default-selection-cas-mismatch");
         cmd.CommandText = "SELECT 1 FROM connection_bindings WHERE binding_id=$desired AND connection_ref=$ref AND identity_id=$identity AND revision=$bindingRevision;";
         cmd.Parameters.AddWithValue("$desired", record.DesiredBinding.BindingId); cmd.Parameters.AddWithValue("$identity", record.DesiredBinding.IdentityId); cmd.Parameters.AddWithValue("$bindingRevision", record.DesiredBinding.Revision);
-        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null) return Result.Fail("binding-default-binding-cas-mismatch");
+        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null) return NativeResults.Fail("binding-default-binding-cas-mismatch");
         foreach (var member in record.Members)
         {
             if (member.Transition is not { } local) continue;
             cmd.CommandText = "SELECT 1 FROM connection_binding_transitions WHERE worktree_fingerprint=$fp AND state<>'completed' LIMIT 1;";
             cmd.Parameters.AddWithValue("$fp", local.Fingerprint);
-            if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null) return Result.Fail("binding-default-local-intent-unfinished");
+            if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null) return NativeResults.Fail("binding-default-local-intent-unfinished");
             cmd.Parameters.RemoveAt("$fp");
             var authority = local with { DefaultBindingId = expected.BindingId, DefaultRevision = expected.Revision };
             var expectedMigration = record.State == "preparing"
@@ -209,7 +210,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 expectedMigration, ct, record.Digest).ConfigureAwait(false);
             if (!result.IsSuccess) return result;
         }
-        return Result.Ok();
+        return NativeResults.Ok();
     }
 
     private static string SerializeDefault(ConnectionDefaultTransitionRecord record)

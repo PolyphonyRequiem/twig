@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 
 namespace Twig.Infrastructure.GitHub;
 

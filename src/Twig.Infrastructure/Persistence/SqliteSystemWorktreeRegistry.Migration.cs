@@ -1,5 +1,6 @@
 using System.Text.Json;
-using Twig.Domain.Common;
+using Twig.Core;
+using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Persistence;
@@ -28,14 +29,14 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.CommandText = "SELECT state, generation, record_json FROM connection_migrations WHERE worktree_fingerprint = $fp;";
             cmd.Parameters.AddWithValue("$fp", fingerprint);
             using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return Result.Ok<ConnectionMigrationRecord?>(null);
+            if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return NativeResults.Missing<ConnectionMigrationRecord?>();
             var record = JsonSerializer.Deserialize(reader.GetString(2), TwigJsonContext.Default.ConnectionMigrationRecord);
             if (record is null || record.State != reader.GetString(0) || record.Generation != reader.GetString(1))
-                return Result.Fail<ConnectionMigrationRecord?>("migration-intent-inconsistent: native record disagrees with its admission columns.");
-            return Result.Ok<ConnectionMigrationRecord?>(record);
+                return NativeResults.Fail<ConnectionMigrationRecord?>("migration-intent-inconsistent: native record disagrees with its admission columns.");
+            return NativeResults.Ok<ConnectionMigrationRecord?>(record);
         }, ct);
 
-    internal Task<Result> BeginConnectionMigrationAsync(ConnectionMigrationRecord record, CancellationToken ct = default)
+    internal Task<Result<bool>> BeginConnectionMigrationAsync(ConnectionMigrationRecord record, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             var remote = await RefuseUnsettledMigrationWritesAsync(connection, tx, record.Fingerprint, ct).ConfigureAwait(false);
@@ -47,10 +48,10 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$generation", record.Generation);
             cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(record, TwigJsonContext.Default.ConnectionMigrationRecord));
             return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1
-                ? Result.Ok() : Result.Fail("migration-intent-conflict: resume the existing native intent; no new generation was admitted.");
+                ? NativeResults.Ok() : NativeResults.Fail("migration-intent-conflict: resume the existing native intent; no new generation was admitted.");
         }, ct);
 
-    internal Task<Result> CompleteConnectionMigrationAsync(ConnectionMigrationRecord record, CancellationToken ct = default)
+    internal Task<Result<bool>> CompleteConnectionMigrationAsync(ConnectionMigrationRecord record, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             using var cmd = connection.CreateCommand();
@@ -62,7 +63,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 selection.CommandText = "SELECT binding_id FROM connection_defaults WHERE connection_ref=$ref;";
                 selection.Parameters.AddWithValue("$ref", record.ConnectionRef);
                 if (!string.Equals(await selection.ExecuteScalarAsync(ct).ConfigureAwait(false) as string, record.BindingId, StringComparison.Ordinal))
-                    return Result.Fail("migration-selection-cas-mismatch: default changed during preparation. Original intent stays fenced; restore its original selection before resuming.");
+                    return NativeResults.Fail("migration-selection-cas-mismatch: default changed during preparation. Original intent stays fenced; restore its original selection before resuming.");
             }
             cmd.Transaction = tx;
             cmd.CommandText = "UPDATE connection_migrations SET state = 'active', record_json = $json WHERE worktree_fingerprint = $fp AND generation = $generation AND state = 'preparing';";
@@ -70,10 +71,10 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$generation", record.Generation);
             cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(record with { State = "active" }, TwigJsonContext.Default.ConnectionMigrationRecord));
             return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1
-                ? Result.Ok() : Result.Fail("migration-intent-conflict: activation CAS refused; retain the original intent and resume.");
+                ? NativeResults.Ok() : NativeResults.Fail("migration-intent-conflict: activation CAS refused; retain the original intent and resume.");
         }, ct);
 
-    private static async Task<Result> RefuseUnsettledMigrationWritesAsync(Microsoft.Data.Sqlite.SqliteConnection connection,
+    private static async Task<Result<bool>> RefuseUnsettledMigrationWritesAsync(Microsoft.Data.Sqlite.SqliteConnection connection,
         Microsoft.Data.Sqlite.SqliteTransaction tx, string fingerprint, CancellationToken ct)
     {
         using var cmd = connection.CreateCommand();
@@ -81,9 +82,9 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         cmd.CommandText = "SELECT 1 FROM connection_default_transition_members m JOIN connection_default_transitions f ON f.digest=m.digest WHERE m.worktree_fingerprint=$fp AND f.state<>'completed' LIMIT 1;";
         cmd.Parameters.AddWithValue("$fp", fingerprint);
         if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
-            return Result.Fail("binding-default-family-incomplete: migration cannot replace or activate a member of an unfinished native default intent.");
+            return NativeResults.Fail("binding-default-family-incomplete: migration cannot replace or activate a member of an unfinished native default intent.");
         cmd.CommandText = "SELECT 1 FROM connection_remote_write_intents i WHERE i.worktree_fingerprint=$fp AND NOT EXISTS(SELECT 1 FROM connection_remote_write_receipts r WHERE r.intent_id=i.intent_id) LIMIT 1;";
-        return await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null ? Result.Ok()
-            : Result.Fail("migration-remote-write-outcome-unknown: native mutation uncertainty must be reconciled under original authority; lease expiry cannot admit migration.");
+        return await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null ? NativeResults.Ok()
+            : NativeResults.Fail("migration-remote-write-outcome-unknown: native mutation uncertainty must be reconciled under original authority; lease expiry cannot admit migration.");
     }
 }

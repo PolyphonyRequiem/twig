@@ -1,9 +1,9 @@
 using System.Text.Json;
-using Twig.Domain.Common;
-using Twig.Domain.Interfaces;
-using Twig.Domain.Services.Attachment;
-using Twig.Domain.Services.Claims;
-using Twig.Domain.ValueObjects;
+using Twig.Core;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence.ProviderTargets;
+
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Serialization;
 
@@ -27,7 +27,7 @@ namespace Twig.Infrastructure.Persistence;
 /// the in-process semaphore alone was not sufficient.
 /// </para>
 /// </summary>
-internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStore, IDisposable
+internal sealed class WorktreeLocalAttachmentStore : IDisposable
 {
     private readonly TwigPaths _paths;
     private readonly TwigConfiguration _config;
@@ -65,46 +65,46 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     {
         var res = await ReadInternalAsync(ct).ConfigureAwait(false);
         if (!res.IsSuccess)
-            return Result.Fail<PrimaryScopeAttachment>(res.Error);
-        return Result.Ok(res.Value.Projection);
+            return NativeResults.Fail<PrimaryScopeAttachment>(res.Error);
+        return NativeResults.Ok(res.Value.Projection);
     }
 
     public async Task<Result<VersionedPrimaryScopeAttachment>> ReadWithRevisionAsync(CancellationToken ct = default)
     {
         var res = await ReadInternalAsync(ct).ConfigureAwait(false);
         if (!res.IsSuccess)
-            return Result.Fail<VersionedPrimaryScopeAttachment>(res.Error);
-        return Result.Ok(new VersionedPrimaryScopeAttachment(res.Value.Projection, res.Value.Document.Revision));
+            return NativeResults.Fail<VersionedPrimaryScopeAttachment>(res.Error);
+        return NativeResults.Ok(new VersionedPrimaryScopeAttachment(res.Value.Projection, res.Value.Document.Revision));
     }
 
     internal async Task<Result<(VersionedPrimaryScopeAttachment Attachment, WorktreeAnchor Anchor)>> ReadForBindingAsync(CancellationToken ct)
     {
         var res = await ReadInternalAsync(ct).ConfigureAwait(false);
         if (!res.IsSuccess)
-            return Result.Fail<(VersionedPrimaryScopeAttachment, WorktreeAnchor)>(res.Error);
-        return Result.Ok((new VersionedPrimaryScopeAttachment(res.Value.Projection, res.Value.Document.Revision), res.Value.Anchor));
+            return NativeResults.Fail<(VersionedPrimaryScopeAttachment, WorktreeAnchor)>(res.Error);
+        return NativeResults.Ok((new VersionedPrimaryScopeAttachment(res.Value.Projection, res.Value.Document.Revision), res.Value.Anchor));
     }
 
-    public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, long expectedRevision = -1, CancellationToken ct = default)
+    public Task<Result<bool>> WriteAsync(PrimaryScopeAttachment attachment, long expectedRevision = -1, CancellationToken ct = default)
         => MutateAsync(
             expectedRevision: expectedRevision,
             build: current => attachment with { BindingPin = current.BindingPin },
             scopeCheck: null,
             requireScopeKind: null,
             ct: ct);
-    public async Task<Result> InitializeAsync(CancellationToken ct = default)
+    public async Task<Result<bool>> InitializeAsync(CancellationToken ct = default)
     {
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
-            return Result.Fail(anchorFailure);
+            return NativeResults.Fail(anchorFailure);
         if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
-            return Result.Fail(AttachmentStorageFailure.LegacyLayoutPresent);
+            return NativeResults.Fail(AttachmentStorageFailure.LegacyLayoutPresent);
 
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
             if (_initialBindingPin is not null && File.Exists(attachmentPath))
-                return Result.Fail("binding-initialization-requires-fresh-checkout: use guarded 'twig connection pin' for an existing attachment.");
+                return NativeResults.Fail("binding-initialization-requires-fresh-checkout: use guarded 'twig connection pin' for an existing attachment.");
             Directory.CreateDirectory(_paths.TwigDir);
             await EnsureLayoutMarkerAsync(ct).ConfigureAwait(false);
             await WriteFingerprintAsync(anchor, ct).ConfigureAwait(false);
@@ -115,18 +115,18 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
                 await WriteJsonAtomicAsync(attachmentPath, empty, TwigJsonContext.Default.AttachmentDocument, ct)
                     .ConfigureAwait(false);
             }
-            return Result.Ok();
+            return NativeResults.Ok();
         }
         catch (OperationCanceledException) { throw; }
-        catch (IOException ex) { return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
-        catch (UnauthorizedAccessException ex) { return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
+        catch (IOException ex) { return NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
+        catch (UnauthorizedAccessException ex) { return NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
         finally
         {
             _writeGate.Release();
         }
     }
 
-    public Task<Result> LinkClaimAsync(
+    public Task<Result<bool>> LinkClaimAsync(
         string claimId,
         DateTimeOffset mintedAt,
         string expectedPrimaryScopeKind,
@@ -135,11 +135,11 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(claimId))
-            return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: claimId is required."));
+            return Task.FromResult(NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: claimId is required."));
         if (string.IsNullOrEmpty(expectedPrimaryScopeKind))
-            return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedPrimaryScopeKind is required."));
+            return Task.FromResult(NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedPrimaryScopeKind is required."));
         if (expectedWorkItemId <= 0)
-            return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedWorkItemId must be positive."));
+            return Task.FromResult(NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedWorkItemId must be positive."));
 
         return MutateAsync(
             expectedRevision: expectedRevision,
@@ -154,10 +154,10 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             ct: ct);
     }
 
-    public Task<Result> UnlinkClaimAsync(string expectedClaimId, long expectedRevision, CancellationToken ct = default)
+    public Task<Result<bool>> UnlinkClaimAsync(string expectedClaimId, long expectedRevision, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(expectedClaimId))
-            return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedClaimId is required."));
+            return Task.FromResult(NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedClaimId is required."));
 
         return MutateAsync(
             expectedRevision: expectedRevision,
@@ -184,26 +184,26 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         using var operation = Auth.ConnectionOperationGate.Acquire(Path.GetDirectoryName(_paths.TwigDir)!);
         ct.ThrowIfCancellationRequested();
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
-            return Result.Fail<ReadOutcome>(anchorFailure);
+            return NativeResults.Fail<ReadOutcome>(anchorFailure);
         if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.LegacyLayoutPresent);
+            return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.LegacyLayoutPresent);
 
         var layoutPath = Path.Combine(_paths.TwigDir, LayoutFileName);
         if (!File.Exists(layoutPath))
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.LayoutMarkerMissing);
+            return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.LayoutMarkerMissing);
 
         var layoutValidation = await ValidateLayoutMarkerAsync(layoutPath, ct).ConfigureAwait(false);
         if (layoutValidation is not null)
-            return Result.Fail<ReadOutcome>(layoutValidation);
+            return NativeResults.Fail<ReadOutcome>(layoutValidation);
 
         var driftError = await ValidateFingerprintAsync(anchor, ct).ConfigureAwait(false);
         if (driftError is not null)
-            return Result.Fail<ReadOutcome>(driftError);
+            return NativeResults.Fail<ReadOutcome>(driftError);
 
         var connectionRef = ConnectionRefResolver.Compute(_config);
         var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
         if (!File.Exists(attachmentPath))
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.LayoutMarkerMissing);
+            return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.LayoutMarkerMissing);
 
         AttachmentDocument? doc;
         try
@@ -213,54 +213,54 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
                 stream, TwigJsonContext.Default.AttachmentDocument, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
-        catch (JsonException) { return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid); }
-        catch (IOException ex) { return Result.Fail<ReadOutcome>($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
+        catch (JsonException) { return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid); }
+        catch (IOException ex) { return NativeResults.Fail<ReadOutcome>($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
 
-        if (doc is null) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (doc is null) return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         if (!string.Equals(doc.Schema, AttachmentDocument.CurrentSchema, StringComparison.Ordinal)
             || doc.Version != AttachmentDocument.CurrentVersion)
         {
             // AB#736 §Versioned persistence: an incompatible/newer document is
             // fail-closed. Silently accepting it and rewriting it as v1 would
             // drop fields this binary doesn't know about — a corruption path.
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         }
-        if (doc.Revision < 0) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (doc.Revision < 0) return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         if (doc.BindingPin is not null && string.IsNullOrWhiteSpace(doc.BindingPin))
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
-        if (string.IsNullOrEmpty(doc.ConnectionRef)) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (string.IsNullOrEmpty(doc.ConnectionRef)) return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         if (!string.Equals(doc.ConnectionRef, connectionRef, StringComparison.Ordinal))
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.AttachmentConnectionMismatch);
+            return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.AttachmentConnectionMismatch);
 
         PrimaryScope? scope = null;
         if (doc.PrimaryScope is { } ps)
         {
-            if (ps.WorkItemId <= 0) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
-            if (string.IsNullOrEmpty(ps.Kind)) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (ps.WorkItemId <= 0) return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (string.IsNullOrEmpty(ps.Kind)) return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
             if (!DateTimeOffset.TryParse(ps.AttachedAt, System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var attachedAt))
-                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+                return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
             if (string.IsNullOrEmpty(ps.WorkItemUrl))
-                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+                return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
             if (!AdoWorkItemUrlValidator.OriginMatches(ps.WorkItemUrl, _config.Organization, _config.Project))
-                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.AttachmentConnectionMismatch);
+                return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.AttachmentConnectionMismatch);
             scope = new PrimaryScope(ps.WorkItemId, ps.WorkItemUrl, attachedAt);
         }
 
         ActiveClaimReference? claim = null;
         if (doc.ActiveClaim is { } ac)
         {
-            if (string.IsNullOrEmpty(ac.ClaimId)) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (string.IsNullOrEmpty(ac.ClaimId)) return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
             if (!DateTimeOffset.TryParse(ac.MintedAt, System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var mintedAt))
-                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+                return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
             claim = new ActiveClaimReference(ac.ClaimId, mintedAt);
         }
 
-        return Result.Ok(new ReadOutcome(new PrimaryScopeAttachment(doc.ConnectionRef, scope, claim, doc.BindingPin), doc, anchor));
+        return NativeResults.Ok(new ReadOutcome(new PrimaryScopeAttachment(doc.ConnectionRef, scope, claim, doc.BindingPin), doc, anchor));
     }
 
-    private async Task<Result> MutateAsync(
+    private async Task<Result<bool>> MutateAsync(
         long expectedRevision,
         Func<PrimaryScopeAttachment, PrimaryScopeAttachment> build,
         Func<PrimaryScopeAttachment, string?>? scopeCheck,
@@ -275,7 +275,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         {
             lockHandle = await AcquireCrossProcessLockAsync(ct).ConfigureAwait(false);
             if (lockHandle is null)
-                return Result.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
+                return NativeResults.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
 
             var markerPath = Path.Combine(_paths.TwigDir, "cache", MirrorAdmission.MarkerFile);
             if (File.Exists(markerPath))
@@ -286,34 +286,34 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 
             var readRes = await ReadInternalAsync(ct).ConfigureAwait(false);
             if (!readRes.IsSuccess)
-                return Result.Fail(readRes.Error);
+                return NativeResults.Fail(readRes.Error);
 
             var currentProjection = readRes.Value.Projection;
             var currentDoc = readRes.Value.Document;
 
             if (expectedRevision >= 0 && currentDoc.Revision != expectedRevision)
-                return Result.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
+                return NativeResults.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
 
             if (scopeCheck is not null)
             {
                 var scopeErr = scopeCheck(currentProjection);
                 if (scopeErr is not null)
-                    return Result.Fail(scopeErr);
+                    return NativeResults.Fail(scopeErr);
             }
             if (requireScopeKind is not null)
             {
                 var storedKind = currentDoc.PrimaryScope?.Kind;
                 if (!string.Equals(storedKind, requireScopeKind, StringComparison.Ordinal))
-                    return Result.Fail(AttachmentStorageFailure.AttachmentScopeMismatch);
+                    return NativeResults.Fail(AttachmentStorageFailure.AttachmentScopeMismatch);
             }
 
             var next = build(currentProjection);
             if (ReferenceEquals(next, currentProjection) || next.Equals(currentProjection))
-                return Result.Ok(); // no-op
+                return NativeResults.Ok(); // no-op
 
             var expectedRef = ConnectionRefResolver.Compute(_config);
             if (!string.Equals(next.ConnectionRef, expectedRef, StringComparison.Ordinal))
-                return Result.Fail(AttachmentStorageFailure.AttachmentConnectionMismatch);
+                return NativeResults.Fail(AttachmentStorageFailure.AttachmentConnectionMismatch);
 
             var nextDoc = BuildDocument(next, currentDoc.Revision + 1);
             var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
@@ -321,10 +321,10 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             {
                 await WriteJsonAtomicAsync(attachmentPath, nextDoc, TwigJsonContext.Default.AttachmentDocument, ct)
                     .ConfigureAwait(false);
-                return Result.Ok();
+                return NativeResults.Ok();
             }
-            catch (IOException ex) { return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
-            catch (UnauthorizedAccessException ex) { return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
+            catch (IOException ex) { return NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
+            catch (UnauthorizedAccessException ex) { return NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
         }
         finally
         {
@@ -373,7 +373,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             ConnectionRef: attachment.ConnectionRef,
             PrimaryScope: attachment.PrimaryScope is { } scope
                 ? new AttachmentPrimaryScope(
-                    Kind: PrimaryScopeKinds.AdoWorkItem,
+                    Kind: "ado-workitem",
                     WorkItemId: scope.WorkItemId,
                     WorkItemUrl: scope.WorkItemUrl,
                     AttachedAt: scope.AttachedAt.ToUniversalTime().ToString("o"))
@@ -576,13 +576,13 @@ internal static class LegacyLayoutDetector
     /// failure leaves the source intact and returns
     /// <see cref="AttachmentStorageFailure.LegacyLayoutArchiveFailed"/>.
     /// </summary>
-    public static Twig.Domain.Common.Result<string> ArchiveLegacyLayout(string twigDir, TimeProvider clock)
+    public static Twig.Core.Result<string> ArchiveLegacyLayout(string twigDir, TimeProvider clock)
     {
         if (string.IsNullOrEmpty(twigDir) || !Directory.Exists(twigDir))
-            return Twig.Domain.Common.Result.Ok(string.Empty);
+            return NativeResults.Ok(string.Empty);
         var parent = Path.GetDirectoryName(twigDir);
         if (string.IsNullOrEmpty(parent))
-            return Twig.Domain.Common.Result.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed);
+            return NativeResults.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed);
         var stamp = clock.GetUtcNow().UtcDateTime.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
         var target = Path.Combine(parent, $".twig-legacy-{stamp}");
         // Uniqueness under fast-repeat: append a short suffix if the target
@@ -593,15 +593,15 @@ internal static class LegacyLayoutDetector
         {
             attempt++;
             target = Path.Combine(parent, $".twig-legacy-{stamp}-{attempt}");
-            if (attempt > 32) return Twig.Domain.Common.Result.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed);
+            if (attempt > 32) return NativeResults.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed);
         }
         try
         {
             Directory.Move(twigDir, target);
-            return Twig.Domain.Common.Result.Ok(target);
+            return NativeResults.Ok(target);
         }
-        catch (IOException) { return Twig.Domain.Common.Result.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed); }
-        catch (UnauthorizedAccessException) { return Twig.Domain.Common.Result.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed); }
+        catch (IOException) { return NativeResults.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed); }
+        catch (UnauthorizedAccessException) { return NativeResults.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed); }
     }
 }
 

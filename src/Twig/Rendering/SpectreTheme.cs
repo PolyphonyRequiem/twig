@@ -1,81 +1,46 @@
 using Spectre.Console;
-using Twig.Domain.Aggregates;
-using Twig.Domain.Enums;
-using Twig.Domain.Services.Process;
-using Twig.Domain.Services.Workspace;
-using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.Persistence;
 
 namespace Twig.Rendering;
 
-/// <summary>
-/// Maps type badges, colors, and state styles to Spectre.Console markup and <see cref="Style"/> objects.
-/// Instance-based — receives config via constructor injection.
-/// </summary>
 internal sealed class SpectreTheme
 {
     private readonly string _iconMode;
     private readonly Dictionary<string, string>? _typeIconIds;
     private readonly Dictionary<string, string>? _typeColors;
     private readonly Dictionary<string, string>? _appearanceColors;
-    private readonly IReadOnlyList<StateEntry>? _stateEntries;
-    private readonly TwigConfiguration? _connection;
 
-    public SpectreTheme(DisplayConfig displayConfig, List<TypeAppearanceConfig>? typeAppearances = null, IReadOnlyList<StateEntry>? stateEntries = null, TwigConfiguration? connection = null)
+    public SpectreTheme(DisplayConfig displayConfig, List<TypeAppearanceConfig>? typeAppearances = null)
     {
         _iconMode = displayConfig.ResolveIconMode();
-        _typeIconIds = typeAppearances?
-            .Where(a => a.IconId is not null)
+        _typeIconIds = typeAppearances?.Where(a => a.IconId is not null)
             .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);
-        _typeColors = displayConfig.TypeColors is null
-            ? null
-            : new Dictionary<string, string>(displayConfig.TypeColors, StringComparer.OrdinalIgnoreCase);
-        _appearanceColors = typeAppearances?
-            .Where(a => !string.IsNullOrEmpty(a.Color))
+        _typeColors = displayConfig.TypeColors is null ? null
+            : new(displayConfig.TypeColors, StringComparer.OrdinalIgnoreCase);
+        _appearanceColors = typeAppearances?.Where(a => !string.IsNullOrEmpty(a.Color))
             .ToDictionary(a => a.Name, a => a.Color, StringComparer.OrdinalIgnoreCase);
-        _stateEntries = stateEntries;
-        _connection = connection;
     }
 
-    /// <summary>Freezes process appearance and endpoint text for retained, I/O-free rendering.</summary>
-    internal SpectreTheme Snapshot() => new(this);
+    internal string FormatReviewState(string state) => $"[default]●[/] {Markup.Escape(state)}";
 
-    private SpectreTheme(SpectreTheme source)
+    internal string FormatTypeBadge(string type)
     {
-        _iconMode = source._iconMode;
-        _typeIconIds = source._typeIconIds is null ? null : new(source._typeIconIds, StringComparer.OrdinalIgnoreCase);
-        _typeColors = source._typeColors is null ? null : new(source._typeColors, StringComparer.OrdinalIgnoreCase);
-        _appearanceColors = source._appearanceColors is null ? null : new(source._appearanceColors, StringComparer.OrdinalIgnoreCase);
-        _stateEntries = source._stateEntries?.ToArray();
-        _connection = source._connection is null ? null : new TwigConfiguration
+        var badge = IconSet.ResolveTypeBadge(_iconMode, type, _typeIconIds);
+        return $"[{GetTypeMarkupColor(type, _typeColors, _appearanceColors)}]{Markup.Escape(badge)}[/]";
+    }
+
+    internal static string GetTypeMarkupColor(string typeName, Dictionary<string, string>? typeColors,
+        Dictionary<string, string>? appearanceColors)
+    {
+        var hex = TypeColorResolver.ResolveHex(typeName, typeColors, appearanceColors);
+        if (hex is not null && HexToSpectreColor.ToMarkupColor(hex) is { } color) return color;
+        return DeterministicTypeColor.GetAnsiEscape(typeName) switch
         {
-            Organization = source._connection.Organization,
-            Project = source._connection.Project,
+            "\x1b[35m" => "purple", "\x1b[36m" => "aqua", "\x1b[34m" => "blue",
+            "\x1b[33m" => "yellow", "\x1b[32m" => "green", "\x1b[31m" => "red", _ => "default",
         };
     }
 
-    internal string FormatWorkItemLink(WorkItem item, string markup)
-    {
-        if (item.IsSeed || item.Id <= 0 || _connection is null
-            || string.IsNullOrWhiteSpace(_connection.Organization)
-            || string.IsNullOrWhiteSpace(_connection.Project))
-            return markup;
-
-        var url = AdoWorkItemUrlValidator.BuildWorkItemUrl(
-            _connection.Organization, _connection.Project, item.Id);
-        return $"[link={Markup.Escape(url)}]{markup}[/]";
-    }
-
-    /// <summary>Neutral state label on unknown terminal backgrounds; color remains a redundant badge.</summary>
-    internal string FormatReviewState(string state)
-        => $"[{GetStateCategoryMarkupColor(state)}]●[/] {Markup.Escape(state)}";
-
-    /// <summary>
-    /// Contrast correction for OWNED surfaces only. Preserve hue as far as possible by
-    /// mixing towards whichever endpoint reaches WCAG 4.5 with less travel. Never assumes
-    /// an arbitrary terminal background, and never remaps states/types.
-    /// </summary>
     internal static Style OnSurface(Color foreground, Color background)
     {
         static double Luminance(Color color)
@@ -102,187 +67,5 @@ internal sealed class SpectreTheme
                 if (Readable(candidate)) return new Style(candidate, background);
             }
         return new Style(foreground, background);
-    }
-
-    // State category → Spectre style
-    internal Style GetStateStyle(string state)
-    {
-        if (string.IsNullOrEmpty(state))
-            return new Style(Color.Grey);
-
-        return StateCategoryResolver.Resolve(state, _stateEntries) switch
-        {
-            StateCategory.Completed or StateCategory.Resolved => new Style(Color.Green),
-            StateCategory.InProgress => new Style(Color.Blue),
-            StateCategory.Removed => new Style(Color.Red),
-            StateCategory.Proposed => new Style(Color.Grey),
-            _ => Style.Plain,
-        };
-    }
-
-    /// <summary>
-    /// Returns the Spectre markup color string for a <see cref="StateCategory"/>
-    /// (e.g. "green", "blue", "grey", "red"). Single source of truth for state→color mapping.
-    /// </summary>
-    internal static string GetCategoryMarkupColor(StateCategory category)
-    {
-        return category switch
-        {
-            StateCategory.Completed or StateCategory.Resolved => "green",
-            StateCategory.InProgress => "blue",
-            StateCategory.Removed => "red",
-            StateCategory.Proposed => "grey",
-            _ => "default",
-        };
-    }
-
-    /// <summary>
-    /// Markup colour for the twig#286 "unclassified" progress-summary segment. Deliberately
-    /// distinct from the grey <see cref="StateCategory.Proposed"/> bucket it used to be folded
-    /// into. Not routed through <see cref="GetCategoryMarkupColor"/>: that method also colours
-    /// state *text*, and recolouring every unrecognized state name is out of scope for #286.
-    /// </summary>
-    internal const string UnclassifiedMarkupColor = "yellow";
-
-    /// <summary>
-    /// Returns the Spectre markup color string for a given state (e.g. "green", "blue", "grey", "red").
-    /// Resolves the state to a <see cref="StateCategory"/> and delegates to <see cref="GetCategoryMarkupColor"/>.
-    /// </summary>
-    internal string GetStateCategoryMarkupColor(string state)
-    {
-        if (string.IsNullOrEmpty(state))
-            return "grey";
-
-        return GetCategoryMarkupColor(StateCategoryResolver.Resolve(state, _stateEntries));
-    }
-
-    /// <summary>
-    /// Formats a state string with Spectre markup matching <c>HumanOutputFormatter</c> colors.
-    /// Delegates to <see cref="GetStateCategoryMarkupColor"/> for the color.
-    /// </summary>
-    internal string FormatState(string state)
-    {
-        if (string.IsNullOrEmpty(state))
-            return "[grey]—[/]";
-
-        var color = GetStateCategoryMarkupColor(state);
-        return $"[[[{color}]{Markup.Escape(state)}[/]]]";
-    }
-
-    /// <summary>
-    /// Returns the badge glyph for a work item type via <see cref="IconSet.ResolveTypeBadge"/>.
-    /// </summary>
-    internal string GetTypeBadge(WorkItemType type)
-    {
-        return IconSet.ResolveTypeBadge(_iconMode, type.Value, _typeIconIds);
-    }
-
-    /// <summary>
-    /// Formats a type badge with Spectre markup color.
-    /// Uses <see cref="TypeColorResolver"/> for hex colors, falling back to <see cref="DeterministicTypeColor"/>.
-    /// </summary>
-    internal string FormatTypeBadge(WorkItemType type)
-    {
-        var badge = GetTypeBadge(type);
-        var color = GetTypeMarkupColor(type.Value, _typeColors, _appearanceColors);
-        return $"[{color}]{Markup.Escape(badge)}[/]";
-    }
-
-    /// <summary>
-    /// Resolves a Spectre markup color string for the given type name.
-    /// Priority: TypeColorResolver hex → Spectre markup color, fallback: DeterministicTypeColor → Spectre color name.
-    /// </summary>
-    internal static string GetTypeMarkupColor(string typeName, Dictionary<string, string>? typeColors, Dictionary<string, string>? appearanceColors)
-    {
-        var hex = TypeColorResolver.ResolveHex(typeName, typeColors, appearanceColors);
-        if (hex is not null)
-        {
-            var markupColor = HexToSpectreColor.ToMarkupColor(hex);
-            if (markupColor is not null)
-                return markupColor;
-        }
-
-        return DeterministicTypeColor.GetAnsiEscape(typeName) switch
-        {
-            "\x1b[35m" => "purple",
-            "\x1b[36m" => "aqua",
-            "\x1b[34m" => "blue",
-            "\x1b[33m" => "yellow",
-            "\x1b[32m" => "green",
-            "\x1b[31m" => "red",
-            _ => "default",
-        };
-    }
-
-    /// <summary>
-    /// Table style for the main workspace table — simple, no borders for a CLI-native feel.
-    /// When <paramref name="isTeamView"/> is true, an Assigned column is added.
-    /// <paramref name="dynamicColumns"/> adds extra data-driven columns after the core 5.
-    /// When <paramref name="titleColumnWidth"/> is provided, the Title column is constrained
-    /// to that width so Spectre's layout algorithm allocates space predictably.
-    /// </summary>
-    internal static Table CreateWorkspaceTable(bool isTeamView = false, IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null, int? titleColumnWidth = null)
-    {
-        var titleColumn = new TableColumn("[bold]Title[/]");
-        if (titleColumnWidth.HasValue)
-            titleColumn.Width = titleColumnWidth.Value;
-
-        var table = new Table()
-            .Border(TableBorder.Rounded)
-            .AddColumn(new TableColumn("[bold]ID[/]").RightAligned())
-            .AddColumn(new TableColumn("[bold]Type[/]").Centered())
-            .AddColumn(titleColumn)
-            .AddColumn(new TableColumn("[bold]State[/]").RightAligned().NoWrap())
-            .AddColumn(new TableColumn("[bold]Age[/]").RightAligned().NoWrap());
-
-        if (isTeamView)
-            table.AddColumn("[bold]Assigned[/]");
-
-        if (dynamicColumns is not null)
-        {
-            foreach (var col in dynamicColumns)
-            {
-                var alignment = col.DataType.ToLowerInvariant() is "integer" or "double"
-                    ? new TableColumn($"[bold]{Markup.Escape(col.DisplayName)}[/]").RightAligned()
-                    : new TableColumn($"[bold]{Markup.Escape(col.DisplayName)}[/]");
-                table.AddColumn(alignment);
-            }
-        }
-
-        table.Expand();
-        return table;
-    }
-
-    /// <summary>
-    /// Formats a state category header for use in grouped workspace rendering.
-    /// </summary>
-    internal static string FormatCategoryHeader(StateCategory category)
-    {
-        return category switch
-        {
-            StateCategory.Proposed => "Proposed",
-            StateCategory.InProgress => "In Progress",
-            StateCategory.Resolved => "Resolved",
-            StateCategory.Completed => "Completed",
-            _ => category.ToString(),
-        };
-    }
-
-    /// <summary>
-    /// Resolves a work item's state to its <see cref="StateCategory"/>.
-    /// </summary>
-    internal StateCategory ResolveCategory(string state)
-    {
-        return StateCategoryResolver.Resolve(state, _stateEntries);
-    }
-
-    /// <summary>
-    /// Returns a Spectre-markup seed indicator based on the configured icon mode.
-    /// Unicode mode: green ●, Nerd Font mode: green  (seedling).
-    /// </summary>
-    internal string FormatSeedIndicator()
-    {
-        var glyph = _iconMode == "nerd" ? "\uf4d8" : "●";
-        return $"[green]{glyph}[/]";
     }
 }

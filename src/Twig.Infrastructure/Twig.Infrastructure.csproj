@@ -20,47 +20,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- T3 (AB#734) profile-lookup seam. The reference profile is embedded as a
-         resource so PublishAot=true / TrimMode=full inline it without a
-         filesystem-path fight (see T1 AB#732 §4 "Canonical location").
-         The .sha256 sidecar ships beside it per T1 §1 and covers profile.json
-         BYTE-EXACT. It is not redundant with the in-band fingerprint.bytes:
-         that one is computed over a re-serialized, normalized form (see
-         ReferenceProfileFingerprint.ComputeEmbeddedFingerprint), so it is blind
-         to raw-byte edits such as role casing or whitespace. The sidecar is the
-         only guard that sees them, which is what makes the AB#735 casing
-         divergence a build failure rather than a silent release. -->
-    <EmbeddedResource Include="Resources\ReferenceProfile\profile.json" />
-    <EmbeddedResource Include="Resources\ReferenceProfile\profile.json.sha256" />
-  </ItemGroup>
-
-  <!-- T1 §1: "the .sha256 is computed at build time and covers profile.json
-       byte-exact". The sidecar is committed so a profile change stays a
-       reviewable diff of two human-readable files; the build's job is to
-       guarantee the two agree, so a profile edit that forgets the sidecar
-       fails here instead of at a user's first command. -->
-  <Target Name="VerifyReferenceProfileChecksum"
-          BeforeTargets="BeforeBuild"
-          Inputs="Resources\ReferenceProfile\profile.json;Resources\ReferenceProfile\profile.json.sha256"
-          Outputs="$(IntermediateOutputPath)referenceprofile.checksum.stamp">
-    <GetFileHash Files="Resources\ReferenceProfile\profile.json" Algorithm="SHA256" HashEncoding="hex">
-      <Output TaskParameter="Hash" PropertyName="_ReferenceProfileActualHash" />
-    </GetFileHash>
-    <ReadLinesFromFile File="Resources\ReferenceProfile\profile.json.sha256">
-      <Output TaskParameter="Lines" ItemName="_ReferenceProfileSidecarLines" />
-    </ReadLinesFromFile>
-    <PropertyGroup>
-      <_ReferenceProfileExpectedHash>@(_ReferenceProfileSidecarLines)</_ReferenceProfileExpectedHash>
-      <_ReferenceProfileActualHash>$(_ReferenceProfileActualHash.ToLowerInvariant())</_ReferenceProfileActualHash>
-      <_ReferenceProfileExpectedHash>$(_ReferenceProfileExpectedHash.Trim().ToLowerInvariant())</_ReferenceProfileExpectedHash>
-    </PropertyGroup>
-    <Error Condition="'$(_ReferenceProfileActualHash)' != '$(_ReferenceProfileExpectedHash)'"
-           Text="Reference profile checksum drift: Resources\ReferenceProfile\profile.json hashes to $(_ReferenceProfileActualHash) but profile.json.sha256 pins $(_ReferenceProfileExpectedHash). Update the sidecar to the actual hash (T1 AB#732 §1)." />
-    <MakeDir Directories="$(IntermediateOutputPath)" />
-    <Touch Files="$(IntermediateOutputPath)referenceprofile.checksum.stamp" AlwaysCreate="true" />
-  </Target>
-
-  <ItemGroup>
     <PackageReference Include="Markdig" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
@@ -70,7 +29,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Twig.Domain\Twig.Domain.csproj" />
     <ProjectReference Include="..\Twig.Providers.Ado\Twig.Providers.Ado.csproj" />
     <ProjectReference Include="..\Twig.Providers.GitHub\Twig.Providers.GitHub.csproj" />
     <ProjectReference Include="..\Twig.Store.Sqlite\Twig.Store.Sqlite.csproj" />
@@ -93,18 +51,6 @@
     </AssemblyAttribute>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>DynamicProxyGenAssembly2</_Parameter1>
-    </AssemblyAttribute>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
-      <_Parameter1>twig-mcp</_Parameter1>
-    </AssemblyAttribute>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
-      <_Parameter1>Twig.Mcp.Tests</_Parameter1>
-    </AssemblyAttribute>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
-      <_Parameter1>twig-tui</_Parameter1>
-    </AssemblyAttribute>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
-      <_Parameter1>Twig.Tui.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 

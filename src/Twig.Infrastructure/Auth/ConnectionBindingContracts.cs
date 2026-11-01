@@ -1,5 +1,6 @@
-using Twig.Domain.Interfaces;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Infrastructure.Auth;
@@ -86,14 +87,6 @@ internal interface IConnectionRemoteWriteAdmission
     bool IsDefinitivelyRejected { get; }
     Task RecordResponseAsync(ConnectionRemoteWriteResponse response, CancellationToken ct = default);
 }
-
-/// <summary>Cleanup is allowed only after the original create has durable identity and outcome evidence.</summary>
-internal interface ISeedPublishConfirmationGuard
-{
-    Task<bool> CanCleanPublishedSeedAsync(int id, SeedPublishCorrelation correlation, CancellationToken ct = default);
-    Task<int?> FindAcknowledgedPublishedSeedAsync(SeedPublishCorrelation correlation, CancellationToken ct = default);
-}
-
 
 internal static class ConnectionOperationAdmission
 {

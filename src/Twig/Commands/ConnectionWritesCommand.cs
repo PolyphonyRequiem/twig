@@ -1,12 +1,14 @@
+using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization.Metadata;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Formatters;
 using Twig.Infrastructure.Ado.Exceptions;
-using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Services;
@@ -17,7 +19,7 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>Inspect native uncertain writes and reconcile only attributable original-actor evidence.</summary>
+/// <summary>Inspect original native uncertain-write evidence without reconciliation.</summary>
 internal sealed class ConnectionWritesCommand(
     IConnectionRemoteWriteReconciliationService reconciliation,
     TwigConfiguration configuration,

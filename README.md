@@ -70,7 +70,7 @@ tree-set/full backlog/live/sprint/team/area/exclusion UI, old policy assessment
 and repair selection, native history/layout exports, proposal latest/seed/old
 reconcile UX, migration/reset/reinitialize, identity/target hot-switches and shell
 presentation integration. Retired calls fail explicitly before provider or legacy
-DI/input I/O. Source and older feature documentation remain as phase-6 deletion
+DI/input I/O. Older feature documentation remains historical deletion
 context, **not supported alternate application routes**. Nothing here closes the
 tracking Epic or settles its historical unknown publication.
 
@@ -568,6 +568,8 @@ never builds or runs test hosts. Use narrowly scoped regression checks for the
 proposed changeset when needed. Local pre-push runs this smoke. Required CI on
 Linux and Windows also qualifies the closed Core/native-host profile through
 existing production CAF/DI roots, synthetic native auth/HTTP and real SQLite.
+These checks run for every pull-request target, including stacked PRs; pushes
+to `main` also run them.
 Each selector group has a hard 60-second process-tree deadline and a verified TRX;
 missing selectors, zero cases, skipped/aborted runs and missing results after
 execution are failures. Uploads do not demand results from steps that never ran.
@@ -579,11 +581,23 @@ RenderTree test roots plus the external RenderTree consumer. The old
 `Twig.Domain.Tests` and `Twig.Benchmarks` roots are withdrawn from that build and
 its required assembly inventory: neither supplies a current retained-profile
 selector, and the benchmarks exercise the old Domain/cache/rendering graph.
-Their projects and source remain historical diagnostics for phase 6, not routine
-build or delivery requirements. `src/Twig.Domain` remains a real supported build
-dependency while Infrastructure/CLI still reference it; this is not source deletion
-or a disabled dependency build. The full supported solution still has the same
-120-second deadline.
+Their projects and source, together with the withdrawn MCP/TUI hosts and tests,
+have now been deleted. The unlaunched Browser application, legacy CLI business
+commands and async rendering graph and their superseded direct-call tests are
+also removed; retained routes use the Core/native production composition.
+Infrastructure's unused connection/network business-registration graph, mutation
+and claim executors, and legacy migration/identity-change execution services are
+deleted as well. Native uncertain-write inspection retains original request,
+observation and receipt evidence but has no settlement or replay implementation.
+The actual `Twig.Domain` project, source and build references are now removed,
+together with the obsolete shared TestKit and legacy cache/process/plan/provider
+business graph. Native authentication, target binding, attachment provenance and
+declared-policy data have small host-owned contracts; legacy business models were
+not relocated into Infrastructure. Core, store and provider semantics are unchanged.
+Compiled CLI/Infrastructure PE tests verify the absence of Domain assembly/type
+dependencies; `python tools/verify-domain-cut.py` separately verifies current
+source, project, public API and release-build references. The full supported
+solution still has the same 120-second deadline.
 
 CI retains the pure Core invariants, real store and both provider boundary suites.
 The ADO and [GitHub native roots](src/Twig.Providers.GitHub/README.md) qualify fresh
@@ -604,8 +618,8 @@ harness regression is `python tools/test-verify-build.py`.
 
 Legacy ShowCommand/projection envelopes, Canvas/Browser/TUI/MCP gestures, old
 claim/writer graphs, onboarding and preservation migration are retired delivery
-gates. Their source/tests remain historical phase-6 context, not alternate product
-routes. Current root tests require explicit refusal before provider/input I/O and
+gates. Their superseded source/tests are removed; older documentation and captured
+evidence are historical context, not alternate product routes. Current root tests require explicit refusal before provider/input I/O and
 absence of legacy writers. Existing stores are not migrated, adopted or reset.
 The external RenderTree consumer probe remains supported and qualified.
 

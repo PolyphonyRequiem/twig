@@ -1,7 +1,10 @@
+using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;

@@ -24,20 +24,11 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
     internal static async Task<IConnectionRemoteWriteAdmission> BeginAsync(string registryPath,
         ResolvedConnectionBinding binding, ConnectionRemoteWriteRequest request, CancellationToken ct = default)
     {
-        return await BeginCoreAsync(registryPath, binding, request, null, ct).ConfigureAwait(false);
-    }
-
-    internal static Task<IConnectionRemoteWriteAdmission> BeginWithWorkspaceStoreAsync(string registryPath,
-        ResolvedConnectionBinding binding, ConnectionRemoteWriteRequest request, SqliteCacheStore workspaceStore,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(workspaceStore);
-        return BeginCoreAsync(registryPath, binding, request, workspaceStore, ct);
+        return await BeginCoreAsync(registryPath, binding, request, ct).ConfigureAwait(false);
     }
 
     private static async Task<IConnectionRemoteWriteAdmission> BeginCoreAsync(string registryPath,
-        ResolvedConnectionBinding binding, ConnectionRemoteWriteRequest request, SqliteCacheStore? workspaceStore,
-        CancellationToken ct)
+        ResolvedConnectionBinding binding, ConnectionRemoteWriteRequest request, CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(binding.WorktreeRoot);
         ValidateRequest(binding, request);
@@ -50,18 +41,13 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
                 || core.CreationIdentity is not null && core.ExpectedRevision is not null
                 || core.CreationIdentity is null && string.IsNullOrWhiteSpace(core.ExpectedRevision)))
             throw new InvalidOperationException("remote-write-core-correlation-invalid: exact connection, proposal, operation and attempt evidence is required.");
-        if (request.SeedCorrelation is not null
-            && (request.EffectKind != "workitem-create" || request.Method != "POST"))
-            throw new InvalidOperationException("remote-write-seed-correlation-invalid: native staged create metadata cannot authorize another mutation kind.");
-        if (workspaceStore is null)
-            await ValidateSeedCorrelationAsync(registryPath, binding, request, ct).ConfigureAwait(false);
-        else
-            await ValidateSeedCorrelationAsync(workspaceStore, request, ct).ConfigureAwait(false);
+        if (request.SeedCorrelation is not null)
+            throw new InvalidOperationException("remote-write-legacy-create-retired: original requests remain inspectable, but no legacy seed publication is admitted.");
         var intent = new ConnectionRemoteWriteIntent(1, Guid.NewGuid().ToString("N"), RequestDigest(binding, request),
             binding.Operation.WorktreeFingerprint, binding, request, DateTimeOffset.UtcNow);
         using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
         var admitted = await registry.BeginConnectionRemoteWriteAsync(intent, ct).ConfigureAwait(false);
-        if (!admitted.IsSuccess) throw new InvalidOperationException(admitted.Error);
+        if (!admitted.IsSuccess) throw new InvalidOperationException(admitted.Error.Message);
         return new ConnectionRemoteWriteAdmission(registryPath, intent);
     }
 
@@ -76,7 +62,7 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
             null, null, DateTimeOffset.UtcNow);
         using var registry = new SqliteSystemWorktreeRegistry(_registryPath, TimeProvider.System);
         var recorded = await registry.ObserveConnectionRemoteWriteAsync(_intent, observation, receipt, ct).ConfigureAwait(false);
-        if (!recorded.IsSuccess) throw new InvalidOperationException(recorded.Error);
+        if (!recorded.IsSuccess) throw new InvalidOperationException(recorded.Error.Message);
         IsDefinitivelyRejected = kind == "rejected";
     }
 
@@ -91,78 +77,6 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
         if (request.CoreCorrelation is { } core)
             evidence += "\ncore\n" + JsonSerializer.Serialize(core, TwigJsonContext.Default.CoreWriteCorrelation);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(evidence)));
-    }
-
-    private static async Task ValidateSeedCorrelationAsync(string registryPath, ResolvedConnectionBinding binding,
-        ConnectionRemoteWriteRequest request, CancellationToken ct)
-    {
-        if (request.SeedCorrelation is not { } correlation) return;
-        var twigDir = Path.Combine(binding.WorktreeRoot, ".twig");
-        var configuration = await Twig.Infrastructure.Config.TwigConfiguration.LoadSplitAsync(
-            Twig.Infrastructure.Config.TwigPaths.BuildPaths(twigDir, new Twig.Infrastructure.Config.TwigConfiguration
-            { Organization = binding.Operation.Organization, Project = binding.Operation.Project, Team = binding.Operation.Team }, binding.WorktreeRoot), ct).ConfigureAwait(false);
-        var paths = Twig.Infrastructure.Config.TwigPaths.BuildPaths(twigDir, configuration, binding.WorktreeRoot);
-        using var store = SqliteCacheStore.OpenWorkspace(paths, registryPath);
-        await ValidateSeedCorrelationAsync(store, request, ct).ConfigureAwait(false);
-    }
-
-    private static async Task ValidateSeedCorrelationAsync(
-        SqliteCacheStore store, ConnectionRemoteWriteRequest request, CancellationToken ct)
-    {
-        if (request.SeedCorrelation is not { } correlation) return;
-        var intent = await new SqlitePublishIntentRepository(store).GetIntentAsync(correlation.Identity, ct).ConfigureAwait(false);
-        if (intent is not null && intent.RecordedAt == correlation.IntentRecordedAt
-            && new SqlitePublishIntentRepository(store).HasValidatedRejectedCreateFamilyDisposition(intent))
-            throw new InvalidOperationException(
-                "remote-write-seed-correlation-settled: this staged identity was already settled as a rejected create family. Use a new explicitly authorized identity; no HTTP mutation was admitted.");
-        if (intent is null || intent.RecordedAt != correlation.IntentRecordedAt || intent.PublishedId is not null
-            || SeedCreateTitle(request.Payload) != intent.Title || SeedCreateType(request.Target) != intent.TypeName
-            || !SeedCreateHasDescriptionCorrelation(request.Payload, correlation))
-            throw new InvalidOperationException("remote-write-seed-correlation-mismatch: the original open durable publish intent does not match this exact staged create request. No HTTP mutation was admitted.");
-    }
-
-    internal static string? SeedCreateTitle(string payload)
-    {
-        using var json = JsonDocument.Parse(payload);
-        if (json.RootElement.ValueKind != JsonValueKind.Array) return null;
-        foreach (var op in json.RootElement.EnumerateArray())
-            if (op.ValueKind == JsonValueKind.Object && op.TryGetProperty("path", out var path)
-                && path.ValueKind == JsonValueKind.String && path.GetString() == "/fields/System.Title"
-                && op.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String)
-                return value.GetString();
-        return null;
-    }
-
-    internal static bool SeedCreateHasCorrelation(string payload, string tag)
-    {
-        using var json = JsonDocument.Parse(payload);
-        if (json.RootElement.ValueKind != JsonValueKind.Array) return false;
-        foreach (var op in json.RootElement.EnumerateArray())
-            if (op.ValueKind == JsonValueKind.Object && op.TryGetProperty("path", out var path)
-                && path.ValueKind == JsonValueKind.String && path.GetString() == "/fields/System.Tags"
-                && op.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String)
-                return (value.GetString() ?? "").Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                    .Contains(tag, StringComparer.Ordinal);
-        return false;
-    }
-
-    internal static bool SeedCreateHasDescriptionCorrelation(string payload, Twig.Domain.ValueObjects.SeedPublishCorrelation correlation)
-    {
-        using var json = JsonDocument.Parse(payload);
-        if (json.RootElement.ValueKind != JsonValueKind.Array) return false;
-        foreach (var op in json.RootElement.EnumerateArray())
-            if (op.ValueKind == JsonValueKind.Object && op.TryGetProperty("path", out var path)
-                && path.ValueKind == JsonValueKind.String && string.Equals(path.GetString(), "/fields/System.Description", StringComparison.OrdinalIgnoreCase)
-                && op.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String)
-                return correlation.ContainsDescriptionMarker(value.GetString());
-        return false;
-    }
-
-    internal static string? SeedCreateType(string target)
-    {
-        var uri = new Uri(target);
-        var tail = Uri.UnescapeDataString(uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).Last());
-        return tail.StartsWith('$') ? tail[1..] : null;
     }
 
     internal static bool SameAuthority(ResolvedConnectionBinding current, ResolvedConnectionBinding original)
@@ -192,7 +106,7 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
 
     internal static bool IsWithinAuthority(ResolvedConnectionBinding binding, Uri target)
     {
-        var authority = new Uri(Twig.Infrastructure.Ado.AdoRestClient.NormalizeOrgUrl(binding.Operation.Organization));
+        var authority = new Uri(AdoEndpoint.NormalizeOrgUrl(binding.Operation.Organization));
         var prefix = authority.AbsolutePath.TrimEnd('/') + "/";
         return target.Scheme.Equals(authority.Scheme, StringComparison.OrdinalIgnoreCase)
             && target.Host.Equals(authority.Host, StringComparison.OrdinalIgnoreCase) && target.Port == authority.Port

@@ -1,5 +1,6 @@
 using System.Text.Json;
-using Twig.Domain.Services.Policy;
+using Twig.Core;
+using Twig.Infrastructure.Policy;
 
 namespace Twig.Infrastructure.Policy;
 
@@ -13,7 +14,7 @@ public sealed record DeclaredPolicyLoadResult
     public DeclaredPolicy? Policy { get; init; }
 
     /// <summary>A blocking <c>policy-load</c> decision, when the file exists but cannot be used.</summary>
-    public PolicyDecision? Failure { get; init; }
+    public Error? Failure { get; init; }
 }
 
 /// <summary>
@@ -79,13 +80,8 @@ public sealed class DeclaredPolicyLoader(string policyPath)
 
     private static DeclaredPolicyLoadResult Fail(string reason) => new()
     {
-        Failure = new PolicyDecision
-        {
-            RuleId = DeclaredPolicyRuleKinds.PolicyLoad,
-            Kind = DeclaredPolicyRuleKinds.PolicyLoad,
-            Outcome = PolicyOutcome.Unavailable,
-            Reason = reason + " Declared rules cannot be checked until the file is fixed.",
-        },
+        Failure = new Error(ErrorCode.Unavailable,
+            reason + " Declared rules cannot be checked until the file is fixed."),
     };
 
     private static DeclaredPolicy ReadPolicy(JsonElement root)

@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
-using Twig.Domain.Common;
+using Twig.Core;
+using Twig.Infrastructure.Persistence;
 
 namespace Twig.Infrastructure.Persistence;
 
@@ -18,7 +19,7 @@ namespace Twig.Infrastructure.Persistence;
 /// </summary>
 internal sealed partial class SqliteSystemWorktreeRegistry
 {
-    internal Task<Result> EnsureBindingConnectionAsync(string connectionRef, string organization, string project, CancellationToken ct)
+    internal Task<Result<bool>> EnsureBindingConnectionAsync(string connectionRef, string organization, string project, CancellationToken ct)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             using var cmd = connection.CreateCommand();
@@ -33,7 +34,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$project", project);
             cmd.Parameters.AddWithValue("$now", _clock.GetUtcNow().ToString("o"));
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            return Result.Ok();
+            return NativeResults.Ok();
         }, ct);
 
     public Task<Result<IdentityRow?>> FindIdentityByNameAsync(string name, CancellationToken ct = default)
@@ -44,8 +45,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$name", name);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result.Ok<IdentityRow?>(null);
-            return Result.Ok<IdentityRow?>(ReadIdentityRow(reader));
+                return NativeResults.Missing<IdentityRow?>();
+            return NativeResults.Ok<IdentityRow?>(ReadIdentityRow(reader));
         }, ct);
 
     public Task<Result<IdentityRow?>> FindIdentityByIdAsync(string identityId, CancellationToken ct = default)
@@ -56,8 +57,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$id", identityId);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result.Ok<IdentityRow?>(null);
-            return Result.Ok<IdentityRow?>(ReadIdentityRow(reader));
+                return NativeResults.Missing<IdentityRow?>();
+            return NativeResults.Ok<IdentityRow?>(ReadIdentityRow(reader));
         }, ct);
 
     public Task<Result<IReadOnlyList<IdentityRow>>> ListIdentitiesAsync(CancellationToken ct = default)
@@ -69,7 +70,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 rows.Add(ReadIdentityRow(reader));
-            return Result.Ok<IReadOnlyList<IdentityRow>>(rows);
+            return NativeResults.Ok<IReadOnlyList<IdentityRow>>(rows);
         }, ct);
 
     /// <summary>Insert a new identity row. The row is written only if the
@@ -78,7 +79,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
     /// <c>identity-credential-conflict</c>. The service refuses principal
     /// drift above this call so an existing matching row is updated via
     /// <see cref="UpdateIdentityRefreshStampAsync"/> instead.</summary>
-    public Task<Result> InsertIdentityAsync(IdentityRow row, CancellationToken ct = default)
+    public Task<Result<bool>> InsertIdentityAsync(IdentityRow row, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             try
@@ -100,18 +101,18 @@ VALUES ($id, $name, $tid, $oid, $iss, $auth, $cred, $acct, $created, $updated);"
                     principal.Parameters.AddWithValue("$principal", row.AdoPrincipalId);
                     await principal.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
                 }
-                return Result.Ok();
+                return NativeResults.Ok();
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 19 /* SQLITE_CONSTRAINT */)
             {
                 var message = ex.Message ?? string.Empty;
                 if (message.Contains("idx_identities_name", StringComparison.Ordinal)
                     || message.Contains("identities.name", StringComparison.Ordinal))
-                    return Result.Fail("identity-name-conflict");
+                    return NativeResults.Fail("identity-name-conflict");
                 if (message.Contains("idx_identities_credential_ref", StringComparison.Ordinal)
                     || message.Contains("identities.credential_ref", StringComparison.Ordinal))
-                    return Result.Fail("identity-credential-conflict");
-                return Result.Fail($"identity-insert-failed: {ex.Message}");
+                    return NativeResults.Fail("identity-credential-conflict");
+                return NativeResults.Fail($"identity-insert-failed: {ex.Message}");
             }
         }, ct);
 
@@ -119,7 +120,7 @@ VALUES ($id, $name, $tid, $oid, $iss, $auth, $cred, $acct, $created, $updated);"
     /// account display name and <c>updated_at</c>. The immutable principal
     /// fields (tenant/object/issuer/authority) and the credential_ref are
     /// never rewritten here; the service refuses principal drift above.</summary>
-    public Task<Result> UpdateIdentityRefreshStampAsync(string identityId, string? accountName, DateTimeOffset updatedAt, CancellationToken ct = default)
+    public Task<Result<bool>> UpdateIdentityRefreshStampAsync(string identityId, string? accountName, DateTimeOffset updatedAt, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             using var cmd = connection.CreateCommand();
@@ -134,8 +135,8 @@ UPDATE identities
             cmd.Parameters.AddWithValue("$updated", updatedAt.ToUniversalTime().ToString("o"));
             var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             if (rows == 0)
-                return Result.Fail("identity-not-found");
-            return Result.Ok();
+                return NativeResults.Fail("identity-not-found");
+            return NativeResults.Ok();
         }, ct);
 
     public Task<Result<BindingRow?>> FindBindingAsync(string connectionRef, string identityId, CancellationToken ct = default)
@@ -147,8 +148,8 @@ UPDATE identities
             cmd.Parameters.AddWithValue("$id", identityId);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result.Ok<BindingRow?>(null);
-            return Result.Ok<BindingRow?>(ReadBindingRow(reader));
+                return NativeResults.Missing<BindingRow?>();
+            return NativeResults.Ok<BindingRow?>(ReadBindingRow(reader));
         }, ct);
 
     public Task<Result<BindingRow?>> FindBindingByIdAsync(string bindingId, CancellationToken ct = default)
@@ -159,8 +160,8 @@ UPDATE identities
             cmd.Parameters.AddWithValue("$id", bindingId);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result.Ok<BindingRow?>(null);
-            return Result.Ok<BindingRow?>(ReadBindingRow(reader));
+                return NativeResults.Missing<BindingRow?>();
+            return NativeResults.Ok<BindingRow?>(ReadBindingRow(reader));
         }, ct);
 
     public Task<Result<IReadOnlyList<BindingRow>>> ListBindingsForConnectionAsync(string connectionRef, CancellationToken ct = default)
@@ -173,7 +174,7 @@ UPDATE identities
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 rows.Add(ReadBindingRow(reader));
-            return Result.Ok<IReadOnlyList<BindingRow>>(rows);
+            return NativeResults.Ok<IReadOnlyList<BindingRow>>(rows);
         }, ct);
 
     public Task<Result<BindingRow>> InsertOrGetBindingAsync(BindingRow row, CancellationToken ct = default)
@@ -188,7 +189,7 @@ UPDATE identities
                 existing.Parameters.AddWithValue("$id", row.IdentityId);
                 await using var reader = await existing.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 if (await reader.ReadAsync(ct).ConfigureAwait(false))
-                    return Result.Ok(ReadBindingRow(reader));
+                    return NativeResults.Ok(ReadBindingRow(reader));
             }
 
             try
@@ -205,11 +206,11 @@ VALUES ($bid, $ref, $id, $rev, $created, $updated);";
                 insert.Parameters.AddWithValue("$created", row.CreatedAt.ToUniversalTime().ToString("o"));
                 insert.Parameters.AddWithValue("$updated", row.UpdatedAt.ToUniversalTime().ToString("o"));
                 await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-                return Result.Ok(row);
+                return NativeResults.Ok(row);
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 19 /* SQLITE_CONSTRAINT */)
             {
-                return Result.Fail<BindingRow>($"binding-insert-failed: {ex.Message}");
+                return NativeResults.Fail<BindingRow>($"binding-insert-failed: {ex.Message}");
             }
         }, ct);
 
@@ -224,8 +225,8 @@ SELECT connection_ref, binding_id, revision, updated_at
             cmd.Parameters.AddWithValue("$ref", connectionRef);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result.Ok<DefaultBindingRow?>(null);
-            return Result.Ok<DefaultBindingRow?>(new DefaultBindingRow(
+                return NativeResults.Missing<DefaultBindingRow?>();
+            return NativeResults.Ok<DefaultBindingRow?>(new DefaultBindingRow(
                 ConnectionRef: reader.GetString(0),
                 BindingId: reader.GetString(1),
                 Revision: reader.GetInt64(2),
@@ -238,7 +239,7 @@ SELECT connection_ref, binding_id, revision, updated_at
     /// surfaces <c>default-binding-exists</c> so the service refuses the
     /// transition; an identical row is a no-op; absence creates the row.
     /// Existing defaults change only through the recoverable all-worktree default authority.</summary>
-    public Task<Result> UpsertDefaultBindingAsync(DefaultBindingRow row, CancellationToken ct = default)
+    public Task<Result<bool>> UpsertDefaultBindingAsync(DefaultBindingRow row, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             using (var existing = connection.CreateCommand())
@@ -250,8 +251,8 @@ SELECT connection_ref, binding_id, revision, updated_at
                 if (raw is string currentBinding)
                 {
                     if (!string.Equals(currentBinding, row.BindingId, StringComparison.Ordinal))
-                        return Result.Fail("default-binding-exists");
-                    return Result.Ok();
+                        return NativeResults.Fail("default-binding-exists");
+                    return NativeResults.Ok();
                 }
             }
 
@@ -265,7 +266,7 @@ VALUES ($ref, $bid, $rev, $updated);";
             insert.Parameters.AddWithValue("$rev", row.Revision);
             insert.Parameters.AddWithValue("$updated", row.UpdatedAt.ToUniversalTime().ToString("o"));
             await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            return Result.Ok();
+            return NativeResults.Ok();
         }, ct);
 
     private const string IdentitySelectSql =

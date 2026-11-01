@@ -1,5 +1,7 @@
 using System.Text.Json;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.GitHub;

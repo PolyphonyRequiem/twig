@@ -183,8 +183,7 @@ public static partial class Core
                     Fail(ErrorCode.Unsupported, "Relationship transport/provenance was not explicitly declared.");
                 if (!local && !op.Other.BelongsTo(proposal.Connection))
                     Fail(ErrorCode.Unsupported, "Native cross-scope relationships require a provider-specific capability, not implicit emulation.");
-                if (local && new[] { op.Item, op.Other }.Any(k => !store.Items.Any(i => i.Key == k)
-                    && !store.Drafts.Any(d => d.Key == k)))
+                if (local && new[] { op.Item, op.Other }.Any(k => !EndpointObserved(k)))
                     Fail(ErrorCode.Unavailable, "Local relationship endpoint evidence is missing.");
                 if (local)
                 {
@@ -201,6 +200,21 @@ public static partial class Core
                 }
             }
         }
+        bool EndpointObserved(ItemKey key)
+        {
+            if (!key.IsLocal) return key.BelongsTo(proposal.Connection) && store.Items.Any(item => item.Key == key);
+            if (store.Drafts.Any(draft => draft.Key == key && draft.Baseline is null)) return true;
+            return store.Mappings.Any(mapping => mapping.Local == key && mapping.Remote.BelongsTo(proposal.Connection)
+                && store.Items.Any(item => item.Key == mapping.Remote)
+                && store.Proposals.Any(original => original.Digest == mapping.ProposalDigest
+                    && original.Connection == proposal.Connection && mapping.Operation < original.Operations.Length
+                    && original.Operations[mapping.Operation].Kind == OpKind.Create
+                    && original.Operations[mapping.Operation].Item == key)
+                && store.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+                    && row.Status == OpStatus.Verified && row.Receipts.Any(receipt =>
+                        receipt.Status == OpStatus.Verified && receipt.PublishedKey == mapping.Remote)));
+        }
+
         if (op.Kind == OpKind.Comment && (op.Body is null || op.Body.Kind is not (FieldKind.Text or FieldKind.Html or FieldKind.Markdown) || op.Body.IsEmpty))
             Fail(ErrorCode.InvalidInput, "Comment must retain an explicit nonempty body and format.");
         if (op.Kind == OpKind.Batch && op.Body is not null

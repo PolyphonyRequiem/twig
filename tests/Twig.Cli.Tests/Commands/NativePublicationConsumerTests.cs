@@ -69,6 +69,36 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CoreLocalRelatedCannotFallbackFromNativeAdoAssociation()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var before = (await store.ReadAsync(connection, default)).Value;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        var oldOut = Console.Out;
+        var oldError = Console.Error;
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            foreach (var verb in new[] { "related", "unrelate" })
+            {
+                stderr.GetStringBuilder().Clear();
+                RunCoreLink(paths, ["link", "local", verb, "43", "--id", "42", "-o", "json"]).ShouldBe(1);
+                stdout.ToString().ShouldBeEmpty();
+                using var error = JsonDocument.Parse(stderr.ToString());
+                error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("local-only symmetric Association");
+            }
+            _transport.PatchAttempts.ShouldBe(0);
+            var after = (await store.ReadAsync(connection, default)).Value;
+            after.Version.ShouldBe(before.Version);
+            after.Relationships.ShouldBeEmpty();
+            after.Proposals.ShouldBeEmpty();
+        }
+        finally { Console.SetOut(oldOut); Console.SetError(oldError); }
+    }
+
+    [Fact]
     public async Task CoreLinkMachineChildOptionRequiresIdBeforeAnyHttp()
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();

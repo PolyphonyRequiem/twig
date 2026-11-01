@@ -284,18 +284,18 @@ internal static class CommandExamples
         ],
         ["link local related"] =
         [
-            "twig link local related <source-local-guid> <target-local-guid>  Store an explicit local-only Related link",
-            "twig link local related <source-local-guid> <target-local-guid> -o json  Emit the local relationship as JSON",
+            "twig link local related 43 --id 42  Verify a LOCAL association without native mutation",
+            "twig link local related <seed-uuid> --id 42 -o json  Journal one local CAS effect",
         ],
         ["link local unrelate"] =
         [
-            "twig link local unrelate <source-local-guid> <target-local-guid>  Remove a local-only Related link without provider access",
-            "twig link local unrelate <source-local-guid> <target-local-guid> -o json  Emit the removal result as JSON",
+            "twig link local unrelate 43 --id 42  Tombstone an existing LOCAL association",
+            "twig link local unrelate <seed-uuid> --id 42 -o json  Verify local CAS; native reads may occur",
         ],
         ["link local list"] =
         [
-            "twig link local list <local-guid>         List Twig-local Related links touching an item",
-            "twig link local list <local-guid> -o json  Emit provenance and publication metadata as JSON",
+            "twig link local list 42  List cached LOCAL edges with zero HTTP",
+            "twig link local list --id <seed-uuid> -o json  Read original edge identities and local versions",
         ],
         ["link unlink"] =
         [

@@ -6,6 +6,19 @@ namespace Twig.Cli.Tests.Formatters;
 
 public sealed class StructuredMutationArgumentValidatorTests
 {
+    [Fact]
+    public void OnlyTheExplicitLocalFamilyAdmitsCanonicalUuidSources()
+    {
+        const string uuid = "019a0000-0000-7000-8000-000000000001";
+        StructuredMutationArgumentValidator.Validate(["link", "local", "related", "42", "--id", uuid, "-o", "json"]).ShouldBeNull();
+        StructuredMutationArgumentValidator.Validate(["link", "local", "unrelate", "-12", "--id=-13", "-o", "json"]).ShouldBeNull();
+        AssertError(["link", "related", "42", "--id", uuid, "-o", "json"], "requires an explicit --id");
+        AssertError(["update", "title", "text", "--id", uuid, "-o", "json"], "requires an explicit --id");
+        AssertError(["link", "local", "related", uuid, uuid, "-o", "json"], "two-GUID positional");
+        AssertError(["link", "local", "related", uuid, "--id", "42", "--id", "43", "-o", "json"], "Specify --id once");
+        AssertError(["link", "local", "related", uuid, "-o", "json"], "--id");
+    }
+
     [Theory]
     [InlineData("json")]
     [InlineData("json-full")]

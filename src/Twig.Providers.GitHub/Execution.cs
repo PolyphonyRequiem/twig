@@ -239,6 +239,9 @@ public sealed partial class GitHubProvider
     private async Task<StoreSnapshot> AcquireInputs(Bound bound, Discovery schema, Proposal proposal, StoreSnapshot stored, CancellationToken ct)
     {
         var keys = proposal.Operations.SelectMany(o => o.Other is null ? new[] { o.Item } : new[] { o.Item, o.Other })
+            .Select(key => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key
+                && stored.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+                    && row.Status == OpStatus.Verified))?.Remote ?? key)
             .Where(k => !k.IsLocal).Distinct().ToImmutableArray();
         return Mirror(stored, await Read(bound, schema, keys, ct), stored.Version);
     }
@@ -268,11 +271,14 @@ public sealed partial class GitHubProvider
 
     private static void RefuseUnresolvedTargets(Proposal proposal, StoreSnapshot stored)
     {
+        ItemKey Resolve(ItemKey key) => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
         foreach (var row in stored.Journal.Where(j => j.Status is OpStatus.Applying or OpStatus.Applied or OpStatus.Partial or OpStatus.Indeterminate))
         {
             var prior = stored.Proposals.Single(p => p.Digest == row.Digest).Operations[row.Operation];
-            if (proposal.Operations.Any(op => op.Item == prior.Item || op.Other == prior.Item
-                || prior.Other is not null && (op.Item == prior.Other || op.Other == prior.Other)))
+            if (proposal.Operations.Any(op => Resolve(op.Item) == Resolve(prior.Item)
+                || op.Other is not null && Resolve(op.Other) == Resolve(prior.Item)
+                || prior.Other is not null && (Resolve(op.Item) == Resolve(prior.Other)
+                    || op.Other is not null && Resolve(op.Other) == Resolve(prior.Other))))
                 throw Wire.Refuse(ErrorCode.Indeterminate, "An unresolved effect fences this target across replacement digests.");
         }
     }

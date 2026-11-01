@@ -88,6 +88,28 @@ public static class StructuredMutationArgumentValidator
 
         var outputFormat = GetOutputFormat(args);
         var command = GetCommand(args);
+        if (command is "link local related" or "link local unrelate" or "link local list")
+        {
+            var positional = 0;
+            var sources = new List<string>();
+            var positionalOnly = false;
+            for (var i = 3; i < args.Count; i++)
+            {
+                var arg = args[i];
+                if (!positionalOnly && arg is "--help" or "-h") return null;
+                if (!positionalOnly && arg == "--") { positionalOnly = true; continue; }
+                if (!positionalOnly && arg.StartsWith("--id=", StringComparison.Ordinal)) sources.Add(arg[5..]);
+                else if (!positionalOnly && arg == "--id" && i + 1 < args.Count) sources.Add(args[++i]);
+                else if (!positionalOnly && ShouldSkipOptionValue(args, i)) i++;
+                else if (positionalOnly || !arg.StartsWith('-') || int.TryParse(arg, out _)) positional++;
+            }
+            if (sources.Count > 1)
+                return "Specify --id once; repeated source targets are refused.";
+            if (positional > 1 || command != "link local list" && positional != 1)
+                return "Use 'twig link local related <target> --id <source>' (or unrelate); the old two-GUID positional form is retired.";
+            if (command != "link local list" && sources.Count != 1)
+                return $"{command} requires an explicit --id source; no active-item fallback.";
+        }
         if (command is "show" or "tree")
         {
             var readError = ValidateReadTarget(args, command,
@@ -115,6 +137,10 @@ public static class StructuredMutationArgumentValidator
 
         if (ActiveContextChangeCommands.Contains(command))
             return $"twig {command} cannot be used with structured output because it reads or changes active work-item context.";
+
+        if (command is "link local related" or "link local unrelate")
+            return HasIntegerOption(args, "--id", static id => id != 0) || HasCanonicalLocalId(args)
+                ? null : $"{command} with structured output requires an explicit --id (native number, negative seed alias or canonical lowercase GUIDv7).";
 
         if (command == "seed new"
             && !HasPositiveIntegerOption(args, "--parent")
@@ -226,6 +252,8 @@ public static class StructuredMutationArgumentValidator
         if (args.Count == 0)
             return null;
 
+        if (args.Count > 2 && args[0] == "link" && args[1] == "local")
+            return $"link local {args[2]}";
         if (args[0] == "link" && args.Count > 1)
             return $"link {args[1]}";
 
@@ -264,6 +292,20 @@ public static class StructuredMutationArgumentValidator
     private static bool HasPositiveIntegerOption(IReadOnlyList<string> args, string option) =>
         HasIntegerOption(args, option, static id => id > 0);
 
+    private static bool HasCanonicalLocalId(IReadOnlyList<string> args)
+    {
+        for (var i = 0; i < args.Count; i++)
+        {
+            if (args[i] == "--") break;
+            var value = args[i].StartsWith("--id=", StringComparison.Ordinal) ? args[i][5..]
+                : args[i] == "--id" && i + 1 < args.Count ? args[++i] : null;
+            if (value is not null)
+                return value.Length == 36 && value[14] == '7' && value[19] is '8' or '9' or 'a' or 'b'
+                    && Guid.TryParseExact(value, "D", out var id) && id.ToString("D") == value;
+            if (ShouldSkipOptionValue(args, i)) i++;
+        }
+        return false;
+    }
     private static bool HasIntegerOption(IReadOnlyList<string> args, string option, Func<int, bool> accept)
     {
         for (var i = 0; i < args.Count; i++)

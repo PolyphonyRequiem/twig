@@ -5,6 +5,14 @@ tracked_in: [1190]
 
 # Local relationship enrichment is declared per provider, native-first, and never silent
 
+The Core CLI cutover in Epic #1220 supersedes the legacy local-record targeting
+and no-provider-contact mutation promises below. Its
+[current contract](../architecture/clean-core-contract.md#qualified-core-local-related-cli-slice)
+uses native numeric locators/original Core seed UUIDs, requires explicit `--id`,
+and journals local CAS through Core. Only list is zero-HTTP; mutation may acquire
+native schema and observations, but never dispatches a native mutation. The
+declaration/provenance/no-fallback decision remains unchanged.
+
 Accepted for the 1.0 scope: use provider-native relationship operations, and allow an explicit durable Twig-local Related association only when the selected provider declares Related unsupported. This does not authorize other local-only relationship kinds or provider-metadata projection. Provider-projected emulation remains deferred and inactive.
 
 ## Decisions

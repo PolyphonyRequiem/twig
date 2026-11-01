@@ -44,6 +44,9 @@ internal static class WorkspaceRegistrationModule
             services.AddSingleton<ProcessCommand>();
             services.AddSingleton<ProcessDescriptionCommand>();
             services.AddSingleton<LinkCommand>();
+            services.AddSingleton(sp => new LocalRelationshipCommand(sp.GetRequiredService<CoreWorkspaceFactory>(),
+                sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+                sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>(), sp.GetService<TextWriter>()));
             services.AddSingleton<WorkspaceCommand>();
             return services;
         }

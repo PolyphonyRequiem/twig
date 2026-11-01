@@ -2,11 +2,11 @@ using System.Diagnostics;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
-using Twig.Domain.Interfaces;
-using Twig.Infrastructure.Config;
-using Twig.Infrastructure.GitHub;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Persistence.ProviderTargets;
+using Twig.Infrastructure.Config;
+using Twig.Infrastructure.GitHub;
 
 namespace Twig.Infrastructure.Tests.GitHub;
 
@@ -47,7 +47,7 @@ internal sealed class GitHubTargetFixture : IDisposable
     {
         var result = await new ProviderTargetAttachmentService(Registry, Attachment).AttachAsync(
             Target.ToIdentity(new("https://api.github.com/graphql")), "original/repo", "Original", 0);
-        result.IsSuccess.ShouldBeTrue(result.Error);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? null : result.Error.Message);
     }
 
     public void Register(IServiceCollection services)

@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Twig.Core;
-using Twig.Domain.Services.Policy;
+using Twig.Infrastructure.Policy;
 using Twig.Providers.GitHub;
 using CorePolicy = Twig.Core.Policy;
 
@@ -74,7 +74,7 @@ internal sealed class ConfiguredPolicyProjectionSource
                     "The Twig declaration contains duplicate or unsupported policy members.");
             var parsed = DeclaredPolicyLoader.Parse(json, _path);
             if (parsed.Failure is { } failure)
-                return Result<DeclaredPolicyDocument>.Fail(ErrorCode.Unavailable, failure.Reason);
+                return Result<DeclaredPolicyDocument>.Fail(failure);
             return Result<DeclaredPolicyDocument>.Ok(new(parsed.Policy!,
                 "sha256:" + Convert.ToHexStringLower(SHA256.HashData(bytes))));
         }

@@ -1,8 +1,9 @@
 using System.Globalization;
 using System.Text.Json;
-using Twig.Domain.Common;
-using Twig.Domain.Interfaces;
-using Twig.Domain.ValueObjects;
+using Twig.Core;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Serialization;
 
@@ -28,7 +29,7 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
         CancellationToken ct = default)
     {
         if (bindingId.Value == Guid.Empty)
-            return Task.FromResult(Result.Fail<ProviderTargetAttachmentWriteOutcome>(
+            return Task.FromResult(NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(
                 ProviderTargetBindingFailures.InvalidBindingId));
         return MutateAsync(bindingId, expectedBindingId: null, expectedRevision, ct);
     }
@@ -39,7 +40,7 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
         CancellationToken ct = default)
     {
         if (expectedBindingId.Value == Guid.Empty)
-            return Task.FromResult(Result.Fail<ProviderTargetAttachmentWriteOutcome>(
+            return Task.FromResult(NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(
                 ProviderTargetBindingFailures.InvalidBindingId));
         return MutateAsync(bindingId: null, expectedBindingId, expectedRevision, ct);
     }
@@ -52,10 +53,10 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
         if (observation.Value.Envelope?.BindingId is { } bindingId)
         {
             var binding = await bindings.FindByIdAsync(bindingId, ct).ConfigureAwait(false);
-            if (!binding.IsSuccess)
-                return Result.Fail<VersionedProviderTargetAttachment>(binding.Error);
-            if (binding.Value is null)
-                return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.BindingMissing);
+            if ((!binding.IsSuccess && binding.Error.Code != Twig.Core.ErrorCode.NotFound))
+                return NativeResults.Fail<VersionedProviderTargetAttachment>(binding.Error);
+            if (binding.Optional() is null)
+                return NativeResults.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.BindingMissing);
         }
         return observation;
     }
@@ -66,7 +67,7 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
     {
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(paths.TwigDir))
-            return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.WorktreeUnavailable);
+            return NativeResults.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.WorktreeUnavailable);
 
         var path = Path.Combine(paths.TwigDir, ProviderTargetAttachmentDocument.FileName);
         ProviderTargetAttachmentDocument? document;
@@ -78,27 +79,27 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
         }
         catch (FileNotFoundException)
         {
-            return Result.Ok(new VersionedProviderTargetAttachment(null, 0));
+            return NativeResults.Ok(new VersionedProviderTargetAttachment(null, 0));
         }
         catch (DirectoryNotFoundException)
         {
-            return Result.Ok(new VersionedProviderTargetAttachment(null, 0));
+            return NativeResults.Ok(new VersionedProviderTargetAttachment(null, 0));
         }
         catch (OperationCanceledException) { throw; }
-        catch (JsonException) { return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.InvalidDocument); }
-        catch (IOException) { return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.ReadFailed); }
-        catch (UnauthorizedAccessException) { return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.ReadFailed); }
+        catch (JsonException) { return NativeResults.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.InvalidDocument); }
+        catch (IOException) { return NativeResults.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.ReadFailed); }
+        catch (UnauthorizedAccessException) { return NativeResults.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.ReadFailed); }
 
         if (!TryReadEnvelope(document, out var envelope))
-            return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.InvalidDocument);
+            return NativeResults.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.InvalidDocument);
 
         var liveFingerprint = GetLiveFingerprint(paths);
         if (!liveFingerprint.IsSuccess)
-            return Result.Fail<VersionedProviderTargetAttachment>(liveFingerprint.Error);
+            return NativeResults.Fail<VersionedProviderTargetAttachment>(liveFingerprint.Error);
         if (!string.Equals(envelope!.WorktreeFingerprint, liveFingerprint.Value, StringComparison.Ordinal))
-            return Result.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.WorktreeFingerprintMismatch);
+            return NativeResults.Fail<VersionedProviderTargetAttachment>(ProviderTargetAttachmentFailures.WorktreeFingerprintMismatch);
 
-        return Result.Ok(new VersionedProviderTargetAttachment(envelope, envelope.Revision));
+        return NativeResults.Ok(new VersionedProviderTargetAttachment(envelope, envelope.Revision));
     }
 
     private async Task<Result<ProviderTargetAttachmentWriteOutcome>> MutateAsync(
@@ -109,17 +110,17 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
     {
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(paths.TwigDir))
-            return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.WorktreeUnavailable);
+            return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.WorktreeUnavailable);
         if (expectedRevision < 0)
-            return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.RevisionMismatch);
+            return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.RevisionMismatch);
 
         if (bindingId is { } targetId)
         {
             var target = await bindings.FindByIdAsync(targetId, ct).ConfigureAwait(false);
-            if (!target.IsSuccess)
-                return Result.Fail<ProviderTargetAttachmentWriteOutcome>(target.Error);
-            if (target.Value is null)
-                return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.BindingMissing);
+            if ((!target.IsSuccess && target.Error.Code != Twig.Core.ErrorCode.NotFound))
+                return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(target.Error);
+            if (target.Optional() is null)
+                return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.BindingMissing);
         }
 
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
@@ -128,34 +129,34 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
         {
             lockHandle = await AcquireCrossProcessLockAsync(ct).ConfigureAwait(false);
             if (lockHandle is null)
-                return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.LockUnavailable);
+                return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.LockUnavailable);
 
             var current = await ReadInternalAsync(ct).ConfigureAwait(false);
             if (!current.IsSuccess)
-                return Result.Fail<ProviderTargetAttachmentWriteOutcome>(current.Error);
+                return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(current.Error);
 
             var currentEnvelope = current.Value.Envelope;
             if (currentEnvelope is null)
             {
                 if (expectedRevision != 0 || bindingId is null)
-                    return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.RevisionMismatch);
+                    return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.RevisionMismatch);
             }
             else
             {
                 if (currentEnvelope.Revision != expectedRevision)
-                    return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.RevisionMismatch);
+                    return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.RevisionMismatch);
                 if (expectedBindingId is { } expectedId
                     && (currentEnvelope.State != ProviderTargetAttachmentState.Attached
                         || currentEnvelope.BindingId != expectedId))
-                    return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.BindingMismatch);
+                    return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.BindingMismatch);
             }
 
             var liveFingerprint = GetLiveFingerprint(paths);
             if (!liveFingerprint.IsSuccess)
-                return Result.Fail<ProviderTargetAttachmentWriteOutcome>(liveFingerprint.Error);
+                return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(liveFingerprint.Error);
 
             if (currentEnvelope is null && bindingId is null)
-                return Result.Ok(new ProviderTargetAttachmentWriteOutcome(0));
+                return NativeResults.Ok(new ProviderTargetAttachmentWriteOutcome(0));
 
             var nextRevision = currentEnvelope is null ? 1 : currentEnvelope.Revision + 1;
             var nextEnvelope = new ProviderTargetAttachmentEnvelope(
@@ -166,12 +167,12 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
                 bindingId);
             var write = await WriteEnvelopeAtomicAsync(nextEnvelope, ct).ConfigureAwait(false);
             if (!write.IsSuccess)
-                return Result.Fail<ProviderTargetAttachmentWriteOutcome>(write.Error);
-            return Result.Ok(new ProviderTargetAttachmentWriteOutcome(nextRevision));
+                return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(write.Error);
+            return NativeResults.Ok(new ProviderTargetAttachmentWriteOutcome(nextRevision));
         }
         catch (OperationCanceledException) { throw; }
-        catch (IOException) { return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.WriteFailed); }
-        catch (UnauthorizedAccessException) { return Result.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.WriteFailed); }
+        catch (IOException) { return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.WriteFailed); }
+        catch (UnauthorizedAccessException) { return NativeResults.Fail<ProviderTargetAttachmentWriteOutcome>(ProviderTargetAttachmentFailures.WriteFailed); }
         finally
         {
             lockHandle?.Dispose();
@@ -204,7 +205,7 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
         return null;
     }
 
-    private async Task<Result> WriteEnvelopeAtomicAsync(
+    private async Task<Result<bool>> WriteEnvelopeAtomicAsync(
         ProviderTargetAttachmentEnvelope envelope,
         CancellationToken ct)
     {
@@ -241,7 +242,7 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
                 stream.Flush(flushToDisk: true);
             }
             File.Move(tmpPath, targetPath, overwrite: true);
-            return Result.Ok();
+            return NativeResults.Ok();
         }
         catch
         {
@@ -254,8 +255,8 @@ internal sealed class WorktreeLocalProviderTargetAttachmentStore(
     private static Result<string> GetLiveFingerprint(TwigPaths paths)
     {
         if (!WorktreeAnchorDetector.TryDetect(paths.StartDir ?? paths.TwigDir, out var anchor, out _))
-            return Result.Fail<string>(ProviderTargetAttachmentFailures.WorktreeUnavailable);
-        return Result.Ok(WorktreeFingerprintProvider.CanonicalJson(anchor));
+            return NativeResults.Fail<string>(ProviderTargetAttachmentFailures.WorktreeUnavailable);
+        return NativeResults.Ok(WorktreeFingerprintProvider.CanonicalJson(anchor));
     }
 
     private static bool TryReadEnvelope(

@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Serialization;
 

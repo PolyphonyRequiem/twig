@@ -1,306 +1,53 @@
 using System.Text.Json.Serialization;
-using Twig.Domain.Capabilities;
-using Twig.Domain.Enums;
-using Twig.Domain.ReadModels;
-using Twig.Domain.ValueObjects;
-using Twig.Domain.Services.Policy;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Telemetry;
-using Twig.Infrastructure.Services.ReferenceProfile;
 
 namespace Twig.Infrastructure.Serialization;
 
-/// <summary>
-/// Source-generated JSON serialization context for all Twig DTOs.
-/// Enables AOT-compatible serialization with no runtime reflection
-/// (<c>JsonSerializerIsReflectionEnabledByDefault=false</c> in Twig.csproj).
-/// Add <c>[JsonSerializable]</c> attributes here for every DTO type as they are introduced.
-/// </summary>
 [JsonSerializable(typeof(TwigConfiguration))]
-[JsonSerializable(typeof(DraftCaptureEvidence))]
-[JsonSerializable(typeof(DraftCaptureBench))]
-[JsonSerializable(typeof(FormLayout))]
-[JsonSerializable(typeof(PolicyAssessment))]
-[JsonSerializable(typeof(PolicyRepairResult))]
-[JsonSerializable(typeof(BenchReadEnvelope))]
-[JsonSerializable(typeof(BenchReadError))]
 [JsonSerializable(typeof(TwigRepoConfig))]
 [JsonSerializable(typeof(TwigUserConfig))]
-[JsonSerializable(typeof(AuthConfig))]
-[JsonSerializable(typeof(DefaultsConfig))]
-[JsonSerializable(typeof(SeedConfig))]
-[JsonSerializable(typeof(DisplayConfig))]
 [JsonSerializable(typeof(GlobalDisplayPreferences))]
-[JsonSerializable(typeof(DisplayColumnsConfig))]
-[JsonSerializable(typeof(Dictionary<string, string?>))]
-[JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(GitHubIssueGraphQlRequest))]
-[JsonSerializable(typeof(ProviderWorkItemSnapshot))]
 [JsonSerializable(typeof(GitHubAppActor))]
 [JsonSerializable(typeof(GitHubAppCredential))]
 [JsonSerializable(typeof(Twig.Infrastructure.GitHub.GitHubDeviceAuthorizationResponse))]
 [JsonSerializable(typeof(Twig.Infrastructure.GitHub.GitHubDeviceTokenResponse))]
-[JsonSerializable(typeof(GitHubProviderSetupReport))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(GitHubIssueGraphQlResponse))]
-[JsonSerializable(typeof(GitHubIssueAssignee[]))]
-// ADO REST DTOs (EPIC-006)
-[JsonSerializable(typeof(AdoProjectWithCapabilitiesResponse))]
-[JsonSerializable(typeof(AdoWorkItemResponse))]
-[JsonSerializable(typeof(AdoBatchWorkItemResponse))]
-// Work item history — Updates API (twig#241)
-[JsonSerializable(typeof(AdoWorkItemUpdatesResponse))]
-[JsonSerializable(typeof(AdoWorkItemUpdate))]
-[JsonSerializable(typeof(AdoFieldUpdate))]
-[JsonSerializable(typeof(AdoRelationUpdates))]
-[JsonSerializable(typeof(AdoUpdateIdentity))]
-[JsonSerializable(typeof(AdoWiqlResponse))]
-[JsonSerializable(typeof(AdoWiqlRequest))]
-[JsonSerializable(typeof(AdoCommentRequest))]
-[JsonSerializable(typeof(AdoDiscussionCommentPostRequest))]
-[JsonSerializable(typeof(AdoPatchOperation))]
-[JsonSerializable(typeof(List<AdoPatchOperation>))]
-// Work item type CATEGORY DTOs (AB#656 — hidden/system type membership)
-[JsonSerializable(typeof(AdoWorkItemTypeCategoryListResponse))]
-[JsonSerializable(typeof(AdoWorkItemTypeCategoryResponse))]
-[JsonSerializable(typeof(AdoWorkItemTypeCategoryMemberResponse))]
-[JsonSerializable(typeof(AdoIterationListResponse))]
-[JsonSerializable(typeof(AdoIterationResponse))]
-[JsonSerializable(typeof(AdoWorkItemTypeListResponse))]
-[JsonSerializable(typeof(AdoWorkItemTypeResponse))]
-[JsonSerializable(typeof(AdoWorkItemTypeIconResponse))]
-[JsonSerializable(typeof(AdoWorkItemStateColor))]
-[JsonSerializable(typeof(AdoProcessRuleListResponse))]
-[JsonSerializable(typeof(AdoProcessRuleResponse))]
-[JsonSerializable(typeof(AdoRuleConditionResponse))]
-[JsonSerializable(typeof(AdoRuleActionResponse))]
-[JsonSerializable(typeof(AdoProcessTypeFieldListResponse))]
-[JsonSerializable(typeof(AdoProcessTypeFieldResponse))]
-[JsonSerializable(typeof(AdoOrgFieldListResponse))]
-[JsonSerializable(typeof(AdoOrgFieldResponse))]
-[JsonSerializable(typeof(AdoPicklistResponse))]
-[JsonSerializable(typeof(AdoProcessStateListResponse))]
-[JsonSerializable(typeof(AdoProcessStateResponse))]
-[JsonSerializable(typeof(AdoProcessWorkItemTypeListResponse))]
-[JsonSerializable(typeof(AdoProcessWorkItemTypeResponse))]
-[JsonSerializable(typeof(AdoWitTypeTransitionsListResponse))]
-[JsonSerializable(typeof(AdoWitTypeTransitionsResponse))]
-[JsonSerializable(typeof(AdoWitTransitionResponse))]
-[JsonSerializable(typeof(AdoTypeBehaviourListResponse))]
-[JsonSerializable(typeof(AdoTypeBehaviourResponse))]
-[JsonSerializable(typeof(AdoBehaviourReferenceResponse))]
-[JsonSerializable(typeof(AdoProcessBehaviourListResponse))]
-[JsonSerializable(typeof(AdoProcessBehaviourResponse))]
-[JsonSerializable(typeof(AdoFormLayoutResponse))]
-[JsonSerializable(typeof(AdoLayoutPageResponse))]
-[JsonSerializable(typeof(AdoLayoutSectionResponse))]
-[JsonSerializable(typeof(AdoLayoutGroupResponse))]
-[JsonSerializable(typeof(AdoLayoutControlResponse))]
-[JsonSerializable(typeof(AdoErrorResponse))]
-[JsonSerializable(typeof(AdoTeamFieldValuesResponse))]
-[JsonSerializable(typeof(AdoClassificationNodeResponse))]
-[JsonSerializable(typeof(List<AdoClassificationNodeResponse>))]
 [JsonSerializable(typeof(AdoConnectionDataResponse))]
 [JsonSerializable(typeof(PatCredentialEntry))]
 [JsonSerializable(typeof(ConnectionMigrationRecord))]
 [JsonSerializable(typeof(MirrorAdmissionDocument))]
-[JsonSerializable(typeof(PreservationBackupManifest))]
-[JsonSerializable(typeof(PreservationMigrationReport))]
 [JsonSerializable(typeof(ConnectionBindingTransitionRecord))]
-[JsonSerializable(typeof(ConnectionRemoteWriteRequest))]
 [JsonSerializable(typeof(CoreWriteCorrelation))]
 [JsonSerializable(typeof(ConnectionRemoteWriteResponse))]
 [JsonSerializable(typeof(ConnectionRemoteWriteIntent))]
 [JsonSerializable(typeof(ConnectionRemoteWriteObservation))]
 [JsonSerializable(typeof(ConnectionRemoteWriteReceipt))]
-[JsonSerializable(typeof(ConnectionRemoteWriteHistory))]
-[JsonSerializable(typeof(RejectedCreateFamilyProof))]
-[JsonSerializable(typeof(RejectedCreateFamilyProofMember))]
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection))]
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection[]))]
-[JsonSerializable(typeof(SeedPublishCorrelation))]
 [JsonSerializable(typeof(ConnectionDefaultTransitionRecord))]
-[JsonSerializable(typeof(AdoProfileResponse))]
-[JsonSerializable(typeof(TypeAppearanceConfig))]
-[JsonSerializable(typeof(List<TypeAppearanceConfig>))]
-[JsonSerializable(typeof(AreaPathEntry))]
-[JsonSerializable(typeof(List<AreaPathEntry>))]
-[JsonSerializable(typeof(UserConfig))]
-[JsonSerializable(typeof(GitConfig))]
-[JsonSerializable(typeof(GitHubConfig))]
-[JsonSerializable(typeof(Dictionary<string, object?>))]
-// Dynamic process configuration DTOs (EPIC-2/4)
-[JsonSerializable(typeof(AdoProcessConfigurationResponse))]
-[JsonSerializable(typeof(AdoCategoryConfiguration))]
-[JsonSerializable(typeof(AdoWorkItemTypeRef))]
-[JsonSerializable(typeof(List<AdoCategoryConfiguration>))]
-[JsonSerializable(typeof(List<string>))]
-// ProcessConfigurationData caching (EPIC-0)
-[JsonSerializable(typeof(ProcessConfigurationData))]
-[JsonSerializable(typeof(BacklogLevelConfiguration))]
-[JsonSerializable(typeof(List<BacklogLevelConfiguration>))]
-// PR value objects (EPIC-005)
-[JsonSerializable(typeof(PullRequestInfo))]
-[JsonSerializable(typeof(PullRequestCreate))]
-// ADO Git REST DTOs (EPIC-001)
-[JsonSerializable(typeof(AdoPullRequestResponse))]
-[JsonSerializable(typeof(AdoPullRequestListResponse))]
-[JsonSerializable(typeof(AdoRepositoryResponse))]
-[JsonSerializable(typeof(AdoProjectResponse))]
-[JsonSerializable(typeof(AdoCreatePullRequestRequest))]
-[JsonSerializable(typeof(AdoWorkItemRef))]
-[JsonSerializable(typeof(List<AdoWorkItemRef>))]
-[JsonSerializable(typeof(AdoArtifactLinkRelation))]
-[JsonSerializable(typeof(AdoArtifactLinkAttributes))]
-// State category types (EPIC-2)
-[JsonSerializable(typeof(StateEntry))]
-[JsonSerializable(typeof(List<StateEntry>))]
-[JsonSerializable(typeof(StateCategory))]
-// Field definition DTOs (EPIC-004)
-[JsonSerializable(typeof(AdoFieldListResponse))]
-[JsonSerializable(typeof(AdoFieldResponse))]
-// GitHub Release DTOs (EPIC-005 — self-update)
 [JsonSerializable(typeof(GitHubRelease))]
 [JsonSerializable(typeof(List<GitHubRelease>))]
-// Seed publish rules (Epic 1 — publish rules configuration)
-[JsonSerializable(typeof(SeedPublishRules))]
-// Global process profile metadata
-[JsonSerializable(typeof(ProfileMetadata))]
-// Telemetry envelope types (Epic 6 — lightweight AI ingestion)
 [JsonSerializable(typeof(AppInsightsEnvelope))]
-// MSAL token cache DTOs (Epic — sync-perf-optimization)
 [JsonSerializable(typeof(MsalTokenCache))]
-[JsonSerializable(typeof(MsalRefreshTokenEntry))]
-[JsonSerializable(typeof(MsalAccountEntry))]
 [JsonSerializable(typeof(TokenRefreshResponse))]
 [JsonSerializable(typeof(JwtAccessTokenPayload))]
 [JsonSerializable(typeof(TwigRefreshTokenStoreEntry))]
-// Interactive auth (twig login) DTOs
 [JsonSerializable(typeof(AuthCodeTokenResponse))]
 [JsonSerializable(typeof(DeviceCodeResponse))]
-// Workspace mode domain types (Epic — workspace-mode-infrastructure)
-[JsonSerializable(typeof(WorkspaceConfig))]
-[JsonSerializable(typeof(TrackingConfig))]
-[JsonSerializable(typeof(AreasConfig))]
-[JsonSerializable(typeof(SprintEntry))]
-[JsonSerializable(typeof(List<SprintEntry>))]
-[JsonSerializable(typeof(TrackedItem))]
-[JsonSerializable(typeof(List<TrackedItem>))]
-[JsonSerializable(typeof(ExcludedItem))]
-[JsonSerializable(typeof(List<ExcludedItem>))]
-[JsonSerializable(typeof(TrackingMode))]
-[JsonSerializable(typeof(TrackingCleanupPolicy))]
-// Descendant verification read models (Epic — SDLC close-out drill-down)
-[JsonSerializable(typeof(DescendantVerificationResult))]
-// File-backed tracking persistence POCOs (Epic — tracking-persistence-migration)
-[JsonSerializable(typeof(TrackingFile))]
-[JsonSerializable(typeof(TrackingFileEntry))]
-[JsonSerializable(typeof(List<TrackingFileEntry>))]
-[JsonSerializable(typeof(ExclusionFileEntry))]
-[JsonSerializable(typeof(List<ExclusionFileEntry>))]
-// AB#734/AB#735 reference profile. The nested records are attributed explicitly
-// rather than left to root-graph reachability, because T1 §8.2 requires the
-// aggregate root AND every §5 nested record registered — and an explicit entry
-// is what makes a future refactor that detaches one of them a build error
-// instead of a runtime "no metadata for type" under
-// JsonSerializerIsReflectionEnabledByDefault=false.
-[JsonSerializable(typeof(ReferenceProfileDto))]
-[JsonSerializable(typeof(BaseProcessDto))]
-[JsonSerializable(typeof(HierarchyDto))]
-[JsonSerializable(typeof(TypeDto))]
-[JsonSerializable(typeof(StateDto))]
-[JsonSerializable(typeof(LinkKindDto))]
-[JsonSerializable(typeof(PrimaryScopeDto))]
-[JsonSerializable(typeof(FingerprintDto))]
-[JsonSerializable(typeof(Role))]
-[JsonSerializable(typeof(LinkKind))]
-[JsonSerializable(typeof(ProviderCapabilityDescriptor))]
-[JsonSerializable(typeof(RelationshipCapability))]
-[JsonSerializable(typeof(CapabilityAvailabilityEvidence))]
-[JsonSerializable(typeof(CapabilityReportEntry))]
-[JsonSerializable(typeof(CapabilityReport))]
-[JsonSerializable(typeof(StoreParityReport))]
-[JsonSerializable(typeof(StoreParityClassReport))]
-[JsonSerializable(typeof(StoreParityCheckResult))]
-[JsonSerializable(typeof(StoreParityAnomaly))]
-[JsonSerializable(typeof(CapabilityImplementation))]
-[JsonSerializable(typeof(CapabilityAvailability))]
-[JsonSerializable(typeof(EmulationStorage))]
-[JsonSerializable(typeof(RelationshipOrigin))]
-[JsonSerializable(typeof(PublicationState))]
-// Provider-neutral work-item identities, tokens, and relationships.
-[JsonSerializable(typeof(ExternalWorkItemIdentity))]
-[JsonSerializable(typeof(ProviderRevisionToken))]
-[JsonSerializable(typeof(ProviderWorkItemRelationship))]
-// Worktree attachment storage documents (AB#736 §4.2, consumed by AB#738)
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.LayoutMarkerDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintDocument))]
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintTuple))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentDocument))]
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentPrimaryScope))]
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentActiveClaim))]
-// AB#739 claim record persistence
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.ClaimRecordDocument))]
-// AB#738 policy source
-[JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
-[JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
-// AB#735 (T1 §2) three-field reference-profile pin on the checked-in twig.json
-[JsonSerializable(typeof(Twig.Infrastructure.Config.ProfilePinConfig))]
-// AB#745 transport-attachment envelope (contract §2.1) persisted at .twig/transport.json
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAttachmentDocument))]
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportRecordDocument))]
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportWorktreeDocument))]
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAgentDocument))]
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportTerminalDocument))]
-[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAdapterTargetDocument))]
-// Provider-neutral worktree target pointer, separate from ADO connection attachments.
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.ProviderTargets.ProviderTargetAttachmentDocument))]
-[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
-[JsonSerializable(typeof(Twig.Domain.Services.Plan.ProviderPlanAuthority))]
-[JsonSerializable(typeof(Twig.Domain.Services.Plan.DraftProposalCapture))]
-[JsonSerializable(typeof(Twig.Domain.ValueObjects.WorkItemSnapshot))]
-[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
-[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanExecutionAdmission))]
-[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
-[JsonSerializable(typeof(Twig.Domain.ValueObjects.QualifiedWorkItemKey))]
-[JsonSerializable(typeof(Twig.Domain.ValueObjects.RecoverableWorkItemDraft))]
-// Epic #1168 provider-neutral field values (canonical hand-written converter on the type)
-[JsonSerializable(typeof(Twig.Domain.ValueObjects.Fields.FieldValues))]
-[JsonSerializable(typeof(CanvasDetailExport))]
-[JsonSerializable(typeof(DraftStageRequest))]
-[JsonSerializable(typeof(DraftRetainRequest))]
-[JsonSerializable(typeof(DraftSaveRequest))]
-[JsonSerializable(typeof(DraftRetainedCapture))]
-[JsonSerializable(typeof(DraftCaptureReview))]
-[JsonSerializable(typeof(DraftCaptureReviewWorkspace))]
-[JsonSerializable(typeof(DraftEditingResult))]
-[JsonSerializable(typeof(DraftEditingContext))]
-[JsonSerializable(typeof(string))]
-[JsonSerializable(typeof(AdoCommentListResponse))]
-[JsonSerializable(typeof(AdoDiscussionComment))]
-[JsonSerializable(typeof(DiscussionRequest))]
-[JsonSerializable(typeof(DiscussionResult))]
-[JsonSerializable(typeof(DiscussionContext))]
-[JsonSerializable(typeof(DiscussionCursor))]
-[JsonSerializable(typeof(DiscussionPostRequest))]
-[JsonSerializable(typeof(DiscussionPostPreparation))]
-[JsonSerializable(typeof(WorkItemAttachment))]
-[JsonSerializable(typeof(WorkItemAttachment[]))]
-[JsonSerializable(typeof(AttachmentReadRequest))]
-[JsonSerializable(typeof(AttachmentReadContext))]
-[JsonSerializable(typeof(AttachmentReadCapability))]
-[JsonSerializable(typeof(AttachmentReadError))]
-[JsonSerializable(typeof(AttachmentReadEntry))]
-[JsonSerializable(typeof(AttachmentReadEntry[]))]
-[JsonSerializable(typeof(AttachmentReadResult))]
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    Converters = [typeof(StagedIdentityJsonConverter)],
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 

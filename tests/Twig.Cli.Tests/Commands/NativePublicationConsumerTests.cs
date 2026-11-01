@@ -10,17 +10,13 @@ using Shouldly;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
-using Twig.Domain.Aggregates;
-using Twig.Domain.Interfaces;
-using Twig.Domain.Services.Attachment;
-using Twig.Domain.Services.Plan;
-using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Formatters;
 using Twig.Infrastructure;
-using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
-using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Policy;
 using Xunit;
 using CoreModel = Twig.Core;
@@ -32,6 +28,19 @@ namespace Twig.Cli.Tests.Commands;
 /// <summary>Native receipts over real attached stores and independently maintained, principal-private remote state.</summary>
 public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
 {
+    private static void AssertNativeDependencyClosure()
+    {
+        foreach (var assembly in new[] { typeof(TwigCommands).Assembly, typeof(ConnectionBindingService).Assembly })
+            assembly.GetReferencedAssemblies().ShouldNotContain(reference => reference.Name == "Twig.Domain");
+    }
+
+    private static void AssertNativeRegistrations(IServiceCollection services)
+    {
+        AssertNativeDependencyClosure();
+        services.ShouldNotContain(service => service.ServiceType.Assembly.GetName().Name == "Twig.Domain"
+            || service.ServiceType.Name == "IPendingChangeFlusher");
+    }
+
     private const string Actor = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     private const string Sibling = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
     private const string ActorPat = "fixture-actor-pat";
@@ -261,10 +270,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddTwigWorkspaceServices(paths.StartDir, ["link", "related", "43", "--id", "42", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         root.GetService<CoreCommandAdapter>().ShouldNotBeNull("exercise the pinned Core composition");
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<Twig.Domain.Services.Sync.SyncCoordinatorFactory>().ShouldBeNull();
+        AssertNativeDependencyClosure();
         typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
-        root.GetService<IWorkItemLinkRepository>().ShouldBeNull();
+        AssertNativeDependencyClosure();
         using (var handle = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value)
         {
             var localFrom = CoreModel.ItemKey.Local(Guid.CreateVersion7());
@@ -536,10 +544,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddTwigWorkspaceServices(paths.StartDir, ["process", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         root.GetService<CoreCommandAdapter>().ShouldNotBeNull();
-        root.GetService<IProcessTypeStore>().ShouldBeNull();
-        root.GetService<IFieldDefinitionStore>().ShouldBeNull();
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<IPendingChangeStore>().ShouldBeNull();
+        AssertNativeDependencyClosure();
         typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
         var originalOut = Console.Out;
         var originalError = Console.Error;
@@ -681,8 +686,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddTwigWorkspaceServices(paths.StartDir, ["pending", "-o", "json"], Path.Combine(Home, "display.json"));
         using var root = services.BuildServiceProvider();
         typeof(TwigCommands).Assembly.GetType("Twig.Commands.PlanCommand").ShouldBeNull("the fixture must exercise the missing Core route, not legacy inspection");
-        root.GetService<IPendingChangeReader>().ShouldBeNull();
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+        AssertNativeDependencyClosure();
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var workspace = admitted.Workspace;
         var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
@@ -940,8 +944,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.CommittedWrites.ShouldBe(0);
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.SyncCommand").ShouldBeNull();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.BenchSyncCommand").ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1124,8 +1127,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             final.Proposals.ShouldBeEmpty();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.BenchCommand").ShouldBeNull();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.TrackingCommand").ShouldBeNull();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1258,8 +1260,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.NavigationCommands").ShouldBeNull();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.NavigationHistoryCommands").ShouldBeNull();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.QueryCommand").ShouldBeNull();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1322,8 +1323,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 && item.RelationshipsComplete && item.ResourcesComplete);
             retained.Journal.ShouldBeEmpty();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.QueryCommand").ShouldBeNull();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1488,7 +1488,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             snapshot.Relationships.ShouldContain(new CoreModel.Relationship(
                 CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42"),
                 mapping.Remote, "Native.ParentForward", CoreModel.RelationshipOrigin.Provider));
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
+            AssertNativeDependencyClosure();
             stdout.GetStringBuilder().Clear();
             (await commands.SeedNew(title: "Local publication parent", type: "Task", noParent: true, output: "json")).ShouldBe(0);
             using var localParent = JsonDocument.Parse(stdout.ToString());
@@ -1560,7 +1560,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.PatchAttempts.ShouldBe(0);
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedLinkCommand").ShouldBeNull();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedPublishCommand").ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            AssertNativeDependencyClosure();
         }
         finally
         {
@@ -1709,12 +1709,10 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
         services.AddTwigWorkspaceServices(paths.StartDir, ["save", "--all", "-o", "json"]);
         File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
-        services.ShouldNotContain(service => service.ServiceType == typeof(IProviderWorkItemWriter)
-            || service.ServiceType == typeof(IPendingChangeStore) || service.ServiceType.Name == "IPendingChangeFlusher");
+        AssertNativeRegistrations(services);
         using var root = services.BuildServiceProvider();
         typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<IPendingChangeStore>().ShouldBeNull();
+        AssertNativeDependencyClosure();
         foreach (var deleted in new[] { "UpdateCommand", "SaveCommand", "DiscardCommand" })
             typeof(TwigCommands).Assembly.GetType("Twig.Commands." + deleted).ShouldBeNull(
                 "remaining legacy CLI ownership must be deleted, not merely bypassed");
@@ -1824,7 +1822,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             services.AddSingleton(_http);
             services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
             services.AddTwigWorkspaceServices(root, arguments, Path.Combine(Home, "display.json"));
-            services.AddSingleton<ISystemWorktreeRegistry>(_systemRegistry);
+            services.AddSingleton(_systemRegistry);
             registrations = services;
         });
         try
@@ -1833,9 +1831,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             Console.SetError(stderr);
             Run().ShouldBe(0, stderr.ToString());
             Directory.Exists(Path.Combine(root, ".twig", "cache")).ShouldBeFalse("native init must never initialize the legacy cache");
-            registrations!.Any(s => s.ServiceType == typeof(IWorkItemRepository)
-                || s.ServiceType == typeof(IIterationService) || s.ServiceType == typeof(IManagedWorktreeInitializer)
-                || s.ServiceType == typeof(IGlobalProfileStore)).ShouldBeFalse("init must not register the legacy application");
+            registrations.ShouldNotBeNull();
+            AssertNativeRegistrations(registrations);
             _transport.WorkRequests.ShouldBe(requests, "init only observes native identity/project metadata");
             _transport.ObservedPaths.ShouldNotBeEmpty();
             _transport.ObservedPaths.ShouldAllBe(path => path == "/fixture/_apis/connectionData" || path == "/fixture/_apis/projects/Project");
@@ -1996,8 +1993,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var failure = Should.Throw<InvalidOperationException>(() =>
                 services.AddTwigWorkspaceServices(paths.StartDir, [verb, "--id", "42", "-o", "json"]));
             failure.Message.ShouldContain("Core workspace");
-            services.Any(s => s.ServiceType == typeof(IAdoWorkItemService)).ShouldBeFalse();
-            services.Any(s => s.ServiceType == typeof(IProviderWorkItemWriter)).ShouldBeFalse();
+            AssertNativeRegistrations(services);
         }
         _transport.WorkRequests.ShouldBe(requests);
         _transport.CommittedWrites.ShouldBe(0);
@@ -2047,9 +2043,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             check.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
             check.AddTwigWorkspaceServices(paths.StartDir, ["show", "42", "-o", "json"], Path.Combine(Home, "display.json"));
             using var root = check.BuildServiceProvider();
-            root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-            root.GetService<IAdoWorkItemService>().ShouldBeNull();
-            root.GetService<IPendingChangeStore>().ShouldBeNull();
+            AssertNativeDependencyClosure();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
             foreach (var deleted in new[] { "StateCommand", "NoteCommand", "PatchCommand", "UpdateCommand", "SaveCommand", "DiscardCommand" })
                 typeof(TwigCommands).Assembly.GetType("Twig.Commands." + deleted).ShouldBeNull(
@@ -2122,7 +2116,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var final = (await store.ReadAsync(connection, default)).Value;
             final.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
             final.Items.Single().Resources.ShouldContain(resource => resource.Target == "https://example.test/root-evidence");
-            root.GetService<IWorkItemDiscussionWriter>().ShouldBeNull();
+            AssertNativeDependencyClosure();
             stdout.GetStringBuilder().Clear();
             Run("state", "Doing", "--id", "42", "-o", "json").ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(5);
@@ -2367,7 +2361,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddCoreWorkspaceServices(config, paths);
-        services.AddSingleton<ISystemWorktreeRegistry>(_systemRegistry);
+        services.AddSingleton(_systemRegistry);
         services.AddSingleton(_http);
         services.AddTwigRenderingServices();
         var runtime = services.BuildServiceProvider();

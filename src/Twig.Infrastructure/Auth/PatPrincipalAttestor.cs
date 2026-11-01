@@ -16,7 +16,7 @@ internal sealed class PatPrincipalAttestor(HttpClient http)
     internal static string NormalizeAuthority(string organization)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(organization);
-        var url = AdoRestClient.NormalizeOrgUrl(organization);
+        var url = AdoEndpoint.NormalizeOrgUrl(organization);
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || uri.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(uri.UserInfo)
             || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
@@ -46,7 +46,7 @@ internal sealed class PatPrincipalAttestor(HttpClient http)
         ArgumentException.ThrowIfNullOrWhiteSpace(pat);
         using var request = new HttpRequestMessage(HttpMethod.Get, authority + "/_apis/connectionData?api-version=" + AdoApiVersions.ConnectionData);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        AdoErrorHandler.ApplyAuthHeader(request, FormatAuthorization(pat));
+        request.Headers.Authorization = AuthenticationHeaderValue.Parse(FormatAuthorization(pat));
         HttpResponseMessage response;
         try
         {

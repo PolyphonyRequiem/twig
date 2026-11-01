@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
-using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
@@ -14,16 +13,11 @@ namespace Twig.DependencyInjection;
 public static class RenderingServiceModule
 {
     public static IServiceCollection AddTwigRenderingServices(
-        this IServiceCollection services,
-        IReadOnlyList<StateEntry>? stateEntries = null)
+        this IServiceCollection services)
     {
         // Output formatters and factory — HumanOutputFormatter is the sole
         // surviving formatter after AB#3301 retired the machine-shape variants.
-        services.AddSingleton<HumanOutputFormatter>(sp =>
-        {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
-            return new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances, stateEntries);
-        });
+        services.AddSingleton<HumanOutputFormatter>();
         services.AddSingleton<OutputFormatterFactory>();
         services.AddSingleton<RendererFactory>(sp => new RendererFactory(sp.GetRequiredService<SpectreTheme>()));
 
@@ -32,7 +26,7 @@ public static class RenderingServiceModule
         services.AddSingleton<SpectreTheme>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
-            return new SpectreTheme(cfg.Display, cfg.TypeAppearances, stateEntries, cfg);
+            return new SpectreTheme(cfg.Display, cfg.TypeAppearances);
         });
         return services;
     }

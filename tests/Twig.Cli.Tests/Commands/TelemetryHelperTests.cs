@@ -3,7 +3,9 @@ using System.Diagnostics;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;

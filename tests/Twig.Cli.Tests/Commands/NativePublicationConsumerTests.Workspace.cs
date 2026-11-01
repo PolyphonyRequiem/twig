@@ -8,8 +8,9 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.DependencyInjection;
-using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Services;
 using Twig.Infrastructure.Config;
 using Xunit;
@@ -33,9 +34,7 @@ public sealed partial class NativePublicationConsumerTests
         services.AddTwigWorkspaceServices(paths.StartDir, [route, "-o", "json"]);
         using var root = services.BuildServiceProvider();
         root.GetService<CoreCommandAdapter>().ShouldNotBeNull();
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<IPendingChangeStore>().ShouldBeNull();
-        root.GetService<Twig.Domain.Services.Workspace.WorkingSetService>().ShouldBeNull();
+        AssertNativeRegistrations(services);
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var item = (await admitted.Workspace.ReadAsync(CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42"), default)).Value;
         var current = (await store.ReadAsync(connection, default)).Value;
@@ -363,8 +362,7 @@ public sealed partial class NativePublicationConsumerTests
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
         services.AddTwigWorkspaceServices(paths.StartDir, ["workspace"]);
         using var root = services.BuildServiceProvider();
-        root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
-        root.GetService<IPendingChangeStore>().ShouldBeNull();
+        AssertNativeRegistrations(services);
         using var handle = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         foreach (var id in new[] { 41, 42, 43, 44, 45, 90, 91, 99 })
             (await handle.Workspace.ReadAsync(CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, id.ToString(CultureInfo.InvariantCulture)), default)).IsSuccess.ShouldBeTrue();

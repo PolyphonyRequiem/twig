@@ -1,12 +1,12 @@
 using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
-using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Formatters;
 using Twig.Infrastructure.Ado;
-using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
-using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services;
 using Twig.Rendering;
 using Twig.RenderTree;
@@ -132,7 +132,7 @@ public sealed class InitCommand
                     return Fail("--host, --repository and --account require --provider github.", 2);
                 if (string.IsNullOrWhiteSpace(org) || org != org.Trim() || org.Any(char.IsControl)
                     || string.IsNullOrWhiteSpace(project) || project != project.Trim() || project.Any(char.IsControl)
-                    || !Uri.TryCreate(AdoRestClient.NormalizeOrgUrl(org).TrimEnd('/') + "/", UriKind.Absolute, out var endpoint)
+                    || !Uri.TryCreate(AdoEndpoint.NormalizeOrgUrl(org).TrimEnd('/') + "/", UriKind.Absolute, out var endpoint)
                     || endpoint.Scheme != "https" || endpoint.UserInfo.Length != 0 || endpoint.Query.Length != 0 || endpoint.Fragment.Length != 0)
                     return Fail("Supply an explicit secure ADO organization and non-empty project: twig init <org> <project>.", 2);
                 if (hasManifest && (!string.Equals(org, config.Organization, StringComparison.OrdinalIgnoreCase)
@@ -171,14 +171,14 @@ public sealed class InitCommand
             {
                 using var attachment = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System, binding);
                 var attached = await attachment.InitializeAsync(ct);
-                if (!attached.IsSuccess) return Fail(attached.Error);
+                if (!attached.IsSuccess) return Fail(attached.Error.Message);
                 using var registry = new SqliteSystemWorktreeRegistry(bindings.RegistryPath, TimeProvider.System);
                 var connection = ConnectionRefResolver.Compute(config);
                 var registered = await registry.UpsertConnectionAsync(connection, config.Organization, config.Project, config.Team, ct);
-                if (!registered.IsSuccess) return Fail(registered.Error);
+                if (!registered.IsSuccess) return Fail(registered.Error.Message);
                 registered = await registry.UpsertWorktreeAsync(WorktreeFingerprintProvider.CanonicalJson(anchor),
                     connection, anchor.WorktreeRoot, ct);
-                if (!registered.IsSuccess) return Fail(registered.Error);
+                if (!registered.IsSuccess) return Fail(registered.Error.Message);
             }
             var result = await CoreWorkspaceInitializer.InitializeAsync(config, paths, bindings, database, ct,
                 _transport, _githubProcesses);

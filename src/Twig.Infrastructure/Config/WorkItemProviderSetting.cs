@@ -1,4 +1,3 @@
-using Twig.Domain.Capabilities;
 
 namespace Twig.Infrastructure.Config;
 
@@ -13,7 +12,7 @@ namespace Twig.Infrastructure.Config;
 /// </summary>
 public static class WorkItemProviderSetting
 {
-    public const string Default = ProviderCapabilityCatalog.AdoProviderKind;
+    public const string Default = "ado";
 
     public const string UnknownReasonCode = "provider-unknown";
 
@@ -27,8 +26,8 @@ public static class WorkItemProviderSetting
 
     public static IReadOnlyList<string> KnownKinds { get; } =
     [
-        ProviderCapabilityCatalog.AdoProviderKind,
-        ProviderCapabilityCatalog.GitHubProviderKind,
+        "ado",
+        "github",
     ];
 
     /// <summary>Returns the canonical token for user input (trimmed, case-insensitive), or null.</summary>

@@ -238,7 +238,7 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console, SpectreTheme? th
             var safe = Markup.Escape(cell.DisplayText);
             parts.Add(key switch
             {
-                "type" when theme is not null && cell.DisplayText != "(uncached)" => theme.FormatTypeBadge(Twig.Domain.ValueObjects.WorkItemType.Parse(cell.DisplayText).Value) + " " + safe,
+                "type" when theme is not null && cell.DisplayText != "(uncached)" => theme.FormatTypeBadge(cell.DisplayText) + " " + safe,
                 "state" when theme is not null => theme.FormatReviewState(cell.DisplayText),
                 "identity" when row.Cells.TryGetValue("url", out var url) && Uri.TryCreate(url.DisplayText, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http"
                     => $"[link={Markup.Escape(uri.AbsoluteUri)}][bold]{safe}[/][/]",

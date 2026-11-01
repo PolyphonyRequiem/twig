@@ -9,6 +9,37 @@ namespace Twig.Formatters;
 /// </summary>
 internal static class FormatterHelpers
 {
+    internal static string StripHtmlTags(string input)
+    {
+        var result = new StringBuilder(input.Length);
+        var buffer = new StringBuilder();
+        var inTag = false;
+        foreach (var c in input)
+        {
+            if (c == '<')
+            {
+                if (inTag)
+                {
+                    result.Append(buffer);
+                    buffer.Clear();
+                }
+                inTag = true;
+                buffer.Append(c);
+                continue;
+            }
+            if (c == '>' && inTag)
+            {
+                inTag = false;
+                buffer.Clear();
+                continue;
+            }
+            if (inTag) buffer.Append(c);
+            else result.Append(c);
+        }
+        if (inTag) result.Append(buffer);
+        return result.ToString();
+    }
+
     /// <summary>
     /// Returns a compact display label for a work item state.
     /// Uses the full state name — no shorthand encoding.
@@ -26,7 +57,7 @@ internal static class FormatterHelpers
 
         return dataType.ToLowerInvariant() switch
         {
-            "html" => Truncate(Rendering.SpectreRenderer.StripHtmlTags(value), maxWidth),
+            "html" => Truncate(StripHtmlTags(value), maxWidth),
             "treepath" => GetLastTreePathSegment(value),
             "datetime" => FormatRelativeDate(value),
             _ => Truncate(value, maxWidth),
@@ -43,7 +74,7 @@ internal static class FormatterHelpers
 
         return dataType.ToLowerInvariant() switch
         {
-            "html" => Rendering.SpectreRenderer.StripHtmlTags(value),
+            "html" => StripHtmlTags(value),
             _ => value,
         };
     }
@@ -343,7 +374,7 @@ internal static class FormatterHelpers
         if (string.IsNullOrEmpty(title))
             return "";
 
-        var stripped = Rendering.SpectreRenderer.StripHtmlTags(title).Trim();
+        var stripped = StripHtmlTags(title).Trim();
         if (stripped.Length <= maxWidth)
             return stripped;
 

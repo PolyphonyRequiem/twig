@@ -583,6 +583,10 @@ Their projects and source, together with the withdrawn MCP/TUI hosts and tests,
 have now been deleted. The unlaunched Browser application, legacy CLI business
 commands and async rendering graph and their superseded direct-call tests are
 also removed; retained routes use the Core/native production composition.
+Infrastructure's unused connection/network business-registration graph, mutation
+and claim executors, and legacy migration/identity-change execution services are
+deleted as well. Native uncertain-write inspection retains original request,
+observation and receipt evidence but has no settlement or replay implementation.
 `src/Twig.Domain` remains a real supported build
 dependency while Infrastructure/CLI still reference it; this is not source deletion
 of Domain itself or a disabled dependency build. The full supported solution still has the same

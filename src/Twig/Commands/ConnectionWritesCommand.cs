@@ -18,7 +18,7 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>Inspect native uncertain writes and reconcile only attributable original-actor evidence.</summary>
+/// <summary>Inspect original native uncertain-write evidence without reconciliation.</summary>
 internal sealed class ConnectionWritesCommand(
     IConnectionRemoteWriteReconciliationService reconciliation,
     TwigConfiguration configuration,

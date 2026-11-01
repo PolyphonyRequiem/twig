@@ -10,7 +10,7 @@ namespace Twig.Infrastructure.Persistence.Transport;
 /// raises <see cref="TransportAttachmentFailure.AdapterNotRegistered"/>.
 /// <para>
 /// The registry is populated by a singleton factory-lambda in
-/// <see cref="TwigServiceRegistration"/> matching the existing
+/// the retired legacy service registration matching the existing
 /// <c>AddConnectionServices</c> pattern. Adapters are injected by
 /// constructor list; nothing is reflective; the composition is
 /// source-generated-friendly and AOT-compatible.

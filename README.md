@@ -568,6 +568,8 @@ never builds or runs test hosts. Use narrowly scoped regression checks for the
 proposed changeset when needed. Local pre-push runs this smoke. Required CI on
 Linux and Windows also qualifies the closed Core/native-host profile through
 existing production CAF/DI roots, synthetic native auth/HTTP and real SQLite.
+These checks run for every pull-request target, including stacked PRs; pushes
+to `main` also run them.
 Each selector group has a hard 60-second process-tree deadline and a verified TRX;
 missing selectors, zero cases, skipped/aborted runs and missing results after
 execution are failures. Uploads do not demand results from steps that never ran.

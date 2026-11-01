@@ -1,53 +1,45 @@
 ---
 command: link local list
 group: links
-summary: List Twig-local Related links touching a local work item.
+summary: Read cached LOCAL edges for an explicit Core item with zero HTTP.
 stability: stable
 mutates: none
 ---
 
 # `twig link local list`
 
-Read active local-only Related edges touching a canonical lowercase local
-GUIDv7 identity:
-
-```
-twig link local list <local-guid> [-o human|json|minimal]
+```text
+twig link local list [<target>] [--id <target>] [-o human|json|json-full|json-compact|minimal|ids]
 ```
 
-## Behavior
+An explicit cached native number, negative seed alias or original canonical
+lowercase GUIDv7 is required. Different positional/`--id` values refuse rather
+than guessing; there is no active-item fallback. Unknown numbers require an
+explicit `show <number> --refresh` outside this command.
 
-`-o ids` is not supported because this format emits numeric work-item IDs,
-while these endpoints are local GUIDv7 identities.
+List reads the pinned Core snapshot only: **zero total HTTP**, no credential or
+schema acquisition, no hidden number fetch, no store/journal/context changes.
+It shows active local-origin edges touching the logical target, excludes
+tombstones and native-origin observations, and labels provenance `LOCAL`,
+`local-only`, `non-native`. Original Verified seed mappings let both UUID and
+native number find the same unchanged edge keys.
 
-This reads the durable Twig relationship store only. It does not resolve the
-active provider, require a provider identity for the local item, or contact or
-sync a provider. Each result has local GUID endpoints and is labelled
-`origin: twig-local`, `storage: local-only`, and
-`publication: not-applicable`. The edge is never merged into provider-native
-relationships.
+JSON variants retain typed endpoint strings, kind, local version and deletion
+flag. Human/minimal output is static. `ids` emits explicit numeric neighbor
+locators (negative aliases for live local seeds) only when every neighbor can be
+resolved uniquely from cached evidence; otherwise it explicitly refuses. No
+endpoint is silently dropped to make an IDs result look complete.
 
 ## Examples
 
-List local relationships in human-readable form:
-
+```text
+twig link local list 42
+twig link local list --id 019a0000-0000-7000-8000-000000000001 -o json
 ```
-twig link local list 019a0000-0000-7000-8000-000000000001
-```
-
-Emit the local relationship array as JSON:
-
-```
-twig link local list 019a0000-0000-7000-8000-000000000001 -o json
-```
-
-With `-o minimal`, each edge is one tab-separated row containing source ID,
-target ID, kind, origin, storage, and publication state. An item with no local
-Related edges returns an empty list.
 
 ## Exit codes
 
-- `0` — the list was read, including an empty list.
-- `1` — the local relationship store could not be read.
-- `2` — the local ID is not a canonical lowercase GUIDv7 identity, or the
-  output format is not `human`, `json`, or `minimal` (including `-o ids`).
+- `0`: cached edges read, including an empty list.
+- `1`: unknown/non-live identity, conflicting logical edges or unavailable store.
+- `2`: missing/conflicting/invalid target, unsupported output or unavailable
+  unique neighbor IDs.

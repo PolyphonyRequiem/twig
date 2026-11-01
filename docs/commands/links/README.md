@@ -3,8 +3,8 @@
 Manage relationships and artifact links. The published-item verbs operate on
 Azure DevOps work items — hierarchy (parent/child), non-hierarchy relations
 (`predecessor`, `successor`, `related`), and artifact links (URLs and
-`vstfs://` URIs). The `link local` verbs use provider-neutral local GUIDv7
-identities for explicit Twig-local Related links. Virtual links between local
+`vstfs://` URIs). The `link local` verbs use native numeric locators or original
+Core seed UUIDs/negative aliases for explicit LOCAL Related links. Virtual links between local
 seeds live under `seed link` / `seed unlink` instead.
 
 Published relationship verbs require an explicitly initialized Core ADO workspace
@@ -14,7 +14,8 @@ unsupported gaps, refused before HTTP. Artifact and local-link routes have separ
 qualification status; their presence here does not imply a complete Core/UI cutover.
 `link local related` and `link local unrelate` mutate only Twig's durable
 local relationship store; they never write or translate the edge to a provider.
-`link local list` reads that store without provider access.
+Mutations may acquire native schema/observations; only `link local list` guarantees
+zero total HTTP.
 
 ## Commands
 
@@ -27,8 +28,8 @@ local relationship store; they never write or translate the edge to a provider.
 |[`link successor`](./link-successor.md)|Mark the active (or targeted) item as blocking another.|ado|
 |[`link related`](./link-related.md)|Add a symmetric Related edge between two items.|ado|
 |[`link unrelate`](./link-unrelate.md)|Remove a Related edge between two items.|ado|
-|[`link local related`](./link-local-related.md)|Add an explicit local-only Related edge between local work items.|local|
-|[`link local unrelate`](./link-local-unrelate.md)|Remove a local-only Related edge without provider access.|local|
+|[`link local related`](./link-local-related.md)|Verify one local-only Related edge with exact Core CAS.|local|
+|[`link local unrelate`](./link-local-unrelate.md)|Tombstone a local-only Related edge through the Core journal.|local|
 |[`link local list`](./link-local-list.md)|Read local-only Related edges without provider access.|none|
 |[`link unlink`](./link-unlink.md)|Remove any non-hierarchy link (`predecessor`, `successor`, `related`).|ado|
 |[`link artifact`](./link-artifact.md)|Attach a hyperlink or `vstfs://` artifact link to an item.|ado|
@@ -47,9 +48,11 @@ local relationship store; they never write or translate the edge to a provider.
   resolves its permanent store mapping to the native item without changing history
   or retained creation proposals. Unmapped/unknown seeds still refuse, and mapped
   endpoints remain subject to the same partial/unknown proposal fences.
-- **Local targeting.** `link local` requires explicit canonical local GUIDv7
-  identities. Creating a link requires both local items to exist and be live;
-  reading or removing an existing edge does not resolve a provider identity.
+- **Local targeting.** Write `link local related <target> --id <source>` or
+  `unrelate` with the same shape. Both endpoints must have live Core evidence;
+  numeric locators, negative seed aliases and original canonical GUIDv7s are supported.
+  The old two-GUID positional form is retired. List requires a positional
+  target or `--id`, rejects conflicts, and remains cache-only.
 - **Published-item guards.** Self-links are rejected. Adding a link that
   already exists is a refusal (`1`), not a claim of new verification. Removing
   an absent edge is also a failure. One unambiguous discovered canonical shape is
@@ -69,8 +72,10 @@ local relationship store; they never write or translate the edge to a provider.
 - **Remaining gaps.** `link reparent` cannot bind replacement to one safe typed
   request. `link related --comment` cannot represent a relation comment. Both
   refuse (`1`) before HTTP, never remove a parent or silently omit authored text.
-  GitHub CLI relationships, local-link/UI cutover and ambiguous native shapes are
-  not qualified by this bounded replacement.
-- **Local output.** `link local` supports `human`, `json`, and `minimal`.
-  Its `ids` format is intentionally unsupported because local GUIDv7 identities
-  are not numeric work-item IDs.
+  Native GitHub CLI relationships, UI cutover and ambiguous native shapes remain
+  unqualified. The separate local Related slice requires one discovered local-only
+  symmetric Association; ADO declares native Related and refuses local mutation.
+- **Local output.** `human`, `json`, `json-full`, `json-compact` and `minimal`
+  identify `LOCAL`, `local-only`, `non-native` edges and exact local versions.
+  Verified means local CAS, not tracker publication. List alone supports `ids`
+  when every neighbor has a unique cached numeric locator or local seed alias.

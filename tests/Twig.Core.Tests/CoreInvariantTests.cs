@@ -375,6 +375,40 @@ public sealed class CoreInvariantTests
     }
 
     [Fact]
+    public void LocalEndpointSurvivesOnlyItsOriginalVerifiedPublicationAndObservedNativeItem()
+    {
+        var schema = Schema();
+        var seed = ItemKey.Local(Guid.CreateVersion7());
+        var neighbor = ItemKey.Remote(Provider, "scope", "2");
+        var create = new Proposal(Connection, schema.Fingerprint, 0,
+            [new("create", OpKind.Create, seed, fields: Item().Fields, type: "record",
+                concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+        var attempt = Guid.NewGuid();
+        var applied = JournalEntry.Planned(create.Digest, 0).Begin(attempt).Value.Record(
+            new(create.Digest, 0, attempt, OpStatus.Applied, ["acknowledged"], publishedKey: Key)).Value;
+        var verified = applied.Record(new(create.Digest, 0, attempt, OpStatus.Verified, ["observed"], publishedKey: Key)).Value;
+        var mapping = new PublishMapping(seed, Key, create.Digest, 0);
+        var edge = new Relationship(seed, neighbor, "related", RelationshipOrigin.Local, 3);
+        var remove = new Proposal(Connection, schema.Fingerprint, 4,
+            [new("remove", OpKind.Unrelate, seed, other: neighbor, relation: "related",
+                origin: RelationshipOrigin.Local, expectedLocalVersion: 3)]);
+        StoreSnapshot Capture(JournalEntry row, bool observed = true, PublishMapping? binding = null) =>
+            new(4, observed ? [Item(), Item(key: neighbor)] : [Item(key: neighbor)], [edge],
+                proposals: [create], journal: [row], mappings: [binding ?? mapping]);
+        var state = Capture(verified);
+        state.Drafts.ShouldBeEmpty();
+        state.Items.ShouldNotContain(item => item.Key == seed);
+        Rules.Validate(remove, remove.Digest, schema, state, Capabilities).ShouldBeEmpty();
+        foreach (var refused in new[] {
+            Capture(applied), Capture(verified, observed: false),
+            Capture(verified, binding: new(seed, ItemKey.Remote(Provider, "foreign-scope", "1"), create.Digest, 0)),
+            Capture(verified, binding: new(seed, Key, "foreign-digest", 0)),
+        })
+            Rules.Validate(remove, remove.Digest, schema, refused, Capabilities)
+                .ShouldContain(error => error.Message.Contains("endpoint evidence", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void CreationBindsTheRetainedSeedAndFencesItsUuidAcrossProposalDigests()
     {
         var schema = Schema();

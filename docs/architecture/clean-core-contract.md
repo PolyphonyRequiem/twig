@@ -97,11 +97,54 @@ offline utilities. Machine qualification refusals are one format-aware error, in
 failures during CAF service composition. Quick `new` remains unqualified; use the
 explicit `seed new` profile instead.
 
-Tree/navigation, editor, chain/creation links, native/local CLI links, resource coupling,
+Tree/navigation, editor, chain/creation links, native CLI links, resource coupling,
 sync/context expansion, browser/TUI and other unconverted families explicitly refuse
 before provider HTTP or a legacy writer. Type/assignee/path/date query spellings are
 also refused. Queries retain the existing **100 total candidates** bound, with explicit
 refusal of further pages; no large-repository completeness is claimed.
+
+### Qualified Core local Related CLI slice
+
+The existing `LocalRelationshipCommand` now owns only the Core path:
+`link local related <target> --id <source>`, `unrelate` with the same shape,
+and explicit-target `link local list <target>`/`--id <target>`. Native numbers,
+negative seed aliases and original canonical lowercase GUIDv7s replace the old
+two-GUID positional/`LocalWorkItemId` registry UX. There is no active fallback.
+Machine GUID `--id` admission is restricted to this local family; other commands'
+integer targeting is unchanged.
+
+The mutation owner uses actual discovered symmetric Association semantics and
+the existing typed provider capabilities. Exactly one local-only, non-native
+kind is required. ADO native Related/local-empty refuses; missing/denied schema
+or native read evidence never selects local fallback. Only these three local
+GitHub subcommands are newly qualified; native GitHub `link` remains unsupported.
+Mutations may acquire native credentials, schema and read observations but send
+zero native mutations. List performs zero total HTTP and changes no store,
+journal or navigation state.
+
+One existing proposal/op binds exact local edge CAS through shared
+Prepare/Apply/Verify and the retained journal. Initial add expects no row;
+remove/resurrect bind its exact positive version, including physical tombstones.
+Duplicate/absent effects refuse instead of faking verification. Output is static
+typed RenderTree with `LOCAL`, `local-only`, `non-native` provenance; Verified
+means local CAS only. List IDs require explicit uniquely cached neighbor IDs.
+
+Original Verified create mappings provide logical read/dedup after publication,
+but existing edges always mutate their original UUID keys and local version.
+Publication leaves local overlays in place rather than demanding native creation
+coupling. Minimal pure validation admits a settled UUID only with its original
+Verified create/mapping and an in-scope observed native endpoint; unknown,
+unverified or historical-only UUIDs remain refused. Mapped native endpoints are
+reacquired for provider validation without rewriting durable edge identities.
+Unresolved effect fences apply across mapped and original endpoints/new digests.
+
+Deletion map: the old owner constructor, legacy singleton registration and
+owner-only legacy store/descriptor/outcome tests are removed; the same owner is
+registered only in native Core composition. `LocalRelationshipService`, old
+stores and UI/MCP source remain outside this proven CLI cut and are not registered
+in the Core writer graph. No Core types/ports, schema/format versions, facade or
+CoreCommandAdapter method were added. Core remains 56 types/two ports/format 3;
+this is not phase-5 completion or a UI/native-link qualification.
 
 One provider-owned pure `GitHubWriteIntent.Project` projects final mutation documents
 and input bytes. Provider shape validation retains live capability/resource/edge

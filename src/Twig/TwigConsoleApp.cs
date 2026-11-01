@@ -25,6 +25,13 @@ internal static class TwigConsoleApp
             compositionError = null;
             var previous = ConsoleApp.LogError;
             var format = StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default;
+            if (args.Length > 2 && args[0] == "link" && args[1] == "local"
+                && StructuredMutationArgumentValidator.Validate(args) is { } localTargetError)
+            {
+                CommandError.Write(new RendererFactory(), Console.Error, format, localTargetError);
+                Environment.ExitCode = StructuredMutationArgumentValidator.UsageExitCode;
+                return;
+            }
             if (format != OutputFormats.Default)
                 ConsoleApp.LogError = message => CommandError.Write(new RendererFactory(), Console.Error, format,
                     compositionError ?? message);

@@ -35,6 +35,7 @@ internal static class CoreMutationAdmissionGuard
         "show" => !args.Contains("--tree"),
         "show-batch" or "process" or "update" or "note" or "state" or "batch" or "patch"
             or "save" or "discard" or "pending" or "query" => !args.Contains("--browser"),
+        "link" => args.Count > 2 && args[1] == "local" && args[2] is "related" or "unrelate" or "list",
         "bench" => args.Count == 1 || args.Count > 1 && args[1] is "list" or "create" or "switch",
         "workspace" or "ws" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "view" or "track" or "untrack",
         "seed" => args.Count > 1 && args[1] is "new" or "view" or "publish" or "discard" or "validate",

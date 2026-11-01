@@ -13,7 +13,14 @@ pending changes, and (when available) git context. Reads the local cache
 by default and never changes which item is active. Pass `--refresh` to
 sync from ADO before rendering.
 
-`--local-id <guid>` is a separate GitHub provider snapshot read by Twig's canonical
+In a pinned Core workspace, `--local-id <guid>` reads an original Core seed or
+Verified publication mapping, not a second local UUID registry for imported
+items. Use native numbers for imported GitHub items and
+[`link local list`](../links/link-local-list.md) for the qualified cache-only
+local-edge view. The older provider-snapshot envelope described below is not
+the Core CLI contract.
+
+`--local-id <guid>` is a separate legacy GitHub provider snapshot read by Twig's canonical
 local identity (the other provider compositions currently report it unavailable).
 It requires `-o json` (including the `json-full` and
 `json-compact` aliases) and cannot be combined with an integer ID, `--tree`,

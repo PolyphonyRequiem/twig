@@ -21,7 +21,7 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public sealed class GitHubCoreSpineTests
+public sealed partial class GitHubCoreSpineTests
 {
     [Theory]
     [InlineData("number-reassigned", false)]
@@ -307,6 +307,7 @@ public sealed class GitHubCoreSpineTests
         private CoreWorkspaceDocument _document = null!;
         internal string Output = "", Error = "";
         internal int CredentialCalls;
+        internal ITelemetryClient? Telemetry;
         private string Database => Path.Combine(Root, "core.db");
         internal Fixture()
         {
@@ -349,6 +350,7 @@ public sealed class GitHubCoreSpineTests
                     services.AddSingleton<IConnectionBindingService>(_bindings);
                     services.AddSingleton(_processes);
                     services.AddSingleton(new CoreTransportOverride(Http.NewHandle));
+                    if (Telemetry is not null) services.AddSingleton(Telemetry);
                     services.AddTwigWorkspaceServices(Root, args, Path.Combine(Root, "display.json"));
                     services.AddSingleton<ISystemWorktreeRegistry>(_registry);
                 });
@@ -363,15 +365,24 @@ public sealed class GitHubCoreSpineTests
             var store = (await SqliteStore.OpenAsync(Database, expectedInstance: _document.DatabaseInstance)).Value;
             return (await store.ReadAsync(_document.Connection, default)).Value;
         }
-        internal async Task ReplaceItems(IEnumerable<WorkItem> items)
+        internal async Task ReplaceItems(IEnumerable<WorkItem> items, IEnumerable<Relationship>? relationships = null)
         {
             var store = (await SqliteStore.OpenAsync(Database, expectedInstance: _document.DatabaseInstance)).Value;
             var capture = await Snapshot();
             var saved = await store.CommitAsync(_document.Connection, capture.Version, new(capture.Version + 1, items,
-                capture.Relationships, capture.Drafts, capture.Proposals, capture.Journal, capture.Mappings, capture.Benches), default);
+                relationships ?? capture.Relationships, capture.Drafts, capture.Proposals, capture.Journal, capture.Mappings, capture.Benches), default);
             saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         }
         internal async Task Stage(string field, FieldValue value)
+            => await UseWorkspace(async workspace =>
+            {
+                var snapshot = await Snapshot();
+                var staged = await workspace.StageEditAsync(snapshot.Items.Single().Key,
+                    FieldValues.Empty.Set(field, value), default);
+                staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
+            });
+
+        internal async Task UseWorkspace(Func<CoreWorkspace, Task> action)
         {
             var services = new ServiceCollection();
             services.AddSingleton<IConnectionBindingService>(_bindings);
@@ -382,10 +393,7 @@ public sealed class GitHubCoreSpineTests
             var opened = await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default);
             opened.IsSuccess.ShouldBeTrue(opened.IsSuccess ? "" : opened.Error.Message);
             using var handle = opened.Value;
-            var snapshot = await Snapshot();
-            var staged = await handle.Workspace.StageEditAsync(snapshot.Items.Single().Key,
-                FieldValues.Empty.Set(field, value), default);
-            staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
+            await action(handle.Workspace);
         }
         public void Dispose()
         {

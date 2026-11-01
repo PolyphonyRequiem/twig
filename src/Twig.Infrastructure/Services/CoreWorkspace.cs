@@ -20,6 +20,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot, Guid storeInstance = default)
 {
     internal Connection Connection => connection;
+    internal ProviderCapabilities Capabilities => provider.Capabilities;
     internal ConcurrencyMode Concurrency => provider.Capabilities.ExactRevisions
         ? ConcurrencyMode.ExactRevision : ConcurrencyMode.ObservedNonAtomic;
     internal string NativeActor => nativeActor;

@@ -136,20 +136,6 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedViewCommand>();
         services.AddSingleton<SeedLinkCommand>();
         services.AddSingleton<LinkCommand>();
-        services.AddSingleton<LocalRelationshipCommand>(sp => new LocalRelationshipCommand(
-            sp.GetRequiredService<ILocalWorkItemStore>(),
-            sp.GetRequiredService<LocalRelationshipService>(),
-            () =>
-            {
-                var providerKind = sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind();
-                return ProviderCapabilityCatalog.TryGet(providerKind, out var descriptor)
-                    ? descriptor
-                    : throw new InvalidOperationException(
-                        $"provider-capabilities-unavailable: no capability declaration is registered for '{providerKind}'.");
-            },
-            sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-            sp.GetService<ITelemetryClient>(),
-            sp.GetService<TextWriter>()));
         services.AddSingleton<ArtifactLinkCommand>();
         services.AddSingleton<SeedChainCommand>();
         services.AddSingleton<SeedValidateCommand>();

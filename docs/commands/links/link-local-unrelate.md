@@ -1,52 +1,49 @@
 ---
 command: link local unrelate
 group: links
-summary: Remove an existing Twig-local Related link without provider access.
+summary: Tombstone a LOCAL Related association with exact Core local CAS.
 stability: stable
 mutates: local
 ---
 
 # `twig link local unrelate`
 
-Tombstone a symmetric Related edge in Twig's durable local relationship store:
-
-```
-twig link local unrelate <source-local-guid> <target-local-guid> [-o human|json|minimal]
+```text
+twig link local unrelate <target> --id <source> [-o human|json|json-full|json-compact|minimal]
 ```
 
-## Behavior
+Use explicit native numeric locators, negative Core seed aliases or original
+canonical lowercase GUIDv7s. `--id` is mandatory for every write, including
+human output. The old two-GUID positional syntax is retired.
 
-The arguments must be canonical lowercase local GUIDv7 identities. Removal
-uses only the local relationship store; it does not resolve a provider, check
-the current provider's capability declaration, contact a provider, or sync
-either endpoint. This keeps an existing Twig-local edge removable after a
-connection change, including when the new provider declares Related native or
-unknown.
+The same discovered local-only symmetric Association and live endpoint evidence
+as [`related`](./link-local-related.md) are required. No native capability,
+provider error or connection change authorizes fallback. Native credential,
+schema and read acquisition may occur, but **no native mutation** occurs.
 
-The edge's local tombstone preserves its revision history. It does not remove
-either work item or alter any provider relationship.
+Removal stages one existing Core `Unrelate` operation with the exact edge
+`ExpectedLocalVersion`, then uses the shared digest-bound proposal/apply/verify
+journal. It persists a tombstone with an incremented local version. It never
+deletes a row, rewrites original seed UUID edge keys, or alters provider-origin
+relationships. `Verified` means local CAS, not tracker publication.
+
+Absent/deleted edges, stale versions, multiple logical matches, missing endpoint
+evidence, policy/actor mismatches and unresolved effects refuse explicitly.
+No fake Verified no-op is emitted. A subsequently resurrected edge must bind
+the tombstone's exact version, preventing stale ABA writes.
 
 ## Examples
 
-Remove a local association:
-
+```text
+twig link local unrelate 43 --id 42
+twig link local unrelate 019a0000-0000-7000-8000-000000000002 --id 42 -o json
 ```
-twig link local unrelate 019a0000-0000-7000-8000-000000000001 019a0000-0000-7000-8000-000000000002
-```
-
-Request a structured result:
-
-```
-twig link local unrelate 019a0000-0000-7000-8000-000000000001 019a0000-0000-7000-8000-000000000002 -o json
-```
-
-An absent edge, an edge owned by a different storage route, or a concurrent
-write conflict is reported as an error. See [`link local list`](./link-local-list.md).
 
 ## Exit codes
 
-- `0` — the edge was tombstoned.
-- `1` — no such edge exists, it exists under a different storage route, it
-  changed concurrently, or the local store failed. Nothing is changed.
-- `2` — an identity is not a canonical lowercase GUIDv7, or the output format is
-  not `human`, `json`, or `minimal`.
+- `0`: the tombstone is Verified and journaled.
+- `1`: absent/conflicting/stale edge, unsupported declaration, missing evidence,
+  authority/policy/fence refusal or storage failure.
+- `2`: invalid/missing/conflicting arguments or unsupported output (`ids` refused).
+
+[`link local list`](./link-local-list.md) is the separate zero-HTTP cache read.

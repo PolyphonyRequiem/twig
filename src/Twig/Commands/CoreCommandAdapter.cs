@@ -1248,7 +1248,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             drafts = snapshot.Value.Drafts.Where(draft => selected.Contains(draft.Key)).ToArray();
         }
         var keys = drafts.Select(draft => draft.Key).ToHashSet();
-        if (snapshot.Value.Relationships.Any(edge => !edge.Deleted && (keys.Contains(edge.From) || keys.Contains(edge.To))))
+        if (snapshot.Value.Relationships.Any(edge => edge.Origin == RelationshipOrigin.Provider
+            && !edge.Deleted && (keys.Contains(edge.From) || keys.Contains(edge.To))))
             return Error(output, "This seed has retained relationships requiring creation-bound publication effects; no link was dropped or seed published.");
         var captures = new List<CoreDraftPreview>();
         var operations = new List<Op>();

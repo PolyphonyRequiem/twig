@@ -329,22 +329,23 @@ public class TelemetryClientTests
         var dir = FindSolutionRoot();
         dir.ShouldNotBeNull("the scanner positive control must locate the actual source tree");
 
-        var commandFile = Path.Combine(dir, "src", "Twig", "Commands", "InitCommand.cs");
+        var commandFile = Path.Combine(dir, "src", "Twig", "Commands", "BenchDetailCommand.cs");
         File.Exists(commandFile).ShouldBeTrue("the scanner positive-control emitter must exist");
 
         var content = File.ReadAllText(commandFile);
         var trackIdx = content.IndexOf(".TrackEvent(", StringComparison.Ordinal);
-        trackIdx.ShouldBeGreaterThan(-1, "InitCommand.cs should contain a .TrackEvent( call");
+        trackIdx.ShouldBeGreaterThan(-1, "BenchDetailCommand.cs must contain the actual .TrackEvent( emission");
 
         var end = FindCallEnd(content, trackIdx);
         var callBlock = content[trackIdx..(end + 1)];
         callBlock.Length.ShouldBeGreaterThan(20, "callBlock should span the full TrackEvent call, not just '.T'");
 
         var keys = KeyPattern.Matches(callBlock).Select(m => m.Groups[1].Value).ToList();
-        keys.Count.ShouldBeGreaterThan(0, "Scanner should extract keys from the actual InitCommand.cs emitter");
+        keys.Count.ShouldBeGreaterThan(0, "Scanner must extract keys from the actual BenchDetailCommand.cs emitter");
         keys.ShouldContain("command");
         keys.ShouldContain("exit_code");
         keys.ShouldContain("duration_ms");
+        keys.ShouldAllBe(key => SafePropertyKeys.Contains(key));
     }
 
     [Fact]

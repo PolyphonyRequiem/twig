@@ -15,7 +15,7 @@ not as currently supported alternatives.
 ## Quick Start
 
 ```bash
-# Initialize (connects to your ADO org and project)
+# Initialize a fresh native Core store at .twig/core.db (requires an enrolled ADO binding)
 twig init --org contoso --project MyProject
 
 # Sync data from ADO into local cache
@@ -24,6 +24,16 @@ twig sync
 # View your assigned work items
 twig ws
 ```
+
+`init` now creates **only a fresh Core store**, never the old cache. An optional
+`--core-store <new-absolute-file>` overrides its path (the parent must exist).
+Existing or partial `.twig` state and existing database files are refused without
+migration, adoption, reset or deletion. `--force`, `--reinitialize`, `--profile`,
+`--sprint` and `--area` are retired and explicitly refused. Fresh GitHub worktrees use
+`twig init --provider github --host github.com --repository owner/repo --account selected`;
+the exact selected native `gh` account, not ambient tokens or the active account,
+supplies authority. See [initialization](docs/commands/getting-started/init.md).
+The remaining command catalog and UI are still under Core cutover.
 
 ### Offline help and agent guidance
 

@@ -44,19 +44,37 @@ token-only access or missing durable Applying intent. The rooted ADO slice has
 actual CAF/production-DI coverage, but these changes are not a claim that every
 retained command, UI surface or phase 5 is complete.
 
-Fresh ADO checkouts can deliberately initialize this composition with
-`twig init <org> <project> --core-store <new-absolute-file>`. The selected native
+Fresh ADO checkouts initialize this composition with
+`twig init <org> <project>` at `.twig/core.db`, or an optional
+`--core-store <new-absolute-file>` with an existing parent directory. The selected native
 binding lease supplies collection, project and principal identities; the new
 SQLite instance is pinned to that exact connection. Existing `.twig` directories,
 existing selected files and reset flags are refused, not migrated or adopted.
 Uninitialized/legacy CLI mutation admission refuses before legacy writer registration
 with this preservation and initialization guidance. Preserved legacy proposal/journal
 inspection does not authorize legacy application. Fresh GitHub worktrees can use
-`twig init --provider github --host github.com --repository owner/name --account <gh-account> --core-store <new-absolute-file>`.
+`twig init --provider github --host github.com --repository owner/name --account <gh-account>`.
 This explicitly observes the selected native actor and immutable owner/repository,
-attaches that target and pins a new store; ordinary GitHub init stays offline.
+attaches that target and pins a new store; default and explicit-path init use this same native host.
 The explicit account selects the existing `gh` credential source; neither ambient
 token variables nor the currently active account supply authority.
+
+Initialization no longer runs a second legacy application. Production composition
+branches on `init` before workspace runtime admission and the no-marker graph,
+registering only paths/configuration, native binding bootstrap and rendering plus
+the existing command. This also handles existing/corrupt Core markers as explicit
+fresh-state refusals, not missing DI services. The same initializer retains native
+ADO lease/actor/generation checks and GitHub immutable-target/account checks.
+Only necessary native worktree attachment/registry metadata is initialized; no
+legacy item store, managed/profile business initializer, process/field sync,
+global profile, HintEngine, cache prefill or companion download
+belongs to this path. Minimal local `.twig` ignore protection is retained without
+global or repository Git configuration changes; custom external-store ignore risks
+are reported explicitly. Retired reset/sprint/area/profile options are explicit usage
+refusals. Existing manifest/policy bytes remain intact. Interrupted creation retains
+evidence and refuses silent reuse. This finite initialization cut does not remove
+the remaining no-marker catalog or claim phase-5 completion; Domain/source removal
+is later work.
 
 ### Qualified GitHub CLI spine
 

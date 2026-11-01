@@ -24,6 +24,42 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class GitHubCoreSpineTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FreshInitUsesOnlyNativeCoreBootstrap(bool explicitStore)
+    {
+        using var f = new Fixture();
+        await File.WriteAllTextAsync(Path.Combine(f.Root, ".gitignore"), "# preserve this existing content\n");
+        await f.Initialize(explicitStore);
+        (await File.ReadAllTextAsync(Path.Combine(f.Root, ".gitignore"))).ShouldStartWith("# preserve this existing content\n");
+        InitCommandTestFixture.IsIgnored(f.Root, Path.Combine(".twig", "core.db")).ShouldBeTrue();
+        InitCommandTestFixture.IsIgnored(f.Root, Path.Combine(".twig", "config")).ShouldBeTrue();
+        f.CredentialCalls.ShouldBe(1);
+        var requests = f.Http.Requests;
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(f.Root, ".twig", CoreWorkspaceFactory.FileName));
+        f.Run("init", "--provider", "github", "--host", "github.com", "--repository", "original/repo",
+            "--account", "fixture", "-o", "json").ShouldBe(1);
+        using var error = JsonDocument.Parse(f.Error);
+        error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("existing");
+        f.Http.Requests.ShouldBe(requests);
+        f.CredentialCalls.ShouldBe(1);
+        (await File.ReadAllBytesAsync(Path.Combine(f.Root, ".twig", CoreWorkspaceFactory.FileName))).ShouldBe(bytes);
+    }
+
+    [Fact]
+    public async Task FreshInitTelemetryFailureCannotChangeNativeResult()
+    {
+        using var f = new Fixture();
+        f.Telemetry = Substitute.For<ITelemetryClient>();
+        f.Telemetry.When(client => client.TrackEvent(Arg.Any<string>(),
+            Arg.Any<Dictionary<string, string>>(), Arg.Any<Dictionary<string, double>>()))
+            .Do(_ => throw new InvalidOperationException("optional telemetry failure"));
+        await f.Initialize(explicitStore: false);
+        f.CredentialCalls.ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
     [InlineData("number-reassigned", false)]
     [InlineData("number-reassigned", true)]
     [InlineData("node-number-moved", false)]
@@ -123,7 +159,7 @@ public sealed partial class GitHubCoreSpineTests
     {
         using var f = new Fixture();
         f.Run("init", "--provider", "github", "--host", "github.com", "--repository", "original/repo",
-            "--core-store", Path.Combine(f.Root, "new.db"), "-o", "json").ShouldBe(1);
+            "--core-store", Path.Combine(f.Root, "new.db"), "-o", "json").ShouldBe(2);
         f.Error.ShouldContain("--account");
         f.Http.Requests.ShouldBe(0);
         f.CredentialCalls.ShouldBe(0);
@@ -308,7 +344,7 @@ public sealed partial class GitHubCoreSpineTests
         internal string Output = "", Error = "";
         internal int CredentialCalls;
         internal ITelemetryClient? Telemetry;
-        private string Database => Path.Combine(Root, "core.db");
+        private string Database => _document?.DatabasePath ?? Path.Combine(Root, "core.db");
         internal Fixture()
         {
             InitCommandTestFixture.InitTempWorktree(Root).ShouldBeTrue();
@@ -325,10 +361,12 @@ public sealed partial class GitHubCoreSpineTests
                 return Task.FromResult(new BoundedProcessResult(BoundedProcessOutcome.Exited, 0, "synthetic-secret\n"));
             });
         }
-        internal async Task Initialize()
+        internal async Task Initialize(bool explicitStore = true)
         {
-            Run("init", "--provider", "github", "--host", "github.com", "--repository", "original/repo",
-                "--account", "fixture", "--core-store", Database, "-o", "json").ShouldBe(0, Error);
+            var args = new[] { "init", "--provider", "github", "--host", "github.com", "--repository", "original/repo",
+                "--account", "fixture", "-o", "json" }
+                .Concat(explicitStore ? ["--core-store", Database] : Array.Empty<string>()).ToArray();
+            Run(args).ShouldBe(0, Error);
             using var output = JsonDocument.Parse(Output);
             output.RootElement.GetProperty("coreInitialized").GetBoolean().ShouldBeTrue();
             _document = JsonSerializer.Deserialize(await File.ReadAllTextAsync(Path.Combine(Root, ".twig", "core-workspace.json")),
@@ -337,6 +375,11 @@ public sealed partial class GitHubCoreSpineTests
             _document.PrincipalId.ShouldBe("U_actor");
             _document.Connection.Destination.ShouldBe(GitHubProvider.Destination("O_owner", "R_repo"));
             _document.DatabaseInstance.ShouldNotBe(Guid.Empty);
+            _document.DatabasePath.ShouldBe(explicitStore ? Path.Combine(Root, "core.db") : Path.Combine(Root, ".twig", "core.db"));
+            Directory.Exists(Path.Combine(Root, ".twig", "cache")).ShouldBeFalse();
+            Http.WorkRequests.ShouldBe(0);
+            Http.SchemaRequests.ShouldBe(0);
+            Http.Writes.ShouldBe(0);
         }
         internal int Run(params string[] args)
         {
@@ -405,7 +448,7 @@ public sealed partial class GitHubCoreSpineTests
 
     private sealed class NativeHttp : HttpMessageHandler
     {
-        internal int Requests, WorkRequests, Writes, Creates;
+        internal int Requests, WorkRequests, Writes, Creates, SchemaRequests;
         internal bool LoseAcknowledgement, MoreCandidates;
         internal string? Defect, Comment;
         internal JsonObject Issue { get; } = new()
@@ -438,6 +481,7 @@ public sealed partial class GitHubCoreSpineTests
             request.Headers.Authorization!.Parameter.ShouldBe("synthetic-secret");
             var root = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!;
             var query = root["query"]!.GetValue<string>();
+            if (query.Contains("__type(", StringComparison.Ordinal)) SchemaRequests++;
             var variables = root["variables"]!;
             if (!query.Contains("viewer", StringComparison.Ordinal) && !query.Contains("__type(", StringComparison.Ordinal)
                 && !query.Contains("repository(owner:", StringComparison.Ordinal)) WorkRequests++;

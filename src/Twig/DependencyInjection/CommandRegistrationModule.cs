@@ -34,26 +34,6 @@ public static class CommandRegistrationModule
 
     private static void AddCoreCommands(IServiceCollection services)
     {
-        // InitCommand uses a factory to inject auth + HTTP
-        // (instead of IIterationService) so it can construct an AdoIterationService
-        // with the org/project args supplied at invocation time.
-        services.AddSingleton<InitCommand>(sp => new InitCommand(
-            sp.GetRequiredService<IAuthenticationProvider>(),
-            sp.GetRequiredService<HttpClient>(),
-            sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IGlobalProfileStore>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetService<ITelemetryClient>(),
-            sp.GetRequiredService<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(),
-            sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
-            sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>(),
-            sp.GetRequiredService<Twig.Infrastructure.Ado.AdoConcurrencyThrottle>(),
-            sp.GetRequiredService<Twig.Infrastructure.Auth.BootstrapEndpointSelection>(),
-            sp.GetRequiredService<Twig.Infrastructure.Auth.IConnectionBindingService>(),
-            sp.GetService<Twig.Infrastructure.Services.CoreTransportOverride>(),
-            sp.GetService<Twig.Infrastructure.GitHub.IBoundedProcessRunner>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>(sp => new ShowCommand(
             sp.GetRequiredService<CommandContext>(),

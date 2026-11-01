@@ -467,7 +467,6 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
                 throw new InvalidOperationException("GitHub sync must not construct ADO."));
         }, githubConfig: new() { Host = "github.com", Repository = "owner/repository" });
         var command = runtime.GetRequiredService<ProviderSyncCommand>();
-        runtime.GetRequiredService<InitCommand>().ShouldNotBeNull();
         tokens.Calls.ShouldBe(0);
         transport.RequestCount.ShouldBe(0);
 
@@ -719,7 +718,6 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     private static readonly string[] AdoConstructionAllowlist =
     [
         "src/Twig.Infrastructure/DependencyInjection/NetworkServiceModule.cs",
-        "src/Twig/Commands/InitCommand.cs",
     ];
 
     [Fact]

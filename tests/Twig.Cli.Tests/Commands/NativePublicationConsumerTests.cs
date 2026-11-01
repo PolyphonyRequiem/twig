@@ -1765,18 +1765,42 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         }
     }
 
-    [Fact]
-    public async Task CoreInitCliCreatesAnAdmittedWorkspaceAndRefusesReinitializationWithoutChangingIt()
+    [Theory]
+    [InlineData(false, "json", false)]
+    [InlineData(true, "json", false)]
+    [InlineData(false, "json-full", true)]
+    [InlineData(false, "json-compact", false)]
+    [InlineData(false, "minimal", false)]
+    [InlineData(false, "human", false)]
+    public async Task CoreInitCliCreatesAnAdmittedWorkspaceAndRefusesReinitializationWithoutChangingIt(
+        bool explicitStore, string format, bool explicitBinding)
     {
         await AttachAsync();
         var root = Path.Combine(_temp, "fresh-core-checkout");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
+        File.WriteAllText(Path.Combine(root, ".gitignore"), "# retained custom ignores\n/.twig/\n");
+        var ignore = await File.ReadAllBytesAsync(Path.Combine(root, ".gitignore"));
+        var selected = await _bindings.CreateBindingAsync("fixture", "Project", "sibling", false);
+        var policy = Path.Combine(root, "twig.policy.json");
+        await File.WriteAllTextAsync(policy, """{"version":1,"rules":[]}""");
+        var policyBytes = await File.ReadAllBytesAsync(policy);
+        byte[]? manifestBytes = null;
+        if (explicitBinding)
+        {
+            await new TwigConfiguration { Organization = "fixture", Project = "Project" }
+                .SaveRepoAsync(Path.Combine(root, "twig.json"));
+            manifestBytes = await File.ReadAllBytesAsync(Path.Combine(root, "twig.json"));
+        }
         _transport.CoreMetadataEnabled = true;
-        var database = Path.Combine(root, "explicit-core.db");
-        var arguments = new[] { "init", "--org", "fixture", "--project", "Project",
-            "--core-store", database, "-o", "json" };
+        _transport.ObservedPaths.Clear();
+        var database = explicitStore ? Path.Combine(root, "explicit-core.db") : Path.Combine(root, ".twig", "core.db");
+        var arguments = new[] { "init", "fixture", "Project", "-o", format }
+            .Concat(explicitStore ? ["--core-store", database] : Array.Empty<string>())
+            .Concat(explicitBinding ? ["--binding", selected.BindingId] : Array.Empty<string>()).ToArray();
+        var requests = _transport.WorkRequests;
+        IServiceCollection? registrations = null;
         var originalOut = Console.Out;
         var originalError = Console.Error;
         using var stdout = new StringWriter();
@@ -1788,18 +1812,38 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
             services.AddTwigWorkspaceServices(root, arguments, Path.Combine(Home, "display.json"));
             services.AddSingleton<ISystemWorktreeRegistry>(_systemRegistry);
+            registrations = services;
         });
         try
         {
             Console.SetOut(stdout);
             Console.SetError(stderr);
             Run().ShouldBe(0, stderr.ToString());
-            using var output = JsonDocument.Parse(stdout.ToString());
-            output.RootElement.GetProperty("coreInitialized").GetBoolean().ShouldBeTrue();
+            Directory.Exists(Path.Combine(root, ".twig", "cache")).ShouldBeFalse("native init must never initialize the legacy cache");
+            registrations!.Any(s => s.ServiceType == typeof(IWorkItemRepository)
+                || s.ServiceType == typeof(IIterationService) || s.ServiceType == typeof(IManagedWorktreeInitializer)
+                || s.ServiceType == typeof(IGlobalProfileStore)).ShouldBeFalse("init must not register the legacy application");
+            _transport.WorkRequests.ShouldBe(requests, "init only observes native identity/project metadata");
+            _transport.ObservedPaths.ShouldNotBeEmpty();
+            _transport.ObservedPaths.ShouldAllBe(path => path == "/fixture/_apis/connectionData" || path == "/fixture/_apis/projects/Project");
+            if (format.StartsWith("json", StringComparison.Ordinal))
+            {
+                using var output = JsonDocument.Parse(stdout.ToString());
+                output.RootElement.GetProperty("coreInitialized").GetBoolean().ShouldBeTrue();
+                output.RootElement.GetProperty("databasePath").GetString().ShouldBe(database);
+            }
+            else stdout.ToString().ShouldContain(database);
+            (await File.ReadAllBytesAsync(Path.Combine(root, ".gitignore"))).ShouldBe(ignore);
+            InitCommandTestFixture.IsIgnored(root, Path.Combine(".twig", "core.db")).ShouldBeTrue();
+            InitCommandTestFixture.IsIgnored(root, Path.Combine(".twig", "core.db-wal")).ShouldBeTrue();
+            if (explicitStore) stdout.ToString().ShouldContain("not automatically Git-ignored");
+            (await File.ReadAllBytesAsync(policy)).ShouldBe(policyBytes);
+            if (manifestBytes is not null)
+                (await File.ReadAllBytesAsync(Path.Combine(root, "twig.json"))).ShouldBe(manifestBytes);
             await using var marker = File.OpenRead(Path.Combine(root, ".twig", CoreWorkspaceFactory.FileName));
             var document = (await JsonSerializer.DeserializeAsync(marker,
                 CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument))!;
-            document.PrincipalId.ShouldBe(Actor);
+            document.PrincipalId.ShouldBe(explicitBinding ? Sibling : Actor);
             document.DatabasePath.ShouldBe(database);
             var store = (await CleanStore.OpenAsync(database, expectedInstance: document.DatabaseInstance)).Value;
             (await store.CheckWorkspaceAsync(document.Connection)).IsSuccess.ShouldBeTrue();
@@ -1810,8 +1854,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             stdout.GetStringBuilder().Clear();
             stderr.GetStringBuilder().Clear();
             Run().ShouldBe(1);
-            using var refusal = JsonDocument.Parse(stderr.ToString());
-            refusal.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("existing");
+            if (format.StartsWith("json", StringComparison.Ordinal))
+            {
+                using var refusal = JsonDocument.Parse(stderr.ToString());
+                refusal.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("existing");
+            }
+            else stderr.ToString().ShouldContain("existing");
             (await File.ReadAllBytesAsync(database)).ShouldBe(bytes);
             _transport.CommittedWrites.ShouldBe(0);
         }
@@ -1846,6 +1894,80 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             new CoreTransportOverride(_transport.NewHandle))).IsSuccess.ShouldBeFalse();
         (await File.ReadAllBytesAsync(database)).ShouldBe(bytes);
         _transport.CommittedWrites.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("unknown-binding")]
+    [InlineData("wrong-endpoint")]
+    [InlineData("wrong-principal")]
+    [InlineData("changed-binding")]
+    public async Task CoreInitNativeAuthorityFailureNeverCreatesAStoreOrReusesPartialEvidence(string defect)
+    {
+        await AttachAsync();
+        var root = Path.Combine(_temp, "refused-native-init");
+        Directory.CreateDirectory(root);
+        InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
+        Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
+        var selected = await _bindings.CreateBindingAsync("fixture", "OtherProject", "actor", false);
+        var sibling = await _bindings.CreateBindingAsync("fixture", "Project", "sibling", false);
+        var args = new[] { "init", "fixture", "Project", "-o", "json" }
+            .Concat(defect is "unknown-binding" or "wrong-endpoint"
+                ? new[] { "--binding", defect == "unknown-binding" ? "bind-unknown" : selected.BindingId }
+                : Array.Empty<string>()).ToArray();
+        _transport.CoreMetadataEnabled = true;
+        if (defect == "wrong-principal") _transport.ObservedPrincipalOverride = Sibling;
+        if (defect == "changed-binding")
+            _transport.BeforeProjectMetadata = async () =>
+            {
+                var attachment = Path.Combine(root, ".twig", "attachment.json");
+                var json = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(attachment))!;
+                json["bindingPin"] = sibling.BindingId;
+                await File.WriteAllTextAsync(attachment, json.ToJsonString());
+            };
+        var workRequests = _transport.WorkRequests;
+        var requests = _transport.TotalRequests;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        var oldOut = Console.Out;
+        var oldError = Console.Error;
+        int Run() => Twig.TwigConsoleApp.Run(args, services =>
+        {
+            services.AddSingleton<IConnectionBindingService>(_bindings);
+            services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+            services.AddTwigWorkspaceServices(root, args, Path.Combine(Home, "display.json"));
+        });
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            Run().ShouldBe(1, stderr.ToString());
+            stdout.ToString().ShouldBeEmpty();
+            using var error = JsonDocument.Parse(stderr.ToString());
+            error.RootElement.GetProperty("error").GetString().ShouldNotBeNullOrWhiteSpace();
+            File.Exists(Path.Combine(root, ".twig", "core.db")).ShouldBeFalse();
+            File.Exists(Path.Combine(root, ".twig", CoreWorkspaceFactory.FileName)).ShouldBeFalse();
+            Directory.Exists(Path.Combine(root, ".twig", "cache")).ShouldBeFalse();
+            _transport.WorkRequests.ShouldBe(workRequests);
+            _transport.CommittedWrites.ShouldBe(0);
+            if (defect is "unknown-binding" or "wrong-endpoint")
+            {
+                Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
+                _transport.TotalRequests.ShouldBe(requests);
+            }
+            else
+            {
+                File.Exists(Path.Combine(root, ".twig", "attachment.json")).ShouldBeTrue();
+                var files = Directory.GetFiles(Path.Combine(root, ".twig"), "*", SearchOption.AllDirectories)
+                    .ToDictionary(file => file, File.ReadAllBytes);
+                var refusedRequests = _transport.TotalRequests;
+                stderr.GetStringBuilder().Clear();
+                Run().ShouldBe(1);
+                stderr.ToString().ShouldContain("existing");
+                _transport.TotalRequests.ShouldBe(refusedRequests);
+                foreach (var (file, bytes) in files) (await File.ReadAllBytesAsync(file)).ShouldBe(bytes);
+            }
+        }
+        finally { Console.SetOut(oldOut); Console.SetError(oldError); }
     }
 
     [Fact]
@@ -2767,6 +2889,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         private readonly Dictionary<(int Id, int Revision), (string Relation, int Target)[]> _linkHistory = new();
         public int WorkRequests { get; private set; }
         public int TotalRequests { get; private set; }
+        public List<string> ObservedPaths { get; } = [];
         public int PostCount { get; private set; }
         public int CommittedWrites { get; private set; }
         public int PatchAttempts { get; private set; }
@@ -2779,6 +2902,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public Func<Task>? BeforeItemReadResponse { get; set; }
         public Func<Task>? AfterCommit { get; set; }
         public bool CoreMetadataEnabled { get; set; }
+        public string? ObservedPrincipalOverride { get; set; }
+        public Func<Task>? BeforeProjectMetadata { get; set; }
         public bool CloseGateEnabled { get; set; }
         public bool FailSchema { get; set; }
         public bool LoseNextPatchAcknowledgement { get; set; }
@@ -2823,17 +2948,23 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var principal = secret == ActorPat ? Actor : secret == SiblingPat ? Sibling : null;
             if (principal is null) return Reply(HttpStatusCode.Unauthorized, new { message = "Unknown fixture credential" });
             var path = request.RequestUri!.AbsolutePath;
+            ObservedPaths.Add(path);
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new
                 {
                     instanceId = "11111111-1111-1111-1111-111111111111",
-                    authenticatedUser = new { id = principal, providerDisplayName = "Same display" }
+                    authenticatedUser = new { id = ObservedPrincipalOverride ?? principal, providerDisplayName = "Same display" }
                 });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
             if (FailSchema && path.EndsWith("/fields", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.BadRequest, new { message = "Fixture schema unavailable" });
-            if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata) return metadata;
+            if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata)
+            {
+                if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && BeforeProjectMetadata is { } before)
+                    await before();
+                return metadata;
+            }
             if (CoreMetadataEnabled && path.EndsWith("/wiql", StringComparison.OrdinalIgnoreCase))
             {
                 using var queryBody = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));

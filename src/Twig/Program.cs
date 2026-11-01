@@ -210,6 +210,15 @@ if (structuredMutationError is not null)
     return;
 }
 
+// Init owns fresh-state preflight and native bootstrap, including existing-marker refusals.
+// It must never enter update cleanup, companion installation or the runtime catalog gate.
+if (args.Length > 0 && args[0] == "init")
+{
+    SQLitePCL.Batteries.Init();
+    runApp(args);
+    return;
+}
+
 if (!isBrowserCommand)
 {
     var root = WorkspaceDiscovery.FindWorkspaceRoot(Directory.GetCurrentDirectory()) ?? Directory.GetCurrentDirectory();
@@ -481,62 +490,35 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             ? []
             : titles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    /// <summary>Initialize a new Twig workspace.</summary>
+    /// <summary>Initialize one fresh native Core workspace at .twig/core.db. No legacy cache, migration or reset.</summary>
     /// <param name="orgArg">Organization, positionally: twig init &lt;org&gt; &lt;project&gt;. The shipped examples document this spelling.</param>
     /// <param name="projectArg">Project, positionally, as the second argument.</param>
     /// <param name="org">Azure DevOps organization name (e.g., contoso).</param>
     /// <param name="project">Azure DevOps project name.</param>
-    /// <param name="team">Team name within the project (defaults to project default team).</param>
+    /// <param name="team">Optional ADO team configuration; no team or item discovery is performed.</param>
     /// <param name="gitProject">ADO project that hosts the git repository, if different from the work-item project.</param>
-    /// <param name="force">Overwrite existing workspace configuration.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="sprint">Sprint expression(s) to subscribe to (e.g., @current, @current-1). Semicolon-separated for multiple.</param>
-    /// <param name="area">Area path(s) to filter by (e.g., Project\Team). Append :exact for exact match. Semicolon-separated for multiple.</param>
-    /// <param name="reinitialize">Archive an existing <c>.twig/</c> tree to <c>.twig-legacy-&lt;timestamp&gt;/</c> and start clean (design §7 supported legacy recovery — no in-place migration).</param>
-    /// <param name="profile">Opaque released profile identity to explicitly select (default: none). Does not discover live-process compatibility.</param>
+    /// <param name="force">Retired; explicitly refused without writes.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids is unsupported.</param>
+    /// <param name="sprint">Retired; initialization does not configure or prefill sprints.</param>
+    /// <param name="area">Retired; initialization does not configure or prefill areas.</param>
+    /// <param name="reinitialize">Retired; existing or partial workspace state is preserved and refused.</param>
+    /// <param name="profile">Retired; no legacy profile selection or materialization.</param>
     /// <param name="provider">Explicit work-item provider: ado (default) or github. Never inferred from git remotes.</param>
     /// <param name="host">Explicit lowercase GitHub host, used with --provider github.</param>
-    /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Without --core-store init stays offline; Core init observes and binds native identity.</param>
+    /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Initialization always observes and binds native identity.</param>
     /// <param name="binding">Registered ADO binding ID to pin locally in a fresh checkout (default: endpoint default). Cannot combine with --force/--reinitialize or replace existing local state.</param>
-    /// <param name="coreStore">New absolute Core database file in a fresh isolated ADO or GitHub worktree. Existing workspace data is never adopted or reset.</param>
+    /// <param name="coreStore">Optional new absolute database file override, with existing parent directory. Default: .twig/core.db. Existing data is never adopted or reset.</param>
     /// <param name="account">Explicit gh account for fresh GitHub Core initialization; never inferred from the active gh account.</param>
     public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null, string? account = null)
     {
-        // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
-        // document (`twig init <org> <project>`) parses alongside the named one. The generated
-        // parser's own required-argument check no longer applies, so the refusal is restated
-        // here rather than letting empty strings reach the command as if they were supplied.
+        if (orgArg is not null && org is not null && orgArg != org
+            || projectArg is not null && project is not null && projectArg != project)
+        {
+            CommandError.Write(new RendererFactory(), Console.Error, output, "Positional and named init coordinates conflict.");
+            return 2;
+        }
         var resolvedOrg = org ?? orgArg;
         var resolvedProject = project ?? projectArg;
-        var github = WorkItemProviderSetting.Normalize(provider) == "github";
-        if (github && (resolvedOrg is not null || resolvedProject is not null))
-        {
-            Console.Error.WriteLine("error: GitHub init uses --host and --repository, not ADO org/project arguments.");
-            return 1;
-        }
-        if (github)
-        {
-            resolvedOrg = host;
-            resolvedProject = repository;
-        }
-        if (!github && provider is not null && WorkItemProviderSetting.Normalize(provider) is null)
-        {
-            Console.Error.WriteLine("error: provider-unknown: use --provider ado or --provider github.");
-            return 1;
-        }
-        if (!github && (string.IsNullOrWhiteSpace(resolvedOrg) || string.IsNullOrWhiteSpace(resolvedProject)))
-        {
-            Console.Error.WriteLine("error: Usage: twig init <org> <project>, or twig init --org <org> --project <project>");
-            return 1;
-        }
-
-        if (coreStore is not null && (Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), ".twig"))
-            || !Path.IsPathFullyQualified(coreStore) || File.Exists(coreStore) || force || reinitialize))
-        {
-            CommandError.Write(new RendererFactory(), Console.Error, output,
-                "Core initialization refuses existing workspaces/files and reset flags. Use a fresh isolated worktree and new absolute --core-store file.");
-            return 1;
-        }
         return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding, coreStore: coreStore, account: account);
     }
 

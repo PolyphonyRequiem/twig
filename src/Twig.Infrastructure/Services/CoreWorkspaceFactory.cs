@@ -186,10 +186,7 @@ internal static class CoreWorkspaceRegistration
     internal static IServiceCollection AddCoreWorkspaceServices(this IServiceCollection services,
         TwigConfiguration configuration, TwigPaths paths)
     {
-        services.AddSingleton(configuration);
-        services.AddSingleton(paths);
-        services.TryAddSingleton<IConnectionBindingService>(_ =>
-            new ConnectionBindingService(ConnectionBindingService.ResolveUserHome()));
+        services.AddCoreBootstrapServices(configuration, paths);
         services.AddSingleton<IAuthenticationProvider>(sp =>
             new DeferredBoundAuthenticationProvider(async ct =>
             {
@@ -204,6 +201,16 @@ internal static class CoreWorkspaceRegistration
         services.AddSingleton(sp => new CoreGitHubWorkspaceHost(configuration, paths,
             sp.GetRequiredService<IConnectionBindingService>(), sp.GetService<IGitHubTokenSource>(),
             sp.GetService<CoreTransportOverride>(), sp.GetService<IBoundedProcessRunner>()));
+        return services;
+    }
+
+    internal static IServiceCollection AddCoreBootstrapServices(this IServiceCollection services,
+        TwigConfiguration configuration, TwigPaths paths)
+    {
+        services.AddSingleton(configuration);
+        services.AddSingleton(paths);
+        services.TryAddSingleton<IConnectionBindingService>(_ =>
+            new ConnectionBindingService(ConnectionBindingService.ResolveUserHome()));
         return services;
     }
 }

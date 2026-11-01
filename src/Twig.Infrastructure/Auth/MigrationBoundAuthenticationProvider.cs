@@ -22,8 +22,9 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
         _binding = binding;
         _registryPath = registryPath;
         _bindings = bindings;
-        if (binding.StorageGeneration is null)
-            _legacyCapability = new LegacyHostCapability(Path.Combine(binding.WorktreeRoot, ".twig", "cache"));
+        var legacyCache = Path.Combine(binding.WorktreeRoot, ".twig", "cache");
+        if (binding.StorageGeneration is null && Directory.Exists(legacyCache))
+            _legacyCapability = new LegacyHostCapability(legacyCache);
         try { ValidateStorage(); }
         catch { _legacyCapability?.Dispose(); throw; }
     }

@@ -19,6 +19,20 @@ internal static class WorkspaceRegistrationModule
         string startDir, IReadOnlyList<string> args, string? globalDisplayPath = null)
     {
         startDir = Path.GetFullPath(startDir);
+        if (args.Count > 0 && args[0] == "init")
+        {
+            var directory = Path.Combine(startDir, ".twig");
+            services.AddCoreBootstrapServices(new TwigConfiguration(),
+                new TwigPaths(directory, Path.Combine(directory, "config"), Path.Combine(directory, "core.db"),
+                    startDir, globalDisplayPath));
+            services.AddTwigRenderingServices();
+            services.AddSingleton(sp => new InitCommand(sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+                () => sp.GetRequiredService<IConnectionBindingService>(),
+                sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>(), sp.GetService<CoreTransportOverride>(),
+                sp.GetService<Twig.Infrastructure.GitHub.IBoundedProcessRunner>()));
+            return services;
+        }
         var workspaceRoot = WorkspaceDiscovery.FindWorkspaceRoot(startDir);
         var twigDir = workspaceRoot is not null
             ? Path.Combine(workspaceRoot, ".twig")

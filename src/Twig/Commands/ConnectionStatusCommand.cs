@@ -1,6 +1,7 @@
 using Twig.Formatters;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Services;
 using Twig.RenderTree;
 using Twig.Rendering;
 
@@ -20,19 +21,22 @@ internal sealed class ConnectionStatusCommand
     private readonly TwigPaths _paths;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly RendererFactory _rendererFactory;
+    private readonly CoreWorkspaceFactory? _core;
 
     public ConnectionStatusCommand(
         IConnectionBindingService bindingService,
         TwigConfiguration config,
         TwigPaths paths,
         OutputFormatterFactory formatterFactory,
-        RendererFactory? rendererFactory = null)
+        RendererFactory? rendererFactory = null,
+        CoreWorkspaceFactory? core = null)
     {
         _bindingService = bindingService;
         _config = config;
         _paths = paths;
         _formatterFactory = formatterFactory;
         _rendererFactory = rendererFactory ?? new RendererFactory();
+        _core = core;
     }
 
     public async Task<int> ExecuteAsync(
@@ -40,6 +44,35 @@ internal sealed class ConnectionStatusCommand
         CancellationToken ct = default)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
+        if (_config.ResolveWorkItemProviderKind() == "github")
+        {
+            if (_core is null)
+            {
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                    "No pinned GitHub Core target is available; no ADO binding fallback was used.");
+                return 1;
+            }
+            var opened = await _core.OpenAsync(ct).ConfigureAwait(false);
+            if (!opened.IsSuccess)
+            {
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat, opened.Error.Message);
+                return 1;
+            }
+            using var handle = opened.Value;
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(
+            [
+                new RenderNode.Record("connectionStatus", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["provider"] = RenderCell.String("github"),
+                    ["resourceScope"] = RenderCell.String(handle.Workspace.Connection.ResourceScope),
+                    ["destination"] = RenderCell.String(handle.Workspace.Connection.Destination),
+                    ["recordedActor"] = RenderCell.String(handle.Workspace.NativeActor),
+                    ["freshlyAuthenticated"] = RenderCell.Boolean(false),
+                    ["message"] = RenderCell.String("Pinned native target and recorded actor only; no credential acquisition or fresh actor verification."),
+                }),
+            ]));
+            return 0;
+        }
         ResolvedConnectionBinding resolved;
         try
         {
@@ -47,8 +80,8 @@ internal sealed class ConnectionStatusCommand
         }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine(fmt.FormatError($"No active connection binding: {ex.Message}"));
-            Console.Error.WriteLine("Run 'twig auth login --identity <alias>' to register, then 'twig connection bind --org <org> --project <project> --identity <alias> --default'.");
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                $"No recorded connection binding: {ex.Message}. Register a named identity, then bind explicit org/project coordinates.");
             return 1;
         }
 
@@ -60,7 +93,7 @@ internal sealed class ConnectionStatusCommand
     {
         var identity = resolved.Identity;
         var binding = resolved.Binding;
-        var message = $"Using identity '{identity.Name}' for {binding.ConnectionRef}";
+        var message = $"Recorded identity '{identity.Name}' for {binding.ConnectionRef}; not freshly authenticated";
         var isPat = string.Equals(identity.Method, "pat", StringComparison.Ordinal);
 
         RenderNode node;

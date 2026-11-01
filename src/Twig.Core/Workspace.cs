@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace Twig.Core;
 
-public enum QueryKind { All, Equal, And, Or, Not }
+public enum QueryKind { All, Equal, And, Or, Not, Contains, Under, GreaterOrEqual }
 public enum SelectorKind { Pin, Subtree, Query }
 
 public sealed record Query
@@ -17,6 +17,10 @@ public sealed record Query
         {
             QueryKind.All => field is null && value is null && Children.IsEmpty,
             QueryKind.Equal => !string.IsNullOrWhiteSpace(field) && value is not null && Children.IsEmpty,
+            QueryKind.Contains or QueryKind.Under => !string.IsNullOrWhiteSpace(field)
+                && value?.Kind is FieldKind.Text or FieldKind.Html or FieldKind.Markdown && Children.IsEmpty,
+            QueryKind.GreaterOrEqual => !string.IsNullOrWhiteSpace(field)
+                && value?.Kind is FieldKind.Integer or FieldKind.Decimal or FieldKind.Instant && Children.IsEmpty,
             QueryKind.And or QueryKind.Or => field is null && value is null && !Children.IsEmpty,
             QueryKind.Not => field is null && value is null && Children.Length == 1,
             _ => false,

@@ -1,73 +1,42 @@
 ---
 command: link unparent
 group: links
-summary: Remove the parent link from the active (or targeted) work item.
-stability: stable
+summary: Remove the one observed native parent through a verified Core proposal.
+stability: experimental
 mutates: ado
 ---
 
 # `twig link unparent`
 
-Detach a hierarchy parent from a published work item without picking a new one.
-Reach for it when the item genuinely belongs at the top level, or when you
-want to stage the child before deciding on a new parent. If you already know
-the new parent, prefer `link reparent` — it does both in one hop.
-
-## Synopsis
+Remove the single observed parent of a published Core ADO item. This is a
+standalone removal, not the first half of an automatic reparent operation.
 
 ```
-twig link unparent [childId] [--id <n>] [-o <format>]
+twig link unparent [child] [--id <n>] [--child <n>] [-o <format>]
 ```
 
-## Arguments
+`child` (positional or `--child`) or `--id` selects a positive native child.
+Every machine output requires `--id`, even when `--child` is supplied. Only human
+output may resolve the selected Core item. Conflicting targets refuse
+before HTTP.
 
-|Argument|Required|Description|
-|---|---|---|
-|`childId`|no|Work item ID to unparent. Optional positional; defaults to the active item.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`--id`|`int?`|`null`|Alternative to the positional: name the item by option instead. `childId` takes precedence when both are provided.|
-|`-o`, `--output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
-
-## Behavior
-
-Resolves the item, verifies it has a parent, removes the
-`System.LinkTypes.Hierarchy-Reverse` edge, and resyncs both endpoints
-(`src/Twig/Commands/LinkCommand.cs:118`). If the item has no parent, the
-command fails rather than reporting a no-op — you asked to remove something
-that was not there (`src/Twig/Commands/LinkCommand.cs:131`).
+One discovered directed hierarchy and exactly one observed native parent are
+required. The canonical edge is **parent -> child**, so the parent's freshly
+observed revision binds the exact relation-index removal PATCH. Both endpoints
+must separately certify the removal before success; a changed revision refuses
+without retry.
 
 ## Examples
 
-Unparent the active item:
-
-```
-$ twig link unparent
-Removed parent #5678 from #1234.
+```text
+twig link unparent
+twig link unparent --id 1234 -o minimal
 ```
 
-Unparent an arbitrary item, minimal output:
+Verified removal exits `0` (`linkUnparented`). No/ambiguous parent, missing
+observations or unverified outcomes exit `1`. Invalid/conflicting targets,
+machine ambient targeting and bare-ID output exit `2`.
 
-```
-$ twig link unparent 1234 -o minimal
-Removed parent #5678 from #1234.
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Parent removed|`0`|
-|Active/target item not found in cache|`1`|
-|Item has no parent link to remove|`1`|
-
-## See also
-
-- [`link parent`](./link-parent.md)
-- [`link reparent`](./link-reparent.md)
-- [Group overview](./README.md)
+See [shared behavior and output](./README.md),
+[`link parent`](./link-parent.md) and the unsupported
+[`link reparent`](./link-reparent.md).

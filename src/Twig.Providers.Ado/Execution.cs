@@ -99,7 +99,7 @@ public sealed partial class AdoProvider
                     receipt = new(proposal.Digest, operation, attempt, OpStatus.Applied, evidence,
                         mapped.Item.Revision, op.Kind == OpKind.Create ? key : null);
                     acknowledgedItems = new([new WorkItem(mapped.Item.Key, mapped.Item.Type, mapped.Item.Fields,
-                        mapped.Item.Revision, false)], [], null, false);
+                        mapped.Item.Revision, false, mapped.Item.Resources, false)], [], null, false);
                 }
             }
             catch (Exception ex) when (ex is AdoFailure or HttpRequestException or OperationCanceledException or IOException || Malformed(ex))
@@ -145,15 +145,26 @@ public sealed partial class AdoProvider
                     var matches = op.Kind switch
                     {
                         OpKind.Create or OpKind.Batch => (op.Type is null || op.Type == item.Type)
-                            && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value)),
+                            && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value))
+                            && (op.Body is null || item.Fields.TryGetValue("System.History", out var note) && note.Text == op.Body.Text)
+                            && (op.Kind != OpKind.Create || op.Other is null
+                                || edges.Contains(new(Resolve(stored, op.Other), key, op.Relation!, RelationshipOrigin.Provider)))
+                            && (op.Kind != OpKind.Create || op.Resource is null
+                                || item.ResourcesComplete && item.Resources.Contains(op.Resource))
+                            && (op.Kind != OpKind.Create || op.Links.All(link =>
+                                edges.Contains(CreationEdge(stored, discovery, key, link)))),
                         OpKind.Comment => item.Fields.TryGetValue("System.History", out var history) && history.Text == op.Body!.Text,
+                        OpKind.LinkResource => item.ResourcesComplete && item.Resources.Contains(op.Resource!),
                         OpKind.Relate => edges.Contains(Edge(op, discovery)),
                         OpKind.Unrelate => !edges.Contains(Edge(op, discovery)),
                         _ => false,
                     };
-                    var keys = op.Other is null ? ImmutableArray.Create(key) : ImmutableArray.Create(key, op.Other);
+                    var keys = Targets(op).Where(target => target != op.Item).Select(target => Resolve(stored, target))
+                        .Prepend(key).Distinct().ToImmutableArray();
                     observations = await Read(bound, discovery, keys, token);
-                    if (op.Other is not null)
+                    if (op.Kind == OpKind.Create)
+                        matches &= op.Links.All(link => observations.Relationships.Contains(CreationEdge(stored, discovery, key, link)));
+                    if (op.Other is not null && op.Kind != OpKind.Create)
                     {
                         var intended = Edge(op, discovery);
                         matches &= op.Kind == OpKind.Relate
@@ -202,8 +213,36 @@ public sealed partial class AdoProvider
             throw Wire.Refuse(ErrorCode.Unsupported, "Only explicitly supported native effects are dispatched.");
         if (op.Fields.Keys.Any(f => f is "System.Id" or "System.Rev" or "System.TeamProject" or "System.WorkItemType" or "System.History"))
             throw Wire.Refuse(ErrorCode.Unsupported, "Native identity/type/history fields require their explicit operation shape.");
-        if (op.Kind == OpKind.Comment && op.Body!.Kind is not (FieldKind.Text or FieldKind.Html))
+        if (op.Body is not null && op.Body.Kind is not (FieldKind.Text or FieldKind.Html))
             throw Wire.Refuse(ErrorCode.Unsupported, "ADO history append accepts exact text/HTML; convert Markdown before confirmation.");
+        if (op.Resource is not null && (op.Resource is not { } resource
+            || !schema.Schema.Relations.Any(r => r.Reference == resource.Relation && r.Shape == RelationShape.Resource)
+            || !Uri.TryCreate(resource.Target, UriKind.Absolute, out var locator)
+            || resource.Relation == "Hyperlink" && locator.Scheme is not ("http" or "https")
+            || resource.Relation == "ArtifactLink" && (locator.Scheme != "vstfs"
+                || !resource.Target.StartsWith("vstfs:///", StringComparison.OrdinalIgnoreCase))))
+            throw Wire.Refuse(ErrorCode.Unsupported, "Only enabled native artifact/hyperlink shapes with reviewed locators are supported.");
+        string? parentRelation = null;
+        ItemKey? parentKey = null;
+        var current = op.Kind == OpKind.Create ? await Snapshot(ct) : null;
+        var creationLinks = new List<(string Relation, ItemKey Target)>();
+        foreach (var link in op.Links)
+        {
+            var target = CreationEndpoint(current!, link.Other);
+            var native = schema.Relations.Values.Where(relation => relation.Canonical == link.Relation
+                && relation.Forward == link.Outgoing && relation.Shape is RelationShape.Dependency or RelationShape.Association).ToArray();
+            if (native.Length != 1)
+                throw Wire.Refuse(ErrorCode.Unsupported, "A unique discovered native creation-link direction is required.");
+            creationLinks.Add((native[0].Reference, target));
+        }
+        if (op.Kind == OpKind.Create && op.Other is not null)
+        {
+            parentKey = CreationEndpoint(current!, op.Other);
+            var inverse = schema.Relations.Values.Where(relation => relation.Canonical == op.Relation
+                && relation.Shape == RelationShape.Hierarchy && !relation.Forward).ToArray();
+            if (inverse.Length != 1) throw Wire.Refuse(ErrorCode.Unsupported, "A unique native inverse hierarchy endpoint is required for atomic creation parenting.");
+            parentRelation = inverse[0].Reference;
+        }
         int? remove = null;
         if (op.Kind is OpKind.Relate or OpKind.Unrelate)
         {
@@ -230,8 +269,38 @@ public sealed partial class AdoProvider
                 PatchEntry("add", "/fields/System.WorkItemType", () => json.WriteStringValue(schema.TypeNames[op.Type]));
             foreach (var (field, value) in op.Fields)
                 PatchEntry("add", "/fields/" + field.Replace("~", "~0").Replace("/", "~1"), () => Wire.WriteValue(json, value));
-            if (op.Kind == OpKind.Comment)
+            if (op.Kind == OpKind.Comment || op.Kind == OpKind.Batch && op.Body is not null)
                 PatchEntry("add", "/fields/System.History", () => json.WriteStringValue(op.Body!.Text));
+            if (op.Resource is not null)
+                PatchEntry("add", "/relations/-", () =>
+                {
+                    var reviewed = op.Resource!;
+                    json.WriteStartObject(); json.WriteString("rel", reviewed.Relation); json.WriteString("url", reviewed.Target);
+                    if (reviewed.Name is not null || reviewed.Comment is not null)
+                    {
+                        json.WriteStartObject("attributes");
+                        if (reviewed.Name is not null) json.WriteString("name", reviewed.Name);
+                        if (reviewed.Comment is not null) json.WriteString("comment", reviewed.Comment);
+                        json.WriteEndObject();
+                    }
+                    json.WriteEndObject();
+                });
+            if (parentRelation is not null)
+                PatchEntry("add", "/relations/-", () =>
+                {
+                    json.WriteStartObject();
+                    json.WriteString("rel", parentRelation);
+                    json.WriteString("url", bound.Url($"_apis/wit/workItems/{Id(parentKey!)}").AbsoluteUri);
+                    json.WriteEndObject();
+                });
+            foreach (var link in creationLinks)
+                PatchEntry("add", "/relations/-", () =>
+                {
+                    json.WriteStartObject();
+                    json.WriteString("rel", link.Relation);
+                    json.WriteString("url", bound.Url($"_apis/wit/workItems/{Id(link.Target)}").AbsoluteUri);
+                    json.WriteEndObject();
+                });
             if (op.Kind == OpKind.Relate)
                 PatchEntry("add", "/relations/-", () =>
                 {
@@ -265,6 +334,34 @@ public sealed partial class AdoProvider
         return new(from, to, op.Relation, RelationshipOrigin.Provider);
     }
 
+    private ItemKey CreationEndpoint(StoreSnapshot stored, ItemKey endpoint)
+    {
+        var key = Resolve(stored, endpoint);
+        if (key.IsLocal || !key.BelongsTo(_connection))
+            throw Wire.Refuse(ErrorCode.Conflict, "The exact creation endpoint has no in-scope publication mapping.");
+        if (endpoint.IsLocal)
+        {
+            var mapping = stored.Mappings.Single(value => value.Local == endpoint);
+            if (!stored.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+                && row.Status == OpStatus.Verified))
+                throw Wire.Refuse(ErrorCode.Indeterminate, "A local creation endpoint requires its original separately verified creation receipt.");
+        }
+        return key;
+    }
+
+    private static Relationship CreationEdge(StoreSnapshot stored, Discovery schema, ItemKey created, CreationLink link)
+    {
+        var endpoint = Resolve(stored, link.Other);
+        var kind = schema.Schema.Relations.Single(relation => relation.Reference == link.Relation);
+        var from = link.Outgoing ? created : endpoint;
+        var to = link.Outgoing ? endpoint : created;
+        if (!kind.Directed && string.CompareOrdinal(from.NativeId, to.NativeId) > 0) (from, to) = (to, from);
+        return new(from, to, link.Relation, RelationshipOrigin.Provider);
+    }
+
+    private static IEnumerable<ItemKey> Targets(Op op)
+        => op.Links.Select(link => link.Other).Prepend(op.Item).Concat(op.Other is null ? [] : new[] { op.Other });
+
     private async Task<StoreSnapshot> Snapshot(CancellationToken ct)
     {
         var result = await _store.ReadAsync(_connection, ct);
@@ -273,10 +370,13 @@ public sealed partial class AdoProvider
 
     private async Task<StoreSnapshot> AcquireInputs(Bound bound, Discovery schema, Proposal proposal, StoreSnapshot stored, CancellationToken ct)
     {
-        var keys = proposal.Operations.SelectMany(o => o.Other is null ? new[] { o.Item } : new[] { o.Item, o.Other })
-            .Where(k => !k.IsLocal).Distinct().ToImmutableArray();
+        var keys = proposal.Operations.SelectMany(Targets)
+            .Select(key => Resolve(stored, key)).Where(k => !k.IsLocal).Distinct().ToImmutableArray();
         return Mirror(stored, await Read(bound, schema, keys, ct));
     }
+
+    private static ItemKey Resolve(StoreSnapshot stored, ItemKey key)
+        => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
 
     private static StoreSnapshot Mirror(StoreSnapshot stored, QueryPage page)
     {
@@ -292,8 +392,7 @@ public sealed partial class AdoProvider
         foreach (var row in stored.Journal.Where(j => j.Status is OpStatus.Applying or OpStatus.Applied or OpStatus.Partial or OpStatus.Indeterminate))
         {
             var prior = stored.Proposals.Single(p => p.Digest == row.Digest).Operations[row.Operation];
-            if (proposal.Operations.Any(op => op.Item == prior.Item || op.Other == prior.Item
-                || prior.Other is not null && (op.Item == prior.Other || op.Other == prior.Other)))
+            if (proposal.Operations.Any(op => Targets(op).Intersect(Targets(prior)).Any()))
                 throw Wire.Refuse(ErrorCode.Indeterminate,
                     "An unresolved effect fences this target, including replacement digests and comment/create identities; recover without replay.");
         }

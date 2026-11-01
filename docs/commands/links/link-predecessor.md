@@ -1,81 +1,38 @@
 ---
 command: link predecessor
 group: links
-summary: Mark the active (or targeted) item as blocked by another item.
-stability: stable
+summary: Mark a published item as blocked by another through a verified Core proposal.
+stability: experimental
 mutates: ado
 ---
 
 # `twig link predecessor`
 
-Record a `Predecessor` edge — the named target must complete before this item
-can proceed. Use it to model "blocked by" relationships that ADO understands
-natively.
-
-## Synopsis
+The named target must complete before the selected item. Requires an explicitly
+initialized Core ADO workspace and one discovered directed dependency kind.
 
 ```
 twig link predecessor <targetId> [--id <n>] [-o <format>]
 ```
 
-## Arguments
+`targetId` names the blocker; `--id` names the blocked item. Only human output
+may use the selected Core item. Both targets must be positive native IDs.
 
-|Argument|Required|Description|
-|---|---|---|
-|`targetId`|yes|Work item ID that must complete first (the blocker).|
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`--id`|`int?`|`null`|Target a specific work item by ID instead of the active item.|
-|`-o`, `--output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
-
-## Behavior
-
-Routes through the shared dependency core
-(`src/Twig/Commands/LinkCommand.cs:242`), which resolves the source, rejects
-self-links (`src/Twig/Commands/LinkCommand.cs:354`), verifies the target
-exists in ADO (`src/Twig/Commands/LinkCommand.cs:362`), and short-circuits to
-`linkUnchanged` if the predecessor edge is already present
-(`src/Twig/Commands/LinkCommand.cs:374`). On success the edge is added,
-both endpoints are resynced, and the current link set is rendered.
-
-Cycle detection is deliberately not implemented. Only self-links are rejected;
-a chain of predecessors can be made cyclic and neither ADO nor twig will stop
-you (`src/Twig/Commands/LinkCommand.cs:225`).
+Canonical direction is **blocker -> blocked**. The command therefore mutates
+`targetId` using that blocker's actual observed revision, not the blocked item's
+revision or a guessed inverse relation reference. The shared proposal and journal
+path verifies the immutable acknowledgement and fresh reciprocal observations.
+It does not invent transition or dependency-cycle capabilities; discovered native
+constraints and explicitly declared policy determine admission.
 
 ## Examples
 
-Mark the active item as blocked by `#65`:
-
-```
-$ twig link predecessor 65
-#1234 now has predecessor #65.
-  #1234 ──predecessor──▶ #65
+```text
+twig link predecessor 65
+twig link predecessor 65 --id 66 -o minimal
 ```
 
-Mark a specific item as blocked, minimal output:
-
-```
-$ twig link predecessor 65 --id 66 -o minimal
-#66 now has predecessor #65.
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Predecessor added, or already present|`0`|
-|Active/target item not found in cache|`1`|
-|Self-link attempted|`1`|
-|Target work item not found in ADO|`1`|
-|ADO rejected the write|`1`|
-
-## See also
-
-- [`link successor`](./link-successor.md)
-- [`link unlink`](./link-unlink.md)
-- [Group overview](./README.md)
+Verified success exits `0` (`linkAdded`). Duplicate edges, unavailable schema/items
+or unverified outcomes exit `1`. Invalid/self/missing machine targets exit `2`.
+See [shared behavior](./README.md), [`link successor`](./link-successor.md)
+and [`link unlink`](./link-unlink.md).

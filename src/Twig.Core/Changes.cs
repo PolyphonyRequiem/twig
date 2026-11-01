@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace Twig.Core;
 
-public enum OpKind { Create, Batch, Relate, Unrelate, Comment, Delete }
+public enum OpKind { Create, Batch, Relate, Unrelate, Comment, Delete, LinkResource }
 public enum ConcurrencyMode { ExactRevision, ObservedNonAtomic }
 public enum OpStatus { Planned, Applying, Applied, Verified, Failed, Partial, Indeterminate }
 
@@ -11,7 +11,8 @@ public sealed record Op
     public Op(string id, OpKind kind, ItemKey item, Revision? expectedRevision = null,
         FieldValues? fields = null, string? type = null, ItemKey? other = null, string? relation = null,
         RelationshipOrigin origin = RelationshipOrigin.Provider, FieldValue? body = null,
-        ConcurrencyMode concurrency = ConcurrencyMode.ExactRevision, long? expectedLocalVersion = null)
+        ConcurrencyMode concurrency = ConcurrencyMode.ExactRevision, long? expectedLocalVersion = null,
+        ResourceLink? resource = null, IEnumerable<CreationLink>? links = null)
     {
         Id = Contract.Text(id, nameof(id));
         Kind = kind;
@@ -25,6 +26,8 @@ public sealed record Op
         Body = body;
         Concurrency = concurrency;
         ExpectedLocalVersion = expectedLocalVersion;
+        Resource = resource;
+        Links = Contract.Copy(links ?? []);
     }
 
     public string Id { get; }
@@ -39,13 +42,16 @@ public sealed record Op
     public FieldValue? Body { get; }
     public ConcurrencyMode Concurrency { get; }
     public long? ExpectedLocalVersion { get; }
+    public ResourceLink? Resource { get; }
+    public ImmutableArray<CreationLink> Links { get; }
 }
 
 public sealed record Proposal
 {
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 3;
 
-    public Proposal(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations)
+    public Proposal(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations,
+        string? policyIdentity = null, string? policyRevision = null)
     {
         Connection = connection ?? throw new ArgumentNullException(nameof(connection));
         SchemaFingerprint = Contract.Text(schemaFingerprint, nameof(schemaFingerprint));
@@ -53,12 +59,18 @@ public sealed record Proposal
         ExpectedStoreVersion = expectedStoreVersion;
         Operations = Contract.Unique(operations, o => o.Id);
         if (Operations.IsEmpty) throw new ArgumentException("A proposal must declare an effect.", nameof(operations));
+        if ((policyIdentity is null) != (policyRevision is null))
+            throw new ArgumentException("Configured policy identity and revision must be supplied together.", nameof(policyIdentity));
+        PolicyIdentity = policyIdentity is null ? null : Contract.Text(policyIdentity, nameof(policyIdentity));
+        PolicyRevision = policyRevision is null ? null : Contract.Text(policyRevision, nameof(policyRevision));
     }
 
     public Connection Connection { get; }
     public string SchemaFingerprint { get; }
     public long ExpectedStoreVersion { get; }
     public ImmutableArray<Op> Operations { get; }
+    public string? PolicyIdentity { get; }
+    public string? PolicyRevision { get; }
     public string Digest => Core.Digest(this);
 }
 

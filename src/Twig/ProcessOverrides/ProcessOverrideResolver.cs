@@ -11,8 +11,7 @@ namespace Twig.ProcessOverrides;
 /// AB#216 acceptance 4 requires flag-vs-manifest precedence to be decided deliberately.
 /// <b>This follows <c>InitCommand</c>'s manifest-is-authoritative rule rather than departing
 /// from it</b>, so twig has ONE story about what a coordinate flag means beside a manifest
-/// instead of two that a reader has to hold apart. The wording deliberately echoes
-/// <c>InitCommand.GetManifestCoordinateConflict</c>, including its
+/// instead of two that a reader has to hold apart, including the same
 /// <see cref="StringComparison.OrdinalIgnoreCase"/> comparison.
 /// </para>
 /// <para>
@@ -86,8 +85,8 @@ internal static class ProcessOverrideResolver
                     + $"'{workspaceConfig.Project}'. The manifest is authoritative.");
             }
 
-            // Flags agree with the manifest — the workspace path answers identically and is
-            // cheaper (cache rather than a live fetch), so prefer it.
+            // Flags agree with the manifest. The host still applies the current surface's
+            // capability checks before admitting this workspace target.
             return ProcessOverrideDecision.UseWorkspace();
         }
 

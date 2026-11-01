@@ -7,8 +7,9 @@ public sealed partial class GitHubProvider
 {
     private sealed record MutationShape(string Mutation, byte[] Payload);
 
-    private async Task<MutationShape> Shape(Bound bound, Discovery schema, Op op, Guid attempt, CancellationToken ct)
+    private async Task<MutationShape> Shape(Bound bound, Discovery schema, Proposal proposal, int ordinal, Guid attempt, CancellationToken ct)
     {
+        var op = proposal.Operations[ordinal];
         if (op.Origin == RelationshipOrigin.Local)
         {
             if (op.Kind is not (OpKind.Relate or OpKind.Unrelate) || !schema.Capabilities.LocalRelations.Contains(op.Relation!))
@@ -18,18 +19,15 @@ public sealed partial class GitHubProvider
         }
         if (!schema.Capabilities.Operations.Contains(op.Kind) || op.Concurrency != ConcurrencyMode.ObservedNonAtomic)
             throw Wire.Refuse(ErrorCode.Unsupported, "Only declared observed-non-atomic effects are supported.");
-        if (op.Kind == OpKind.Batch && (op.Fields.Count != 1 || op.Type is not null))
-            throw Wire.Refuse(ErrorCode.Unsupported, "Expand independent edits into ordered effects before confirmation; type changes and atomic batches are not supported.");
-        var mutation = op.Kind switch
-        {
-            OpKind.Create => "createIssue",
-            OpKind.Batch => "updateIssue",
-            OpKind.Comment => "addComment",
-            OpKind.Relate or OpKind.Unrelate => (op.Kind == OpKind.Relate ? "add" : "remove")
-                + (op.Relation == Hierarchy ? "SubIssue" : "BlockedBy"),
-            _ => throw Wire.Refuse(ErrorCode.Unsupported, "Unsupported native effect."),
-        };
-        if (!schema.Mutations.Contains(mutation))
+        if (op.Kind == OpKind.Batch && (op.Fields.Count == 0 || op.Type is not null))
+            throw Wire.Refuse(ErrorCode.Unsupported, "A nonempty observed field effect is required; type changes and atomic batches are not supported.");
+        if (op.Kind == OpKind.Batch && op.Body is not null)
+            throw Wire.Refuse(ErrorCode.Unsupported, "GitHub update and comment are separate transport effects; no atomic batch note is supported.");
+        if (op.Kind == OpKind.Create && (op.Other is not null || op.Resource is not null || !op.Links.IsEmpty))
+            throw Wire.Refuse(ErrorCode.Unsupported, "This native GitHub create schema cannot couple the reviewed parent/resource/creation-link effects in one creation call.");
+        var projected = GitHubWriteIntent.Project(proposal, ordinal, attempt);
+        if (!projected.IsSuccess) throw new GitHubFailure(projected.Error);
+        if (!schema.Mutations.Contains(projected.Value.Mutation))
             throw Wire.Refuse(ErrorCode.Unsupported, "The mutation is absent from the acquired native schema; no local fallback.");
         var inputs = op.Kind == OpKind.Create ? schema.CreateInputs : schema.UpdateInputs;
         if (op.Kind is OpKind.Create or OpKind.Batch)
@@ -67,48 +65,10 @@ public sealed partial class GitHubProvider
             if (observations.Relationships.Contains(edge) == (op.Kind == OpKind.Relate))
                 throw Wire.Refuse(ErrorCode.Conflict, "Native edge presence does not match the reviewed change.");
         }
-        var inputType = char.ToUpperInvariant(mutation[0]) + mutation[1..] + "Input";
-        var result = op.Kind switch
-        {
-            OpKind.Create or OpKind.Batch => "issue { id repository { id owner { id } } }",
-            OpKind.Comment => "commentEdge { node { id } }",
-            _ => "",
-        };
-        var document = $"mutation($input: {inputType}!) {{ {mutation}(input: $input) {{ clientMutationId {result} }} }}";
-        var payload = Wire.Request(document, json =>
-        {
-            json.WriteStartObject("input"); json.WriteString("clientMutationId", attempt.ToString("D"));
-            if (op.Kind == OpKind.Create) json.WriteString("repositoryId", _repository);
-            else if (op.Kind == OpKind.Batch) json.WriteString("id", Id(op.Item));
-            else if (op.Kind == OpKind.Comment) json.WriteString("subjectId", Id(op.Item));
-            else if (op.Relation == Hierarchy)
-            {
-                json.WriteString("issueId", Id(op.Item)); json.WriteString("subIssueId", Id(op.Other!));
-                if (op.Kind == OpKind.Relate) json.WriteBoolean("replaceParent", false);
-            }
-            else
-            {
-                json.WriteString("issueId", Id(op.Other!)); json.WriteString("blockingIssueId", Id(op.Item));
-            }
-            if (op.Kind == OpKind.Create && op.Type != Untyped) json.WriteString("issueTypeId", op.Type);
-            foreach (var (field, value) in op.Fields)
-            {
-                if (op.Kind == OpKind.Create && field == StateField) continue;
-                json.WritePropertyName(NativeField(field));
-                if (value.Kind == FieldKind.Null) json.WriteNullValue();
-                else if (value.Kind == FieldKind.StringList)
-                {
-                    json.WriteStartArray(); foreach (var id in value.Values) json.WriteStringValue(id); json.WriteEndArray();
-                }
-                else json.WriteStringValue(value.Text);
-            }
-            if (op.Kind == OpKind.Comment) json.WriteString("body", op.Body!.Text);
-            json.WriteEndObject();
-        });
-        return new(mutation, payload);
+        return new(projected.Value.Mutation, System.Text.Encoding.UTF8.GetBytes(projected.Value.Payload));
     }
 
-    private static string NativeField(string reference) => reference switch
+    internal static string NativeField(string reference) => reference switch
     {
         Title => "title", Body => "body", StateField => "state",
         Labels => "labelIds", Assignees => "assigneeIds", Milestone => "milestoneId",

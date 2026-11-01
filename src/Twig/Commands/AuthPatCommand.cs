@@ -59,6 +59,12 @@ internal sealed class AuthPatCommand(
     {
         ct.ThrowIfCancellationRequested();
         var fmt = formatterFactory.GetFormatter(outputFormat);
+        if (string.IsNullOrWhiteSpace(identity))
+        {
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "Named PAT enrollment requires --identity <alias>; no secret was read or identity inferred.");
+            return 2;
+        }
         try
         {
             ResolvedConnectionBinding? attached = null;
@@ -91,12 +97,12 @@ internal sealed class AuthPatCommand(
             }
             catch (Exception ex) when (ex is InvalidOperationException or IOException or NotSupportedException)
             {
-                Console.Error.WriteLine(fmt.FormatError("Could not read the PAT from the selected input channel."));
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat, "Could not read the PAT from the selected input channel.");
                 return 1;
             }
             if (string.IsNullOrEmpty(pat))
             {
-                Console.Error.WriteLine(fmt.FormatError("No PAT provided."));
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat, "No PAT provided.");
                 return 1;
             }
 
@@ -107,8 +113,8 @@ internal sealed class AuthPatCommand(
         catch (Exception ex) when (ex is ConnectionIdentityMismatchException or AdoAuthenticationException
             or InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException)
         {
-            Console.Error.WriteLine(fmt.FormatError(
-                $"PAT enrollment refused: {ex.Message} New enrollment outside attachment requires '--identity <alias> --org <org>'."));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                $"PAT enrollment refused: {ex.Message} New enrollment requires '--identity <alias> --org <org>'.");
             return 1;
         }
     }

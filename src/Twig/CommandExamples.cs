@@ -47,11 +47,12 @@ internal static class CommandExamples
             // `connection status` only inspects LOCAL saved state and never contacts ADO.
             "twig auth login --identity work                                        1) enroll an identity, once",
             "twig connection bind --org contoso --project Fabrikam --identity work --default   2) bind the endpoint",
-            "twig init contoso Fabrikam                                             3) initialize the checkout",
+            "twig init contoso Fabrikam                                             3) create a fresh native Core store at .twig/core.db",
             "twig init contoso Fabrikam --binding <id>                               Pin a registered binding for this fresh checkout only",
+            "twig init contoso Fabrikam --core-store C:\\isolated\\core.db             Initialize a fresh isolated ADO checkout with a new explicitly bound Core store",
+            "twig init --provider github --host github.com --repository owner/repo --account me   Create .twig/core.db using the exact selected native gh account",
             "twig init --org contoso --project Fabrikam --team \"Team A\"             Initialize with an explicit team",
-            "twig init contoso Fabrikam --profile <identity>                        Explicitly declare a compatible released profile (no default)",
-            "twig process --refresh                                                 4) verify remote metadata access (refreshes local cache)",
+            "twig process --refresh                                                 4) verify remote metadata access without work-item sync",
             "twig connection status                                                 optional: inspect the local binding (no ADO call)",
         ],
         ["set"] =
@@ -109,7 +110,7 @@ internal static class CommandExamples
             "twig process Task          Show states, fields, and transitions for Task type",
             "twig process Bug -o json   Show Bug type details as JSON",
             "twig process --refresh     Recover process and field metadata without syncing work items",
-            "twig process --org otherorg --project otherproj   Describe another project's process (live read, no workspace needed)",
+            "twig process description <type-ref> -o json       Inspect the pinned provider's declared requirements",
         ],
         ["process layout"] =
         [
@@ -245,19 +246,19 @@ internal static class CommandExamples
         [
             "twig link parent 5678      Set #5678 as the parent of the active item",
             "twig link parent 5678 1234  Set #5678 as the parent of item #1234",
-            "twig link parent 5678 --id 1234  Same, naming the child by option",
+            "twig link parent 5678 --id 1234 -o json  Apply and verify an explicit child",
+            "twig link parent 5678 --id 1234 --child 1234 -o json  Cross-check the mandatory machine --id",
         ],
         ["link unparent"] =
         [
             "twig link unparent         Remove the parent link from the active item",
             "twig link unparent 1234    Remove the parent link from item #1234",
-            "twig link unparent --id 1234  Same, naming the item by option",
+            "twig link unparent --id 1234 -o json  Remove and verify the observed parent",
         ],
         ["link reparent"] =
         [
-            "twig link reparent 5678        Move the active item under parent #5678",
-            "twig link reparent 5678 1234   Move item #1234 under parent #5678",
-            "twig link reparent 5678 --id 1234  Same, naming the item by option",
+            "twig link reparent 5678        Unsupported: refuses without removing the current parent",
+            "twig link reparent 5678 --id 1234 -o json  Report the unsupported replacement as JSON",
         ],
         ["link predecessor"] =
         [
@@ -272,8 +273,8 @@ internal static class CommandExamples
         ["link related"] =
         [
             "twig link related 615           Relate the active item to #615",
-            "twig link related 615 --comment \"same root cause\"  Record WHY they relate",
-            "twig link related 615 --id 619  Relate #619 to #615",
+            "twig link related 615 --comment \"same root cause\"  Unsupported: refuses rather than dropping the comment",
+            "twig link related 615 --id 619 -o json  Apply and verify #619's association",
         ],
         ["link unrelate"] =
         [
@@ -282,18 +283,18 @@ internal static class CommandExamples
         ],
         ["link local related"] =
         [
-            "twig link local related <source-local-guid> <target-local-guid>  Store an explicit local-only Related link",
-            "twig link local related <source-local-guid> <target-local-guid> -o json  Emit the local relationship as JSON",
+            "twig link local related 43 --id 42  Verify a LOCAL association without native mutation",
+            "twig link local related <seed-uuid> --id 42 -o json  Journal one local CAS effect",
         ],
         ["link local unrelate"] =
         [
-            "twig link local unrelate <source-local-guid> <target-local-guid>  Remove a local-only Related link without provider access",
-            "twig link local unrelate <source-local-guid> <target-local-guid> -o json  Emit the removal result as JSON",
+            "twig link local unrelate 43 --id 42  Tombstone an existing LOCAL association",
+            "twig link local unrelate <seed-uuid> --id 42 -o json  Verify local CAS; native reads may occur",
         ],
         ["link local list"] =
         [
-            "twig link local list <local-guid>         List Twig-local Related links touching an item",
-            "twig link local list <local-guid> -o json  Emit provenance and publication metadata as JSON",
+            "twig link local list 42  List cached LOCAL edges with zero HTTP",
+            "twig link local list --id <seed-uuid> -o json  Read original edge identities and local versions",
         ],
         ["link unlink"] =
         [
@@ -344,19 +345,14 @@ internal static class CommandExamples
         ],
         ["sync"] =
         [
-            "twig sync                  Sync the working set from ADO",
-            "twig sync --pull-only      Skip the flush phase and only pull from ADO",
+            "twig sync                  Save retained remote drafts, then pull the selected Bench",
+            "twig sync --pull-only -o json  Pull selected scope without publishing drafts; emit one JSON result",
         ],
         ["workspace"] =
         [
-            "twig workspace                 Show the current Bench as a tree",
-            "twig workspace --view table   Show the current Bench as a table",
-            "twig workspace --view tree    Explicitly show the current Bench as a hierarchy",
-            "twig workspace --view tree -o json --include-browser  Read semantic nodes and captured Bench/connection identity",
-            "twig workspace --bench Focused --include-browser --browser-version 2 --view tree -o json  Cache-only explicit Bench read; no refresh/alternate layouts",
-            "twig workspace --bench 7 --expect-bench 7 --include-browser --browser-version 2 --view tree -o json  Refuse a changed target; --expect-* requires browser mode",
-            "twig workspace --tree         Show the full backlog hierarchy",
-            "twig workspace --all --tree  Show all team items as a tree hierarchy",
+            "twig workspace                 Read cached current Bench items and all protected drafts as a static table",
+            "twig workspace --bench Focused -o json  Read an existing Bench without changing selection; acquires schema metadata",
+            "twig workspace --expect-bench <bench-guid> --refresh -o ids  Guard and pull only the current Bench; never publish drafts",
         ],
         ["workspace migrate"] =
         [
@@ -368,7 +364,7 @@ internal static class CommandExamples
         ["workspace sync"] =
         [
             "twig workspace sync                    Pull only the current Bench scope, without flushing edits",
-            "twig workspace sync --expect-bench 7 -o json  Pull only if the captured Bench is still current",
+            "twig workspace sync --expect-bench <captured-bench-id> -o json  Pull only if the captured Bench is still current",
         ],
         ["workspace track"] =
         [
@@ -547,8 +543,8 @@ internal static class CommandExamples
         ],
         ["sprint"] =
         [
-            "twig sprint                Show the current sprint summary",
-            "twig sprint --output json  Output sprint info as JSON",
+            "twig workspace             Static Core Bench read replaces the unsupported legacy sprint layout",
+            "twig workspace --bench Focused -o json  Read a named scope without switching selection",
         ],
         ["config"] =
         [
@@ -701,8 +697,8 @@ internal static class CommandExamples
         ],
         ["proposal validate"] =
         [
-            "twig proposal validate --file proposal.json    Validate a proposal v1 or v2 file. No provider calls.",
-            "twig proposal validate --file proposal.json --output json    Validate and emit issues/digest as JSON.",
+            "twig proposal validate --file proposal.json    Validate canonical file format offline, without application authority.",
+            "twig proposal validate --file proposal.json --output json    Report the exact digest and validation scope; preview checks current evidence.",
         ],
         ["policy assess"] =
         [
@@ -735,7 +731,7 @@ internal static class CommandExamples
         ["proposal status"] =
         [
             "twig proposal status --file proposal.json      Show journal state for the proposal's digest.",
-            "twig proposal status --file proposal.json --output json    Emit the journal snapshot as JSON.",
+            "twig proposal status --file proposal.json --output json    Emit exact attempt states, receipts and uncertainty evidence without replay.",
         ],
         ["proposal seed"] =
         [
@@ -751,8 +747,8 @@ internal static class CommandExamples
         ],
         ["pending"] =
         [
-            "twig pending                           List raw staged pending changes in exact staging order.",
-            "twig pending --output json             Emit the raw pending rows as JSON — values preserved verbatim.",
+            "twig pending                           Inspect captured drafts and seed links in retained draft order.",
+            "twig pending --output json             Emit typed original/proposed values and durable local identities without refreshing or flushing.",
         ],
         ["skills install"] =
         [
@@ -790,6 +786,7 @@ internal static class CommandExamples
     internal static void ShowIfPresent(string[] args)
     {
         if (args.Length == 0) return;
+        if (Twig.CoreMutationAdmissionGuard.ValidateCatalog(args) is not null) return;
 
         string? key = null;
 

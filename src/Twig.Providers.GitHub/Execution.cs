@@ -17,7 +17,8 @@ public sealed partial class GitHubProvider
             var acquired = await AcquireInputs(bound, schema, proposal, stored, token);
             var errors = Model.Validate(proposal, confirmation, schema.Schema, acquired, schema.Capabilities);
             Check(errors);
-            foreach (var op in proposal.Operations) await Shape(bound, schema, op, Guid.Empty, token);
+            for (var ordinal = 0; ordinal < proposal.Operations.Length; ordinal++)
+                await Shape(bound, schema, proposal, ordinal, Guid.Empty, token);
             if (stored.Proposals.Any(p => p.Digest == proposal.Digest))
                 throw Wire.Refuse(ErrorCode.Conflict, "Retained intent cannot be reset.");
             await bound.Session.ValidateAsync(token);
@@ -40,7 +41,7 @@ public sealed partial class GitHubProvider
             var acquired = await AcquireInputs(bound, schema, proposal, stored, token);
             Check(Model.ValidateEffect(proposal, operation, schema.Schema, acquired, schema.Capabilities));
             var op = proposal.Operations[operation];
-            var shape = await Shape(bound, schema, op, attempt, token);
+            var shape = await Shape(bound, schema, proposal, operation, attempt, token);
             if (op.ExpectedRevision is not null)
             {
                 var latest = await ReadItem(bound, schema, op.Item, token);
@@ -238,12 +239,22 @@ public sealed partial class GitHubProvider
     private async Task<StoreSnapshot> AcquireInputs(Bound bound, Discovery schema, Proposal proposal, StoreSnapshot stored, CancellationToken ct)
     {
         var keys = proposal.Operations.SelectMany(o => o.Other is null ? new[] { o.Item } : new[] { o.Item, o.Other })
+            .Select(key => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key
+                && stored.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+                    && row.Status == OpStatus.Verified))?.Remote ?? key)
             .Where(k => !k.IsLocal).Distinct().ToImmutableArray();
         return Mirror(stored, await Read(bound, schema, keys, ct), stored.Version);
     }
 
     private static StoreSnapshot Mirror(StoreSnapshot stored, QueryPage page, long version)
     {
+        foreach (var item in page.Items)
+        {
+            if (!item.Fields.TryGetValue(Number, out var number) || number.Kind != FieldKind.Integer || number.Number <= 0
+                || page.Items.Any(other => other.Key != item.Key && other.Fields.TryGetValue(Number, out var observed) && observed.Equals(number)))
+                throw Wire.Refuse(ErrorCode.Conflict, "Observed issue numbers conflict with retained native identity; no identity was rebound.");
+            CheckNumberIdentity(stored, item.Key, number);
+        }
         var keys = page.Items.Select(i => i.Key).ToHashSet();
         return Copy(stored, version, items: stored.Items.Where(i => !keys.Contains(i.Key)).Concat(page.Items),
             relationships: stored.Relationships.Where(r => r.Origin == RelationshipOrigin.Local
@@ -260,11 +271,14 @@ public sealed partial class GitHubProvider
 
     private static void RefuseUnresolvedTargets(Proposal proposal, StoreSnapshot stored)
     {
+        ItemKey Resolve(ItemKey key) => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
         foreach (var row in stored.Journal.Where(j => j.Status is OpStatus.Applying or OpStatus.Applied or OpStatus.Partial or OpStatus.Indeterminate))
         {
             var prior = stored.Proposals.Single(p => p.Digest == row.Digest).Operations[row.Operation];
-            if (proposal.Operations.Any(op => op.Item == prior.Item || op.Other == prior.Item
-                || prior.Other is not null && (op.Item == prior.Other || op.Other == prior.Other)))
+            if (proposal.Operations.Any(op => Resolve(op.Item) == Resolve(prior.Item)
+                || op.Other is not null && Resolve(op.Other) == Resolve(prior.Item)
+                || prior.Other is not null && (Resolve(op.Item) == Resolve(prior.Other)
+                    || op.Other is not null && Resolve(op.Other) == Resolve(prior.Other))))
                 throw Wire.Refuse(ErrorCode.Indeterminate, "An unresolved effect fences this target across replacement digests.");
         }
     }

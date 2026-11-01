@@ -22,8 +22,9 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
         _binding = binding;
         _registryPath = registryPath;
         _bindings = bindings;
-        if (binding.StorageGeneration is null)
-            _legacyCapability = new LegacyHostCapability(Path.Combine(binding.WorktreeRoot, ".twig", "cache"));
+        var legacyCache = Path.Combine(binding.WorktreeRoot, ".twig", "cache");
+        if (binding.StorageGeneration is null && Directory.Exists(legacyCache))
+            _legacyCapability = new LegacyHostCapability(legacyCache);
         try { ValidateStorage(); }
         catch { _legacyCapability?.Dispose(); throw; }
     }
@@ -115,6 +116,11 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
             }
         }
 
+        internal ResolvedConnectionBinding? GetAuthority()
+        {
+            lock (this) return _active ? _origin : null;
+        }
+
         internal bool TryRetain()
         {
             lock (this)
@@ -146,6 +152,10 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
             if (Volatile.Read(ref _disposed) != 0 || !ReferenceEquals(resolver, provider._bindings)) return null;
             return scope.GetOrigin(configuration, paths);
         }
+
+        public ResolvedConnectionBinding? GetAuthority(IConnectionBindingService resolver)
+            => Volatile.Read(ref _disposed) == 0 && ReferenceEquals(resolver, provider._bindings)
+                ? scope.GetAuthority() : null;
 
         public void Dispose()
         {

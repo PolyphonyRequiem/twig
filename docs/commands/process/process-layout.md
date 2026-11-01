@@ -8,6 +8,13 @@ mutates: none
 
 # `twig process layout`
 
+**Core workspace limitation:** this command deliberately exits 1 before HTTP in
+a pinned Core workspace. Native form layout is presentation metadata, not part of
+`ProcessSchema`; no empty layout is fabricated and no legacy command graph is
+resolved as a fallback. The behavior below describes the unchanged legacy native
+layout reader only. Retaining or cutting over that presentation capability remains
+outside the bounded CLI correction.
+
 Reads the ADO-served form layout for a work item type and renders it as a tree
 of pages → sections → groups → controls, with system controls (state, reason,
 assigned-to, area/iteration path, history, links, attachments) emitted as a

@@ -27,7 +27,8 @@ import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSEMBLIES = ("Cli", "Domain", "Infrastructure", "RenderTree", "Tui")
+ASSEMBLIES = ("Cli", "Core", "Store.Sqlite", "Providers.Ado", "Providers.GitHub",
+              "Infrastructure", "RenderTree")
 HOST_CLASSES = {
     "Twig.Cli.Tests.Commands.ConnectionBindingTransitionConsumerTests",
     "Twig.Cli.Tests.Commands.ConnectionMigrateCommandTests",
@@ -466,7 +467,7 @@ class Runner:
         return methods
 
     def run(self):
-        # Read the solution's supported test-project list, not every DLL on disk (MCP is withdrawn).
+        # Read the supported solution inventory, not retired TUI/MCP DLLs on disk.
         solution = ET.parse(ROOT / "Twig.slnx").getroot()
         supported = set()
         for project in solution.iter("Project"):
@@ -520,7 +521,25 @@ class Runner:
 
 
 class RunnerSelfTests(unittest.TestCase):
-    """Synthetic runner-contract checks only: no SDK, build, discovery or test host."""
+    """Runner contracts only: source inventory and synthetic process/result checks."""
+
+    def test_supported_assembly_inventory_excludes_retired_delivery(self):
+        supported = set()
+        projects = [project.get("Path") for project in ET.parse(ROOT / "Twig.slnx").getroot().iter("Project")]
+        for path in projects:
+            if path.startswith("tests/") and ET.parse(ROOT / path).getroot().findtext("PropertyGroup/IsTestProject") == "true":
+                supported.add(Path(path).stem)
+        self.assertEqual(supported, {f"Twig.{suite}.Tests" for suite in ASSEMBLIES})
+        self.assertIn("src/Twig.Domain/Twig.Domain.csproj", projects)
+        self.assertIn("samples/Twig.DetailHost/Twig.DetailHost.csproj", projects)
+        for retired in ("Domain.Tests", "Benchmarks"):
+            path = f"tests/Twig.{retired}/Twig.{retired}.csproj"
+            self.assertNotIn(path, projects)
+            self.assertTrue((ROOT / path).is_file(), "withdrawal does not delete historical source")
+        self.assertNotIn("Domain", ASSEMBLIES)
+        self.assertNotIn("Tui", ASSEMBLIES)
+        self.assertNotIn("Mcp", ASSEMBLIES)
+
     def test_windows_taskkill_failure_reaps_wrapper_without_claiming_tree_stopped(self):
         process = Mock(pid=4321)
         process.poll.return_value = None

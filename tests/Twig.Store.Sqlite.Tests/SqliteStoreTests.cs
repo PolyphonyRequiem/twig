@@ -82,6 +82,31 @@ public sealed class SqliteStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ReplacedFileCannotAdoptTheOriginalHandleOrDiscardItsUnresolvedCreationFence()
+    {
+        var store = await Create();
+        store.InstanceId.ShouldNotBe(Guid.Empty);
+        var initial = await Read(store);
+        var proposal = Creation();
+        var planned = Planned(proposal);
+        await Commit(store, initial, Next(initial, drafts: [Seed()], proposals: [proposal], journal: [planned]));
+        var retained = await Read(store);
+        await Commit(store, retained, Next(retained, journal: [planned.Begin(Guid.NewGuid()).Value]));
+        var replacementPath = Path.Combine(_directory, "replacement.db");
+        var replacement = (await SqliteStore.CreateAsync(replacementPath)).Value;
+        replacement.InstanceId.ShouldNotBe(store.InstanceId);
+        var preserved = Path.Combine(_directory, "preserved-original.db");
+        File.Move(Database, preserved);
+        File.Move(replacementPath, Database);
+        (await store.ReadAsync(Connection, default)).Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
+        (await SqliteStore.OpenAsync(Database, expectedInstance: store.InstanceId)).Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
+        var original = (await SqliteStore.OpenAsync(preserved, expectedInstance: store.InstanceId)).Value;
+        (await Read(original)).Journal.Single().Status.ShouldBe(OpStatus.Applying);
+        (await Read(original)).Drafts.Single().Key.ShouldBe(Local);
+        original.InstanceId.ShouldBe(store.InstanceId);
+    }
+
+    [Fact]
     public async Task LosslessTypedSnapshotsDraftBasesBenchesAndExactConnectionPartitionsSurviveReopen()
     {
         JsonSerializer.IsReflectionEnabledByDefault.ShouldBeFalse();
@@ -95,7 +120,8 @@ public sealed class SqliteStoreTests : IDisposable
             ("instant", FieldValue.At(DateTimeOffset.Parse("2026-10-30T13:02:03.1234567-07:00", CultureInfo.InvariantCulture))),
             ("identity", FieldValue.Identity("native:Case")), ("list", FieldValue.Strings(["z", "", "a", "z"])),
             ("raw", FieldValue.Raw("{ \"keep\": [null, 1.00] }", "provider/unknown")));
-        var baseline = Item(fields: fields);
+        var resource = new ResourceLink("native-resource", "https://example.test/a%2Fb", "", null);
+        var baseline = new WorkItem(Remote, "type-ref", fields, Item().Revision, true, [resource], true);
         var remoteDraft = new Draft(Remote, "type-ref", baseline, Fields(("null", FieldValue.String("")), ("clear", FieldValue.Null)));
         var bench = new Bench(Guid.NewGuid(), "deliberate view",
             [new(SelectorKind.Pin, Local), new(SelectorKind.Subtree, Remote, hierarchyRelation: "parent"),
@@ -120,6 +146,8 @@ public sealed class SqliteStoreTests : IDisposable
         item.Fields["null"].Kind.ShouldBe(FieldKind.Null);
         item.Fields["empty"].Text.ShouldBe("");
         item.RelationshipsComplete.ShouldBeTrue();
+        item.ResourcesComplete.ShouldBeTrue();
+        item.Resources.ShouldBe([resource]);
         reopened.Items[1].Revision.ShouldBeNull();
         reopened.Drafts[0].Baseline.ShouldBeNull();
         reopened.Drafts[1].Baseline!.Fields.ShouldBe(fields);
@@ -147,6 +175,20 @@ public sealed class SqliteStoreTests : IDisposable
         (await Read(await Open())).Items[0].Fields.ShouldBe(fields);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task PriorSchemaMarkerRefusesOpenAndInitializationWithoutChangingTheFile(int version)
+    {
+        var store = await Create();
+        await Execute($"PRAGMA user_version={version};");
+        var bytes = await File.ReadAllBytesAsync(Database);
+        (await SqliteStore.OpenAsync(Database)).Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
+        (await SqliteStore.CreateAsync(Database)).Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
+        (await store.ReadAsync(Connection, default)).Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
+        (await File.ReadAllBytesAsync(Database)).ShouldBe(bytes);
+    }
+
     [Fact]
     public async Task ExplicitInitializationNeverAdoptsOverwritesOrMigratesAnExistingFile()
     {
@@ -164,7 +206,7 @@ public sealed class SqliteStoreTests : IDisposable
         (await SqliteStore.OpenAsync(Database)).Error.Message.ShouldContain("No migration or reinitialization");
         (await store.ReadAsync(Connection, default)).Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
         (await store.CommitAsync(Connection, 0, new(1), default)).Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
-        await Execute("PRAGMA user_version=1;");
+        await Execute("PRAGMA user_version=3;");
         (await Read(await Open())).Version.ShouldBe(0);
     }
 

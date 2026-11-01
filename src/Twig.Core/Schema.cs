@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 namespace Twig.Core;
 
 public enum StateCategory { Unknown, Proposed, InProgress, Resolved, Completed, Removed }
-public enum RelationShape { Hierarchy, Dependency, Association }
+public enum RelationShape { Hierarchy, Dependency, Association, Resource }
 public enum ConditionKind { Unknown, Equal, NotEqual, Was, Changed, NotChanged }
 public enum RuleAction { Unknown, Required, ReadOnly, Allowed, Supplied }
 

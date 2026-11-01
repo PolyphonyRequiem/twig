@@ -77,12 +77,16 @@ public static partial class Core
         }
         var link = op.Kind is OpKind.Relate or OpKind.Unrelate;
         var local = link && op.Origin == RelationshipOrigin.Local;
+        if (!op.Links.IsEmpty && op.Kind != OpKind.Create)
+            Fail(ErrorCode.InvalidInput, "Creation links belong only to an explicit create effect.");
         if (!local && op.ExpectedLocalVersion is not null)
             Fail(ErrorCode.InvalidInput, "Only a local relationship can carry a local edge precondition.");
-        if ((!link && (op.Other is not null || op.Relation is not null || op.Origin != RelationshipOrigin.Provider))
+        if ((!link && op.Kind != OpKind.Create && (op.Other is not null || op.Relation is not null || op.Origin != RelationshipOrigin.Provider))
             || (op.Kind is not (OpKind.Batch or OpKind.Create) && op.Fields.Count != 0)
             || (op.Kind is not (OpKind.Create or OpKind.Batch) && op.Type is not null)
-            || (op.Kind != OpKind.Comment && op.Body is not null))
+            || (op.Kind is not (OpKind.Comment or OpKind.Batch) && op.Body is not null)
+            || op.Kind == OpKind.LinkResource && op.Resource is null
+            || op.Kind is not (OpKind.Create or OpKind.LinkResource) && op.Resource is not null)
             Fail(ErrorCode.InvalidInput, "Operation contains fields belonging to a different effect.");
         if (!local && !capabilities.Operations.Contains(op.Kind))
             Fail(ErrorCode.Unsupported, "Provider does not implement this operation.");
@@ -95,8 +99,48 @@ public static partial class Core
             if (op.Concurrency != ConcurrencyMode.ObservedNonAtomic)
                 Fail(ErrorCode.Unsupported, "Creation has no provider revision CAS; that limitation must be explicit.");
             var draft = store.Drafts.FirstOrDefault(d => d.Key == op.Item);
-            if (draft is null || draft.Type != op.Type || !draft.Changes.Equals(op.Fields))
-                Fail(ErrorCode.Conflict, "Creation must bind the exact retained seed type and fields.");
+            if (draft is null || draft.Type != op.Type || !draft.Changes.Equals(op.Fields)
+                || draft.Parent != op.Other || draft.ParentRelation != op.Relation || draft.Resource != op.Resource
+                || !draft.Links.SequenceEqual(op.Links))
+                Fail(ErrorCode.Conflict, "Creation must bind the exact retained seed type, fields and creation-bound links.");
+            if (op.Links.Distinct().Count() != op.Links.Length || op.Links.Any(edge => edge.Other == op.Item))
+                Fail(ErrorCode.InvalidInput, "Creation link intent contains a duplicate or self edge.");
+            foreach (var edge in op.Links)
+            {
+                var kind = schema.Relations.FirstOrDefault(kind => kind.Reference == edge.Relation);
+                var endpoint = store.Mappings.FirstOrDefault(mapping => mapping.Local == edge.Other)?.Remote ?? edge.Other;
+                var predecessor = proposal.Operations.TakeWhile(candidate => candidate != op)
+                    .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == edge.Other);
+                if (!capabilities.AtomicFieldBatches || kind is null || kind.Shape is not (RelationShape.Dependency or RelationShape.Association)
+                    || !capabilities.NativeRelations.Contains(edge.Relation)
+                    || !edge.Outgoing && !kind.Directed)
+                    Fail(ErrorCode.Unsupported, "Creation links require discovered native dependency/association semantics and proven creation coupling.");
+                if (!(endpoint.BelongsTo(proposal.Connection)
+                    || endpoint.IsLocal && predecessor && store.Drafts.Any(draft => draft.Key == endpoint)))
+                    Fail(ErrorCode.Unsupported, "A creation link endpoint requires an in-scope observation or preceding captured creation.");
+                else if (!endpoint.IsLocal && !store.Items.Any(item => item.Key == endpoint && item.RelationshipsComplete))
+                    Fail(ErrorCode.Unavailable, "The creation link endpoint was not completely observed.");
+            }
+            if (op.Origin != RelationshipOrigin.Provider || (op.Other is null) != (op.Relation is null))
+                Fail(ErrorCode.InvalidInput, "Creation-bound parent intent requires its explicit native relation.");
+            if (op.Other is not null)
+            {
+                var mappedParent = store.Mappings.FirstOrDefault(mapping => mapping.Local == op.Other);
+                var parentKey = mappedParent?.Remote ?? op.Other;
+                var earlierCreate = proposal.Operations.TakeWhile(candidate => candidate != op)
+                    .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == op.Other);
+                if (!capabilities.AtomicFieldBatches
+                    || !(parentKey.BelongsTo(proposal.Connection) || parentKey.IsLocal && earlierCreate
+                        && store.Drafts.Any(parent => parent.Key == parentKey))
+                    || !schema.Relations.Any(relation => relation.Reference == op.Relation && relation.Shape == RelationShape.Hierarchy && relation.Directed)
+                    || !capabilities.NativeRelations.Contains(op.Relation!))
+                    Fail(ErrorCode.Unsupported, "Creation-bound parenting requires an in-scope observation or preceding captured creation and proven single-request native coupling.");
+                else if (!parentKey.IsLocal && !store.Items.Any(item => item.Key == parentKey && item.RelationshipsComplete))
+                    Fail(ErrorCode.Unavailable, "The creation-bound parent was not completely observed.");
+            }
+            if (op.Resource is not null && (!capabilities.AtomicFieldBatches
+                || !schema.Relations.Any(relation => relation.Reference == op.Resource.Relation && relation.Shape == RelationShape.Resource)))
+                Fail(ErrorCode.Unsupported, "Creation-bound resources require proven single-request native coupling and discovered resource semantics.");
             if (store.Mappings.Any(m => m.Local == op.Item) || store.Journal.Any(j =>
                 j.Status != OpStatus.Planned && store.Proposals.Any(p => p.Digest == j.Digest
                     && j.Operation < p.Operations.Length && p.Operations[j.Operation].Kind == OpKind.Create
@@ -115,8 +159,20 @@ public static partial class Core
         }
         if (local && op.ExpectedRevision is not null)
             Fail(ErrorCode.InvalidInput, "A local relationship uses the store CAS, not a provider revision.");
+        if (op.Kind == OpKind.LinkResource && op.Resource is { } resource)
+        {
+            if (!schema.Relations.Any(r => r.Reference == resource.Relation && r.Shape == RelationShape.Resource))
+                Fail(ErrorCode.Unsupported, "The resource relation is not enabled in the discovered native schema.");
+            var source = store.Items.FirstOrDefault(i => i.Key == op.Item);
+            if (source?.ResourcesComplete != true)
+                Fail(ErrorCode.Unavailable, "Complete native resource-link observations are required.");
+            else if (source.Resources.Any(r => r.Relation == resource.Relation && r.Target == resource.Target))
+                Fail(ErrorCode.Conflict, "The reviewed native resource link already exists.");
+        }
         if (link)
         {
+            if (schema.Relations.Any(r => r.Reference == op.Relation && r.Shape == RelationShape.Resource))
+                Fail(ErrorCode.InvalidInput, "A resource locator cannot be represented as another work-item identity.");
             if (op.Other is null || string.IsNullOrWhiteSpace(op.Relation))
                 Fail(ErrorCode.InvalidInput, "A relationship effect needs both endpoints and a discovered relation kind.");
             else
@@ -127,8 +183,7 @@ public static partial class Core
                     Fail(ErrorCode.Unsupported, "Relationship transport/provenance was not explicitly declared.");
                 if (!local && !op.Other.BelongsTo(proposal.Connection))
                     Fail(ErrorCode.Unsupported, "Native cross-scope relationships require a provider-specific capability, not implicit emulation.");
-                if (local && new[] { op.Item, op.Other }.Any(k => !store.Items.Any(i => i.Key == k)
-                    && !store.Drafts.Any(d => d.Key == k)))
+                if (local && new[] { op.Item, op.Other }.Any(k => !EndpointObserved(k)))
                     Fail(ErrorCode.Unavailable, "Local relationship endpoint evidence is missing.");
                 if (local)
                 {
@@ -145,21 +200,41 @@ public static partial class Core
                 }
             }
         }
+        bool EndpointObserved(ItemKey key)
+        {
+            if (!key.IsLocal) return key.BelongsTo(proposal.Connection) && store.Items.Any(item => item.Key == key);
+            if (store.Drafts.Any(draft => draft.Key == key && draft.Baseline is null)) return true;
+            return store.Mappings.Any(mapping => mapping.Local == key && mapping.Remote.BelongsTo(proposal.Connection)
+                && store.Items.Any(item => item.Key == mapping.Remote)
+                && store.Proposals.Any(original => original.Digest == mapping.ProposalDigest
+                    && original.Connection == proposal.Connection && mapping.Operation < original.Operations.Length
+                    && original.Operations[mapping.Operation].Kind == OpKind.Create
+                    && original.Operations[mapping.Operation].Item == key)
+                && store.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+                    && row.Status == OpStatus.Verified && row.Receipts.Any(receipt =>
+                        receipt.Status == OpStatus.Verified && receipt.PublishedKey == mapping.Remote)));
+        }
+
         if (op.Kind == OpKind.Comment && (op.Body is null || op.Body.Kind is not (FieldKind.Text or FieldKind.Html or FieldKind.Markdown) || op.Body.IsEmpty))
             Fail(ErrorCode.InvalidInput, "Comment must retain an explicit nonempty body and format.");
+        if (op.Kind == OpKind.Batch && op.Body is not null
+            && (op.Body.Kind is not (FieldKind.Text or FieldKind.Html or FieldKind.Markdown) || op.Body.IsEmpty || !capabilities.AtomicFieldBatches))
+            Fail(ErrorCode.Unsupported, "A batch note requires a nonempty typed body and proven single-request atomic coupling.");
         if (op.Kind is OpKind.Batch or OpKind.Create)
         {
-            if (op.Fields.Count == 0) Fail(ErrorCode.InvalidInput, "A field effect cannot be empty.");
-            if (op.Kind == OpKind.Batch && op.Fields.Count + (op.Type is null ? 0 : 1) > 1 && !capabilities.AtomicFieldBatches)
-                Fail(ErrorCode.Unsupported, "Provider cannot apply this field batch atomically; expand independent effects before digesting.");
+            if (op.Fields.Count == 0 && (op.Kind != OpKind.Batch || op.Type is null))
+                Fail(ErrorCode.InvalidInput, "A field effect cannot be empty.");
+            if (op.Kind == OpKind.Batch && !capabilities.AtomicFieldBatches
+                && (op.Type is not null || op.Fields.Count > 1 && op.Concurrency != ConcurrencyMode.ObservedNonAtomic))
+                Fail(ErrorCode.Unsupported, "Independent fields require explicit observed non-atomic intent; type changes require atomic support.");
             var source = store.Items.FirstOrDefault(i => i.Key == op.Item);
             var type = schema.Types.FirstOrDefault(t => t.Reference == (op.Type ?? source?.Type));
             if (type is null) Fail(ErrorCode.Unavailable, "The item's discovered type is unavailable.");
-            else ValidateFields(op, source, type, Fail);
+            else ValidateFields(op, source, type, capabilities.AtomicFieldBatches, Fail);
         }
     }
 
-    private static void ValidateFields(Op op, WorkItem? source, ItemType type, Action<ErrorCode, string> fail)
+    private static void ValidateFields(Op op, WorkItem? source, ItemType type, bool atomicFields, Action<ErrorCode, string> fail)
     {
         var old = source?.Fields ?? new FieldValues(type.Fields.Select(f =>
             KeyValuePair.Create(f.Reference, FieldValue.Null)));
@@ -211,8 +286,16 @@ public static partial class Core
                 case RuleAction.Required:
                     if (!supplied && (value is null || value.IsEmpty))
                         fail(ErrorCode.InvalidInput, $"Required field '{rule.Field}' has no effective value.");
-                    if (!supplied && changedState && target?.Category == StateCategory.Completed && !op.Fields.ContainsKey(rule.Field))
-                        fail(ErrorCode.InvalidInput, $"Close-gate field '{rule.Field}' must ride in the same batch as the transition.");
+                    if (!supplied && changedState && target?.Category == StateCategory.Completed)
+                    {
+                        var requiredBefore = RequiredBefore(type, rule.Field, old);
+                        if (!requiredBefore.IsSuccess) fail(requiredBefore.Error.Code, requiredBefore.Error.Message);
+                        var newGate = source is null || source.Type != type.Reference || !requiredBefore.IsSuccess || !requiredBefore.Value;
+                        if (newGate && !op.Fields.ContainsKey(rule.Field))
+                            fail(ErrorCode.InvalidInput, $"Close-gate field '{rule.Field}' must ride in the same batch as the transition.");
+                        if (newGate && rule.Field != type.StateField && !atomicFields)
+                            fail(ErrorCode.Unsupported, $"Close-gate field '{rule.Field}' must be applied atomically with the transition.");
+                    }
                     break;
                 case RuleAction.ReadOnly:
                     if (op.Fields.ContainsKey(rule.Field)) fail(ErrorCode.InvalidInput, $"Rule makes '{rule.Field}' read-only.");
@@ -230,6 +313,22 @@ public static partial class Core
         if (active.Where(r => r.Action == RuleAction.Supplied && !r.Values.IsEmpty)
             .GroupBy(r => r.Field, StringComparer.Ordinal).Any(g => g.SelectMany(r => r.Values).Distinct().Count() > 1))
             fail(ErrorCode.Unavailable, "Enabled suppliers disagree about the effective field value.");
+    }
+
+    private static Result<bool> RequiredBefore(ItemType type, string field, FieldValues before)
+    {
+        var required = false;
+        var supplied = false;
+        foreach (var rule in type.Rules.Where(rule => !rule.Disabled && rule.Field == field
+            && rule.Action is RuleAction.Required or RuleAction.Supplied))
+        {
+            var matches = MatchesConditions(rule.Conditions, before, before);
+            if (!matches.IsSuccess) return Result<bool>.Fail(matches.Error);
+            if (!matches.Value) continue;
+            required |= rule.Action == RuleAction.Required;
+            supplied |= rule.Action == RuleAction.Supplied && (rule.Values.IsEmpty || rule.Values.Any(value => !value.IsEmpty));
+        }
+        return Result<bool>.Ok(required && !supplied);
     }
 
     private static Result<bool> MatchesConditions(IEnumerable<RuleCondition> conditions, FieldValues before, FieldValues after)
@@ -253,6 +352,42 @@ public static partial class Core
         }
         return unknown ? Result<bool>.Fail(ErrorCode.Unavailable, "Rule predicates or their pre/post observations are unknown.")
             : Result<bool>.Ok(true);
+    }
+
+    public static Result<ImmutableArray<string>> CloseGates(ProcessSchema schema, WorkItem source,
+        FieldValues changes, string? typeOverride = null)
+    {
+        var unavailable = SchemaErrors(schema).FirstOrDefault();
+        if (unavailable is not null) return Result<ImmutableArray<string>>.Fail(unavailable);
+        if (typeOverride is not null && typeOverride != source.Type)
+            return Result<ImmutableArray<string>>.Fail(ErrorCode.Unsupported, "Close-gate pre-requiredness cannot be inferred across a type change.");
+        var type = schema.Types.FirstOrDefault(t => t.Reference == (typeOverride ?? source.Type));
+        if (type is null || !source.Fields.TryGetValue(type.StateField, out var previous))
+            return Result<ImmutableArray<string>>.Fail(ErrorCode.Unavailable, "The type or pre-state needed to discover close gates is unobserved.");
+        var effective = source.Fields.Overlay(changes);
+        if (!effective.TryGetValue(type.StateField, out var state)
+            || !type.States.Any(s => s.Name == state.Text))
+            return Result<ImmutableArray<string>>.Fail(ErrorCode.InvalidInput, "The proposed state was not discovered for this type.");
+        if (Equals(previous, state) || !type.States.Any(s => s.Name == state.Text && s.Category == StateCategory.Completed))
+            return Result<ImmutableArray<string>>.Ok([]);
+        var active = new List<FieldRule>();
+        foreach (var rule in type.Rules.Where(r => !r.Disabled))
+        {
+            var matches = MatchesConditions(rule.Conditions, source.Fields, effective);
+            if (!matches.IsSuccess) return Result<ImmutableArray<string>>.Fail(matches.Error);
+            if (matches.Value) active.Add(rule);
+        }
+        var gates = new List<string>();
+        foreach (var field in active.Where(r => r.Action == RuleAction.Required && r.Field != type.StateField
+            && !active.Any(s => s.Field == r.Field && s.Action == RuleAction.Supplied
+                && (s.Values.IsEmpty || s.Values.Any(v => !v.IsEmpty))))
+            .Select(r => r.Field).Distinct(StringComparer.Ordinal))
+        {
+            var before = RequiredBefore(type, field, source.Fields);
+            if (!before.IsSuccess) return Result<ImmutableArray<string>>.Fail(before.Error);
+            if (!before.Value) gates.Add(field);
+        }
+        return Result<ImmutableArray<string>>.Ok(gates.ToImmutableArray());
     }
 
     public static Result<MergeResult> Merge(Draft draft, WorkItem remote)

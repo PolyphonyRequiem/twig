@@ -106,6 +106,32 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                         return Result.Fail("remote-write-seed-origin-unknown: an unsettled uncorrelated create cannot acquire a new staged identity or exact tag after the fact. Preserve and establish original native evidence before another seed create.");
                 }
             }
+            if (intent.Request.CoreCorrelation is { } core)
+            {
+                cmd.CommandText = """
+                    SELECT i.intent_json,r.receipt_json FROM connection_remote_write_intents i
+                    LEFT JOIN connection_remote_write_receipts r ON r.intent_id=i.intent_id
+                    WHERE i.worktree_fingerprint=$fp;
+                    """;
+                using var prior = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                while (await prior.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    var admitted = JsonSerializer.Deserialize(prior.GetString(0), TwigJsonContext.Default.ConnectionRemoteWriteIntent);
+                    if (admitted is null)
+                        return Result.Fail("remote-write-native-evidence-unreadable: original native evidence cannot authorize another request.");
+                    if (admitted.Request.CoreCorrelation is { } original
+                        && (original.Attempt == core.Attempt
+                            || original.ProposalDigest == core.ProposalDigest && original.Operation == core.Operation
+                            || core.CreationIdentity is not null && original.CreationIdentity == core.CreationIdentity))
+                        return Result.Fail("remote-write-core-attempt-fenced: this operation, attempt or creation UUID has already been admitted; no replacement request is authorized.");
+                    if (!prior.IsDBNull(1)) continue;
+                    if (core.CreationIdentity is not null && admitted.Request.EffectKind == "workitem-create"
+                        || admitted.Request.CoreCorrelation?.TargetIdentity == core.TargetIdentity
+                        || ConnectionRemoteWriteAdmission.TargetWorkItemId(intent.Request.Target) is { } target
+                            && ConnectionRemoteWriteAdmission.TargetWorkItemId(admitted.Request.Target) == target)
+                        return Result.Fail("remote-write-core-outcome-unknown: an original unresolved native request fences this target or creation family.");
+                }
+            }
             cmd.CommandText = "SELECT 1 FROM connection_remote_write_intents i WHERE i.worktree_fingerprint=$fp AND i.request_digest=$digest AND NOT EXISTS(SELECT 1 FROM connection_remote_write_receipts r WHERE r.intent_id=i.intent_id) LIMIT 1;";
             if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
                 return Result.Fail("remote-write-outcome-unknown: the same semantic request already has an unsettled native intent. Inspect and reconcile its original evidence; no automatic retry/replay or pending discard settles it.");

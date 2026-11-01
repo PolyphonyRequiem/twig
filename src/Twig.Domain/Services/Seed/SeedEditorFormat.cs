@@ -33,6 +33,16 @@ public static class SeedEditorFormat
     public static string Generate(
         WorkItem seed,
         IReadOnlyList<FieldDefinition> fieldDefinitions)
+        => Generate(reference => GetEditorValue(seed, reference), fieldDefinitions);
+
+    internal static string Generate(
+        IReadOnlyDictionary<string, string?> values,
+        IReadOnlyList<FieldDefinition> fieldDefinitions)
+        => Generate(reference => values.TryGetValue(reference, out var value) ? value : null, fieldDefinitions);
+
+    private static string Generate(
+        Func<string, string?> valueFor,
+        IReadOnlyList<FieldDefinition> fieldDefinitions)
     {
         var sb = new StringBuilder();
 
@@ -49,11 +59,12 @@ public static class SeedEditorFormat
             sb.AppendLine();
 
             sb.AppendLine("# Title");
-            sb.AppendLine(seed.Title);
+            sb.AppendLine(valueFor("System.Title"));
             sb.AppendLine();
 
             sb.AppendLine("# Description");
-            if (seed.Fields.TryGetValue("System.Description", out var descValue) && !string.IsNullOrEmpty(descValue))
+            var descValue = valueFor("System.Description");
+            if (!string.IsNullOrEmpty(descValue))
                 sb.AppendLine(descValue);
 
             return sb.ToString();
@@ -64,7 +75,7 @@ public static class SeedEditorFormat
             sb.Append("# ");
             sb.AppendLine(field.DisplayName);
 
-            var value = GetEditorValue(seed, field.ReferenceName);
+            var value = valueFor(field.ReferenceName);
             if (!string.IsNullOrEmpty(value))
                 sb.AppendLine(value);
 

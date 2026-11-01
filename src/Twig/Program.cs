@@ -27,9 +27,7 @@ ConsoleApp.JsonSerializerOptions = new System.Text.Json.JsonSerializerOptions
     TypeInfoResolver = ArgumentBinderJsonContext.Default,
 };
 
-// Windows/Linux launch aliases are copies of this same native executable, not
-// companion processes. Normalize before help and argument guards so every entry
-// has the canonical tui options and lifecycle.
+// Previously shipped UI aliases must refuse, never open an alternate application.
 var nativeTuiPlatform = OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
 var executableName = Path.GetFileName(Environment.ProcessPath);
 if (nativeTuiPlatform && (OperatingSystem.IsWindows()
@@ -38,28 +36,15 @@ if (nativeTuiPlatform && (OperatingSystem.IsWindows()
     : executableName is "twig-tui" or "twig-bench-tui"))
     args = ["tui", .. args];
 
-var isBrowserCommand = (args.Length >= 2 && args[0] == "bench" && args[1] == "browser")
-    || (nativeTuiPlatform && args.Length > 0 && args[0] == "tui");
-
-// ITEM-154: Enable UTF-8 output so Unicode type badges render correctly on Windows.
-// The native interactive route owns encoding in its terminal scope, so it must
-// capture the inherited code page before any CLI bootstrap changes it. Help stays
-// on the ordinary offline CLI path, including its existing UTF-8 output contract.
-if (!isBrowserCommand || ProgressiveHelp.IsHelpRequest(args))
+// Enable UTF-8 output for the retained static terminal renderers.
+try
 {
-    try
-    {
-        Console.OutputEncoding = System.Text.Encoding.UTF8;
-    }
-    catch (Exception)
-    {
-        // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
-    }
+    Console.OutputEncoding = System.Text.Encoding.UTF8;
 }
-
-// TICKET-0018: startup side effects (binary cleanup, companion first-run check)
-// deliberately do NOT run here. They sit below the fast-exit block so that
-// --version / --help / no-args / unknown-command never pay for them.
+catch (Exception)
+{
+    // Restricted terminals still receive Unicode bytes.
+}
 
 var runApp = Twig.TwigConsoleApp.CreateRunner(services =>
     {
@@ -68,17 +53,6 @@ var runApp = Twig.TwigConsoleApp.CreateRunner(services =>
         if (ProgressiveHelp.IsHelpRequest(args)
             || (args.Length > 0 && args[0] is "skills" or "--help-all")) return;
 
-        if (isBrowserCommand)
-        {
-            // Manifest actions run from the plugin root. Only the host adapter
-            // may capture topology; its runtime admits that validated source.
-            services.AddSingleton(new TwigConfiguration());
-            services.AddTwigRenderingServices();
-            services.AddSingleton<Twig.Domain.Interfaces.ITelemetryClient, Twig.Infrastructure.Telemetry.TelemetryClient>();
-            services.AddSingleton<Twig.Browser.BrowserRuntimeFactory>();
-            services.AddSingleton<BrowserHostCommand>();
-            return;
-        }
         services.AddTwigWorkspaceServices(Directory.GetCurrentDirectory(), args);
     });
 
@@ -126,6 +100,15 @@ if (args.Length == 0)
         ProgressiveHelp.ShowRoot();
         return;
     }
+}
+
+// Retired surfaces fail before workspace discovery, provider composition or input reads.
+if (Twig.CoreMutationAdmissionGuard.ValidateCatalog(args) is { } retiredError)
+{
+    CommandError.Write(new RendererFactory(), Console.Error,
+        StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default, retiredError);
+    Environment.ExitCode = 1;
+    return;
 }
 
 // Unknown commands provide a compact discovery hint without dumping the catalog.
@@ -210,6 +193,27 @@ if (structuredMutationError is not null)
     return;
 }
 
+// Init owns fresh-state preflight and native bootstrap, including existing-marker refusals.
+// It must never enter update cleanup, companion installation or the runtime catalog gate.
+if (args.Length > 0 && args[0] == "init")
+{
+    SQLitePCL.Batteries.Init();
+    runApp(args);
+    return;
+}
+
+{
+    var root = WorkspaceDiscovery.FindWorkspaceRoot(Directory.GetCurrentDirectory()) ?? Directory.GetCurrentDirectory();
+    var coreAdmissionError = Twig.CoreMutationAdmissionGuard.Validate(args, Path.Combine(root, ".twig"));
+    if (coreAdmissionError is not null)
+    {
+        CommandError.Write(new RendererFactory(), Console.Error,
+            StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default, coreAdmissionError);
+        Environment.ExitCode = 1;
+        return;
+    }
+}
+
 // Skills are an explicit offline utility: do not resolve workspace/network services
 // or run binary cleanup/companion installation for this command family.
 if (args.Length > 0 && args[0] == "skills")
@@ -227,19 +231,8 @@ if (args.Length > 0 && args[0] == "show-batch" && args.Contains("--include-field
     return;
 }
 
-// TICKET-0018: startup side effects run ONLY once every fast-exit path has been
-// ruled out. Above this point no network or filesystem side effect is permitted —
-// --version / --help / no-args / unknown-command must stay allocation-cheap and
-// perform zero network calls.
-
 // Native persistence is needed only for real command execution, never help.
 SQLitePCL.Batteries.Init();
-
-if (!isBrowserCommand)
-{
-    SelfUpdater.CleanupOldBinary();
-    CompanionStartup.RunFirstRunCheck();
-}
 
 runApp(args);
 
@@ -261,7 +254,9 @@ internal sealed class ExceptionFilter(ConsoleAppFilter next) : ConsoleAppFilter(
         }
         catch (Exception ex)
         {
-            ExceptionHandler.Handle(ex);
+            using var error = new StringWriter();
+            ExceptionHandler.Handle(ex, error);
+            ConsoleApp.LogError(error.ToString().TrimEnd());
         }
     }
 }
@@ -403,7 +398,7 @@ internal static class ExceptionHandler
         {
             case SqliteCorrupt:
             case SqliteNotADb:
-                stderr.WriteLine("\u26a0 Cache corrupted. Run 'twig init --force' to rebuild.");
+                stderr.WriteLine("\u26a0 Database is unreadable. Preserve its files and evidence; initialize a fresh isolated Core workspace. Reset/reinitialize is retired.");
                 break;
 
             case SqliteConstraint:
@@ -417,7 +412,7 @@ internal static class ExceptionHandler
             case SqliteBusy:
             case SqliteLocked:
                 stderr.WriteLine($"error: Cache is locked by another process: {ex.Message}");
-                stderr.WriteLine("hint: Another twig or twig-mcp process is using the cache. Close it and retry.");
+                stderr.WriteLine("hint: Another process is using the database. Close that process and retry.");
                 break;
 
             case SqliteReadOnly:
@@ -448,6 +443,20 @@ internal static class ExceptionHandler
 /// </summary>
 public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompatibility
 {
+    private static int MissingCore(string output)
+    {
+        CommandError.Write(new RendererFactory(), Console.Error, output,
+            "A fresh initialized Core workspace is required; no legacy command fallback is available.");
+        return 1;
+    }
+
+    private static int Unsupported(string output = OutputFormats.Default)
+    {
+        CommandError.Write(new RendererFactory(), Console.Error, output,
+            "Unsupported: this surface is retired from current delivery. Use the retained Core commands; no legacy workflow was opened.");
+        return 1;
+    }
+
     protected override Task<int> PreviewLegacyAsync(string? file, string output, CancellationToken ct)
         => PlanPreview(file, output, full: false, interactive: false, ct: ct);
 
@@ -468,84 +477,62 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             ? []
             : titles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    /// <summary>Initialize a new Twig workspace.</summary>
+    /// <summary>Initialize one fresh native Core workspace at .twig/core.db. No legacy cache, migration or reset.</summary>
     /// <param name="orgArg">Organization, positionally: twig init &lt;org&gt; &lt;project&gt;. The shipped examples document this spelling.</param>
     /// <param name="projectArg">Project, positionally, as the second argument.</param>
     /// <param name="org">Azure DevOps organization name (e.g., contoso).</param>
     /// <param name="project">Azure DevOps project name.</param>
-    /// <param name="team">Team name within the project (defaults to project default team).</param>
+    /// <param name="team">Optional ADO team configuration; no team or item discovery is performed.</param>
     /// <param name="gitProject">ADO project that hosts the git repository, if different from the work-item project.</param>
-    /// <param name="force">Overwrite existing workspace configuration.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="sprint">Sprint expression(s) to subscribe to (e.g., @current, @current-1). Semicolon-separated for multiple.</param>
-    /// <param name="area">Area path(s) to filter by (e.g., Project\Team). Append :exact for exact match. Semicolon-separated for multiple.</param>
-    /// <param name="reinitialize">Archive an existing <c>.twig/</c> tree to <c>.twig-legacy-&lt;timestamp&gt;/</c> and start clean (design §7 supported legacy recovery — no in-place migration).</param>
-    /// <param name="profile">Opaque released profile identity to explicitly select (default: none). Does not discover live-process compatibility.</param>
+    /// <param name="force">Retired; explicitly refused without writes.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids is unsupported.</param>
+    /// <param name="sprint">Retired; initialization does not configure or prefill sprints.</param>
+    /// <param name="area">Retired; initialization does not configure or prefill areas.</param>
+    /// <param name="reinitialize">Retired; existing or partial workspace state is preserved and refused.</param>
+    /// <param name="profile">Retired; no legacy profile selection or materialization.</param>
     /// <param name="provider">Explicit work-item provider: ado (default) or github. Never inferred from git remotes.</param>
     /// <param name="host">Explicit lowercase GitHub host, used with --provider github.</param>
-    /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Init stays offline; discover and bind separately.</param>
+    /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Initialization always observes and binds native identity.</param>
     /// <param name="binding">Registered ADO binding ID to pin locally in a fresh checkout (default: endpoint default). Cannot combine with --force/--reinitialize or replace existing local state.</param>
-    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null)
+    /// <param name="coreStore">Optional new absolute database file override, with existing parent directory. Default: .twig/core.db. Existing data is never adopted or reset.</param>
+    /// <param name="account">Explicit gh account for fresh GitHub Core initialization; never inferred from the active gh account.</param>
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null, string? account = null)
     {
-        // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
-        // document (`twig init <org> <project>`) parses alongside the named one. The generated
-        // parser's own required-argument check no longer applies, so the refusal is restated
-        // here rather than letting empty strings reach the command as if they were supplied.
+        if (orgArg is not null && org is not null && orgArg != org
+            || projectArg is not null && project is not null && projectArg != project)
+        {
+            CommandError.Write(new RendererFactory(), Console.Error, output, "Positional and named init coordinates conflict.");
+            return 2;
+        }
         var resolvedOrg = org ?? orgArg;
         var resolvedProject = project ?? projectArg;
-        var github = WorkItemProviderSetting.Normalize(provider) == "github";
-        if (github && (resolvedOrg is not null || resolvedProject is not null))
-        {
-            Console.Error.WriteLine("error: GitHub init uses --host and --repository, not ADO org/project arguments.");
-            return 1;
-        }
-        if (github)
-        {
-            resolvedOrg = host;
-            resolvedProject = repository;
-        }
-        if (!github && provider is not null && WorkItemProviderSetting.Normalize(provider) is null)
-        {
-            Console.Error.WriteLine("error: provider-unknown: use --provider ado or --provider github.");
-            return 1;
-        }
-        if (!github && (string.IsNullOrWhiteSpace(resolvedOrg) || string.IsNullOrWhiteSpace(resolvedProject)))
-        {
-            Console.Error.WriteLine("error: Usage: twig init <org> <project>, or twig init --org <org> --project <project>");
-            return 1;
-        }
-
-        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding);
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding, coreStore: coreStore, account: account);
     }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>
     /// <param name="idOrPattern">Work item ID (e.g., 1234) or title substring to match.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.SetAsync(idOrPattern, output, ct);
+        return MissingCore(output);
+    }
 
-    /// <summary>Display a work item without changing context. Integer IDs are cache-only by default; --local-id reads a GitHub provider snapshot when configured.</summary>
+    /// <summary>Display an explicitly cached Core item without changing context; --local-id retains original draft UUIDs and permanent mappings.</summary>
     /// <param name="idArg">Work item ID, positionally. Omit only in human output to show the active work item.</param>
     /// <param name="id">Explicit work item ID; may also be supplied positionally. Conflicting IDs are refused.</param>
     /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
-    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
+    /// <param name="refresh">Explicitly refresh the native target before displaying; never flushes pending drafts.</param>
     /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
     /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
-    /// <param name="localId">Canonical lowercase GUIDv7 identity for a GitHub provider snapshot read; currently unavailable for other providers, requires JSON output, and excludes the other show options.</param>
+    /// <param name="localId">Original canonical lowercase GUIDv7 of a Core draft or permanent mapping; cache-only, without rewriting native identity.</param>
     public async Task<int> Show([Argument] int? idArg = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null, string? localId = null, int? id = null)
     {
         id ??= idArg;
-        if (localId is not null)
-        {
-            // Resolve only the provider snapshot route; the cache-first command has process,
-            // synchronization, tree, and git dependencies that this route does not need.
-            return await services.GetRequiredService<ShowLocalIdCommand>().ExecuteAsync(
-                id, output, tree, refresh, ct, fields, sections, localId);
-        }
-
-        return await services.GetRequiredService<ShowCommand>().ExecuteAsync(
-            id, output, tree, refresh, ct, fields: fields, sections: sections);
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ShowAsync(id, output, tree, refresh, fields, sections, localId, ct);
+        return MissingCore(output);
     }
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are disclosed and exit nonzero.</summary>
@@ -570,7 +557,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             return 1;
         }
 
-        return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct, fields: fields, sections: sections, includeFields: includeFields);
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ShowBatchAsync(resolved, output, fields, sections, includeFields, ct);
+        return MissingCore(output);
     }
 
     /// <summary>
@@ -599,7 +588,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// </remarks>
     internal static string? ResolveBatch(string? batch, string? batchArg) => batch ?? batchArg;
 
-    /// <summary>Search and filter work items via ad-hoc WIQL queries.</summary>
+    /// <summary>Search using bounded provider-qualified Core queries. GitHub supports title/body/state only, with at most 100 total candidates.</summary>
     /// <param name="searchText">Free-text search across work item titles and descriptions.</param>
     /// <param name="title">Filter by title text (CONTAINS match on System.Title).</param>
     /// <param name="description">Filter by description text (CONTAINS match on System.Description).</param>
@@ -613,27 +602,35 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="top">Maximum number of results to return.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Query([Argument] string? searchText = null, string? title = null, string? description = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.QueryAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Change the state of the active work item by name.</summary>
     /// <param name="name">Target state name (e.g., Active, Resolved, Closed).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, int? id = null, CancellationToken ct = default)
-        => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.StateAsync(name, id, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Show process configuration: list types (no args) or type details (with type name).</summary>
     /// <param name="type">Work item type name to show details for (omit to list all types).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO (announced on stderr); writes nothing.</param>
-    /// <param name="project">Azure DevOps project to describe instead of this workspace's. Requires --org.</param>
+    /// <param name="org">Legacy target option; requires --project. Pinned Core schema overrides explicitly refuse before HTTP; initialize an isolated target workspace instead.</param>
+    /// <param name="project">Legacy target option; requires --org. No ambient target is substituted on refusal.</param>
     /// <param name="includeHidden">Include types ADO reserves for its own tooling (Code Review, Feedback, Test Case and friends). Excluded by default: they cannot be created by hand.</param>
-    /// <param name="refresh">AB#879: force a targeted metadata-only sync (process types + field definitions) before rendering. This is the actionable "rerun me" surface behind a "Metadata not ready" message; it never pulls work items or flushes pending writes.</param>
+    /// <param name="refresh">Accepted for compatibility. Core schema inspection already discovers live metadata; it never pulls work items or flushes pending writes.</param>
     public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, bool includeHidden = false, bool refresh = false, CancellationToken ct = default)
         => await ProcessOverrideHost.RunAsync(
             services, org, project,
             sp => sp.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, includeHidden, refresh, ct),
-            output, ct);
+            output, ct, requiresCoreSchema: true);
 
     /// <summary>Show the server-defined form layout (tabs, boxes, ordered fields) for a work item type.</summary>
     /// <param name="type">Work item type name (e.g. Bug, Task, User Story).</param>
@@ -642,16 +639,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="org">Azure DevOps organization to read the layout from instead of this workspace's. Requires --project.</param>
     /// <param name="project">Azure DevOps project to read the layout from instead of this workspace's. Requires --org.</param>
     [Command("process layout")]
-    public async Task<int> ProcessLayout([Argument] string type, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, CancellationToken ct = default)
-        => await ProcessOverrideHost.RunAsync(
-            services, org, project,
-            sp => sp.GetRequiredService<ProcessLayoutCommand>().ExecuteAsync(type, @out, output, ct),
-            output, ct);
+    internal async Task<int> ProcessLayout([Argument] string type, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, CancellationToken ct = default)
+    {
+        return await Task.FromResult(Unsupported(output));
+    }
 
-    /// <summary>Write a byte-stable structural description of this project's process, for diffing against another.</summary>
+    /// <summary>Describe the admitted provider's Core schema (core-schema-1), with explicit scope and presentation gaps.</summary>
     /// <param name="type">Work item type REFERENCE name (e.g. Niflheim.Grilling); omit to describe every type.</param>
     /// <param name="out">Write the rendered description to this file instead of stdout.</param>
-    /// <param name="output">-o, Output format. Only json (and its aliases) is complete; others are abridged summaries.</param>
+    /// <param name="output">-o, Output format: human, json (and aliases), minimal. JSON carries typed rules; this is not the legacy complete layout/behavior descriptor.</param>
     /// <param name="sections">Comma-separated fields, requirements sections for opt-in compact JSON; requires a type.</param>
     /// <param name="fields">Comma-separated field reference names to select in compact JSON.</param>
     [Command("process description")]
@@ -680,22 +676,25 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="descriptionFile">Read the description body from a file instead of --description.</param>
     /// <param name="descriptionStdin">Read the description body from piped standard input.</param>
-    public async Task<int> New([Argument] string? typeArg = null, [Argument] string? titleArg = null, string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, string? descriptionFile = null, bool descriptionStdin = false, CancellationToken ct = default)
-        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title ?? titleArg, type ?? typeArg, area, iteration, description, parent, set, editor, format, field, output, descriptionFile, descriptionStdin, ct);
+    internal async Task<int> New([Argument] string? typeArg = null, [Argument] string? titleArg = null, string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, string? descriptionFile = null, bool descriptionStdin = false, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
+    /// <summary>Display a targeted work item tree (hidden alias). The legacy --all workspace layout is unsupported.</summary>
     /// <param name="idArg">Positional work item ID; required for structured output unless --id or --all is supplied.</param>
     /// <param name="id">Explicit work item ID; conflicting positional and named IDs are refused.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
-    /// <param name="all">When set, routes to workspace --tree showing all team items as hierarchy.</param>
+    /// <param name="all">Unsupported legacy workspace layout; refuses before HTTP.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     [Hidden]
     public async Task<int> Tree([Argument] int? idArg = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, int? id = null)
-        => all
-            ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, refresh, ct, tree: true)
-            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id ?? idArg, output, tree: true, refresh, ct, depth, noLive);
+    {
+        if (all) return Unsupported(output);
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.TreeAsync(id ?? idArg, all, depth, refresh, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Render an arbitrary working set of work items as a forest of annotated trees.</summary>
     /// <param name="items">Comma-separated work item IDs, or @file (one per line), or @- for stdin.</param>
@@ -705,7 +704,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="rootsOnly">Render only the items given, without connecting ancestors.</param>
     /// <param name="icons">Override the configured glyph mode for this invocation: auto, unicode, or nerd.</param>
     [Command("tree-set")]
-    public async Task<int> TreeSet(
+    internal async Task<int> TreeSet(
         string? items = null,
         string? annotate = null,
         string output = OutputFormatterFactory.DefaultFormat,
@@ -713,96 +712,113 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         bool rootsOnly = false,
         string? icons = null,
         CancellationToken ct = default)
-        => await services.GetRequiredService<Twig.Commands.SetTree.WorkingSetTreeCommand>()
-            .ExecuteAsync(items, annotate, output, depth, rootsOnly, icons, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav up")]
     public async Task<int> NavUp(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigateAsync("up", null, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Launch the interactive tree navigator.</summary>
     [Command("nav")]
-    public async Task<int> Nav(CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().InteractiveAsync(ct);
+    internal async Task<int> Nav(CancellationToken ct = default)
+        => await Task.FromResult(Unsupported());
 
     /// <summary>Navigate to a child work item.</summary>
     /// <param name="idOrPattern">Child work item ID or title substring to match.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav down")]
     public async Task<int> NavDown([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigateAsync("down", idOrPattern, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Navigate to the next sibling work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav next")]
     public async Task<int> NavNext(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigateAsync("next", null, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Navigate to the previous sibling work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav prev")]
     public async Task<int> NavPrev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.NavigateAsync("prev", null, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Navigate backward in navigation history.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav back")]
-    public async Task<int> NavBack(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().BackAsync(output, ct);
+    internal async Task<int> NavBack(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        return await Task.FromResult(Unsupported(output));
+    }
 
     /// <summary>Navigate forward in navigation history.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav fore")]
-    public async Task<int> NavFore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
+    internal async Task<int> NavFore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        return await Task.FromResult(Unsupported(output));
+    }
 
     /// <summary>Display the navigation history.</summary>
     /// <param name="nonInteractive">Skip interactive selection and print the history list.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav history")]
-    public async Task<int> NavHistory(bool nonInteractive = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().HistoryAsync(nonInteractive, output, ct);
+    internal async Task<int> NavHistory(bool nonInteractive = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        return await Task.FromResult(Unsupported(output));
+    }
 
     // ── Backward-compat aliases (bare up/down/next/prev/back/fore/history) ─
 
     /// <summary>Navigate to the parent work item (alias for nav up).</summary>
     [Hidden]
-    public async Task<int> Up(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
+    internal async Task<int> Up(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await NavUp(output, ct);
 
     /// <summary>Navigate to a child work item (alias for nav down).</summary>
     [Hidden]
-    public async Task<int> Down([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
+    internal async Task<int> Down([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await NavDown(idOrPattern, output, ct);
 
     /// <summary>Navigate to the next sibling work item (alias for nav next).</summary>
     [Hidden]
-    public async Task<int> Next(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
+    internal async Task<int> Next(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await NavNext(output, ct);
 
     /// <summary>Navigate to the previous sibling work item (alias for nav prev).</summary>
     [Hidden]
-    public async Task<int> Prev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
+    internal async Task<int> Prev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await NavPrev(output, ct);
 
     /// <summary>Navigate backward in navigation history (alias for nav back).</summary>
     [Hidden]
-    public async Task<int> Back(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().BackAsync(output, ct);
+    internal async Task<int> Back(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await NavBack(output, ct);
 
     /// <summary>Navigate forward in navigation history (alias for nav fore).</summary>
     [Hidden]
-    public async Task<int> Fore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
+    internal async Task<int> Fore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await NavFore(output, ct);
 
     /// <summary>Show the revision history for a work item.</summary>
     /// <param name="id">Work item ID whose history to display (required).</param>
     /// <param name="detail">Comma-delimited update IDs, or 'all', to show full field deltas for.</param>
     /// <param name="field">Comma-delimited ADO field reference names to restrict deltas to.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> History([Argument] int? id = null, string? detail = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    internal async Task<int> History([Argument] int? id = null, string? detail = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         // The bare `history` verb was a hidden backward-compat alias for `nav history`.
         // `twig history <id>` takes over the name; `nav history` is unchanged. Disambiguation
@@ -813,19 +829,23 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             return 1;
         }
 
-        return await services.GetRequiredService<HistoryCommand>().ExecuteAsync(id.Value, detail, field, output, ct);
+        return await Task.FromResult(Unsupported(output));
     }
 
     /// <summary>Open the active work item in the browser.</summary>
     /// <param name="id">Work item ID to open; defaults to the active item.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> Web([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<WebCommand>().ExecuteAsync(id, output, ct);
+    internal async Task<int> Web([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
     [Hidden]
-    public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string? description = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, description, field, output, ct);
+    internal async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string? description = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedNewAsync(title, type, editor, parent, noParent, description, field, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Create a new local seed work item.</summary>
     /// <param name="title">Title for the new seed work item.</param>
@@ -838,14 +858,21 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed new")]
     public async Task<int> SeedNew(string? title = null, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string? description = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, description, field, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedNewAsync(title, type, editor, parent, noParent, description, field, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Edit seed fields in an external editor.</summary>
     /// <param name="id">Seed ID to edit.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed edit")]
     public async Task<int> SeedEdit([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedEditCommand>().ExecuteAsync(id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.SeedEditAsync(id, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Discard (delete) a local seed.</summary>
     /// <param name="id">Seed ID to discard.</param>
@@ -853,13 +880,20 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed discard")]
     public async Task<int> SeedDiscard([Argument] int id, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedDiscardCommand>().ExecuteAsync(id, yes, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedDiscardAsync(id, yes, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Show seed dashboard grouped by parent.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed view")]
     public async Task<int> SeedView(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedViewCommand>().ExecuteAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.SeedViewAsync(output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Create a virtual link between two items (at least one must be a seed).</summary>
     /// <param name="sourceId">Source item ID for the link.</param>
@@ -868,7 +902,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed link")]
     public async Task<int> SeedLink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedLinkCommand>().LinkAsync(sourceId, targetId, type, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedLinkAsync(sourceId, targetId, type, false, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Remove a virtual link between two items.</summary>
     /// <param name="sourceId">Source item ID of the link to remove.</param>
@@ -877,14 +915,22 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed unlink")]
     public async Task<int> SeedUnlink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedLinkCommand>().UnlinkAsync(sourceId, targetId, type, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedLinkAsync(sourceId, targetId, type, true, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>List virtual links, optionally filtered by item ID.</summary>
     /// <param name="id">Item ID to filter links for; omit to show all links.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed links")]
     public async Task<int> SeedLinks([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedLinkCommand>().ListLinksAsync(id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedLinksAsync(id, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Create a chain of linked seeds — interactively or from explicit titles.</summary>
     /// <param name="parent">Parent work item ID to link the chain under.</param>
@@ -893,14 +939,22 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="titles">Seed titles, comma-separated. Quote the value: twig seed chain "design api,build api".</param>
     [Command("seed chain")]
     public async Task<int> SeedChain([Argument] string? titles = null, int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct, SplitSeedTitles(titles));
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedChainAsync(SplitSeedTitles(titles), parent, type, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Validate seeds against publish rules.</summary>
     /// <param name="id">Seed ID to validate; omit to validate all seeds.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed validate")]
     public async Task<int> SeedValidate([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedValidateCommand>().ExecuteAsync(id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedValidateAsync(id, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation, --link-branch to link to a git branch.</summary>
     /// <param name="id">Seed ID to publish; omit when using --all.</param>
@@ -912,111 +966,130 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed publish")]
     public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string? linkBranch = null, string? repo = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, linkBranch, repo, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedPublishAsync(id, all, force, dryRun, linkBranch, repo, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Reconcile stale seed links and parent references after partial publishes.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed reconcile")]
     public async Task<int> SeedReconcile(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedLinkRepairCommand>().ExecuteAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SeedReconcileAsync(output, ct);
+        return MissingCore(output);
+    }
 
     // ── Link commands (published work items) ────────────────────────
 
-    /// <summary>Set the parent of the active work item.</summary>
+    /// <summary>Set the parent of an unparented published item through a verified Core proposal.</summary>
     /// <param name="targetId">Work item ID to set as the parent.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
+    /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
+    /// <param name="id">Explicit positive child ID; required for all machine output, even when --child is supplied.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link parent")]
-    public async Task<int> LinkParent([Argument] int targetId, [Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, child ?? id, output, ct);
+    public async Task<int> LinkParent([Argument] int targetId, [Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, id, output, ct, child, childId);
 
-    /// <summary>Remove the parent link from the active work item.</summary>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <summary>Remove the one observed native parent through a verified Core proposal.</summary>
+    /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
+    /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
+    /// <param name="id">Explicit positive child ID; required for all machine output, even when --child is supplied.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link unparent")]
-    public async Task<int> LinkUnparent([Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().UnparentAsync(child ?? id, output, ct);
+    public async Task<int> LinkUnparent([Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().UnparentAsync(id, output, ct, child, childId);
 
-    /// <summary>Remove the current parent and set a new one.</summary>
+    /// <summary>Parent replacement is unsupported; refuses before HTTP without removing any link.</summary>
     /// <param name="targetId">Work item ID to set as the new parent.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
+    /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
+    /// <param name="id">Explicit positive child ID; required for all machine output, even when --child is supplied.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link reparent")]
-    public async Task<int> LinkReparent([Argument] int targetId, [Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, child ?? id, output, ct);
+    public async Task<int> LinkReparent([Argument] int targetId, [Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, id, output, ct, child, childId);
 
     /// <summary>Mark the active work item as blocked by another item (Predecessor link).</summary>
     /// <param name="targetId">Work item ID that must complete first (the blocker).</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link predecessor")]
     public async Task<int> LinkPredecessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Predecessor, targetId, id, output, ct);
 
     /// <summary>Mark the active work item as blocking another item (Successor link).</summary>
     /// <param name="targetId">Work item ID that this item blocks.</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link successor")]
     public async Task<int> LinkSuccessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Successor, targetId, id, output, ct);
 
     /// <summary>Relate the active work item to another item (symmetric Related link).</summary>
     /// <param name="targetId">Work item ID to relate this item to.</param>
-    /// <param name="comment">-c, Why the two items are related. Recorded on the link itself.</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="comment">-c, Retained syntax; unsupported by Core relationship intent, so any supplied value refuses before HTTP.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link related")]
     public async Task<int> LinkRelated([Argument] int targetId, string? comment = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().RelatedAsync(targetId, id, comment, output, ct);
 
     /// <summary>Remove a Related link between the active work item and another item.</summary>
     /// <param name="targetId">Work item ID at the other end of the link.</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link unrelate")]
     public async Task<int> LinkUnrelate([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().UnrelateAsync(targetId, id, output, ct);
 
-    /// <summary>Create an explicit Twig-local Related link between two live local work items.</summary>
-    /// <param name="sourceLocalId">Canonical lowercase GUIDv7 identity of the source local item.</param>
-    /// <param name="targetLocalId">Canonical lowercase GUIDv7 identity of the target local item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <summary>Create an explicit LOCAL, non-native Related association through a Verified local CAS proposal. May acquire native metadata/observations; never mutates native links.</summary>
+    /// <param name="target">Explicit native number, negative seed alias or original canonical lowercase GUIDv7.</param>
+    /// <param name="id">Required explicit source, using the same locator forms. No active-item fallback.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link local related")]
     public async Task<int> LinkLocalRelated(
-        [Argument] string sourceLocalId,
-        [Argument] string targetLocalId,
+        [Argument] string target,
+        string? id = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
         => await services.GetRequiredService<LocalRelationshipCommand>()
-            .AddRelatedAsync(sourceLocalId, targetLocalId, output, ct);
+            .AddRelatedAsync(id, target, output, ct);
 
-    /// <summary>Remove an existing Twig-local Related link without contacting the provider.</summary>
-    /// <param name="sourceLocalId">Canonical lowercase GUIDv7 identity of one local endpoint.</param>
-    /// <param name="targetLocalId">Canonical lowercase GUIDv7 identity of the other local endpoint.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <summary>Tombstone an existing LOCAL Related association through its exact local CAS. Native reads may occur; no native mutation.</summary>
+    /// <param name="target">Explicit native number, negative seed alias or original canonical lowercase GUIDv7.</param>
+    /// <param name="id">Required explicit source. No active-item fallback.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link local unrelate")]
     public async Task<int> LinkLocalUnrelate(
-        [Argument] string sourceLocalId,
-        [Argument] string targetLocalId,
+        [Argument] string target,
+        string? id = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
         => await services.GetRequiredService<LocalRelationshipCommand>()
-            .UnrelateAsync(sourceLocalId, targetLocalId, output, ct);
+            .UnrelateAsync(id, target, output, ct);
 
-    /// <summary>List Twig-local Related links touching a local work item, without contacting the provider.</summary>
-    /// <param name="localId">Canonical lowercase GUIDv7 identity of the local work item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <summary>List cached LOCAL associations for an explicit item. Zero HTTP; no schema acquisition or context change.</summary>
+    /// <param name="target">Explicit cached native number, negative seed alias or original canonical lowercase GUIDv7.</param>
+    /// <param name="id">Alternative explicit target; conflicting targets are refused.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal, ids. IDs require uniquely cached neighbors.</param>
     [Command("link local list")]
     public async Task<int> LinkLocalList(
-        [Argument] string localId,
+        [Argument] string? target = null,
+        string? id = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
         => await services.GetRequiredService<LocalRelationshipCommand>()
-            .ListAsync(localId, output, ct);
+            .ListAsync(target, id, output, ct);
 
     /// <summary>Remove a non-hierarchy link (predecessor, successor, or related) from a work item.</summary>
     /// <param name="linkType">Link type to remove: predecessor, successor, or related.</param>
     /// <param name="targetId">Work item ID at the other end of the link.</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="id">Explicit positive source ID; required for machine output. Human output may use Core active context.</param>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
     [Command("link unlink")]
     public async Task<int> LinkUnlink([Argument] string linkType, [Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().UnlinkDependencyAsync(linkType, targetId, id, output, ct);
@@ -1028,7 +1101,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link artifact")]
     public async Task<int> LinkArtifact([Argument] string url, string? name = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ArtifactLinkCommand>().ExecuteAsync(url, name, id, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.LinkResourceAsync(url, name, id, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Batch state transitions, field updates, and notes in a single call.</summary>
     /// <param name="state">Target state name (e.g. Active, Closed).</param>
@@ -1040,7 +1117,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="format">Convert --set values before sending. Supported: "markdown".</param>
     [Command("batch")]
     public async Task<int> Batch(string? state = null, string[]? set = null, string? note = null, int? id = null, string? ids = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BatchCommand>().ExecuteAsync(state, set, note, id, ids, output, format, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.BatchAsync(state, set, note, id, ids, output, format, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Add a note to the active work item.</summary>
     /// <param name="textArg">Note text, positionally. Quote multi-word text: twig note "hello world".</param>
@@ -1051,7 +1132,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="file">Read the note body from a file instead of an inline argument.</param>
     /// <param name="stdin">Read the note body from piped standard input.</param>
     public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, string? file = null, bool stdin = false, CancellationToken ct = default)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, file, stdin, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.NoteAsync(text ?? textArg, file, stdin, id, output, format, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>
@@ -1063,7 +1148,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="id">Work item ID to update; omit to use the active work item.</param>
     /// <param name="append">Append the value to the existing field content instead of replacing it.</param>
     public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, int? id = null, bool append = false, CancellationToken ct = default)
-        => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, id, append, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.UpdateAsync(field, value, output, format, file, stdin, id, append, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Atomically patch multiple fields on a work item via JSON input.</summary>
     /// <param name="json">JSON object with field name → value pairs (e.g., '{"System.Title":"New title"}').</param>
@@ -1073,14 +1162,22 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="id">Work item ID to target; equivalent to the positional form. Omit to use the active work item.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Patch([Argument] int? workItemId = null, string? json = null, bool stdin = false, string? format = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id ?? workItemId, output, format, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PatchAsync(id ?? workItemId, json, stdin, format, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Edit work item fields in an external editor.</summary>
     /// <param name="fieldArg">Field to edit, positionally: twig edit System.Title. The shipped examples document this spelling.</param>
     /// <param name="field">Specific field to edit; omit to edit all editable fields.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> Edit([Argument] string? fieldArg = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<EditCommand>().ExecuteAsync(field ?? fieldArg, output, ct);
+    /// <param name="id">Explicit work item ID; required for structured output.</param>
+    public async Task<int> Edit([Argument] string? fieldArg = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, int? id = null)
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core) return await core.EditAsync(id, field ?? fieldArg, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Discard pending changes for a single item or all dirty items.</summary>
     /// <param name="id">Work item ID to discard changes for.</param>
@@ -1088,71 +1185,82 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="yes">Skip confirmation prompt.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Discard([Argument] int? id = null, bool all = false, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.DiscardAsync(id, all, yes, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Permanently delete a work item from Azure DevOps. This is irreversible — consider 'twig state Closed' instead.</summary>
     /// <param name="id">Work item ID to delete (required).</param>
     /// <param name="force">Skip the interactive confirmation prompt.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("delete")]
-    public async Task<int> Delete([Argument] int id, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<DeleteCommand>().ExecuteAsync(id, force, output, ct);
+    internal async Task<int> Delete([Argument] int id, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        return await Task.FromResult(Unsupported(output));
+    }
 
     /// <summary>Push pending changes to Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
     [Hidden]
     public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
-        await Console.Error.WriteLineAsync("hint: 'twig save' is deprecated. Use 'twig sync' instead.");
-        return await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SaveAsync(id, all, output, ct);
+        throw new InvalidOperationException("An explicitly initialized Core workspace is required; no legacy save writer was registered.");
     }
 
 
-    /// <summary>Flush pending changes then refresh the local cache.</summary>
+    /// <summary>Save retained remote drafts through the proposal journal, then pull the selected Bench.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="pullOnly">Skip the flush phase and only pull from the active provider. Required for GitHub.</param>
+    /// <param name="pullOnly">Skip draft publication and only pull the selected Bench from the active provider. Default false; required for legacy GitHub.</param>
     public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool pullOnly = false, CancellationToken ct = default)
-        => services.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind() == "github"
-            ? await services.GetRequiredService<ProviderSyncCommand>().ExecuteAsync(output, pullOnly, ct)
-            : await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, pullOnly, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SyncAsync(output, pullOnly, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Refresh the local cache from the active provider. Routes through sync --pull-only.</summary>
     [Hidden]
     public async Task<int> Refresh(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await Sync(output, pullOnly: true, ct);
 
-    /// <summary>Show the current workspace.</summary>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="all">Show all team members' items, not just yours.</param>
-    /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
-    /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
-    /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
-    /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
-    /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
-    /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
-    /// <param name="bench">Explicit saved Bench name or stable ID; requires --include-browser --browser-version 2 --view tree -o json. No refresh or alternate layouts.</param>
-    /// <param name="browserVersion">Semantic contract version: unset preserves v1; 2 requires --include-browser and --bench. Other values are refused.</param>
-    /// <param name="expectBench">Optional expected explicit Bench ID; only valid with --bench and --browser-version 2. Never selects the current Bench.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench);
+    /// <summary>Read cached Core Bench membership and all protected drafts as a static table. Acquires provider schema metadata.</summary>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal, ids.</param>
+    /// <param name="all">Unsupported legacy team layout; refused before HTTP.</param>
+    /// <param name="noLive">Compatibility flag; output is always static.</param>
+    /// <param name="refresh">Explicitly pull the current Bench through Core before rendering; never publishes drafts or adds active context.</param>
+    /// <param name="flat">Compatibility flag for the static table.</param>
+    /// <param name="tree">Unsupported full-backlog layout; use targeted show --tree instead.</param>
+    /// <param name="view">Optional table; tree and other views are unsupported.</param>
+    /// <param name="includeBrowser">Unsupported legacy browser envelope; refused before HTTP.</param>
+    /// <param name="expectBinding">Unsupported captured browser binding flag; refused before HTTP.</param>
+    /// <param name="expectIdentity">Unsupported captured browser identity flag; refused before HTTP.</param>
+    /// <param name="bench">Existing saved Bench name or GUID; never changes the current selection. Refresh requires this Bench to be current.</param>
+    /// <param name="browserVersion">Unsupported legacy browser contract; refused before HTTP.</param>
+    /// <param name="expectBench">Optional canonical GUID guard on the resolved current or named Bench, checked before refresh or schema HTTP.</param>
+    /// <param name="expectSettings">Unsupported captured browser settings flag; refused before HTTP.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default, string? expectSettings = null)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench, expectSettings: expectSettings);
 
-    /// <summary>Show the current workspace (short alias).</summary>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="all">Show all team members' items, not just yours.</param>
-    /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
-    /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
-    /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
-    /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
-    /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
-    /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
-    /// <param name="bench">Explicit saved Bench name or stable ID; requires --include-browser --browser-version 2 --view tree -o json. No refresh or alternate layouts.</param>
-    /// <param name="browserVersion">Semantic contract version: unset preserves v1; 2 requires --include-browser and --bench. Other values are refused.</param>
-    /// <param name="expectBench">Optional expected explicit Bench ID; only valid with --bench and --browser-version 2. Never selects the current Bench.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench);
+    /// <summary>Read the static cached Core Bench workspace (short alias); acquires provider schema metadata.</summary>
+    /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal, ids.</param>
+    /// <param name="all">Unsupported legacy team layout; refused before HTTP.</param>
+    /// <param name="noLive">Compatibility flag; output is always static.</param>
+    /// <param name="refresh">Pull only the current Bench, without publishing drafts or adding active context.</param>
+    /// <param name="flat">Compatibility flag for the static table.</param>
+    /// <param name="tree">Unsupported full-backlog layout.</param>
+    /// <param name="view">Optional table; other views are unsupported.</param>
+    /// <param name="includeBrowser">Unsupported legacy browser envelope.</param>
+    /// <param name="expectBinding">Unsupported captured browser binding flag.</param>
+    /// <param name="expectIdentity">Unsupported captured browser identity flag.</param>
+    /// <param name="bench">Existing Bench name or GUID; never changes selection. Refresh requires this Bench to be current.</param>
+    /// <param name="browserVersion">Unsupported legacy browser contract.</param>
+    /// <param name="expectBench">Optional canonical GUID guard on the resolved Bench, checked before refresh or schema HTTP.</param>
+    /// <param name="expectSettings">Unsupported captured browser settings flag; refused before HTTP.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default, string? expectSettings = null)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench, expectSettings: expectSettings);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
@@ -1163,7 +1271,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace track")]
     public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PinAsync(id, false, false, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+        return MissingCore(output);
+    }
 
     /// <summary>Track a work item and its subtree.</summary>
     /// <param name="id">Work item ID to track (with descendants).</param>
@@ -1174,7 +1286,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace track-tree")]
     public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PinAsync(id, true, false, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+        return MissingCore(output);
+    }
 
     /// <summary>Remove explicit pins, optionally only single or tree; inherited membership remains.</summary>
     /// <param name="id">Work item ID to stop tracking.</param>
@@ -1186,7 +1302,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="mode">Optional pin kind: single or tree (case-insensitive). Unset removes both explicit kinds.</param>
     [Command("workspace untrack")]
     public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, string? mode = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings, mode);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PinAsync(id, mode == "tree", true, output, ct, expectBench, expectBinding, expectIdentity, expectSettings, mode);
+        return MissingCore(output);
+    }
 
     /// <summary>Pull only the current Bench's query, pin, and bounded relationship scope; never flush pending writes.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1195,22 +1315,26 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
     [Command("workspace sync")]
     public async Task<int> WorkspaceSync(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchSyncCommand>().ExecuteAsync(output, expectBench, expectBinding, expectIdentity, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.SyncAsync(output, true, ct, true, expectBench, expectBinding, expectIdentity);
+        return MissingCore(output);
+    }
 
     /// <summary>Exclude a work item from workspace view.</summary>
     /// <param name="id">Work item ID to exclude.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace exclude")]
-    public async Task<int> WorkspaceExclude([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().ExcludeAsync(id, output, ct);
+    internal async Task<int> WorkspaceExclude([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>List all excluded work items.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="clear">Remove all exclusions.</param>
     /// <param name="remove">Remove a specific exclusion by work item ID.</param>
     [Command("workspace exclusions")]
-    public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, clear, remove, ct);
+    internal async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     // ── Bench (ADO #148) ──
 
@@ -1221,16 +1345,24 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before creating.</param>
     [Command("bench create")]
     public async Task<int> BenchCreate([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().CreateAsync(name, output, ct, expectBinding, expectIdentity);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.BenchAsync("create", name, output, ct, expectBinding: expectBinding, expectIdentity: expectIdentity);
+        return MissingCore(output);
+    }
 
     /// <summary>List the Benches that exist, marking the current one.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="includeManagement">Emit versioned management JSON with stable IDs, full contents digests, pins and query descriptions; requires -o json.</param>
     /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before listing.</param>
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before listing.</param>
-    [Command("bench list")]
+    [Command("bench|bench list")]
     public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, bool includeManagement = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().ListAsync(output, ct, includeManagement, expectBinding, expectIdentity);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.BenchAsync("list", null, output, ct, expectBinding: expectBinding, expectIdentity: expectIdentity, management: includeManagement);
+        return MissingCore(output);
+    }
 
     /// <summary>Stand on another Bench. Naming one that does not exist fails; nothing is created.</summary>
     /// <param name="name">Name of an existing Bench.</param>
@@ -1240,7 +1372,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before selecting.</param>
     [Command("bench switch")]
     public async Task<int> BenchSwitch([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct, expectBench, expectBinding, expectIdentity);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.BenchAsync("switch", name, output, ct, expectBench, expectBinding, expectIdentity);
+        return MissingCore(output);
+    }
 
     /// <summary>Delete a Bench. One holding pins reports what it holds and deletes nothing.</summary>
     /// <param name="name">Name of the Bench to delete.</param>
@@ -1251,8 +1387,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before deleting.</param>
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before deleting.</param>
     [Command("bench delete")]
-    public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectContents = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().DeleteAsync(name, confirm, output, ct, expectBench, expectBinding, expectIdentity, expectContents);
+    internal async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectContents = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Read full, richly rendered cached detail for an explicitly selected Bench work item.</summary>
     /// <param name="id">Work item ID or local seed ID; never changes the active item.</param>
@@ -1265,26 +1401,26 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="document">Export semantic JSON version 2 instead of ANSI (default false, requires -o json); may read server form metadata (never with --bench), but does not refresh the item or authorize edits.</param>
     /// <param name="bench">Explicit saved Bench name or decimal id for a cache-only document read; requires --document and -o json, is a usage error with --sync or other modes, never falls back to or switches the current Bench, and refuses non-member items.</param>
     [Command("bench detail")]
-    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, string? bench = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct, document: document, bench: bench);
+    internal async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, string? bench = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Read one remote discussion page for an explicitly qualified cached Bench member, without saving or refreshing.</summary>
     /// <param name="stdin">Read strict version 1 JSON through EOF (required, default false), at most 262144 UTF-8 bytes/depth 32. The cursor is untrusted paging data, not authority.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal; no ids. Reads at most 50 comments/2 MiB per page, not a consistent whole-thread snapshot.</param>
     /// <param name="ct">Cancellation token; never changes the current item or Bench, posts comments, or follows supplied URLs.</param>
     [Command("bench discussion")]
-    public async Task<int> BenchDiscussion(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+    internal async Task<int> BenchDiscussion(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<BenchDiscussionCommand>().ExecuteAsync(stdin, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Prepare a v1 append-comment proposal from fresh qualified native context, without posting, journal import or file writes.</summary>
     /// <param name="stdin">Read strict version 1 JSON through EOF (required, default false), at most 262144 UTF-8 bytes/depth 32: context, format (plain or markdown), and exact text (at most 16KiB UTF-8). Stale or unqualified context refuses.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal; no ids. Includes native formatted body and canonical digest; effective body limit 64KiB UTF-8.</param>
     /// <param name="ct">Cancellation token. No comment POST, authorization, retry, active-item or current-Bench change.</param>
     [Command("bench discussion prepare-post")]
-    public async Task<int> BenchDiscussionPreparePost(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+    internal async Task<int> BenchDiscussionPreparePost(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<BenchDiscussionPostCommand>().ExecuteAsync(stdin, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Read qualified Bench-member attachment inventory or stream one bounded download frame.</summary>
     /// <param name="stdin">Read strict version 1 JSON through EOF (required, default false), at most 262144 UTF-8 bytes/depth 32.</param>
@@ -1292,10 +1428,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="framed">Write a bounded binary response frame for a download. No local destination is accepted.</param>
     /// <param name="ct">Cancellation token; never changes the current item or Bench, and never writes an attachment to disk.</param>
     [Command("bench attachments")]
-    public async Task<int> BenchAttachments(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+    internal async Task<int> BenchAttachments(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
         bool framed = false,
         CancellationToken ct = default)
-        => await services.GetRequiredService<BenchAttachmentCommand>().ExecuteAsync(stdin, output, framed, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Open a shared recoverable draft using an explicit saved Bench and the native ADO form.</summary>
     /// <param name="id">Positive native ADO item ID; no active-item default or cross-provider fallback.</param>
@@ -1305,46 +1441,46 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Expected admitted identity ID (optional); never selects an identity.</param>
     /// <param name="ct">Cancellation token.</param>
     [Command("draft open")]
-    public async Task<int> DraftOpen([Argument] int id, string bench,
+    internal async Task<int> DraftOpen([Argument] int id, string bench,
         string output = OutputFormatterFactory.DefaultFormat, string? expectBinding = null,
         string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<DraftEditingCommand>().OpenAsync(id, bench, output, expectBinding, expectIdentity, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Atomically stage nullable fields into a recoverable draft, never pending changes or the server.</summary>
     /// <param name="stdin">Read one strict version 1 JSON request through EOF (required); maximum 262144 UTF-8 bytes, 128 ordered changes. Close stdin after writing; cancellation aborts the read.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal. JSON always reports committed and structured errors.</param>
     /// <param name="ct">Cancellation token. No retry, rebase, authorization or publication is performed.</param>
     [Command("draft stage")]
-    public async Task<int> DraftStage(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+    internal async Task<int> DraftStage(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<DraftEditingCommand>().StageAsync(stdin, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Retain one exact qualified recoverable draft as local proposal intent, never authorize or apply.</summary>
     /// <param name="stdin">Read one strict version 1 JSON request through EOF (required, default false); maximum 262144 UTF-8 bytes and depth 32. No changes or authorizer may be supplied.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal. JSON reports committed and structured refusals.</param>
     /// <param name="ct">Cancellation token; no retry, rebase, export or remote publication.</param>
     [Command("draft retain")]
-    public async Task<int> DraftRetain(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
+    internal async Task<int> DraftRetain(bool stdin = false, string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<DraftEditingCommand>().RetainAsync(stdin, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Consume the exact retained capture following a separate explicit workbench Save gesture; never recapture or export.</summary>
     /// <param name="stdin">Read the workbench's strict digest-and-caller request through EOF; required. No replacement file, effects, identity selection or approval record.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal; ids is unsupported.</param>
     /// <param name="ct">Cancellation token; uncertain effects are never automatically replayed.</param>
     [Command("draft save")]
-    public async Task<int> DraftSave(bool stdin = false,
+    internal async Task<int> DraftSave(bool stdin = false,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<DraftSaveCommand>().ExecuteAsync(stdin, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Review the exact effects of one retained native capture without exporting or changing its journal.</summary>
     /// <param name="digest">Lowercase 64-character SHA-256 digest returned by <c>draft retain</c>; omitted values produce a usage refusal. No proposal file or path is read.</param>
     /// <param name="output">-o, Output format: human (default) shows exact nullable field effects and freshness/authority limits; minimal shows digest and effect count; json emits the closed review envelope.</param>
     /// <param name="ct">Cancellation token; no authorization, apply, preview timestamp or journal mutation is performed.</param>
     [Command("draft review")]
-    public async Task<int> DraftReview([Argument] string? digest = null, string output = OutputFormatterFactory.DefaultFormat,
+    internal async Task<int> DraftReview([Argument] string? digest = null, string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<DraftEditingCommand>().ReviewAsync(digest, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Inspect an existing native recoverable draft without changing intent or applying it.</summary>
     /// <param name="id">Native integer work-item ID or negative seed alias; no default or active-item selection.</param>
@@ -1352,9 +1488,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="document">Export semantic draft document version 1 (default false, requires -o json); may CAS local observation/conflict metadata, never creates a draft or mutation authority.</param>
     /// <param name="ct">Cancellation token.</param>
     [Command("draft show")]
-    public async Task<int> DraftShow([Argument] int id, string output = OutputFormatterFactory.DefaultFormat,
+    internal async Task<int> DraftShow([Argument] int id, string output = OutputFormatterFactory.DefaultFormat,
         bool document = false, CancellationToken ct = default)
-        => await services.GetRequiredService<DraftCommand>().ShowAsync(id, output, document, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Capture exact recoverable intent locally and export canonical proposal bytes; never authorize or apply.</summary>
     /// <param name="id">Published native work-item ID (required).</param>
@@ -1369,11 +1505,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="recover">Retained capture digest for export recovery (default null); never imports or adopts changed intent.</param>
     /// <param name="ct">Cancellation token.</param>
     [Command("draft capture")]
-    public async Task<int> DraftCapture([Argument] int id, string bench, string checkoutRoot,
+    internal async Task<int> DraftCapture([Argument] int id, string bench, string checkoutRoot,
         string connectionId, string bindingId, string identityId, long generation, int revision,
         string output = OutputFormatterFactory.DefaultFormat, string? recover = null, CancellationToken ct = default)
-        => await services.GetRequiredService<DraftCommand>().CaptureAsync(id, bench, checkoutRoot,
-           connectionId, bindingId, identityId, generation, revision, output, recover, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
     /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
@@ -1388,12 +1523,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
     /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
     [Command("bench browser")]
-    public async Task<int> BenchBrowser(string? cwd = null, string view = "tree", string? file = null,
+    internal async Task<int> BenchBrowser(string? cwd = null, string view = "tree", string? file = null,
         bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
         string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BrowserHostCommand>().ExecuteAsync(cwd, view, file, herdr, hostEntry,
-            intent, sourceWorkspace, sourceTab, sourcePane, sourceSocket, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Read the current Bench configuration and raw settings digest.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1401,8 +1535,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     [Command("bench configuration")]
-    public async Task<int> BenchConfiguration(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, ct: ct);
+    internal async Task<int> BenchConfiguration(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Read the configured team's official area paths without changing Bench or workspace settings.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1410,8 +1544,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     [Command("bench configuration area candidates")]
-    public async Task<int> BenchConfigurationAreaCandidates(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchAreaCandidatesCommand>().ExecuteAsync(output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, ct: ct);
+    internal async Task<int> BenchConfigurationAreaCandidates(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Add a area filter on the captured Bench only.</summary>
     /// <param name="path">Validated area path.</param>
@@ -1422,8 +1556,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
     [Command("bench configuration area add")]
-    public async Task<int> BenchConfigurationAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "area", action: "add", value: path, exact: exact, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+    internal async Task<int> BenchConfigurationAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Remove a area filter on the captured Bench only.</summary>
     /// <param name="path">Validated area path.</param>
@@ -1433,8 +1567,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
     [Command("bench configuration area remove")]
-    public async Task<int> BenchConfigurationAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "area", action: "remove", value: path, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+    internal async Task<int> BenchConfigurationAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Add a sprint filter on the captured Bench only.</summary>
     /// <param name="expression">Sprint expression: @Current, @Current±N, or an absolute iteration path.</param>
@@ -1444,8 +1578,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
     [Command("bench configuration sprint add")]
-    public async Task<int> BenchConfigurationSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "sprint", action: "add", value: expression, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+    internal async Task<int> BenchConfigurationSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Remove a sprint filter on the captured Bench only.</summary>
     /// <param name="expression">Sprint expression: @Current, @Current±N, or an absolute iteration path.</param>
@@ -1455,43 +1589,43 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
     [Command("bench configuration sprint remove")]
-    public async Task<int> BenchConfigurationSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "sprint", action: "remove", value: expression, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+    internal async Task<int> BenchConfigurationSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     // ── Workspace Area Path Management ──
 
     /// <summary>Show the area-filtered workspace view.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area")]
-    public async Task<int> WorkspaceArea(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().ViewAsync(output, ct);
+    internal async Task<int> WorkspaceArea(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Add an area path to workspace configuration.</summary>
     /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
     /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area add")]
-    public async Task<int> WorkspaceAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().AddAsync(path, exact, output, ct);
+    internal async Task<int> WorkspaceAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Remove an area path from workspace configuration.</summary>
     /// <param name="path">Area path to remove.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area remove")]
-    public async Task<int> WorkspaceAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().RemoveAsync(path, output, ct);
+    internal async Task<int> WorkspaceAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>List configured area paths with match semantics.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area list")]
-    public async Task<int> WorkspaceAreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().ListAsync(output, ct);
+    internal async Task<int> WorkspaceAreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Fetch team area paths from ADO and replace configuration.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area sync")]
-    public async Task<int> WorkspaceAreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
+    internal async Task<int> WorkspaceAreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     // ── Workspace Sprint Iteration Management ──
 
@@ -1499,21 +1633,21 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expression">Sprint expression (e.g., "@current", "@current-1", "Project\Sprint 5").</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace sprint add")]
-    public async Task<int> WorkspaceSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SprintCommand>().AddAsync(expression, output, ct);
+    internal async Task<int> WorkspaceSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Remove a sprint iteration expression from workspace configuration.</summary>
     /// <param name="expression">Sprint expression to remove.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace sprint remove")]
-    public async Task<int> WorkspaceSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SprintCommand>().RemoveAsync(expression, output, ct);
+    internal async Task<int> WorkspaceSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>List configured sprint iteration expressions.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace sprint list")]
-    public async Task<int> WorkspaceSprintList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SprintCommand>().ListAsync(output, ct);
+    internal async Task<int> WorkspaceSprintList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     // ── Area Path Management (deprecated aliases — use 'workspace area' instead) ──
 
@@ -1521,10 +1655,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area")]
-    public async Task<int> Area(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    internal async Task<int> Area(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         await Console.Error.WriteLineAsync("hint: 'twig area' is deprecated. Use 'twig workspace area' instead.");
-        return await services.GetRequiredService<AreaCommand>().ViewAsync(output, ct);
+        return Unsupported(output);
     }
 
     /// <summary>Add an area path. Deprecated — use 'twig workspace area add' instead.</summary>
@@ -1533,10 +1667,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area add")]
-    public async Task<int> AreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    internal async Task<int> AreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         await Console.Error.WriteLineAsync("hint: 'twig area add' is deprecated. Use 'twig workspace area add' instead.");
-        return await services.GetRequiredService<AreaCommand>().AddAsync(path, exact, output, ct);
+        return Unsupported(output);
     }
 
     /// <summary>Remove an area path. Deprecated — use 'twig workspace area remove' instead.</summary>
@@ -1544,40 +1678,40 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area remove")]
-    public async Task<int> AreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    internal async Task<int> AreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         await Console.Error.WriteLineAsync("hint: 'twig area remove' is deprecated. Use 'twig workspace area remove' instead.");
-        return await services.GetRequiredService<AreaCommand>().RemoveAsync(path, output, ct);
+        return Unsupported(output);
     }
 
     /// <summary>List configured area paths. Deprecated — use 'twig workspace area list' instead.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area list")]
-    public async Task<int> AreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    internal async Task<int> AreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         await Console.Error.WriteLineAsync("hint: 'twig area list' is deprecated. Use 'twig workspace area list' instead.");
-        return await services.GetRequiredService<AreaCommand>().ListAsync(output, ct);
+        return Unsupported(output);
     }
 
     /// <summary>Fetch team area paths from ADO. Deprecated — use 'twig workspace area sync' instead.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area sync")]
-    public async Task<int> AreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    internal async Task<int> AreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         await Console.Error.WriteLineAsync("hint: 'twig area sync' is deprecated. Use 'twig workspace area sync' instead.");
-        return await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
+        return Unsupported(output);
     }
 
-    /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
+    /// <summary>Unsupported legacy sprint layout. Use workspace for static Core Bench membership.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of sprint table.</param>
-    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool refresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, refresh: refresh, ct: ct, sprintLayout: true, flat: flat, tree: tree);
+    internal async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool refresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Read or set a configuration value.</summary>
     /// <param name="key">Configuration key to read or set (e.g., organization, display.icons). Enroll credentials with auth login or auth pat instead.</param>
@@ -1586,40 +1720,37 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="global">Read or set the home-wide display.icons preference.</param>
     /// <param name="unset">Clear the selected display.icons override so it inherits the next layer.</param>
     [Command("config")]
-    public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, bool global = false, bool unset = false, CancellationToken ct = default)
+    internal async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, bool global = false, bool unset = false, CancellationToken ct = default)
     {
-        // The normal command resolves a workspace-bound prompt writer. A global setting
-        // must remain usable even when no Twig workspace has been initialized.
-        var command = global
-            ? new ConfigCommand(services.GetRequiredService<TwigConfiguration>(), services.GetRequiredService<TwigPaths>(), services.GetRequiredService<OutputFormatterFactory>())
-            : services.GetRequiredService<ConfigCommand>();
-        return await command.ExecuteAsync(key, value, output, ct, global, unset);
+        return await Task.FromResult(Unsupported(output));
     }
 
     /// <summary>Split a legacy .twig/config into a committed twig.json (repo coords) and gitignored .twig/config (user prefs). AB#3296.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="dryRun">Preview the changes without modifying any files.</param>
     [Command("migrate-config")]
-    public async Task<int> MigrateConfig(string output = OutputFormatterFactory.DefaultFormat, bool dryRun = false, CancellationToken ct = default)
-        => await services.GetRequiredService<MigrateConfigCommand>().ExecuteAsync(output, dryRun, ct);
+    internal async Task<int> MigrateConfig(string output = OutputFormatterFactory.DefaultFormat, bool dryRun = false, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Configure which fields appear in status view.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("config status-fields")]
-    public async Task<int> ConfigStatusFields(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConfigStatusFieldsCommand>().ExecuteAsync(output, ct);
+    internal async Task<int> ConfigStatusFields(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Inspect local authentication state without refreshing. Use --provider github for a selected GitHub App identity.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="provider">Authentication provider: ado (default) or github.</param>
+    /// <param name="provider">Omit for recorded native binding/target status. Explicit github inspects a selected App credential, not the pinned gh actor; ado requires an ADO workspace scope.</param>
     /// <param name="identity">Explicit GitHub OAuth identity alias; defaults to github.oauthidentity.</param>
     /// <param name="clientId">Registered GitHub App client ID; defaults to github.appclientid.</param>
     [Command("auth status")]
     public async Task<int> AuthStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default,
-        string provider = "ado", string? identity = null, string? clientId = null)
+        string? provider = null, string? identity = null, string? clientId = null)
         => provider == "github"
             ? await services.GetRequiredService<AuthGitHubCommand>().ExecuteAsync("status", identity, clientId, output, ct)
-            : provider == "ado" && identity is null && clientId is null
+            : (provider is null || provider == "ado"
+                && services.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind() == "ado")
+                && identity is null && clientId is null
                 ? await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct)
                 : AuthProviderUsageError(output);
 
@@ -1627,14 +1758,14 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="identity">Alias of a registered identity whose cached admission proof should be cleared. Omit to clear the attached binding's cached access token.</param>
     [Command("auth clear")]
-    public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? identity = null)
-        => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(identity, output, ct);
+    internal async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? identity = null)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Enroll an explicit identity. ADO uses loopback PKCE by default; --provider github uses Twig's GitHub App device flow without a shipped secret.</summary>
     /// <param name="deviceCode">Use the OAuth device authorization grant instead of loopback PKCE. Required on headless or sandboxed environments where a browser cannot be opened, but often blocked by enterprise Conditional Access policy.</param>
     /// <param name="tenant">AAD tenant ID, domain, or 'organizations' (default). Use a specific tenant when your account is a guest in multiple directories.</param>
     /// <param name="noBrowser">Print the authorize URL instead of launching the system browser. Use when running over SSH or when the OS browser launcher is unreliable.</param>
-    /// <param name="identity">Alias of the identity to register or re-enroll. Required unless an attached binding already names one; a named login never clobbers an existing global/sibling account.</param>
+    /// <param name="identity">Required explicit alias of the identity to register or re-enroll; no attached or ambient account is inferred.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="provider">Authentication provider: ado (default) or github. GitHub always uses device flow.</param>
     /// <param name="clientId">Registered GitHub App client ID (github only); defaults to github.appclientid.</param>
@@ -1660,11 +1791,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="clientId">Registered GitHub App client ID; defaults to github.appclientid.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth logout")]
-    public async Task<int> AuthLogout(string provider = "", string? identity = null, string? clientId = null,
+    internal async Task<int> AuthLogout(string provider = "", string? identity = null, string? clientId = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => provider == "github"
-            ? await services.GetRequiredService<AuthGitHubCommand>().ExecuteAsync("logout", identity, clientId, output, ct)
-            : AuthProviderUsageError(output);
+        => await Task.FromResult(Unsupported(output));
 
     private int AuthProviderUsageError(string output)
     {
@@ -1681,7 +1810,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await services.GetRequiredService<AuthIdentitiesCommand>().ExecuteAsync(output, ct);
 
     /// <summary>Enroll or renew a Personal Access Token identity. The PAT is read from a non-echoing Spectre prompt on a TTY, or from stdin when --stdin is set or stdin is redirected; it is never accepted as an argument. The service performs authoritative read-only principal attestation before touching any stored credential.</summary>
-    /// <param name="identity">Alias of the PAT identity to register or renew. Required outside an attached workspace; defaults to the attached binding's identity (and refuses when its method is AAD).</param>
+    /// <param name="identity">Required explicit alias of the PAT identity to register or renew; no attached or ambient account is inferred.</param>
     /// <param name="org">Azure DevOps organization name or HTTPS endpoint. Omit to use the named identity's registered PAT authority; a new alias can use the attached organization. Required for new enrollment outside attachment.</param>
     /// <param name="stdin">Read the PAT from standard input instead of prompting. Automatic when stdin is redirected (e.g. piped).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1731,8 +1860,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Inspect all unfinished-work and claim prerequisites for a later binding transition. Read-only; no publication, discard, release, switch or force bypass. Eligible exits 0; blocked or unreadable inspection exits 1.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection check")]
-    public async Task<int> ConnectionCheck(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionCheckCommand>().ExecuteAsync(output, ct);
+    internal async Task<int> ConnectionCheck(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Observe a GitHub repository's immutable identity and current local selection. Writes no target state. Example: twig provider discover github --host github.com --repository owner/repo -o json.</summary>
     /// <param name="host">Required bare lowercase GitHub host. No remote/config inference.</param>
@@ -1740,9 +1869,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human (default), json, minimal.</param>
     /// <param name="ct">Cancellation token; no target selection or remote mutation.</param>
     [Command("provider discover github")]
-    public Task<int> ProviderDiscoverGitHub(string? host = null, string? repository = null,
+    internal Task<int> ProviderDiscoverGitHub(string? host = null, string? repository = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default) =>
-        services.GetRequiredService<ProviderSetupCommand>().DiscoverAsync("github", host, repository, output, ct);
+        Task.FromResult(Unsupported(output));
 
     /// <summary>Bind the freshly observed GitHub identity locally using strict attachment CAS. Example: twig provider bind github --host github.com --repository owner/repo --expected-owner-id O_id --expected-repository-id R_id --expected-attachment-revision 0. Does not change provider config or remote permissions.</summary>
     /// <param name="host">Required bare lowercase host from discovery.</param>
@@ -1754,22 +1883,21 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human (default), json, minimal.</param>
     /// <param name="ct">Cancellation token; durable row precedes atomic local pointer replacement.</param>
     [Command("provider bind github")]
-    public Task<int> ProviderBindGitHub(string? host = null, string? repository = null,
+    internal Task<int> ProviderBindGitHub(string? host = null, string? repository = null,
         string? expectedOwnerId = null, string? expectedRepositoryId = null,
         long? expectedAttachmentRevision = null, string? replaceBinding = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default) =>
-        services.GetRequiredService<ProviderSetupCommand>().BindAsync("github", host, repository, expectedOwnerId,
-            expectedRepositoryId, expectedAttachmentRevision, replaceBinding, output, ct);
+        Task.FromResult(Unsupported(output));
 
     /// <summary>Report relationship and fixed proposal mutation capabilities for the active provider; declarations are not write permission. GitHub proposals require explicit observed-non-atomic concurrency. Optionally discover GitHub schema support with a read-only authenticated query.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="githubSchema">Discover GitHub Issue fields, states and relationship schema. Requires the active GitHub provider; does not discover issue-type, label, assignee or milestone values.</param>
     [Command("connection capabilities")]
-    public async Task<int> ConnectionCapabilities(
+    internal async Task<int> ConnectionCapabilities(
         string output = OutputFormatterFactory.DefaultFormat,
         bool githubSchema = false,
         CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionCapabilitiesCommand>().ExecuteAsync(output, githubSchema, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Preview or apply a versioned legacy migration. Activation requires explicit identity mapping, verified principal evidence and actual legacy host/store closure. No force, publish, discard or process-kill path.</summary>
     /// <param name="identity">Explicit registered identity alias, or alias to enroll from the chosen legacy method. Never inferred from global login.</param>
@@ -1777,9 +1905,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="confirm">Exact digest from a clean migration preview. Omit to inspect without activating. Reusing it cannot bypass changed sources or host blockers.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection migrate")]
-    public async Task<int> ConnectionMigrate(string? identity = null, string? method = null, string? confirm = null,
+    internal async Task<int> ConnectionMigrate(string? identity = null, string? method = null, string? confirm = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionMigrateCommand>().ExecuteAsync(identity, method, confirm, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Report preservation movement and rollback conditions for an admitted ADO workspace. Cutover requires its exact reviewed digest; never initializes or publishes provider work.</summary>
     /// <param name="confirm">Exact lowercase preview digest. Omit for read-only inspection; reuse the original digest to resume interrupted preparation.</param>
@@ -1787,35 +1915,35 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="cancelIntent">Exact preparing intent ID to cancel without deleting originals or backups; requires its original confirm digest.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace migrate")]
-    public Task<int> WorkspaceMigrate(string? confirm = null, bool rollback = false, string? cancelIntent = null,
+    internal Task<int> WorkspaceMigrate(string? confirm = null, bool rollback = false, string? cancelIntent = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => services.GetRequiredService<WorkspaceMigrationCommand>().ExecuteAsync(confirm, rollback, cancelIntent, output, ct);
+        => Task.FromResult(Unsupported(output));
 
     /// <summary>Preview a guarded checkout-local binding pin, or apply the exact preview. Unfinished work and in-flight operations block switching; affected live hosts require explicit reconnect.</summary>
     /// <param name="binding">Registered binding ID for the declared endpoint; required. Inspect connection list for IDs.</param>
     /// <param name="confirm">Exact eligible preview digest. Omit for read-only preview; reuse the original digest to recover an interrupted native intent.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection pin")]
-    public async Task<int> ConnectionPin(string? binding = null, string? confirm = null,
+    internal async Task<int> ConnectionPin(string? binding = null, string? confirm = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionPinCommand>().ExecuteAsync(binding, false, confirm, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Preview removal of this checkout's binding pin, or apply the exact preview to use the declared endpoint's default. No automatic publication, discard or live account swap.</summary>
     /// <param name="confirm">Exact eligible preview digest. Omit for read-only preview; interrupted transitions resume their original native intent.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection unpin")]
-    public async Task<int> ConnectionUnpin(string? confirm = null,
+    internal async Task<int> ConnectionUnpin(string? confirm = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionPinCommand>().ExecuteAsync(null, true, confirm, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Preview or apply a guarded central binding default across every affected unpinned worktree; any blocked or unreachable member refuses the whole family.</summary>
     /// <param name="binding">Registered binding ID for the declared endpoint; required.</param>
     /// <param name="confirm">Exact eligible family preview digest. Omit for read-only preview; reuse original digest for native crash recovery.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection default")]
-    public async Task<int> ConnectionDefault(string? binding = null, string? confirm = null,
+    internal async Task<int> ConnectionDefault(string? binding = null, string? confirm = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionDefaultCommand>().ExecuteAsync(binding, confirm, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Inspect native remote-write intents, immutable acknowledgments and uncertainty blockers for the attached checkout. Read-only; never replay, expire or discard an unknown write.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1829,10 +1957,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="rationale">Truthful evidence rationale; required. Rationale alone never settles a write.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection reconcile-write")]
-    public async Task<int> ConnectionReconcileWrite(string? intent = null, string? confirm = null,
+    internal async Task<int> ConnectionReconcileWrite(string? intent = null, string? confirm = null,
         string? rationale = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(true, intent, confirm, rationale, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
@@ -1843,14 +1971,14 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
 
     /// <summary>Check for and apply updates from GitHub Releases.</summary>
     /// <param name="force">-f, Terminate any process holding a peer binary open (e.g. running twig-mcp) before applying the update.</param>
-    public async Task<int> Upgrade(bool force = false, CancellationToken ct = default)
-        => await services.GetRequiredService<SelfUpdateCommand>().ExecuteAsync(force, ct);
+    internal async Task<int> Upgrade(bool force = false, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported());
 
     /// <summary>Display recent release notes from GitHub Releases.</summary>
     /// <param name="count">Number of releases to display.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, output, ct);
+    internal async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Open the in-process native TUI on Windows/Linux; macOS support is suspended.</summary>
     /// <param name="cwd">Native source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
@@ -1864,27 +1992,19 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
     /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
     /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
-    public Task<int> Tui(string? cwd = null, string view = "tree", string? file = null,
+    internal Task<int> Tui(string? cwd = null, string view = "tree", string? file = null,
         bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
         string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
-            return services.GetRequiredService<BrowserHostCommand>().ExecuteAsync(cwd, view, file, herdr, hostEntry,
-                intent, sourceWorkspace, sourceTab, sourcePane, sourceSocket, output, ct, commandName: "tui");
-
-        Console.Error.WriteLine($"error: {PlatformHelper.UnsupportedPlatformMessage}");
-        return Task.FromResult(1);
+        return Task.FromResult(Unsupported(output));
     }
 
     /// <summary>Launch the MCP server (requires twig-mcp binary).</summary>
     /// <param name="toolProfile">Advertised tool profile: compact (default) or full.</param>
-    public Task<int> Mcp(string? toolProfile = null)
+    internal Task<int> Mcp(string? toolProfile = null)
     {
-        var arguments = toolProfile is null
-            ? Array.Empty<string>()
-            : ["--tool-profile", toolProfile];
-        return Task.FromResult(BinaryLauncher.Launch("twig-mcp", "Twig.Mcp", arguments: arguments));
+        return Task.FromResult(Unsupported());
     }
 
     // ── Proposal lifecycle (native, formerly "plan") ──────────────────
@@ -1893,8 +2013,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="ids">Required comma-separated positive published item IDs (1 to 200); no implicit active item or board-wide claim.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal.</param>
     [Command("policy assess")]
-    public async Task<int> PolicyAssess(string ids, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PolicyCommand>().AssessAsync(ids, output, ct);
+    internal async Task<int> PolicyAssess(string ids, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Render one explicitly selected policy repair as a native proposal. No authorization or apply.</summary>
     /// <param name="ids">Required comma-separated assessed positive IDs; include a desired parent and its ancestors.</param>
@@ -1905,16 +2025,20 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human (default), json, minimal.</param>
     /// <param name="proposalOnly">With JSON output, emit only native proposal JSON for redirection to a new file; default false.</param>
     [Command("policy reconcile")]
-    public async Task<int> PolicyReconcile(string ids, string evidence, string finding, string strategy,
+    internal async Task<int> PolicyReconcile(string ids, string evidence, string finding, string strategy,
         int? parent = null, string output = OutputFormatterFactory.DefaultFormat, bool proposalOnly = false, CancellationToken ct = default)
-        => await services.GetRequiredService<PolicyCommand>().ReconcileAsync(ids, evidence, finding, strategy, parent, output, proposalOnly, ct);
+        => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Validate a proposal v1 file. No ADO mutation. Canonical verb is <c>proposal validate</c>; <c>plan validate</c> is a retained deprecated alias.</summary>
-    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <summary>Validate a proposal's canonical file format offline. Preview separately checks application evidence; no mutation.</summary>
+    /// <param name="file">Required proposal JSON file inside the current workspace root; Core requires its current format without translating older bytes.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal validate|plan validate")]
     public async Task<int> PlanValidate(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().ValidateAsync(file, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ValidateProposalAsync(file, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Preview a proposal with an optional digest guard. No ADO mutation.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
@@ -1930,14 +2054,25 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string? file = null, string output = OutputFormatterFactory.DefaultFormat, bool full = false,
         bool interactive = false, bool includeRendering = false, int? width = null, string color = "never",
         string? expectDigest = null, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().PreviewAsync(
-            file, output, full, interactive, ct, includeRendering, width, color, expectDigest);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+        {
+            if (interactive || includeRendering)
+            {
+                CommandError.Write(new RendererFactory(), Console.Error, output,
+                    "Core interactive proposal presentation is not yet connected in this in-progress cutover.");
+                return 1;
+            }
+            return await core.PreviewProposalAsync(file, output, ct, expectDigest);
+        }
+        return MissingCore(output);
+    }
 
     /// <summary>Show the latest successfully previewed unresolved proposal in the current workspace.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal latest")]
-    public async Task<int> PlanLatest(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().LatestAsync(output, ct);
+    internal async Task<int> PlanLatest(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Apply a proposal when --confirm &lt;digest&gt; matches the current file digest exactly. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
@@ -1945,21 +2080,29 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal apply|plan apply")]
     public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ApplyProposalAsync(file, confirm, output, ct);
+        return MissingCore(output);
+    }
 
-    /// <summary>Show journal state for a proposal file. Exit 1 when no journal exists for its digest. Canonical verb is <c>proposal status</c>; <c>plan status</c> is a retained deprecated alias.</summary>
-    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <summary>Inspect journal states and receipts for an exact proposal digest without applying or settling it; exit 1 when absent.</summary>
+    /// <param name="file">Required proposal JSON file inside the current workspace root; its current canonical digest selects the journal.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal status|plan status")]
     public async Task<int> PlanStatus(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().StatusAsync(file, output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.ProposalStatusAsync(file, output, ct);
+        return MissingCore(output);
+    }
 
     /// <summary>Describe a staged seed (identity + fingerprint) for proposal authoring. Canonical verb is <c>proposal seed</c>; <c>plan seed</c> is a retained deprecated alias.</summary>
     /// <param name="id">Negative display alias of a currently-staged seed.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal seed|plan seed")]
-    public async Task<int> PlanSeed(int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().DescribeSeedAsync(id, output, ct);
+    internal async Task<int> PlanSeed(int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Settle a never-admitted operation as retired, by fresh readback, or as superseded by a Verified replacement. Append-only native receipt; never masquerades as apply success.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
@@ -1970,7 +2113,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="replacementOperation">For --outcome supersede only: op id of the Verified replacement operation.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal reconcile")]
-    public async Task<int> PlanReconcile(
+    internal async Task<int> PlanReconcile(
         string? file = null,
         string? confirm = null,
         string? operation = null,
@@ -1979,14 +2122,17 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string? replacementOperation = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().ReconcileAsync(
-            file, confirm, operation, outcome, replacementDigest, replacementOperation, output, ct);
+        => await Task.FromResult(Unsupported(output));
 
-    /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
+    /// <summary>Inspect captured typed draft fields, original baselines and seed relationships in retained draft order. Read-only.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("pending")]
     public async Task<int> Pending(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PendingCommand>().ExecuteAsync(output, ct);
+    {
+        if (services.GetService<CoreCommandAdapter>() is { } core)
+            return await core.PendingAsync(output, ct);
+        return MissingCore(output);
+    }
 }
 
 /// <summary>

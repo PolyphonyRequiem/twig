@@ -15,7 +15,7 @@ not as currently supported alternatives.
 ## Quick Start
 
 ```bash
-# Initialize (connects to your ADO org and project)
+# Initialize a fresh native Core store at .twig/core.db (requires an enrolled ADO binding)
 twig init --org contoso --project MyProject
 
 # Sync data from ADO into local cache
@@ -25,11 +25,61 @@ twig sync
 twig ws
 ```
 
+`init` now creates **only a fresh Core store**, never the old cache. An optional
+`--core-store <new-absolute-file>` overrides its path (the parent must exist).
+Existing or partial `.twig` state and existing database files are refused without
+migration, adoption, reset or deletion. `--force`, `--reinitialize`, `--profile`,
+`--sprint` and `--area` are retired and explicitly refused. Fresh GitHub worktrees use
+`twig init --provider github --host github.com --repository owner/repo --account selected`;
+the exact selected native `gh` account, not ambient tokens or the active account,
+supplies authority. See [initialization](docs/commands/getting-started/init.md).
+The production catalog is now **Core data plus native host utilities only**.
+With or without a Core marker, production never registers the old item repository,
+pending store/flusher, seed publisher, plan executor or asynchronous workspace/UI
+workflow. Without a marker, data commands give an initialization-required refusal.
+There is no legacy cache fallback, migration or compatibility mode.
+
+The finite retained data surface is process/schema description, cached
+`show`/`show-batch` and explicit refresh, bounded `query`, typed
+`update`/`patch`/`state`/`note`/`batch`, `pending`/`save`/`discard`,
+`seed new/view/validate/publish/discard`, file-scoped
+`proposal validate/preview/apply/status` (also `plan`), Bench list/create/switch,
+single-item pins and static workspace tables. Previously qualified ADO pull/sync,
+Core editor/navigation/seed-chain/targeted-tree conveniences, native Link and
+explicit Core local Related remain; they are not promises of GitHub parity.
+GitHub continues to refuse unqualified tree/navigation/editor/chain/sync/context
+and type-name/assignee/path/date queries, with a **100 total candidate** limit.
+
+Native host utilities are offline help/version/skills, fresh init, explicit named
+AAD/PAT or GitHub App enrollment, binding create/list/status and read-only
+`connection writes`. `connection status`/default `auth status` describe selected
+or pinned **recorded** identity/target, not fresh authenticated evidence.
+Explicit GitHub App status describes only that app credential and never verifies
+the pinned `gh` actor. GitHub utilities never silently resolve an ADO target.
+
+`connection writes` reads native evidence without work HTTP. GitHub sidecars are
+bounded, identity/hash-checked **correlated transport evidence**, tied to the
+original store instance, connection, digest, ordinal and attempt. Missing or
+invalid evidence stays unknown/refused. Only the Core journal inspected by
+`proposal status --file ...` is execution authority. Inspection never settles,
+replays, changes UUIDs/digests, deletes evidence or clears a native fence.
+
+**Retired from current delivery:** quick `new` (use `seed new`), Browser/TUI/MCP
+launches and automatic companions, captured draft/edit/review/save envelopes,
+tree-set/full backlog/live/sprint/team/area/exclusion UI, old policy assessment
+and repair selection, native history/layout exports, proposal latest/seed/old
+reconcile UX, migration/reset/reinitialize, identity/target hot-switches and shell
+presentation integration. Retired calls fail explicitly before provider or legacy
+DI/input I/O. Source and older feature documentation remain as phase-6 deletion
+context, **not supported alternate application routes**. Nothing here closes the
+tracking Epic or settles its historical unknown publication.
+
 ### Offline help and agent guidance
 
 `twig --help` starts with common tasks; `twig <group> --help` narrows discovery
 and `twig <command> --help` gives full syntax, examples, effects and failures.
-`twig --help-all` retains the complete catalog.
+`twig --help-all` shows the retained catalog; retired declarations are not promoted
+as supported features.
 
 `twig --skill` prints executable-matched generic guidance without a workspace or
 authentication. `twig skills --help` covers explicit Hermes, OMP and Copilot CLI
@@ -48,7 +98,7 @@ twig set 12345
 twig set "auth bug"
 
 # View the active item
-twig status                     # full detail view
+twig show                       # cached detail view
 twig tree                       # hierarchical tree from active item
 
 # Navigate the hierarchy
@@ -56,7 +106,13 @@ twig nav up                     # move to parent
 twig nav down "subtask"         # move to child by title match
 ```
 
-### Read-only native discussion pages
+## Historical feature documentation (retired surfaces)
+
+The following pre-cutover UI/envelope descriptions are retained as historical
+design context. The finite catalog above is the current delivery contract;
+commands explicitly listed as retired cannot be used through these older routes.
+
+### Read-only native discussion pages (retired)
 
 `twig bench discussion --stdin -o json` reads **one** remote ADO comments page
 for an explicitly qualified cached member of a saved Bench. It never falls back
@@ -509,16 +565,35 @@ The build and validation are separate gates. The offline smoke checks the actual
 CLI's startup/help, source-generated JSON, current store/binding admission,
 proposal preview, and wrong-account refusal with a hard 15-second deadline; it
 never builds or runs test hosts. Use narrowly scoped regression checks for the
-proposed changeset when needed. Routine CI and pre-push use this smoke; complete
-platform validation runs on release candidates before signing or publication.
+proposed changeset when needed. Local pre-push runs this smoke. Required CI on
+Linux and Windows also qualifies the closed Core/native-host profile through
+existing production CAF/DI roots, synthetic native auth/HTTP and real SQLite.
+Each selector group has a hard 60-second process-tree deadline and a verified TRX;
+missing selectors, zero cases, skipped/aborted runs and missing results after
+execution are failures. Uploads do not demand results from steps that never ran.
+Complete supported-platform suites remain a release-candidate gate before
+signing or publication, not a routine local or draft-PR requirement.
 
-The additive clean-core libraries include isolated ADO and
-[GitHub provider adapters](src/Twig.Providers.GitHub/README.md), built with the
-supported solution and covered by deterministic HTTP/auth plus real-SQLite
-regressions on Linux and Windows. They do not switch production commands or
-legacy databases. The GitHub adapter has no production leased write-admission
-bridge/governed rule-evidence source yet; its native process-rule discovery is
-explicitly unsupported, not an empty-rule permission grant.
+The supported solution includes all Core/store/provider, CLI, Infrastructure and
+RenderTree test roots plus the external RenderTree consumer. The old
+`Twig.Domain.Tests` and `Twig.Benchmarks` roots are withdrawn from that build and
+its required assembly inventory: neither supplies a current retained-profile
+selector, and the benchmarks exercise the old Domain/cache/rendering graph.
+Their projects and source remain historical diagnostics for phase 6, not routine
+build or delivery requirements. `src/Twig.Domain` remains a real supported build
+dependency while Infrastructure/CLI still reference it; this is not source deletion
+or a disabled dependency build. The full supported solution still has the same
+120-second deadline.
+
+CI retains the pure Core invariants, real store and both provider boundary suites.
+The ADO and [GitHub native roots](src/Twig.Providers.GitHub/README.md) qualify fresh
+default/explicit-path init, the marker/no-marker catalog, cache-only numeric and
+original UUID reads, typed patches, Markdown/close, save/discard, Bench/draft debt,
+seed/link capture and ordered creation, digest/policy/native admission, permanent
+mappings, local tombstone CAS/ABA and unknown-create restart without replay.
+Read-only native transport inspection never supplies Core execution authority.
+GitHub's declared-policy/native-API scope, non-atomic writes and bounded query
+limitations are asserted, not treated as complete process-rule discovery.
 
 For a smoke deadline investigation, add `--trace <new-file.jsonl>` to preserve flushed
 worker/child boundaries outside captured output. Trace rows contain only fixed phase/event
@@ -527,22 +602,17 @@ or work-item payloads. CI uploads these boundaries even on failure. This is diag
 evidence, not a larger timeout or a correction for a latency failure. The deterministic
 harness regression is `python tools/test-verify-build.py`.
 
-`twig workspace migrate -o json` reviews preservation movement and rollback
-preconditions for an already-admitted ADO workspace; it is not an automatic
-upgrade. Cutover requires its exact `--confirm` digest. It retains local work,
-context and navigation, requires restore-qualified workspace-local backups under
-`.twig/backups`, and refuses unclassified data rather than discarding originals.
-CI qualifies native host-inventory migration and retained-publication recovery on
-Windows; macOS lacks that admission and Linux can refuse inaccessible `/proc` handles.
-Normal cross-platform gates remain; these checks never authorize existing-store migration.
-See [guided preservation migration](docs/commands/workspace/migrate.md) for
-explicit cutover, interruption recovery and conditional rollback. Provider-native
-GitHub cutover remains unsupported until it has its own storage generation.
+Legacy ShowCommand/projection envelopes, Canvas/Browser/TUI/MCP gestures, old
+claim/writer graphs, onboarding and preservation migration are retired delivery
+gates. Their source/tests remain historical phase-6 context, not alternate product
+routes. Current root tests require explicit refusal before provider/input I/O and
+absence of legacy writers. Existing stores are not migrated, adopted or reset.
+The external RenderTree consumer probe remains supported and qualified.
 
 `SqliteBackupPathProbeTests` is an opt-in `Integration` diagnostic, excluded from
 routine and release-candidate eligibility. Select it explicitly only to investigate
 a host's native SQLite path-failure behavior; a different failure signature is not
-evidence that preservation regressed. Portable preservation checks run separately.
+evidence that the supported Core store regressed.
 
 ## Next Topics
 

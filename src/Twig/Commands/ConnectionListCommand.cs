@@ -42,7 +42,14 @@ internal sealed class ConnectionListCommand
         var projectProvided = !string.IsNullOrWhiteSpace(project);
         if (orgProvided ^ projectProvided)
         {
-            Console.Error.WriteLine(fmt.FormatError("Pass both --org and --project together, or neither (to use the workspace defaults)."));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "Pass both --org and --project together, or neither (to use declared ADO workspace coordinates).");
+            return 1;
+        }
+        if (!orgProvided && _config.ResolveWorkItemProviderKind() == "github")
+        {
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "ADO binding listing from a GitHub workspace requires explicit --org and --project; no ADO fallback was used.");
             return 1;
         }
 
@@ -51,7 +58,8 @@ internal sealed class ConnectionListCommand
 
         if (string.IsNullOrWhiteSpace(resolvedOrg) || string.IsNullOrWhiteSpace(resolvedProject))
         {
-            Console.Error.WriteLine(fmt.FormatError("No endpoint coordinates: pass --org and --project, or run inside a workspace with Organization/Project configured."));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "No ADO endpoint coordinates: pass --org and --project. A GitHub target is not an ADO binding fallback.");
             return 1;
         }
 
@@ -62,7 +70,8 @@ internal sealed class ConnectionListCommand
         }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Could not list bindings for '{resolvedOrg}/{resolvedProject}': {ex.Message}"));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                $"Could not list bindings for '{resolvedOrg}/{resolvedProject}': {ex.Message}");
             return 1;
         }
 

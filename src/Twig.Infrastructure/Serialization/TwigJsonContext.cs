@@ -115,6 +115,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ConnectionBindingTransitionPreview))]
 [JsonSerializable(typeof(ConnectionBindingTransitionRecord))]
 [JsonSerializable(typeof(ConnectionRemoteWriteRequest))]
+[JsonSerializable(typeof(CoreWriteCorrelation))]
 [JsonSerializable(typeof(ConnectionRemoteWriteResponse))]
 [JsonSerializable(typeof(ConnectionRemoteWriteIntent))]
 [JsonSerializable(typeof(ConnectionRemoteWriteObservation))]

@@ -83,12 +83,35 @@ public sealed class CoreInvariantTests
         var key = ItemKey.Remote(connection.Provider, "s", "1");
         var proposal = new Proposal(connection, "schema", 0,
             [new("op", OpKind.Batch, key, new Revision(key, "r"), Fields(("state", FieldValue.String("open"))))]);
-        const string expected = """{"version":1,"connection":{"provider":"p","scope":"s","destination":"d","identity":"i"},"schema":"schema","storeVersion":0,"operations":[{"id":"op","kind":1,"item":["remote","p","s","1"],"revision":{"item":["remote","p","s","1"],"token":"r"},"type":null,"fields":{"state":[1,"open"]},"other":null,"relation":null,"origin":0,"concurrency":0,"localVersion":null,"body":null}]}""";
+        const string expected = """{"version":3,"connection":{"provider":"p","scope":"s","destination":"d","identity":"i"},"schema":"schema","storeVersion":0,"policyIdentity":null,"policyRevision":null,"operations":[{"id":"op","kind":1,"item":["remote","p","s","1"],"revision":{"item":["remote","p","s","1"],"token":"r"},"type":null,"fields":{"state":[1,"open"]},"other":null,"relation":null,"origin":0,"concurrency":0,"localVersion":null,"body":null,"resource":null}]}""";
         Encoding.UTF8.GetString(Rules.ProposalBytes(proposal)).ShouldBe(expected);
         proposal.Digest.ShouldBe(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(expected))).ToLowerInvariant());
         var output = Rules.ProposalBytes(proposal);
         output[0] = 0;
         Encoding.UTF8.GetString(Rules.ProposalBytes(proposal)).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void ResourceLinksKeepLocatorsSeparateFromItemIdentityAndDigestExactAttributes()
+    {
+        var schema = Schema();
+        schema = new(Connection, schema.Types, schema.Relations.Append(new("resource", RelationShape.Resource, false)));
+        var source = new WorkItem(Key, "record", Item().Fields, Item().Revision, true, [], true);
+        var resource = new ResourceLink("resource", "https://example.test/a%2Fb", "", null);
+        Proposal Link(ResourceLink link) => new(Connection, schema.Fingerprint, 0,
+            [new("link", OpKind.LinkResource, Key, source.Revision, resource: link)]);
+        var proposal = Link(resource);
+        Rules.Validate(proposal, proposal.Digest, schema, new(0, [source]), Capabilities).ShouldBeEmpty();
+        proposal.Operations[0].Other.ShouldBeNull();
+        proposal.Digest.ShouldNotBe(Link(new("resource", "https://example.test/a%2Fb", null, null)).Digest);
+        proposal.Digest.ShouldNotBe(Link(new("resource", "https://example.test/a/b", "", null)).Digest);
+        var incomplete = new WorkItem(Key, source.Type, source.Fields, source.Revision, true);
+        Rules.Validate(proposal, proposal.Digest, schema, new(0, [incomplete]), Capabilities)
+            .ShouldContain(e => e.Code == ErrorCode.Unavailable);
+        var existing = new WorkItem(Key, source.Type, source.Fields, source.Revision, true, [resource], true);
+        Rules.Validate(proposal, proposal.Digest, schema, new(0, [existing]), Capabilities)
+            .ShouldContain(e => e.Code == ErrorCode.Conflict);
+        Should.Throw<ArgumentException>(() => new ResourceLink("resource", "https://user:secret@example.test/a"));
     }
 
     [Fact]
@@ -107,8 +130,12 @@ public sealed class CoreInvariantTests
             Batch(one.Operations[0].Fields, schema, "rev-2"),
             Batch(one.Operations[0].Fields, schema, concurrency: ConcurrencyMode.ObservedNonAtomic),
             Batch(Fields(("count", FieldValue.Integer(3)), ("gate", FieldValue.String("x"))), schema),
+            new Proposal(Connection, one.SchemaFingerprint, 0, one.Operations, "configured-policy", "sha256:one"),
+            new Proposal(Connection, one.SchemaFingerprint, 0, one.Operations, "configured-policy", "sha256:two"),
         };
         variants.All(v => v.Digest != one.Digest).ShouldBeTrue();
+        variants[^1].Digest.ShouldNotBe(variants[^2].Digest);
+        Should.Throw<ArgumentException>(() => new Proposal(Connection, one.SchemaFingerprint, 0, one.Operations, "policy"));
         var a = new Op("a", OpKind.Delete, Key, new Revision(Key, "rev-1"));
         var b = new Op("b", OpKind.Delete, ItemKey.Remote(Provider, "scope", "2"),
             new Revision(ItemKey.Remote(Provider, "scope", "2"), "rev-1"));
@@ -151,6 +178,38 @@ public sealed class CoreInvariantTests
         errors.IsEmpty.ShouldBe(includeGate && atomic);
         if (!includeGate) errors.ShouldContain(e => e.Message.Contains("same batch", StringComparison.Ordinal));
         if (includeGate && !atomic) errors.ShouldContain(e => e.Code == ErrorCode.Unsupported);
+    }
+
+    [Fact]
+    public void ObservedIndependentFieldsDoNotGrantAtomicCloseGateOrTypeChangeAuthority()
+    {
+        var schema = Schema();
+        var capabilities = new ProviderCapabilities(Enum.GetValues<OpKind>(), ["hierarchy"], ["related"], false, false);
+        var independent = Batch(Fields(("gate", FieldValue.String("edited")), ("count", FieldValue.Integer(2))), schema,
+            concurrency: ConcurrencyMode.ObservedNonAtomic);
+        Rules.Validate(independent, independent.Digest, schema, new(0, [Item()]), capabilities).ShouldBeEmpty();
+        var close = Batch(Fields(("phase", FieldValue.String("finished")), ("gate", FieldValue.String("evidence"))),
+            schema, concurrency: ConcurrencyMode.ObservedNonAtomic);
+        Rules.Validate(close, close.Digest, schema, new(0, [Item()]), capabilities)
+            .ShouldContain(e => e.Code == ErrorCode.Unsupported);
+        var typed = new Proposal(Connection, schema.Fingerprint, 0,
+            [new("type", OpKind.Batch, Key, new Revision(Key, "rev-1"), independent.Operations[0].Fields,
+                type: "record", concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+        Rules.Validate(typed, typed.Digest, schema, new(0, [Item()]), capabilities)
+            .ShouldContain(e => e.Code == ErrorCode.Unsupported);
+    }
+
+    [Fact]
+    public void CloseGateDiscoveryUsesEffectiveRulesAndNeverChoosesAnAuthoredGateValue()
+    {
+        var source = Item();
+        var fields = Fields(("phase", FieldValue.String("finished")));
+        Rules.CloseGates(Schema(), source, fields).Value.ShouldBe(["gate"]);
+        Rules.CloseGates(Schema(), source, Fields(("count", FieldValue.Integer(2)))).Value.ShouldBeEmpty();
+        var when = new[] { new RuleCondition(ConditionKind.Equal, "phase", FieldValue.String("finished")) };
+        var supplied = Schema([new("gate", RuleAction.Required, when), new("gate", RuleAction.Supplied, when)]);
+        Rules.CloseGates(supplied, source, fields).Value.ShouldBeEmpty();
+        Rules.CloseGates(Schema(gaps: ["unavailable native rules"]), source, fields).IsSuccess.ShouldBeFalse();
     }
 
     [Fact]
@@ -313,6 +372,40 @@ public sealed class CoreInvariantTests
         var failed = Result<int>.Fail(ErrorCode.Indeterminate, "Unknown after dispatch.");
         failed.IsSuccess.ShouldBeFalse();
         Should.Throw<InvalidOperationException>(() => failed.Value);
+    }
+
+    [Fact]
+    public void LocalEndpointSurvivesOnlyItsOriginalVerifiedPublicationAndObservedNativeItem()
+    {
+        var schema = Schema();
+        var seed = ItemKey.Local(Guid.CreateVersion7());
+        var neighbor = ItemKey.Remote(Provider, "scope", "2");
+        var create = new Proposal(Connection, schema.Fingerprint, 0,
+            [new("create", OpKind.Create, seed, fields: Item().Fields, type: "record",
+                concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+        var attempt = Guid.NewGuid();
+        var applied = JournalEntry.Planned(create.Digest, 0).Begin(attempt).Value.Record(
+            new(create.Digest, 0, attempt, OpStatus.Applied, ["acknowledged"], publishedKey: Key)).Value;
+        var verified = applied.Record(new(create.Digest, 0, attempt, OpStatus.Verified, ["observed"], publishedKey: Key)).Value;
+        var mapping = new PublishMapping(seed, Key, create.Digest, 0);
+        var edge = new Relationship(seed, neighbor, "related", RelationshipOrigin.Local, 3);
+        var remove = new Proposal(Connection, schema.Fingerprint, 4,
+            [new("remove", OpKind.Unrelate, seed, other: neighbor, relation: "related",
+                origin: RelationshipOrigin.Local, expectedLocalVersion: 3)]);
+        StoreSnapshot Capture(JournalEntry row, bool observed = true, PublishMapping? binding = null) =>
+            new(4, observed ? [Item(), Item(key: neighbor)] : [Item(key: neighbor)], [edge],
+                proposals: [create], journal: [row], mappings: [binding ?? mapping]);
+        var state = Capture(verified);
+        state.Drafts.ShouldBeEmpty();
+        state.Items.ShouldNotContain(item => item.Key == seed);
+        Rules.Validate(remove, remove.Digest, schema, state, Capabilities).ShouldBeEmpty();
+        foreach (var refused in new[] {
+            Capture(applied), Capture(verified, observed: false),
+            Capture(verified, binding: new(seed, ItemKey.Remote(Provider, "foreign-scope", "1"), create.Digest, 0)),
+            Capture(verified, binding: new(seed, Key, "foreign-digest", 0)),
+        })
+            Rules.Validate(remove, remove.Digest, schema, refused, Capabilities)
+                .ShouldContain(error => error.Message.Contains("endpoint evidence", StringComparison.Ordinal));
     }
 
     [Fact]

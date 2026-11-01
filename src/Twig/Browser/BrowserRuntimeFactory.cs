@@ -25,9 +25,7 @@ internal sealed class BrowserRuntimeFactory
 
         if (_open is not null) return _open(root);
 
-        var services = new ServiceCollection();
-        services.AddTwigWorkspaceServices(root, []);
-        return new BrowserRuntime(services.BuildServiceProvider());
+        throw new InvalidOperationException("The legacy browser runtime is retired from current delivery.");
     }
 }
 

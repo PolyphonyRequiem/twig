@@ -3,8 +3,9 @@
 Phase 4 of Epic #1220 adds a standalone `IProvider` over Core and an explicitly
 opened `IStore`, normally the real SQLite adapter. The library references **only
 Core**, targets `net10.0;net11.0`, enables AOT/trim analysis and uses source-generated
-`TwigJsonContext` plus explicit UTF-8 writers. Production commands, credentials,
-legacy storage and migrations are unchanged. This is not a live-command bridge.
+`TwigJsonContext` plus explicit UTF-8 writers. Phase 5 now supplies a narrow native
+Core-host/CLI bridge; legacy storage is neither adopted nor migrated. See the
+[qualified profile and explicit refusals](../../docs/architecture/clean-core-contract.md#qualified-github-cli-spine).
 
 ## Authority and schema evidence
 
@@ -16,6 +17,13 @@ supplies the explicitly selected `Gh` or `GitHubApp` user credential, stable act
 attachment/credential acquisition context and GraphQL endpoint. The adapter verifies
 native viewer, repository and owner IDs and revalidates the host lease. It never
 changes accounts, requests grants, follows redirects or retries mutations.
+
+The CLI keeps integer locators. Read-only `github.number` is discovered from native
+`Issue.number: Int`, observed as a positive integer and included in observation hashes.
+`ReadNumberAsync` resolves inside the immutable repository and completely rereads the
+returned opaque node; it never scans candidates or creates an alias map. Conflicting
+cached numbers/node IDs refuse instead of rebinding. Cache-only command resolution
+uses only this retained metadata and performs zero total HTTP.
 
 The mandatory host `AdmitAsync` runs **after** durable Applying and receives the
 exact proposal, ordinal, attempt, method, endpoint and payload. The host must
@@ -31,23 +39,38 @@ assumed project process. Unknown state semantics and incomplete catalogs refuse
 writes. Native capabilities describe implemented schema shapes, **not** runtime
 permissions or availability; denial remains an error.
 
-**GitHub process/workflow rule discovery is Unsupported.** This fact remains
-fingerprinted in disabled, explicitly typed schema evidence, even when governed
-local rules are available. It must not be interpreted as a discovered empty
-external ruleset. `ReadGovernedRulesAsync` is a separate trusted host authority:
-it must acquire a real configured, complete policy for this supported projection,
-including any applicable gates, with immutable connection, native actor, native
-projection fingerprint, stable policy identity/revision and rules for **every**
-discovered type. The projection fingerprint also binds acquisition context.
-Absent, stale, mismatched or unsupported evidence creates `ProcessSchema.Gaps`;
-Core consequently refuses every effect, including comments/local relationships.
-Unknown enabled supplied rules also refuse. Policy identity/revision and rules
-participate in confirmation. Model text or an arbitrary "complete" flag is not an
-evidence source. This adapter does not discover arbitrary GitHub workflows.
+**GitHub process/workflow rule discovery is Unsupported.** This remains
+fingerprinted in disabled, typed schema evidence. The user-approved phase-5
+validation scope is **native API constraints plus explicitly configured Twig
+policies**, not external repository automation. An absent optional Twig
+declaration means no declared local rules, never that external workflows have
+been discovered, satisfied or waived.
 
-**Live writes remain unavailable without a real leased admission bridge and
-governed evidence source.** Phase 5 must establish these explicitly; it cannot
-invent missing external rules or treat this test seam as a production authority.
+`ReadRuleProjectionAsync` must acquire connection/actor/native-fingerprint-bound
+`GitHubRuleProjection` evidence explicitly naming that scope. Policy identity,
+actual revision and per-type field rules participate in confirmation. Missing,
+stale, mismatched, unknown-scope or unsupported evidence creates schema gaps and
+refuses effects. Unknown enabled rules still refuse. Native type names are
+retained as fingerprinted evidence so configured policy names can resolve to
+actual stable native type IDs without guessing.
+
+The shared host `ConfiguredPolicyProjectionSource` reads the real optional `twig.policy.json`
+once, hashes its exact bytes and translates only its supported mechanical
+parent-type/dependency rules. Duplicate/unknown members, invented `complete`
+flags, ambiguous/unknown types, unreadable declarations and excessive acquisition
+sizes refuse. Its current declaration format has no field-rule/close-gate kind;
+it does not manufacture one or infer business rules from model text. It returns
+the captured mechanical policy for application enforcement alongside the bound
+field-rule projection. A source acquisition alone is not enforcement or live
+write authority.
+
+The native host now holds the selected attachment generation lease, validates actual
+configuration/store/policy evidence and requires a durable Applying attempt. Both
+provider shape and host admission use the same pure `GitHubWriteIntent.Project`;
+admission requires exact canonical UTF-8 equality against the retained proposal.
+Fsynced native intent/ack files only attribute transport: the Core journal remains
+the executor/recovery authority. This narrow CLI bridge cannot invent external rules
+or treat the test seam as a production authority.
 Tests supply unmistakably synthetic, test-only policy evidence and HTTP/auth
 boundaries; no live credentials or remote writes qualify this implementation.
 
@@ -86,17 +109,21 @@ and persists a fresh Applying attempt **before** admission or native dispatch.
 Every native effect explicitly declares `ObservedNonAtomic`. No exact-revision or
 atomic-batch guarantees are claimed, even for one native request.
 
-Supported effects are one-request creation, one-field replacement, Markdown
+Supported effects are one-request creation, independent field replacement groups, Markdown
 comment, and native/local relate/unrelate. Writable fields are title, Markdown body,
 native state, milestone ID/null, sorted unique label IDs and assignee IDs where
 their native input exists; resource identity/kind/repository is checked. Empty
 Markdown explicitly clears a body; null body is refused, not silently coerced.
 Creation binds its native OPEN initial state and optional discovered issue type in
 one request. Comment readback uses its acknowledged native ID, subject and author.
-Multi-field/type-change batches and Delete refuse. Independent multi-request edits
-must be exposed as separately ordered operations **before** digest confirmation.
-A close gate must ride with its transition; non-atomic consent cannot bypass that
-invariant, so such multi-field transitions refuse. Original observations are never
+Independent fields may share one `updateIssue` request only with digested
+`ObservedNonAtomic` intent. This does not claim atomic application: separate
+readback checks every field and records Partial when any differs, retaining the
+acknowledgement and replay fence. Type changes and Delete refuse. Independent
+multi-request effects must be exposed as separately ordered operations **before**
+digest confirmation. A close gate must ride atomically with its transition;
+non-atomic consent cannot bypass that invariant, so coupled closes refuse.
+Original observations are never
 carried forward or rebased after an earlier effect.
 
 Complete HTTP rejection records Failed/no effect; GraphQL errors/partial data,

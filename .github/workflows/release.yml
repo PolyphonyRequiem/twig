@@ -114,25 +114,7 @@ jobs:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/trace-311
         run: python tools/run-ci-tests.py
 
-      - name: Presenter contract validation
-        if: matrix.rid == 'linux-x64'
-        run: python3 -m unittest discover -s .github/skills/twig-review-presenter/scripts -p 'test_*.py' -v
-
-      - name: Full offline presenter validation
-        if: matrix.rid == 'linux-x64'
-        run: python3 tools/verify-proposal-presenters.py --binary src/Twig/bin/Debug/net11.0/twig.dll --output artifacts/proposal-presenter-smoke
-
       - run: dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}
-
-      - name: Package native Windows and Linux TUI entry points
-        if: matrix.rid == 'win-x64' || matrix.rid == 'linux-x64'
-        shell: pwsh
-        run: |
-          $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
-          $directory = './publish/${{ matrix.rid }}'
-          foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
-            Copy-Item (Join-Path $directory "twig$extension") (Join-Path $directory "$alias$extension")
-          }
 
       # Require the existing approved public-trust signing configuration. A release
       # must fail closed rather than silently publish unsigned Windows binaries.
@@ -168,14 +150,6 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
-      - name: Share the exact signed Windows image with native TUI entry points
-        if: matrix.rid == 'win-x64'
-        shell: pwsh
-        run: |
-          foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
-            Copy-Item './publish/${{ matrix.rid }}/twig.exe' "./publish/${{ matrix.rid }}/$alias.exe" -Force
-          }
-
       - name: Verify the final published native image offline
         shell: pwsh
         run: |
@@ -184,22 +158,6 @@ jobs:
           $primary = (Resolve-Path "./publish/${{ matrix.rid }}/twig$extension").Path
           python tools/verify-build.py --binary $primary --timeout 15 2>&1 | Tee-Object -FilePath 'artifacts/release-image-verification/offline-smoke.txt'
           if ($LASTEXITCODE -ne 0) { throw 'Final published native image failed the existing offline smoke.' }
-
-      - name: Verify native alias identity and startup
-        if: matrix.rid == 'win-x64' || matrix.rid == 'linux-x64'
-        shell: pwsh
-        run: |
-          $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
-          $directory = (Resolve-Path './publish/${{ matrix.rid }}').Path
-          $primaryHash = (Get-FileHash -LiteralPath (Join-Path $directory "twig$extension") -Algorithm SHA256).Hash
-          foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
-            $image = Join-Path $directory "$alias$extension"
-            $hash = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash
-            "$alias$extension $hash" | Add-Content 'artifacts/release-image-verification/alias-sha256.txt'
-            if ($hash -ne $primaryHash) { throw "Native $alias is not the exact final Twig image." }
-            & $image --help 2>&1 | Tee-Object -FilePath "artifacts/release-image-verification/$alias-help.txt"
-            if ($LASTEXITCODE -ne 0) { throw "Final native $alias help failed." }
-          }
 
       - name: Verify the final Windows publisher profile and source
         if: matrix.rid == 'win-x64'

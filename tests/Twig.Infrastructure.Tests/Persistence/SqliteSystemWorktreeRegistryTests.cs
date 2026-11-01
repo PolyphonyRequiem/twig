@@ -34,6 +34,74 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     }
 
     [Fact]
+    public void AddingCoreCorrelationDoesNotRewriteHistoricalNativeRequestBytes()
+    {
+        var request = new ConnectionRemoteWriteRequest("workitem-patch", "PATCH",
+            "https://dev.azure.com/fixture/Work/_apis/wit/workitems/42", "[]", "1");
+        var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.ConnectionRemoteWriteRequest);
+        json.ShouldBe("""{"effectKind":"workitem-patch","method":"PATCH","target":"https://dev.azure.com/fixture/Work/_apis/wit/workitems/42","payload":"[]","ifMatch":"1"}""");
+        JsonSerializer.Serialize(JsonSerializer.Deserialize(json, TwigJsonContext.Default.ConnectionRemoteWriteRequest),
+            TwigJsonContext.Default.ConnectionRemoteWriteRequest).ShouldBe(json);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CoreCreationUuidAndOperationOwnershipSurviveReplacementDigestsAndAcknowledgements(bool acknowledged)
+    {
+        var origin = PublicationOrigin();
+        await RegisterOriginAsync(_registry, origin);
+        var creation = Guid.NewGuid();
+        var core = new CoreWriteCorrelation("immutable-connection", new string('a', 64), 0,
+            Guid.NewGuid(), "local:" + creation, creation, null);
+        var request = new ConnectionRemoteWriteRequest("workitem-create", "POST",
+            "https://dev.azure.com/fixture/Work/_apis/wit/workitems/$Task", "[]", null, CoreCorrelation: core);
+        var intent = NativeIntent(origin, request);
+        (await _registry.BeginConnectionRemoteWriteAsync(intent)).IsSuccess.ShouldBeTrue();
+        if (acknowledged)
+        {
+            var receipt = new ConnectionRemoteWriteReceipt(1, Guid.NewGuid().ToString("N"), intent.IntentId,
+                intent.RequestDigest, "acknowledged", null, """{"id":42,"rev":1}""", origin, null, null, DateTimeOffset.UtcNow);
+            (await _registry.AppendConnectionRemoteWriteReceiptAsync(intent, receipt)).IsSuccess.ShouldBeTrue();
+        }
+        var replacement = request with { Payload = "[1]", CoreCorrelation = core with
+        {
+            ProposalDigest = new string('b', 64), Attempt = Guid.NewGuid(),
+        } };
+        (await _registry.BeginConnectionRemoteWriteAsync(NativeIntent(origin, replacement))).Error
+            .ShouldContain("core-attempt-fenced");
+        var sameOperation = request with { CoreCorrelation = core with
+        {
+            Attempt = Guid.NewGuid(), CreationIdentity = Guid.NewGuid(), TargetIdentity = "different-local",
+        } };
+        (await _registry.BeginConnectionRemoteWriteAsync(NativeIntent(origin, sameOperation))).Error
+            .ShouldContain("core-attempt-fenced");
+        (await _registry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint)).Value.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task UnknownNativeTargetCannotAcquireANewCoreDigestOrPayload()
+    {
+        var origin = PublicationOrigin();
+        await RegisterOriginAsync(_registry, origin);
+        var core = new CoreWriteCorrelation("immutable-connection", new string('a', 64), 0,
+            Guid.NewGuid(), "remote:42", null, "ado-rev:1");
+        var request = new ConnectionRemoteWriteRequest("workitem-patch", "PATCH",
+            "https://dev.azure.com/fixture/Work/_apis/wit/workitems/42", "[]", null, CoreCorrelation: core);
+        (await _registry.BeginConnectionRemoteWriteAsync(NativeIntent(origin, request))).IsSuccess.ShouldBeTrue();
+        var replacement = request with { Payload = "[1]", CoreCorrelation = core with
+        {
+            ProposalDigest = new string('b', 64), Attempt = Guid.NewGuid(), TargetIdentity = "another-key-label",
+        } };
+        (await _registry.BeginConnectionRemoteWriteAsync(NativeIntent(origin, replacement))).Error
+            .ShouldContain("core-outcome-unknown");
+    }
+
+    private static ConnectionRemoteWriteIntent NativeIntent(ResolvedConnectionBinding origin, ConnectionRemoteWriteRequest request)
+        => new(1, Guid.NewGuid().ToString("N"), ConnectionRemoteWriteAdmission.RequestDigest(origin, request),
+            origin.Operation.WorktreeFingerprint, origin, request, DateTimeOffset.UtcNow);
+
+    [Fact]
     public async Task HistoricalTaggedSeedIntentCanAppendReceiptWithoutRewritingOriginalJson()
     {
         var correlation = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch);
@@ -80,24 +148,7 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
         using var registry = new SqliteSystemWorktreeRegistry(path, TimeProvider.System);
         using var contender = new SqliteSystemWorktreeRegistry(path, TimeProvider.System);
         var origin = PublicationOrigin();
-        (await registry.EnsureBindingConnectionAsync(
-            origin.Binding.ConnectionRef, origin.Operation.Organization, origin.Operation.Project, CancellationToken.None))
-            .IsSuccess.ShouldBeTrue();
-        (await registry.UpsertWorktreeAsync(
-            origin.Operation.WorktreeFingerprint, origin.Binding.ConnectionRef, origin.WorktreeRoot))
-            .IsSuccess.ShouldBeTrue();
-        var registeredAt = DateTimeOffset.UtcNow;
-        (await registry.InsertIdentityAsync(new IdentityRow(
-            origin.Identity.IdentityId, origin.Identity.Name, origin.Identity.TenantId,
-            origin.Identity.ObjectId, origin.Identity.Issuer, origin.Identity.AuthorityHost,
-            origin.Identity.CredentialRef, origin.Identity.AccountName, registeredAt, registeredAt,
-            origin.Identity.Method, origin.Identity.AdoPrincipalId, origin.Identity.AdoAuthority))).IsSuccess.ShouldBeTrue();
-        (await registry.InsertOrGetBindingAsync(new BindingRow(
-            origin.Binding.BindingId, origin.Binding.ConnectionRef, origin.Binding.IdentityId,
-            origin.Binding.Revision, registeredAt, registeredAt))).IsSuccess.ShouldBeTrue();
-        (await registry.UpsertDefaultBindingAsync(new DefaultBindingRow(
-            origin.Binding.ConnectionRef, origin.Binding.BindingId, origin.Binding.Revision, registeredAt)))
-            .IsSuccess.ShouldBeTrue();
+        await RegisterOriginAsync(registry, origin);
         var contenderWorktree = await contender.FindWorktreeAsync(origin.Operation.WorktreeFingerprint);
         contenderWorktree.IsSuccess.ShouldBeTrue(contenderWorktree.Error);
         contenderWorktree.Value.ShouldNotBeNull();
@@ -172,6 +223,28 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
         var receipt = new ConnectionRemoteWriteReceipt(1, "ownership-receipt", intent.IntentId, intent.RequestDigest,
             receiptKind, null, "{\"publishedId\":" + id + "}", origin, origin.Identity.IdentityId, "Original outcome", DateTimeOffset.UtcNow);
         return new ConnectionRemoteWriteHistory(intent, [], receipt);
+    }
+
+    private static async Task RegisterOriginAsync(SqliteSystemWorktreeRegistry registry, ResolvedConnectionBinding origin)
+    {
+        (await registry.EnsureBindingConnectionAsync(
+            origin.Binding.ConnectionRef, origin.Operation.Organization, origin.Operation.Project, CancellationToken.None))
+            .IsSuccess.ShouldBeTrue();
+        (await registry.UpsertWorktreeAsync(
+            origin.Operation.WorktreeFingerprint, origin.Binding.ConnectionRef, origin.WorktreeRoot))
+            .IsSuccess.ShouldBeTrue();
+        var registeredAt = DateTimeOffset.UtcNow;
+        (await registry.InsertIdentityAsync(new IdentityRow(
+            origin.Identity.IdentityId, origin.Identity.Name, origin.Identity.TenantId,
+            origin.Identity.ObjectId, origin.Identity.Issuer, origin.Identity.AuthorityHost,
+            origin.Identity.CredentialRef, origin.Identity.AccountName, registeredAt, registeredAt,
+            origin.Identity.Method, origin.Identity.AdoPrincipalId, origin.Identity.AdoAuthority))).IsSuccess.ShouldBeTrue();
+        (await registry.InsertOrGetBindingAsync(new BindingRow(
+            origin.Binding.BindingId, origin.Binding.ConnectionRef, origin.Binding.IdentityId,
+            origin.Binding.Revision, registeredAt, registeredAt))).IsSuccess.ShouldBeTrue();
+        (await registry.UpsertDefaultBindingAsync(new DefaultBindingRow(
+            origin.Binding.ConnectionRef, origin.Binding.BindingId, origin.Binding.Revision, registeredAt)))
+            .IsSuccess.ShouldBeTrue();
     }
 
     private static ResolvedConnectionBinding PublicationOrigin() => new(

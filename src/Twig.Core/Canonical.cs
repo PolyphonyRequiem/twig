@@ -8,6 +8,27 @@ namespace Twig.Core;
 
 public static partial class Core
 {
+    public static byte[] QueryBytes(Query query)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            Write(query);
+            void Write(Query value)
+            {
+                writer.WriteStartArray();
+                writer.WriteNumberValue((int)value.Kind);
+                if (value.Field is null) writer.WriteNullValue(); else writer.WriteStringValue(value.Field);
+                if (value.Value is null) writer.WriteNullValue(); else WriteValue(writer, value.Value);
+                writer.WriteStartArray();
+                foreach (var child in value.Children) Write(child);
+                writer.WriteEndArray();
+                writer.WriteEndArray();
+            }
+        }
+        return stream.ToArray();
+    }
+
     public static string Digest(Proposal proposal) => Hash(ProposalBytes(proposal));
     public static byte[] ProposalBytes(Proposal proposal) => Write(w =>
     {
@@ -16,6 +37,8 @@ public static partial class Core
         WriteConnection(w, proposal.Connection);
         w.WriteString("schema", proposal.SchemaFingerprint);
         w.WriteNumber("storeVersion", proposal.ExpectedStoreVersion);
+        w.WriteString("policyIdentity", proposal.PolicyIdentity);
+        w.WriteString("policyRevision", proposal.PolicyRevision);
         w.WriteStartArray("operations");
         foreach (var op in proposal.Operations)
         {
@@ -40,6 +63,23 @@ public static partial class Core
             else w.WriteNull("localVersion");
             w.WritePropertyName("body");
             if (op.Body is null) w.WriteNullValue(); else WriteValue(w, op.Body);
+            w.WritePropertyName("resource");
+            if (op.Resource is not { } resource) w.WriteNullValue();
+            else
+            {
+                w.WriteStartArray(); w.WriteStringValue(resource.Relation); w.WriteStringValue(resource.Target);
+                w.WriteStringValue(resource.Name); w.WriteStringValue(resource.Comment); w.WriteEndArray();
+            }
+            if (!op.Links.IsEmpty)
+            {
+                w.WriteStartArray("links");
+                foreach (var link in op.Links)
+                {
+                    w.WriteStartArray(); WriteKey(w, link.Other); w.WriteStringValue(link.Relation);
+                    w.WriteBooleanValue(link.Outgoing); w.WriteEndArray();
+                }
+                w.WriteEndArray();
+            }
             w.WriteEndObject();
         }
         w.WriteEndArray(); w.WriteEndObject();

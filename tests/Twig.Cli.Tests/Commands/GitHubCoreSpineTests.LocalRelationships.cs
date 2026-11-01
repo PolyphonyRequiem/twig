@@ -64,6 +64,13 @@ public sealed partial class GitHubCoreSpineTests
                 AssertLocalRelationship(edges[0], original);
             }
         }
+        f.Run("link", "local", "list", uuid, "-o", "json").ShouldBe(0, f.Error);
+        using (var result = JsonDocument.Parse(f.Output))
+        {
+            var edges = result.RootElement.GetProperty("localRelationships");
+            edges.GetArrayLength().ShouldBe(1);
+            AssertLocalRelationship(edges[0], original);
+        }
         f.Http.Requests.ShouldBe(requests, "list must perform zero TOTAL HTTP, including viewer, schema and number lookup");
         f.CredentialCalls.ShouldBe(credentials);
         (await f.Snapshot()).Version.ShouldBe(added.Version);

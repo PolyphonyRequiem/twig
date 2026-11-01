@@ -8,13 +8,7 @@ on:
 jobs:
   build-and-test:
     name: build-and-test (${{ matrix.rid }})
-    # Qualify every currently shipped platform. macOS support is temporarily
-    # suspended across CI, release publishing, installation and runtime entry.
     strategy:
-      # fail-fast: false so one platform's failure does not cancel the other's
-      # run. The point of this matrix is learning about every platform from a
-      # single push rather than discovering them one at a time across re-pushes
-      # — the same reasoning the release workflow's build matrix already carries.
       fail-fast: false
       matrix:
         include:
@@ -22,9 +16,7 @@ jobs:
             os: ubuntu-latest
           - rid: win-x64
             os: windows-latest
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,450 +30,223 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet restore
-      - run: dotnet build --no-restore
+      - name: Supported solution build (120-second deadline)
+        run: python tools/run-bounded.py --timeout 120 -- dotnet build --no-restore -m:1
 
-      - name: Additive clean-core invariant regression
-        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Core.Tests/Twig.Core.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Core.Tests" --logger "trx;LogFileName=core.trx" --results-directory artifacts/test-logs/ci/core
-
+      - name: Clean-core invariant regression
+        id: core
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Core.Tests/Twig.Core.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Core.Tests" --logger "trx;LogFileName=core.trx" --results-directory artifacts/test-logs/ci/core
       - name: Preserve clean-core invariant results
-        if: always()
+        if: always() && steps.core.outcome != 'skipped' && steps.core.outcome != ''
         uses: actions/upload-artifact@v4
         with:
           name: twig-core-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/core/
-          if-no-files-found: warn
+          path: artifacts/test-logs/ci/core/*.trx
+          if-no-files-found: error
 
       - name: Clean-core real SQLite boundary regression
-        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Store.Sqlite.Tests/Twig.Store.Sqlite.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Store.Sqlite.Tests" --logger "trx;LogFileName=store.trx" --results-directory artifacts/test-logs/ci/core-store
-
+        id: store
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Store.Sqlite.Tests/Twig.Store.Sqlite.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Store.Sqlite.Tests" --logger "trx;LogFileName=store.trx" --results-directory artifacts/test-logs/ci/core-store
       - name: Preserve clean-core SQLite results
-        if: always()
+        if: always() && steps.store.outcome != 'skipped' && steps.store.outcome != ''
         uses: actions/upload-artifact@v4
         with:
           name: twig-core-store-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/core-store/
-          if-no-files-found: warn
+          path: artifacts/test-logs/ci/core-store/*.trx
+          if-no-files-found: error
 
       - name: Clean-core ADO adapter HTTP and real SQLite boundary regression
-        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Providers.Ado.Tests/Twig.Providers.Ado.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.Ado.Tests" --logger "trx;LogFileName=ado.trx" --results-directory artifacts/test-logs/ci/core-ado
-
+        id: ado
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Providers.Ado.Tests/Twig.Providers.Ado.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.Ado.Tests" --logger "trx;LogFileName=ado.trx" --results-directory artifacts/test-logs/ci/core-ado
       - name: Preserve clean-core ADO adapter results
-        if: always()
+        if: always() && steps.ado.outcome != 'skipped' && steps.ado.outcome != ''
         uses: actions/upload-artifact@v4
         with:
           name: twig-core-ado-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/core-ado/
-          if-no-files-found: warn
+          path: artifacts/test-logs/ci/core-ado/*.trx
+          if-no-files-found: error
 
       - name: Clean-core GitHub adapter HTTP and real SQLite boundary regression
-        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Providers.GitHub.Tests/Twig.Providers.GitHub.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.GitHub.Tests" --logger "trx;LogFileName=github.trx" --results-directory artifacts/test-logs/ci/core-github
-
+        id: github
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Providers.GitHub.Tests/Twig.Providers.GitHub.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.GitHub.Tests" --logger "trx;LogFileName=github.trx" --results-directory artifacts/test-logs/ci/core-github
       - name: Preserve clean-core GitHub adapter results
-        if: always()
+        if: always() && steps.github.outcome != 'skipped' && steps.github.outcome != ''
         uses: actions/upload-artifact@v4
         with:
           name: twig-core-github-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/core-github/
-          if-no-files-found: warn
+          path: artifacts/test-logs/ci/core-github/*.trx
+          if-no-files-found: error
 
-      - name: Virtual seed-link export, review and publication verification regression
+      # Current production roots replace old ShowCommand/export envelopes,
+      # captured Canvas/Browser/TUI/MCP gestures, legacy writers and migration.
+      # Every method group gets its own unchanged 60-second owned-tree deadline
+      # and selector-verified TRX. Never run either large root class as one filter.
+      - name: Closed catalog, native host and fresh Core initialization
+        id: catalog
         shell: python
         run: |
           import subprocess, sys
-          for suite, selector in [
-              ("Cli", "FullyQualifiedName~SeedLinkExportTests|FullyQualifiedName~ShowBatchExportTests|FullyQualifiedName~ChangeProposalReviewRendererTests"),
-              ("Infrastructure", "FullyQualifiedName~SeedLinkPublicationTests|FullyQualifiedName~ReadbackPublishSeed|FullyQualifiedName~SeedFingerprintCalculatorTests|FullyQualifiedName~SeedReview_|FullyQualifiedName~ChangeProposalReviewModelBuilderTests"),
-          ]:
-              subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "60", "--",
-                              sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
-                              f"tests/Twig.{suite}.Tests/Twig.{suite}.Tests.csproj",
-                              "--no-build", "--no-restore", "-f", "net11.0", "--filter", selector,
-                              "--logger", f"trx;LogFileName=seed-links-{suite}.trx",
-                              "--results-directory", "artifacts/test-logs/ci/seed-links"], check=True)
-
-      - name: Preserve seed-link regression results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-seed-links-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/seed-links/
-          if-no-files-found: warn
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Canvas proposal Apply composition regression
-        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/native-apply.test.mjs .github/extensions/twig-item-companion/tests/proposal-canvas.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs .github/extensions/twig-item-companion/tests/native-executable.test.mjs .github/extensions/twig-item-companion/tests/native-executable-source.test.mjs
-
-      - name: Supported platform delivery regression (offline)
-        run: python tools/run-bounded.py --timeout 60 -- python tools/test-platform-support.py
-
-      - name: Native captured-draft and digest-apply regression
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeConsumption|FullyQualifiedName~Apply_DraftCapturedJournal_RefusesBeforeConfirmation" --logger "trx;LogFileName=native-save.trx" --results-directory artifacts/test-logs/ci/native-save
-
-      - name: Explicit workbench Save gesture and native transport regression
-        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/editing-client.test.mjs .github/extensions/twig-item-companion/tests/editing-bridge.test.mjs .github/extensions/twig-item-companion/tests/native-editing.test.mjs
-
-      - name: Companion context, shared quick edits and document theme regression
-        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/canvas-workspace.test.mjs .github/extensions/twig-item-companion/tests/conversation-context.test.mjs .github/extensions/twig-item-companion/tests/companion-editing.test.mjs .github/extensions/twig-item-companion/tests/theme.test.mjs
-
-      - name: Explicit discussion post canvas and native transport regression
-        run: python tools/run-bounded.py --timeout 60 -- node --test .github/extensions/twig-item-companion/tests/discussion-post.test.mjs .github/extensions/twig-item-companion/tests/discussion-client.test.mjs .github/extensions/twig-item-companion/tests/native-discussion.test.mjs .github/extensions/twig-item-companion/tests/workbench.test.mjs
-
-      - name: Discussion post native preparation production composition regression
-        if: matrix.rid == 'win-x64'
-        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~BenchDiscussionPostCommandTests.ProductionParser" --logger "trx;LogFileName=discussion-prepare.trx" --results-directory artifacts/test-logs/ci/discussion-prepare
-
-      - name: Discussion post typed-ID and unknown outcome production composition regression
-        if: matrix.rid == 'win-x64'
-        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~PreparedProposalUsesRealLifecycle|FullyQualifiedName~LostPostAcknowledgmentRemainsUnknown" --logger "trx;LogFileName=discussion-lifecycle.trx" --results-directory artifacts/test-logs/ci/discussion-lifecycle
-
-      - name: Preserve discussion post production composition results
-        if: always() && matrix.rid == 'win-x64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-discussion-post-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/discussion-*/
-          if-no-files-found: warn
-
-      - name: Explicit Save command production composition regression
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~DraftSaveCommandTests" --logger "trx;LogFileName=explicit-save.trx" --results-directory artifacts/test-logs/ci/explicit-save
-
-      - name: Structured read scope and human compatibility regression
-        shell: python
-        run: |
-          import pathlib, subprocess, sys
-          base = pathlib.Path("artifacts/test-logs/ci/structured-reads")
-          base.mkdir(parents=True, exist_ok=True)
           groups = [
-              ("guards", "Cli", "FullyQualifiedName~StructuredMutationArgumentValidatorTests|FullyQualifiedName~StructuredReadProductionCliTests"),
-              ("workspace", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.MachineWorkspace"),
-              ("named-tree", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.ExplicitNamed|FullyQualifiedName~StructuredReadIsolationTests.StructuredTree"),
-              ("bench", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.BenchPull"),
-              ("show-parser", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.ShowTarget"),
-              ("tree-parser", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.TreeTarget"),
-              ("human", "Cli", "FullyQualifiedName~StructuredReadIsolationTests.HumanStates"),
-              ("working-set", "Domain", "FullyQualifiedName~WorkingSetServiceTests"),
-              ("consumers", "Cli", "FullyQualifiedName~WorkspaceCommandTests|FullyQualifiedName~BenchSyncCommandTests|FullyQualifiedName~ShowCommand_Tree"),
-          ]
-          for label, suite, selector in groups:
-              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
-                              f"tests/Twig.{suite}.Tests/Twig.{suite}.Tests.csproj",
-                              "--no-build", "--no-restore", "-f", "net11.0", "--filter", selector,
-                              "--logger", f"trx;LogFileName={label}.trx",
-                              "--results-directory", str(base)], check=True)
-
-      - name: Preserve structured read scope results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-structured-reads-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/structured-reads/
-          if-no-files-found: error
-
-      - name: Preserve explicit Save results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-explicit-save-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/explicit-save/
-          if-no-files-found: warn
-
-      - name: Preserve native captured-draft results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-native-save-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/native-save/
-          if-no-files-found: warn
-
-      - name: GitHub credential argument and failure isolation regression
-        env:
-          TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/gh-parser/trace
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GhCliTokenSourceTests" --logger "trx;LogFileName=gh-parser.trx" --results-directory artifacts/test-logs/ci/gh-parser
-
-      - name: AAD canonical account and same-principal renewal regression
-        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~AadAccountClaimTests|FullyQualifiedName~IdTokenDecoderTests|FullyQualifiedName~JwtAccessTokenInspectorTests|FullyQualifiedName~DeviceCodeFlowTests|FullyQualifiedName~LoopbackPkceFlowTests" --logger "trx;LogFileName=aad-account.trx" --results-directory artifacts/test-logs/ci/aad-account
-
-      - name: Preserve AAD canonical account results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-aad-account-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/aad-account/
-          if-no-files-found: warn
-
-      - name: Provider contract compatibility and self-update boundary
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ProviderContractBoundaryTests" --logger "trx;LogFileName=provider-contracts.trx" --results-directory artifacts/test-logs/ci/provider-contracts
-
-      - name: Neutral claim projection and provider adapter regressions
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~LocalClaimServiceTests|FullyQualifiedName~Ab728FinalReviewTests|FullyQualifiedName~TransportNoAuthorityConformanceTests|FullyQualifiedName~AdoProviderWorkItemWriterTests|FullyQualifiedName~GitHubWorkItemProviderTests" --logger "trx;LogFileName=claim-ports.trx" --results-directory artifacts/test-logs/ci/provider-contracts
-
-      - name: Neutral claim projection command consumers
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ClaimHolderUsesBoundAccountAndRejectsSameNameAlternateActorWithoutMutation|FullyQualifiedName~ReservedClaimNotPointedAtByTheAttachmentBlocksAdmissionAndClearsOnlyAfterAuthorizedRelease" --logger "trx;LogFileName=claim-consumers.trx" --results-directory artifacts/test-logs/ci/provider-contracts
-
-      # Non-Windows protected-store qualification is unavailable, NOT passed:
-      # OS handle inventory refuses on hosted Linux. Production guards stay unchanged.
-      - name: Windows real protected-store holder lifecycle
-        if: matrix.rid == 'win-x64'
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ActiveNativeHolderMustBeReleasedByItsOrdinaryLifecycleBeforeAnotherActorCanPin|FullyQualifiedName~AnotherAffectedCheckoutActiveHolderBlocksDefaultWithoutImplicitReleaseOrScopeRewrite" --logger "trx;LogFileName=claim-holders.trx" --results-directory artifacts/test-logs/ci/provider-contracts
-
-      - name: Preserve provider contract boundary results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-provider-contracts-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/provider-contracts/
-          if-no-files-found: warn
-
-      - name: Explicit offline GitHub checkout onboarding
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubInitTests|FullyQualifiedName~GitHubSync_CompositionAndPushRefusalDoNotAcquireCredentialsOrSendHttp|FullyQualifiedName~InitCommandTests.Init_CreatesTwigDirectory" --logger "trx;LogFileName=github-init.trx" --results-directory artifacts/test-logs/ci/github-init
-
-      - name: Preserve GitHub onboarding results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-github-init-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/github-init/
-          if-no-files-found: warn
-
-      - name: GitHub native relationship proposal regression
-        shell: python
-        run: |
-          import pathlib, subprocess, sys
-          base = pathlib.Path("artifacts/test-logs/ci/github-native")
-          base.mkdir(parents=True, exist_ok=True)
-          groups = [
-              ("links", ["ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints"]),
-              ("admission", ["ChangedPrecondition", "ExactRevisionDefault", "DigestMismatch",
-                             "ObservationToken", "JournalRejects"]),
-              ("recovery", ["UncertainOrContradictoryResponse", "DeniedReadback", "CrashRecovery"]),
+              ("catalog-help", ["ClosedCafDeclarationsDoNotAdvertiseRetiredCommands"]),
+              ("no-marker", ["NoMarkerCoreDataReadsRefuseWithoutLegacyGraphOrInputIo"]),
+              ("catalog-owners", ["ClosedProductionCatalogHasOnlyCoreDataAndNativeHostOwners"]),
+              ("retired-caf", ["ClosedCatalogRefusesRetiredCafRoutesBeforeComposition", "RetiredRootLeavesNeverResolveLegacyCommandsOrLaunchers"]),
+              ("native-host", ["NativeHostUtilitiesUseRealNamedCredentialAndBindingWithoutLegacyWorkspace"]),
+              ("ado-init", ["CoreInitCliCreatesAnAdmittedWorkspaceAndRefusesReinitializationWithoutChangingIt"]),
+              ("ado-init-identity", ["CoreInitializationDerivesNativeIdentityAndNeverReusesAnExistingDatabase"]),
+              ("ado-init-refusals", ["CoreInitNativeAuthorityFailureNeverCreatesAStoreOrReusesPartialEvidence", "LegacyWorkspaceMutationIsRefusedBeforeProductionWriterRegistration"]),
           ]
           for label, methods in groups:
-              selector = "|".join(f"FullyQualifiedName~GitHubNativeRelationshipTests.{m}" for m in methods)
-              subprocess.run([sys.executable, "tools/verify-trx.py", "--",
-                              "dotnet", "vstest", "tests/Twig.Infrastructure.Tests/bin/Debug/net11.0/Twig.Infrastructure.Tests.dll",
-                              f"/TestCaseFilter:{selector}", f"/Logger:trx;LogFileName={label}.trx",
-                              f"/ResultsDirectory:{base}"], check=True)
-
-      - name: Preserve GitHub native relationship results
-        if: always()
+              selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.{method}" for method in methods)
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/catalog"], check=True)
+      - name: Preserve closed catalog and bootstrap results
+        if: always() && steps.catalog.outcome != 'skipped' && steps.catalog.outcome != ''
         uses: actions/upload-artifact@v4
         with:
-          name: twig-github-native-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/github-native/
-          if-no-files-found: warn
-
-      - name: GitHub App OAuth offline lifecycle (synthetic transport and temporary stores only)
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubAppAuthenticationTests|FullyQualifiedName~GitHubDeviceFlowClientTests|FullyQualifiedName~GitHubNativeRelationshipTests.AppOAuthSource_UsesSelectedCredentialForDigestBoundNativeWrites" --logger "trx;LogFileName=github-app.trx" --results-directory artifacts/test-logs/ci/github-app
-
-      - name: GitHub App OAuth command output
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~AuthGitHubCommandTests|FullyQualifiedName~ConfigCommandTests" --logger "trx;LogFileName=github-app-cli.trx" --results-directory artifacts/test-logs/ci/github-app
-
-      - name: Preserve GitHub App OAuth results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-github-app-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/github-app/
-          if-no-files-found: warn
-
-      - name: Rejected-create-family kernel regression
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Reconcile_RejectedCreateFamily_RequiresEveryMatchingSiblingToBeRejected|FullyQualifiedName~Reconcile_RejectedCreateFamily_AliasedWorktreePreservesExactAuthority|FullyQualifiedName~GetOpenIntents_StillExcludesExactReadbackAndSupersededSettlements|FullyQualifiedName~GetUnresolved_KeepsAProposalOpenForAnUnvalidatedRejectedFamilyReceipt" --logger "trx;LogFileName=rejected-create-family.trx" --results-directory artifacts/test-logs/ci/rejected-create-family
-
-      - name: Preserve rejected-create-family results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-rejected-create-family-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/rejected-create-family/
+          name: twig-catalog-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/catalog/*.trx
           if-no-files-found: error
 
-      - name: Windows retained capture and concurrency regression
-        if: matrix.rid == 'win-x64'
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeReceiptRoundTripsSelectorDiscriminatorsAndRetainsExactCaptureFence|FullyQualifiedName~TwoStoreRace_RetirementVsAdmission_ExactlyOneWins|FullyQualifiedName~SchemaRebuild_DirtyFlagMissing_StillRefusesOnSeedRow" --logger "trx;LogFileName=gh-parser-overlap.trx" --results-directory artifacts/test-logs/ci/gh-parser-overlap
-
-      - name: Preserve credential and retained concurrency results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-gh-parser-${{ matrix.rid }}
-          path: |
-            artifacts/test-logs/ci/gh-parser/
-            artifacts/test-logs/ci/gh-parser-overlap/
-          if-no-files-found: warn
-
-      - name: GitHub captured-read session and authenticated actor regression
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubCapturedReadSessionTests|FullyQualifiedName~GitHubAuthenticatedActorReaderTests|FullyQualifiedName~GitHubReadOnlyAuthHandlerTests|FullyQualifiedName~ProviderTargetBindingCompositionTests|FullyQualifiedName~GitHubWorkItemProviderTests" --logger "trx;LogFileName=github-actor.trx" --results-directory artifacts/test-logs/ci/github-actor
-
-      - name: Provider working-set storage regression (offline)
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ProviderWorkingSetSyncServiceTests|FullyQualifiedName~SqliteCacheStoreTests|FullyQualifiedName~DraftEvidenceRebuildTests|FullyQualifiedName~StoreParityHarnessTests" --logger "trx;LogFileName=provider-sync.trx" --results-directory artifacts/test-logs/ci/provider-sync
-
-      - name: Provider working-set command composition (offline)
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NonAdoProviderGateTests.GitHubSync_|FullyQualifiedName~NonAdoProviderGateTests.CommandReads_|FullyQualifiedName~NonAdoProviderGateTests.BenchSync_" --logger "trx;LogFileName=provider-sync-cli.trx" --results-directory artifacts/test-logs/ci/provider-sync-cli
-
-      - name: ADO shared lifecycle qualification (offline production composition)
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativePublicationConsumerTests.OfflineProviderLifecycle_|FullyQualifiedName~NativePublicationConsumerTests.AcknowledgedCommitWithUnavailableReadbackIsSettledWithoutReissuingTheWrite|FullyQualifiedName~NativePublicationConsumerTests.VerifiedPublicationPreservesLocalWorkCreatedDuringReadback|FullyQualifiedName~NativePublicationConsumerTests.ChangedAndUnknownOriginsCannotAdoptTheCurrentActorBeforeWorkHttp" --logger "trx;LogFileName=ado-lifecycle.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
-
-      - name: GitHub shared lifecycle qualification (offline production composition)
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubNativeRelationshipTests.OfflineProviderLifecycle_ReadAuthorApplyReadbackUsesRealGitHubComposition|FullyQualifiedName~GitHubNativeRelationshipTests.OfflineProviderLifecycle_DeclaredParentPolicyIsEvaluatedAgainBeforeGitHubWrite|FullyQualifiedName~GitHubNativeRelationshipTests.DeclaredProposalCapabilitiesMatchFixedExecutorShapes" --logger "trx;LogFileName=github-core.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
-
-      - name: GitHub native authoring qualification (offline)
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubNativeRelationshipTests.ProductionComposition_DigestConfirmsJournalsWritesAndReadsBackBothEndpoints|FullyQualifiedName~GitHubNativeRelationshipTests.Create_AppCompositionJournalsNativeIdentityAndFencesAcrossDigests" --logger "trx;LogFileName=github-authoring.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
-
-      - name: GitHub native authority refusal qualification (offline)
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubNativeRelationshipTests.ChangedPrecondition_RefusesWithoutNativeWriteOrLocalFallback|FullyQualifiedName~GitHubNativeRelationshipTests.UnknownCredentialSourceNeverFallsBackToGhForNativeWrites|FullyQualifiedName~GitHubNativeRelationshipTests.DigestMismatch_RemainsUnappliedWithoutNativeWrite|FullyQualifiedName~GitHubNativeRelationshipTests.ExactRevisionDefault_IsReviewableButNeverImportedOrApplied" --logger "trx;LogFileName=github-refusals.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
-
-      - name: GitHub unknown outcome and concurrency qualification (offline)
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~GitHubNativeRelationshipTests.Create_LostAcknowledgmentRemainsIndeterminateAndNeverInfersMatchingTitle|FullyQualifiedName~GitHubNativeRelationshipTests.DeniedReadback_RemainsIndeterminateWithoutReplay|FullyQualifiedName~GitHubNativeRelationshipTests.NativeFields_ConcurrentUnrelatedEditIsPreservedByIntendedPatch|FullyQualifiedName~GitHubNativeRelationshipTests.CrashRecovery_ObservesNativeEffectWithoutIssuingMutation" --logger "trx;LogFileName=github-outcomes.trx" --results-directory artifacts/test-logs/ci/provider-lifecycle
-
-      - name: Preserve offline provider lifecycle qualification
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-provider-lifecycle-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/provider-lifecycle/
-          if-no-files-found: error
-
-      - name: Preserve GitHub captured-read and authenticated actor results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-github-actor-${{ matrix.rid }}
-          path: |
-            artifacts/test-logs/ci/github-actor/
-            artifacts/test-logs/ci/provider-sync/
-            artifacts/test-logs/ci/provider-sync-cli/
-          if-no-files-found: warn
-
-      - name: Preservation v17 primary and publication regressions
-        if: matrix.rid == 'win-x64'
+      - name: Retained ADO production CLI, draft, seed, link and Bench qualification
+        id: ado_root
         shell: python
-        env:
-          TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/test-logs/ci/preservation-v17/trace
         run: |
-          import os, pathlib, subprocess, sys
-          base = pathlib.Path("artifacts/test-logs/ci/preservation-v17")
-          base.mkdir(parents=True, exist_ok=True)
-          owned_temp = (base / "owned-temp").resolve()
-          owned_temp.mkdir(exist_ok=True)
-          os.environ.update({key: str(owned_temp) for key in ("TMP", "TEMP", "TMPDIR")})
-          ordinary = ["ConflictingIntentCompletionPreservesPriorMapAndUnpublishedPayload",
-                      "ExactRepeatKeepsFirstEvidenceAndContradictionsLeaveWholeStandingUnchanged",
-                      "KnownMappingWithUnsettledIntentRefusesBeforeCreateOrIntentRewrite",
-                      "StaleNegativeSaveCannotRecreateACompletedRetainedSeed"]
-          groups = [("rich", "PreservationMigrationTests", ["SuccessfulMigrationPreservesSeedAndStandingThroughProductionReadersAfterReopen"]),
-                    ("ordinary", "RetainedPublicationTests", ordinary)]
-          for label, method in [("map", "CrashAfterPublishMapKeepsKnownOutcomeAndStableIdentity"),
-                                ("binding", "CrashAfterIdentityBindingKeepsKnownOutcomeAndStableIdentity"),
-                                ("delete", "CrashAfterPayloadDeletionKeepsKnownOutcomeAndStableIdentity")]:
-              groups.append((label, "RetainedPublicationTests", [method]))
-          groups += [
-              ("backup-owned-rows", "PreservationBackupProofTests", ["CoherentBackupOwnedRowsCannotBeCertifiedOrActivated", "RetainedManifestIsRevalidatedAgainstOwnedBackupRowsBeforeActivation"]),
-              ("cancelled-history", "PreservationSchemaRebuildTests", ["CancelledSlotNullHistoryAllowsSchema15ScratchCloneRebuild"]),
-              ("source-backup", "PreservationMigrationTests", ["SourceWriterAfterBackupPreventsActivationWithoutDiscardingItsChange", "BackupCopyCorruptionBlocksCertificationAndActivation"]),
-              ("writers-generation", "PreservationMigrationTests", ["UnclassifiedTargetWriterIsRefusedWithoutClearingEitherView", "GenerationRaceAtActivationPreservesOriginalAdmissionAndPreparingIntent", "BackupFailureBlocksActivationAndCanResumeWithoutDeletingOriginals"]),
-              ("cancel-local", "PreservationMigrationTests", ["FailedPreparationCanBeExplicitlyCancelledAndReviewedAgainAfterOrdinaryEdits", "LocalWritesRemainReversibleAndGenerationChangingTransitionIsBlockedBeforeIntent"]),
-              ("reader-provenance", "PreservationMigrationTests", ["ActualReadersUseRetainedTablesAndRollbackRefusesDivergentOriginals", "ActualSeedReadersUseRetainedPayloadWithoutOriginalSeed"]),
-              ("composition", "PreservationMigrationTests", ["SeedEditsAndLocalPublicationCompositionKeepIndependentStableLocalIdentity"]),
-              ("interruption", "PreservationMigrationTests", ["InterruptedPreparationKeepsCurrentViewAndResumesOriginalIntent"]),
-              ("corruption", "PreservationMigrationTests", ["PayloadRejectedByExistingReaderCannotActivateAndRemainsUnmodified"]),
-              ("execution-admission", "PreservationMigrationTests", ["ExecutionAdmissionWriterIsFingerprintedBeforeActivationAndRetainedThroughRollback"]),
-              ("guided-preservation", "WorkspaceMigrationCommandTests", ["ProductionCommandReportsMovementThenExplicitlyCutsOverAndRollsBack"]),
-              ("guided-recovery", "WorkspaceMigrationCommandTests", ["InterruptedPreparationReportsIntentAndRequiresExactCancellationBeforeRereview"]),
-              ("guided-refusals", "WorkspaceMigrationCommandTests", ["InvalidMutationArgumentsRefuseBeforeResolvingStorage", "ColdScopeRequiresOneDurableObservationRatherThanAnInMemoryWarmup", "UnadmittedStorageRefusesBeforeOpeningOrRebuildingOriginals", "ProviderTargetRefusesWithoutOpeningAdoStorageOrCallingTheProvider"]),
+          import subprocess, sys
+          methods = [
+              "ExplicitCoreProductionRootReadsAndUpdatesThroughDraftDigestJournalWithoutLegacyWriters",
+              "CoreProcessInspectionUsesDiscoveredRulesWithoutLegacyCommandsOrWorkReads",
+              "CoreProposalInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders",
+              "CoreSaveUsesDraftJournalInsteadOfResolvingALegacyPendingFlusher",
+              "CoreSeedPublicationUsesTheRetainedUuidAndPermanentVerifiedMapping",
+              "CoreParentedSeedPublishesItsHierarchyInTheCreationCallWithoutAPostCreateWriter",
+              "CoreChainAuthoringValidationAndReconciliationRetainOriginalCreationReferences",
+              "CoreLinkRouteUsesNativeJournalWithoutLegacyGraph",
+              "CoreLinkHumanActivePublishedUuidUsesPermanentMappingWithoutRewritingHistory",
+              "CoreLinkMachineChildOptionRequiresIdBeforeAnyHttp",
+              "CoreLinkRefusalsAndAmbientSelectionNeverUseLegacyOrDispatchUnsupportedIntent",
+              "CoreLocalRelatedCannotFallbackFromNativeAdoAssociation",
+              "CoreLinkUnresolvedReadbackFencesBothEndpointsWithoutReplay",
+              "CoreLinkTelemetryUsesStaticMetadataAndCannotChangeTheOutcome",
+              "CoreBenchCrudPreservesSelectorKindsAndNeverResolvesLegacyWriters",
+              "CoreBenchPullKeepsDraftDebtAndExcludesImplicitMachineActiveContext",
+              "CoreSyncUsesOneProposalAndOneJsonResultWithSafeOptionalTelemetry",
+              "CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields",
+              "CoreQueryFindsLaterPageMatchesAndPreservesUnpublishedDraftsWithoutWriters",
+              "CoreWorkspaceReadRoutesThroughProductionComposition",
+              "CoreWorkspaceReadKeepsExactMembershipTypedDebtAndOneOutputAcrossFormats",
+              "CoreWorkspaceReadRefusesUnsupportedShapesAndUntrustworthyScopeWithoutBroadening",
+              "CoreWorkspaceReadRefreshUsesOnlySharedPullAndPreservesDebtAndMappedSelectors",
+              "CleanCoreAdmissionRetainsRealNativeLeaseAndExactDurableAttemptAttribution",
+              "CleanCoreAdmissionRechecksActualPolicyPresenceAndBytesAfterPreview",
+              "CleanCoreAccessRefusesANewSelectedActorBeforeWorkTransport",
           ]
-          for case in ["preparing-slot", "active-slot", "rolled-back-slot", "unknown-slot-null", "cancelled-slot", "cancelled-retained-target"]:
-              groups.append((f"owning-history-{case}", "PreservationSchemaRebuildTests", ["OwningOrUnknownIntentAndRetainedTargetsRefuseSchemaRebuild"]))
-          for label, cls, methods in groups:
-              selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.{cls}.{m}" for m in methods)
-              if label.startswith("owning-history-"):
-                  selector += "&DisplayName~" + label.removeprefix("owning-history-")
-              args = [sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
-                      "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "-f", "net11.0", "--no-build", "--no-restore",
-                      "--filter", selector, "--logger", f"trx;LogFileName={label}.trx", "--results-directory", str(base)]
-              with (base / f"{label}.log").open("w", encoding="utf-8") as log:
-                  code = subprocess.call(args, stdout=log, stderr=subprocess.STDOUT)
-              print((base / f"{label}.log").read_text(encoding="utf-8"), flush=True)
-              if code:
-                  raise SystemExit(code)
-      - name: Preserve preservation v17 regression results
-        if: always() && matrix.rid == 'win-x64'
+          for method in methods:
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", f"FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.{method}",
+                              "--logger", f"trx;LogFileName={method}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/ado-root"], check=True)
+      - name: Preserve retained ADO root results
+        if: always() && steps.ado_root.outcome != 'skipped' && steps.ado_root.outcome != ''
         uses: actions/upload-artifact@v4
         with:
-          name: twig-preservation-v17-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/preservation-v17/
+          name: twig-ado-root-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/ado-root/*.trx
           if-no-files-found: error
 
-      - name: Fundamental build validation (15-second offline smoke)
-        run: python tools/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --timeout 15 --trace artifacts/smoke/boundaries.jsonl
+      - name: Retained GitHub production CLI, original UUID, local CAS and native authority qualification
+        id: github_root
+        shell: python
+        run: |
+          import subprocess, sys
+          groups = [
+              ("init", ["FreshInitUsesOnlyNativeCoreBootstrap", "FreshInitTelemetryFailureCannotChangeNativeResult", "FreshCoreInitRequiresExplicitGhSelectionBeforeAnyHttp"]),
+              ("creation-cache", ["FreshNativeRootCreatesOriginalUuidAndNumericCommandsNeverUseNumberAsNodeIdentity"]),
+              ("markdown-close", ["NativeMarkdownAndActualCloseUseVerifiedObservedNonAtomicEffects"]),
+              ("patch-save-bench-query", ["TypedPatchBenchAndBoundedQueryShareNativeNumbersAndRefuseUnqualifiedFamilies"]),
+              ("offline-host", ["WorkspaceAliasUsesTheQualifiedOwnerAndVersionAndHelpAreOffline", "GitHubNativeHostStatusAndEvidenceNeverFallbackToAdoOrAcquireCredentials"]),
+              ("retired", ["UnqualifiedMachineFamilyRefusesWithOneJsonErrorBeforeAnyHttp"]),
+              ("number-refresh", ["CachedNumberMustBeRequalifiedBeforeExplicitRefreshOrMutation"]),
+              ("number-save", ["CachedNumberMustBeRequalifiedBeforeSavingAnExplicitDraft", "CachedNumberMetadataMustBePresentAndUniqueWithoutLookupFallback"]),
+              ("actor-repository-number", ["NativeBoundaryMismatchRefusesBeforeAnyMutation"]),
+              ("unknown-restart", ["UnknownCreateSurvivesFreshRootReopenWithoutSecondCreateOrUuidReplacement", "GitHubTransportInspectionCorrelatesOriginalAttemptWithoutSettlingUnknownCreate"]),
+              ("local-cas-aba", ["LocalRelatedUsesNativeNumbersAndVerifiedTombstoneCasWithoutNativeWrites"]),
+              ("published-original-uuid", ["LocalRelatedKeepsOriginalEdgeKeysAcrossVerifiedSeedPublication"]),
+              ("local-fences", ["LocalRelatedCannotBypassAnUnknownCreationWithANewDigest", "LocalRelatedRefusesUnknownTargetsAndAmbiguousCliWithoutEffects"]),
+          ]
+          for label, methods in groups:
+              selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.{method}" for method in methods)
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/github-root"], check=True)
+      - name: Preserve retained GitHub root results
+        if: always() && steps.github_root.outcome != 'skipped' && steps.github_root.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-github-root-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/github-root/*.trx
+          if-no-files-found: error
 
+      - name: Native credential, canonical file/admission and declared-policy boundaries
+        id: native_auth
+        shell: python
+        run: |
+          import subprocess, sys
+          groups = [
+              ("github-core-host", "FullyQualifiedName~CleanCoreGitHubAccessTests"),
+              ("creation-link-files", "FullyQualifiedName~CoreCreationLinkFileTests"),
+              ("gh-credential", "FullyQualifiedName~GhCliTokenSourceTests"),
+              ("aad-account", "FullyQualifiedName~AadAccountClaimTests|FullyQualifiedName~IdTokenDecoderTests|FullyQualifiedName~JwtAccessTokenInspectorTests|FullyQualifiedName~DeviceCodeFlowTests|FullyQualifiedName~LoopbackPkceFlowTests"),
+              ("github-app", "FullyQualifiedName~GitHubAppAuthenticationTests|FullyQualifiedName~GitHubDeviceFlowClientTests"),
+          ]
+          for label, selector in groups:
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              "tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/native-auth"], check=True)
+      - name: Preserve native authority results
+        if: always() && steps.native_auth.outcome != 'skipped' && steps.native_auth.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-native-auth-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/native-auth/*.trx
+          if-no-files-found: error
+
+      - name: Supported Core-only platform delivery regression (offline)
+        run: python tools/run-bounded.py --timeout 60 -- python tools/test-platform-support.py
+      - name: Fundamental build validation (15-second offline smoke)
+        id: smoke
+        run: python tools/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --timeout 15 --trace artifacts/smoke/boundaries.jsonl
       - name: Preserve smoke boundaries
-        if: always()
+        if: always() && steps.smoke.outcome != 'skipped' && steps.smoke.outcome != ''
         uses: actions/upload-artifact@v4
         with:
           name: twig-smoke-${{ matrix.rid }}
           path: artifacts/smoke/
-          if-no-files-found: warn
+          if-no-files-found: error
 
-      # if:failure() so a captured stall is preserved. The trace is the ONLY artifact
-      # that can name the stalling assembly and whether any test was in flight — vstest
-      # prints a false-green summary and names nothing, and a TRX describes only tests
-      # that COMPLETED.
-      #
-      # 🔴 The artifact name MUST carry the rid. upload-artifact@v4 rejects a second
-      # upload under a name that already exists in the run, so a shared name would
-      # make whichever leg finished second fail its upload — turning a captured stall
-      # into a confusing upload error, on the exact run that finally caught the bug.
-      - name: Upload #311 trace on failure
+      - name: Preserve failed execution diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: twig-311-trace-${{ matrix.rid }}
+          name: twig-failure-${{ matrix.rid }}
           path: |
             artifacts/trace-311/
             artifacts/test-logs/ci/
           if-no-files-found: warn
 
-      # The external-host probe (AB#341). samples/Twig.DetailHost is the final
-      # gate of wayfinder-detail-projection ticket 0006 §10 — it traces
-      # consumer → public projection → host-owned renderer from OUTSIDE Twig,
-      # and its location is load-bearing (a test project gets InternalsVisibleTo
-      # and would pass while proving nothing).
-      #
-      # It carried an acceptance floor returning exit 1 on any miss, and nothing
-      # ran it: the solution BUILDS the project, so a visibility regression was
-      # caught, but the floor itself was dead weight. A mechanism that exists,
-      # reads as protective, and is wired to nothing is the same defect class as
-      # a green-looking aborted test run.
-      #
-      # DOTNET_ROLL_FORWARD is the explicit runtime decision, not an inherited
-      # workaround. The sample targets net10.0 GA on purpose — that is the
-      # property under test (a consumer is not dragged onto the preview SDK), so
-      # retargeting it would delete what it proves. Installing a GA runtime here
-      # would let it run natively but would stop exercising the case that ships:
-      # a real consumer on a machine with only a newer runtime. Roll-forward IS
-      # that consumer's experience, and it keeps CI identical to
-      # tools/run-tests.sh --pre-push.
-      #
-      # `set -o pipefail` matters: without it the pipeline's status would be
-      # grep's, and a probe that crashed before printing would read as a pass.
-      #
-      # AB#140: pinned to ONE leg rather than run per-platform. What this probe
-      # asserts — that an external consumer reaches the public projection without
-      # InternalsVisibleTo — is a property of the assembly boundary, not of the
-      # host OS, so a second platform re-proves nothing. `shell: bash` would be
-      # required on the Windows runner (the default there is pwsh), and paying
-      # that for a duplicate answer trades real risk of a shell-portability
-      # failure for no new information.
+      # The supported public RenderTree boundary is not a retired UI launcher.
+      # Keep the external net10 consumer and explicit roll-forward on Linux.
       - name: External host probe (samples/Twig.DetailHost)
         if: matrix.rid == 'linux-x64'
         run: |
           set -euo pipefail
           DOTNET_ROLL_FORWARD=Major \
-            dotnet samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll \
+            python tools/run-bounded.py --timeout 60 -- dotnet samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll \
             2>&1 | tee probe.log
-          # Exit 0 alone is not enough: a probe gutted to `return 0` exits clean
-          # and silent. Require the self-identifying success token too.
           grep -q 'PROBE OK:' probe.log \
-            || { echo "::error::probe exited 0 without printing PROBE OK — a silent probe is not a pass"; exit 1; }
+            || { echo "::error::probe exited 0 without printing PROBE OK"; exit 1; }

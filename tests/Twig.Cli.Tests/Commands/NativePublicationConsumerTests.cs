@@ -1530,6 +1530,16 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             (await commands.SeedLinks(output: "json")).ShouldBe(0, stderr.ToString());
             using var capturedLinks = JsonDocument.Parse(stdout.ToString());
             capturedLinks.RootElement.GetProperty("count").GetInt32().ShouldBe(3);
+            var requestsBeforeLinkExport = _transport.TotalRequests;
+            stdout.GetStringBuilder().Clear();
+            (await commands.SeedLinks(id: aliases[1], output: "json")).ShouldBe(0, stderr.ToString());
+            using var middleLinks = JsonDocument.Parse(stdout.ToString());
+            middleLinks.RootElement.GetProperty("count").GetInt32().ShouldBe(2);
+            middleLinks.RootElement.GetProperty("links").EnumerateArray().Select(link => (
+                link.GetProperty("sourceId").GetInt32(), link.GetProperty("targetId").GetInt32())).Order()
+                .ShouldBe(new[] { (aliases[0], aliases[1]), (aliases[1], aliases[2]) }.Order());
+            _transport.TotalRequests.ShouldBe(requestsBeforeLinkExport,
+                "both directions of retained creation-link capture export must be cache-only");
             _transport.PostCount.ShouldBe(3, "link capture must not dispatch native work");
             stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(all: true, linkBranch: "feature/rooted", repo: "FixtureRepo", output: "human"))
@@ -2058,6 +2068,22 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             read.RootElement.GetProperty("cached").GetBoolean().ShouldBeTrue();
             _transport.TotalRequests.ShouldBe(requestsBeforeCachedRead, "a cached show must not acquire schema or work HTTP");
             _transport.CommittedWrites.ShouldBe(1, "show must not flush unrelated pending state");
+            foreach (var args in new[]
+            {
+                new[] { "show", "42", "--sections", "links", "-o", "json" },
+                new[] { "show-batch", "42", "--sections", "links", "-o", "json" },
+            })
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                Run(args).ShouldBe(1, string.Join(" ", args) + ": " + stderr);
+                stdout.ToString().ShouldBeEmpty("retired section envelopes must not pretend to export complete links");
+                using var refusal = JsonDocument.Parse(stderr.ToString());
+                refusal.RootElement.GetProperty("error").GetString().ShouldNotBeNull()
+                    .Contains("section", StringComparison.OrdinalIgnoreCase).ShouldBeTrue();
+                _transport.TotalRequests.ShouldBe(requestsBeforeCachedRead);
+                (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(snapshot.Version);
+            }
             stdout.GetStringBuilder().Clear();
             Run("set", "42").ShouldBe(0, stderr.ToString());
             stdout.GetStringBuilder().Clear();

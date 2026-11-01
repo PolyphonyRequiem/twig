@@ -152,6 +152,21 @@ public sealed partial class NativePublicationConsumerTests
     [Fact]
     public async Task RetiredRootLeavesNeverResolveLegacyCommandsOrLaunchers()
     {
+        var infrastructure = typeof(CoreWorkspaceFactory).Assembly;
+        foreach (var name in new[]
+        {
+            "Twig.Infrastructure.TwigServiceRegistration",
+            "Twig.Infrastructure.DependencyInjection.NetworkServiceModule",
+            "Twig.Infrastructure.Auth.ConnectionMigrationService",
+            "Twig.Infrastructure.Auth.ConnectionBindingTransitionService",
+            "Twig.Infrastructure.Auth.ConnectionDefaultTransitionService",
+            "Twig.Infrastructure.Auth.IdentityChangeEligibilityService",
+            "Twig.Infrastructure.Services.Mutation.AdoMutationProvider",
+            "Twig.Infrastructure.Services.Claims.LocalClaimService",
+        })
+            infrastructure.GetType(name).ShouldBeNull("retired business executors must not remain compiled");
+        typeof(IConnectionRemoteWriteReconciliationService).GetMethods()
+            .Select(method => method.Name).ShouldBe(["InspectAsync"]);
         var provider = Substitute.For<IServiceProvider>();
         provider.GetService(Arg.Any<Type>()).Returns(_ => throw new InvalidOperationException("Unexpected command resolution"));
         var root = new TwigCommands(provider);

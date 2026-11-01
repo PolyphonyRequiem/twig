@@ -2189,7 +2189,7 @@ internal static class CompanionStartup
         string currentVersion,
         IFileSystem fileSystem)
     {
-        using var httpClient = NetworkServiceModule.CreateHttpClient();
+        using var httpClient = NativeHttpClient.Create();
         var repoSlug = ResolveRepoSlug();
         var releaseService = new GitHubReleaseClient(httpClient, repoSlug);
         var selfUpdater = new SelfUpdater(httpClient);

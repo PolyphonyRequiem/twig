@@ -19,7 +19,7 @@ namespace Twig.Infrastructure.Services.ReferenceProfile;
 /// <remarks>
 /// Single load per process; matches the <c>DynamicProcessConfigProvider</c>
 /// pattern (T1 §8.1). The service is registered as a singleton in
-/// <c>TwigServiceRegistration</c>.
+/// the retired legacy service graph.
 /// </remarks>
 internal sealed class EmbeddedReferenceProfileProvider : IReferenceProfileProvider
 {

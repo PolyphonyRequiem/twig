@@ -109,7 +109,11 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
         }
     }
 
-    private IGitHubTokenSource Credential(GitHubWorkspaceScope scope) => configuration.GitHubCredentialSource switch
+    private IGitHubTokenSource Credential(GitHubWorkspaceScope scope)
+        => SelectCredential(configuration, scope, processes);
+
+    internal static IGitHubTokenSource SelectCredential(TwigConfiguration configuration,
+        GitHubWorkspaceScope scope, IBoundedProcessRunner? processes = null) => configuration.GitHubCredentialSource switch
     {
         null or "gh" => new GhCliTokenSource(processes ?? new BoundedProcessRunner(), scope.Host, configuration.GitHubAccount),
         "github-app" when scope.Host == "github.com" => GitHubAppAuthentication.CreateDefault(

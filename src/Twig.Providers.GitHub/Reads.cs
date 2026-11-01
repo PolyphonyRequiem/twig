@@ -12,26 +12,37 @@ public sealed partial class GitHubProvider
         => Guard(() => WithSession(connection, async (bound, token) =>
         {
             if (number <= 0) throw Wire.Refuse(ErrorCode.InvalidInput, "A positive native issue number is required.");
+            var stored = await Snapshot(token);
+            RefuseChangedActor(stored, bound);
             var data = await Graph(bound,
                 "query($id: ID!, $number: Int!) { node(id: $id) { __typename id ... on Repository { owner { id } issue(number: $number) { __typename id number repository { id owner { id } } } } } }",
                 json => { json.WriteString("id", _repository); json.WriteNumber("number", number); }, token);
             var repository = Wire.Member(data, "node"); Repository(repository);
+            if (Wire.Text(repository, "__typename") != "Repository")
+                throw Wire.Refuse(ErrorCode.Conflict, "The immutable number lookup did not observe a repository.");
             var issue = Wire.Member(repository, "issue");
             if (Wire.Text(issue, "__typename") != "Issue" || Wire.Member(issue, "number").GetInt32() != number)
                 throw Wire.Refuse(ErrorCode.Conflict, "The repository did not return the exact requested issue number.");
             Repository(Wire.Member(issue, "repository"));
             var key = Key(Wire.Text(issue, "id"));
+            CheckNumberIdentity(stored, key, FieldValue.Integer(number));
             var schema = await Discover(bound, token);
             var page = await Read(bound, schema, [key], token);
             if (page.Items.Length != 1 || page.Items[0].Fields[Number].Number != number)
                 throw Wire.Refuse(ErrorCode.Conflict, "Issue number changed during complete native observation.");
-            var stored = await Snapshot(token);
-            RefuseChangedActor(stored, bound);
             await bound.Session.ValidateAsync(token);
             var committed = await _store.CommitAsync(connection, stored.Version, Mirror(stored, page, stored.Version + 1), token);
             if (!committed.IsSuccess) throw new GitHubFailure(committed.Error);
             return page;
         }, ct));
+
+    private static void CheckNumberIdentity(StoreSnapshot stored, ItemKey key, FieldValue number)
+    {
+        if (stored.Items.Any(item => item.Key == key
+            ? !item.Fields.TryGetValue(Number, out var same) || !same.Equals(number)
+            : item.Fields.TryGetValue(Number, out var other) && other.Equals(number)))
+            throw Wire.Refuse(ErrorCode.Conflict, "Observed issue number differs from retained native identity; no identity was rebound.");
+    }
 
     public Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false)
         => Guard(() => WithSession(connection, async (bound, token) =>

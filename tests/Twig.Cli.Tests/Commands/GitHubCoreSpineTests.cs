@@ -23,6 +23,101 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed class GitHubCoreSpineTests
 {
+    [Theory]
+    [InlineData("number-reassigned", false)]
+    [InlineData("number-reassigned", true)]
+    [InlineData("node-number-moved", false)]
+    [InlineData("node-number-moved", true)]
+    public async Task CachedNumberMustBeRequalifiedBeforeExplicitRefreshOrMutation(string defect, bool mutation)
+    {
+        using var f = new Fixture();
+        await f.Initialize();
+        f.Run("show", "42", "--refresh", "-o", "json").ShouldBe(0, f.Error);
+        var captured = await f.Snapshot();
+        captured.Items.Single().Key.NativeId.ShouldBe("I_opaque");
+        captured.Items.Single().Fields["github.number"].ShouldBe(FieldValue.Integer(42));
+        captured.Proposals.ShouldBeEmpty();
+        f.Http.Defect = defect;
+        if (defect == "node-number-moved") f.Http.Issue["number"] = 43;
+        var requests = f.Http.Requests;
+        f.Run("show", "42", "-o", "json").ShouldBe(0, f.Error);
+        f.Http.Requests.ShouldBe(requests, "the old cached observation is not fresh native authority");
+        using (var output = JsonDocument.Parse(f.Output)) output.RootElement.GetProperty("id").GetInt32().ShouldBe(42);
+        f.Run(mutation
+            ? ["update", "title", "must not write", "--id", "42", "-o", "json"]
+            : ["show", "42", "--refresh", "-o", "json"]).ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+        var after = await f.Snapshot();
+        after.Version.ShouldBe(captured.Version, "mismatched native locator evidence must not even refresh the mirror");
+        after.Items.Single().ShouldBe(captured.Items.Single());
+        after.Proposals.ShouldBeEmpty();
+        after.Journal.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CachedNumberMustBeRequalifiedBeforeSavingAnExplicitDraft()
+    {
+        using var f = new Fixture();
+        await f.Initialize();
+        f.Run("show", "42", "--refresh", "-o", "json").ShouldBe(0, f.Error);
+        await f.Stage(GitHubProvider.Title, FieldValue.String("must not save to old node"));
+        var captured = await f.Snapshot();
+        captured.Drafts.ShouldHaveSingleItem();
+        f.Http.Defect = "number-reassigned";
+        f.Run("save", "42", "--output", "json").ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+        var after = await f.Snapshot();
+        after.Version.ShouldBe(captured.Version);
+        after.Drafts.Single().ShouldBe(captured.Drafts.Single());
+        after.Proposals.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task WorkspaceAliasUsesTheQualifiedOwnerAndVersionAndHelpAreOffline()
+    {
+        using var f = new Fixture();
+        await f.Initialize();
+        f.Run("show", "42", "--refresh", "-o", "json").ShouldBe(0, f.Error);
+        f.Run("bench", "create", "Alias", "-o", "json").ShouldBe(0, f.Error);
+        f.Run("bench", "switch", "Alias", "-o", "json").ShouldBe(0, f.Error);
+        f.Run("workspace", "track", "42", "-o", "json").ShouldBe(0, f.Error);
+        var workRequests = f.Http.WorkRequests;
+        f.Run("workspace", "-o", "json").ShouldBe(0, f.Error);
+        var canonical = f.Output;
+        f.Run("ws", "-o", "json").ShouldBe(0, f.Error);
+        f.Output.ShouldBe(canonical);
+        f.Http.WorkRequests.ShouldBe(workRequests);
+        var requests = f.Http.Requests;
+        f.Run("version").ShouldBe(0, f.Error);
+        f.Output.ShouldNotBeNullOrWhiteSpace();
+        foreach (var args in new[] { new[] { "--help" }, new[] { "ws", "--help" }, new[] { "new", "--help" } })
+            f.Run(args).ShouldBe(0, $"{string.Join(" ", args)}\n{f.Error}\n{f.Output}");
+        f.Http.Requests.ShouldBe(requests, "version/help must not acquire even metadata");
+    }
+
+    [Theory]
+    [InlineData("new")]
+    [InlineData("tree")]
+    [InlineData("link")]
+    public async Task UnqualifiedMachineFamilyRefusesWithOneJsonErrorBeforeAnyHttp(string family)
+    {
+        using var f = new Fixture();
+        await f.Initialize();
+        var requests = f.Http.Requests;
+        var args = family switch
+        {
+            "new" => new[] { "new", "--type", GitHubProvider.Untyped, "--title", "quick", "--parent", "42", "-o", "json" },
+            "tree" => ["tree", "42", "-o", "json"],
+            _ => ["link", "related", "43", "--id", "42", "-o", "json"],
+        };
+        f.Run(args).ShouldBe(1);
+        f.Output.ShouldBeEmpty();
+        using var error = JsonDocument.Parse(f.Error);
+        error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("not qualified");
+        f.Http.Requests.ShouldBe(requests);
+        f.Http.Writes.ShouldBe(0);
+    }
+
     [Fact]
     public void FreshCoreInitRequiresExplicitGhSelectionBeforeAnyHttp()
     {
@@ -302,7 +397,7 @@ public sealed class GitHubCoreSpineTests
 
     private sealed class NativeHttp : HttpMessageHandler
     {
-        internal int Requests, Writes, Creates;
+        internal int Requests, WorkRequests, Writes, Creates;
         internal bool LoseAcknowledgement, MoreCandidates;
         internal string? Defect, Comment;
         internal JsonObject Issue { get; } = new()
@@ -336,6 +431,8 @@ public sealed class GitHubCoreSpineTests
             var root = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!;
             var query = root["query"]!.GetValue<string>();
             var variables = root["variables"]!;
+            if (!query.Contains("viewer", StringComparison.Ordinal) && !query.Contains("__type(", StringComparison.Ordinal)
+                && !query.Contains("repository(owner:", StringComparison.Ordinal)) WorkRequests++;
             JsonNode data;
             if (query.StartsWith("mutation", StringComparison.Ordinal))
             {
@@ -382,6 +479,8 @@ public sealed class GitHubCoreSpineTests
                 variables["id"]!.GetValue<string>().ShouldBe("R_repo");
                 variables["number"]!.GetValue<int>().ShouldBe(42);
                 var repo = Repository(); var issue = (JsonObject)Issue.DeepClone(); issue["repository"] = Repository();
+                repo["__typename"] = "Repository";
+                if (Defect == "number-reassigned") issue["id"] = "I_rebound";
                 if (Defect == "number") issue["number"] = 43;
                 repo["issue"] = issue; data = new JsonObject { ["node"] = repo };
             }

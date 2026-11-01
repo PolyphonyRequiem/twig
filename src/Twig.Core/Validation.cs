@@ -272,14 +272,16 @@ public static partial class Core
                 case RuleAction.Required:
                     if (!supplied && (value is null || value.IsEmpty))
                         fail(ErrorCode.InvalidInput, $"Required field '{rule.Field}' has no effective value.");
-                    var requiredBefore = RequiredBefore(type, rule.Field, old);
-                    if (!requiredBefore.IsSuccess) fail(requiredBefore.Error.Code, requiredBefore.Error.Message);
-                    var newGate = !supplied && changedState && target?.Category == StateCategory.Completed
-                        && (source is null || source.Type != type.Reference || !requiredBefore.IsSuccess || !requiredBefore.Value);
-                    if (newGate && !op.Fields.ContainsKey(rule.Field))
-                        fail(ErrorCode.InvalidInput, $"Close-gate field '{rule.Field}' must ride in the same batch as the transition.");
-                    if (newGate && rule.Field != type.StateField && !atomicFields)
-                        fail(ErrorCode.Unsupported, $"Close-gate field '{rule.Field}' must be applied atomically with the transition.");
+                    if (!supplied && changedState && target?.Category == StateCategory.Completed)
+                    {
+                        var requiredBefore = RequiredBefore(type, rule.Field, old);
+                        if (!requiredBefore.IsSuccess) fail(requiredBefore.Error.Code, requiredBefore.Error.Message);
+                        var newGate = source is null || source.Type != type.Reference || !requiredBefore.IsSuccess || !requiredBefore.Value;
+                        if (newGate && !op.Fields.ContainsKey(rule.Field))
+                            fail(ErrorCode.InvalidInput, $"Close-gate field '{rule.Field}' must ride in the same batch as the transition.");
+                        if (newGate && rule.Field != type.StateField && !atomicFields)
+                            fail(ErrorCode.Unsupported, $"Close-gate field '{rule.Field}' must be applied atomically with the transition.");
+                    }
                     break;
                 case RuleAction.ReadOnly:
                     if (op.Fields.ContainsKey(rule.Field)) fail(ErrorCode.InvalidInput, $"Rule makes '{rule.Field}' read-only.");

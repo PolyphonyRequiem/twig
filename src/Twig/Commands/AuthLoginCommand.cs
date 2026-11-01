@@ -37,8 +37,6 @@ internal sealed class AuthLoginCommand
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly Rendering.RendererFactory _rendererFactory;
     private readonly IConnectionBindingService _bindingService;
-    private readonly TwigConfiguration _config;
-    private readonly TwigPaths _paths;
 
     public AuthLoginCommand(
         OutputFormatterFactory formatterFactory,
@@ -49,8 +47,6 @@ internal sealed class AuthLoginCommand
     {
         _formatterFactory = formatterFactory;
         _bindingService = bindingService;
-        _config = config;
-        _paths = paths;
         _rendererFactory = rendererFactory ?? new Rendering.RendererFactory();
     }
 
@@ -63,29 +59,15 @@ internal sealed class AuthLoginCommand
         CancellationToken ct = default)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
+        if (string.IsNullOrWhiteSpace(identity))
+        {
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "Named enrollment requires --identity <alias>; no attached or ambient identity was inferred.");
+            return 2;
+        }
         var resolvedTenant = string.IsNullOrWhiteSpace(tenant) ? AuthorizeRequestBuilder.DefaultTenant : tenant;
 
-        string alias;
-        if (!string.IsNullOrWhiteSpace(identity))
-        {
-            alias = identity!.Trim();
-        }
-        else
-        {
-            // No alias: an attached binding must already name the identity. We never write
-            // an ambient/global credential — the service refuses, and so do we.
-            try
-            {
-                var resolved = await _bindingService.ResolveAsync(_config, _paths, ct);
-                alias = resolved.Identity.Name;
-            }
-            catch (InvalidOperationException ex)
-            {
-                Console.Error.WriteLine(fmt.FormatError($"Cannot infer which identity to log in as: {ex.Message}"));
-                Console.Error.WriteLine("Pass '--identity <alias>' to register a new one, then bind it with 'twig connection bind --org <org> --project <project> --identity <alias> --default'.");
-                return 1;
-            }
-        }
+        var alias = identity.Trim();
 
         InteractiveAuthResult result;
         if (useDeviceCode)
@@ -100,7 +82,7 @@ internal sealed class AuthLoginCommand
         if (!result.Succeeded || result.Entry is null)
         {
             Console.Error.WriteLine();
-            Console.Error.WriteLine(fmt.FormatError($"Sign-in failed: {result.ErrorMessage}"));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat, $"Sign-in failed: {result.ErrorMessage}");
             if (result.ErrorKind == InteractiveAuthErrorKind.PolicyBlocked && useDeviceCode)
             {
                 Console.Error.WriteLine("Your tenant blocks the device code grant. Try 'twig auth login --identity " + alias + "' (loopback PKCE) instead.");
@@ -120,7 +102,7 @@ internal sealed class AuthLoginCommand
         }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Could not register identity '{alias}': {ex.Message}"));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat, $"Could not register identity '{alias}': {ex.Message}");
             return 1;
         }
     }

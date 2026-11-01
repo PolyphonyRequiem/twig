@@ -126,7 +126,7 @@ public sealed partial class GitHubCoreSpineTests
         var requests = f.Http.Requests;
         f.Run("version").ShouldBe(0, f.Error);
         f.Output.ShouldNotBeNullOrWhiteSpace();
-        foreach (var args in new[] { new[] { "--help" }, new[] { "ws", "--help" }, new[] { "new", "--help" } })
+        foreach (var args in new[] { new[] { "--help" }, new[] { "ws", "--help" }, new[] { "auth", "--help" } })
             f.Run(args).ShouldBe(0, $"{string.Join(" ", args)}\n{f.Error}\n{f.Output}");
         f.Http.Requests.ShouldBe(requests, "version/help must not acquire even metadata");
     }
@@ -149,7 +149,7 @@ public sealed partial class GitHubCoreSpineTests
         f.Run(args).ShouldBe(1);
         f.Output.ShouldBeEmpty();
         using var error = JsonDocument.Parse(f.Error);
-        error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("not qualified");
+        error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain(family == "new" ? "retired" : "not qualified");
         f.Http.Requests.ShouldBe(requests);
         f.Http.Writes.ShouldBe(0);
     }

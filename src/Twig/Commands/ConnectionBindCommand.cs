@@ -52,8 +52,8 @@ internal sealed class ConnectionBindCommand
 
         if (string.IsNullOrWhiteSpace(identity))
         {
-            Console.Error.WriteLine(fmt.FormatError("'--identity <alias>' is required."));
-            Console.Error.WriteLine("Register one with 'twig auth login --identity <alias>' first; list them with 'twig auth identities'.");
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "'--identity <alias>' is required. Register a named identity first; list it with 'twig auth identities'.");
             return 1;
         }
 
@@ -61,7 +61,14 @@ internal sealed class ConnectionBindCommand
         var projectProvided = !string.IsNullOrWhiteSpace(project);
         if (orgProvided ^ projectProvided)
         {
-            Console.Error.WriteLine(fmt.FormatError("Pass both --org and --project together, or neither (to use the workspace defaults)."));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "Pass both --org and --project together, or neither (to use the declared ADO workspace coordinates).");
+            return 1;
+        }
+        if (!orgProvided && _config.ResolveWorkItemProviderKind() == "github")
+        {
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "ADO binding creation from a GitHub workspace requires explicit --org and --project; the pinned GitHub target is unchanged.");
             return 1;
         }
 
@@ -70,7 +77,8 @@ internal sealed class ConnectionBindCommand
 
         if (string.IsNullOrWhiteSpace(resolvedOrg) || string.IsNullOrWhiteSpace(resolvedProject))
         {
-            Console.Error.WriteLine(fmt.FormatError("No endpoint coordinates: pass --org and --project, or run inside a workspace with Organization/Project configured."));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                "No ADO endpoint coordinates: pass --org and --project. A GitHub target is not an ADO binding fallback.");
             return 1;
         }
 
@@ -81,7 +89,8 @@ internal sealed class ConnectionBindCommand
         }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Could not bind '{resolvedOrg}/{resolvedProject}' → '{identity}': {ex.Message}"));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                $"Could not bind '{resolvedOrg}/{resolvedProject}' to '{identity}': {ex.Message}");
             return 1;
         }
 

@@ -52,7 +52,7 @@ internal static class CommandExamples
             "twig init contoso Fabrikam --core-store C:\\isolated\\core.db             Initialize a fresh isolated ADO checkout with a new explicitly bound Core store",
             "twig init --provider github --host github.com --repository owner/repo --account me   Create .twig/core.db using the exact selected native gh account",
             "twig init --org contoso --project Fabrikam --team \"Team A\"             Initialize with an explicit team",
-            "twig process --refresh                                                 4) verify remote metadata access (refreshes local cache)",
+            "twig process --refresh                                                 4) verify remote metadata access without work-item sync",
             "twig connection status                                                 optional: inspect the local binding (no ADO call)",
         ],
         ["set"] =
@@ -110,7 +110,7 @@ internal static class CommandExamples
             "twig process Task          Show states, fields, and transitions for Task type",
             "twig process Bug -o json   Show Bug type details as JSON",
             "twig process --refresh     Recover process and field metadata without syncing work items",
-            "twig process --org otherorg --project otherproj   Describe another project's process (live read, no workspace needed)",
+            "twig process description <type-ref> -o json       Inspect the pinned provider's declared requirements",
         ],
         ["process layout"] =
         [
@@ -786,6 +786,7 @@ internal static class CommandExamples
     internal static void ShowIfPresent(string[] args)
     {
         if (args.Length == 0) return;
+        if (Twig.CoreMutationAdmissionGuard.ValidateCatalog(args) is not null) return;
 
         string? key = null;
 

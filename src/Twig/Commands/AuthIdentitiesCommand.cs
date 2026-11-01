@@ -40,7 +40,7 @@ internal sealed class AuthIdentitiesCommand
         }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Could not list identities: {ex.Message}"));
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat, $"Could not list identities: {ex.Message}");
             return 1;
         }
 

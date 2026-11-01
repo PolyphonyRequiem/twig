@@ -48,28 +48,15 @@ function Install-Shim($exeName, $coreName, $entryArguments = '') {
 }
 
 function Enable-Shims {
-    $releaseCli = Join-Path $globalDir 'twig-core.exe'
-    if (-not (Test-Path $releaseCli)) { $releaseCli = Join-Path $globalDir 'twig.exe' }
-    $releaseTui = Join-Path $globalDir 'twig-tui-core.exe'
-    if (-not (Test-Path $releaseTui)) { $releaseTui = Join-Path $globalDir 'twig-tui.exe' }
-    $nativeRelease = (Test-Path $releaseCli) -and (Test-Path $releaseTui) -and
-        ((Get-FileHash $releaseCli -Algorithm SHA256).Hash -eq (Get-FileHash $releaseTui -Algorithm SHA256).Hash)
     # Rename release binaries so the .cmd shims take precedence via PATHEXT.
-    foreach ($name in @('twig', 'twig-tui', 'twig-bench-tui')) {
-        if ($name -ne 'twig' -and -not $nativeRelease) {
-            Write-Host "  Retaining existing global $name launch; native aliases are repo-local until the global release is qualified." -ForegroundColor DarkGray
-            continue
-        }
+    foreach ($name in @('twig')) {
         $exe  = Join-Path $globalDir "$name.exe"
         $core = Join-Path $globalDir "$name-core.exe"
         if ((Test-Path $exe) -and -not (Test-Path $core)) {
             Rename-Item $exe $core
             Write-Host "  Renamed $name.exe -> $name-core.exe" -ForegroundColor DarkGray
         }
-        # Renamed aliases no longer have dispatch basenames. Invoke the release
-        # CLI's canonical tui command instead; repo-local aliases launch directly.
-        $entryArguments = if ($name -eq 'twig') { '' } else { 'tui ' }
-        Install-Shim "$name.exe" 'twig-core.exe' $entryArguments
+        Install-Shim "$name.exe" 'twig-core.exe'
     }
 }
 
@@ -127,12 +114,9 @@ if (Test-Path $localDir) {
 New-Item -ItemType Directory -Path $localDir -Force | Out-Null
 
 Invoke-Publish "twig" "src\Twig\Twig.csproj"
-foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
-    Copy-Item (Join-Path $localDir 'twig.exe') (Join-Path $localDir "$alias.exe")
-}
 
 # Retire only the old repo-local MCP launcher; preserve any installed release binary.
-Disable-Shims @('twig-mcp')
+Disable-Shims @('twig-mcp', 'twig-tui', 'twig-bench-tui')
 Get-ChildItem -Path $localDir -Filter 'twig-mcp*' -File | Remove-Item -Force
 
 # Install shims so 'twig' on PATH resolves to the local build
@@ -140,7 +124,7 @@ Enable-Shims
 
 Write-Host ""
 Write-Host "Local publish complete!" -ForegroundColor Green
-foreach ($name in @('twig', 'twig-tui', 'twig-bench-tui')) {
+foreach ($name in @('twig')) {
     $exe = Join-Path $localDir "$name.exe"
     if (Test-Path $exe) {
         $v = & $exe --version 2>&1

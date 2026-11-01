@@ -177,13 +177,29 @@ internal sealed class LocalRelationshipCommand(
             || list && OutputFormats.Normalize(output) == "ids";
 
     private static string Describe(Relationship edge)
-        => $"{edge.From} --{edge.Kind}-- {edge.To} (LOCAL; local-only; non-native; version {edge.LocalVersion}; deleted {edge.Deleted})";
+        => $"{EndpointText(edge.From)} --{edge.Kind}-- {EndpointText(edge.To)} (LOCAL; local-only; non-native; version {edge.LocalVersion}; deleted {edge.Deleted})";
+
+    private static string EndpointText(ItemKey key)
+        => key.IsLocal ? key.LocalId.ToString("D") : key.NativeId!;
+
+    private static RenderCell EndpointCell(ItemKey key)
+        => new(EndpointText(key), new RenderValue.Object(key.IsLocal
+            ? new Dictionary<string, RenderCell>
+            {
+                ["localId"] = RenderCell.String(key.LocalId.ToString("D")),
+            }
+            : new Dictionary<string, RenderCell>
+            {
+                ["provider"] = RenderCell.String(key.Provider!.Value),
+                ["scope"] = RenderCell.String(key.ResourceScope!),
+                ["nativeId"] = RenderCell.String(key.NativeId!),
+            }));
 
     private static RenderCell RelationshipCell(Relationship edge)
         => new(Describe(edge), new RenderValue.Object(new Dictionary<string, RenderCell>
         {
-            ["source"] = RenderCell.String(edge.From.ToString()),
-            ["target"] = RenderCell.String(edge.To.ToString()),
+            ["source"] = EndpointCell(edge.From),
+            ["target"] = EndpointCell(edge.To),
             ["kind"] = RenderCell.String(edge.Kind),
             ["origin"] = RenderCell.String("LOCAL"),
             ["storage"] = RenderCell.String("local-only"),

@@ -26,6 +26,9 @@ Removal stages one existing Core `Unrelate` operation with the exact edge
 journal. It persists a tombstone with an incremented local version. It never
 deletes a row, rewrites original seed UUID edge keys, or alters provider-origin
 relationships. `Verified` means local CAS, not tracker publication.
+JSON `source`/`target` preserve the original stored identities as typed objects:
+`localId` for a local UUID, or `provider`/`scope`/opaque `nativeId` for a remote
+key. Publication never replaces an existing edge's UUID object with its mapping.
 
 Absent/deleted edges, stale versions, multiple logical matches, missing endpoint
 evidence, policy/actor mismatches and unresolved effects refuse explicitly.

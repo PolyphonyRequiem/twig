@@ -7,6 +7,9 @@ internal static class CoreMutationAdmissionGuard
     internal static string? Validate(IReadOnlyList<string> args, string twigDirectory)
     {
         if (args.Contains("--help") || args.Contains("-h")) return null;
+        if (args.Count == 0) return null;
+        if (ValidateCatalog(args) is { } retired) return retired;
+        if (NativeHost(args)) return null;
         var marker = Path.Combine(twigDirectory, CoreWorkspaceFactory.FileName);
         if (File.Exists(marker) && args.Count != 0)
         {
@@ -25,9 +28,53 @@ internal static class CoreMutationAdmissionGuard
         if (args.Count == 0 || !RequiresCore(args)
             || File.Exists(Path.Combine(twigDirectory, CoreWorkspaceFactory.FileName)))
             return null;
-        return "An explicitly initialized Core workspace is required for this mutation. "
+        return "An explicitly initialized Core workspace is required for Core data commands. "
             + "Existing legacy drafts, journals and creation fences were preserved; no legacy writer was opened. "
             + "Use a fresh isolated worktree and `twig init <org> <project> --core-store <new-absolute-file>`.";
+    }
+
+    internal static string? ValidateCatalog(IReadOnlyList<string> args)
+    {
+        if (args.Count == 0 || args.Contains("--help") || args.Contains("-h") || !Retired(args)) return null;
+        var command = args[0];
+        if (args.Count > 1 && !args[1].StartsWith('-')
+            && args[0] is "auth" or "connection" or "bench" or "workspace" or "process"
+                or "proposal" or "plan" or "seed" or "draft" or "nav" or "link")
+            command += " " + args[1];
+        return $"Unsupported: {command} or its UI envelope is retired from current delivery; no provider, credential or legacy workflow was opened.";
+    }
+
+    private static bool NativeHost(IReadOnlyList<string> args) => args[0] switch
+    {
+        "init" or "skills" or "help" or "version" => true,
+        "auth" => args.Count > 1 && args[1] is "login" or "pat" or "identities" or "status",
+        "connection" => args.Count > 1 && args[1] is "bind" or "list" or "status" or "writes",
+        _ => false,
+    };
+
+    private static bool Retired(IReadOnlyList<string> args)
+    {
+        if (args.Any(value => value.Split('=', 2)[0] is "--browser" or "--include-browser" or "--browser-version"
+            or "--expect-binding" or "--expect-identity" or "--expect-settings" or "--include-management"
+            or "--include-rendering" or "--interactive" or "--live" or "--all-backlog"))
+            return true;
+        return args[0] switch
+        {
+            "init" or "skills" or "help" or "version" => false,
+            "auth" or "connection" => !NativeHost(args),
+            "show" or "show-batch" or "query" or "update" or "patch" or "state" or "states" or "note"
+                or "batch" or "pending" or "save" or "discard" or "set" or "refresh" or "sync" or "edit" => false,
+            "tree" => args.Contains("--all"),
+            "nav" => args.Count < 2 || args[1] is not ("up" or "down" or "next" or "prev"),
+            "process" => args.Count > 1 && args[1] == "layout",
+            "seed" => args.Count < 2 || args[1] is not ("new" or "view" or "validate" or "publish" or "discard" or "reconcile" or "chain" or "edit" or "link" or "unlink" or "links"),
+            "proposal" or "plan" => args.Count < 2 || args[1] is not ("validate" or "preview" or "apply" or "status"),
+            "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "switch"),
+            "workspace" or "ws" => args.Contains("--all") || args.Contains("--tree")
+                || args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("view" or "track" or "track-tree" or "untrack" or "sync"),
+            "link" => false,
+            _ => true,
+        };
     }
 
     private static bool GitHubQualified(IReadOnlyList<string> args) => args[0] switch
@@ -44,17 +91,5 @@ internal static class CoreMutationAdmissionGuard
         _ => false,
     };
 
-    private static bool RequiresCore(IReadOnlyList<string> args) => args[0] switch
-    {
-        "update" or "state" or "note" or "patch" or "edit" or "batch" or "delete" or "save" or "discard" or "new" or "link" => true,
-        "sync" => !args.Contains("--pull-only"),
-        "seed" => args.Count < 2 || args[1] is not ("view" or "validate" or "links"),
-        "proposal" or "plan" => args.Count >= 2 && args[1] is "apply" or "reconcile" or "preview" or "validate",
-        "draft" => args.Count >= 2 && args[1] is not ("show" or "review"),
-        "bench" => args.Count >= 2 && args[1] is "browser" or "create" or "delete" or "switch"
-            || args.Count >= 3 && args[1] == "discussion" && args[2] == "prepare-post",
-        "tui" => true,
-        "policy" => args.Count >= 2 && args[1] == "reconcile",
-        _ => false,
-    };
+    private static bool RequiresCore(IReadOnlyList<string> args) => !NativeHost(args);
 }

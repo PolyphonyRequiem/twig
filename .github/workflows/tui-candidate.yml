@@ -10,6 +10,8 @@ permissions:
 
 jobs:
   candidate:
+    # Retired from current delivery. Preserve the candidate definition as phase-6 context.
+    if: ${{ false }}
     name: candidate (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
     environment: release

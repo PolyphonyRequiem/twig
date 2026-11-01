@@ -18,15 +18,19 @@ internal static class TwigConsoleApp
         });
         app.UseFilter<global::ExceptionFilter>();
         app.Add<TwigCommands>();
-        app.Add<OhMyPoshCommands>("ohmyposh");
         app.Add<SkillCommands>("skills");
         return args =>
         {
             compositionError = null;
             var previous = ConsoleApp.LogError;
             var format = StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default;
-            if (args.Length > 2 && args[0] == "link" && args[1] == "local"
-                && StructuredMutationArgumentValidator.Validate(args) is { } localTargetError)
+            if (CoreMutationAdmissionGuard.ValidateCatalog(args) is { } admission)
+            {
+                CommandError.Write(new RendererFactory(), Console.Error, format, admission);
+                Environment.ExitCode = 1;
+                return;
+            }
+            if (StructuredMutationArgumentValidator.Validate(args) is { } localTargetError)
             {
                 CommandError.Write(new RendererFactory(), Console.Error, format, localTargetError);
                 Environment.ExitCode = StructuredMutationArgumentValidator.UsageExitCode;

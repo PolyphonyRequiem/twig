@@ -15,17 +15,19 @@ internal static class ProgressiveHelp
 Usage: twig [command] [-h|--help] [--help-all] [--skill [operations|changes|presentation]] [--version]
 
 Choose a task:
-  Get started       init, auth --help, sync
-  Read and find     show, show-batch, query, history
+  Get started       init, auth --help, connection --help
+  Read and find     show, show-batch, query
   Explore work      workspace --help, bench --help, nav --help
   Understand types  process --help
   Draft work        seed --help
   Review and apply  proposal --help, pending
   Change an item    state, batch, note, update, patch, link --help
-  Configure Twig    config --help, upgrade
+  Native evidence   connection status, connection writes (read-only)
   Agent guidance    --skill, skills --help
 
 Help is offline; it does not initialize a workspace or sign in.
+Data commands require a fresh pinned Core workspace. No legacy runtime fallback.
+Browser/TUI/MCP, quick new, history, migration/reset and captured UI envelopes are retired.
 Run 'twig <command> --help' for options, defaults, examples, effects and failures.
 Run 'twig --help-all' for the complete command catalog.
 """);
@@ -39,7 +41,9 @@ Run 'twig --help-all' for the complete command catalog.
     {
         if (args.Length == 1 && args[0] == "--help-all")
         {
-            generatedHelp(["--help"]);
+            Console.WriteLine("Commands (retained Core and native host):");
+            foreach (var row in ReadCatalog(CaptureGeneratedHelp(generatedHelp, ["--help"])))
+                Console.WriteLine($"  {string.Join('|', row.Names),-34} {row.Description}");
             Console.WriteLine("Run 'twig <command> --help' for detailed usage, examples, effects and failures.");
             return true;
         }
@@ -50,6 +54,14 @@ Run 'twig --help-all' for the complete command catalog.
         if (words.Length == 0)
         {
             ShowRoot();
+            return true;
+        }
+        var group = words.Length == 1 && words[0] is "auth" or "connection" or "proposal" or "plan" or "seed" or "nav" or "link";
+        if (!group && Twig.CoreMutationAdmissionGuard.ValidateCatalog(words) is { } retired)
+        {
+            Twig.Commands.CommandError.Write(new Twig.Rendering.RendererFactory(), Console.Error,
+                Twig.Formatters.OutputFormats.Default, retired);
+            Environment.ExitCode = 1;
             return true;
         }
 
@@ -169,7 +181,8 @@ Run 'twig --help-all' for the complete command catalog.
             var description = separator < 0 ? "" : text[separator..].Trim();
             rows.Add(new(names.Split(", ", StringSplitOptions.RemoveEmptyEntries), description));
         }
-        return rows;
+        return rows.Where(row => row.Names.Any(name =>
+            Twig.CoreMutationAdmissionGuard.ValidateCatalog(name.Split(' ')) is null)).ToArray();
     }
 
     private static string? ResolveCommand(string[] words, IReadOnlyList<CatalogRow> catalog)

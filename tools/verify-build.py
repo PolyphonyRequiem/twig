@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class SmokeTrace:
     """Optional safe boundary records, written outside the captured worker pipes."""
-    PHASES = {'supervisor', 'worker', 'version', 'help', 'config-help', 'connection-help',
+    PHASES = {'supervisor', 'worker', 'version', 'help', 'auth-help', 'connection-help',
               'configure', 'fixture', 'identity', 'preview', 'wrong-account', 'journal',
               'git-init', 'git-common', 'git-dir', 'git-root', 'fixture-identities'}
     EVENTS = {'start', 'end', 'error', 'timeout'}
@@ -84,10 +84,9 @@ def worker(binary, directory, trace):
             raise RuntimeError(f'{arguments}: exit {result.returncode}, expected {expected}: {result.stderr}')
         return result
     run('version', '--version')
-    for label, arguments in (('help', ('--help',)), ('config-help', ('config', '--help')),
-                             ('connection-help', ('connection', 'default', '--help'))):
+    for label, arguments in (('help', ('--help',)), ('auth-help', ('auth', '--help')),
+                             ('connection-help', ('connection', 'status', '--help'))):
         run(label, *arguments)
-    run('configure', 'config', 'display.icons', 'unicode', '-o', 'json')
     spec = importlib.util.spec_from_file_location('presenter_fixture', ROOT / 'tools/verify-proposal-presenters.py')
     fixture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixture)
@@ -97,10 +96,6 @@ def worker(binary, directory, trace):
     status = json.loads(run('identity', 'auth', 'status', '-o', 'json').stdout)
     if status.get('identity') != 'offline-reviewer':
         raise RuntimeError('Current-store binding metadata was not admitted')
-    cache = workspace / '.twig/cache/twig.db'
-    with sqlite3.connect(cache) as db:
-        db.execute('INSERT INTO work_items (id,type,title,state,iteration_path,area_path,revision,is_seed,fields_json,is_dirty,last_synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-                   (42, 'Task', 'Offline smoke item', 'New', 'PresenterSmoke', 'PresenterSmoke', 1, 0, '{}', 0, '2026-01-01T00:00:00+00:00'))
     collection, project_id = '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222'
     actor = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
     identity_ref = json.dumps(['fixture-binding', 'fixture-identity', 'aad', actor], separators=(',', ':'))
@@ -164,8 +159,10 @@ def worker(binary, directory, trace):
         if row['Status'] != 0 or row['Attempt'] != '00000000-0000-0000-0000-000000000000' or row['Receipts']:
             raise RuntimeError('Core smoke must never acquire Applying or a transport attempt')
     trace.write('journal', 'end')
+    if (workspace / '.twig/cache').exists():
+        raise RuntimeError('Native host/Core smoke must not materialize a legacy cache')
     trace.write('worker', 'end', 0)
-    print('SMOKE PASSED: startup/help, current schema/binding, offline fail-closed proposal preview, wrong-account refusal; no work HTTP or apply')
+    print('SMOKE PASSED: retained startup/help, native binding, Core-only offline fail-closed proposal preview, wrong-account refusal; no legacy cache, work HTTP or apply')
     return 0
 
 

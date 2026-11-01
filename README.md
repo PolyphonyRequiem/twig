@@ -33,13 +33,53 @@ migration, adoption, reset or deletion. `--force`, `--reinitialize`, `--profile`
 `twig init --provider github --host github.com --repository owner/repo --account selected`;
 the exact selected native `gh` account, not ambient tokens or the active account,
 supplies authority. See [initialization](docs/commands/getting-started/init.md).
-The remaining command catalog and UI are still under Core cutover.
+The production catalog is now **Core data plus native host utilities only**.
+With or without a Core marker, production never registers the old item repository,
+pending store/flusher, seed publisher, plan executor or asynchronous workspace/UI
+workflow. Without a marker, data commands give an initialization-required refusal.
+There is no legacy cache fallback, migration or compatibility mode.
+
+The finite retained data surface is process/schema description, cached
+`show`/`show-batch` and explicit refresh, bounded `query`, typed
+`update`/`patch`/`state`/`note`/`batch`, `pending`/`save`/`discard`,
+`seed new/view/validate/publish/discard`, file-scoped
+`proposal validate/preview/apply/status` (also `plan`), Bench list/create/switch,
+single-item pins and static workspace tables. Previously qualified ADO pull/sync,
+Core editor/navigation/seed-chain/targeted-tree conveniences, native Link and
+explicit Core local Related remain; they are not promises of GitHub parity.
+GitHub continues to refuse unqualified tree/navigation/editor/chain/sync/context
+and type-name/assignee/path/date queries, with a **100 total candidate** limit.
+
+Native host utilities are offline help/version/skills, fresh init, explicit named
+AAD/PAT or GitHub App enrollment, binding create/list/status and read-only
+`connection writes`. `connection status`/default `auth status` describe selected
+or pinned **recorded** identity/target, not fresh authenticated evidence.
+Explicit GitHub App status describes only that app credential and never verifies
+the pinned `gh` actor. GitHub utilities never silently resolve an ADO target.
+
+`connection writes` reads native evidence without work HTTP. GitHub sidecars are
+bounded, identity/hash-checked **correlated transport evidence**, tied to the
+original store instance, connection, digest, ordinal and attempt. Missing or
+invalid evidence stays unknown/refused. Only the Core journal inspected by
+`proposal status --file ...` is execution authority. Inspection never settles,
+replays, changes UUIDs/digests, deletes evidence or clears a native fence.
+
+**Retired from current delivery:** quick `new` (use `seed new`), Browser/TUI/MCP
+launches and automatic companions, captured draft/edit/review/save envelopes,
+tree-set/full backlog/live/sprint/team/area/exclusion UI, old policy assessment
+and repair selection, native history/layout exports, proposal latest/seed/old
+reconcile UX, migration/reset/reinitialize, identity/target hot-switches and shell
+presentation integration. Retired calls fail explicitly before provider or legacy
+DI/input I/O. Source and older feature documentation remain as phase-6 deletion
+context, **not supported alternate application routes**. Nothing here closes the
+tracking Epic or settles its historical unknown publication.
 
 ### Offline help and agent guidance
 
 `twig --help` starts with common tasks; `twig <group> --help` narrows discovery
 and `twig <command> --help` gives full syntax, examples, effects and failures.
-`twig --help-all` retains the complete catalog.
+`twig --help-all` shows the retained catalog; retired declarations are not promoted
+as supported features.
 
 `twig --skill` prints executable-matched generic guidance without a workspace or
 authentication. `twig skills --help` covers explicit Hermes, OMP and Copilot CLI
@@ -58,7 +98,7 @@ twig set 12345
 twig set "auth bug"
 
 # View the active item
-twig status                     # full detail view
+twig show                       # cached detail view
 twig tree                       # hierarchical tree from active item
 
 # Navigate the hierarchy
@@ -66,7 +106,13 @@ twig nav up                     # move to parent
 twig nav down "subtask"         # move to child by title match
 ```
 
-### Read-only native discussion pages
+## Historical feature documentation (retired surfaces)
+
+The following pre-cutover UI/envelope descriptions are retained as historical
+design context. The finite catalog above is the current delivery contract;
+commands explicitly listed as retired cannot be used through these older routes.
+
+### Read-only native discussion pages (retired)
 
 `twig bench discussion --stdin -o json` reads **one** remote ADO comments page
 for an explicitly qualified cached member of a saved Bench. It never falls back

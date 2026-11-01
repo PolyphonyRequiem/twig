@@ -34,11 +34,6 @@ public static class RenderingServiceModule
             var cfg = sp.GetRequiredService<TwigConfiguration>();
             return new SpectreTheme(cfg.Display, cfg.TypeAppearances, stateEntries, cfg);
         });
-        services.AddSingleton<IAsyncRenderer>(sp => new SpectreRenderer(
-            sp.GetRequiredService<IAnsiConsole>(),
-            sp.GetRequiredService<SpectreTheme>()));
-        services.AddSingleton<RenderingPipelineFactory>();
-
         return services;
     }
 }

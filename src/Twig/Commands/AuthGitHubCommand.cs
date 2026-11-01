@@ -34,7 +34,7 @@ internal sealed class AuthGitHubCommand(
         {
             ct.ThrowIfCancellationRequested();
             var selectedClient = clientId ?? config.GitHubAppClientId ?? "";
-            var selectedIdentity = identity ?? config.GitHubOAuthIdentity ?? "";
+            var selectedIdentity = identity ?? (operation == "status" ? config.GitHubOAuthIdentity : null) ?? "";
             try { GitHubAppCredentialStore.ValidateSelection(selectedClient, selectedIdentity); }
             catch (GitHubDeviceFlowException ex)
             {

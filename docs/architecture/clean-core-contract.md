@@ -1,8 +1,73 @@
 # Clean core contract
 
-Phases 1-4 and phase-5 implementation in progress for **Epic #1220, Core domain consolidation**. Updated 2026-10-31.
+Phases 1-4 and phase-5 code closure for **Epic #1220, Core domain consolidation**. Updated 2026-10-31.
 
 ## Status and scope
+
+### Closed production command catalog
+
+The final phase-5 closure narrows existing production owners, rather than adding
+another facade or parity tranche. `WorkspaceRegistrationModule` installs the native
+bootstrap and retained host commands independently of a marker; only a pinned
+Core marker admits Core data owners. A no-marker data invocation refuses explicitly,
+never installing `AddConnectionServices`, `AddTwigNetworkServices`,
+`AddTwigCommandServices` or their old writer/projection graph. The retained static
+RenderTree renderer does not register the asynchronous/aggregate workspace pipeline.
+Actual descriptors and retained-owner resolution are proven both with and without a
+marker. Core remains 56 types/two ports/format 3; Domain/source deletion is phase 6.
+
+The finite data catalog is process/description, cached show/show-batch with explicit
+refresh, bounded query, update/patch/state/note/batch, pending/save/discard,
+seed new/view/validate/publish/discard and original acknowledged recovery,
+file proposal validate/preview/apply/status, Bench list/create/switch, single pins
+and static workspace. Already qualified ADO pull/sync, editor/navigation,
+seed-chain/creation links/targeted trees, Link and Core local Related remain.
+GitHub's explicit earlier limitations and 100-total-candidate query bound remain.
+Preserving those paths does not introduce another provider or UI parity requirement.
+
+Native help/version/skills, fresh init, named enrollment/credential acquisition,
+binding create/list/status and read-only native write evidence remain available.
+The native registry, actual binding factory and generation/unknown-write guards
+are retained, not the legacy identity-change eligibility graph. Recorded actor and
+pinned target status is not freshly authenticated evidence. GitHub App login/status
+is not verification of the pinned gh actor; GitHub inspection never falls back to ADO.
+Pinned workspace identity/target switching, migration/default transitions and resets
+are not supported.
+
+Program startup no longer composes Browser separately, reopens its runtime with an
+empty argument list, launches MCP or installs automatic companions. Legacy command
+fallback resolutions are removed, not hidden behind missing DI. Retired root leaves
+explicitly refuse without resolving a command. CAF/catalog admission refuses retired
+verbs and captured envelopes before production composition or input/provider I/O.
+The current help filters retired declarations; released/installable UI aliases and the
+standalone TUI solution entry are withdrawn. The UI source remains historical context.
+
+Retired surfaces include quick new, Browser/TUI/MCP and captured draft/edit/review/save,
+tree-set/full backlog/live/sprint/team/area/exclusion UI, old policy assessment/repair,
+native history/layout/behavior export, proposal latest/seed/old reconcile, migration,
+reset/reinitialize and legacy shell presentation. Use seed new and explicit Core file
+proposals instead. Finite delivery does not mean those surfaces were ported.
+
+`connection writes` is inspect-only. ADO reads the existing native registry through
+binding authority, without work HTTP or old seed/plan/eligibility constructors.
+GitHub uses the same command owner for bounded original intent/ack sidecar inspection:
+store instance, immutable connection, actor, digest, ordinal, original attempt,
+canonical request hash and retained Core request must agree. Duplicate JSON,
+orphan/oversized/redirected evidence and invalid hashes fail closed. Missing
+acknowledgement stays unknown. An acknowledgement is only correlated transport
+evidence, never Core Verified execution. Core proposal status/journal remains the
+execution authority. Inspection performs no settlement, replay, adoption, expiry,
+digest rewrite, fence clearing or evidence cleanup.
+
+The tracking Epic and original unknown Feature publication remain open. Parent review,
+integration and one phase-5 PR follow this code qualification; this contract does not
+claim operational close-out.
+
+### Historical qualification notes
+
+The tranche-by-tranche boundaries below record earlier qualification and the safety
+evidence behind retained paths. Their references to unfinished UI/parity are historical:
+the closed catalog above retires those surfaces rather than promising a later phase-5 port.
 
 `Twig.Core` is an additive, standalone model and pure-function library in the supported
 solution. Production cutover is in progress. An explicitly initialized, pinned Core ADO

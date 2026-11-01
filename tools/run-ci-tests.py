@@ -28,7 +28,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSEMBLIES = ("Cli", "Core", "Store.Sqlite", "Providers.Ado", "Providers.GitHub",
-              "Domain", "Infrastructure", "RenderTree")
+              "Infrastructure", "RenderTree")
 HOST_CLASSES = {
     "Twig.Cli.Tests.Commands.ConnectionBindingTransitionConsumerTests",
     "Twig.Cli.Tests.Commands.ConnectionMigrateCommandTests",
@@ -525,11 +525,18 @@ class RunnerSelfTests(unittest.TestCase):
 
     def test_supported_assembly_inventory_excludes_retired_delivery(self):
         supported = set()
-        for project in ET.parse(ROOT / "Twig.slnx").getroot().iter("Project"):
-            path = project.get("Path")
+        projects = [project.get("Path") for project in ET.parse(ROOT / "Twig.slnx").getroot().iter("Project")]
+        for path in projects:
             if path.startswith("tests/") and ET.parse(ROOT / path).getroot().findtext("PropertyGroup/IsTestProject") == "true":
                 supported.add(Path(path).stem)
         self.assertEqual(supported, {f"Twig.{suite}.Tests" for suite in ASSEMBLIES})
+        self.assertIn("src/Twig.Domain/Twig.Domain.csproj", projects)
+        self.assertIn("samples/Twig.DetailHost/Twig.DetailHost.csproj", projects)
+        for retired in ("Domain.Tests", "Benchmarks"):
+            path = f"tests/Twig.{retired}/Twig.{retired}.csproj"
+            self.assertNotIn(path, projects)
+            self.assertTrue((ROOT / path).is_file(), "withdrawal does not delete historical source")
+        self.assertNotIn("Domain", ASSEMBLIES)
         self.assertNotIn("Tui", ASSEMBLIES)
         self.assertNotIn("Mcp", ASSEMBLIES)
 

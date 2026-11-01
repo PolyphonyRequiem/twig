@@ -574,6 +574,17 @@ execution are failures. Uploads do not demand results from steps that never ran.
 Complete supported-platform suites remain a release-candidate gate before
 signing or publication, not a routine local or draft-PR requirement.
 
+The supported solution includes all Core/store/provider, CLI, Infrastructure and
+RenderTree test roots plus the external RenderTree consumer. The old
+`Twig.Domain.Tests` and `Twig.Benchmarks` roots are withdrawn from that build and
+its required assembly inventory: neither supplies a current retained-profile
+selector, and the benchmarks exercise the old Domain/cache/rendering graph.
+Their projects and source remain historical diagnostics for phase 6, not routine
+build or delivery requirements. `src/Twig.Domain` remains a real supported build
+dependency while Infrastructure/CLI still reference it; this is not source deletion
+or a disabled dependency build. The full supported solution still has the same
+120-second deadline.
+
 CI retains the pure Core invariants, real store and both provider boundary suites.
 The ADO and [GitHub native roots](src/Twig.Providers.GitHub/README.md) qualify fresh
 default/explicit-path init, the marker/no-marker catalog, cache-only numeric and

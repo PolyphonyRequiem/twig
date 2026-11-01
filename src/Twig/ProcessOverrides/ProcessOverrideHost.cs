@@ -76,20 +76,9 @@ internal static class ProcessOverrideHost
         if (!decision.IsOverride)
             return await run(workspaceServices);
 
-        var userPrefs = TryGetConfig(workspaceServices)?.UserPrefs ?? new TwigUserConfig();
-
-        // Announce the live read before doing it, not after: the whole point is to explain the
-        // pause the user is about to sit through, and a notice printed afterwards explains a
-        // wait that has already ended.
-        var infoFormatter = new OutputFormatterFactory(new HumanOutputFormatter())
-            .GetFormatter(outputFormat);
-        Console.Error.WriteLine(infoFormatter.FormatInfo(
-            $"Reading {decision.Org}/{decision.Project} live from Azure DevOps (no workspace; nothing is written)."));
-
-        await using var overrideServices = ProcessOverrideScope.Build(
-            decision.Org!, decision.Project!, userPrefs);
-
-        return await run(overrideServices);
+        Twig.Commands.CommandError.Write(new Twig.Rendering.RendererFactory(), Console.Error, outputFormat,
+            "Unpinned process inspection is retired. Initialize a fresh Core workspace for the requested target.");
+        return 1;
     }
 
     /// <summary>

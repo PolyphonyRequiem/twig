@@ -658,7 +658,7 @@ public class FormatterHelpersTests
     {
         var html = "<p>" + new string('a', 100) + "</p>";
         var result = FormatterHelpers.Truncate(
-            Twig.Rendering.SpectreRenderer.StripHtmlTags(html), 200);
+            FormatterHelpers.StripHtmlTags(html), 200);
         result.ShouldNotContain("<p>");
         result.ShouldNotContain("</p>");
         result.Length.ShouldBe(100);
@@ -669,7 +669,7 @@ public class FormatterHelpersTests
     {
         var html = "<div>" + new string('z', 300) + "</div>";
         var result = FormatterHelpers.Truncate(
-            Twig.Rendering.SpectreRenderer.StripHtmlTags(html), 200);
+            FormatterHelpers.StripHtmlTags(html), 200);
         result.Length.ShouldBe(200);
         result.ShouldEndWith("…");
         result.ShouldNotContain("<div>");

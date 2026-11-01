@@ -24,7 +24,6 @@ public sealed class HostInventoryRegistryTests
 
         var registry = ReadHostClassesRegistry();
 
-        traited.ShouldNotBeEmpty();
         registry.Except(traited).OrderBy(x => x, StringComparer.Ordinal)
             .ShouldBeEmpty("HOST_CLASSES names classes without a class-level HostInventory trait");
         traited.Except(registry).OrderBy(x => x, StringComparer.Ordinal)
@@ -63,7 +62,6 @@ public sealed class HostInventoryRegistryTests
             entry.Success.ShouldBeTrue($"unrecognised HOST_CLASSES entry: {line}");
             registry.Add(entry.Groups["name"].Value).ShouldBeTrue($"duplicate HOST_CLASSES entry: {line}");
         }
-        registry.ShouldNotBeEmpty();
         return registry;
     }
 

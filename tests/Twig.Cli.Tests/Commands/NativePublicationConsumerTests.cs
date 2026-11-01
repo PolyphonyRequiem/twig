@@ -263,7 +263,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         root.GetService<CoreCommandAdapter>().ShouldNotBeNull("exercise the pinned Core composition");
         root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
         root.GetService<Twig.Domain.Services.Sync.SyncCoordinatorFactory>().ShouldBeNull();
-        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
         root.GetService<IWorkItemLinkRepository>().ShouldBeNull();
         using (var handle = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value)
         {
@@ -540,7 +540,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         root.GetService<IFieldDefinitionStore>().ShouldBeNull();
         root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
         root.GetService<IPendingChangeStore>().ShouldBeNull();
-        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
         var originalOut = Console.Out;
         var originalError = Console.Error;
         using var stdout = new StringWriter();
@@ -938,8 +938,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.ItemReadIds.ShouldNotContain(90);
             _transport.ItemReadIds.ShouldNotContain(91);
             _transport.CommittedWrites.ShouldBe(0);
-            root.GetService<SyncCommand>().ShouldBeNull();
-            root.GetService<BenchSyncCommand>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SyncCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.BenchSyncCommand").ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
         }
@@ -1122,8 +1122,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.PostCount.ShouldBe(0);
             final.Drafts.ShouldBeEmpty();
             final.Proposals.ShouldBeEmpty();
-            root.GetService<BenchCommand>().ShouldBeNull();
-            root.GetService<TrackingCommand>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.BenchCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.TrackingCommand").ShouldBeNull();
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
         }
@@ -1253,11 +1253,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.CommittedWrites.ShouldBe(2, "query must never flush the retained concurrent draft");
             (await store.ReadAsync(connection, default)).Value.Drafts.ShouldContain(draft =>
                 !draft.Key.IsLocal && draft.Changes["System.Title"].Text == "stale editor field");
-            root.GetService<EditCommand>().ShouldBeNull();
-            root.GetService<SetCommand>().ShouldBeNull();
-            root.GetService<NavigationCommands>().ShouldBeNull();
-            root.GetService<NavigationHistoryCommands>().ShouldBeNull();
-            root.GetService<QueryCommand>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.EditCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SetCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.NavigationCommands").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.NavigationHistoryCommands").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.QueryCommand").ShouldBeNull();
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
         }
@@ -1321,7 +1321,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             retained.Items.ShouldContain(item => item.Key.NativeId == "1205"
                 && item.RelationshipsComplete && item.ResourcesComplete);
             retained.Journal.ShouldBeEmpty();
-            root.GetService<QueryCommand>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.QueryCommand").ShouldBeNull();
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
         }
@@ -1430,10 +1430,10 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             complete.Proposals.Single(proposal => proposal.Operations.Length == 2).Operations[0].Links.Single().Other.ShouldBe(first.Key);
             _transport.PostCount.ShouldBe(3);
             _transport.PatchAttempts.ShouldBe(0);
-            root.GetService<SeedChainCommand>().ShouldBeNull();
-            root.GetService<SeedLinkRepairCommand>().ShouldBeNull();
-            root.GetService<SeedValidateCommand>().ShouldBeNull();
-            root.GetService<SeedEditCommand>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedChainCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedLinkRepairCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedValidateCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedEditCommand").ShouldBeNull();
             complete.Mappings.ShouldContain(mapping => mapping.Local == third.Key);
         }
         finally
@@ -1558,8 +1558,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             linkedComplete.Journal.Where(row => row.Digest == chain.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
             _transport.PostCount.ShouldBe(6);
             _transport.PatchAttempts.ShouldBe(0);
-            root.GetService<SeedLinkCommand>().ShouldBeNull();
-            root.GetService<SeedPublishCommand>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedLinkCommand").ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedPublishCommand").ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
         }
         finally
@@ -1588,7 +1588,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddTwigWorkspaceServices(paths.StartDir, ["seed", "view", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
-        root.GetService<SeedPublishCommand>().ShouldBeNull();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedPublishCommand").ShouldBeNull();
         var originalOut = Console.Out;
         var originalError = Console.Error;
         using var stdout = new StringWriter();
@@ -1710,9 +1710,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         services.AddTwigWorkspaceServices(paths.StartDir, ["save", "--all", "-o", "json"]);
         File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
         services.ShouldNotContain(service => service.ServiceType == typeof(IProviderWorkItemWriter)
-            || service.ServiceType == typeof(IPendingChangeStore) || service.ServiceType == typeof(IPendingChangeFlusher));
+            || service.ServiceType == typeof(IPendingChangeStore) || service.ServiceType.Name == "IPendingChangeFlusher");
         using var root = services.BuildServiceProvider();
-        root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+        typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
         root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
         root.GetService<IPendingChangeStore>().ShouldBeNull();
         foreach (var deleted in new[] { "UpdateCommand", "SaveCommand", "DiscardCommand" })
@@ -2050,7 +2050,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             root.GetService<IProviderWorkItemWriter>().ShouldBeNull();
             root.GetService<IAdoWorkItemService>().ShouldBeNull();
             root.GetService<IPendingChangeStore>().ShouldBeNull();
-            root.GetService<IPendingChangeFlusher>().ShouldBeNull();
+            typeof(TwigCommands).Assembly.GetType("Twig.Commands.IPendingChangeFlusher").ShouldBeNull();
             foreach (var deleted in new[] { "StateCommand", "NoteCommand", "PatchCommand", "UpdateCommand", "SaveCommand", "DiscardCommand" })
                 typeof(TwigCommands).Assembly.GetType("Twig.Commands." + deleted).ShouldBeNull(
                     "the old command ownership must be absent, not merely unregistered in this graph");

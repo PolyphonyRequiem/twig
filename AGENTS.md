@@ -41,11 +41,12 @@ broad validation, not an automatic response to a focused fix or smoke failure.
   it. A `Passed!` summary from an aborted host is not a pass. Report the reconciled
   `TWIG-VERDICT` and every failed child; an optional broad failure remains visible
   even when routine gates pass.
-- Launch supervised coding workers through `tools/run-bounded.py` with a finite
-  task-local deadline (at most 600 seconds), independent of their model instructions
-  and tool wait windows. When it expires, its owned tree is stopped and exit 124
-  preserves the failure. Keep the saved session for bounded recovery; resume that
-  session rather than starting a duplicate writer.
+- Prefer app-native child sessions for delegated coding work. Give each child a
+  clear scope and an isolated worktree; coordinate ownership so writers and builds
+  do not overlap. Resume the same child for follow-up work rather than starting
+  a duplicate writer. Use a bounded CLI worker only when explicit process-level
+  supervision is needed; a fixed wall-clock limit is not required for the coding
+  session itself. Build and test commands still use the deadlines above.
 
 Completion means the changed behavior and current required gates have actually
 passed, or the exact blocker is reported. No timeout expansion, narrowed claim,

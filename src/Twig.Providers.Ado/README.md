@@ -64,7 +64,12 @@ Native `when`, `whenNot`, `whenWas`, `whenChanged`, `whenNotChanged`,
 predicates/actions (both sigiled and unsigiled spellings). Initial transitions
 become an allowed-state rule conditioned on an absent pre-state; their values
 participate in the schema digest. Picklists retain typed values and optional
-clears. Disabled native rules retain their raw semantics in disabled fingerprinted
+clears. The process-fields API omits `required` for optional fields; explicit
+`true` still creates a required-field rule and malformed flags are refused.
+An empty identity, numeric, Boolean or date rule operand represents an unset
+value (Core null), not a fabricated identity or a scalar parse failure.
+Empty text remains distinct.
+Disabled native rules retain their raw semantics in disabled fingerprinted
 rules without granting authority. Unknown enabled rules/metadata, opaque field
 kinds, unresolved default-value semantics, missing transitions or incomplete
 discovery **block writes**, including non-field effects. Failed HTTP discovery
@@ -77,7 +82,10 @@ Explicit reads acquire at most 200 distinct keys. Full field observations
 distinguish absent/unset (explicit Core null), empty text and typed native values;
 undeclared native fields remain opaque rather than being coerced. Native identity
 objects use their IDs, not display names. Forward/reverse relation endpoints
-normalize to one discovered canonical edge with Provider provenance. Resource
+normalize to one discovered canonical edge with Provider provenance. Native URLs
+may omit the project segment or name the exact bound immutable project GUID;
+other authorities, project-qualified scopes and noncanonical IDs are refused.
+Resource
 links/attachments are not work-item relationships. Unknown/cross-collection
 relations and contradictory acquired endpoints refuse completeness.
 

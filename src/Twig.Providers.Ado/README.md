@@ -85,7 +85,8 @@ objects use their IDs, not display names. Forward/reverse relation endpoints
 normalize to one discovered canonical edge with Provider provenance. Native URLs
 may omit the project segment or name the exact bound immutable project GUID;
 other authorities, project-qualified scopes and noncanonical IDs are refused.
-Resource
+ADO's directed duplicate links use tree topology but represent duplicate
+associations, not the Parent/Child hierarchy. Resource
 links/attachments are not work-item relationships. Unknown/cross-collection
 relations and contradictory acquired endpoints refuse completeness.
 

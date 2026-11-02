@@ -18,9 +18,12 @@ internal sealed record CoreWorkspaceDocument(int Version, string DatabasePath, G
     Connection Connection, string PrincipalId);
 internal sealed record CoreTransportOverride(Func<HttpMessageHandler> CreateHandler);
 
-internal sealed class CoreWorkspaceHandle(CoreWorkspace workspace, IDisposable provider, AdoAccess? nativeAdoAccess = null) : IDisposable
+internal sealed class CoreWorkspaceHandle(CoreWorkspace workspace, IDisposable provider,
+    CoreWorkspaceDocument document, NativeSourceStamp source, AdoAccess? nativeAdoAccess = null) : IDisposable
 {
     internal CoreWorkspace Workspace { get; } = workspace;
+    internal CoreWorkspaceDocument Document { get; } = document;
+    internal NativeSourceStamp Source { get; } = source;
     internal AdoAccess? NativeAdoAccess { get; } = nativeAdoAccess;
     public void Dispose() => provider.Dispose();
 }
@@ -70,10 +73,23 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
             return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Conflict, "The selected native binding or actor differs from the initialized Core workspace.");
         var access = new CleanCoreAdoAccess(authentication, bindings, configuration, paths, origin,
             document.Connection, document.PrincipalId, store);
+        var source = NativeSourceReader.Stamp(document, paths.RepoRoot, origin);
         var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler());
         var workspace = new CoreWorkspace(document.Connection, provider, store,
             new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance);
-        return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider, access));
+        return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider, document, source, access));
+    }
+
+    internal async Task<Result<bool>> AdmitSourceAsync(CoreWorkspaceHandle handle, CancellationToken ct)
+    {
+        if (handle.Source.Connection.Provider.Value != "ado") return Result<bool>.Ok(true);
+        if (authentication is not IConnectionOperationGuard guard)
+            return Result<bool>.Fail(ErrorCode.Unavailable, "Native operation admission is required.");
+        using var lease = await guard.AcquireOperationAsync(ct).ConfigureAwait(false);
+        if (lease is not IAdmittedConnectionOperation admitted || admitted.GetAuthority(bindings) is not { } origin
+            || NativeSourceReader.Stamp(handle.Document, paths.RepoRoot, origin) != handle.Source)
+            return Result<bool>.Fail(ErrorCode.Conflict, "The selected native authority changed.");
+        return Result<bool>.Ok(true);
     }
 
     internal async Task<Result<ResourceLink>> ResolveBranchAsync(string branch, string? repository, CancellationToken ct)

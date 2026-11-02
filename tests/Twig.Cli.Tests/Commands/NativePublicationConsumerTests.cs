@@ -2415,6 +2415,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public Func<Task>? BeforeProjectMetadata { get; set; }
         public bool CloseGateEnabled { get; set; }
         public bool FailSchema { get; set; }
+        public HttpStatusCode? SchemaFailureStatus { get; set; }
+        public int SourceHandlesDisposed { get; private set; }
         public bool LoseNextPatchAcknowledgement { get; set; }
         public List<(int Id, string Body)> RelationshipPatches { get; } = [];
         internal HttpMessageHandler NewHandle() => new Forward(this);
@@ -2422,6 +2424,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         {
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
                 => owner.SendAsync(request, ct);
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) owner.SourceHandlesDisposed++;
+                base.Dispose(disposing);
+            }
         }
         public string TitleOf(int id) => _items[id].Title;
         public void ForgetAssociation(int source, int target)
@@ -2467,7 +2474,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
             if (FailSchema && path.EndsWith("/fields", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.BadRequest, new { message = "Fixture schema unavailable" });
+                return Reply(SchemaFailureStatus ?? HttpStatusCode.BadRequest, new { message = "Fixture schema unavailable" });
             if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata)
             {
                 if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && BeforeProjectMetadata is { } before)

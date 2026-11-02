@@ -409,6 +409,13 @@ public sealed partial class GitHubCoreSpineTests
             var store = (await SqliteStore.OpenAsync(Database, expectedInstance: _document.DatabaseInstance)).Value;
             return (await store.ReadAsync(_document.Connection, default)).Value;
         }
+        internal Task<Result<NativeSourceObservation>> ReadSource(NativeSourceStamp? expected = null, bool schema = false)
+            => NativeSourceReader.ReadAsync(Root, expected, schema, services =>
+            {
+                services.AddSingleton<IConnectionBindingService>(_bindings);
+                services.AddSingleton(_processes);
+                services.AddSingleton(new CoreTransportOverride(Http.NewHandle));
+            }, default);
         internal async Task ReplaceItems(IEnumerable<WorkItem> items, IEnumerable<Relationship>? relationships = null)
         {
             var store = (await SqliteStore.OpenAsync(Database, expectedInstance: _document.DatabaseInstance)).Value;

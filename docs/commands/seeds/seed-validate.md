@@ -8,9 +8,10 @@ mutates: none
 
 # `twig seed validate`
 
-Runs `SeedValidator` against one seed or every seed in the workspace. Reports which
-rules would block a publish and returns a non-zero exit if any seed fails, so this is
-safe to gate scripts on. No ADO calls; no local mutations.
+Validates one local Core seed draft or every seed in the workspace through the
+same preview path used to prepare publication. Reports failures and returns a
+non-zero exit if any requested seed fails. Provider metadata may be observed;
+validation does not create or update remote work items.
 
 ## Synopsis
 
@@ -34,12 +35,18 @@ twig seed validate [<id>] [-o|--output <format>]
 
 ## Behavior
 
-- Loads the current rule set via `ISeedPublishRulesProvider.GetRulesAsync` (`src/Twig/Commands/SeedValidateCommand.cs:41`).
-- With an ID, validates that one seed and reports detailed failures inline (`src/Twig/Commands/SeedValidateCommand.cs:43-56`).
-- Without an ID, loads every seed through `IWorkItemRepository.GetSeedsAsync` and every link row through `ISeedLinkRepository.GetAllSeedLinksAsync`, then runs `SeedValidator.Validate` per seed (`src/Twig/Commands/SeedValidateCommand.cs:58-71`).
-- The empty-workspace case (no seeds) still succeeds with a distinct message; the machine `results` table is emitted with zero rows (`src/Twig/Commands/SeedValidateCommand.cs:59-63`).
-- Machine formats emit a document with a `results` Table (per-seed `passed` plus a comma-joined `failures` column) and `passed`/`total` counts. Human output streams a line per result and finishes with a summary; minimal emits `PASS`/`FAIL` markers plus the summary (`src/Twig/Commands/SeedValidateCommand.cs:74-151`).
-- Exit code reflects the aggregate: any failing seed → `1`, all pass → `0` (`src/Twig/Commands/SeedValidateCommand.cs:71`).
+- `CoreCommandAdapter.SeedValidateAsync` reads local drafts from the Core snapshot
+  and rejects ambiguous display aliases or cyclic local creation links.
+- Drafts are previewed in dependency order. Earlier prepared operations establish
+  the context for later local references; an explicit ID selects the result to report.
+- Preview evaluates the native schema and explicitly declared Twig policy scope.
+  A passing result is not a publication acknowledgement.
+- Description rich text is not passed through the retired legacy
+  Description-origin-paragraph parser. Core ADO creation sends the explicitly
+  authored field value, rather than injecting an origin marker into it.
+- Output contains a per-seed `results` table and `passed`/`total` counts. An empty
+  workspace succeeds with zero rows; an unknown explicit seed is an error.
+- Any requested failing seed returns `1`; all requested seeds passing returns `0`.
 
 ## Examples
 
@@ -68,6 +75,6 @@ $ twig seed validate -42 -o json
 
 ## See also
 
-- [`seed publish`](./seed-publish.md) — the operation this gates. `seed publish --force` skips validation.
+- [`seed publish`](./seed-publish.md) — the operation this gates; publication still requires Core preparation and admission.
 - [`seed view`](./seed-view.md) — visual overview alongside completeness ratios.
 - [`seed link`](./seed-link.md) — fix parent-chain issues surfaced here.

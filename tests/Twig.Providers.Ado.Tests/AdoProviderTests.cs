@@ -433,6 +433,33 @@ public sealed class AdoProviderTests
     }
 
     [Fact]
+    public async Task CoreCreationPreservesDescriptionMarkupWithoutTheRetiredOriginParser()
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = "description-html";
+        var schema = await f.Schema();
+        schema.Types.Single().Fields.Single(field => field.Reference == "System.Description").Kind.ShouldBe(FieldKind.Html);
+        const string description = "<p><em><token></em></p>";
+        var seed = ItemKey.Local(Guid.NewGuid());
+        var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
+            ("System.Description", FieldValue.RichText(description, FieldKind.Html)));
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default))
+            .IsSuccess.ShouldBeTrue();
+        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+            concurrency: ConcurrencyMode.ObservedNonAtomic));
+        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
+        var result = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        result.Value.Status.ShouldBe(OpStatus.Applied);
+        using var payload = JsonDocument.Parse(f.Http.LastPayload!);
+        payload.RootElement.EnumerateArray().Single(entry => entry.GetProperty("path").GetString() == "/fields/System.Description")
+            .GetProperty("value").GetString().ShouldBe(description);
+        (await f.Provider.VerifyAsync(proposal, result.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        f.Http.Writes.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task CreationBindsParentAndResourceIntoOneNativeCallAndPersistentDraft()
     {
         using var f = await Fixture.Create();
@@ -1132,11 +1159,13 @@ public sealed class AdoProviderTests
             else if (path.EndsWith("/fields"))
             {
                 var names = new[] { "System.State", "System.History", "Custom.Closure", "Custom.Points", "Custom.Owner", "Custom.Empty", "Custom.Unset" }
-                    .Concat(Defect == "empty-typed-rule" ? ["Custom.Quantity", "Custom.Toggle", "Custom.Date"] : []);
+                    .Concat(Defect == "empty-typed-rule" ? ["Custom.Quantity", "Custom.Toggle", "Custom.Date"] : [])
+                    .Concat(Defect == "description-html" ? ["System.Description"] : []);
                 var global = !path.Contains("/work/processes/");
                 response = Rows(string.Join(",", names.Select(name =>
                 {
                     var field = new JsonObject { ["referenceName"] = name, ["type"] = name == "Custom.Points" ? "double" : "string" };
+                    if (name == "System.Description") field["type"] = "html";
                     if (name == "Custom.Quantity") field["type"] = "integer";
                     if (name == "Custom.Toggle") field["type"] = "boolean";
                     if (name == "Custom.Date") field["type"] = "dateTime";

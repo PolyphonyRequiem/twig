@@ -90,11 +90,14 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
             provider = new(document.Connection, access, store, transport?.CreateHandler());
             var workspace = new CoreWorkspace(document.Connection, provider, store,
                 new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance);
+            var sourceStamp = NativeSourceReader.Stamp(document, paths.RepoRoot, origin.BindingId.ToString(),
+                NativeSourceReader.Number(origin.AttachmentRevision), origin.WorktreeFingerprint,
+                NativeSourceReader.Number(origin.BindingRevision), document.Connection.IdentityRef);
             var lifetime = new Lifetime(provider, attachment, registry);
             provider = null;
             attachment = null;
             registry = null;
-            return Result<CoreWorkspaceHandle>.Ok(new(workspace, lifetime));
+            return Result<CoreWorkspaceHandle>.Ok(new(workspace, lifetime, document, sourceStamp));
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException)
         {

@@ -1,4 +1,44 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeSourceReader
+static Twig.Infrastructure.Services.NativeSourceReader.ReadAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp? expectedSource = null, bool observeSchema = false, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+Twig.Infrastructure.Services.NativeSourceStamp
+Twig.Infrastructure.Services.NativeSourceStamp.NativeSourceStamp(Twig.Core.Connection! Connection, System.Guid StoreInstance, string! PrincipalId, string! AuthorityStamp) -> void
+Twig.Infrastructure.Services.NativeSourceStamp.Connection.get -> Twig.Core.Connection!
+Twig.Infrastructure.Services.NativeSourceStamp.Connection.init -> void
+Twig.Infrastructure.Services.NativeSourceStamp.StoreInstance.get -> System.Guid
+Twig.Infrastructure.Services.NativeSourceStamp.StoreInstance.init -> void
+Twig.Infrastructure.Services.NativeSourceStamp.PrincipalId.get -> string!
+Twig.Infrastructure.Services.NativeSourceStamp.PrincipalId.init -> void
+Twig.Infrastructure.Services.NativeSourceStamp.AuthorityStamp.get -> string!
+Twig.Infrastructure.Services.NativeSourceStamp.AuthorityStamp.init -> void
+Twig.Infrastructure.Services.NativeSourceStamp.Deconstruct(out Twig.Core.Connection! Connection, out System.Guid StoreInstance, out string! PrincipalId, out string! AuthorityStamp) -> void
+Twig.Infrastructure.Services.NativeSourceStamp.Equals(Twig.Infrastructure.Services.NativeSourceStamp? other) -> bool
+override Twig.Infrastructure.Services.NativeSourceStamp.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeSourceStamp.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeSourceStamp.ToString() -> string!
+Twig.Infrastructure.Services.NativeSourceStamp.<Clone>$() -> Twig.Infrastructure.Services.NativeSourceStamp!
+static Twig.Infrastructure.Services.NativeSourceStamp.operator ==(Twig.Infrastructure.Services.NativeSourceStamp? left, Twig.Infrastructure.Services.NativeSourceStamp? right) -> bool
+static Twig.Infrastructure.Services.NativeSourceStamp.operator !=(Twig.Infrastructure.Services.NativeSourceStamp? left, Twig.Infrastructure.Services.NativeSourceStamp? right) -> bool
+Twig.Infrastructure.Services.NativeSourceObservation
+Twig.Infrastructure.Services.NativeSourceObservation.NativeSourceObservation(Twig.Infrastructure.Services.NativeSourceStamp! Source, Twig.Core.StoreSnapshot! Snapshot, System.DateTimeOffset CacheReadAt, Twig.Core.Result<Twig.Core.ProcessSchema!>? Schema, System.DateTimeOffset? SchemaObservedAt) -> void
+Twig.Infrastructure.Services.NativeSourceObservation.Source.get -> Twig.Infrastructure.Services.NativeSourceStamp!
+Twig.Infrastructure.Services.NativeSourceObservation.Source.init -> void
+Twig.Infrastructure.Services.NativeSourceObservation.Snapshot.get -> Twig.Core.StoreSnapshot!
+Twig.Infrastructure.Services.NativeSourceObservation.Snapshot.init -> void
+Twig.Infrastructure.Services.NativeSourceObservation.CacheReadAt.get -> System.DateTimeOffset
+Twig.Infrastructure.Services.NativeSourceObservation.CacheReadAt.init -> void
+Twig.Infrastructure.Services.NativeSourceObservation.Schema.get -> Twig.Core.Result<Twig.Core.ProcessSchema!>?
+Twig.Infrastructure.Services.NativeSourceObservation.Schema.init -> void
+Twig.Infrastructure.Services.NativeSourceObservation.SchemaObservedAt.get -> System.DateTimeOffset?
+Twig.Infrastructure.Services.NativeSourceObservation.SchemaObservedAt.init -> void
+Twig.Infrastructure.Services.NativeSourceObservation.Deconstruct(out Twig.Infrastructure.Services.NativeSourceStamp! Source, out Twig.Core.StoreSnapshot! Snapshot, out System.DateTimeOffset CacheReadAt, out Twig.Core.Result<Twig.Core.ProcessSchema!>? Schema, out System.DateTimeOffset? SchemaObservedAt) -> void
+Twig.Infrastructure.Services.NativeSourceObservation.Equals(Twig.Infrastructure.Services.NativeSourceObservation? other) -> bool
+override Twig.Infrastructure.Services.NativeSourceObservation.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeSourceObservation.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeSourceObservation.ToString() -> string!
+Twig.Infrastructure.Services.NativeSourceObservation.<Clone>$() -> Twig.Infrastructure.Services.NativeSourceObservation!
+static Twig.Infrastructure.Services.NativeSourceObservation.operator ==(Twig.Infrastructure.Services.NativeSourceObservation? left, Twig.Infrastructure.Services.NativeSourceObservation? right) -> bool
+static Twig.Infrastructure.Services.NativeSourceObservation.operator !=(Twig.Infrastructure.Services.NativeSourceObservation? left, Twig.Infrastructure.Services.NativeSourceObservation? right) -> bool
 Twig.Infrastructure.Telemetry.ITelemetryClient
 Twig.Infrastructure.Telemetry.ITelemetryClient.TrackEvent(string! eventName, System.Collections.Generic.Dictionary<string!, string!>? properties = null, System.Collections.Generic.Dictionary<string!, double>? metrics = null) -> void
 Twig.Infrastructure.Config.TwigConfiguration.GitHubCredentialSource.get -> string?

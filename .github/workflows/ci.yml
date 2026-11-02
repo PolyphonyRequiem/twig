@@ -131,6 +131,17 @@ jobs:
           path: artifacts/test-logs/ci/native-source/*.trx
           if-no-files-found: error
 
+      - name: Local layout and binding status diagnostics
+        id: connection_status
+        run: python tools/run-bounded.py --timeout 60 -- python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ConnectionStatusProductionCliTests" --logger "trx;LogFileName=connection-status.trx" --results-directory artifacts/test-logs/ci/connection-status
+      - name: Preserve connection status results
+        if: always() && steps.connection_status.outcome != 'skipped' && steps.connection_status.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-connection-status-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/connection-status/*.trx
+          if-no-files-found: error
+
       - name: Retained ADO production CLI, draft, seed, link and Bench qualification
         id: ado_root
         shell: python

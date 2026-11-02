@@ -24,6 +24,14 @@ is no migration, adoption, reset, archival or old-state adapter. If old state
 is no longer needed, preserving or discarding it is a separate manual decision.
 Init never deletes it or clears uncertain remote-write evidence.
 
+If `twig connection status` reports `layout-marker-missing`, the error names the
+local `.twig` directory whose attachment layout is missing or unsupported. This
+is not evidence of a missing identity or connection binding. Inspect and back up
+the directory and check the Twig version first. To initialize a fresh workspace,
+preserving or moving aside existing local state is a separate manual decision;
+then run `twig init <org> <project>` at the worktree root. Status does not repair,
+delete, reauthenticate or rebind, and init refuses existing state.
+
 ## Synopsis
 
 ```sh

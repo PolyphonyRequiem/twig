@@ -1,6 +1,7 @@
 using Twig.Formatters;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services;
 using Twig.RenderTree;
 using Twig.Rendering;
@@ -77,6 +78,16 @@ internal sealed class ConnectionStatusCommand
         try
         {
             resolved = await _bindingService.ResolveAsync(_config, _paths, ct);
+        }
+        catch (ConnectionBindingResolutionException ex)
+            when (ex.FailureCode == AttachmentStorageFailure.LayoutMarkerMissing)
+        {
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                $"Local Twig workspace at '{_paths.TwigDir}' has a missing or unsupported attachment layout (layout.json or attachment.json; {ex.FailureCode}). "
+                + "Inspect and back up this directory and check the Twig version before making changes. "
+                + "To initialize a fresh workspace, manually preserve or move aside existing local state, then run 'twig init <org> <project>' from the worktree root. "
+                + "Init refuses existing state; status does not repair it.");
+            return 1;
         }
         catch (InvalidOperationException ex)
         {

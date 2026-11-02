@@ -173,11 +173,14 @@ public sealed partial class AdoProvider
     private ItemKey RelationshipTarget(string value, Bound bound)
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) throw Wire.Invalid("Native relationship URL is invalid.");
-        var prefix = bound.OrganizationUrl.AbsolutePath.TrimEnd('/') + "/_apis/wit/workItems/";
+        var root = bound.OrganizationUrl.AbsolutePath.TrimEnd('/');
+        var prefix = new[] { root + "/_apis/wit/workItems/", root + "/" + bound.Project + "/_apis/wit/workItems/" }
+            .FirstOrDefault(candidate => uri.AbsolutePath.StartsWith(candidate, StringComparison.OrdinalIgnoreCase));
         if (uri.Scheme != bound.OrganizationUrl.Scheme || uri.Authority != bound.OrganizationUrl.Authority
-            || !uri.AbsolutePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || uri.UserInfo.Length != 0 || prefix is null
             || uri.Query.Length != 0 || uri.Fragment.Length != 0
-            || !int.TryParse(uri.AbsolutePath[prefix.Length..], out var id) || id <= 0)
+            || !int.TryParse(uri.AbsolutePath[prefix.Length..], NumberStyles.None, CultureInfo.InvariantCulture, out var id)
+            || id <= 0 || uri.AbsolutePath[prefix.Length..] != id.ToString(CultureInfo.InvariantCulture))
             throw Wire.Refuse(ErrorCode.Unsupported, "Cross-collection or noncanonical work item relationships are not supported.");
         return Key(id);
     }

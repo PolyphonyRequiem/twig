@@ -92,7 +92,10 @@ internal static class Wire
     };
 
     internal static FieldValue RuleOperand(JsonElement value, FieldKind kind)
-        => value.ValueKind == JsonValueKind.Null ? FieldValue.Null : RuleValue(value.GetString()!, kind);
+        => value.ValueKind == JsonValueKind.Null
+            || (kind is FieldKind.Identity or FieldKind.Integer or FieldKind.Decimal or FieldKind.Boolean or FieldKind.Instant)
+                && value.ValueKind == JsonValueKind.String && value.GetString() == ""
+                ? FieldValue.Null : RuleValue(value.GetString()!, kind);
 
     internal static byte[] Json(Action<Utf8JsonWriter> write)
     {

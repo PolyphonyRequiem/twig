@@ -123,6 +123,7 @@ internal static class WorktreeAnchorDetector
             var psi = new ProcessStartInfo("git", args)
             {
                 WorkingDirectory = workingDirectory,
+                RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -132,6 +133,8 @@ internal static class WorktreeAnchorDetector
             if (process is null)
                 return false;
 
+            // These probes are noninteractive; inheriting a blocked Windows input handle can stall Process.Start.
+            process.StandardInput.Close();
             stdout = process.StandardOutput.ReadToEnd();
             _ = process.StandardError.ReadToEnd();
             process.WaitForExit(5_000);

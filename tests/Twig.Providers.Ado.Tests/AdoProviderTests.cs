@@ -233,7 +233,7 @@ public sealed class AdoProviderTests
 
     [Theory]
     [InlineData("unknown-rule")]
-    [InlineData("missing-required")]
+    [InlineData("malformed-required")]
     [InlineData("missing-rules")]
     [InlineData("missing-transitions")]
     [InlineData("unknown-category")]
@@ -254,6 +254,53 @@ public sealed class AdoProviderTests
             (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
         }
         else discovered.Error.Code.ShouldBeOneOf(ErrorCode.Unavailable, ErrorCode.Unsupported);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task OmittedOptionalRequiredFlagsPreserveExplicitRequiredFields()
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = "omitted-optional-required";
+        var discovered = await f.Provider.DiscoverSchemaAsync(f.Connection, default);
+        f.Http.SawOmittedRequiredFlag.ShouldBeTrue();
+        f.Http.SawExplicitRequiredFlag.ShouldBeTrue();
+        discovered.IsSuccess.ShouldBeTrue();
+        var type = discovered.Value.Types.Single();
+        type.Rules.ShouldContain(rule => rule.Field == "Custom.Unset"
+            && rule.Action == RuleAction.Required && rule.Conditions.IsEmpty);
+        type.Rules.ShouldNotContain(rule => rule.Field == "Custom.Empty"
+            && rule.Action == RuleAction.Required);
+        var item = (await f.Read(1)).Items.Single();
+        var proposal = new Proposal(f.Connection, discovered.Value.Fingerprint, (await f.Stored()).Version,
+            [new("edit", OpKind.Batch, item.Key, item.Revision,
+                Fields(("Custom.Empty", FieldValue.String("edit"))))]);
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("Custom.Owner", FieldKind.Identity)]
+    [InlineData("Custom.Points", FieldKind.Decimal)]
+    [InlineData("Custom.Quantity", FieldKind.Integer)]
+    [InlineData("Custom.Toggle", FieldKind.Boolean)]
+    [InlineData("Custom.Date", FieldKind.Instant)]
+    public async Task EmptyTypedRuleOperandsRetainUnsetConditionsAndSuppliedValues(string field, FieldKind expectedKind)
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = "empty-typed-rule";
+        f.Http.EmptyRuleField = field;
+        var discovered = await f.Provider.DiscoverSchemaAsync(f.Connection, default);
+        f.Http.SawEmptyIdentityOperand.ShouldBeTrue();
+        discovered.IsSuccess.ShouldBeTrue();
+        var type = discovered.Value.Types.Single();
+        type.Fields.Single(definition => definition.Reference == field).Kind.ShouldBe(expectedKind);
+        var rules = type.Rules;
+        rules.ShouldContain(rule => rule.Field == "Custom.Empty" && rule.Action == RuleAction.Required
+            && rule.Conditions.Any(condition => condition.Field == field
+                && condition.Kind == ConditionKind.Equal && condition.Value == FieldValue.Null));
+        rules.ShouldContain(rule => rule.Field == field && rule.Action == RuleAction.Supplied
+            && rule.Values.Contains(FieldValue.Null));
         f.Http.Writes.ShouldBe(0);
     }
 
@@ -383,6 +430,33 @@ public sealed class AdoProviderTests
         snapshot.Relationships.ShouldContain(new Relationship(parentAck.PublishedKey!, childAck.PublishedKey!,
             "Native.DependencyForward", RelationshipOrigin.Provider));
         f.Http.Writes.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task CoreCreationPreservesDescriptionMarkupWithoutTheRetiredOriginParser()
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = "description-html";
+        var schema = await f.Schema();
+        schema.Types.Single().Fields.Single(field => field.Reference == "System.Description").Kind.ShouldBe(FieldKind.Html);
+        const string description = "<p><em><token></em></p>";
+        var seed = ItemKey.Local(Guid.NewGuid());
+        var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
+            ("System.Description", FieldValue.RichText(description, FieldKind.Html)));
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default))
+            .IsSuccess.ShouldBeTrue();
+        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+            concurrency: ConcurrencyMode.ObservedNonAtomic));
+        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
+        var result = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        result.Value.Status.ShouldBe(OpStatus.Applied);
+        using var payload = JsonDocument.Parse(f.Http.LastPayload!);
+        payload.RootElement.EnumerateArray().Single(entry => entry.GetProperty("path").GetString() == "/fields/System.Description")
+            .GetProperty("value").GetString().ShouldBe(description);
+        (await f.Provider.VerifyAsync(proposal, result.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        f.Http.Writes.ShouldBe(1);
     }
 
     [Fact]
@@ -728,6 +802,57 @@ public sealed class AdoProviderTests
         (await f.Provider.ReadAsync(f.Connection, [f.Key(1)], default)).Error.Code.ShouldBe(ErrorCode.Unsupported);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ProjectQualifiedRelationshipUrlsRequireTheBoundImmutableProject(bool sameProject)
+    {
+        using var f = await Fixture.Create();
+        f.Http.Items[1]["relations"]!.AsArray().ShouldBeEmpty();
+        f.Http.Items[2]["relations"]!.AsArray().ShouldBeEmpty();
+        var project = sameProject ? Fixture.Project : "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+        foreach (var (from, to, relation) in new[]
+        {
+            (1, 2, "Native.ParentForward"),
+            (2, 1, "Native.ParentReverse"),
+        })
+            f.Http.Items[from]["relations"]!.AsArray().Add(new JsonObject
+            {
+                ["rel"] = relation,
+                ["url"] = $"https://example.test/organization/{project}/_apis/wit/workItems/{to}",
+            });
+        var result = await f.Provider.ReadAsync(f.Connection, [f.Key(1), f.Key(2)], default);
+        if (sameProject)
+        {
+            result.IsSuccess.ShouldBeTrue();
+            result.Value.Relationships.ShouldBe([
+                new Relationship(f.Key(1), f.Key(2), "Native.ParentForward", RelationshipOrigin.Provider),
+            ]);
+            result.Value.Items.ShouldAllBe(item => item.RelationshipsComplete);
+        }
+        else
+        {
+            result.IsSuccess.ShouldBeFalse();
+            result.Error.Code.ShouldBe(ErrorCode.Unsupported);
+            (await f.Stored()).Items.ShouldBeEmpty();
+        }
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task NativeDuplicateTopologyDoesNotBecomeAParentChildHierarchy()
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = "native-duplicate-topology";
+        var result = await f.Provider.DiscoverSchemaAsync(f.Connection, default);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Relations.ShouldContain(relation => relation.Reference == "System.LinkTypes.Duplicate-Forward"
+            && relation.Shape == RelationShape.Association && relation.Directed);
+        result.Value.Relations.Where(relation => relation.Shape == RelationShape.Hierarchy)
+            .Select(relation => relation.Reference).ShouldBe(["Native.ParentForward"]);
+        f.Http.Writes.ShouldBe(0);
+    }
+
     [Fact]
     public async Task ValidButDifferentNativeActorCannotVerifyOrReuseOriginalIdentityBinding()
     {
@@ -862,6 +987,10 @@ public sealed class AdoProviderTests
         internal string Completed;
         internal string NativeActor = Fixture.Actor;
         internal string? Defect;
+        internal bool SawOmittedRequiredFlag;
+        internal bool SawExplicitRequiredFlag;
+        internal bool SawEmptyIdentityOperand;
+        internal string EmptyRuleField = "Custom.Owner";
         internal string? WriteFailure;
         internal int? WriteStatus;
         internal int? MetadataStatus;
@@ -961,6 +1090,20 @@ public sealed class AdoProviderTests
                     {"referenceName":"Hyperlink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } },
                     {"referenceName":"ArtifactLink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } }
                     """);
+                if (Defect == "native-duplicate-topology")
+                {
+                    var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
+                    var values = body["value"]!.AsArray();
+                    values.Add(JsonNode.Parse("""
+                        {"referenceName":"System.LinkTypes.Duplicate-Forward","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":true,"topology":"tree","oppositeEndReferenceName":"System.LinkTypes.Duplicate-Reverse"}}
+                        """));
+                    values.Add(JsonNode.Parse("""
+                        {"referenceName":"System.LinkTypes.Duplicate-Reverse","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":false,"topology":"tree","oppositeEndReferenceName":"System.LinkTypes.Duplicate-Forward"}}
+                        """));
+                    body["count"] = values.Count;
+                    response.Dispose();
+                    response = Json(body.ToJsonString());
+                }
                 if (Defect?.StartsWith("creation-links", StringComparison.Ordinal) == true)
                 {
                     var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
@@ -996,6 +1139,14 @@ public sealed class AdoProviderTests
                 var required = $$"""
                     {"isDisabled":false,"conditions":[{"conditionType":"when","field":"System.State","value":"{{Completed}}"}],"actions":[{"actionType":"{{(Defect == "unknown-rule" ? "unsupported" : "makeRequired")}}","targetField":"Custom.Closure"}]}
                     """;
+                if (Defect == "empty-typed-rule")
+                {
+                    required += $$"""
+                        ,{"isDisabled":false,"conditions":[{"conditionType":"when","field":"{{EmptyRuleField}}","value":""}],"actions":[{"actionType":"makeRequired","targetField":"Custom.Empty"}]},
+                        {"isDisabled":false,"conditions":[],"actions":[{"actionType":"copyValue","targetField":"{{EmptyRuleField}}","value":""}]}
+                        """;
+                    SawEmptyIdentityOperand = true;
+                }
                 if (Defect is "supported-rules" or "changed-disabled-rule")
                     required += $$"""
                         ,{"isDisabled":false,"conditions":[{"conditionType":"$when","field":"System.State","value":"{{Completed}}"}],"actions":[{"actionType":"$copyValue","targetField":"Custom.Closure","value":"from native supplier"}]},
@@ -1007,11 +1158,17 @@ public sealed class AdoProviderTests
                 response = Json($$"""{"id":"{{Fixture.Process}}","isSuggested":false,"items":["1.5","2.5","3.5"]}""");
             else if (path.EndsWith("/fields"))
             {
-                var names = new[] { "System.State", "System.History", "Custom.Closure", "Custom.Points", "Custom.Owner", "Custom.Empty", "Custom.Unset" };
+                var names = new[] { "System.State", "System.History", "Custom.Closure", "Custom.Points", "Custom.Owner", "Custom.Empty", "Custom.Unset" }
+                    .Concat(Defect == "empty-typed-rule" ? ["Custom.Quantity", "Custom.Toggle", "Custom.Date"] : [])
+                    .Concat(Defect == "description-html" ? ["System.Description"] : []);
                 var global = !path.Contains("/work/processes/");
                 response = Rows(string.Join(",", names.Select(name =>
                 {
                     var field = new JsonObject { ["referenceName"] = name, ["type"] = name == "Custom.Points" ? "double" : "string" };
+                    if (name == "System.Description") field["type"] = "html";
+                    if (name == "Custom.Quantity") field["type"] = "integer";
+                    if (name == "Custom.Toggle") field["type"] = "boolean";
+                    if (name == "Custom.Date") field["type"] = "dateTime";
                     if (Defect == "unknown-field-kind" && name == "Custom.Empty") field["type"] = "unrecognized";
                     if (global)
                     {
@@ -1023,7 +1180,14 @@ public sealed class AdoProviderTests
                     }
                     else
                     {
-                        if (Defect != "missing-required") field["required"] = false;
+                        if (Defect == "omitted-optional-required")
+                        {
+                            if (name == "Custom.Unset") field["required"] = true;
+                            SawOmittedRequiredFlag |= !field.ContainsKey("required");
+                            SawExplicitRequiredFlag |= field["required"]?.GetValue<bool>() == true;
+                        }
+                        else if (Defect == "malformed-required") field["required"] = "not-a-boolean";
+                        else field["required"] = false;
                         if (Defect == "default-value" && name == "Custom.Empty") field["defaultValue"] = "server default";
                     }
                     return field.ToJsonString();

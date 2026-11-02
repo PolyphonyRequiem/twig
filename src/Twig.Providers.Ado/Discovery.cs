@@ -83,7 +83,9 @@ public sealed partial class AdoProvider
                 typeFields.Add(definition);
                 definitions[canonical] = definition;
                 if (kind == FieldKind.Raw) gaps.Add($"{reference}: opaque field kind on {canonical}.");
-                if (Wire.Flag(field, "required")) rules.Add(new(canonical, RuleAction.Required, []));
+                // Native optional fields omit required when false.
+                if (field.TryGetProperty("required", out var required) && required.GetBoolean())
+                    rules.Add(new(canonical, RuleAction.Required, []));
                 if (field.TryGetProperty("defaultValue", out var initial) && initial.ValueKind != JsonValueKind.Null)
                     gaps.Add($"{reference}: defaultValue on {canonical} cannot certify an effective supplied value.");
                 if (Wire.Flag(global, "isPicklist"))

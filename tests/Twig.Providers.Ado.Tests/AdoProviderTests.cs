@@ -813,6 +813,20 @@ public sealed class AdoProviderTests
     }
 
     [Fact]
+    public async Task NativeDuplicateTopologyDoesNotBecomeAParentChildHierarchy()
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = "native-duplicate-topology";
+        var result = await f.Provider.DiscoverSchemaAsync(f.Connection, default);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Relations.ShouldContain(relation => relation.Reference == "System.LinkTypes.Duplicate-Forward"
+            && relation.Shape == RelationShape.Association && relation.Directed);
+        result.Value.Relations.Where(relation => relation.Shape == RelationShape.Hierarchy)
+            .Select(relation => relation.Reference).ShouldBe(["Native.ParentForward"]);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task ValidButDifferentNativeActorCannotVerifyOrReuseOriginalIdentityBinding()
     {
         using var f = await Fixture.Create();
@@ -1049,6 +1063,20 @@ public sealed class AdoProviderTests
                     {"referenceName":"Hyperlink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } },
                     {"referenceName":"ArtifactLink","attributes":{"usage":"resourceLink","enabled":{{(Defect != "resource-disabled" ? "true" : "false")}} } }
                     """);
+                if (Defect == "native-duplicate-topology")
+                {
+                    var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
+                    var values = body["value"]!.AsArray();
+                    values.Add(JsonNode.Parse("""
+                        {"referenceName":"System.LinkTypes.Duplicate-Forward","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":true,"topology":"tree","oppositeEndReferenceName":"System.LinkTypes.Duplicate-Reverse"}}
+                        """));
+                    values.Add(JsonNode.Parse("""
+                        {"referenceName":"System.LinkTypes.Duplicate-Reverse","attributes":{"usage":"workItemLink","enabled":true,"directional":true,"isForward":false,"topology":"tree","oppositeEndReferenceName":"System.LinkTypes.Duplicate-Forward"}}
+                        """));
+                    body["count"] = values.Count;
+                    response.Dispose();
+                    response = Json(body.ToJsonString());
+                }
                 if (Defect?.StartsWith("creation-links", StringComparison.Ordinal) == true)
                 {
                     var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;

@@ -44,6 +44,7 @@ public sealed partial class AdoProvider
             var canonical = forward ? reference : Wire.Text(attributes, "oppositeEndReferenceName");
             var shape = Wire.Text(attributes, "topology") switch
             {
+                "tree" when canonical == "System.LinkTypes.Duplicate-Forward" => RelationShape.Association,
                 "tree" => RelationShape.Hierarchy,
                 "dependency" => RelationShape.Dependency,
                 "network" => RelationShape.Association,

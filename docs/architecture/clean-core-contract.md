@@ -14,7 +14,29 @@ never installing `AddConnectionServices`, `AddTwigNetworkServices`,
 `AddTwigCommandServices` or their old writer/projection graph. The retained static
 RenderTree renderer does not register the asynchronous/aggregate workspace pipeline.
 Actual descriptors and retained-owner resolution are proven both with and without a
-marker. Core remains 56 contract types/two ports/format 3; the phase-6 source cut is described below.
+marker. Core retains two ports and proposal format 3; the phase-6 source cut is described below.
+
+### Optional process presentation
+
+The consolidated `ProcessSchema` now carries optional type presentation, field
+labels, state colors and a source web URL. Consumers opt in with
+`IProvider.DiscoverSchemaAsync(connection, cancellationToken, includePresentation: true)`;
+ordinary validation and mutation discovery does not acquire form layouts.
+The native read-only source boundary opts in for browser/canvas consumers.
+
+ADO presentation reads the exact process roster reference, never a similarly named
+project/parent type. It preserves server-defined pages, sections (columns), groups,
+ordered controls and separate system controls, including visibility, read-only and
+contribution markers. Served-but-empty, locked (`VS403115`) and unavailable layouts
+remain distinct. Authentication, permission and other transport errors are failures,
+not missing-layout fallbacks. Extension controls are metadata, not executable code.
+GitHub carries its observed repository URL and issue type names without fabricating
+an ADO form layout.
+
+Presentation is excluded from the mutation/schema digest: an icon, label or layout
+change must not invalidate reviewed work-item mutation intent. This restores data
+acquisition through the existing provider port, not the legacy Domain/service graph
+or the retired CLI layout command.
 
 The finite data catalog is process/description, cached show/show-batch with explicit
 refresh, bounded query, update/patch/state/note/batch, pending/save/discard,

@@ -26,6 +26,9 @@ public sealed partial class GitHubProvider
     public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct)
         => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token)).Schema, ct));
 
+    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
+        => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token, includePresentation)).Schema, ct));
+
     private const string Metadata = """
         query {
           issue: __type(name: "Issue") { fields { name type { kind name ofType { kind name ofType { kind name } } } } }
@@ -38,7 +41,7 @@ public sealed partial class GitHubProvider
         }
         """;
 
-    private async Task<Discovery> Discover(Bound bound, CancellationToken ct)
+    private async Task<Discovery> Discover(Bound bound, CancellationToken ct, bool includePresentation = false)
     {
         var metadata = await Graph(bound, Metadata, null, ct);
         var fields = Names(Wire.Member(metadata, "issue"), "fields");
@@ -167,7 +170,20 @@ public sealed partial class GitHubProvider
         }
         var capabilities = new ProviderCapabilities(operations, native, relations.Select(r => r.Reference).Except(native), false, false);
         _capabilities = capabilities;
-        return new(new(_connection, itemTypes, relations, gaps), fields, mutations, update, create, native.ToImmutable(), capabilities);
+        string? webUrl = null;
+        if (includePresentation)
+        {
+            var data = await Graph(bound,
+                "query($id: ID!) { node(id: $id) { id ... on Repository { owner { id } url } } }",
+                json => json.WriteString("id", _repository), ct);
+            var repository = Wire.Member(data, "node");
+            Repository(repository);
+            webUrl = Wire.Text(repository, "url").TrimEnd('/') + "/";
+            itemTypes = itemTypes.Select(t => new ItemType(t.Reference, t.StateField, t.Fields, t.States,
+                t.Transitions, t.Rules, t.Hidden,
+                new(typeNames.GetValueOrDefault(t.Reference, "Issue"), null, "github-issue"))).ToArray();
+        }
+        return new(new(_connection, itemTypes, relations, gaps, webUrl), fields, mutations, update, create, native.ToImmutable(), capabilities);
     }
 
     private static bool RelationMutation(string relation, bool add, ImmutableHashSet<string> mutations)

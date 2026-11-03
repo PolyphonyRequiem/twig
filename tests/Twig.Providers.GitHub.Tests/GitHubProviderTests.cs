@@ -16,6 +16,21 @@ namespace Twig.Providers.GitHub.Tests;
 
 public sealed class GitHubProviderTests
 {
+    [Fact]
+    public async Task PresentationUsesObservedRepositoryUrlAndTypeNamesWithoutChangingMutationDigest()
+    {
+        using var f = await Fixture.Create();
+        var ordinary = await f.Schema();
+        var observed = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
+        observed.Value.Fingerprint.ShouldBe(ordinary.Fingerprint);
+        observed.Value.WebUrl.ShouldBe("https://github.com/example/native-repository/");
+        observed.Value.Types.Single(t => t.Reference == "T1").Presentation.ShouldNotBeNull().Name.ShouldBe("Custom native type");
+        observed.Value.Types.Single(t => t.Reference == Provider.Untyped).Presentation.ShouldNotBeNull().Name.ShouldBe("Issue");
+        observed.Value.Types.ShouldAllBe(t => t.Presentation != null && t.Presentation.Layout == null);
+        f.Http.Writes.ShouldBe(0);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -797,6 +812,11 @@ public sealed class GitHubProviderTests
             {
                 var repo = Repo(); repo["__typename"] = "Repository";
                 data = new() { ["viewer"] = new JsonObject { ["id"] = Actor }, ["node"] = repo };
+            }
+            else if (query.Contains("owner { id } url", StringComparison.Ordinal))
+            {
+                var repo = Repo(); repo["url"] = "https://github.com/example/native-repository";
+                data = new() { ["node"] = repo };
             }
             else if (query.Contains("__type(", StringComparison.Ordinal))
             {

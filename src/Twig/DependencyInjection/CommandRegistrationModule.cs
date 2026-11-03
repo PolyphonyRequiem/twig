@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Services;
 
 namespace Twig.DependencyInjection;
 
@@ -21,6 +22,11 @@ public static class CommandRegistrationModule
                 Path.GetDirectoryName(sp.GetRequiredService<IConnectionBindingService>().RegistryPath)!,
                 sp.GetRequiredService<IConnectionBindingService>()));
         services.AddSingleton<ConnectionWritesCommand>();
+        services.AddSingleton(sp => new UserBenchCommand(
+            UserBenchStore.ForRegistry(sp.GetRequiredService<IConnectionBindingService>().RegistryPath),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+            sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>(),
+            sp.GetService<CoreWorkspaceFactory>()));
         return services;
     }
 }

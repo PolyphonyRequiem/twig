@@ -136,6 +136,16 @@ language, not a subtlety. Until it is resolved, **always qualify the term**.
 > once and returned to. Every Context standing on a Bench sees the same Bench; there are no
 > private pins.
 >
+> **Scope update (Daniel, 2026-11-03):** Benches are user-wide, not owned by a
+> Connection, repository or worktree. The CLI and panel use the same definitions.
+> A repository and its worktrees commonly share a Bench, but that association is
+> the user's choice; no Bench is automatically created or derived from a repo.
+> Each repository/worktree context selects independently. Item and subtree pins,
+> query, area and iteration rules retain their established meaning: store the
+> rule, not a result snapshot. Exclusions remain workspace-view rules outside
+> Bench membership. This supersedes older connection-local/default-creation
+> descriptions, not the existing selector and exclusion semantics.
+>
 > **Context** (wayfinder 0022) — a **disposable place to stand**, opened by a caller and
 > closed when done, holding only the active item and what derives from it. `tree`, `nav` and
 > an untargeted `set` need one; any command that names its own work item needs a Connection

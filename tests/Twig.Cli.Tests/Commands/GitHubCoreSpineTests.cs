@@ -492,7 +492,8 @@ public sealed partial class GitHubCoreSpineTests
             if (query.Contains("__type(", StringComparison.Ordinal)) SchemaRequests++;
             var variables = root["variables"]!;
             if (!query.Contains("viewer", StringComparison.Ordinal) && !query.Contains("__type(", StringComparison.Ordinal)
-                && !query.Contains("repository(owner:", StringComparison.Ordinal)) WorkRequests++;
+                && !query.Contains("repository(owner:", StringComparison.Ordinal)
+                && !query.Contains("owner { id } url", StringComparison.Ordinal)) WorkRequests++;
             JsonNode data;
             if (query.StartsWith("mutation", StringComparison.Ordinal))
             {
@@ -525,6 +526,11 @@ public sealed partial class GitHubCoreSpineTests
             else if (query.Contains("viewer", StringComparison.Ordinal))
                 data = new JsonObject { ["viewer"] = new JsonObject { ["id"] = Defect == "actor" ? "U_other" : "U_actor", ["login"] = "fixture" },
                     ["node"] = Repository() };
+            else if (query.Contains("owner { id } url", StringComparison.Ordinal))
+            {
+                var repo = Repository(); repo["url"] = "https://github.com/original/repo";
+                data = new JsonObject { ["node"] = repo };
+            }
             else if (query.Contains("__type(", StringComparison.Ordinal))
             {
                 var update = Names("id", "title", "body", "state", "assigneeIds"); update["inputFields"] = update["fields"]!.DeepClone(); update.Remove("fields");

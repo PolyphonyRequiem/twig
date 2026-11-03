@@ -1,74 +1,38 @@
 ---
 command: workspace exclude
 group: workspace
-summary: Exclude a work item from workspace view.
+summary: Hide a work item from this workspace view without changing shared Bench pins.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace exclude`
 
-Hide a specific work item from the workspace view without touching its state
-in ADO. Reach for `exclude` when a noisy item — a long-lived spike, a
-placeholder, an item you keep re-seeing but never plan to work — is cluttering
-your sprint or area rendering.
+Save an exclusion for the current initialized workspace and its admitted
+connection. This changes presentation, not shared Bench membership or upstream
+work items. Another worktree using the same Bench retains its own view rules.
 
-## Synopsis
-
-```
-twig workspace exclude <id> [flags]
+```powershell
+twig workspace exclude 3980
+twig workspace exclude 4102 -o json
 ```
 
-## Arguments
+The positional `id` must be positive. Local seeds and invalid IDs are refused.
+ADO IDs need no work HTTP; GitHub resolves an already cached, typed issue number
+to its canonical native identity. No credentials, account selection, active item
+or current Bench are changed.
 
-|Argument|Required|Description|
-| --- | --- | --- |
-|`<id>`|yes|Work item ID to exclude. Positive integer only.|
+Repeatedly excluding the same item is a successful no-op. Rules are persisted
+in the native user store, keyed by workspace root and connection, with captured
+revision checks. They are applied after Bench membership resolution.
 
-## Flags
+Protected drafts are not discarded or silently hidden: excluded items with
+local changes remain visible as protected work and are marked `isExcluded`.
+The shared Bench's saved item/tree/query/area/iteration selections are unchanged.
 
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+`-o|--output` supports `human`, JSON variants and `minimal`. Changes report the
+remaining exclusion count and a message. Errors are format-aware on stderr:
+`0` success, `1` unavailable/conflicting state, `2` invalid input.
 
-## Behavior
-
-Delegates to `TrackingCommand.ExcludeAsync`
-(`src/Twig/Commands/TrackingCommand.cs:67-80`), which calls
-`ITrackingService.ExcludeAsync(id, ct)` and emits an `excluded` outcome record.
-The exclusion is persisted in the workspace's local tracking store; ADO is not
-touched.
-
-Non-positive IDs are rejected with
-`Cannot exclude seeds or invalid IDs. Provide a positive work item ID.` on
-stderr and exit code `2` (`src/Twig/Commands/TrackingCommand.cs:71-75`).
-
-Exclusion is idempotent from the caller's perspective — re-excluding an already
-excluded ID succeeds and re-emits the same outcome.
-
-## Examples
-
-```
-$ twig workspace exclude 3980
-Excluded #3980 from workspace view.
-```
-
-```
-$ twig workspace exclude 3980 -o json
-{"kind":"excluded","id":3980,"message":"Excluded #3980 from workspace view."}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-|`id <= 0` (seed or invalid ID)|`2` with error on stderr|
-
-## See also
-
-- [`workspace exclusions`](./exclusions.md)
-- [`workspace untrack`](./untrack.md)
-- [`workspace`](./workspace.md)
+See [`workspace exclusions`](./exclusions.md),
+[`workspace`](./workspace.md) and [`bench`](../bench/README.md).

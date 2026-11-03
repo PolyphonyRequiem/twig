@@ -1336,16 +1336,18 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="id">Work item ID to exclude.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace exclude")]
-    internal async Task<int> WorkspaceExclude([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public async Task<int> WorkspaceExclude([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => services.GetService<WorkspaceExclusionCommand>() is { } exclusions
+            ? await exclusions.ExecuteAsync(output, ct, add: id) : MissingCore(output);
 
     /// <summary>List all excluded work items.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="clear">Remove all exclusions.</param>
     /// <param name="remove">Remove a specific exclusion by work item ID.</param>
     [Command("workspace exclusions")]
-    internal async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
+        => services.GetService<WorkspaceExclusionCommand>() is { } exclusions
+            ? await exclusions.ExecuteAsync(output, ct, remove: remove, clear: clear) : MissingCore(output);
 
     // ── Bench (ADO #148) ──
 
@@ -1357,6 +1359,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     [Command("bench create")]
     public async Task<int> BenchCreate([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
     {
+        if (expectBinding is null && expectIdentity is null && services.GetService<UserBenchCommand>() is { } native)
+            return await native.ExecuteAsync("create", name, output, ct);
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.BenchAsync("create", name, output, ct, expectBinding: expectBinding, expectIdentity: expectIdentity);
         return MissingCore(output);
@@ -1370,10 +1374,26 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     [Command("bench|bench list")]
     public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, bool includeManagement = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
     {
+        if (expectBinding is null && expectIdentity is null && services.GetService<UserBenchCommand>() is { } native)
+            return await native.ExecuteAsync("list", null, output, ct, management: includeManagement);
         if (services.GetService<CoreCommandAdapter>() is { } core)
             return await core.BenchAsync("list", null, output, ct, expectBinding: expectBinding, expectIdentity: expectIdentity, management: includeManagement);
         return MissingCore(output);
     }
+
+    /// <summary>Rename a user-wide Bench without changing its pins or context selections.</summary>
+    /// <param name="name">Existing Bench name or canonical GUID.</param>
+    /// <param name="newName">New unique Bench name (1-120 characters).</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench GUID; refuses a replacement under the same name.</param>
+    /// <param name="expectContents">Optional complete contents digest from bench list --include-management.</param>
+    [Command("bench rename")]
+    public async Task<int> BenchRename([Argument] string name, [Argument] string newName,
+        string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectContents = null,
+        CancellationToken ct = default)
+        => services.GetService<UserBenchCommand>() is { } native
+            ? await native.ExecuteAsync("rename", name, output, ct, newName: newName, expectBench: expectBench, expectContents: expectContents)
+            : MissingCore(output);
 
     /// <summary>Stand on another Bench. Naming one that does not exist fails; nothing is created.</summary>
     /// <param name="name">Name of an existing Bench.</param>
@@ -1398,8 +1418,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before deleting.</param>
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before deleting.</param>
     [Command("bench delete")]
-    internal async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectContents = null, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectContents = null, CancellationToken ct = default)
+        => expectBinding is null && expectIdentity is null && services.GetService<UserBenchCommand>() is { } native
+            ? await native.ExecuteAsync("delete", name, output, ct, confirm: confirm, expectBench: expectBench, expectContents: expectContents)
+            : Unsupported(output);
 
     /// <summary>Read full, richly rendered cached detail for an explicitly selected Bench work item.</summary>
     /// <param name="id">Work item ID or local seed ID; never changes the active item.</param>
@@ -2222,6 +2244,7 @@ internal static class GroupedHelp
         "bench create",
         "bench list",
         "bench switch",
+        "bench rename",
         "bench delete",
         "bench detail",
         "bench discussion",

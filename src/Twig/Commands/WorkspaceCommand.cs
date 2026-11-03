@@ -75,7 +75,7 @@ internal sealed class WorkspaceCommand(
                 return Error("GitHub workspace refresh/context expansion is not qualified; explicitly refresh numeric items.");
             var context = await workspace.Context.ReadAsync(ct);
             if (!context.IsSuccess) return Error(context.Error.Message);
-            var read = await workspace.SnapshotAsync(ct);
+            var read = await workspace.BenchSnapshotAsync(ct);
             if (!read.IsSuccess) return Error(read.Error.Message);
             var snapshot = read.Value;
             var matches = snapshot.Benches.Where(value => bench is null ? value.Id == context.Value.BenchId
@@ -94,7 +94,7 @@ internal sealed class WorkspaceCommand(
                 var pulled = await workspace.PullBenchAsync(selected.Id.ToString("D"), includeActiveContext: false,
                     depths.Up, depths.Down, depths.Sideways, ct);
                 if (!pulled.IsSuccess) return Error(pulled.Error.Message);
-                read = await workspace.SnapshotAsync(ct);
+                read = await workspace.BenchSnapshotAsync(ct);
                 if (!read.IsSuccess) return Error(read.Error.Message);
                 snapshot = read.Value;
             }
@@ -118,7 +118,12 @@ internal sealed class WorkspaceCommand(
                 snapshot.Drafts, snapshot.Proposals, snapshot.Journal, snapshot.Mappings, snapshot.Benches);
             var resolved = Core.Core.ResolveBench(projectedBench, projection, schema.Value);
             if (!resolved.IsSuccess) return Error(resolved.Error.Message);
-            var keys = resolved.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
+            var rules = await workspace.ViewRulesAsync(ct);
+            if (!rules.IsSuccess) return Error(rules.Error.Message);
+            var candidates = resolved.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
+            var visible = Core.Core.ApplyViewExclusions(candidates, rules.Value.Exclusions, projection, schema.Value);
+            if (!visible.IsSuccess) return Error(visible.Error.Message);
+            var keys = visible.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
             var rows = new List<RenderRow>();
             foreach (var key in keys)
             {
@@ -150,6 +155,7 @@ internal sealed class WorkspaceCommand(
                         : cached is null ? "draft-baseline+proposed" : "cached+proposed"),
                     ["benchMember"] = RenderCell.Boolean(resolved.Value.Contains(key)),
                     ["hasDraft"] = RenderCell.Boolean(draft is not null),
+                    ["isExcluded"] = RenderCell.Boolean(!visible.Value.Contains(key)),
                     ["cachedFields"] = Fields(baseline?.Fields),
                     ["proposedFields"] = Fields(proposed),
                 }));

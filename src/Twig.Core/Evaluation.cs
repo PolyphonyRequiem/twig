@@ -44,10 +44,25 @@ public static partial class Core
     }
 
     public static Result<ImmutableArray<ItemKey>> ResolveBench(Bench bench, StoreSnapshot store, ProcessSchema schema)
+        => ResolveSelectors(bench.Selectors, store, schema);
+
+    public static Result<ImmutableArray<ItemKey>> ApplyViewExclusions(IEnumerable<ItemKey> members,
+        IEnumerable<Selector> exclusions, StoreSnapshot store, ProcessSchema schema)
+    {
+        var rules = exclusions.Where(rule => rule.Connection is null || rule.Connection == schema.Connection).ToArray();
+        var removed = rules.Where(rule => rule.Kind == SelectorKind.Pin).Select(rule => rule.Item!).ToHashSet();
+        var resolved = ResolveSelectors(rules.Where(rule => rule.Kind != SelectorKind.Pin), store, schema);
+        if (!resolved.IsSuccess) return resolved;
+        removed.UnionWith(resolved.Value);
+        return Result<ImmutableArray<ItemKey>>.Ok(members.Where(item => !removed.Contains(item)).ToImmutableArray());
+    }
+
+    private static Result<ImmutableArray<ItemKey>> ResolveSelectors(IEnumerable<Selector> selectors, StoreSnapshot store, ProcessSchema schema)
     {
         var selected = new HashSet<ItemKey>();
-        foreach (var selector in bench.Selectors)
+        foreach (var selector in selectors)
         {
+            if (selector.Connection is { } connection && connection != schema.Connection) continue;
             if (selector.Kind == SelectorKind.Query)
             {
                 foreach (var item in store.Items)

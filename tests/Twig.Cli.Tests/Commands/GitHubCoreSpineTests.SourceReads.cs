@@ -26,6 +26,8 @@ public sealed partial class GitHubCoreSpineTests
         online.IsSuccess.ShouldBeTrue(online.IsSuccess ? "" : online.Error.Message);
         online.Value.Source.ShouldBe(local.Value.Source);
         online.Value.Schema.ShouldNotBeNull().Value.Connection.ShouldBe(local.Value.Source.Connection);
+        online.Value.Schema.Value.WebUrl.ShouldBe("https://github.com/original/repo/");
+        online.Value.Schema.Value.Types.Single().Presentation.ShouldNotBeNull().Name.ShouldBe("Issue");
         online.Value.SchemaObservedAt.ShouldNotBeNull();
         f.CredentialCalls.ShouldBeGreaterThan(credentials);
         f.Http.SchemaRequests.ShouldBeGreaterThan(0);

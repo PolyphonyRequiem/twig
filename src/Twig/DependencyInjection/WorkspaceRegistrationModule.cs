@@ -64,6 +64,7 @@ internal static class WorkspaceRegistrationModule
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
                 sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>(), sp.GetService<TextWriter>()));
             services.AddSingleton<WorkspaceCommand>();
+            services.AddSingleton<WorkspaceExclusionCommand>();
             return services;
         }
         return services;

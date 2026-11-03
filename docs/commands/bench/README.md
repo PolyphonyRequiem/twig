@@ -1,17 +1,24 @@
 # `twig bench`
 
-A **Bench** is a named, durable, saved backlog. You name an arrangement of work
-once and return to it later; several Benches can exist side by side, and the one
-you are currently standing on decides what your workspace view shows. Everything
-standing on a Bench sees the same Bench — there are no private pins.
+A **Bench** is a named, durable, user-wide collection of selection rules. The CLI
+and panel share its identity and definition. Multiple Benches can be used from
+any repository/worktree; no repository-derived or automatic default Bench is
+created. Each worktree selects independently, while edits to a shared Bench's
+pins are visible wherever that Bench is used.
 
 A Bench holds **selectors** (a pin is a selector that matches one item; a query
 is a selector that matches a body of work). The store is durable: a Bench and its
-selectors survive cache rebuilds, and the default Bench is always present.
+selectors survive cache rebuilds and worktree deletion. Individual items, their
+trees, queries, areas and iterations remain distinct choices; a rule is not
+replaced by the items it happened to match today. Exclusions affect workspace
+views, not the saved Bench's membership.
 
 The `bench` command group is the shared surface for managing that store — create
 a Bench, list what exists, switch which one is current, or delete one you no
-longer need. Every subcommand accepts `-o|--output human|json|minimal`; the
+longer need. Rename preserves the Bench's ID, pins and context selections.
+Metadata management works without an initialized workspace; switching and
+contextual pin operations require an admitted Core workspace.
+Every subcommand accepts `-o|--output human|json|minimal`; the
 format is *declared* by the caller, never sniffed from the terminal, so a
 command means the same thing in a pipe as at a prompt.
 
@@ -22,21 +29,17 @@ command means the same thing in a pipe as at a prompt.
 |[`bench create`](./create.md)|Create a Bench with a name you will recognise later.|local|
 |[`bench list`](./list.md)|List the Benches that exist, marking the current one.|none|
 |[`bench switch`](./switch.md)|Stand on another Bench.|local|
+|[`bench rename`](./rename.md)|Rename the shared definition without changing its pins.|local|
 |[`bench delete`](./delete.md)|Delete a Bench — one holding pins refuses without `--confirm`.|local|
-|`bench detail <id>`|Read full cached work-item or seed detail without changing context.|none|
-|`bench discussion --stdin`|Read one remote discussion page for an explicitly qualified cached Bench member.|none|
-|`bench configuration area candidates`|Read official configured-team paths and Exact/Under semantics.|none|
-|`bench browser`|Shared native Bench terminal, local editing and read-only Review; Windows/Linux `twig tui` uses the same application.|local only; explicit S pulls selected root/links|
 
-Listing, creating a named Bench and switching read existing arrangements as stored
-metadata, without identity-profile discovery or query evaluation. First-use default
-initialization still validates the admitted canonical identity; a refusal creates
-nothing. Native connection admission, captured target IDs and atomic storage guards
-remain in force. Creating a Bench does not select it. Metadata reads never rewrite
-saved selectors, and default self membership is still rebound to the current
-canonical principal whenever a workspace, pin or query consumer evaluates it.
+Listing and management read stored metadata, without identity-profile discovery
+or query evaluation. Creating a Bench does not select it. Metadata reads never
+rewrite saved selectors or initialize a default.
 
-## Behavior
+## Historical pre-Core browser/editor reference
+
+The sections below record older browser, editor and configuration surfaces.
+They are not a claim that those retired commands have all been restored.
 
 ### Read full work-item detail
 

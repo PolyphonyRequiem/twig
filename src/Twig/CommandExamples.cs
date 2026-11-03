@@ -414,8 +414,13 @@ internal static class CommandExamples
         ["bench switch"] =
         [
             "twig bench switch \"release blockers\"   Stand on another Bench",
-            "twig bench switch default              Go back to the Bench you started with",
+            "twig bench switch \"bugs I own\"         Select an existing Bench in this worktree only",
             "twig bench switch \"release blockers\" --expect-bench <id>   Select the displayed target only",
+        ],
+        ["bench rename"] =
+        [
+            "twig bench rename \"release blockers\" \"Release readiness\"   Rename a shared Bench",
+            "twig bench rename <guid> \"Release readiness\" --expect-contents <digest> -o json   Rename only the captured definition",
         ],
         // ADO #150 — deleting. There is deliberately NO --force: a Bench holding pins reports
         // them and stops, and the way past that is re-typing its NAME, which differs every time

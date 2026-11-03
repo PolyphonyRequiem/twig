@@ -1,89 +1,39 @@
 ---
 command: workspace exclusions
 group: workspace
-summary: List all excluded work items; also clears or removes exclusions.
+summary: Inspect, remove or clear this workspace's view exclusions.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace exclusions`
 
-Inspect and manage the workspace's exclusion list — the IDs that
-`workspace exclude` has hidden from the view. With no flags it prints the
-current exclusions. `--clear` removes them all; `--remove <id>` removes one.
+Inspect the current workspace/connection's view rules. These are separate from
+the user-wide Bench definition and never remove shared pins or upstream items.
 
-## Synopsis
-
-```
-twig workspace exclusions [flags]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-| --- | --- | --- |
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
-|`--clear`|`bool`|`false`|Remove all exclusions.|
-|`--remove`|`int?`|`null`|Remove a specific exclusion by work item ID.|
-
-## Behavior
-
-Delegates to `TrackingCommand.ExclusionsAsync`
-(`src/Twig/Commands/TrackingCommand.cs:83-168`). The three sub-modes are
-resolved in order:
-
-1. `--clear` calls `trackingService.ClearExclusionsAsync(ct)`. On non-empty
-   input it reports the removed count via the `exclusionsCleared` outcome; on
-   an already-empty list it emits `exclusionsClearedEmpty` at severity `info`
-   (`src/Twig/Commands/TrackingCommand.cs:87-95`).
-2. `--remove <id>` calls `trackingService.RemoveExclusionAsync(removeId, ct)`.
-   A successful removal emits `exclusionRemoved`; an ID that was not excluded
-   emits `exclusionRemoveNotFound` at severity `info`
-   (`src/Twig/Commands/TrackingCommand.cs:97-111`). Non-positive IDs are
-   rejected with exit `2` and `Provide a positive work item ID to remove.`
-   on stderr.
-3. Otherwise the command lists the exclusions. On machine formats
-   (`json`, `json-full`, `json-compact`, `ids`) it emits an `exclusionsList`
-   Document with a table of `id`/`title` rows and a `count` field
-   (`src/Twig/Commands/TrackingCommand.cs:114-145`). On human format it
-   streams `#<id>: <title>` lines and a total-count footer
-   (`src/Twig/Commands/TrackingCommand.cs:156-166`).
-
-Titles are looked up from the local cache; if the cache does not know the
-title, the row shows just `#<id>` without failing.
-
-## Examples
-
-```
-$ twig workspace exclusions
-#3980: Auth loop repro
-#4102: Retry spike
-2 exclusion(s) total.
+```powershell
+twig workspace exclusions -o json
+twig workspace exclusions --remove 3980 -o json
+twig workspace exclusions --clear
 ```
 
-```
-$ twig workspace exclusions --remove 3980 -o json
-{"kind":"exclusionRemoved","id":3980,"message":"Removed exclusion for #3980."}
-```
+With no change flags, list cached rule metadata (`id`, `kind`, `field` and
+`relation`) without work HTTP. `--remove <positive-id>` removes that exact
+single-item exclusion, preserving other rules; an absent exclusion is a
+successful no-op. `--clear` clears this workspace/connection's rules only.
+Combining change flags is a usage error.
 
-## Exit codes and failure modes
+`-o|--output` supports `human`, JSON variants and `minimal`. List-only `ids`
+emits one numeric work-item ID per line when every rule is an observed
+single-item exclusion. It refuses query/tree rules or unavailable native
+numbers rather than silently returning a partial ID list.
 
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-|`--remove <id>` with `id <= 0`|`2` with error on stderr|
-|`--clear` on an empty list|`0` with `exclusionsClearedEmpty` outcome|
+Changes use the captured rule revision, so concurrent edits are not
+overwritten. Selection, work-item state, pending drafts, proposal journals and
+other contexts' exclusions are untouched.
 
-## See also
+Exit codes: `0` success (including empty/no-op); `1` unavailable/conflicting
+state; `2` invalid input. Errors use the selected output format on stderr.
 
-- [`workspace exclude`](./exclude.md)
-- [`workspace untrack`](./untrack.md)
-- [`workspace`](./workspace.md)
+See [`workspace exclude`](./exclude.md),
+[`workspace`](./workspace.md) and [`bench`](../bench/README.md).

@@ -21,6 +21,54 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class NativePublicationConsumerTests
 {
+    [Fact]
+    public async Task CoreWorkspaceReadResolvesSharedRelativeRulesFromCachedTeamCalendar()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var configuration = await TwigConfiguration.LoadSplitAsync(paths);
+        var shared = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        var now = DateTimeOffset.UtcNow;
+        var bench = new CoreModel.Bench(Guid.NewGuid(), "Relative cached scope",
+            [new(CoreModel.SelectorKind.Query, query: new(CoreModel.QueryKind.Iteration, "System.IterationPath",
+                CoreModel.FieldValue.Strings(["@Current+1"]), planningTeam: "canonical-team"), connection: connection)]);
+        (await shared.SaveAsync(bench, 0)).IsSuccess.ShouldBeTrue();
+        (await shared.SavePlanningAsync(connection, configuration.Team, new(now, [],
+            [new("Project\\Current", now.AddDays(-1), now.AddDays(1)), new("Project\\Next", now.AddDays(2), now.AddDays(3))],
+            [], "canonical-team"))).IsSuccess.ShouldBeTrue();
+        CoreModel.WorkItem Item(string id, string iteration)
+        {
+            var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, id);
+            return new(key, "Fixture.Task", CoreModel.FieldValues.Empty
+                .Set("System.Title", CoreModel.FieldValue.String("Cached " + id))
+                .Set("System.IterationPath", CoreModel.FieldValue.String(iteration)), new(key, "1"), true);
+        }
+        (await store.CommitAsync(connection, 0, new(1, [Item("42", "Project\\Current"), Item("43", "Project\\Next")]), default))
+            .IsSuccess.ShouldBeTrue();
+        var context = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
+        var before = (await context.ReadAsync(default)).Value;
+        (await context.WriteAsync(before, before with { BenchId = bench.Id }, default)).IsSuccess.ShouldBeTrue();
+        _transport.ItemReadIds.Clear();
+        _transport.QueryAfterIds.Clear();
+        var oldOut = Console.Out;
+        var oldError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            RunCoreLink(paths, ["workspace", "-o", "json"]).ShouldBe(0, stderr.ToString());
+            using var json = JsonDocument.Parse(stdout.ToString());
+            json.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetInt32()).ShouldBe([43]);
+        }
+        finally { Console.SetOut(oldOut); Console.SetError(oldError); }
+        _transport.ItemReadIds.ShouldBeEmpty();
+        _transport.QueryAfterIds.ShouldBeEmpty();
+        _transport.CommittedWrites.ShouldBe(0);
+        (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(1);
+        (await shared.ReadAsync()).Value.Benches.Single().Selectors.Single().Query!.Value!.Values.ShouldContain("@Current+1");
+    }
+
     [Theory]
     [InlineData("workspace")]
     [InlineData("ws")]

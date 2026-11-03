@@ -189,6 +189,7 @@ jobs:
               "CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields",
               "CoreQueryFindsLaterPageMatchesAndPreservesUnpublishedDraftsWithoutWriters",
               "CoreWorkspaceReadRoutesThroughProductionComposition",
+              "CoreWorkspaceReadResolvesSharedRelativeRulesFromCachedTeamCalendar",
               "CoreWorkspaceReadKeepsExactMembershipTypedDebtAndOneOutputAcrossFormats",
               "CoreWorkspaceReadRefusesUnsupportedShapesAndUntrustworthyScopeWithoutBroadening",
               "CoreWorkspaceReadRefreshUsesOnlySharedPullAndPreservesDebtAndMappedSelectors",

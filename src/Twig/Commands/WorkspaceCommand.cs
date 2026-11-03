@@ -101,6 +101,10 @@ internal sealed class WorkspaceCommand(
             // Schema is not persisted in StoreSnapshot. Only provider metadata is acquired on an ordinary read.
             var schema = await workspace.SchemaAsync(ct);
             if (!schema.IsSuccess) return Error(schema.Error.Message);
+            var planning = await workspace.PlanningAsync(ct);
+            if (!planning.IsSuccess) return Error(planning.Error.Message);
+            schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata });
+            var evaluationTime = DateTimeOffset.UtcNow;
             if (KnownLocalKeys(snapshot).GroupBy(LocalAlias).Any(group => group.Count() != 1))
                 return Error("Local aliases are ambiguous; no workspace identity was guessed.");
             ItemKey Resolve(ItemKey key) => key.IsLocal
@@ -116,12 +120,12 @@ internal sealed class WorkspaceCommand(
             var projection = new StoreSnapshot(snapshot.Version, snapshot.Items,
                 snapshot.Relationships.Select(edge => edge with { From = Resolve(edge.From), To = Resolve(edge.To) }),
                 snapshot.Drafts, snapshot.Proposals, snapshot.Journal, snapshot.Mappings, snapshot.Benches);
-            var resolved = Core.Core.ResolveBench(projectedBench, projection, schema.Value);
+            var resolved = Core.Core.ResolveBench(projectedBench, projection, schema.Value, evaluationTime);
             if (!resolved.IsSuccess) return Error(resolved.Error.Message);
             var rules = await workspace.ViewRulesAsync(ct);
             if (!rules.IsSuccess) return Error(rules.Error.Message);
             var candidates = resolved.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
-            var visible = Core.Core.ApplyViewExclusions(candidates, rules.Value.Exclusions, projection, schema.Value);
+            var visible = Core.Core.ApplyViewExclusions(candidates, rules.Value.Exclusions, projection, schema.Value, evaluationTime);
             if (!visible.IsSuccess) return Error(visible.Error.Message);
             var keys = visible.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
             var rows = new List<RenderRow>();

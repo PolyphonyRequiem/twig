@@ -77,7 +77,7 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var benches = UserBenchStore.ForRegistry(bindings.RegistryPath);
         var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler());
         var workspace = new CoreWorkspace(document.Connection, provider, store,
-            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance, benches);
+            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance, benches, configuration.Team);
         return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider, document, source, access));
     }
 

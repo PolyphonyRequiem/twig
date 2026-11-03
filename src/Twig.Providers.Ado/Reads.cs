@@ -92,7 +92,7 @@ public sealed partial class AdoProvider
     private static void CheckQuery(Query query, Discovery schema, int depth = 0)
     {
         if (depth > 32) throw Wire.Refuse(ErrorCode.Unsupported, "Query nesting exceeds the adapter bound.");
-        if (query.Kind is QueryKind.Equal or QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual
+        if (query.Kind is QueryKind.Equal or QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual or QueryKind.PathEqual
             && (!schema.Fields.TryGetValue(query.Field!, out var field)
             || query.Value!.Kind != FieldKind.Null && query.Value.Kind != field.Kind || query.Value!.Kind == FieldKind.Raw))
             throw Wire.Refuse(ErrorCode.Unsupported, "Query field/value is not an exactly comparable discovered field.");

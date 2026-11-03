@@ -93,5 +93,6 @@ public sealed record ProcessSchema
     public ImmutableArray<RelationKind> Relations { get; }
     public ImmutableArray<string> Gaps { get; }
     public string? WebUrl { get; }
+    public PlanningMetadata? Planning { get; init; }
     public string Fingerprint => Core.SchemaDigest(this);
 }

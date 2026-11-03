@@ -18,7 +18,7 @@ internal sealed record CoreExecution(ImmutableArray<Receipt> Receipts, Error? Er
 /// <summary>One draft/proposal/journal application path; no retry, note flush or legacy publisher.</summary>
 internal sealed class CoreWorkspace(Connection connection, IProvider provider, IStore store,
     ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot, Guid storeInstance = default,
-    UserBenchStore? sharedBenches = null)
+    UserBenchStore? sharedBenches = null, string planningTeam = "")
 {
     internal Connection Connection => connection;
     internal ProviderCapabilities Capabilities => provider.Capabilities;
@@ -38,6 +38,14 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             : SnapshotAsync(ct);
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct, bool includePresentation = false)
         => includePresentation ? provider.DiscoverSchemaAsync(connection, ct, true) : provider.DiscoverSchemaAsync(connection, ct);
+    internal Task<Result<PlanningCacheEntry>> PlanningAsync(CancellationToken ct)
+        => sharedBenches is not null ? sharedBenches.ReadPlanningAsync(connection, planningTeam, ct)
+            : Task.FromResult(Result<PlanningCacheEntry>.Ok(new(null)));
+    internal Task<Result<PlanningMetadata>> DiscoverPlanningAsync(CancellationToken ct)
+        => provider.DiscoverPlanningAsync(connection, planningTeam, ct);
+    internal Task<Result<PlanningMetadata>> SavePlanningAsync(PlanningMetadata metadata, CancellationToken ct)
+        => sharedBenches is not null ? sharedBenches.SavePlanningAsync(connection, planningTeam, metadata, ct)
+            : Task.FromResult(Result<PlanningMetadata>.Fail(ErrorCode.Unavailable, "The native planning store is unavailable."));
 
     internal async Task<Result<ItemKey>> ResolveTargetAsync(int locator, bool allowNativeLookup, CancellationToken ct)
     {
@@ -101,6 +109,15 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     internal async Task<Result<QueryPage>> QueryAsync(Query query, CancellationToken ct, int maximum = int.MaxValue)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        if (NeedsPlanning(query))
+        {
+            var planning = await PlanningAsync(ct).ConfigureAwait(false);
+            if (!planning.IsSuccess) return Result<QueryPage>.Fail(planning.Error);
+            var resolved = Model.ResolvePlanningQuery(query, planning.Value.Metadata, DateTimeOffset.UtcNow);
+            if (!resolved.IsSuccess) return Result<QueryPage>.Fail(resolved.Error);
+            query = resolved.Value;
+        }
+        static bool NeedsPlanning(Query value) => value.Kind == QueryKind.Iteration || value.Children.Any(NeedsPlanning);
         var items = new List<WorkItem>();
         var relationships = new HashSet<Relationship>();
         var identities = new HashSet<ItemKey>();
@@ -148,6 +165,9 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "The captured current Bench changed; no scope was pulled.");
         var schema = await SchemaAsync(ct).ConfigureAwait(false);
         if (!schema.IsSuccess) return Result<CoreBenchPull>.Fail(schema.Error);
+        var planning = await PlanningAsync(ct).ConfigureAwait(false);
+        if (!planning.IsSuccess) return Result<CoreBenchPull>.Fail(planning.Error);
+        schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata });
         var fetched = new HashSet<ItemKey>();
         var members = new HashSet<ItemKey>();
         var targets = initial.Value.Drafts.Select(draft => Resolve(initial.Value, draft.Key)).ToHashSet();
@@ -161,7 +181,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             }
             foreach (var item in initial.Value.Items)
             {
-                var match = Model.Matches(selector.Query!, item);
+                var match = Model.Matches(selector.Query!, item, schema.Value.Planning, DateTimeOffset.UtcNow);
                 if (!match.IsSuccess) return Result<CoreBenchPull>.Fail(match.Error);
                 if (match.Value) targets.Add(item.Key);
             }
@@ -240,7 +260,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         foreach (var selector in bench.Selectors.Where(value => value.Kind == SelectorKind.Query))
             foreach (var item in final.Value.Items)
             {
-                var match = Model.Matches(selector.Query!, item);
+                var match = Model.Matches(selector.Query!, item, schema.Value.Planning, DateTimeOffset.UtcNow);
                 if (!match.IsSuccess) return Result<CoreBenchPull>.Fail(match.Error);
                 if (match.Value) members.Add(item.Key);
             }

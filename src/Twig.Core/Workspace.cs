@@ -2,12 +2,12 @@ using System.Collections.Immutable;
 
 namespace Twig.Core;
 
-public enum QueryKind { All, Equal, And, Or, Not, Contains, Under, GreaterOrEqual }
+public enum QueryKind { All, Equal, And, Or, Not, Contains, Under, GreaterOrEqual, PathEqual, Iteration }
 public enum SelectorKind { Pin, Subtree, Query }
 
 public sealed record Query
 {
-    public Query(QueryKind kind, string? field = null, FieldValue? value = null, IEnumerable<Query>? children = null)
+    public Query(QueryKind kind, string? field = null, FieldValue? value = null, IEnumerable<Query>? children = null, string? planningTeam = null)
     {
         Kind = kind;
         Field = field;
@@ -17,6 +17,9 @@ public sealed record Query
         {
             QueryKind.All => field is null && value is null && Children.IsEmpty,
             QueryKind.Equal => !string.IsNullOrWhiteSpace(field) && value is not null && Children.IsEmpty,
+            QueryKind.PathEqual => !string.IsNullOrWhiteSpace(field) && value?.Kind == FieldKind.Text && Children.IsEmpty,
+            QueryKind.Iteration => !string.IsNullOrWhiteSpace(field) && value?.Kind == FieldKind.StringList
+                && !value.Values.IsEmpty && Children.IsEmpty,
             QueryKind.Contains or QueryKind.Under => !string.IsNullOrWhiteSpace(field)
                 && value?.Kind is FieldKind.Text or FieldKind.Html or FieldKind.Markdown && Children.IsEmpty,
             QueryKind.GreaterOrEqual => !string.IsNullOrWhiteSpace(field)
@@ -26,12 +29,19 @@ public sealed record Query
             _ => false,
         };
         if (!valid) throw new ArgumentException("Query operands do not match its operator.", nameof(kind));
+        if (kind == QueryKind.Iteration)
+            Value = FieldValue.Strings(value!.Values.Select(text => new IterationExpression(text).Text));
+        if (planningTeam is not null && (kind != QueryKind.Iteration || string.IsNullOrWhiteSpace(planningTeam)
+            || planningTeam != planningTeam.Trim() || planningTeam.Any(char.IsControl)))
+            throw new ArgumentException("Only iteration rules may carry an explicit canonical native team.");
+        PlanningTeam = planningTeam;
     }
 
     public QueryKind Kind { get; }
     public string? Field { get; }
     public FieldValue? Value { get; }
     public ImmutableArray<Query> Children { get; }
+    public string? PlanningTeam { get; }
 }
 
 public sealed record Selector

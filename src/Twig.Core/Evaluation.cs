@@ -4,14 +4,19 @@ namespace Twig.Core;
 
 public static partial class Core
 {
-    public static Result<bool> Matches(Query query, WorkItem item)
+    public static Result<bool> Matches(Query query, WorkItem item, PlanningMetadata? planning = null, DateTimeOffset? now = null)
     {
+        if (query.Kind == QueryKind.Iteration)
+        {
+            var resolved = ResolvePlanningQuery(query, planning, now);
+            return resolved.IsSuccess ? Matches(resolved.Value, item, planning, now) : Result<bool>.Fail(resolved.Error);
+        }
         if (query.Kind == QueryKind.All) return Result<bool>.Ok(true);
         if (query.Kind == QueryKind.Equal)
             return item.Fields.TryGetValue(query.Field!, out var value)
                 ? Result<bool>.Ok(value.Equals(query.Value))
                 : Result<bool>.Fail(ErrorCode.Unavailable, $"Field '{query.Field}' was not observed.");
-        if (query.Kind is QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual)
+        if (query.Kind is QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual or QueryKind.PathEqual)
         {
             if (!item.Fields.TryGetValue(query.Field!, out var value))
                 return Result<bool>.Fail(ErrorCode.Unavailable, $"Field '{query.Field}' was not observed.");
@@ -21,13 +26,14 @@ public static partial class Core
             return Result<bool>.Ok(query.Kind switch
             {
                 QueryKind.Contains => value.Text!.Contains(query.Value.Text!, StringComparison.OrdinalIgnoreCase),
+                QueryKind.PathEqual => value.Text!.Equals(query.Value.Text!, StringComparison.OrdinalIgnoreCase),
                 QueryKind.Under => value.Text!.Equals(query.Value.Text!.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
                     || value.Text.StartsWith(query.Value.Text.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase),
                 QueryKind.GreaterOrEqual => value.Kind == FieldKind.Instant ? value.Instant >= query.Value.Instant : value.Number >= query.Value.Number,
                 _ => false,
             });
         }
-        var children = query.Children.Select(c => Matches(c, item)).ToArray();
+        var children = query.Children.Select(c => Matches(c, item, planning, now)).ToArray();
         if (query.Kind == QueryKind.And && children.Any(c => c.IsSuccess && !c.Value))
             return Result<bool>.Ok(false);
         if (query.Kind == QueryKind.Or && children.Any(c => c.IsSuccess && c.Value))
@@ -43,21 +49,21 @@ public static partial class Core
         });
     }
 
-    public static Result<ImmutableArray<ItemKey>> ResolveBench(Bench bench, StoreSnapshot store, ProcessSchema schema)
-        => ResolveSelectors(bench.Selectors, store, schema);
+    public static Result<ImmutableArray<ItemKey>> ResolveBench(Bench bench, StoreSnapshot store, ProcessSchema schema, DateTimeOffset? now = null)
+        => ResolveSelectors(bench.Selectors, store, schema, now);
 
     public static Result<ImmutableArray<ItemKey>> ApplyViewExclusions(IEnumerable<ItemKey> members,
-        IEnumerable<Selector> exclusions, StoreSnapshot store, ProcessSchema schema)
+        IEnumerable<Selector> exclusions, StoreSnapshot store, ProcessSchema schema, DateTimeOffset? now = null)
     {
         var rules = exclusions.Where(rule => rule.Connection is null || rule.Connection == schema.Connection).ToArray();
         var removed = rules.Where(rule => rule.Kind == SelectorKind.Pin).Select(rule => rule.Item!).ToHashSet();
-        var resolved = ResolveSelectors(rules.Where(rule => rule.Kind != SelectorKind.Pin), store, schema);
+        var resolved = ResolveSelectors(rules.Where(rule => rule.Kind != SelectorKind.Pin), store, schema, now);
         if (!resolved.IsSuccess) return resolved;
         removed.UnionWith(resolved.Value);
         return Result<ImmutableArray<ItemKey>>.Ok(members.Where(item => !removed.Contains(item)).ToImmutableArray());
     }
 
-    private static Result<ImmutableArray<ItemKey>> ResolveSelectors(IEnumerable<Selector> selectors, StoreSnapshot store, ProcessSchema schema)
+    private static Result<ImmutableArray<ItemKey>> ResolveSelectors(IEnumerable<Selector> selectors, StoreSnapshot store, ProcessSchema schema, DateTimeOffset? now)
     {
         var selected = new HashSet<ItemKey>();
         foreach (var selector in selectors)
@@ -65,9 +71,11 @@ public static partial class Core
             if (selector.Connection is { } connection && connection != schema.Connection) continue;
             if (selector.Kind == SelectorKind.Query)
             {
+                var resolved = ResolvePlanningQuery(selector.Query!, schema.Planning, now);
+                if (!resolved.IsSuccess) return Result<ImmutableArray<ItemKey>>.Fail(resolved.Error);
                 foreach (var item in store.Items)
                 {
-                    var match = Matches(selector.Query!, item);
+                    var match = Matches(resolved.Value, item, schema.Planning, now);
                     if (!match.IsSuccess) return Result<ImmutableArray<ItemKey>>.Fail(match.Error);
                     if (match.Value) selected.Add(item.Key);
                 }

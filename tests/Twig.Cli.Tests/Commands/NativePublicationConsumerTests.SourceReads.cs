@@ -17,6 +17,39 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Fact]
+    public async Task NativePanelSelectionSharesCliContextPreservesHistoryAndRejectsStaleOrReplacedAuthority()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var bench = new Bench(Guid.NewGuid(), "Selected by panel", []);
+        (await store.CommitAsync(connection, 0, new(1, benches: [bench]), default)).IsSuccess.ShouldBeTrue();
+        var capture = (await ReadSource(paths)).Value;
+        var context = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
+        var original = (await context.ReadAsync(default)).Value;
+        var active = original with { History = [new(null, "42")], Position = 0 };
+        (await context.WriteAsync(original, active, default)).IsSuccess.ShouldBeTrue();
+        void Configure(IServiceCollection services)
+        {
+            services.AddSingleton<IConnectionBindingService>(_bindings);
+            services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        }
+        var requests = _transport.TotalRequests;
+        var selected = await NativeSourceReader.SelectBenchAsync(paths.RepoRoot, capture.Source, null, bench.Id, Configure, default);
+        selected.IsSuccess.ShouldBeTrue(selected.IsSuccess ? "" : selected.Error.Message);
+        selected.Value.SelectedBenchId.ShouldBe(bench.Id);
+        var after = (await context.ReadAsync(default)).Value;
+        after.BenchId.ShouldBe(bench.Id);
+        after.History.ShouldBe(active.History);
+        after.Position.ShouldBe(active.Position);
+        (await NativeSourceReader.SelectBenchAsync(paths.RepoRoot, capture.Source, null, null, Configure, default))
+            .Error.Code.ShouldBe(ErrorCode.Conflict);
+        (await NativeSourceReader.SelectBenchAsync(paths.RepoRoot, capture.Source with { PrincipalId = "different" },
+            bench.Id, null, Configure, default)).Error.Code.ShouldBe(ErrorCode.Conflict);
+        (await context.ReadAsync(default)).Value.BenchId.ShouldBe(bench.Id);
+        _transport.TotalRequests.ShouldBe(requests);
+        (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task NativeSourceReadsTypedEvidenceWithoutChangingNativeState()
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();

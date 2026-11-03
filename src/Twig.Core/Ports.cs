@@ -30,6 +30,8 @@ public interface IProvider
     Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct);
     Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
         => DiscoverSchemaAsync(connection, ct);
+    Task<Result<PlanningMetadata>> DiscoverPlanningAsync(Connection connection, string? team, CancellationToken ct)
+        => Task.FromResult(Result<PlanningMetadata>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning metadata."));
     Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct);
     Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false);
     Task<Result<long>> ImportAsync(Proposal proposal, string confirmation, CancellationToken ct = default);

@@ -185,6 +185,88 @@ public sealed class UserBenchStoreTests : IDisposable
         Directory.CreateDirectory(Path.Combine(root, ".twig"));
         return (root, Required(await SqliteStore.CreateAsync(Path.Combine(root, ".twig", "core.db"))));
     }
+
+    [Fact]
+    public async Task ExplicitImportIsAtomicIdempotentAndDoesNotOverwriteConflictingIntentOrTombstones()
+    {
+        Directory.CreateDirectory(directory);
+        var store = Store;
+        var first = new Bench(Guid.NewGuid(), "First", [new(SelectorKind.Pin, Key(ado, "41"), connection: ado)]);
+        var second = new Bench(Guid.NewGuid(), "Second", [new(SelectorKind.Query,
+            query: new(QueryKind.Under, "System.AreaPath", FieldValue.String("Project\\Area")), connection: ado)]);
+        var imported = Required(await store.ImportAsync([first, second]));
+        var repeated = Required(await store.ImportAsync([first, second]));
+        repeated.Revision.ShouldBe(imported.Revision);
+        repeated.Benches.Length.ShouldBe(2);
+        var third = new Bench(Guid.NewGuid(), "Third", []);
+        (await store.ImportAsync([third, new(first.Id, "Conflicting name", first.Selectors)])).Error.Code.ShouldBe(ErrorCode.Conflict);
+        Required(await store.ReadAsync()).Benches.ShouldNotContain(bench => bench.Id == third.Id);
+        var retained = repeated.Benches.Single(bench => bench.Id == first.Id);
+        Required(await store.DeleteAsync(retained.Id, retained.Revision));
+        (await store.ImportAsync([first])).Error.Code.ShouldBe(ErrorCode.Conflict);
+        Required(await store.ReadAsync()).Benches.ShouldNotContain(bench => bench.Id == first.Id);
+    }
+    [Fact]
+    public async Task PlanningIntentAndCalendarPersistSeparatelyWithoutMaterializingOrChangingBenchRules()
+    {
+        Directory.CreateDirectory(directory);
+        var store = Store;
+        Required(await store.ReadPlanningAsync(ado, "Team")).Metadata.ShouldBeNull();
+        var rule = new Selector(SelectorKind.Query,
+            query: new(QueryKind.And, children:
+            [
+                new(QueryKind.PathEqual, "System.AreaPath", FieldValue.String("Project\\Area")),
+                new(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@current+1", "Project\\Absolute"]), planningTeam: "Team"),
+            ]), connection: ado);
+        var bench = Required(await store.SaveAsync(new(Guid.NewGuid(), "Planning rules", [rule]), 0));
+        var before = BenchCodec.Serialize(bench);
+        var now = DateTimeOffset.UtcNow;
+        Required(await store.SavePlanningAsync(ado, "Team", new(now, ["Project\\Area"],
+            [new("Project\\Absolute", now.AddDays(-1), now.AddDays(1))], [], "Team")));
+        Required(await Store.ReadPlanningAsync(ado, "Team")).Metadata.ShouldNotBeNull().Iterations.Single().Path.ShouldBe("Project\\Absolute");
+        Required(await Store.ReadPlanningAsync(ado, "Different team")).Metadata.ShouldBeNull();
+        Required(await Store.ReadPlanningAsync(github, "Team")).Metadata.ShouldBeNull();
+        BenchCodec.Serialize(Required(await Store.ReadAsync()).Benches.Single()).ShouldBe(before);
+        Required(await Store.ReadAsync()).Revision.ShouldBe(1);
+        bench.Selectors.Single().Query!.Children[1].Value!.Values.ShouldContain("@Current+1");
+    }
+
+    [Fact]
+    public async Task NativeQueryConsumerResolvesPersistedTeamIntentWithoutCopyingDefinitionsIntoItemMirrors()
+    {
+        Directory.CreateDirectory(directory);
+        var native = await Native("planned-query");
+        var owner = Store;
+        var now = DateTimeOffset.UtcNow;
+        var rule = new Query(QueryKind.And, children:
+        [
+            new(QueryKind.PathEqual, "System.AreaPath", FieldValue.String("Project\\Area")),
+            new(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current+1"]), planningTeam: "canonical-team"),
+        ]);
+        var bench = Required(await owner.SaveAsync(new(Guid.NewGuid(), "Native planning", [new(SelectorKind.Query, query: rule, connection: ado)]), 0));
+        Required(await owner.SavePlanningAsync(ado, "Configured team", new(now, ["Project\\Area"],
+            [new("Project\\Current", now.AddDays(-1), now.AddDays(1)), new("Project\\Next", now.AddDays(2), now.AddDays(3))], [], "canonical-team")));
+        var provider = Substitute.For<IProvider>();
+        provider.Capabilities.Returns(new ProviderCapabilities([], [], [], true, true));
+        Query? dispatched = null;
+        provider.QueryAsync(ado, Arg.Any<Query>(), null, Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            dispatched = call.Arg<Query>();
+            return Result<QueryPage>.Ok(new([], [], null, true));
+        });
+        var workspace = new CoreWorkspace(ado, provider, native.Store, new ConfiguredPolicyProjectionSource(native.Root),
+            "actor", native.Root, native.Store.InstanceId, owner, "Configured team");
+        Required(await workspace.QueryAsync(rule, default)).Complete.ShouldBeTrue();
+        dispatched.ShouldNotBeNull().Children[1].Kind.ShouldBe(QueryKind.PathEqual);
+        dispatched.Children[1].Value!.Text.ShouldBe("Project\\Next");
+        BenchCodec.Serialize(Required(await owner.ReadAsync()).Benches.Single()).ShouldBe(BenchCodec.Serialize(bench));
+        Required(await native.Store.ReadAsync(ado, default)).Benches.ShouldBeEmpty();
+        var different = new CoreWorkspace(ado, provider, native.Store, new ConfiguredPolicyProjectionSource(native.Root),
+            "actor", native.Root, native.Store.InstanceId, owner, "Another configured team");
+        (await different.QueryAsync(rule, default)).Error.Code.ShouldBe(ErrorCode.Unavailable);
+        await provider.Received(1).QueryAsync(ado, Arg.Any<Query>(), null, Arg.Any<CancellationToken>());
+    }
+
     private static ItemKey Key(Connection connection, string id)
         => ItemKey.Remote(connection.Provider, connection.ResourceScope, id);
     private static T Required<T>(Result<T> value)

@@ -16,6 +16,41 @@ namespace Twig.Providers.Ado.Tests;
 public sealed class AdoProviderTests
 {
     [Fact]
+    public async Task PlanningDiscoveryUsesExactTeamCalendarWithoutReadingOrMutatingWorkItems()
+    {
+        using var f = await Fixture.Create();
+        var result = await f.Provider.DiscoverPlanningAsync(f.Connection, "Selected team", default);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        result.Value.Team.ShouldBe(Fixture.Process);
+        result.Value.Areas.ShouldContain("Native Project\\Area");
+        result.Value.Iterations.Single(iteration => iteration.Path == "Native Project\\Sprint").SelectedTeam.ShouldBeTrue();
+        result.Value.Iterations.Single(iteration => iteration.Path == "Native Project\\Other team's sprint").SelectedTeam.ShouldBeFalse();
+        var absent = await f.Provider.DiscoverPlanningAsync(f.Connection, null, default);
+        absent.IsSuccess.ShouldBeTrue();
+        absent.Value.Team.ShouldBeNull();
+        absent.Value.Iterations.ShouldAllBe(iteration => !iteration.SelectedTeam);
+        absent.Value.Gaps.ShouldNotBeEmpty();
+        f.Http.WorkItemReads.ShouldBe(0);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("truncated")]
+    [InlineData("denied")]
+    [InlineData("foreign-team")]
+    public async Task PlanningDiscoveryRefusesIncompleteDeniedAndWrongTeamMetadata(string defect)
+    {
+        using var f = await Fixture.Create();
+        f.Http.PlanningDefect = defect;
+        var result = await f.Provider.DiscoverPlanningAsync(f.Connection, "Selected team", default);
+        result.IsSuccess.ShouldBeFalse();
+        if (defect == "denied") result.Error.Evidence.ShouldContain("http:403");
+        f.Http.WorkItemReads.ShouldBe(0);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task PresentationRetainsNativeAppearanceColumnsOrderingAndExactProcessTypeWithoutChangingMutationDigest()
     {
         using var f = await Fixture.Create();
@@ -1080,6 +1115,7 @@ public sealed class AdoProviderTests
         internal int[]? QueryIdsOverride;
         internal List<int> QueryAfterIds = [];
         internal int WorkItemReads;
+        internal string? PlanningDefect;
         internal string? LayoutJson;
         internal int LayoutStatus = 200;
         internal bool DivergentProjectType;
@@ -1121,6 +1157,25 @@ public sealed class AdoProviderTests
                 return await Write(request, path, ct);
             if (path.EndsWith("/connectionData"))
                 return Json($$"""{"instanceId":"{{(Defect == "wrong-collection" ? Fixture.Process : Fixture.Collection)}}","authenticatedUser":{"id":"{{(Defect == "wrong-principal" ? Fixture.Process : NativeActor)}}"} }""");
+            if (path.Contains("/classificationnodes/"))
+            {
+                if (PlanningDefect == "denied") return Status(403);
+                var area = path.EndsWith("/areas");
+                var structure = area ? "Area" : "Iteration";
+                var child = area ? "Area" : "Sprint";
+                var children = new JsonArray();
+                if (PlanningDefect != "truncated")
+                {
+                    children.Add(new JsonObject { ["path"] = $"\\Native Project\\{structure}\\{child}", ["hasChildren"] = false });
+                    children.Add(new JsonObject { ["path"] = $"\\Native Project\\{structure}\\Other team's sprint", ["hasChildren"] = false });
+                }
+                return Json(new JsonObject { ["path"] = $"\\Native Project\\{structure}",
+                    ["hasChildren"] = true, ["children"] = children }.ToJsonString());
+            }
+            if (path.Contains("/teams/"))
+                return Json($$"""{"id":"{{Fixture.Process}}","name":"{{(PlanningDefect == "foreign-team" ? "Different team" : "Selected team")}}"}""");
+            if (path.EndsWith("/teamsettings/iterations"))
+                return Json("""{"count":1,"value":[{"path":"Native Project\\Sprint","attributes":{"startDate":"2026-11-01T00:00:00Z","finishDate":"2026-11-07T23:59:59Z"}}]}""");
             if (path.Contains("/_apis/projects/"))
                 return Json($$"""{"id":"{{(Defect == "wrong-project" ? Fixture.Process : Fixture.Project)}}","name":"Native Project","capabilities":{"processTemplate":{"templateTypeId":"{{Fixture.Process}}"} } }""");
             if (path.Contains("/workitemicons/"))

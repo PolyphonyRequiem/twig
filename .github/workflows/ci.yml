@@ -143,7 +143,7 @@ jobs:
 
       - name: Read-only native source host boundary
         id: native_source
-        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeSource" --logger "trx;LogFileName=native-source.trx" --results-directory artifacts/test-logs/ci/native-source
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeSource|FullyQualifiedName~NativePanelSelection" --logger "trx;LogFileName=native-source.trx" --results-directory artifacts/test-logs/ci/native-source
       - name: Preserve native source host results
         if: always() && steps.native_source.outcome != 'skipped' && steps.native_source.outcome != ''
         uses: actions/upload-artifact@v4

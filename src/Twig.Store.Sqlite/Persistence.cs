@@ -225,10 +225,11 @@ internal sealed record MappingData(KeyData Local, KeyData Remote, string Digest,
     internal PublishMapping ToCore() => new(Local.ToCore(), Remote.ToCore(), Digest, Operation);
 }
 
-internal sealed record QueryData(QueryKind Kind, string? Field, ValueData? Value, QueryData[] Children)
+internal sealed record QueryData(QueryKind Kind, string? Field, ValueData? Value, QueryData[] Children,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PlanningTeam = null)
 {
-    internal static QueryData From(Query q) => new(q.Kind, q.Field, q.Value is null ? null : ValueData.From(q.Value), q.Children.Select(From).ToArray());
-    internal Query ToCore() => new(Persistence.Defined(Kind), Field, Value?.ToCore(), Children.Select(c => c.ToCore()));
+    internal static QueryData From(Query q) => new(q.Kind, q.Field, q.Value is null ? null : ValueData.From(q.Value), q.Children.Select(From).ToArray(), q.PlanningTeam);
+    internal Query ToCore() => new(Persistence.Defined(Kind), Field, Value?.ToCore(), Children.Select(c => c.ToCore()), PlanningTeam);
 }
 
 internal sealed record SelectorData(SelectorKind Kind, KeyData? Item, QueryData? Query, string? HierarchyRelation,

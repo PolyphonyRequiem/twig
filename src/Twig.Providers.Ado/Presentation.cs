@@ -7,6 +7,25 @@ namespace Twig.Providers.Ado;
 
 public sealed partial class AdoProvider
 {
+    private async Task<string?> ReadIcon(Bound bound, string icon, string? color, CancellationToken ct)
+    {
+        var hex = color?.TrimStart('#');
+        if (hex is not null && (hex.Length != 6 || !hex.All(Uri.IsHexDigit)))
+            throw Wire.Invalid("The native type icon color is not a six-digit RGB value.");
+        using var request = new HttpRequestMessage(HttpMethod.Get, bound.Url(
+            $"_apis/wit/workitemicons/{Wire.Escape(icon)}?api-version=7.1" + (hex is null ? "" : "&color=" + hex)));
+        request.Headers.Authorization = bound.Authorization;
+        request.Headers.Accept.ParseAdd("image/svg+xml");
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        if (!response.IsSuccessStatusCode) throw HttpFailure(response.StatusCode);
+        if (response.Content.Headers.ContentType?.MediaType != "image/svg+xml")
+            throw Wire.Invalid("The native work item icon is not an SVG image.");
+        var bytes = await ResponseBytes(response, ct).ConfigureAwait(false);
+        if (bytes.Length > 65536) throw Wire.Invalid("The native work item icon exceeds its image bound.");
+        return System.Text.Encoding.UTF8.GetString(bytes);
+    }
+
     private static string? PresentationText(JsonElement value, string name)
         => value.TryGetProperty(name, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString() : null;

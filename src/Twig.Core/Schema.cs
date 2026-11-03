@@ -43,7 +43,7 @@ public sealed record LayoutPage(string Id, string Label, string PageType, bool V
     ImmutableArray<LayoutSection> Sections);
 public sealed record FormLayout(string ProcessId, string TypeReference, LayoutAvailability Availability,
     ImmutableArray<LayoutPage> Pages, ImmutableArray<LayoutControl> SystemControls);
-public sealed record TypePresentation(string Name, string? Color, string? IconId, FormLayout? Layout = null);
+public sealed record TypePresentation(string Name, string? Color, string? IconId, FormLayout? Layout = null, string? IconSvg = null);
 
 public sealed record ItemType
 {

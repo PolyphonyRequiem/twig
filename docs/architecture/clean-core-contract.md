@@ -25,7 +25,9 @@ ordinary validation and mutation discovery does not acquire form layouts.
 The native read-only source boundary opts in for browser/canvas consumers.
 
 ADO presentation reads the exact process roster reference, never a similarly named
-project/parent type. It preserves server-defined pages, sections (columns), groups,
+project/parent type. Type artwork is acquired from the native work-item icon route
+as bounded SVG using the discovered icon ID and RGB color, not a guessed glyph.
+It preserves server-defined pages, sections (columns), groups,
 ordered controls and separate system controls, including visibility, read-only and
 contribution markers. Served-but-empty, locked (`VS403115`) and unavailable layouts
 remain distinct. Authentication, permission and other transport errors are failures,

@@ -66,6 +66,7 @@ public sealed partial class AdoProvider
             if (Wire.Text(category, "referenceName") == "Microsoft.HiddenCategory")
                 foreach (var member in category.GetProperty("workItemTypes").EnumerateArray()) hidden.Add(Wire.Text(member, "name"));
         var types = new List<ItemType>();
+        var icons = new Dictionary<(string Id, string? Color), string?>();
         var names = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         var definitions = ImmutableDictionary.CreateBuilder<string, FieldDef>(StringComparer.Ordinal);
         var processRoute = $"_apis/work/processes/{Wire.Escape(bound.ProcessId)}/workItemTypes";
@@ -197,7 +198,14 @@ public sealed partial class AdoProvider
                 var layout = await ReadFormLayout(bound, route, reference, ct).ConfigureAwait(false);
                 var icon = row.TryGetProperty("icon", out var iconObject) && iconObject.ValueKind == JsonValueKind.Object
                     ? PresentationText(iconObject, "id") : null;
-                presentation = new(name, PresentationText(row, "color"), icon, layout);
+                var color = PresentationText(row, "color");
+                string? svg = null;
+                if (icon is not null && !icons.TryGetValue((icon, color), out svg))
+                {
+                    svg = await ReadIcon(bound, icon, color, ct).ConfigureAwait(false);
+                    icons.Add((icon, color), svg);
+                }
+                presentation = new(name, color, icon, layout, svg);
             }
             types.Add(new(reference, stateField, typeFields, states, edges, rules,
                 Wire.Flag(row, "isDisabled") || hidden.Contains(name), presentation));

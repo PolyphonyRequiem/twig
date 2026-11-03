@@ -42,6 +42,7 @@ public sealed class AdoProviderTests
         presentation.Name.ShouldBe(f.Http.Type);
         presentation.Color.ShouldBe("B4009E");
         presentation.IconId.ShouldBe("icon_crown");
+        presentation.IconSvg.ShouldNotBeNull().ShouldContain("<svg");
         var layout = presentation.Layout.ShouldNotBeNull();
         layout.Availability.ShouldBe(LayoutAvailability.Served);
         layout.ProcessId.ShouldBe(Fixture.Process);
@@ -1122,6 +1123,14 @@ public sealed class AdoProviderTests
                 return Json($$"""{"instanceId":"{{(Defect == "wrong-collection" ? Fixture.Process : Fixture.Collection)}}","authenticatedUser":{"id":"{{(Defect == "wrong-principal" ? Fixture.Process : NativeActor)}}"} }""");
             if (path.Contains("/_apis/projects/"))
                 return Json($$"""{"id":"{{(Defect == "wrong-project" ? Fixture.Process : Fixture.Project)}}","name":"Native Project","capabilities":{"processTemplate":{"templateTypeId":"{{Fixture.Process}}"} } }""");
+            if (path.Contains("/workitemicons/"))
+            {
+                request.Headers.Accept.Single().MediaType.ShouldBe("image/svg+xml");
+                query.ShouldContain("color=B4009E");
+                return new(HttpStatusCode.OK) { Content = new StringContent(
+                    """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#B4009E" d="M1 1h14v14H1z"/></svg>""",
+                    Encoding.UTF8, "image/svg+xml") };
+            }
             if (path.EndsWith("/layout"))
             {
                 LayoutRequests.Add(path);

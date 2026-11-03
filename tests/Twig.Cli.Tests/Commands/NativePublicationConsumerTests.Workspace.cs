@@ -204,14 +204,17 @@ public sealed partial class NativePublicationConsumerTests
             result.Output.ShouldBeEmpty();
             _transport.TotalRequests.ShouldBe(requests);
         }
+        var library = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        var duplicate = await library.SaveAsync(new(Guid.NewGuid(), "READ SCOPE", []), 0);
+        duplicate.IsSuccess.ShouldBeFalse("the shared owner must reject ambiguous names before storing them");
+        duplicate.Error.Code.ShouldBe(CoreModel.ErrorCode.Conflict);
         // Every variant has unrelated cached items; none may turn a failed selector into all-cache/empty success.
-        foreach (var failure in new[] { "missing", "incomplete", "cycle", "unknown-relation", "query-evidence", "ambiguous", "no-selection", "foreign" })
+        foreach (var failure in new[] { "missing", "incomplete", "cycle", "unknown-relation", "query-evidence", "no-selection", "foreign" })
         {
             var current = (await store.ReadAsync(connection, default)).Value;
             var selected = initial.Benches.Single(value => value.Id == bench);
             var items = initial.Items;
             var edges = initial.Relationships;
-            var benches = initial.Benches;
             if (failure == "missing")
                 selected = new(bench, selected.Name, [new(CoreModel.SelectorKind.Pin,
                         CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "404"))]);
@@ -229,12 +232,16 @@ public sealed partial class NativePublicationConsumerTests
                 selected = new(bench, selected.Name, [new(CoreModel.SelectorKind.Query,
                         query: new(CoreModel.QueryKind.Equal, "Unknown.Field", CoreModel.FieldValue.Integer(3)))]);
             if (failure == "foreign")
-                selected = new(bench, selected.Name, [new(CoreModel.SelectorKind.Pin,
-                        CoreModel.ItemKey.Remote(new("github"), "foreign-scope", "opaque-node"))]);
-            benches = benches.Select(value => value.Id == bench ? selected : value).ToImmutableArray();
-            if (failure == "ambiguous") benches = benches.Add(new(Guid.NewGuid(), "READ SCOPE", []));
+            {
+                var foreign = CoreModel.ItemKey.Remote(new("github"), "foreign-scope", "opaque-node");
+                items = items.Add(new(foreign, items[0].Type, items[0].Fields, new(foreign, "foreign"), true));
+            }
+            var retained = (await library.ReadAsync()).Value.Benches.Single(value => value.Id == bench);
+            var scoped = selected.Selectors.Select(selector => new CoreModel.Selector(selector.Kind, selector.Item,
+                selector.Query, selector.HierarchyRelation, connection));
+            (await library.SaveAsync(new(selected.Id, selected.Name, scoped), retained.Revision)).IsSuccess.ShouldBeTrue();
             (await store.CommitAsync(connection, current.Version, new(current.Version + 1, items, edges, initial.Drafts,
-                initial.Proposals, initial.Journal, initial.Mappings, benches), default)).IsSuccess.ShouldBeTrue();
+                initial.Proposals, initial.Journal, initial.Mappings, initial.Benches), default)).IsSuccess.ShouldBeTrue();
             if (failure == "no-selection")
             {
                 var file = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
@@ -255,10 +262,12 @@ public sealed partial class NativePublicationConsumerTests
         var numericItems = initial.Items.Select(item => new CoreModel.WorkItem(item.Key, item.Type,
             item.Fields.Set("Custom.Score", CoreModel.FieldValue.Integer(item.Key.NativeId == "43" ? 5 : 1)),
             item.Revision, item.RelationshipsComplete, item.Resources, item.ResourcesComplete)).ToArray();
+        var numericBefore = (await library.ReadAsync()).Value.Benches.Single(value => value.Id == bench);
+        (await library.SaveAsync(new(numeric.Id, numeric.Name, [new(CoreModel.SelectorKind.Query,
+            query: new(CoreModel.QueryKind.GreaterOrEqual, "Custom.Score", CoreModel.FieldValue.Integer(5)), connection: connection)]),
+            numericBefore.Revision)).IsSuccess.ShouldBeTrue();
         (await store.CommitAsync(connection, state.Version, new(state.Version + 1, numericItems, initial.Relationships,
-            initial.Drafts, initial.Proposals, initial.Journal, initial.Mappings,
-            [new(numeric.Id, numeric.Name, [new(CoreModel.SelectorKind.Query,
-                    query: new(CoreModel.QueryKind.GreaterOrEqual, "Custom.Score", CoreModel.FieldValue.Integer(5)))])]), default)).IsSuccess.ShouldBeTrue();
+            initial.Drafts, initial.Proposals, initial.Journal, initial.Mappings, initial.Benches), default)).IsSuccess.ShouldBeTrue();
         var typed = WorkspaceInvoke(paths, ["workspace", "--bench", bench.ToString("D"), "-o", "ids"]);
         typed.Exit.ShouldBe(0, typed.Error);
         typed.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
@@ -306,10 +315,11 @@ public sealed partial class NativePublicationConsumerTests
         publication.Exit.ShouldBe(0, publication.Error);
         var published = (await store.ReadAsync(connection, default)).Value;
         var mapping = published.Mappings.Single(value => value.Local == seed);
-        var selected = published.Benches.Single(value => value.Id == bench);
-        (await store.CommitAsync(connection, published.Version, new(published.Version + 1, published.Items, published.Relationships,
-            published.Drafts, published.Proposals, published.Journal, published.Mappings,
-            [new(selected.Id, selected.Name, selected.Selectors.Add(new(CoreModel.SelectorKind.Pin, seed)))]), default)).IsSuccess.ShouldBeTrue();
+        var library = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        var selected = (await library.ReadAsync()).Value.Benches.Single(value => value.Id == bench);
+        (await library.SaveAsync(new(selected.Id, selected.Name,
+            selected.Selectors.Add(new(CoreModel.SelectorKind.Pin, seed, connection: connection))),
+            selected.Revision)).IsSuccess.ShouldBeTrue();
         var captured = (await store.ReadAsync(connection, default)).Value;
         _transport.ItemReadIds.Clear();
         var read = WorkspaceInvoke(paths, ["workspace", "-o", "ids"]);
@@ -320,7 +330,8 @@ public sealed partial class NativePublicationConsumerTests
         var retained = (await store.ReadAsync(connection, default)).Value;
         retained.Version.ShouldBe(captured.Version);
         retained.Mappings.ShouldBe(captured.Mappings);
-        retained.Benches.Single(value => value.Id == bench).Selectors.Last().Item.ShouldBe(seed);
+        (await library.ReadAsync()).Value.Benches.Single(value => value.Id == bench).Selectors.Last().Item.ShouldBe(seed);
+        retained.Benches.Single(value => value.Id == bench).Selectors.ShouldBe(published.Benches.Single(value => value.Id == bench).Selectors);
         retained.Journal.Select(value => (value.Digest, value.Operation, value.Attempt, value.Status, value.Receipts.Length))
             .ShouldBe(captured.Journal.Select(value => (value.Digest, value.Operation, value.Attempt, value.Status, value.Receipts.Length)));
         foreach (var row in captured.Journal)

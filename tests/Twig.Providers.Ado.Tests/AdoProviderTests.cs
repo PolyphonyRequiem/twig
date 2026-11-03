@@ -15,6 +15,85 @@ namespace Twig.Providers.Ado.Tests;
 
 public sealed class AdoProviderTests
 {
+    [Fact]
+    public async Task PresentationRetainsNativeAppearanceColumnsOrderingAndExactProcessTypeWithoutChangingMutationDigest()
+    {
+        using var f = await Fixture.Create();
+        f.Http.LayoutJson = """
+            {"pages":[{"id":"details","label":"Details","pageType":"custom","sections":[
+              {"id":"left","groups":[{"id":"planning","label":"Planning","controls":[
+                {"id":"Custom.Closure","label":"Closure","controlType":"FieldControl","order":20,"readOnly":true},
+                {"id":"Custom.Empty","label":"Summary","controlType":"HtmlFieldControl","order":10,"watermark":"Describe the work","height":120}
+              ]}]},
+              {"id":"right","groups":[{"id":"custom","label":"Custom","controls":[
+                {"id":"extension.control","label":"Extension","isContribution":true,"visible":false}
+              ]}]}
+            ]}],"systemControls":[{"id":"System.State","label":"Status","controlType":"FieldControl"}]}
+            """;
+        f.Http.DivergentProjectType = true;
+        var ordinary = await f.Schema();
+        f.Http.LayoutRequests.ShouldBeEmpty();
+        var result = await ((IProvider)f.Provider).DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        var schema = result.Value;
+        schema.Fingerprint.ShouldBe(ordinary.Fingerprint);
+        schema.WebUrl.ShouldBe($"https://example.test/organization/{Fixture.Project}/");
+        var presentation = schema.Types.Single().Presentation.ShouldNotBeNull();
+        presentation.Name.ShouldBe(f.Http.Type);
+        presentation.Color.ShouldBe("B4009E");
+        presentation.IconId.ShouldBe("icon_crown");
+        var layout = presentation.Layout.ShouldNotBeNull();
+        layout.Availability.ShouldBe(LayoutAvailability.Served);
+        layout.ProcessId.ShouldBe(Fixture.Process);
+        layout.TypeReference.ShouldBe(f.Http.Type);
+        var sections = layout.Pages.Single().Sections;
+        sections.Select(s => s.Id).ShouldBe(["left", "right"]);
+        var controls = sections[0].Groups.Single().Controls;
+        controls.Select(c => c.Id).ShouldBe(["Custom.Empty", "Custom.Closure"]);
+        controls[0].Visible.ShouldBeTrue();
+        controls[0].Watermark.ShouldBe("Describe the work");
+        controls[0].Height.ShouldBe(120);
+        controls[1].ReadOnly.ShouldBeTrue();
+        sections[1].Groups.Single().Controls.Single().IsContribution.ShouldBeTrue();
+        sections[1].Groups.Single().Controls.Single().Visible.ShouldBeFalse();
+        layout.SystemControls.Single().Id.ShouldBe("System.State");
+        f.Http.LayoutRequests.ShouldBe([$"/organization/_apis/work/processes/{Fixture.Process}/workItemTypes/{f.Http.Type}/layout"]);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(200, LayoutAvailability.Served)]
+    [InlineData(404, LayoutAvailability.Unavailable)]
+    [InlineData(400, LayoutAvailability.Locked)]
+    public async Task PresentationDistinguishesEmptyMissingAndLockedLayout(int status, LayoutAvailability expected)
+    {
+        using var f = await Fixture.Create();
+        f.Http.LayoutJson = """{"pages":[],"systemControls":[]}""";
+        f.Http.LayoutStatus = status;
+        var result = await ((IProvider)f.Provider).DiscoverSchemaAsync(f.Connection, default, true);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        var layout = result.Value.Types.Single().Presentation.ShouldNotBeNull().Layout.ShouldNotBeNull();
+        layout.Availability.ShouldBe(expected);
+        layout.Pages.ShouldBeEmpty();
+        layout.SystemControls.ShouldBeEmpty();
+        f.Http.LayoutRequests.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(500)]
+    public async Task PresentationDoesNotDisguiseAuthorizationOrTransportFailureAsMissingLayout(int status)
+    {
+        using var f = await Fixture.Create();
+        f.Http.LayoutJson = """{"pages":[]}""";
+        f.Http.LayoutStatus = status;
+        var result = await ((IProvider)f.Provider).DiscoverSchemaAsync(f.Connection, default, true);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Evidence.ShouldContain($"http:{status}");
+        f.Http.Writes.ShouldBe(0);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1000,6 +1079,10 @@ public sealed class AdoProviderTests
         internal int[]? QueryIdsOverride;
         internal List<int> QueryAfterIds = [];
         internal int WorkItemReads;
+        internal string? LayoutJson;
+        internal int LayoutStatus = 200;
+        internal bool DivergentProjectType;
+        internal List<string> LayoutRequests = [];
         internal string? LastPayload;
         internal Func<Task>? AfterWrite;
         internal Dictionary<int, JsonObject> Items = [];
@@ -1039,6 +1122,14 @@ public sealed class AdoProviderTests
                 return Json($$"""{"instanceId":"{{(Defect == "wrong-collection" ? Fixture.Process : Fixture.Collection)}}","authenticatedUser":{"id":"{{(Defect == "wrong-principal" ? Fixture.Process : NativeActor)}}"} }""");
             if (path.Contains("/_apis/projects/"))
                 return Json($$"""{"id":"{{(Defect == "wrong-project" ? Fixture.Process : Fixture.Project)}}","name":"Native Project","capabilities":{"processTemplate":{"templateTypeId":"{{Fixture.Process}}"} } }""");
+            if (path.EndsWith("/layout"))
+            {
+                LayoutRequests.Add(path);
+                return LayoutStatus == 200 ? Json(LayoutJson ?? """{"pages":[]}""")
+                    : LayoutStatus == 400
+                        ? new(HttpStatusCode.BadRequest) { Content = new StringContent("""{"typeKey":"ProcessWorkItemTypeIsLockedException","message":"VS403115: locked"}""") }
+                        : Status(LayoutStatus);
+            }
             if (path.EndsWith("/wiql"))
             {
                 if (KeysetQueries)
@@ -1125,12 +1216,12 @@ public sealed class AdoProviderTests
             else if (path.EndsWith("/workitemtypecategories")) response = Rows("");
             else if (path.EndsWith("/workitemtypes", StringComparison.OrdinalIgnoreCase) && query.Contains("$expand=all"))
                 response = Defect == "missing-transitions" ? Rows("") : Rows(string.Join(",",
-                    NativeTypes().Select(reference => $$"""
+                    NativeTypes().Concat(DivergentProjectType ? ["System.Parent"] : []).Select(reference => $$"""
                     {"referenceName":"{{reference}}","transitions":{"":[{"to":"{{Initial}}"}],"{{Initial}}":[{"to":"{{Completed}}"}],"{{Completed}}":[{"to":"{{Initial}}"}]} }
                     """)));
             else if (path.EndsWith("/workItemTypes"))
                 response = Rows(string.Join(",", NativeTypes().Select(reference =>
-                    $$"""{"referenceName":"{{reference}}","name":"{{reference}}","isDisabled":false}""")));
+                    $$"""{"referenceName":"{{reference}}","name":"{{reference}}","isDisabled":false,"color":"B4009E","icon":{"id":"icon_crown"}}""")));
             else if (path.EndsWith("/states"))
                 response = Rows($$"""{"name":"{{Initial}}","stateCategory":"Proposed"},{"name":"{{Completed}}","stateCategory":"{{(Defect == "unknown-category" ? "Alien" : "Completed")}}"}""");
             else if (path.EndsWith("/rules"))

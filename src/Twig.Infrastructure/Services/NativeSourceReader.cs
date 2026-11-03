@@ -66,7 +66,7 @@ public static class NativeSourceReader
             DateTimeOffset? schemaAt = null;
             if (observeSchema)
             {
-                schema = await handle.Workspace.SchemaAsync(token).ConfigureAwait(false);
+                schema = await handle.Workspace.SchemaAsync(token, includePresentation: true).ConfigureAwait(false);
                 if (!schema.IsSuccess) return Refuse(schema.Error, "Native schema observation failed; no offline fallback was selected.");
                 schemaAt = DateTimeOffset.UtcNow;
             }

@@ -1221,7 +1221,7 @@ public sealed class AdoProviderTests
                     """)));
             else if (path.EndsWith("/workItemTypes"))
                 response = Rows(string.Join(",", NativeTypes().Select(reference =>
-                    $$"""{"referenceName":"{{reference}}","name":"{{reference}}","isDisabled":false,"color":"B4009E","icon":{"id":"icon_crown"}}""")));
+                    $$"""{"referenceName":"{{reference}}","name":"{{reference}}","isDisabled":false,"color":"B4009E","icon":{"id":"icon_crown"} }""")));
             else if (path.EndsWith("/states"))
                 response = Rows($$"""{"name":"{{Initial}}","stateCategory":"Proposed"},{"name":"{{Completed}}","stateCategory":"{{(Defect == "unknown-category" ? "Alien" : "Completed")}}"}""");
             else if (path.EndsWith("/rules"))

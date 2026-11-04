@@ -114,7 +114,8 @@ public sealed partial class GitHubProvider : IProvider, IDisposable
         using var request = Request(bound, Wire.Request(document, variables));
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)
-            throw Wire.Refuse(ErrorCode.Unavailable, $"GitHub observation returned HTTP {(int)response.StatusCode}; no fallback or retry.");
+            throw new GitHubFailure(new(ErrorCode.Unavailable, $"GitHub observation returned HTTP {(int)response.StatusCode}; no fallback or retry.")
+            { Evidence = [$"http:{(int)response.StatusCode}"] });
         return Wire.Data(Wire.Parse(await Wire.Response(response, ct)));
     }
 }

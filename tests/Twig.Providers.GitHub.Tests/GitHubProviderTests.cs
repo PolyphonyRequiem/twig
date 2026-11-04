@@ -17,6 +17,41 @@ namespace Twig.Providers.GitHub.Tests;
 public sealed class GitHubProviderTests
 {
     [Fact]
+    public async Task ReadAccessValidatesActorRepositoryAndIssueReadWithoutIntrospectionOrItemBodies()
+    {
+        using var f = await Fixture.Create();
+        var result = await f.Provider.ValidateReadAccessAsync(f.Connection, default);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        f.Http.ReadQueries.Count.ShouldBe(2);
+        f.Http.ReadQueries[0].ShouldContain("viewer { id }");
+        f.Http.ReadQueries[1].ShouldContain("issues(first: 1) { totalCount }");
+        f.Http.ReadQueries.ShouldAllBe(query => !query.Contains("__type(") && !query.Contains("issueTypes") && !query.Contains("title"));
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("actor")]
+    [InlineData("owner")]
+    [InlineData("repository")]
+    [InlineData("denied")]
+    [InlineData("unauthorized")]
+    [InlineData("partial-graphql")]
+    public async Task ReadAccessRefusesChangedIdentityDeniedAndPartialResponses(string defect)
+    {
+        using var f = await Fixture.Create();
+        if (defect == "actor") f.Http.Actor = "changed";
+        else if (defect == "owner") f.Http.Owner = "changed";
+        else if (defect == "repository") f.Http.RepositoryId = "changed";
+        else f.Http.Defect = defect;
+        var result = await f.Provider.ValidateReadAccessAsync(f.Connection, default);
+        result.IsSuccess.ShouldBeFalse();
+        if (defect is "denied" or "unauthorized")
+            result.Error.Evidence.ShouldContain(defect == "denied" ? "http:403" : "http:401");
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task PresentationUsesObservedRepositoryUrlAndTypeNamesWithoutChangingMutationDigest()
     {
         using var f = await Fixture.Create();
@@ -762,6 +797,7 @@ public sealed class GitHubProviderTests
         internal bool Native = true, ForeignResource;
         internal string? Defect, WriteFailure, LastPayload, MutationOnlyRelation;
         internal int Writes, WriteStatus = 200;
+        internal List<string> ReadQueries = [];
         internal Dictionary<string, JsonObject> Issues { get; } = new()
         {
             ["I1"] = Issue("I1"), ["I2"] = Issue("I2"),
@@ -807,6 +843,7 @@ public sealed class GitHubProviderTests
             var raw = await request.Content!.ReadAsStringAsync(cancellationToken);
             var root = JsonNode.Parse(raw)!;
             var query = root["query"]!.GetValue<string>();
+            ReadQueries.Add(query);
             var variables = root["variables"]!;
             var id = variables["id"]?.GetValue<string>() ?? "I1";
             if (query.StartsWith("mutation", StringComparison.Ordinal))
@@ -817,6 +854,12 @@ public sealed class GitHubProviderTests
             {
                 var repo = Repo(); repo["__typename"] = "Repository";
                 data = new() { ["viewer"] = new JsonObject { ["id"] = Actor }, ["node"] = repo };
+            }
+            else if (query.Contains("issues(first: 1) { totalCount }", StringComparison.Ordinal))
+            {
+                if (Defect is "denied" or "unauthorized") return new(Defect == "denied" ? HttpStatusCode.Forbidden : HttpStatusCode.Unauthorized);
+                var repo = Repo(); repo["issues"] = new JsonObject { ["totalCount"] = Issues.Count };
+                data = new() { ["node"] = repo };
             }
             else if (query.Contains("owner { id } url", StringComparison.Ordinal))
             {

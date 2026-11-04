@@ -75,6 +75,7 @@ static Twig.Infrastructure.Services.NativeSourceReader.SelectBenchAsync(string! 
 Twig.Infrastructure.Services.NativeSourceObservation.SelectedBenchId.get -> System.Guid?
 Twig.Infrastructure.Services.NativeSourceObservation.SelectedBenchId.init -> void
 static Twig.Infrastructure.Services.NativeSourceReader.ReadAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp? expectedSource = null, bool observeSchema = false, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+static Twig.Infrastructure.Services.NativeSourceReader.ReadOnlineAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 Twig.Infrastructure.Services.NativeSourceStamp
 Twig.Infrastructure.Services.NativeSourceStamp.NativeSourceStamp(Twig.Core.Connection! Connection, System.Guid StoreInstance, string! PrincipalId, string! AuthorityStamp) -> void
 Twig.Infrastructure.Services.NativeSourceStamp.Connection.get -> Twig.Core.Connection!

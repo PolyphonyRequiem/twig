@@ -27,6 +27,32 @@ public sealed partial class GitHubCoreSpineTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task NativeOnlineReadChecksActualRepositoryAccessWithoutSchemaOrItemAcquisition(bool denied)
+    {
+        using var f = new Fixture();
+        await f.Initialize();
+        var captured = (await f.ReadSource()).Value;
+        var before = await f.Snapshot();
+        var schemaRequests = f.Http.SchemaRequests;
+        if (denied) f.Http.Defect = "read-denied";
+        var result = await f.ReadSourceOnline(captured.Source);
+        result.IsSuccess.ShouldBe(!denied, result.IsSuccess ? "" : result.Error.Message);
+        f.Http.SchemaRequests.ShouldBe(schemaRequests);
+        f.Http.OnlineAccessRequests.ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Snapshot()).Version.ShouldBe(before.Version);
+        if (denied) result.Error.Evidence.ShouldContain("http:403");
+        else
+        {
+            result.Value.Schema.ShouldBeNull();
+            result.Value.SchemaObservedAt.ShouldBeNull();
+            result.Value.Source.ShouldBe(captured.Source);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task FreshInitUsesOnlyNativeCoreBootstrap(bool explicitStore)
     {
         using var f = new Fixture();
@@ -416,6 +442,13 @@ public sealed partial class GitHubCoreSpineTests
                 services.AddSingleton(_processes);
                 services.AddSingleton(new CoreTransportOverride(Http.NewHandle));
             }, default);
+        internal Task<Result<NativeSourceObservation>> ReadSourceOnline(NativeSourceStamp expected)
+            => NativeSourceReader.ReadOnlineAsync(Root, expected, services =>
+            {
+                services.AddSingleton<IConnectionBindingService>(_bindings);
+                services.AddSingleton(_processes);
+                services.AddSingleton(new CoreTransportOverride(Http.NewHandle));
+            }, default);
         internal async Task ReplaceItems(IEnumerable<WorkItem> items, IEnumerable<Relationship>? relationships = null)
         {
             var store = (await SqliteStore.OpenAsync(Database, expectedInstance: _document.DatabaseInstance)).Value;
@@ -456,7 +489,7 @@ public sealed partial class GitHubCoreSpineTests
 
     private sealed class NativeHttp : HttpMessageHandler
     {
-        internal int Requests, WorkRequests, Writes, Creates, SchemaRequests;
+        internal int Requests, WorkRequests, Writes, Creates, SchemaRequests, OnlineAccessRequests;
         internal bool LoseAcknowledgement, MoreCandidates;
         internal string? Defect, Comment;
         internal JsonObject Issue { get; } = new()
@@ -529,6 +562,13 @@ public sealed partial class GitHubCoreSpineTests
             else if (query.Contains("owner { id } url", StringComparison.Ordinal))
             {
                 var repo = Repository(); repo["url"] = "https://github.com/original/repo";
+                data = new JsonObject { ["node"] = repo };
+            }
+            else if (query.Contains("issues(first: 1) { totalCount }", StringComparison.Ordinal))
+            {
+                OnlineAccessRequests++;
+                if (Defect == "read-denied") return new(HttpStatusCode.Forbidden);
+                var repo = Repository(); repo["issues"] = new JsonObject { ["totalCount"] = 1 };
                 data = new JsonObject { ["node"] = repo };
             }
             else if (query.Contains("__type(", StringComparison.Ordinal))

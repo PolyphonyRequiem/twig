@@ -17,6 +17,84 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Fact]
+    public async Task NativeOnlineReadUsesFreshRemoteAccessWithoutSchemaCrawlAndExplicitSchemaReadRemainsFull()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var initial = (await ReadSource(paths)).Value;
+        var before = (await store.ReadAsync(connection, default)).Value;
+        _transport.ObservedPaths.Clear();
+        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var online = await ReadSourceOnline(paths, initial.Source, budget.Token);
+        online.IsSuccess.ShouldBeTrue(online.IsSuccess ? "" : online.Error.Message);
+        online.Value.Source.ShouldBe(initial.Source);
+        online.Value.Schema.ShouldBeNull();
+        online.Value.SchemaObservedAt.ShouldBeNull();
+        online.Value.Snapshot.Version.ShouldBe(before.Version);
+        _transport.ObservedPaths.ShouldContain(path => path.EndsWith("/_apis/connectionData"));
+        _transport.ObservedPaths.ShouldContain(path => path.Contains("/_apis/projects/"));
+        _transport.ObservedPaths.ShouldContain(path => path.EndsWith("/_apis/wit/workitemtypes"));
+        _transport.ObservedPaths.ShouldAllBe(path => !path.Contains("/processes/") && !path.EndsWith("/fields")
+            && !path.EndsWith("/rules") && !path.EndsWith("/layout") && !path.Contains("/workitemicons/"));
+        _transport.ItemReadIds.ShouldBeEmpty();
+        _transport.CommittedWrites.ShouldBe(0);
+        (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(before.Version);
+        _transport.ObservedPaths.Clear();
+        var full = await ReadSource(paths, initial.Source, schema: true);
+        full.IsSuccess.ShouldBeTrue(full.IsSuccess ? "" : full.Error.Message);
+        full.Value.Schema.ShouldNotBeNull();
+        _transport.ObservedPaths.ShouldContain(path => path.EndsWith("/fields"));
+        _transport.ObservedPaths.ShouldContain(path => path.EndsWith("/rules"));
+        _transport.ObservedPaths.ShouldContain(path => path.EndsWith("/layout"));
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(503)]
+    [InlineData(0)]
+    public async Task NativeOnlineReadRefusesPermissionFailureAndChangedRemotePrincipal(int status)
+    {
+        var (paths, _, _) = await RelationshipWorkspaceAsync();
+        var initial = (await ReadSource(paths)).Value;
+        if (status == 0) _transport.ObservedPrincipalOverride = Sibling;
+        else _transport.ReadAccessFailure = (System.Net.HttpStatusCode)status;
+        var result = await ReadSourceOnline(paths, initial.Source);
+        result.IsSuccess.ShouldBeFalse();
+        if (status is 401 or 403) result.Error.Evidence.ShouldContain("http:" + status);
+        _transport.CommittedWrites.ShouldBe(0);
+        using var released = ConnectionOperationGate.Acquire(paths.RepoRoot, exclusive: true);
+    }
+
+    [Fact]
+    public async Task NativeOnlineReadRequiresCapturedStampAndRevalidatesAuthorityAfterRemoteProbe()
+    {
+        var (paths, _, _) = await RelationshipWorkspaceAsync();
+        var initial = (await ReadSource(paths)).Value;
+        (await NativeSourceReader.ReadOnlineAsync(paths.RepoRoot, null!)).Error.Code.ShouldBe(ErrorCode.InvalidInput);
+        (await ReadSourceOnline(paths, initial.Source with { PrincipalId = Sibling })).Error.Code.ShouldBe(ErrorCode.Conflict);
+        _transport.AfterReadAccess = async () =>
+        {
+            var path = Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName);
+            var marker = JsonSerializer.Deserialize(await File.ReadAllTextAsync(path), CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(marker with { PrincipalId = Sibling },
+                CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
+        };
+        (await ReadSourceOnline(paths, initial.Source)).Error.Code.ShouldBe(ErrorCode.Conflict);
+        _transport.CommittedWrites.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task NativeOnlineReadCancellationCannotReleaseContentOrRetainTheOperationLease()
+    {
+        var (paths, _, _) = await RelationshipWorkspaceAsync();
+        var initial = (await ReadSource(paths)).Value;
+        using var cancellation = new CancellationTokenSource();
+        _transport.AfterReadAccess = () => { cancellation.Cancel(); return Task.CompletedTask; };
+        await Should.ThrowAsync<OperationCanceledException>(() => ReadSourceOnline(paths, initial.Source, cancellation.Token));
+        using var released = ConnectionOperationGate.Acquire(paths.RepoRoot, exclusive: true);
+    }
+
+    [Fact]
     public async Task NativeSourcePlanningBrowsePersistsReferenceEvidenceWithoutReplayingQueriesOnCachedReads()
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
@@ -412,6 +490,14 @@ public sealed partial class NativePublicationConsumerTests
     private Task<Result<NativeSourceObservation>> ReadSource(TwigPaths paths, NativeSourceStamp? expected = null,
         bool schema = false, CancellationToken ct = default)
         => NativeSourceReader.ReadAsync(paths.RepoRoot, expected, schema, services =>
+        {
+            services.AddSingleton<IConnectionBindingService>(_bindings);
+            services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        }, ct);
+
+    private Task<Result<NativeSourceObservation>> ReadSourceOnline(TwigPaths paths, NativeSourceStamp expected,
+        CancellationToken ct = default)
+        => NativeSourceReader.ReadOnlineAsync(paths.RepoRoot, expected, services =>
         {
             services.AddSingleton<IConnectionBindingService>(_bindings);
             services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));

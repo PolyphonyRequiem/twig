@@ -42,6 +42,20 @@ public static class NativeSourceReader
         NativeSourceStamp? expectedSource, bool observeSchema, Action<IServiceCollection>? configure, CancellationToken ct)
         => await ReadCoreAsync(workspaceRoot, expectedSource, observeSchema, configure, null, ct).ConfigureAwait(false);
 
+    /// <summary>
+    /// Validates current remote actor/target read access before releasing the recorded snapshot.
+    /// Requires captured authority, does not discover schema/presentation, and never grants offline permission.
+    /// </summary>
+    public static Task<Result<NativeSourceObservation>> ReadOnlineAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, CancellationToken ct = default)
+        => ReadOnlineAsync(workspaceRoot, expectedSource, null, ct);
+
+    internal static Task<Result<NativeSourceObservation>> ReadOnlineAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, Action<IServiceCollection>? configure, CancellationToken ct)
+        => expectedSource is null
+            ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority is required for online reads."))
+            : ReadCoreAsync(workspaceRoot, expectedSource, false, configure, null, ct, validateReadAccess: true);
+
     /// <summary>Changes only this admitted worktree's Bench selection, preserving active-item history.</summary>
     public static Task<Result<NativeSourceObservation>> SelectBenchAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, Guid? expectedBenchId, Guid? benchId, CancellationToken ct = default)
@@ -83,7 +97,7 @@ public static class NativeSourceReader
 
     private static async Task<Result<NativeSourceObservation>> ReadCoreAsync(string workspaceRoot,
         NativeSourceStamp? expectedSource, bool observeSchema, Action<IServiceCollection>? configure, Selection? selection, CancellationToken ct,
-        bool refreshPlanning = false, bool discoverSources = false, BrowseRequest? browse = null)
+        bool refreshPlanning = false, bool discoverSources = false, BrowseRequest? browse = null, bool validateReadAccess = false)
     {
         ct.ThrowIfCancellationRequested();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -111,6 +125,13 @@ public static class NativeSourceReader
             if (expectedSource is not null && expectedSource != handle.Source)
                 return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict,
                     "The recorded source authority or store changed; explicit source reauthorization is required.");
+            if (validateReadAccess)
+            {
+                var access = await handle.Workspace.ValidateReadAccessAsync(token).ConfigureAwait(false);
+                if (!access.IsSuccess) return Refuse(access.Error, "Native online read access could not be validated; no content was released.");
+                if (!access.Value)
+                    return Result<NativeSourceObservation>.Fail(ErrorCode.Unavailable, "Native online read access was not established; no content was released.");
+            }
             var snapshot = await handle.Workspace.BenchSnapshotAsync(token).ConfigureAwait(false);
             if (!snapshot.IsSuccess) return Refuse(snapshot.Error, "Native snapshot acquisition failed.");
             PlanningSources? sourceChoices = null;

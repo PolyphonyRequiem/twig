@@ -125,6 +125,28 @@ public sealed partial class NativePublicationConsumerTests
         _transport.PostCount.ShouldBe(0);
     }
 
+    [Fact]
+    public async Task CorePlanningSourceListingRevalidatesAuthorityAfterDiscoveryBeforeRendering()
+    {
+        var (paths, connection, native) = await RelationshipWorkspaceAsync();
+        _transport.BeforeProjectMetadata = async () =>
+        {
+            _transport.BeforeProjectMetadata = null;
+            var path = Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName);
+            var marker = JsonSerializer.Deserialize(await File.ReadAllTextAsync(path), CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(marker with { PrincipalId = Sibling },
+                CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
+        };
+        var result = RunPlanning(paths, ["bench", "sources", "-o", "json"]);
+        result.Code.ShouldBe(1);
+        result.Output.ShouldBeEmpty("native query names and IDs must not be emitted after source authority changes");
+        result.Error.ShouldNotContain(PrincipalTransport.SavedQuery);
+        (await native.ReadAsync(connection, default)).Value.Version.ShouldBe(0);
+        _transport.ItemReadIds.ShouldBeEmpty();
+        _transport.CommittedWrites.ShouldBe(0);
+        _transport.PatchAttempts.ShouldBe(0);
+    }
+
     private (int Code, string Output, string Error) RunPlanning(TwigPaths paths, string[] args)
     {
         var oldOut = Console.Out;

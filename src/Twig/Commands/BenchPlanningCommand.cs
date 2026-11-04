@@ -103,7 +103,7 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                     if (!opened.IsSuccess) return Error(opened.Error.Message);
                     handle = opened.Value;
                     operation = ConnectionOperationGate.Acquire(handle.Workspace.WorktreeRoot, exclusive: true);
-                    var admitted = await factory.AdmitSourceAsync(handle, ct);
+                    var admitted = await factory.RevalidateSourceAsync(handle, ct);
                     if (!admitted.IsSuccess) return Error(admitted.Error.Message);
                 }
                 var workspace = handle?.Workspace;
@@ -115,7 +115,7 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                     {
                         var observed = await workspace.DiscoverPlanningAsync(ct);
                         if (!observed.IsSuccess) return Error(observed.Error.Message);
-                        var admitted = await factory!.AdmitSourceAsync(handle!, ct);
+                        var admitted = await factory!.RevalidateSourceAsync(handle!, ct);
                         if (!admitted.IsSuccess) return Error(admitted.Error.Message);
                         var saved = await workspace.SavePlanningAsync(observed.Value, ct);
                         if (!saved.IsSuccess) return Error(saved.Error.Message);
@@ -128,6 +128,8 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                         metadata = cached.Value.Metadata;
                     }
                     if (metadata is null) return Error("No native planning metadata is cached. Use 'twig bench planning refresh' explicitly.");
+                    var finalAdmission = await factory!.RevalidateSourceAsync(handle!, ct);
+                    if (!finalAdmission.IsSuccess) return Error(finalAdmission.Error.Message);
                     Render("Native planning metadata", ["kind", "path", "start", "finish", "selectedTeam"],
                         metadata.Areas.Select(path => new Dictionary<string, RenderCell>
                         {
@@ -151,6 +153,8 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                     if (workspace is null) return Error("A native planning context is required.");
                     var discovered = await workspace.DiscoverPlanningSourcesAsync(ct);
                     if (!discovered.IsSuccess) return Error(discovered.Error.Message);
+                    var finalAdmission = await factory!.RevalidateSourceAsync(handle!, ct);
+                    if (!finalAdmission.IsSuccess) return Error(finalAdmission.Error.Message);
                     var choices = discovered.Value;
                     if (action == "sources")
                     {
@@ -172,7 +176,7 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                     if (selectedSource is null) return Error("That native source is not in this connection/project/team.");
                     var acquired = await workspace.BrowsePlanningAsync(kind, selectedSource.Id, choices.Team, ct);
                     if (!acquired.IsSuccess) return Error(acquired.Error.Message);
-                    var admitted = await factory!.AdmitSourceAsync(handle!, ct);
+                    var admitted = await factory!.RevalidateSourceAsync(handle!, ct);
                     if (!admitted.IsSuccess) return Error(admitted.Error.Message);
                     if (format == "ids")
                     { foreach (var key in acquired.Value.Items) Console.WriteLine(key.NativeId); return 0; }
@@ -220,6 +224,11 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                     return Error("The captured Bench revision changed. Newer rule intent was preserved.");
                 if (action == "rules")
                 {
+                    if (handle is not null)
+                    {
+                        var admitted = await factory!.RevalidateSourceAsync(handle, ct);
+                        if (!admitted.IsSuccess) return Error(admitted.Error.Message);
+                    }
                     if (format == "ids")
                     { for (var index = 1; index <= target.Selectors.Length; index++) Console.WriteLine(index); return 0; }
                     Render("Shared Bench pins and rules", ["index", "kind", "definition"],
@@ -234,6 +243,11 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                 {
                     if (args.Rule is not { } index || index > target.Selectors.Length || args.ExpectedRevision is null)
                         return Error("Use --index and --expect-revision from a fresh 'bench rules' listing.", 2);
+                    if (handle is not null)
+                    {
+                        var admitted = await factory!.RevalidateSourceAsync(handle, ct);
+                        if (!admitted.IsSuccess) return Error(admitted.Error.Message);
+                    }
                     var saved = await store.SaveAsync(new(target.Id, target.Name, target.Selectors.RemoveAt(index - 1)), target.Revision, ct);
                     if (!saved.IsSuccess) return Error(saved.Error.Message);
                     Render("Bench rule removed", [], [], BenchScope(saved.Value));
@@ -275,7 +289,7 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                         if (args.Mine) parts.Owner = workspace.NativeActor;
                         query = parts.Build() ?? throw new ArgumentException("Choose --area, --iteration, --mine, --query or --backlog.");
                     }
-                    var admitted = await factory!.AdmitSourceAsync(handle!, ct);
+                    var admitted = await factory!.RevalidateSourceAsync(handle!, ct);
                     if (!admitted.IsSuccess) return Error(admitted.Error.Message);
                     var saved = await store.SaveAsync(new(target.Id, target.Name,
                         target.Selectors.Add(new(SelectorKind.Query, query: query, connection: workspace.Connection))), target.Revision, ct);
@@ -297,6 +311,8 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                             : parts.Iterations.Select(expression => (Path: expression, Mode: parts.Team ?? "absolute")))
                             rows.Add(new() { ["rule"] = RenderCell.Integer(entry.index + 1), ["value"] = RenderCell.String(value.Path), ["mode"] = RenderCell.String(value.Mode) });
                     }
+                    var admitted = await factory!.RevalidateSourceAsync(handle!, ct);
+                    if (!admitted.IsSuccess) return Error(admitted.Error.Message);
                     if (format == "ids") { foreach (var row in rows) Console.WriteLine(row["value"].DisplayText); return 0; }
                     Render("Saved planning filters", ["rule", "value", "mode"], rows, BenchScope(target));
                     return 0;
@@ -346,6 +362,8 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                 if (next is not null) selectors = position < 0
                     ? selectors.Add(new(SelectorKind.Query, query: next, connection: workspace.Connection))
                     : selectors.Insert(position, new(SelectorKind.Query, query: next, connection: workspace.Connection));
+                var finalCommitAdmission = await factory!.RevalidateSourceAsync(handle!, ct);
+                if (!finalCommitAdmission.IsSuccess) return Error(finalCommitAdmission.Error.Message);
                 var result = await store.SaveAsync(new(target.Id, target.Name, selectors), target.Revision, ct);
                 if (!result.IsSuccess) return Error(result.Error.Message);
                 Render("Shared planning rule updated", [], [], BenchScope(result.Value));

@@ -193,6 +193,7 @@ jobs:
               "CoreWorkspaceReadResolvesSharedPlanningRulesFromNativeCaches",
               "CorePlanningCommandsPreserveAndOrPathTeamOwnershipAndWorkspaceExclusionSemantics",
               "CorePlanningCommandsPinNativeReferencesAndBrowseWithoutChangingSelectionOrPublishing",
+              "CorePlanningSourceListingRevalidatesAuthorityAfterDiscoveryBeforeRendering",
               "CoreWorkspaceReadKeepsExactMembershipTypedDebtAndOneOutputAcrossFormats",
               "CoreWorkspaceReadRefusesUnsupportedShapesAndUntrustworthyScopeWithoutBroadening",
               "CoreWorkspaceReadRefreshUsesOnlySharedPullAndPreservesDebtAndMappedSelectors",

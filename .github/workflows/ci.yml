@@ -200,6 +200,10 @@ jobs:
               "CleanCoreAdmissionRetainsRealNativeLeaseAndExactDurableAttemptAttribution",
               "CleanCoreAdmissionRechecksActualPolicyPresenceAndBytesAfterPreview",
               "CleanCoreAccessRefusesANewSelectedActorBeforeWorkTransport",
+              "NativeOnlineReadUsesFreshRemoteAccessWithoutSchemaCrawlAndExplicitSchemaReadRemainsFull",
+              "NativeOnlineReadRefusesPermissionFailureAndChangedRemotePrincipal",
+              "NativeOnlineReadRequiresCapturedStampAndRevalidatesAuthorityAfterRemoteProbe",
+              "NativeOnlineReadCancellationCannotReleaseContentOrRetainTheOperationLease",
           ]
           for method in methods:
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
@@ -221,6 +225,7 @@ jobs:
         run: |
           import subprocess, sys
           groups = [
+              ("online-read-access", ["NativeOnlineReadChecksActualRepositoryAccessWithoutSchemaOrItemAcquisition"]),
               ("init", ["FreshInitUsesOnlyNativeCoreBootstrap", "FreshInitTelemetryFailureCannotChangeNativeResult", "FreshCoreInitRequiresExplicitGhSelectionBeforeAnyHttp"]),
               ("creation-cache", ["FreshNativeRootCreatesOriginalUuidAndNumericCommandsNeverUseNumberAsNodeIdentity"]),
               ("markdown-close", ["NativeMarkdownAndActualCloseUseVerifiedObservedNonAtomicEffects"]),

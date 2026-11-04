@@ -23,6 +23,7 @@ public static partial class Core
                 writer.WriteStartArray();
                 foreach (var child in value.Children) Write(child);
                 writer.WriteEndArray();
+                if (value.PlanningTeam is not null) writer.WriteStringValue(value.PlanningTeam);
                 writer.WriteEndArray();
             }
         }

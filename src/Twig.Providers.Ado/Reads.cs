@@ -92,7 +92,9 @@ public sealed partial class AdoProvider
     private static void CheckQuery(Query query, Discovery schema, int depth = 0)
     {
         if (depth > 32) throw Wire.Refuse(ErrorCode.Unsupported, "Query nesting exceeds the adapter bound.");
-        if (query.Kind is QueryKind.Equal or QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual
+        if (query.Kind is QueryKind.Iteration or QueryKind.SavedQuery or QueryKind.Backlog)
+            throw Wire.Refuse(ErrorCode.Unsupported, "Planning references require native calendar resolution or the exact saved-query/backlog acquisition route; no broader query was dispatched.");
+        if (query.Kind is QueryKind.Equal or QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual or QueryKind.PathEqual
             && (!schema.Fields.TryGetValue(query.Field!, out var field)
             || query.Value!.Kind != FieldKind.Null && query.Value.Kind != field.Kind || query.Value!.Kind == FieldKind.Raw))
             throw Wire.Refuse(ErrorCode.Unsupported, "Query field/value is not an exactly comparable discovered field.");
@@ -113,6 +115,11 @@ public sealed partial class AdoProvider
             items.Add(item);
             observations.Add(key, edges.ToHashSet());
         }
+        return CompleteRead(items, observations);
+    }
+
+    private static QueryPage CompleteRead(List<WorkItem> items, Dictionary<ItemKey, HashSet<Relationship>> observations)
+    {
         var relationships = observations.Values.SelectMany(e => e).Distinct().ToImmutableArray();
         foreach (var edge in relationships)
             foreach (var endpoint in new[] { edge.From, edge.To }.Distinct())

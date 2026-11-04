@@ -49,7 +49,8 @@ internal static class CoreMutationAdmissionGuard
         "init" or "skills" or "help" or "version" => true,
         "auth" => args.Count > 1 && args[1] is "login" or "pat" or "identities" or "status",
         "connection" => args.Count > 1 && args[1] is "bind" or "list" or "status" or "writes",
-        "bench" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "list" or "create" or "rename" or "delete",
+        "bench" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "list" or "create" or "rename" or "delete" or "rules"
+            || args.Count > 2 && args[1] == "rule" && args[2] == "remove",
         _ => false,
     };
 
@@ -72,12 +73,27 @@ internal static class CoreMutationAdmissionGuard
             "process" => args.Count > 1 && args[1] == "layout",
             "seed" => args.Count < 2 || args[1] is not ("new" or "view" or "validate" or "publish" or "discard" or "reconcile" or "chain" or "edit" or "link" or "unlink" or "links"),
             "proposal" or "plan" => args.Count < 2 || args[1] is not ("validate" or "preview" or "apply" or "status"),
-            "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "switch" or "rename" or "delete"),
+            "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "switch" or "rename" or "delete")
+                && !PlanningRoute(args),
             "workspace" or "ws" => args.Contains("--all") || args.Contains("--tree")
-                || args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("view" or "track" or "track-tree" or "untrack" or "sync" or "exclude" or "exclusions"),
+                || args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("view" or "track" or "track-tree" or "untrack" or "sync" or "exclude" or "exclusions")
+                    && !PlanningRoute(args),
+            "area" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("add" or "remove" or "list" or "sync"),
             "link" => false,
             _ => true,
         };
+    }
+
+    private static bool PlanningRoute(IReadOnlyList<string> args)
+    {
+        if (args.Count < 2) return false;
+        if (args[0] == "bench")
+            return args[1] is "rules" or "sources" or "browse"
+                || args[1] == "rule" && args.Count > 2 && args[2] is "add" or "remove"
+                || args[1] == "planning" && (args.Count == 2 || args[2].StartsWith('-') || args[2] is "show" or "refresh");
+        if (args[0] is not ("workspace" or "ws")) return false;
+        return args[1] == "area" && (args.Count == 2 || args[2].StartsWith('-') || args[2] is "add" or "remove" or "list" or "sync")
+            || args[1] == "sprint" && args.Count > 2 && args[2] is "add" or "remove" or "list";
     }
 
     private static bool GitHubQualified(IReadOnlyList<string> args) => args[0] switch

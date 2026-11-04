@@ -27,6 +27,10 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
             sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>(),
             sp.GetService<CoreWorkspaceFactory>()));
+        services.AddSingleton(sp => new BenchPlanningCommand(
+            UserBenchStore.ForRegistry(sp.GetRequiredService<IConnectionBindingService>().RegistryPath),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>(), sp.GetService<CoreWorkspaceFactory>(),
+            sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>()));
         return services;
     }
 }

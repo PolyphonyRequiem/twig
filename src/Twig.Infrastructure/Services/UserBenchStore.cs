@@ -69,6 +69,45 @@ public sealed class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<Bench>(ex); }
     }
 
+    /// <summary>Atomically preserves explicitly supplied legacy definitions. Identity/name conflicts never overwrite or rename.</summary>
+    public async Task<Result<UserBenchSnapshot>> ImportAsync(IEnumerable<Bench> definitions, CancellationToken ct = default)
+    {
+        try
+        {
+            var incoming = definitions.ToImmutableArray();
+            if (incoming.Length > 1024 || incoming.Select(bench => bench.Id).Distinct().Count() != incoming.Length
+                || incoming.Select(bench => CanonicalName(bench.Name)).Distinct(StringComparer.Ordinal).Count() != incoming.Length)
+                return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "Legacy Bench identities or names conflict; nothing was imported.");
+            foreach (var bench in incoming) Validate(bench);
+            await using var db = await Open(ct).ConfigureAwait(false);
+            using var transaction = db.BeginTransaction(deferred: false);
+            var before = await Read(db, transaction, ct).ConfigureAwait(false);
+            var changed = false;
+            foreach (var bench in incoming)
+            {
+                var existing = await Find(db, transaction, bench.Id, ct).ConfigureAwait(false);
+                if (existing is { } retained)
+                {
+                    if (retained.Deleted || retained.Bench.Name != bench.Name
+                        || BenchCodec.SerializeSelectors(retained.Bench.Selectors) != BenchCodec.SerializeSelectors(bench.Selectors))
+                        return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "A legacy Bench identity has different saved intent or was deleted. Reconcile explicitly; nothing was imported.");
+                    continue;
+                }
+                if (before.Benches.Any(value => CanonicalName(value.Name) == CanonicalName(bench.Name)))
+                    return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "A legacy Bench name belongs to another identity. Reconcile explicitly; nothing was imported.");
+                await Put(db, transaction, new(bench.Id, bench.Name, bench.Selectors, 1), false, ct).ConfigureAwait(false);
+                changed = true;
+            }
+            if (changed) await Advance(db, transaction, ct).ConfigureAwait(false);
+            var after = await Read(db, transaction, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            transaction.Commit();
+            return Result<UserBenchSnapshot>.Ok(after);
+        }
+        catch (ArgumentException ex) { return Result<UserBenchSnapshot>.Fail(ErrorCode.InvalidInput, ex.Message); }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<UserBenchSnapshot>(ex); }
+    }
+
     public async Task<Result<bool>> DeleteAsync(Guid id, long expectedRevision, CancellationToken ct = default)
     {
         try
@@ -118,6 +157,148 @@ public sealed class UserBenchStore
                 JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection), ct).ConfigureAwait(false));
         }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<WorkspaceViewRules>(ex); }
+    }
+
+    public async Task<Result<PlanningCacheEntry>> ReadPlanningAsync(Connection connection, string team, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = await Open(ct).ConfigureAwait(false);
+            await using var command = db.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='planning';";
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
+                return Result<PlanningCacheEntry>.Ok(new(null));
+            command.CommandText = "SELECT document FROM planning WHERE connection=$connection AND team=$team;";
+            command.Parameters.AddWithValue("$connection", JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection));
+            command.Parameters.AddWithValue("$team", team);
+            var text = await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
+            if (text is null) return Result<PlanningCacheEntry>.Ok(new(null));
+            if (text.Length > 1024 * 1024) throw new InvalidDataException("Native planning metadata exceeds its bound.");
+            var value = JsonSerializer.Deserialize(text, UserBenchJson.Default.PlanningMetadata)
+                ?? throw new JsonException("Missing planning metadata.");
+            ValidatePlanning(value);
+            return Result<PlanningCacheEntry>.Ok(new(value));
+        }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<PlanningCacheEntry>(ex); }
+    }
+
+    public async Task<Result<PlanningMetadata>> SavePlanningAsync(Connection connection, string team, PlanningMetadata metadata, CancellationToken ct = default)
+    {
+        try
+        {
+            ValidatePlanning(metadata);
+            var text = JsonSerializer.Serialize(metadata, UserBenchJson.Default.PlanningMetadata);
+            if (text.Length > 1024 * 1024) throw new ArgumentException("Native planning metadata exceeds its bound.");
+            await using var db = await Open(ct).ConfigureAwait(false);
+            using var transaction = db.BeginTransaction(deferred: false);
+            await using var command = db.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                    CREATE TABLE IF NOT EXISTS planning(connection TEXT NOT NULL,team TEXT NOT NULL,document TEXT NOT NULL,PRIMARY KEY(connection,team));
+                    INSERT INTO planning(connection,team,document) VALUES($connection,$team,$document)
+                    ON CONFLICT(connection,team) DO UPDATE SET document=excluded.document;
+                    """;
+            command.Parameters.AddWithValue("$connection", JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection));
+            command.Parameters.AddWithValue("$team", team);
+            command.Parameters.AddWithValue("$document", text);
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            transaction.Commit();
+            return Result<PlanningMetadata>.Ok(metadata);
+        }
+        catch (ArgumentException ex) { return Result<PlanningMetadata>.Fail(ErrorCode.InvalidInput, ex.Message); }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<PlanningMetadata>(ex); }
+    }
+
+    private static void ValidatePlanning(PlanningMetadata value)
+    {
+        if (value.ObservedAt == default || value.Areas.IsDefault || value.Iterations.IsDefault || value.Gaps.IsDefault
+            || value.Areas.Length + value.Iterations.Length > 8192
+            || value.Areas.Any(string.IsNullOrWhiteSpace) || value.Iterations.Any(iteration => iteration is null
+                || string.IsNullOrWhiteSpace(iteration.Path) || iteration.Start > iteration.Finish)
+            || value.Iterations.Select(iteration => iteration.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != value.Iterations.Length)
+            throw new InvalidDataException("Native planning metadata is invalid or incomplete.");
+    }
+    internal async Task<Result<ImmutableArray<PlanningMembership>>> ReadMembershipsAsync(Connection connection, string selectedTeam, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await Open(ct).ConfigureAwait(false);
+            await using var command = db.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='planning_memberships';";
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
+                return Result<ImmutableArray<PlanningMembership>>.Ok([]);
+            command.CommandText = "SELECT kind,source_id,item_count,document FROM planning_memberships WHERE connection=$connection AND selected_team=$team ORDER BY kind,source_id;";
+            command.Parameters.AddWithValue("$connection", JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection));
+            command.Parameters.AddWithValue("$team", selectedTeam);
+            var result = ImmutableArray.CreateBuilder<PlanningMembership>();
+            var totalItems = 0;
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                if (result.Count >= 1024) throw new InvalidDataException("Native planning membership cache exceeds its source bound.");
+                var text = reader.GetString(3);
+                if (text.Length > 2 * 1024 * 1024) throw new InvalidDataException("Native planning membership exceeds its byte bound.");
+                var value = JsonSerializer.Deserialize(text, UserBenchJson.Default.UserMembershipDocument)
+                    ?? throw new JsonException("Missing native planning membership.");
+                if ((int)value.Kind != reader.GetInt32(0) || value.Id != reader.GetString(1) || value.NativeIds?.Length != reader.GetInt32(2))
+                    throw new InvalidDataException("The native membership document belongs to another source.");
+                var membership = value.ToCore(connection);
+                ValidateMembership(connection, membership);
+                totalItems += membership.Items.Length;
+                if (totalItems > 100000) throw new InvalidDataException("Native planning memberships exceed their total identity bound.");
+                result.Add(membership);
+            }
+            return Result<ImmutableArray<PlanningMembership>>.Ok(result.ToImmutable());
+        }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<ImmutableArray<PlanningMembership>>(ex); }
+    }
+
+    internal async Task<Result<PlanningMembership>> SaveMembershipAsync(Connection connection, string selectedTeam,
+        PlanningMembership membership, CancellationToken ct)
+    {
+        try
+        {
+            ValidateMembership(connection, membership);
+            var text = JsonSerializer.Serialize(UserMembershipDocument.From(membership), UserBenchJson.Default.UserMembershipDocument);
+            if (text.Length > 2 * 1024 * 1024) throw new ArgumentException("Native planning membership exceeds its byte bound.");
+            await using var db = await Open(ct).ConfigureAwait(false);
+            using var transaction = db.BeginTransaction(deferred: false);
+            await using var command = db.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                CREATE TABLE IF NOT EXISTS planning_memberships(
+                    connection TEXT NOT NULL,selected_team TEXT NOT NULL,kind INTEGER NOT NULL,source_id TEXT NOT NULL,item_count INTEGER NOT NULL,document TEXT NOT NULL,
+                    PRIMARY KEY(connection,selected_team,kind,source_id));
+                INSERT INTO planning_memberships(connection,selected_team,kind,source_id,item_count,document) VALUES($connection,$team,$kind,$id,$count,$document)
+                ON CONFLICT(connection,selected_team,kind,source_id) DO UPDATE SET item_count=excluded.item_count,document=excluded.document;
+                """;
+            command.Parameters.AddWithValue("$connection", JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection));
+            command.Parameters.AddWithValue("$team", selectedTeam);
+            command.Parameters.AddWithValue("$kind", (int)membership.Kind);
+            command.Parameters.AddWithValue("$id", membership.Id);
+            command.Parameters.AddWithValue("$count", membership.Items.Length);
+            command.Parameters.AddWithValue("$document", text);
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            command.CommandText = "SELECT COUNT(*)>1024 OR COALESCE(SUM(item_count),0)>100000 FROM planning_memberships WHERE connection=$connection AND selected_team=$team;";
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 0)
+                return Result<PlanningMembership>.Fail(ErrorCode.Partial, "The native membership cache source bound was reached; existing memberships were preserved.");
+            ct.ThrowIfCancellationRequested();
+            transaction.Commit();
+            return Result<PlanningMembership>.Ok(membership);
+        }
+        catch (ArgumentException ex) { return Result<PlanningMembership>.Fail(ErrorCode.InvalidInput, ex.Message); }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<PlanningMembership>(ex); }
+    }
+
+    private static void ValidateMembership(Connection connection, PlanningMembership value)
+    {
+        if (!Enum.IsDefined(value.Kind) || string.IsNullOrWhiteSpace(value.Id) || value.Id.Length > 256 || !value.Complete
+            || value.ObservedAt == default || value.Items.IsDefault || value.Items.Length > 10000
+            || value.Items.Any(key => key.IsLocal || !key.BelongsTo(connection))
+            || value.Items.Distinct().Count() != value.Items.Length || value.Kind == PlanningSourceKind.Backlog && value.Team is null
+            || value.Team is not null && (string.IsNullOrWhiteSpace(value.Team) || value.Team.Any(char.IsControl)))
+            throw new InvalidDataException("Native planning membership is incomplete or belongs to a different connection.");
     }
 
     public async Task<Result<WorkspaceViewRules>> SaveViewRulesAsync(string workspaceRoot, Connection connection,
@@ -410,7 +591,7 @@ public sealed class UserBenchStore
         try
         {
             await using (var db = new SqliteConnection(new SqliteConnectionStringBuilder
-                { DataSource = temporary, Pooling = false }.ToString()))
+            { DataSource = temporary, Pooling = false }.ToString()))
             {
                 await db.OpenAsync(ct).ConfigureAwait(false);
                 await using var command = db.CreateCommand();
@@ -451,15 +632,15 @@ public sealed class UserBenchStore
         command.CommandText = "SELECT id,canonical_name,revision,document FROM benches WHERE deleted=0 ORDER BY canonical_name;";
         var benches = ImmutableArray.CreateBuilder<Bench>();
         await using (var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
-        while (await reader.ReadAsync(ct).ConfigureAwait(false))
-        {
-            var bench = Decode(reader.GetString(3));
-            if (bench.Id.ToString("D") != reader.GetString(0) || CanonicalName(bench.Name) != reader.GetString(1)
-                || bench.Revision != reader.GetInt64(2))
-                throw new InvalidDataException("Native Bench row disagrees with its saved definition.");
-            benches.Add(bench);
-            if (benches.Count > 10000) throw new InvalidDataException("Native Bench store exceeds its metadata bound.");
-        }
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var bench = Decode(reader.GetString(3));
+                if (bench.Id.ToString("D") != reader.GetString(0) || CanonicalName(bench.Name) != reader.GetString(1)
+                    || bench.Revision != reader.GetInt64(2))
+                    throw new InvalidDataException("Native Bench row disagrees with its saved definition.");
+                benches.Add(bench);
+                if (benches.Count > 10000) throw new InvalidDataException("Native Bench store exceeds its metadata bound.");
+            }
         return new(instance, revision, benches.ToImmutable());
     }
 
@@ -516,6 +697,19 @@ public sealed class UserBenchStore
             "The native user Bench store could not complete this operation; existing data was preserved. " + error.Message);
 }
 
-[JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+internal sealed record UserMembershipDocument(PlanningSourceKind Kind, string Id, string? Team, string[] NativeIds,
+    DateTimeOffset ObservedAt, bool Complete)
+{
+    internal static UserMembershipDocument From(PlanningMembership value)
+        => new(value.Kind, value.Id, value.Team, value.Items.Select(key => key.NativeId!).ToArray(), value.ObservedAt, value.Complete);
+    internal PlanningMembership ToCore(Connection connection)
+        => new(Kind, Id, Team, (NativeIds ?? throw new JsonException("Missing native membership identities."))
+            .Select(id => ItemKey.Remote(connection.Provider, connection.ResourceScope, id)).ToImmutableArray(), ObservedAt, Complete);
+}
+
+[JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    RespectNullableAnnotations = true, RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(Connection))]
+[JsonSerializable(typeof(PlanningMetadata))]
+[JsonSerializable(typeof(UserMembershipDocument))]
 internal sealed partial class UserBenchJson : JsonSerializerContext;

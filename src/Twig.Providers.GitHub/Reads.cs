@@ -79,7 +79,9 @@ public sealed partial class GitHubProvider
 
     private static void CheckQuery(Query query, Discovery schema)
     {
-        if (query.Kind is QueryKind.Equal or QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual
+        if (query.Kind is QueryKind.Iteration or QueryKind.SavedQuery or QueryKind.Backlog)
+            throw Wire.Refuse(ErrorCode.Unsupported, "Native planning references are not supported by this repository provider.");
+        if (query.Kind is QueryKind.Equal or QueryKind.Contains or QueryKind.Under or QueryKind.GreaterOrEqual or QueryKind.PathEqual
             && (!schema.Schema.Types.Any(t => t.Fields.Any(f =>
             f.Reference == query.Field && (query.Value!.Kind == FieldKind.Null || f.Kind == query.Value.Kind)))))
             throw Wire.Refuse(ErrorCode.Unsupported, "Query requires a discovered field and its exact typed value.");

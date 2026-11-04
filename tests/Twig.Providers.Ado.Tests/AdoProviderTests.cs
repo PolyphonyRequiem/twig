@@ -16,6 +16,115 @@ namespace Twig.Providers.Ado.Tests;
 public sealed class AdoProviderTests
 {
     [Fact]
+    public async Task PlanningSourcesRetainActualQueryHierarchyAndBacklogIdentityAndBrowseNativeMembership()
+    {
+        using var f = await Fixture.Create();
+        var sources = await f.Provider.DiscoverPlanningSourcesAsync(f.Connection, "Selected team", default);
+        sources.IsSuccess.ShouldBeTrue(sources.IsSuccess ? "" : sources.Error.Message);
+        sources.Value.Team.ShouldBe(Fixture.Process);
+        sources.Value.Entries.Count(source => source.IsFolder).ShouldBe(1);
+        sources.Value.Entries.ShouldContain(source => source.Id == NativeHttp.FlatQuery && source.Path == "Shared Queries/Flat query");
+        sources.Value.Entries.ShouldContain(source => source.Kind == PlanningSourceKind.Backlog && source.Id == "Native.Requirements");
+        var flat = await f.Provider.BrowsePlanningAsync(f.Connection, "Selected team", PlanningSourceKind.SavedQuery, NativeHttp.FlatQuery, Fixture.Process, default);
+        flat.IsSuccess.ShouldBeTrue(flat.IsSuccess ? "" : flat.Error.Message);
+        flat.Value.Page.Items.Select(item => item.Key).ShouldBe([f.Key(2)]);
+        var tree = await f.Provider.BrowsePlanningAsync(f.Connection, "Selected team", PlanningSourceKind.SavedQuery, NativeHttp.TreeQuery, Fixture.Process, default);
+        tree.IsSuccess.ShouldBeTrue(tree.IsSuccess ? "" : tree.Error.Message);
+        tree.Value.Page.Items.Select(item => item.Key).ShouldBe([f.Key(1), f.Key(2)]);
+        tree.Value.Page.Relationships.ShouldBeEmpty("native query link rows are not invented hierarchy observations");
+        var backlog = await f.Provider.BrowsePlanningAsync(f.Connection, "Selected team", PlanningSourceKind.Backlog, "Native.Requirements", Fixture.Process, default);
+        backlog.IsSuccess.ShouldBeTrue(backlog.IsSuccess ? "" : backlog.Error.Message);
+        backlog.Value.Page.Items.Select(item => item.Key).ShouldBe([f.Key(1), f.Key(2)]);
+        f.Http.BacklogMembershipReads.ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0, "the provider boundary returns observations; the native host owns mirroring");
+    }
+
+    [Theory]
+    [InlineData("truncated-folder")]
+    [InlineData("changed-folder")]
+    [InlineData("sources-denied")]
+    [InlineData("query-denied")]
+    [InlineData("unknown-query-shape")]
+    [InlineData("oversized-membership")]
+    [InlineData("incomplete-batch")]
+    public async Task PlanningSourceBrowseRefusesIncompleteChangedDeniedOrUnboundedNativeEvidence(string defect)
+    {
+        using var f = await Fixture.Create();
+        f.Http.SourceDefect = defect;
+        var result = await f.Provider.BrowsePlanningAsync(f.Connection, "Selected team", PlanningSourceKind.SavedQuery, NativeHttp.FlatQuery, Fixture.Process, default);
+        result.IsSuccess.ShouldBeFalse();
+        if (defect is "sources-denied" or "query-denied") result.Error.Evidence.ShouldContain("http:403");
+        f.Http.WorkItemReads.ShouldBe(0);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task PlanningBrowseUsesDocumentedReadOnlyBatchesWithoutNarrowingQueriesToTwoHundredItems()
+    {
+        using var f = await Fixture.Create();
+        f.Http.SourceResultIds = Enumerable.Range(1, 201).ToArray();
+        var result = await f.Provider.BrowsePlanningAsync(f.Connection, "Selected team", PlanningSourceKind.SavedQuery, NativeHttp.FlatQuery, Fixture.Process, default);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        result.Value.Page.Items.Length.ShouldBe(201);
+        result.Value.Page.Complete.ShouldBeTrue();
+        f.Http.PlanningBatchSizes.ShouldBe([200, 1]);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task PlanningBrowseRefusesAChangedCanonicalTeamBeforeExecutingMembershipAndGenericQueriesNeverBroadenReferences()
+    {
+        using var f = await Fixture.Create();
+        var changed = await f.Provider.BrowsePlanningAsync(f.Connection, "Selected team", PlanningSourceKind.SavedQuery,
+            NativeHttp.FlatQuery, Fixture.Actor, default);
+        changed.Error.Code.ShouldBe(ErrorCode.Conflict);
+        f.Http.PlanningMembershipReads.ShouldBe(0);
+        var generic = await f.Provider.QueryAsync(f.Connection,
+            new(QueryKind.SavedQuery, value: FieldValue.String(NativeHttp.FlatQuery), planningTeam: Fixture.Process), null, default);
+        generic.Error.Code.ShouldBe(ErrorCode.Unsupported);
+        f.Http.QueryAfterIds.ShouldBeEmpty();
+        f.Http.WorkItemReads.ShouldBe(0);
+        f.Http.PlanningBatchSizes.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PlanningDiscoveryUsesExactTeamCalendarWithoutReadingOrMutatingWorkItems()
+    {
+        using var f = await Fixture.Create();
+        var result = await f.Provider.DiscoverPlanningAsync(f.Connection, "Selected team", default);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        result.Value.Team.ShouldBe(Fixture.Process);
+        result.Value.Areas.ShouldContain("Native Project\\Area");
+        result.Value.Iterations.Single(iteration => iteration.Path == "Native Project\\Sprint").SelectedTeam.ShouldBeTrue();
+        result.Value.Iterations.Single(iteration => iteration.Path == "Native Project\\Other team's sprint").SelectedTeam.ShouldBeFalse();
+        var absent = await f.Provider.DiscoverPlanningAsync(f.Connection, null, default);
+        absent.IsSuccess.ShouldBeTrue();
+        absent.Value.Team.ShouldBeNull();
+        absent.Value.Iterations.ShouldAllBe(iteration => !iteration.SelectedTeam);
+        absent.Value.Gaps.ShouldNotBeEmpty();
+        f.Http.WorkItemReads.ShouldBe(0);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("truncated")]
+    [InlineData("denied")]
+    [InlineData("foreign-team")]
+    public async Task PlanningDiscoveryRefusesIncompleteDeniedAndWrongTeamMetadata(string defect)
+    {
+        using var f = await Fixture.Create();
+        f.Http.PlanningDefect = defect;
+        var result = await f.Provider.DiscoverPlanningAsync(f.Connection, "Selected team", default);
+        result.IsSuccess.ShouldBeFalse();
+        if (defect == "denied") result.Error.Evidence.ShouldContain("http:403");
+        f.Http.WorkItemReads.ShouldBe(0);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task PresentationRetainsNativeAppearanceColumnsOrderingAndExactProcessTypeWithoutChangingMutationDigest()
     {
         using var f = await Fixture.Create();
@@ -1061,6 +1170,14 @@ public sealed class AdoProviderTests
 
     private sealed class NativeHttp : HttpMessageHandler
     {
+        internal const string QueryFolder = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+        internal const string FlatQuery = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+        internal const string TreeQuery = "11111111-1111-1111-1111-111111111111";
+        internal string? SourceDefect;
+        internal int BacklogMembershipReads;
+        internal int PlanningMembershipReads;
+        internal int[]? SourceResultIds;
+        internal List<int> PlanningBatchSizes = [];
         internal string Type;
         internal string? AdditionalType;
         internal string Initial;
@@ -1080,6 +1197,7 @@ public sealed class AdoProviderTests
         internal int[]? QueryIdsOverride;
         internal List<int> QueryAfterIds = [];
         internal int WorkItemReads;
+        internal string? PlanningDefect;
         internal string? LayoutJson;
         internal int LayoutStatus = 200;
         internal bool DivergentProjectType;
@@ -1121,6 +1239,75 @@ public sealed class AdoProviderTests
                 return await Write(request, path, ct);
             if (path.EndsWith("/connectionData"))
                 return Json($$"""{"instanceId":"{{(Defect == "wrong-collection" ? Fixture.Process : Fixture.Collection)}}","authenticatedUser":{"id":"{{(Defect == "wrong-principal" ? Fixture.Process : NativeActor)}}"} }""");
+            if (path.EndsWith("/_apis/wit/workitemsbatch"))
+            {
+                request.Method.ShouldBe(HttpMethod.Post);
+                using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+                payload.RootElement.GetProperty("$expand").GetString().ShouldBe("relations");
+                payload.RootElement.GetProperty("errorPolicy").GetString().ShouldBe("fail");
+                var ids = payload.RootElement.GetProperty("ids").EnumerateArray().Select(value => value.GetInt32()).ToArray();
+                ids.Length.ShouldBeInRange(1, 200);
+                PlanningBatchSizes.Add(ids.Length);
+                var values = new JsonArray();
+                if (SourceDefect != "incomplete-batch")
+                    foreach (var id in ids) values.Add(Items.TryGetValue(id, out var item) ? item.DeepClone() : Item(id));
+                return Json(new JsonObject { ["count"] = values.Count, ["value"] = values }.ToJsonString());
+            }
+            if (path.EndsWith("/_apis/wit/queries"))
+                return SourceDefect == "sources-denied" ? Status(403)
+                    : Json($$"""{"count":1,"value":[{"id":"{{QueryFolder}}","name":"Shared Queries","isFolder":true,"hasChildren":true}]}""");
+            if (path.Contains("/_apis/wit/queries/"))
+            {
+                var children = new JsonArray();
+                if (SourceDefect != "truncated-folder")
+                {
+                    children.Add(new JsonObject { ["id"] = FlatQuery, ["name"] = "Flat query", ["isFolder"] = false,
+                        ["queryType"] = "flat", ["wiql"] = "SELECT [System.Id] FROM WorkItems" });
+                    children.Add(new JsonObject { ["id"] = TreeQuery, ["name"] = "Tree query", ["isFolder"] = false,
+                        ["queryType"] = "tree", ["wiql"] = "SELECT [System.Id] FROM WorkItemLinks" });
+                }
+                return Json(new JsonObject { ["id"] = SourceDefect == "changed-folder" ? Fixture.Process : QueryFolder,
+                    ["name"] = "Shared Queries", ["isFolder"] = true, ["hasChildren"] = true, ["children"] = children }.ToJsonString());
+            }
+            if (path.EndsWith("/_apis/work/backlogs"))
+                return Json("""{"count":1,"value":[{"id":"Native.Requirements","name":"Native backlog","workItemTypes":[{"name":"Not a membership filter"}]}]}""");
+            if (path.Contains("/_apis/work/backlogs/") && path.EndsWith("/workItems"))
+            {
+                BacklogMembershipReads++;
+                return Json("""{"workItems":[{"rel":null,"source":null,"target":{"id":1}},{"rel":"Native.Link","source":{"id":1},"target":{"id":2}}]}""");
+            }
+            if (path.Contains("/_apis/wit/wiql/"))
+            {
+                PlanningMembershipReads++;
+                if (SourceDefect == "query-denied") return Status(403);
+                if (SourceDefect == "unknown-query-shape") return Json("""{"queryType":"unknown","asOf":"2026-11-03T22:30:00Z"}""");
+                if (SourceDefect == "oversized-membership")
+                    return Json(new JsonObject { ["queryType"] = "flat", ["asOf"] = "2026-11-03T22:30:00Z",
+                        ["workItems"] = new JsonArray(Enumerable.Range(1, 10001).Select(id => (JsonNode)new JsonObject { ["id"] = id }).ToArray()) }.ToJsonString());
+                return path.EndsWith(TreeQuery)
+                    ? Json("""{"queryType":"tree","asOf":"2026-11-03T22:30:00Z","workItemRelations":[{"source":null,"target":{"id":1}},{"source":{"id":1},"target":{"id":2}}]}""")
+                    : Json(new JsonObject { ["queryType"] = "flat", ["asOf"] = "2026-11-03T22:30:00Z",
+                        ["workItems"] = new JsonArray((SourceResultIds ?? [2]).Select(id => (JsonNode)new JsonObject { ["id"] = id }).ToArray()) }.ToJsonString());
+            }
+            if (path.Contains("/classificationnodes/"))
+            {
+                if (PlanningDefect == "denied") return Status(403);
+                var area = path.EndsWith("/areas");
+                var structure = area ? "Area" : "Iteration";
+                var child = area ? "Area" : "Sprint";
+                var children = new JsonArray();
+                if (PlanningDefect != "truncated")
+                {
+                    children.Add(new JsonObject { ["path"] = $"\\Native Project\\{structure}\\{child}", ["hasChildren"] = false });
+                    children.Add(new JsonObject { ["path"] = $"\\Native Project\\{structure}\\Other team's sprint", ["hasChildren"] = false });
+                }
+                return Json(new JsonObject { ["path"] = $"\\Native Project\\{structure}",
+                    ["hasChildren"] = true, ["children"] = children }.ToJsonString());
+            }
+            if (path.Contains("/teams/"))
+                return Json($$"""{"id":"{{Fixture.Process}}","name":"{{(PlanningDefect == "foreign-team" ? "Different team" : "Selected team")}}"}""");
+            if (path.EndsWith("/teamsettings/iterations"))
+                return Json("""{"count":1,"value":[{"path":"Native Project\\Sprint","attributes":{"startDate":"2026-11-01T00:00:00Z","finishDate":"2026-11-07T23:59:59Z"}}]}""");
             if (path.Contains("/_apis/projects/"))
                 return Json($$"""{"id":"{{(Defect == "wrong-project" ? Fixture.Process : Fixture.Project)}}","name":"Native Project","capabilities":{"processTemplate":{"templateTypeId":"{{Fixture.Process}}"} } }""");
             if (path.Contains("/workitemicons/"))

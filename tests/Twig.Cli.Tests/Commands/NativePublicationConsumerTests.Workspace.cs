@@ -22,6 +22,67 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Theory]
+    [InlineData(CoreModel.QueryKind.Iteration)]
+    [InlineData(CoreModel.QueryKind.SavedQuery)]
+    [InlineData(CoreModel.QueryKind.Backlog)]
+    public async Task CoreWorkspaceReadResolvesSharedPlanningRulesFromNativeCaches(CoreModel.QueryKind kind)
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var configuration = await TwigConfiguration.LoadSplitAsync(paths);
+        var shared = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        var now = DateTimeOffset.UtcNow;
+        const string sourceId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+        var query = kind == CoreModel.QueryKind.Iteration
+            ? new CoreModel.Query(kind, "System.IterationPath", CoreModel.FieldValue.Strings(["@Current+1"]), planningTeam: "canonical-team")
+            : new CoreModel.Query(kind, value: CoreModel.FieldValue.String(sourceId), planningTeam: "canonical-team");
+        var bench = new CoreModel.Bench(Guid.NewGuid(), "Cached planning scope",
+            [new(CoreModel.SelectorKind.Query, query: query, connection: connection)]);
+        (await shared.SaveAsync(bench, 0)).IsSuccess.ShouldBeTrue();
+        (await shared.SavePlanningAsync(connection, configuration.Team, new(now, [],
+            [new("Project\\Current", now.AddDays(-1), now.AddDays(1)), new("Project\\Next", now.AddDays(2), now.AddDays(3))],
+            [], "canonical-team"))).IsSuccess.ShouldBeTrue();
+        if (kind != CoreModel.QueryKind.Iteration)
+            (await shared.SaveMembershipAsync(connection, configuration.Team,
+                new(kind == CoreModel.QueryKind.SavedQuery ? CoreModel.PlanningSourceKind.SavedQuery : CoreModel.PlanningSourceKind.Backlog,
+                    sourceId, "canonical-team", [CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "43")], now, true), default))
+                .IsSuccess.ShouldBeTrue();
+        CoreModel.WorkItem Item(string id, string iteration)
+        {
+            var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, id);
+            return new(key, "Fixture.Task", CoreModel.FieldValues.Empty
+                .Set("System.Title", CoreModel.FieldValue.String("Cached " + id))
+                .Set("System.IterationPath", CoreModel.FieldValue.String(iteration)), new(key, "1"), true);
+        }
+        (await store.CommitAsync(connection, 0, new(1, [Item("42", "Project\\Current"), Item("43", "Project\\Next")]), default))
+            .IsSuccess.ShouldBeTrue();
+        var context = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
+        var before = (await context.ReadAsync(default)).Value;
+        (await context.WriteAsync(before, before with { BenchId = bench.Id }, default)).IsSuccess.ShouldBeTrue();
+        _transport.ItemReadIds.Clear();
+        _transport.QueryAfterIds.Clear();
+        var oldOut = Console.Out;
+        var oldError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            RunCoreLink(paths, ["workspace", "-o", "json"]).ShouldBe(0, stderr.ToString());
+            using var json = JsonDocument.Parse(stdout.ToString());
+            json.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetInt32()).ShouldBe([43]);
+        }
+        finally { Console.SetOut(oldOut); Console.SetError(oldError); }
+        _transport.ItemReadIds.ShouldBeEmpty();
+        _transport.QueryAfterIds.ShouldBeEmpty();
+        _transport.CommittedWrites.ShouldBe(0);
+        (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(1);
+        var retained = (await shared.ReadAsync()).Value.Benches.Single().Selectors.Single().Query!;
+        if (kind == CoreModel.QueryKind.Iteration) retained.Value!.Values.ShouldContain("@Current+1");
+        else retained.Value!.Text.ShouldBe(sourceId);
+    }
+
+    [Theory]
     [InlineData("workspace")]
     [InlineData("ws")]
     public async Task CoreWorkspaceReadRoutesThroughProductionComposition(string route)

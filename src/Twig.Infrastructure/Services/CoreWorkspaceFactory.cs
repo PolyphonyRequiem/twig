@@ -77,8 +77,18 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var benches = UserBenchStore.ForRegistry(bindings.RegistryPath);
         var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler());
         var workspace = new CoreWorkspace(document.Connection, provider, store,
-            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance, benches);
+            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance, benches, configuration.Team);
         return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider, document, source, access));
+    }
+
+    internal async Task<Result<bool>> RevalidateSourceAsync(CoreWorkspaceHandle handle, CancellationToken ct)
+    {
+        var current = await OpenAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
+        using var captured = current.Value;
+        if (captured.Source != handle.Source)
+            return Result<bool>.Fail(ErrorCode.Conflict, "The native workspace, actor, store or authority changed; no content or rule change was released.");
+        return await AdmitSourceAsync(captured, ct).ConfigureAwait(false);
     }
 
     internal async Task<Result<bool>> AdmitSourceAsync(CoreWorkspaceHandle handle, CancellationToken ct)

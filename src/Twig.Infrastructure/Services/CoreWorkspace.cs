@@ -37,6 +37,9 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     internal Task<Result<StoreSnapshot>> BenchSnapshotAsync(CancellationToken ct)
         => sharedBenches is not null ? sharedBenches.View(store, worktreeRoot, storeInstance).ReadAsync(connection, ct)
             : SnapshotAsync(ct);
+    internal Task<Result<bool>> ValidateReadAccessAsync(CancellationToken ct)
+        => provider.ValidateReadAccessAsync(connection, ct);
+
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct, bool includePresentation = false)
         => includePresentation ? provider.DiscoverSchemaAsync(connection, ct, true) : provider.DiscoverSchemaAsync(connection, ct);
     internal Task<Result<PlanningCacheEntry>> PlanningAsync(CancellationToken ct)

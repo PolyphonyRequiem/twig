@@ -2427,6 +2427,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public Func<Task>? BeforeProjectMetadata { get; set; }
         public bool CloseGateEnabled { get; set; }
         public bool FailSchema { get; set; }
+        public HttpStatusCode? ReadAccessFailure { get; set; }
+        public Func<Task>? AfterReadAccess { get; set; }
         public HttpStatusCode? SchemaFailureStatus { get; set; }
         public int SourceHandlesDisposed { get; private set; }
         public bool LoseNextPatchAcknowledgement { get; set; }
@@ -2487,6 +2489,13 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
             if (FailSchema && path.EndsWith("/fields", StringComparison.Ordinal))
                 return Reply(SchemaFailureStatus ?? HttpStatusCode.BadRequest, new { message = "Fixture schema unavailable" });
+            if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/workitemtypes", StringComparison.OrdinalIgnoreCase)
+                && !request.RequestUri.Query.Contains("$expand=all"))
+            {
+                if (AfterReadAccess is { } afterAccess) { AfterReadAccess = null; await afterAccess(); }
+                return ReadAccessFailure is { } failure ? Reply(failure, new { message = "Fixture work metadata unavailable" })
+                    : Reply(HttpStatusCode.OK, new { count = 1, value = new[] { new { referenceName = "Fixture.Task" } } });
+            }
             if (CoreMetadataEnabled && path.Contains("/teams/", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { id = "88888888-8888-8888-8888-888888888888",
                     name = Uri.UnescapeDataString(path.Split('/')[^1]) });

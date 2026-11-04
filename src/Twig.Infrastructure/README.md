@@ -54,6 +54,18 @@ failure refuses the entire result, including HTTP 401/403 and ambiguous
 unavailability; this boundary never selects an offline fallback. Schema evidence
 is observed separately from the cached items and is not an atomic provider snapshot.
 
+`NativeSourceReader.ReadOnlineAsync(workspaceRoot, expectedSource, ct)` requires a
+captured stamp and fresh remote actor/target read-access validation, without
+repeating schema or form/icon discovery. It returns no schema evidence and does
+not advance `SchemaObservedAt`. ADO checks the same immutable collection,
+principal and project as schema discovery, plus the project's work-item type
+read route. GitHub checks the same viewer, repository and owner, plus an issues
+count read without issue bodies. These are service-level read-access checks,
+not proof of access to every cached item or area. Final local authority
+revalidation still precedes release. Providers without this explicit
+implementation refuse with `Unsupported`; permission, transport, malformed
+responses and cancellation never become local/offline success.
+
 Use the returned `NativeSourceStamp` as `expectedSource` on subsequent calls.
 It binds the connection, store UUID, principal and an opaque native authority
 stamp covering the workspace/database location, selection/binding revisions and

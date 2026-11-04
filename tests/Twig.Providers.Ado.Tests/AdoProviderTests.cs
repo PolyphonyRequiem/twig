@@ -16,6 +16,42 @@ namespace Twig.Providers.Ado.Tests;
 public sealed class AdoProviderTests
 {
     [Fact]
+    public async Task ReadAccessValidatesImmutableActorAndTargetWithoutSchemaOrPresentationCrawl()
+    {
+        using var f = await Fixture.Create();
+        var result = await f.Provider.ValidateReadAccessAsync(f.Connection, default);
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        result.Value.ShouldBeTrue();
+        f.Http.ReadAccessPaths.ShouldBe([
+            "/organization/_apis/connectionData",
+            $"/organization/_apis/projects/{Fixture.Project}",
+            $"/organization/{Fixture.Project}/_apis/wit/workitemtypes"]);
+        f.Http.LayoutRequests.ShouldBeEmpty();
+        f.Http.WorkItemReads.ShouldBe(0);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("wrong-principal")]
+    [InlineData("wrong-collection")]
+    [InlineData("wrong-project")]
+    [InlineData("denied")]
+    [InlineData("unauthorized")]
+    [InlineData("empty")]
+    public async Task ReadAccessRefusesChangedIdentityOrUnavailableWorkMetadata(string defect)
+    {
+        using var f = await Fixture.Create();
+        f.Http.Defect = defect;
+        var result = await f.Provider.ValidateReadAccessAsync(f.Connection, default);
+        result.IsSuccess.ShouldBeFalse();
+        if (defect is "denied" or "unauthorized")
+            result.Error.Evidence.ShouldContain(defect == "denied" ? "http:403" : "http:401");
+        f.Http.ReadAccessPaths.ShouldAllBe(path => !path.Contains("/processes/") && !path.EndsWith("/fields"));
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task PlanningSourcesRetainActualQueryHierarchyAndBacklogIdentityAndBrowseNativeMembership()
     {
         using var f = await Fixture.Create();
@@ -1202,6 +1238,7 @@ public sealed class AdoProviderTests
         internal int LayoutStatus = 200;
         internal bool DivergentProjectType;
         internal List<string> LayoutRequests = [];
+        internal List<string> ReadAccessPaths = [];
         internal string? LastPayload;
         internal Func<Task>? AfterWrite;
         internal Dictionary<int, JsonObject> Items = [];
@@ -1235,10 +1272,14 @@ public sealed class AdoProviderTests
             request.Headers.Authorization!.Parameter.ShouldBe("synthetic");
             var path = Uri.UnescapeDataString(request.RequestUri!.AbsolutePath);
             var query = request.RequestUri.Query;
+            ReadAccessPaths.Add(path);
             if (request.Method == HttpMethod.Patch || request.Method == HttpMethod.Post && path.Contains("/workitems/$", StringComparison.OrdinalIgnoreCase))
                 return await Write(request, path, ct);
             if (path.EndsWith("/connectionData"))
                 return Json($$"""{"instanceId":"{{(Defect == "wrong-collection" ? Fixture.Process : Fixture.Collection)}}","authenticatedUser":{"id":"{{(Defect == "wrong-principal" ? Fixture.Process : NativeActor)}}"} }""");
+            if (path.EndsWith("/_apis/wit/workitemtypes", StringComparison.OrdinalIgnoreCase) && !query.Contains("$expand=all"))
+                return Defect is "denied" or "unauthorized" ? Status(Defect == "denied" ? 403 : 401)
+                    : Rows(Defect == "empty" ? "" : $$"""{"referenceName":"{{Type}}"}""");
             if (path.EndsWith("/_apis/wit/workitemsbatch"))
             {
                 request.Method.ShouldBe(HttpMethod.Post);

@@ -23,6 +23,19 @@ public sealed partial class GitHubProvider
         ImmutableHashSet<string> Mutations, ImmutableHashSet<string> UpdateInputs,
         ImmutableHashSet<string> CreateInputs, ImmutableHashSet<string> NativeRelations, ProviderCapabilities Capabilities);
 
+    public Task<Result<bool>> ValidateReadAccessAsync(Connection connection, CancellationToken ct)
+        => Guard(() => WithSession(connection, async (bound, token) =>
+        {
+            var data = await Graph(bound,
+                "query($id: ID!) { node(id: $id) { id ... on Repository { owner { id } issues(first: 1) { totalCount } } } }",
+                json => json.WriteString("id", _repository), token);
+            var repository = Wire.Member(data, "node");
+            Repository(repository);
+            if (!Wire.Member(Wire.Member(repository, "issues"), "totalCount").TryGetInt32(out var count) || count < 0)
+                throw Wire.Invalid("Native issue read access could not be established.");
+            return true;
+        }, ct));
+
     public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct)
         => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token)).Schema, ct));
 

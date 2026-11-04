@@ -11,6 +11,15 @@ public sealed partial class AdoProvider
         ImmutableDictionary<string, NativeRelation> Relations, ImmutableDictionary<string, FieldDef> Fields,
         ImmutableHashSet<string> NonItemRelations);
 
+    public Task<Result<bool>> ValidateReadAccessAsync(Connection connection, CancellationToken ct)
+        => Guard(() => WithSession(connection, async (bound, token) =>
+        {
+            var types = Wire.Rows(await Get(bound, $"{bound.Project}/_apis/wit/workitemtypes?api-version={Api}", token));
+            if (types.Length == 0 || types.Any(type => string.IsNullOrWhiteSpace(Wire.Text(type, "referenceName"))))
+                throw Wire.Invalid("Native work-item type read access could not be established.");
+            return true;
+        }, ct));
+
     public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct)
         => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token)).Schema, ct));
 

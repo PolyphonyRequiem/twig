@@ -340,6 +340,11 @@ public sealed class GitHubProviderTests
         (await f.Provider.QueryAsync(f.Connection, new(QueryKind.Equal, "missing", FieldValue.Null), null, default))
             .Error.Code.ShouldBe(ErrorCode.Unsupported);
         (await f.Provider.QueryAsync(f.Connection, query, "unbound", default)).Error.Code.ShouldBe(ErrorCode.Unsupported);
+        var version = (await f.Stored()).Version;
+        foreach (var kind in new[] { QueryKind.SavedQuery, QueryKind.Backlog })
+            (await f.Provider.QueryAsync(f.Connection, new(kind, value: FieldValue.String("native-source"), planningTeam: "team"),
+                null, default)).Error.Code.ShouldBe(ErrorCode.Unsupported);
+        (await f.Stored()).Version.ShouldBe(version, "unsupported native planning references must not broaden into a repository scan");
     }
 
     [Theory]

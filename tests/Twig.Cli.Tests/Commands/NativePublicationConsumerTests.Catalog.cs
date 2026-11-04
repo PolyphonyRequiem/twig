@@ -40,6 +40,10 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("pending")]
     [InlineData("seed", "view")]
     [InlineData("proposal", "status", "--file", "never-open.json")]
+    [InlineData("bench", "sources")]
+    [InlineData("bench", "planning", "refresh")]
+    [InlineData("workspace", "area", "add", "Project\\Area")]
+    [InlineData("workspace", "sprint", "add", "@Current")]
     public void NoMarkerCoreDataReadsRefuseWithoutLegacyGraphOrInputIo(params string[] route)
     {
         var root = Path.Combine(_temp, "uninitialized");
@@ -96,6 +100,7 @@ public sealed partial class NativePublicationConsumerTests
         runtime.GetRequiredService<ConnectionListCommand>().ShouldNotBeNull();
         runtime.GetRequiredService<ConnectionStatusCommand>().ShouldNotBeNull();
         runtime.GetRequiredService<ConnectionWritesCommand>().ShouldNotBeNull();
+        runtime.GetRequiredService<BenchPlanningCommand>().ShouldNotBeNull();
         using var output = new StringWriter();
         using var error = new StringWriter();
         var previousOut = Console.Out;
@@ -147,6 +152,29 @@ public sealed partial class NativePublicationConsumerTests
             _transport.TotalRequests.ShouldBe(0);
         }
         finally { Console.SetError(oldError); }
+    }
+
+    [Theory]
+    [InlineData("bench sources", "--browser")]
+    [InlineData("bench browse", "--include-browser")]
+    [InlineData("bench rule add", "--expect-binding")]
+    [InlineData("workspace area add", "--include-management")]
+    [InlineData("workspace sprint add", "--interactive")]
+    public void RestoredPlanningRoutesStillRejectRetiredUiEnvelopesBeforeComposition(string route, string envelope)
+    {
+        var configured = 0;
+        using var error = new StringWriter();
+        var prior = Console.Error;
+        try
+        {
+            Console.SetError(error);
+            Twig.TwigConsoleApp.Run(route.Split(' ').Concat([envelope, "-o", "json"]).ToArray(), _ => configured++).ShouldBe(1);
+            configured.ShouldBe(0);
+            using var json = JsonDocument.Parse(error.ToString());
+            json.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("retired");
+            _transport.TotalRequests.ShouldBe(0);
+        }
+        finally { Console.SetError(prior); }
     }
 
     [Fact]

@@ -21,20 +21,31 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class NativePublicationConsumerTests
 {
-    [Fact]
-    public async Task CoreWorkspaceReadResolvesSharedRelativeRulesFromCachedTeamCalendar()
+    [Theory]
+    [InlineData(CoreModel.QueryKind.Iteration)]
+    [InlineData(CoreModel.QueryKind.SavedQuery)]
+    [InlineData(CoreModel.QueryKind.Backlog)]
+    public async Task CoreWorkspaceReadResolvesSharedPlanningRulesFromNativeCaches(CoreModel.QueryKind kind)
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var configuration = await TwigConfiguration.LoadSplitAsync(paths);
         var shared = UserBenchStore.ForRegistry(_bindings.RegistryPath);
         var now = DateTimeOffset.UtcNow;
-        var bench = new CoreModel.Bench(Guid.NewGuid(), "Relative cached scope",
-            [new(CoreModel.SelectorKind.Query, query: new(CoreModel.QueryKind.Iteration, "System.IterationPath",
-                CoreModel.FieldValue.Strings(["@Current+1"]), planningTeam: "canonical-team"), connection: connection)]);
+        const string sourceId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+        var query = kind == CoreModel.QueryKind.Iteration
+            ? new CoreModel.Query(kind, "System.IterationPath", CoreModel.FieldValue.Strings(["@Current+1"]), planningTeam: "canonical-team")
+            : new CoreModel.Query(kind, value: CoreModel.FieldValue.String(sourceId), planningTeam: "canonical-team");
+        var bench = new CoreModel.Bench(Guid.NewGuid(), "Cached planning scope",
+            [new(CoreModel.SelectorKind.Query, query: query, connection: connection)]);
         (await shared.SaveAsync(bench, 0)).IsSuccess.ShouldBeTrue();
         (await shared.SavePlanningAsync(connection, configuration.Team, new(now, [],
             [new("Project\\Current", now.AddDays(-1), now.AddDays(1)), new("Project\\Next", now.AddDays(2), now.AddDays(3))],
             [], "canonical-team"))).IsSuccess.ShouldBeTrue();
+        if (kind != CoreModel.QueryKind.Iteration)
+            (await shared.SaveMembershipAsync(connection, configuration.Team,
+                new(kind == CoreModel.QueryKind.SavedQuery ? CoreModel.PlanningSourceKind.SavedQuery : CoreModel.PlanningSourceKind.Backlog,
+                    sourceId, "canonical-team", [CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "43")], now, true), default))
+                .IsSuccess.ShouldBeTrue();
         CoreModel.WorkItem Item(string id, string iteration)
         {
             var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, id);
@@ -66,7 +77,9 @@ public sealed partial class NativePublicationConsumerTests
         _transport.QueryAfterIds.ShouldBeEmpty();
         _transport.CommittedWrites.ShouldBe(0);
         (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(1);
-        (await shared.ReadAsync()).Value.Benches.Single().Selectors.Single().Query!.Value!.Values.ShouldContain("@Current+1");
+        var retained = (await shared.ReadAsync()).Value.Benches.Single().Selectors.Single().Query!;
+        if (kind == CoreModel.QueryKind.Iteration) retained.Value!.Values.ShouldContain("@Current+1");
+        else retained.Value!.Text.ShouldBe(sourceId);
     }
 
     [Theory]

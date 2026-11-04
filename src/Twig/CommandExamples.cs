@@ -12,6 +12,46 @@ internal static class CommandExamples
     /// </summary>
     internal static Dictionary<string, string[]> Examples { get; } = new(StringComparer.Ordinal)
     {
+        ["bench rules"] =
+        [
+            "twig bench rules                         List the current Bench's exact pin/rule indices and revision",
+            "twig bench rules \"My Bench\" -o json     Read a named shared definition without fetching items",
+        ],
+        ["bench rule add"] =
+        [
+            "twig bench rule add \"My Bench\" --area \"Project\\Area\" --iteration \"@Current\" --mine   One AND rule, OR with independent Bench pins",
+            "twig bench rule add \"My Bench\" --query <native-query-guid> --expect-revision 3 -o json   Pin identity/team, not today's result IDs",
+        ],
+        ["bench rule remove"] =
+        [
+            "twig bench rule remove \"My Bench\" --index 2 --expect-revision 3           Remove exactly the captured rule",
+            "twig bench rule remove <bench-guid> --index 1 --expect-revision 7 -o json   No upstream work item or local draft deletion",
+        ],
+        ["bench planning"] =
+        [
+            "twig bench planning                      Read cached areas and the selected team's iteration calendar",
+            "twig bench planning -o json              No remote refresh or changes to Bench intent",
+        ],
+        ["bench planning show"] =
+        [
+            "twig bench planning show                 Read the cached native planning metadata",
+            "twig bench planning show -o json         Structured cached metadata, not an item sync",
+        ],
+        ["bench planning refresh"] =
+        [
+            "twig bench planning refresh              Explicit native metadata read; pins and items are unchanged",
+            "twig bench planning refresh -o json      Refresh exact-team calendar before relative iteration configuration",
+        ],
+        ["bench sources"] =
+        [
+            "twig bench sources                       Discover actual native saved queries and exact-team backlogs",
+            "twig bench sources -o json               Read IDs, hierarchy and availability without executing membership",
+        ],
+        ["bench browse"] =
+        [
+            "twig bench browse --query <native-query-guid> -o json   Explicitly acquire native membership and item bodies",
+            "twig bench browse --backlog <native-backlog-id> -o ids  Find specific items without pinning or changing Bench selection",
+        ],
         ["auth logout"] =
         [
             "twig auth logout --provider github --identity personal  Remove selected local app-user tokens, not remote authorization",
@@ -528,17 +568,17 @@ internal static class CommandExamples
         ],
         ["workspace area sync"] =
         [
-            "twig workspace area sync                          Fetch team area paths from ADO",
-            "twig workspace area sync -o json                  Sync and output result as JSON",
+            "twig workspace area sync                          Refresh native planning metadata; shared Bench rules are not replaced",
+            "twig workspace area sync -o json                  Areas and exact-team calendar, not work-item synchronization",
         ],
         ["workspace sprint add"] =
         [
-            @"twig workspace sprint add @current               Subscribe to the current sprint",
-            @"twig workspace sprint add @current-1             Subscribe to the previous sprint",
+            "twig workspace sprint add \"@Current\"             Add current iteration to the selected shared planning rule",
+            "twig workspace sprint add \"@Current-1\"           Preserve the relative expression and canonical team",
         ],
         ["workspace sprint remove"] =
         [
-            @"twig workspace sprint remove @current            Unsubscribe from the current sprint",
+            "twig workspace sprint remove \"@Current\"          Remove only that saved expression",
             @"twig workspace sprint remove ""Project\Sprint 5""  Remove an absolute sprint path",
         ],
         ["workspace sprint list"] =

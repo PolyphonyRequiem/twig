@@ -1423,6 +1423,77 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             ? await native.ExecuteAsync("delete", name, output, ct, confirm: confirm, expectBench: expectBench, expectContents: expectContents)
             : Unsupported(output);
 
+    /// <summary>List the exact shared Bench pins/rules and captured revision; no provider reads.</summary>
+    /// <param name="name">Optional Bench name/GUID; otherwise the current native context's existing selection.</param>
+    /// <param name="output">-o, Output format: human, json, minimal, ids (one-based rule indices).</param>
+    [Command("bench rules")]
+    public Task<int> BenchRules([Argument] string? name = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("rules", new(Bench: name), output, ct);
+
+    /// <summary>Add one connection-qualified shared rule. Conditions inside it are AND; independent Bench pins/rules are OR.</summary>
+    /// <param name="name">Existing shared Bench name or GUID.</param>
+    /// <param name="area">Optional absolute native area path.</param>
+    /// <param name="exact">Match exactly this area; default includes descendants.</param>
+    /// <param name="iteration">Optional absolute path, @Current, @Current+N or @Current-N; relative forms require the cached native team calendar.</param>
+    /// <param name="mine">Restrict this planning rule to the canonical native actor, never a display-name guess.</param>
+    /// <param name="query">Optional native saved-query GUID; a standalone reference, not frozen result IDs.</param>
+    /// <param name="backlog">Optional native backlog ID; a standalone exact-team reference.</param>
+    /// <param name="expectRevision">Optional captured Bench revision; refuses a concurrent edit.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench rule add")]
+    public Task<int> BenchRuleAdd([Argument] string name, string? area = null, bool exact = false,
+        string? iteration = null, bool mine = false, string? query = null, string? backlog = null,
+        long? expectRevision = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("add-rule", new(Bench: name, Area: area, Exact: exact, Iteration: iteration,
+            Mine: mine, Query: query, Backlog: backlog, ExpectedRevision: expectRevision), output, ct);
+
+    /// <summary>Remove one captured shared pin/rule without deleting any upstream item or local draft.</summary>
+    /// <param name="name">Existing Bench name or GUID.</param>
+    /// <param name="index">Required one-based index from a fresh bench rules listing.</param>
+    /// <param name="expectRevision">Required captured Bench revision; index changes are never silently adopted.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench rule remove")]
+    public Task<int> BenchRuleRemove([Argument] string name, int index, long expectRevision,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("remove-rule", new(Bench: name, Rule: index, ExpectedRevision: expectRevision), output, ct);
+
+    /// <summary>Read cached native planning metadata without refreshing it or changing any Bench.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench planning")]
+    public Task<int> BenchPlanning(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("metadata", new(), output, ct);
+
+    /// <summary>Read the current context's cached native planning metadata; alias of bench planning.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench planning show")]
+    public Task<int> BenchPlanningShow(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => BenchPlanning(output, ct);
+
+    /// <summary>Explicitly refresh native areas and the exact selected team's iteration calendar; no work items or Bench rules change.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench planning refresh")]
+    public Task<int> BenchPlanningRefresh(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("refresh", new(), output, ct);
+
+    /// <summary>Discover native saved-query hierarchy and exact-team backlogs; does not execute them or change selection.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal, ids (native source IDs).</param>
+    [Command("bench sources")]
+    public Task<int> BenchSources(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("sources", new(), output, ct);
+
+    /// <summary>Explicitly acquire saved-query/backlog membership and item bodies into the native cache; never pins, selects or publishes.</summary>
+    /// <param name="query">Native saved-query GUID from bench sources.</param>
+    /// <param name="backlog">Native backlog ID from bench sources; requires the selected native team.</param>
+    /// <param name="output">-o, Output format: human, json, minimal, ids (member IDs).</param>
+    [Command("bench browse")]
+    public Task<int> BenchBrowse(string? query = null, string? backlog = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("browse", new(Query: query, Backlog: backlog), output, ct);
+
+    private Task<int> NativePlanning(string action, BenchPlanningArguments arguments, string output, CancellationToken ct)
+        => services.GetService<BenchPlanningCommand>() is { } native
+            ? native.ExecuteAsync(action, arguments, output, ct) : Task.FromResult(MissingCore(output));
+
     /// <summary>Read full, richly rendered cached detail for an explicitly selected Bench work item.</summary>
     /// <param name="id">Work item ID or local seed ID; never changes the active item.</param>
     /// <param name="width">Terminal rendering width in columns (default 80).</param>
@@ -1627,60 +1698,73 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
 
     // ── Workspace Area Path Management ──
 
-    /// <summary>Show the area-filtered workspace view.</summary>
+    /// <summary>Show the current Bench's cached view, including its shared planning rules and protected drafts.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area")]
-    internal async Task<int> WorkspaceArea(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public async Task<int> WorkspaceArea(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => services.GetService<WorkspaceCommand>() is { } native
+            ? await native.ExecuteAsync(output, ct: ct) : MissingCore(output);
 
-    /// <summary>Add an area path to workspace configuration.</summary>
+    /// <summary>Add an area to the current Bench's planning rule; areas are OR, area/iteration/ownership categories are AND.</summary>
     /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
     /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="rule">Optional one-based planning rule index; required when several planning rules exist.</param>
+    /// <param name="expectRevision">Captured Bench revision required with an explicit rule index.</param>
     [Command("workspace area add")]
-    internal async Task<int> WorkspaceAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public Task<int> WorkspaceAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat,
+        int? rule = null, long? expectRevision = null, CancellationToken ct = default)
+        => NativePlanning("area-add", new(Value: path, Exact: exact, Rule: rule, ExpectedRevision: expectRevision), output, ct);
 
-    /// <summary>Remove an area path from workspace configuration.</summary>
+    /// <summary>Remove one area from the current Bench's planning rule; other pins, rules and workspace exclusions are preserved.</summary>
     /// <param name="path">Area path to remove.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="rule">Optional captured planning rule index.</param>
+    /// <param name="expectRevision">Captured Bench revision required with an explicit rule index.</param>
     [Command("workspace area remove")]
-    internal async Task<int> WorkspaceAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public Task<int> WorkspaceAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat,
+        int? rule = null, long? expectRevision = null, CancellationToken ct = default)
+        => NativePlanning("area-remove", new(Value: path, Rule: rule, ExpectedRevision: expectRevision), output, ct);
 
-    /// <summary>List configured area paths with match semantics.</summary>
+    /// <summary>List saved shared area paths and exact/under semantics without fetching items.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area list")]
-    internal async Task<int> WorkspaceAreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public Task<int> WorkspaceAreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("area-list", new(), output, ct);
 
-    /// <summary>Fetch team area paths from ADO and replace configuration.</summary>
+    /// <summary>Refresh native planning metadata only; does not replace or populate shared Bench rules.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area sync")]
-    internal async Task<int> WorkspaceAreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public Task<int> WorkspaceAreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("refresh", new(), output, ct);
 
     // ── Workspace Sprint Iteration Management ──
 
-    /// <summary>Add a sprint iteration expression to workspace configuration.</summary>
+    /// <summary>Add an iteration expression to the current Bench's planning rule; union iterations and preserve area/ownership constraints.</summary>
     /// <param name="expression">Sprint expression (e.g., "@current", "@current-1", "Project\Sprint 5").</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="rule">Optional captured planning rule index.</param>
+    /// <param name="expectRevision">Captured Bench revision required with an explicit rule index.</param>
     [Command("workspace sprint add")]
-    internal async Task<int> WorkspaceSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public Task<int> WorkspaceSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat,
+        int? rule = null, long? expectRevision = null, CancellationToken ct = default)
+        => NativePlanning("sprint-add", new(Value: expression, Rule: rule, ExpectedRevision: expectRevision), output, ct);
 
-    /// <summary>Remove a sprint iteration expression from workspace configuration.</summary>
+    /// <summary>Remove one saved iteration expression; never replace the last rule with an all-items query.</summary>
     /// <param name="expression">Sprint expression to remove.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="rule">Optional captured planning rule index.</param>
+    /// <param name="expectRevision">Captured Bench revision required with an explicit rule index.</param>
     [Command("workspace sprint remove")]
-    internal async Task<int> WorkspaceSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public Task<int> WorkspaceSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat,
+        int? rule = null, long? expectRevision = null, CancellationToken ct = default)
+        => NativePlanning("sprint-remove", new(Value: expression, Rule: rule, ExpectedRevision: expectRevision), output, ct);
 
-    /// <summary>List configured sprint iteration expressions.</summary>
+    /// <summary>List saved absolute/relative iteration expressions and canonical teams without remote item acquisition.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace sprint list")]
-    internal async Task<int> WorkspaceSprintList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
+    public Task<int> WorkspaceSprintList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("sprint-list", new(), output, ct);
 
     // ── Area Path Management (deprecated aliases — use 'workspace area' instead) ──
 
@@ -1688,11 +1772,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area")]
-    internal async Task<int> Area(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-    {
-        await Console.Error.WriteLineAsync("hint: 'twig area' is deprecated. Use 'twig workspace area' instead.");
-        return Unsupported(output);
-    }
+    public async Task<int> Area(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await WorkspaceArea(output, ct);
 
     /// <summary>Add an area path. Deprecated — use 'twig workspace area add' instead.</summary>
     /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
@@ -1700,42 +1781,30 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area add")]
-    internal async Task<int> AreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-    {
-        await Console.Error.WriteLineAsync("hint: 'twig area add' is deprecated. Use 'twig workspace area add' instead.");
-        return Unsupported(output);
-    }
+    public async Task<int> AreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await WorkspaceAreaAdd(path, exact, output, ct: ct);
 
     /// <summary>Remove an area path. Deprecated — use 'twig workspace area remove' instead.</summary>
     /// <param name="path">Area path to remove.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area remove")]
-    internal async Task<int> AreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-    {
-        await Console.Error.WriteLineAsync("hint: 'twig area remove' is deprecated. Use 'twig workspace area remove' instead.");
-        return Unsupported(output);
-    }
+    public async Task<int> AreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await WorkspaceAreaRemove(path, output, ct: ct);
 
     /// <summary>List configured area paths. Deprecated — use 'twig workspace area list' instead.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area list")]
-    internal async Task<int> AreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-    {
-        await Console.Error.WriteLineAsync("hint: 'twig area list' is deprecated. Use 'twig workspace area list' instead.");
-        return Unsupported(output);
-    }
+    public async Task<int> AreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await WorkspaceAreaList(output, ct);
 
     /// <summary>Fetch team area paths from ADO. Deprecated — use 'twig workspace area sync' instead.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area sync")]
-    internal async Task<int> AreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-    {
-        await Console.Error.WriteLineAsync("hint: 'twig area sync' is deprecated. Use 'twig workspace area sync' instead.");
-        return Unsupported(output);
-    }
+    public async Task<int> AreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await WorkspaceAreaSync(output, ct);
 
     /// <summary>Unsupported legacy sprint layout. Use workspace for static Core Bench membership.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -2246,6 +2315,14 @@ internal static class GroupedHelp
         "bench switch",
         "bench rename",
         "bench delete",
+        "bench rules",
+        "bench rule add",
+        "bench rule remove",
+        "bench planning",
+        "bench planning show",
+        "bench planning refresh",
+        "bench sources",
+        "bench browse",
         "bench detail",
         "bench discussion",
         "bench discussion prepare-post",

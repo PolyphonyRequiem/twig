@@ -70,6 +70,7 @@ internal static class SubcommandGuard
     [
         "link",
         "bench",
+        "bench rule",
         "auth",
         "connection",
         "provider",

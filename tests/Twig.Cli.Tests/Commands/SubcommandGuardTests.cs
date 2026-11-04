@@ -25,6 +25,16 @@ namespace Twig.Cli.Tests.Commands;
 /// </remarks>
 public sealed class SubcommandGuardTests
 {
+    [Fact]
+    public void RestoredPlanningGroupsKeepCachedBareReadAndExplicitRuleSubcommandsDistinct()
+    {
+        SubcommandGuard.Validate(["bench", "planning"]).ShouldBeNull();
+        SubcommandGuard.Validate(["bench", "planning", "refresh"]).ShouldBeNull();
+        SubcommandGuard.Validate(["bench", "rule"]).ShouldNotBeNull().ShouldContain("Missing subcommand");
+        SubcommandGuard.Validate(["bench", "rule", "bogus"]).ShouldNotBeNull().ShouldContain("Unknown subcommand");
+        SubcommandGuard.Validate(["bench", "rule", "add", "My Bench", "--mine"]).ShouldBeNull();
+    }
+
     // ---- Unknown subcommand: the reported defect, across EVERY group, not just the three
     // verbs the ticket named. Bare-handler groups (nav, workspace, seed, area) are included
     // deliberately: they never printed usage at all, so an audit that only looked for the

@@ -89,7 +89,7 @@ jobs:
               ("catalog-help", ["ClosedCafDeclarationsDoNotAdvertiseRetiredCommands"]),
               ("no-marker", ["NoMarkerCoreDataReadsRefuseWithoutLegacyGraphOrInputIo"]),
               ("catalog-owners", ["ClosedProductionCatalogHasOnlyCoreDataAndNativeHostOwners"]),
-              ("retired-caf", ["ClosedCatalogRefusesRetiredCafRoutesBeforeComposition", "RetiredRootLeavesNeverResolveLegacyCommandsOrLaunchers"]),
+              ("retired-caf", ["ClosedCatalogRefusesRetiredCafRoutesBeforeComposition", "RestoredPlanningRoutesStillRejectRetiredUiEnvelopesBeforeComposition", "RetiredRootLeavesNeverResolveLegacyCommandsOrLaunchers"]),
               ("native-host", ["NativeHostUtilitiesUseRealNamedCredentialAndBindingWithoutLegacyWorkspace"]),
               ("ado-init", ["CoreInitCliCreatesAnAdmittedWorkspaceAndRefusesReinitializationWithoutChangingIt"]),
               ("ado-init-identity", ["CoreInitializationDerivesNativeIdentityAndNeverReusesAnExistingDatabase"]),
@@ -127,6 +127,7 @@ jobs:
           import subprocess, sys
           for label, project, selector in [
               ("user-bench-store", "Twig.Infrastructure.Tests", "FullyQualifiedName~UserBenchStoreTests"),
+              ("planning-consumers", "Twig.Infrastructure.Tests", "FullyQualifiedName~PlanningConsumerTests"),
               ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),
           ]:
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
@@ -189,7 +190,9 @@ jobs:
               "CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields",
               "CoreQueryFindsLaterPageMatchesAndPreservesUnpublishedDraftsWithoutWriters",
               "CoreWorkspaceReadRoutesThroughProductionComposition",
-              "CoreWorkspaceReadResolvesSharedRelativeRulesFromCachedTeamCalendar",
+              "CoreWorkspaceReadResolvesSharedPlanningRulesFromNativeCaches",
+              "CorePlanningCommandsPreserveAndOrPathTeamOwnershipAndWorkspaceExclusionSemantics",
+              "CorePlanningCommandsPinNativeReferencesAndBrowseWithoutChangingSelectionOrPublishing",
               "CoreWorkspaceReadKeepsExactMembershipTypedDebtAndOneOutputAcrossFormats",
               "CoreWorkspaceReadRefusesUnsupportedShapesAndUntrustworthyScopeWithoutBroadening",
               "CoreWorkspaceReadRefreshUsesOnlySharedPullAndPreservesDebtAndMappedSelectors",

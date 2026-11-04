@@ -21,15 +21,10 @@ public sealed partial class AdoProvider
                 if (start > finish) throw Wire.Invalid("The native iteration calendar contains an inverted date range.");
                 iterations.Add(new(PathOf(node), start, finish, SelectedTeam: false));
             }, token);
-            string? canonicalTeam = null;
+            var canonicalTeam = await ResolvePlanningTeam(bound, team, token);
             var gaps = ImmutableArray<string>.Empty;
-            if (!string.IsNullOrWhiteSpace(team))
+            if (canonicalTeam is not null)
             {
-                var selected = await Get(bound, $"_apis/projects/{bound.Project}/teams/{Wire.Escape(team)}?api-version={Api}", token);
-                canonicalTeam = Wire.GuidText(Wire.Text(selected, "id"));
-                if (!team.Equals(canonicalTeam, StringComparison.OrdinalIgnoreCase)
-                    && !team.Equals(Wire.Text(selected, "name"), StringComparison.OrdinalIgnoreCase))
-                    throw Wire.Refuse(ErrorCode.Conflict, "The native team lookup resolved a different selection.");
                 var rows = Wire.Rows(await Get(bound,
                     $"{bound.Project}/{canonicalTeam}/_apis/work/teamsettings/iterations?api-version={Api}", token));
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -80,4 +75,15 @@ public sealed partial class AdoProvider
                 }
             }
         }, ct));
+
+    private async Task<string?> ResolvePlanningTeam(Bound bound, string? team, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(team)) return null;
+        var selected = await Get(bound, $"_apis/projects/{bound.Project}/teams/{Wire.Escape(team)}?api-version={Api}", ct);
+        var canonical = Wire.GuidText(Wire.Text(selected, "id"));
+        if (!team.Equals(canonical, StringComparison.OrdinalIgnoreCase)
+            && !team.Equals(Wire.Text(selected, "name"), StringComparison.OrdinalIgnoreCase))
+            throw Wire.Refuse(ErrorCode.Conflict, "The native team lookup resolved a different selection.");
+        return canonical;
+    }
 }

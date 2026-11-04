@@ -57,6 +57,14 @@ Twig.Infrastructure.Services.UserBenchStore.SaveAsync(Twig.Core.Bench! definitio
 Twig.Infrastructure.Services.UserBenchStore.DeleteAsync(System.Guid id, long expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<bool>!>!
 Twig.Infrastructure.Services.UserBenchStore.WorkspacesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.UserBenchWorkspace!>>!>!
 Twig.Infrastructure.Services.NativeSourceReader
+Twig.Infrastructure.Services.NativeSourceObservation.Memberships.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.PlanningMembership!>
+Twig.Infrastructure.Services.NativeSourceObservation.Memberships.init -> void
+static Twig.Infrastructure.Services.NativeSourceReader.DiscoverPlanningSourcesAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+static Twig.Infrastructure.Services.NativeSourceReader.BrowsePlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, Twig.Core.PlanningSourceKind kind, string! id, string? expectedTeam, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningSources.get -> Twig.Core.PlanningSources?
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningSources.init -> void
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningBrowse.get -> Twig.Core.PlanningBrowse?
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningBrowse.init -> void
 static Twig.Infrastructure.Services.NativeSourceReader.RefreshPlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 Twig.Infrastructure.Services.NativeSourceObservation.Planning.get -> Twig.Core.PlanningMetadata?
 Twig.Infrastructure.Services.NativeSourceObservation.Planning.init -> void

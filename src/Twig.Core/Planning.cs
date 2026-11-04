@@ -34,6 +34,15 @@ public sealed record IterationExpression
 
 public static partial class Core
 {
+    public static bool IsEmptyQuery(Query query) => query.Kind switch
+    {
+        QueryKind.Iteration => query.Value!.Values.IsEmpty,
+        QueryKind.Not => query.Children[0].Kind == QueryKind.All,
+        QueryKind.And => query.Children.Any(IsEmptyQuery),
+        QueryKind.Or => query.Children.All(IsEmptyQuery),
+        _ => false,
+    };
+
     public static Result<Query> ResolvePlanningQuery(Query query, PlanningMetadata? planning, DateTimeOffset? now = null)
     {
         if (query.Kind == QueryKind.Iteration)

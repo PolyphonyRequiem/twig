@@ -20,9 +20,12 @@ public sealed record NativeSourceObservation(NativeSourceStamp Source, StoreSnap
     public ImmutableArray<Selector> WorkspaceExclusions { get; init; } = [];
     public Guid? SelectedBenchId { get; init; }
     public PlanningMetadata? Planning { get; init; }
+    public PlanningSources? PlanningSources { get; init; }
+    public PlanningBrowse? PlanningBrowse { get; init; }
+    public ImmutableArray<PlanningMembership> Memberships { get; init; } = [];
 }
 
-/// <summary>Request-scoped reads of an explicitly initialized native workspace. No native mutations are exposed.</summary>
+/// <summary>Request-scoped native reads and explicit local selection/cache updates. No upstream mutations are exposed.</summary>
 public static class NativeSourceReader
 {
     /// <summary>
@@ -56,9 +59,31 @@ public static class NativeSourceReader
         => expectedSource is null ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority is required."))
             : ReadCoreAsync(workspaceRoot, expectedSource, true, null, null, ct, refreshPlanning: true);
 
+    public static Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, CancellationToken ct = default)
+        => DiscoverPlanningSourcesAsync(workspaceRoot, expectedSource, null, ct);
+
+    internal static Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, Action<IServiceCollection>? configure, CancellationToken ct)
+        => expectedSource is null ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority is required."))
+            : ReadCoreAsync(workspaceRoot, expectedSource, true, configure, null, ct, discoverSources: true);
+
+    public static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, PlanningSourceKind kind, string id, string? expectedTeam, CancellationToken ct = default)
+        => BrowsePlanningAsync(workspaceRoot, expectedSource, kind, id, expectedTeam, null, ct);
+
+    internal static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, PlanningSourceKind kind, string id, string? expectedTeam,
+        Action<IServiceCollection>? configure, CancellationToken ct)
+        => expectedSource is null || !Enum.IsDefined(kind) || string.IsNullOrWhiteSpace(id) || id.Length > 256
+            ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority and an exact planning source are required."))
+            : ReadCoreAsync(workspaceRoot, expectedSource, true, configure, null, ct, browse: new(kind, id, expectedTeam));
+
+    private sealed record BrowseRequest(PlanningSourceKind Kind, string Id, string? Team);
+
     private static async Task<Result<NativeSourceObservation>> ReadCoreAsync(string workspaceRoot,
         NativeSourceStamp? expectedSource, bool observeSchema, Action<IServiceCollection>? configure, Selection? selection, CancellationToken ct,
-        bool refreshPlanning = false)
+        bool refreshPlanning = false, bool discoverSources = false, BrowseRequest? browse = null)
     {
         ct.ThrowIfCancellationRequested();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -88,6 +113,22 @@ public static class NativeSourceReader
                     "The recorded source authority or store changed; explicit source reauthorization is required.");
             var snapshot = await handle.Workspace.BenchSnapshotAsync(token).ConfigureAwait(false);
             if (!snapshot.IsSuccess) return Refuse(snapshot.Error, "Native snapshot acquisition failed.");
+            PlanningSources? sourceChoices = null;
+            PlanningBrowse? browsed = null;
+            if (discoverSources)
+            {
+                var discovered = await handle.Workspace.DiscoverPlanningSourcesAsync(token).ConfigureAwait(false);
+                if (!discovered.IsSuccess) return Refuse(discovered.Error, "Native saved-query/backlog discovery failed.");
+                sourceChoices = discovered.Value;
+            }
+            if (browse is not null)
+            {
+                var acquired = await handle.Workspace.BrowsePlanningAsync(browse.Kind, browse.Id, browse.Team, token).ConfigureAwait(false);
+                if (!acquired.IsSuccess) return Refuse(acquired.Error, "Native saved-query/backlog acquisition failed.");
+                browsed = acquired.Value;
+                snapshot = await handle.Workspace.BenchSnapshotAsync(token).ConfigureAwait(false);
+                if (!snapshot.IsSuccess) return Refuse(snapshot.Error, "Native snapshot acquisition failed after planning refresh.");
+            }
             var context = await handle.Workspace.Context.ReadAsync(token).ConfigureAwait(false);
             if (!context.IsSuccess) return Refuse(context.Error, "Native context acquisition failed.");
             if (selection is not null)
@@ -110,6 +151,8 @@ public static class NativeSourceReader
             }
             else planning = await handle.Workspace.PlanningAsync(token).ConfigureAwait(false);
             if (!planning.IsSuccess) return Refuse(planning.Error, "Native planning metadata could not be read.");
+            var memberships = await handle.Workspace.MembershipsAsync(token).ConfigureAwait(false);
+            if (!memberships.IsSuccess) return Refuse(memberships.Error, "Native query/backlog membership metadata could not be read.");
             var readAt = DateTimeOffset.UtcNow;
             Result<ProcessSchema>? schema = null;
             DateTimeOffset? schemaAt = null;
@@ -117,7 +160,7 @@ public static class NativeSourceReader
             {
                 schema = await handle.Workspace.SchemaAsync(token, includePresentation: true).ConfigureAwait(false);
                 if (!schema.IsSuccess) return Refuse(schema.Error, "Native schema observation failed; no offline fallback was selected.");
-                schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata });
+                schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata, Memberships = memberships.Value });
                 schemaAt = DateTimeOffset.UtcNow;
             }
 
@@ -139,7 +182,8 @@ public static class NativeSourceReader
             token.ThrowIfCancellationRequested();
             return Result<NativeSourceObservation>.Ok(new(handle.Source, snapshot.Value, readAt, schema, schemaAt)
             { WorkspaceExclusions = viewRules.Value.Exclusions, SelectedBenchId = selection is null ? context.Value.BenchId : selection.Next,
-                Planning = planning.Value.Metadata });
+                Planning = planning.Value.Metadata, PlanningSources = sourceChoices, PlanningBrowse = browsed,
+                Memberships = memberships.Value });
 
             async Task<ServiceProvider> ComposeAsync()
             {

@@ -25,6 +25,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     internal ConcurrencyMode Concurrency => provider.Capabilities.ExactRevisions
         ? ConcurrencyMode.ExactRevision : ConcurrencyMode.ObservedNonAtomic;
     internal string NativeActor => nativeActor;
+    internal string WorktreeRoot => worktreeRoot;
     internal CoreHostContext Context => new(worktreeRoot, connection, storeInstance);
     internal Task<Result<WorkspaceViewRules>> ViewRulesAsync(CancellationToken ct)
         => sharedBenches is not null ? sharedBenches.ReadViewRulesAsync(worktreeRoot, connection, ct)
@@ -46,6 +47,9 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     internal Task<Result<PlanningMetadata>> SavePlanningAsync(PlanningMetadata metadata, CancellationToken ct)
         => sharedBenches is not null ? sharedBenches.SavePlanningAsync(connection, planningTeam, metadata, ct)
             : Task.FromResult(Result<PlanningMetadata>.Fail(ErrorCode.Unavailable, "The native planning store is unavailable."));
+    internal Task<Result<ImmutableArray<PlanningMembership>>> MembershipsAsync(CancellationToken ct)
+        => sharedBenches is not null ? sharedBenches.ReadMembershipsAsync(connection, planningTeam, ct)
+            : Task.FromResult(Result<ImmutableArray<PlanningMembership>>.Ok([]));
 
     internal async Task<Result<ItemKey>> ResolveTargetAsync(int locator, bool allowNativeLookup, CancellationToken ct)
     {
@@ -109,6 +113,20 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
     internal async Task<Result<QueryPage>> QueryAsync(Query query, CancellationToken ct, int maximum = int.MaxValue)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        if (Model.IsEmptyQuery(query)) return Result<QueryPage>.Ok(new([], [], null, true));
+        if (query.Kind is QueryKind.SavedQuery or QueryKind.Backlog)
+        {
+            var kind = query.Kind == QueryKind.SavedQuery ? PlanningSourceKind.SavedQuery : PlanningSourceKind.Backlog;
+            var browsed = await BrowsePlanningAsync(kind, query.Value!.Text!, query.PlanningTeam, ct).ConfigureAwait(false);
+            if (!browsed.IsSuccess) return Result<QueryPage>.Fail(browsed.Error);
+            var captured = await SnapshotAsync(ct).ConfigureAwait(false);
+            if (!captured.IsSuccess) return Result<QueryPage>.Fail(captured.Error);
+            var keys = browsed.Value.Items.ToHashSet();
+            return Result<QueryPage>.Ok(new(captured.Value.Items.Where(item => keys.Contains(item.Key)).ToImmutableArray(),
+                captured.Value.Relationships.Where(edge => keys.Contains(edge.From) || keys.Contains(edge.To)).ToImmutableArray(), null, true));
+        }
+        if (Model.PlanningReferences(query).Any())
+            return Result<QueryPage>.Fail(ErrorCode.Unsupported, "Remote saved-query/backlog refresh requires a standalone reference rule; compound cached intent was preserved without a broader acquisition.");
         if (NeedsPlanning(query))
         {
             var planning = await PlanningAsync(ct).ConfigureAwait(false);
@@ -116,6 +134,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             var resolved = Model.ResolvePlanningQuery(query, planning.Value.Metadata, DateTimeOffset.UtcNow);
             if (!resolved.IsSuccess) return Result<QueryPage>.Fail(resolved.Error);
             query = resolved.Value;
+            if (Model.IsEmptyQuery(query)) return Result<QueryPage>.Ok(new([], [], null, true));
         }
         static bool NeedsPlanning(Query value) => value.Kind == QueryKind.Iteration || value.Children.Any(NeedsPlanning);
         var items = new List<WorkItem>();
@@ -150,6 +169,40 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         }
     }
 
+    internal Task<Result<PlanningSources>> DiscoverPlanningSourcesAsync(CancellationToken ct)
+        => provider.DiscoverPlanningSourcesAsync(connection, planningTeam, ct);
+
+    internal async Task<Result<PlanningBrowse>> BrowsePlanningAsync(PlanningSourceKind kind, string id, string? expectedTeam, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var observed = await provider.BrowsePlanningAsync(connection, planningTeam, kind, id, expectedTeam, ct).ConfigureAwait(false);
+        if (!observed.IsSuccess) return Result<PlanningBrowse>.Fail(observed.Error);
+        if (observed.Value.Source.Kind != kind || observed.Value.Source.Id != id || observed.Value.Source.IsFolder
+            || observed.Value.ObservedAt == default || observed.Value.Team != expectedTeam
+            || (kind == PlanningSourceKind.Backlog || observed.Value.Source.RequiresTeam) && observed.Value.Team is null)
+            return Result<PlanningBrowse>.Fail(ErrorCode.Conflict, "The native planning response belongs to a different source or has incomplete provenance.");
+        var page = observed.Value.Page;
+        if (!page.Complete || page.Continuation is not null || page.Items.Length > 10000
+            || page.Items.Select(item => item.Key).Distinct().Count() != page.Items.Length
+            || page.Items.Any(item => !item.Key.BelongsTo(connection) || !item.RelationshipsComplete
+                || provider.Capabilities.Operations.Contains(OpKind.LinkResource) && !item.ResourcesComplete))
+            return Result<PlanningBrowse>.Fail(ErrorCode.Unavailable, "Native planning membership, identity or incident completeness was not established; no partial result was mirrored.");
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<PlanningBrowse>.Fail(current.Error);
+        var keys = page.Items.Select(item => item.Key).ToHashSet();
+        var next = Copy(current.Value, current.Value.Version + 1,
+            items: current.Value.Items.Where(item => !keys.Contains(item.Key)).Concat(page.Items),
+            relationships: current.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Local
+                || !keys.Contains(edge.From) && !keys.Contains(edge.To)).Concat(page.Relationships).Distinct());
+        var committed = await store.CommitAsync(connection, current.Value.Version, next, ct).ConfigureAwait(false);
+        if (!committed.IsSuccess) return Result<PlanningBrowse>.Fail(committed.Error);
+        if (sharedBenches is null) return Result<PlanningBrowse>.Fail(ErrorCode.Unavailable, "The native membership cache is not composed; observed items remain cached but no complete membership was recorded.");
+        var saved = await sharedBenches.SaveMembershipAsync(connection, planningTeam,
+            new(kind, id, observed.Value.Team, keys.ToImmutableArray(), observed.Value.ObservedAt, true), ct).ConfigureAwait(false);
+        return saved.IsSuccess ? Result<PlanningBrowse>.Ok(new(observed.Value.Source, saved.Value.Items,
+            observed.Value.ObservedAt, observed.Value.Team)) : Result<PlanningBrowse>.Fail(saved.Error);
+    }
+
     internal async Task<Result<CoreBenchPull>> PullBenchAsync(string? expectedBench, bool includeActiveContext,
         int depthUp, int depthDown, int depthSideways, CancellationToken ct)
     {
@@ -167,7 +220,9 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (!schema.IsSuccess) return Result<CoreBenchPull>.Fail(schema.Error);
         var planning = await PlanningAsync(ct).ConfigureAwait(false);
         if (!planning.IsSuccess) return Result<CoreBenchPull>.Fail(planning.Error);
-        schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata });
+        var memberships = await MembershipsAsync(ct).ConfigureAwait(false);
+        if (!memberships.IsSuccess) return Result<CoreBenchPull>.Fail(memberships.Error);
+        schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata, Memberships = memberships.Value });
         var fetched = new HashSet<ItemKey>();
         var members = new HashSet<ItemKey>();
         var targets = initial.Value.Drafts.Select(draft => Resolve(initial.Value, draft.Key)).ToHashSet();
@@ -179,9 +234,9 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
                 members.Add(Resolve(initial.Value, selector.Item!));
                 continue;
             }
-            foreach (var item in initial.Value.Items)
+            foreach (var item in Model.PlanningReferences(selector.Query!).Any() ? [] : initial.Value.Items)
             {
-                var match = Model.Matches(selector.Query!, item, schema.Value.Planning, DateTimeOffset.UtcNow);
+                var match = Model.Matches(selector.Query!, item, schema.Value.Planning, DateTimeOffset.UtcNow, schema.Value.Memberships);
                 if (!match.IsSuccess) return Result<CoreBenchPull>.Fail(match.Error);
                 if (match.Value) targets.Add(item.Key);
             }
@@ -251,6 +306,9 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         }
         var final = await BenchSnapshotAsync(ct).ConfigureAwait(false);
         if (!final.IsSuccess) return Result<CoreBenchPull>.Fail(final.Error);
+        memberships = await MembershipsAsync(ct).ConfigureAwait(false);
+        if (!memberships.IsSuccess) return Result<CoreBenchPull>.Fail(memberships.Error);
+        schema = Result<ProcessSchema>.Ok(schema.Value with { Memberships = memberships.Value });
         var finalContext = await Context.ReadAsync(ct).ConfigureAwait(false);
         if (!finalContext.IsSuccess) return Result<CoreBenchPull>.Fail(finalContext.Error);
         var retained = final.Value.Benches.SingleOrDefault(value => value.Id == bench.Id);
@@ -260,7 +318,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         foreach (var selector in bench.Selectors.Where(value => value.Kind == SelectorKind.Query))
             foreach (var item in final.Value.Items)
             {
-                var match = Model.Matches(selector.Query!, item, schema.Value.Planning, DateTimeOffset.UtcNow);
+                var match = Model.Matches(selector.Query!, item, schema.Value.Planning, DateTimeOffset.UtcNow, schema.Value.Memberships);
                 if (!match.IsSuccess) return Result<CoreBenchPull>.Fail(match.Error);
                 if (match.Value) members.Add(item.Key);
             }

@@ -73,6 +73,18 @@ public sealed class PlanningTests
         Required(Model.ResolveBench(bench, new(0, [a, b, c]), new(connection, [], []))).Length.ShouldBe(3);
     }
 
+    [Fact]
+    public void EmptyConfiguredIterationSetKeepsAreaOwnershipIntentWithoutBecomingAnUnfilteredRule()
+    {
+        var empty = new Query(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings([]));
+        var query = new Query(QueryKind.And, children:
+            [new(QueryKind.PathEqual, "System.AreaPath", FieldValue.String("Project\\Area")), empty]);
+        Model.IsEmptyQuery(query).ShouldBeTrue();
+        Required(Model.Matches(query, Item("Project\\Any"))).ShouldBeFalse();
+        Required(Model.ResolveBench(new(Guid.NewGuid(), "Inactive planning", [new(SelectorKind.Query, query: query)]),
+            new(0, [Item("Project\\Any")]), new(connection, [], []))).ShouldBeEmpty();
+    }
+
     private WorkItem Item(string iteration, string area = "Project\\Area", string id = "42")
     {
         var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, id);

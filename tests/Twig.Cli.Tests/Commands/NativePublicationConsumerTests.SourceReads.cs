@@ -17,6 +17,80 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Fact]
+    public async Task NativeSourcePlanningBrowsePersistsReferenceEvidenceWithoutReplayingQueriesOnCachedReads()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var initial = (await ReadSource(paths)).Value;
+        void Configure(IServiceCollection services)
+        {
+            services.AddSingleton<IConnectionBindingService>(_bindings);
+            services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        }
+        var choices = await NativeSourceReader.DiscoverPlanningSourcesAsync(paths.RepoRoot, initial.Source, Configure, default);
+        choices.IsSuccess.ShouldBeTrue(choices.IsSuccess ? "" : choices.Error.Message);
+        choices.Value.PlanningSources.ShouldNotBeNull().Entries.ShouldContain(source => source.Id == PrincipalTransport.SavedQuery);
+        var team = choices.Value.PlanningSources!.Team;
+        var first = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, PlanningSourceKind.SavedQuery,
+            PrincipalTransport.SavedQuery, team, Configure, default);
+        first.IsSuccess.ShouldBeTrue(first.IsSuccess ? "" : first.Error.Message);
+        first.Value.PlanningBrowse.ShouldNotBeNull().Items.Single().NativeId.ShouldBe("42");
+        first.Value.Snapshot.Benches.ShouldBeEmpty("native browse must never create a Bench");
+        var shared = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        var bench = (await shared.SaveAsync(new(Guid.NewGuid(), "Native reference",
+            [new(SelectorKind.Query, query: new(QueryKind.SavedQuery, value: FieldValue.String(PrincipalTransport.SavedQuery), planningTeam: team),
+                connection: connection)]), 0)).Value;
+        var definition = BenchCodec.Serialize(bench);
+        var queryReads = _transport.ObservedPaths.Count(path => path.EndsWith("/wiql/" + PrincipalTransport.SavedQuery, StringComparison.Ordinal));
+        _transport.ItemReadIds.Clear();
+        var cached = await ReadSource(paths, initial.Source, schema: true);
+        cached.IsSuccess.ShouldBeTrue(cached.IsSuccess ? "" : cached.Error.Message);
+        Twig.Core.Core.ResolveBench(cached.Value.Snapshot.Benches.Single(), cached.Value.Snapshot, cached.Value.Schema!.Value)
+            .Value.Single().NativeId.ShouldBe("42");
+        _transport.ItemReadIds.ShouldBeEmpty();
+        _transport.ObservedPaths.Count(path => path.EndsWith("/wiql/" + PrincipalTransport.SavedQuery, StringComparison.Ordinal)).ShouldBe(queryReads);
+        _transport.SavedQueryItems = [43];
+        var refreshed = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, PlanningSourceKind.SavedQuery,
+            PrincipalTransport.SavedQuery, team, Configure, default);
+        refreshed.IsSuccess.ShouldBeTrue(refreshed.IsSuccess ? "" : refreshed.Error.Message);
+        Twig.Core.Core.ResolveBench(refreshed.Value.Snapshot.Benches.Single(), refreshed.Value.Snapshot, refreshed.Value.Schema!.Value)
+            .Value.Single().NativeId.ShouldBe("43");
+        BenchCodec.Serialize((await shared.ReadAsync()).Value.Benches.Single()).ShouldBe(definition);
+        (await store.ReadAsync(connection, default)).Value.Benches.ShouldBeEmpty();
+        (await store.ReadAsync(connection, default)).Value.Proposals.ShouldBeEmpty();
+        (await store.ReadAsync(connection, default)).Value.Journal.ShouldBeEmpty();
+        File.Exists(Path.Combine(paths.TwigDir, "core-context.json")).ShouldBeFalse();
+        _transport.CommittedWrites.ShouldBe(0);
+        _transport.PostCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task NativeSourcePlanningBrowseRevalidatesAuthorityAfterAcquisitionBeforeReleasingContent()
+    {
+        var (paths, _, _) = await RelationshipWorkspaceAsync();
+        var initial = (await ReadSource(paths)).Value;
+        void Configure(IServiceCollection services)
+        {
+            services.AddSingleton<IConnectionBindingService>(_bindings);
+            services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        }
+        var choices = (await NativeSourceReader.DiscoverPlanningSourcesAsync(paths.RepoRoot, initial.Source, Configure, default)).Value;
+        _transport.BeforePlanningBatchResponse = async () =>
+        {
+            var path = Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName);
+            var marker = JsonSerializer.Deserialize(await File.ReadAllTextAsync(path), CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(marker with { PrincipalId = Sibling },
+                CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
+        };
+        var result = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, PlanningSourceKind.SavedQuery,
+            PrincipalTransport.SavedQuery, choices.PlanningSources!.Team, Configure, default);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Conflict);
+        _transport.CommittedWrites.ShouldBe(0);
+        _transport.PatchAttempts.ShouldBe(0);
+        using var released = ConnectionOperationGate.Acquire(paths.RepoRoot, exclusive: true);
+    }
+
+    [Fact]
     public async Task NativePanelSelectionSharesCliContextPreservesHistoryAndRejectsStaleOrReplacedAuthority()
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();

@@ -4,12 +4,18 @@ namespace Twig.Core;
 
 public static partial class Core
 {
-    public static Result<bool> Matches(Query query, WorkItem item, PlanningMetadata? planning = null, DateTimeOffset? now = null)
+    public static Result<bool> Matches(Query query, WorkItem item, PlanningMetadata? planning = null, DateTimeOffset? now = null,
+        IEnumerable<PlanningMembership>? memberships = null)
     {
+        if (query.Kind is QueryKind.SavedQuery or QueryKind.Backlog)
+        {
+            var membership = PlanningMembershipFor(query, memberships ?? []);
+            return membership.IsSuccess ? Result<bool>.Ok(membership.Value.Items.Contains(item.Key)) : Result<bool>.Fail(membership.Error);
+        }
         if (query.Kind == QueryKind.Iteration)
         {
             var resolved = ResolvePlanningQuery(query, planning, now);
-            return resolved.IsSuccess ? Matches(resolved.Value, item, planning, now) : Result<bool>.Fail(resolved.Error);
+            return resolved.IsSuccess ? Matches(resolved.Value, item, planning, now, memberships) : Result<bool>.Fail(resolved.Error);
         }
         if (query.Kind == QueryKind.All) return Result<bool>.Ok(true);
         if (query.Kind == QueryKind.Equal)
@@ -33,7 +39,7 @@ public static partial class Core
                 _ => false,
             });
         }
-        var children = query.Children.Select(c => Matches(c, item, planning, now)).ToArray();
+        var children = query.Children.Select(c => Matches(c, item, planning, now, memberships)).ToArray();
         if (query.Kind == QueryKind.And && children.Any(c => c.IsSuccess && !c.Value))
             return Result<bool>.Ok(false);
         if (query.Kind == QueryKind.Or && children.Any(c => c.IsSuccess && c.Value))
@@ -66,16 +72,31 @@ public static partial class Core
     private static Result<ImmutableArray<ItemKey>> ResolveSelectors(IEnumerable<Selector> selectors, StoreSnapshot store, ProcessSchema schema, DateTimeOffset? now)
     {
         var selected = new HashSet<ItemKey>();
+        var knownItems = store.Items.Select(item => item.Key).ToHashSet();
         foreach (var selector in selectors)
         {
             if (selector.Connection is { } connection && connection != schema.Connection) continue;
             if (selector.Kind == SelectorKind.Query)
             {
+                if (IsEmptyQuery(selector.Query!)) continue;
                 var resolved = ResolvePlanningQuery(selector.Query!, schema.Planning, now);
                 if (!resolved.IsSuccess) return Result<ImmutableArray<ItemKey>>.Fail(resolved.Error);
+                if (IsEmptyQuery(resolved.Value)) continue;
+                var evidence = new List<PlanningMembership>();
+                foreach (var reference in PlanningReferences(resolved.Value))
+                {
+                    var membership = PlanningMembershipFor(reference, schema.Memberships);
+                    if (!membership.IsSuccess) return Result<ImmutableArray<ItemKey>>.Fail(membership.Error);
+                    if (membership.Value.Items.Any(key => !knownItems.Contains(key)))
+                        return Result<ImmutableArray<ItemKey>>.Fail(ErrorCode.Unavailable, "Some cached native query/backlog members are not available in this context's item mirror; no empty membership was inferred.");
+                    evidence.Add(membership.Value);
+                }
+                if (resolved.Value.Kind is QueryKind.SavedQuery or QueryKind.Backlog)
+                { selected.UnionWith(evidence.Single().Items); continue; }
+                var scopedEvidence = evidence.Distinct().ToArray();
                 foreach (var item in store.Items)
                 {
-                    var match = Matches(resolved.Value, item, schema.Planning, now);
+                    var match = Matches(resolved.Value, item, schema.Planning, now, scopedEvidence);
                     if (!match.IsSuccess) return Result<ImmutableArray<ItemKey>>.Fail(match.Error);
                     if (match.Value) selected.Add(item.Key);
                 }

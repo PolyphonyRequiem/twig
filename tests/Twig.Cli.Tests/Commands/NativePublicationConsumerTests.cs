@@ -2401,6 +2401,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
 
     private sealed class PrincipalTransport : HttpMessageHandler
     {
+        internal const string SavedQuery = "77777777-7777-7777-7777-777777777777";
+        internal int[] SavedQueryItems { get; set; } = [42];
+        internal Func<Task>? BeforePlanningBatchResponse { get; set; }
         private readonly Dictionary<int, Item> _items = new();
         private readonly Dictionary<(int Id, int Revision), Item> _history = new();
         private readonly Dictionary<int, List<(string Relation, int Target)>> _links = new();
@@ -2484,6 +2487,32 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
             if (FailSchema && path.EndsWith("/fields", StringComparison.Ordinal))
                 return Reply(SchemaFailureStatus ?? HttpStatusCode.BadRequest, new { message = "Fixture schema unavailable" });
+            if (CoreMetadataEnabled && path.Contains("/teams/", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { id = "88888888-8888-8888-8888-888888888888",
+                    name = Uri.UnescapeDataString(path.Split('/')[^1]) });
+            if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/queries", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { count = 1, value = new[] {
+                    new { id = SavedQuery, name = "Fixture saved query", path = "Shared/Fixture query", isFolder = false,
+                        queryType = "flat", wiql = "SELECT [System.Id] FROM WorkItems" } } });
+            if (CoreMetadataEnabled && path.EndsWith("/_apis/work/backlogs", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
+            if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/wiql/" + SavedQuery, StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { queryType = "flat", asOf = DateTimeOffset.UtcNow,
+                    workItems = SavedQueryItems.Select(id => new { id }).ToArray() });
+            if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/workitemsbatch", StringComparison.Ordinal))
+            {
+                request.Method.ShouldBe(HttpMethod.Post);
+                using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+                body.RootElement.GetProperty("$expand").GetString().ShouldBe("relations");
+                body.RootElement.GetProperty("errorPolicy").GetString().ShouldBe("fail");
+                var ids = body.RootElement.GetProperty("ids").EnumerateArray().Select(value => value.GetInt32()).ToArray();
+                if (ids.Any(id => !_items.TryGetValue(id, out var item) || item.Principal != principal))
+                    return Reply(HttpStatusCode.Forbidden, new { message = "Fixture native membership is outside this principal" });
+                if (BeforePlanningBatchResponse is { } beforeBatch)
+                { BeforePlanningBatchResponse = null; await beforeBatch(); }
+                ItemReadIds.AddRange(ids);
+                return Reply(HttpStatusCode.OK, new { count = ids.Length, value = ids.Select(id => ItemData(id, _items[id])).ToArray() });
+            }
             if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata)
             {
                 if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && BeforeProjectMetadata is { } before)
@@ -2682,7 +2711,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     await beforeReadback();
                 }
             }
-            return Reply(HttpStatusCode.OK, new
+            return Reply(HttpStatusCode.OK, ItemData(id, item, segments.Length == 3 && segments[1] == "revisions"
+                ? int.Parse(segments[2], CultureInfo.InvariantCulture) : null));
+        }
+
+        private object ItemData(int id, Item item, int? revision = null) => new
             {
                 id, rev = item.Revision,
                 fields = new Dictionary<string, object>
@@ -2697,10 +2730,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 {
                     rel = resource.Relation, url = resource.Target,
                     attributes = new { name = resource.Name, comment = resource.Comment }
-                }).Cast<object>().Concat(NativeLinks(id, segments.Length == 3 && segments[1] == "revisions"
-                    ? int.Parse(segments[2], CultureInfo.InvariantCulture) : null)).ToArray()
-            });
-        }
+                }).Cast<object>().Concat(NativeLinks(id, revision)).ToArray()
+            };
 
         private static string Inverse(string relation) => relation switch
         {

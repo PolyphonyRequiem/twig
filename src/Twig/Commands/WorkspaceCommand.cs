@@ -103,7 +103,9 @@ internal sealed class WorkspaceCommand(
             if (!schema.IsSuccess) return Error(schema.Error.Message);
             var planning = await workspace.PlanningAsync(ct);
             if (!planning.IsSuccess) return Error(planning.Error.Message);
-            schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata });
+            var memberships = await workspace.MembershipsAsync(ct);
+            if (!memberships.IsSuccess) return Error(memberships.Error.Message);
+            schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata, Memberships = memberships.Value });
             var evaluationTime = DateTimeOffset.UtcNow;
             if (KnownLocalKeys(snapshot).GroupBy(LocalAlias).Any(group => group.Count() != 1))
                 return Error("Local aliases are ambiguous; no workspace identity was guessed.");

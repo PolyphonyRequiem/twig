@@ -926,19 +926,16 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.CommittedWrites.ShouldBe(0);
             _transport.ItemReadIds.Clear();
             var added = new CoreModel.Selector(CoreModel.SelectorKind.Pin,
-                CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "90"));
+                CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "90"), connection: connection);
             _transport.BeforeItemReadResponse = async () =>
             {
-                var current = (await store.ReadAsync(connection, default)).Value;
-                var selected = current.Benches.Single();
-                (await store.CommitAsync(connection, current.Version,
-                    new(current.Version + 1, current.Items, current.Relationships, current.Drafts,
-                        current.Proposals, current.Journal, current.Mappings,
-                        [new(selected.Id, selected.Name, selected.Selectors.Add(added))]),
-                    default)).IsSuccess.ShouldBeTrue();
+                var shared = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+                var selected = (await shared.ReadAsync()).Value.Benches.Single();
+                (await shared.SaveAsync(new(selected.Id, selected.Name, selected.Selectors.Add(added)),
+                    selected.Revision)).IsSuccess.ShouldBeTrue();
             };
             (await commands.WorkspaceSync("json")).ShouldBe(1, "a changed selector set cannot broaden the captured pull");
-            (await store.ReadAsync(connection, default)).Value.Benches.Single().Selectors.ShouldContain(added);
+            (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single().Selectors.ShouldContain(added);
             _transport.ItemReadIds.ShouldNotContain(90);
             _transport.ItemReadIds.ShouldNotContain(91);
             _transport.CommittedWrites.ShouldBe(0);
@@ -1061,58 +1058,70 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             Console.SetError(stderr);
             var commands = new TwigCommands(root);
             (await commands.BenchCreate("Review scope", "json")).ShouldBe(0, stderr.ToString());
-            var created = (await store.ReadAsync(connection, default)).Value.Benches.ShouldHaveSingleItem();
+            var created = (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.ShouldHaveSingleItem();
+            (await store.ReadAsync(connection, default)).Value.Benches.ShouldBeEmpty();
             (await admitted.Workspace.Context.ReadAsync(default)).Value.BenchId.ShouldBeNull();
             (await commands.BenchCreate("review SCOPE", "json")).ShouldBe(1);
             (await commands.BenchSwitch("missing scope", "json")).ShouldBe(1);
             (await commands.BenchSwitch("Review scope", "json", expectBench: created.Id.ToString("D"))).ShouldBe(0, stderr.ToString());
             (await commands.WorkspaceTrack(42, "json", expectBench: created.Id.ToString("D"))).ShouldBe(0, stderr.ToString());
             (await commands.WorkspaceTrackTree(42, "json")).ShouldBe(0, stderr.ToString());
-            var snapshot = (await store.ReadAsync(connection, default)).Value;
+            var snapshot = (await admitted.Workspace.BenchSnapshotAsync(default)).Value;
             snapshot.Benches.Single().Selectors.Select(selector => selector.Kind).ShouldBe([CoreModel.SelectorKind.Pin, CoreModel.SelectorKind.Subtree]);
             var query = new CoreModel.Selector(CoreModel.SelectorKind.Query, query: new(CoreModel.QueryKind.All));
             (await admitted.Workspace.CaptureBenchesAsync(snapshot,
                 [new(created.Id, created.Name, snapshot.Benches.Single().Selectors.Add(query))], default)).IsSuccess.ShouldBeTrue();
             (await commands.WorkspaceUntrack(42, "json", mode: "SiNgLe")).ShouldBe(0, stderr.ToString());
-            var unpinned = (await store.ReadAsync(connection, default)).Value.Benches.Single();
+            var unpinned = (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single();
             unpinned.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Query);
             unpinned.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Subtree);
             unpinned.Selectors.ShouldNotContain(selector => selector.Kind == CoreModel.SelectorKind.Pin);
             _transport.CoreMetadataEnabled = false;
             (await commands.WorkspaceUntrack(42, "json", mode: "TrEe")).ShouldBe(0, stderr.ToString());
             _transport.CoreMetadataEnabled = true;
-            var final = (await store.ReadAsync(connection, default)).Value;
+            var final = (await admitted.Workspace.BenchSnapshotAsync(default)).Value;
             final.Benches.Single().Selectors.ShouldHaveSingleItem().Kind.ShouldBe(CoreModel.SelectorKind.Query);
             var version = final.Version;
             (await commands.WorkspaceTrack(43, "json", expectBench: Guid.NewGuid().ToString("D"))).ShouldBe(1);
             (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(version);
             (await commands.WorkspaceTrack(42, "json")).ShouldBe(0, stderr.ToString());
             (await commands.WorkspaceTrackTree(42, "json")).ShouldBe(0, stderr.ToString());
-            (await store.ReadAsync(connection, default)).Value.Benches.Single().Selectors.Count(selector =>
+            (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single().Selectors.Count(selector =>
                 selector.Kind is CoreModel.SelectorKind.Pin or CoreModel.SelectorKind.Subtree).ShouldBe(2);
             _transport.CoreMetadataEnabled = false;
             (await commands.WorkspaceUntrack(42, "json")).ShouldBe(0, stderr.ToString());
             _transport.CoreMetadataEnabled = true;
-            var removed = (await store.ReadAsync(connection, default)).Value;
+            var removed = (await admitted.Workspace.BenchSnapshotAsync(default)).Value;
             removed.Benches.Single().Selectors.ShouldHaveSingleItem().Kind.ShouldBe(CoreModel.SelectorKind.Query);
             (await commands.WorkspaceUntrack(42, "json")).ShouldBe(0, stderr.ToString());
             (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(removed.Version);
+            var sharedBeforeExclusion = (await UserBenchStore.ForRegistry(_bindings.RegistryPath).ReadAsync()).Value.Benches.Single();
+            var requestCount = _transport.TotalRequests;
+            RunCoreLink(paths, ["workspace", "exclude", "42", "-o", "json"]).ShouldBe(0, stderr.ToString());
+            _transport.TotalRequests.ShouldBe(requestCount, "view exclusions must not perform work HTTP");
+            stdout.GetStringBuilder().Clear();
+            (await commands.Workspace("json")).ShouldBe(0, stderr.ToString());
+            using (var view = JsonDocument.Parse(stdout.ToString()))
+                view.RootElement.GetProperty("items").EnumerateArray().ShouldNotContain(row => row.GetProperty("id").GetInt32() == 42);
+            var sharedAfterExclusion = (await UserBenchStore.ForRegistry(_bindings.RegistryPath).ReadAsync()).Value.Benches.Single();
+            Twig.Store.Sqlite.BenchCodec.Serialize(sharedAfterExclusion).ShouldBe(Twig.Store.Sqlite.BenchCodec.Serialize(sharedBeforeExclusion));
+            RunCoreLink(paths, ["workspace", "exclusions", "--clear", "-o", "json"]).ShouldBe(0, stderr.ToString());
 
             var concurrentQuery = new CoreModel.Selector(CoreModel.SelectorKind.Query,
                 query: new(CoreModel.QueryKind.Equal, "System.Title", CoreModel.FieldValue.String("concurrent selector")));
             _transport.SetItem(44, "new native pin target", 1, Actor);
             _transport.BeforeItemReadResponse = async () =>
             {
-                var latest = (await store.ReadAsync(connection, default)).Value;
-                var bench = latest.Benches.Single();
-                var changed = new CoreModel.Bench(bench.Id, bench.Name, bench.Selectors.Add(concurrentQuery));
-                (await store.CommitAsync(connection, latest.Version,
-                    new CoreModel.StoreSnapshot(latest.Version + 1, latest.Items, latest.Relationships, latest.Drafts,
-                        latest.Proposals, latest.Journal, latest.Mappings, [changed]), default)).IsSuccess.ShouldBeTrue();
+                var shared = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+                var bench = (await shared.ReadAsync()).Value.Benches.Single();
+                var scoped = new CoreModel.Selector(concurrentQuery.Kind, query: concurrentQuery.Query, connection: connection);
+                var changed = new CoreModel.Bench(bench.Id, bench.Name, bench.Selectors.Add(scoped));
+                (await shared.SaveAsync(changed, bench.Revision)).IsSuccess.ShouldBeTrue();
             };
             (await commands.WorkspaceTrack(44, "json")).ShouldBe(0, stderr.ToString());
-            var afterRace = (await store.ReadAsync(connection, default)).Value.Benches.Single();
-            afterRace.Selectors.ShouldContain(concurrentQuery);
+            var afterRace = (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single();
+            afterRace.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Query
+                && selector.Query!.Field == concurrentQuery.Query!.Field && selector.Query.Value!.Equals(concurrentQuery.Query.Value));
             afterRace.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Pin
                 && selector.Item!.NativeId == "44");
             stdout.GetStringBuilder().Clear();
@@ -2754,6 +2763,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     actions = new[] { new { actionType = "$makeRequired", targetField = "Fixture.CloseEvidence" } },
                     isDisabled = false
                 } } });
+            if (path.EndsWith("/layout", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new
+                {
+                    pages = Array.Empty<object>(),
+                    systemControls = new[] { new { id = "System.Title", label = "Title", controlType = "FieldControl" } },
+                });
             if (path.EndsWith("/workitemtypecategories", StringComparison.Ordinal)
                 || path.EndsWith("/rules", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { value = Array.Empty<object>() });

@@ -17,7 +17,8 @@ internal sealed record CoreExecution(ImmutableArray<Receipt> Receipts, Error? Er
 
 /// <summary>One draft/proposal/journal application path; no retry, note flush or legacy publisher.</summary>
 internal sealed class CoreWorkspace(Connection connection, IProvider provider, IStore store,
-    ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot, Guid storeInstance = default)
+    ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot, Guid storeInstance = default,
+    UserBenchStore? sharedBenches = null)
 {
     internal Connection Connection => connection;
     internal ProviderCapabilities Capabilities => provider.Capabilities;
@@ -25,8 +26,18 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         ? ConcurrencyMode.ExactRevision : ConcurrencyMode.ObservedNonAtomic;
     internal string NativeActor => nativeActor;
     internal CoreHostContext Context => new(worktreeRoot, connection, storeInstance);
+    internal Task<Result<WorkspaceViewRules>> ViewRulesAsync(CancellationToken ct)
+        => sharedBenches is not null ? sharedBenches.ReadViewRulesAsync(worktreeRoot, connection, ct)
+            : Task.FromResult(Result<WorkspaceViewRules>.Ok(new(0, [])));
+    internal Task<Result<WorkspaceViewRules>> SaveViewRulesAsync(long expectedRevision, IEnumerable<Selector> exclusions, CancellationToken ct)
+        => sharedBenches is not null ? sharedBenches.SaveViewRulesAsync(worktreeRoot, connection, expectedRevision, exclusions, ct)
+            : Task.FromResult(Result<WorkspaceViewRules>.Fail(ErrorCode.Unavailable, "The native user-wide view rule store is not composed."));
     internal Task<Result<StoreSnapshot>> SnapshotAsync(CancellationToken ct) => store.ReadAsync(connection, ct);
-    internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct) => provider.DiscoverSchemaAsync(connection, ct);
+    internal Task<Result<StoreSnapshot>> BenchSnapshotAsync(CancellationToken ct)
+        => sharedBenches is not null ? sharedBenches.View(store, worktreeRoot, storeInstance).ReadAsync(connection, ct)
+            : SnapshotAsync(ct);
+    internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct, bool includePresentation = false)
+        => includePresentation ? provider.DiscoverSchemaAsync(connection, ct, true) : provider.DiscoverSchemaAsync(connection, ct);
 
     internal async Task<Result<ItemKey>> ResolveTargetAsync(int locator, bool allowNativeLookup, CancellationToken ct)
     {
@@ -81,6 +92,8 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
         if (current.Value.Version != capture.Version)
             return Result<bool>.Fail(ErrorCode.Conflict, "Bench contents changed during this operation; no newer selector was overwritten.");
+        if (sharedBenches is not null)
+            return await sharedBenches.CaptureAsync(connection, capture.Benches, benches, ct).ConfigureAwait(false);
         var committed = await store.CommitAsync(connection, capture.Version, Copy(capture, capture.Version + 1, benches: benches), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
@@ -126,7 +139,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var context = await Context.ReadAsync(ct).ConfigureAwait(false);
         if (!context.IsSuccess) return Result<CoreBenchPull>.Fail(context.Error);
-        var initial = await SnapshotAsync(ct).ConfigureAwait(false);
+        var initial = await BenchSnapshotAsync(ct).ConfigureAwait(false);
         if (!initial.IsSuccess) return Result<CoreBenchPull>.Fail(initial.Error);
         var bench = initial.Value.Benches.SingleOrDefault(value => value.Id == context.Value.BenchId);
         if (bench is null)
@@ -216,7 +229,7 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
                 }
             }
         }
-        var final = await SnapshotAsync(ct).ConfigureAwait(false);
+        var final = await BenchSnapshotAsync(ct).ConfigureAwait(false);
         if (!final.IsSuccess) return Result<CoreBenchPull>.Fail(final.Error);
         var finalContext = await Context.ReadAsync(ct).ConfigureAwait(false);
         if (!finalContext.IsSuccess) return Result<CoreBenchPull>.Fail(finalContext.Error);

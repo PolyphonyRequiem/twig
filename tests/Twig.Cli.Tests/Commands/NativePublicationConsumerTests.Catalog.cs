@@ -131,7 +131,6 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("connection migrate")]
     [InlineData("proposal latest")]
     [InlineData("policy assess")]
-    [InlineData("workspace exclude")]
     public void ClosedCatalogRefusesRetiredCafRoutesBeforeComposition(string route)
     {
         var configured = 0;

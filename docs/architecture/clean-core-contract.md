@@ -4,6 +4,39 @@ Phases 1-4, phase-5 code closure and phase-6 source removal for **Epic #1220, Co
 
 ## Status and scope
 
+### User-wide Bench ownership
+
+Native Bench definitions now live in `benches.db` beside the native user registry
+(under `TWIG_USER_HOME`, or the existing per-user Twig home). The CLI and graphical
+hosts use the public `UserBenchStore`; a viewer must not maintain an independent
+authoritative copy. A repository/worktree does not own a Bench, and opening a
+workspace creates no default Bench. Selection remains in that worktree's admitted
+`core-context.json`, so switching one context never switches another.
+
+Selectors retain item, subtree and typed query semantics and now carry their exact
+connection. Area/iteration predicates stay rules, not frozen result lists.
+One Bench can retain selectors from multiple connections; a native workspace's
+store view projects only its admitted connection. Metadata listings report the
+complete user-wide definition. A connection-scoped CLI workspace read remains a
+cached projection of that connection, not a complete cross-connection refresh.
+
+Previously saved native definitions are preserved once per native store instance,
+with their IDs intact. Name/intent conflicts refuse rather than rename or
+overwrite user choices. Deletion retains a tombstone so an older worktree cannot
+resurrect the same Bench. Definition changes use revision checks and do not write
+mirror copies of shared Benches, remote work items, proposals or journals.
+
+Workspace exclusions are separately revisioned by workspace root and connection,
+not subtracting Bench selectors. Cached views apply them after membership
+resolution; retained drafts remain visible and marked when excluded. The
+`workspace exclude` and `workspace exclusions` commands change only those local
+view rules, without work HTTP or active-item/Bench selection changes.
+
+User-wide `bench create/list/rename/delete` are native metadata commands and can
+run without an initialized worktree. Selecting a Bench or editing contextual
+pins still requires an admitted Core workspace. This foundation does not claim
+that every retired area/iteration management or graphical surface is restored.
+
 ### Closed production command catalog
 
 The final phase-5 closure narrows existing production owners, rather than adding
@@ -14,7 +47,31 @@ never installing `AddConnectionServices`, `AddTwigNetworkServices`,
 `AddTwigCommandServices` or their old writer/projection graph. The retained static
 RenderTree renderer does not register the asynchronous/aggregate workspace pipeline.
 Actual descriptors and retained-owner resolution are proven both with and without a
-marker. Core remains 56 contract types/two ports/format 3; the phase-6 source cut is described below.
+marker. Core retains two ports and proposal format 3; the phase-6 source cut is described below.
+
+### Optional process presentation
+
+The consolidated `ProcessSchema` now carries optional type presentation, field
+labels, state colors and a source web URL. Consumers opt in with
+`IProvider.DiscoverSchemaAsync(connection, cancellationToken, includePresentation: true)`;
+ordinary validation and mutation discovery does not acquire form layouts.
+The native read-only source boundary opts in for browser/canvas consumers.
+
+ADO presentation reads the exact process roster reference, never a similarly named
+project/parent type. Type artwork is acquired from the native work-item icon route
+as bounded SVG using the discovered icon ID and RGB color, not a guessed glyph.
+It preserves server-defined pages, sections (columns), groups,
+ordered controls and separate system controls, including visibility, read-only and
+contribution markers. Served-but-empty, locked (`VS403115`) and unavailable layouts
+remain distinct. Authentication, permission and other transport errors are failures,
+not missing-layout fallbacks. Extension controls are metadata, not executable code.
+GitHub carries its observed repository URL and issue type names without fabricating
+an ADO form layout.
+
+Presentation is excluded from the mutation/schema digest: an icon, label or layout
+change must not invalidate reviewed work-item mutation intent. This restores data
+acquisition through the existing provider port, not the legacy Domain/service graph
+or the retired CLI layout command.
 
 The finite data catalog is process/description, cached show/show-batch with explicit
 refresh, bounded query, update/patch/state/note/batch, pending/save/discard,
@@ -43,7 +100,7 @@ The current help filters retired declarations; released/installable UI aliases a
 standalone TUI solution entry are withdrawn. Superseded UI source is deleted; older documents remain historical context.
 
 Retired surfaces include quick new, Browser/TUI/MCP and captured draft/edit/review/save,
-tree-set/full backlog/live/sprint/team/area/exclusion UI, old policy assessment/repair,
+tree-set/full backlog/live/sprint/team/area UI, old policy assessment/repair,
 native history/layout/behavior export, proposal latest/seed/old reconcile, migration,
 reset/reinitialize and legacy shell presentation. Use seed new and explicit Core file
 proposals instead. Finite delivery does not mean those surfaces were ported.

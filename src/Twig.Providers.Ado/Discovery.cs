@@ -14,7 +14,10 @@ public sealed partial class AdoProvider
     public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct)
         => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token)).Schema, ct));
 
-    private async Task<Discovery> Discover(Bound bound, CancellationToken ct)
+    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
+        => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token, includePresentation)).Schema, ct));
+
+    private async Task<Discovery> Discover(Bound bound, CancellationToken ct, bool includePresentation = false)
     {
         var gaps = new List<string>();
         var fields = Wire.Rows(await Get(bound, $"_apis/wit/fields?api-version={Api}", ct))
@@ -63,6 +66,7 @@ public sealed partial class AdoProvider
             if (Wire.Text(category, "referenceName") == "Microsoft.HiddenCategory")
                 foreach (var member in category.GetProperty("workItemTypes").EnumerateArray()) hidden.Add(Wire.Text(member, "name"));
         var types = new List<ItemType>();
+        var icons = new Dictionary<(string Id, string? Color), string?>();
         var names = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         var definitions = ImmutableDictionary.CreateBuilder<string, FieldDef>(StringComparer.Ordinal);
         var processRoute = $"_apis/work/processes/{Wire.Escape(bound.ProcessId)}/workItemTypes";
@@ -80,7 +84,8 @@ public sealed partial class AdoProvider
                 if (!fields.TryGetValue(fieldRef, out var global)) throw Wire.Invalid("Type field lacks its native definition.");
                 var canonical = Wire.Text(global, "referenceName");
                 var kind = Wire.Kind(global);
-                var definition = new FieldDef(canonical, kind, Wire.Flag(global, "readOnly"));
+                var definition = new FieldDef(canonical, kind, Wire.Flag(global, "readOnly"),
+                    includePresentation ? PresentationText(global, "name") : null);
                 typeFields.Add(definition);
                 definitions[canonical] = definition;
                 if (kind == FieldKind.Raw) gaps.Add($"{reference}: opaque field kind on {canonical}.");
@@ -168,7 +173,7 @@ public sealed partial class AdoProvider
                     "Completed" => StateCategory.Completed,
                     "Removed" => StateCategory.Removed,
                     _ => StateCategory.Unknown,
-                })).ToArray();
+                }, includePresentation ? PresentationText(s, "color") : null)).ToArray();
             var edges = new List<Transition>();
             var initialStates = new List<FieldValue>();
             if (!transitions.TryGetValue(reference, out var classic))
@@ -187,12 +192,28 @@ public sealed partial class AdoProvider
             else rules.Add(new(stateField, RuleAction.Allowed,
                 [new(ConditionKind.Was, stateField, FieldValue.Null)], initialStates));
             rules.Add(new(stateField, RuleAction.Unknown, [], [FieldValue.Raw(name, "ado.native-type-name")], disabled: true));
+            TypePresentation? presentation = null;
+            if (includePresentation)
+            {
+                var layout = await ReadFormLayout(bound, route, reference, ct).ConfigureAwait(false);
+                var icon = row.TryGetProperty("icon", out var iconObject) && iconObject.ValueKind == JsonValueKind.Object
+                    ? PresentationText(iconObject, "id") : null;
+                var color = PresentationText(row, "color");
+                string? svg = null;
+                if (icon is not null && !icons.TryGetValue((icon, color), out svg))
+                {
+                    svg = await ReadIcon(bound, icon, color, ct).ConfigureAwait(false);
+                    icons.Add((icon, color), svg);
+                }
+                presentation = new(name, color, icon, layout, svg);
+            }
             types.Add(new(reference, stateField, typeFields, states, edges, rules,
-                Wire.Flag(row, "isDisabled") || hidden.Contains(name)));
+                Wire.Flag(row, "isDisabled") || hidden.Contains(name), presentation));
         }
         if (types.Count == 0) throw Wire.Invalid("The native process roster is empty.");
         var schema = new ProcessSchema(_connection, types, relations.Values.Where(r => r.Forward)
-            .Select(r => new RelationKind(r.Reference, r.Shape, r.Directed)).Concat(resources), gaps);
+            .Select(r => new RelationKind(r.Reference, r.Shape, r.Directed)).Concat(resources), gaps,
+            includePresentation ? bound.Url(bound.Project + "/").AbsoluteUri : null);
         _capabilities = new(_capabilities.Operations.Where(o => o != OpKind.LinkResource)
             .Concat(resources.Count > 0 ? [OpKind.LinkResource] : Array.Empty<OpKind>()),
             schema.Relations.Select(r => r.Reference), [], true, true);

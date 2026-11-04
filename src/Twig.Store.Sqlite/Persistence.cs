@@ -22,7 +22,7 @@ internal static class Persistence
         return data.ToCore();
     }
 
-    private static void CheckDuplicates(JsonElement element)
+    internal static void CheckDuplicates(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
@@ -231,17 +231,19 @@ internal sealed record QueryData(QueryKind Kind, string? Field, ValueData? Value
     internal Query ToCore() => new(Persistence.Defined(Kind), Field, Value?.ToCore(), Children.Select(c => c.ToCore()));
 }
 
-internal sealed record SelectorData(SelectorKind Kind, KeyData? Item, QueryData? Query, string? HierarchyRelation)
+internal sealed record SelectorData(SelectorKind Kind, KeyData? Item, QueryData? Query, string? HierarchyRelation,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Connection? Connection = null)
 {
     internal static SelectorData From(Selector s) => new(s.Kind, s.Item is null ? null : KeyData.From(s.Item),
-        s.Query is null ? null : QueryData.From(s.Query), s.HierarchyRelation);
-    internal Selector ToCore() => new(Persistence.Defined(Kind), Item?.ToCore(), Query?.ToCore(), HierarchyRelation);
+        s.Query is null ? null : QueryData.From(s.Query), s.HierarchyRelation, s.Connection);
+    internal Selector ToCore() => new(Persistence.Defined(Kind), Item?.ToCore(), Query?.ToCore(), HierarchyRelation, Connection);
 }
 
-internal sealed record BenchData(Guid Id, string Name, SelectorData[] Selectors)
+internal sealed record BenchData(Guid Id, string Name, SelectorData[] Selectors,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] long Revision = 0)
 {
-    internal static BenchData From(Bench b) => new(b.Id, b.Name, b.Selectors.Select(SelectorData.From).ToArray());
-    internal Bench ToCore() => new(Id, Name, Selectors.Select(s => s.ToCore()));
+    internal static BenchData From(Bench b) => new(b.Id, b.Name, b.Selectors.Select(SelectorData.From).ToArray(), b.Revision);
+    internal Bench ToCore() => new(Id, Name, Selectors.Select(s => s.ToCore()), Revision);
 }
 
 [JsonSourceGenerationOptions(
@@ -252,4 +254,6 @@ internal sealed record BenchData(Guid Id, string Name, SelectorData[] Selectors)
 [JsonSerializable(typeof(SnapshotData))]
 [JsonSerializable(typeof(Connection))]
 [JsonSerializable(typeof(ResourceData))]
+[JsonSerializable(typeof(BenchData))]
+[JsonSerializable(typeof(SelectorData[]))]
 internal sealed partial class TwigJsonContext : JsonSerializerContext;

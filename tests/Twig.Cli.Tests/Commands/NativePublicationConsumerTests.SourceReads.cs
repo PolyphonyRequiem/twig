@@ -52,7 +52,8 @@ public sealed partial class NativePublicationConsumerTests
         var observedBench = local.Value.Snapshot.Benches.ShouldHaveSingleItem();
         observedBench.Id.ShouldBe(bench.Id);
         observedBench.Name.ShouldBe(bench.Name);
-        observedBench.Selectors.ShouldBe(bench.Selectors);
+        observedBench.Selectors.ShouldBe(bench.Selectors.Select(selector => new Selector(selector.Kind,
+            selector.Item, selector.Query, selector.HierarchyRelation, connection)));
         local.Value.Snapshot.Journal.ShouldBe(before.Journal);
 
         var online = await ReadSource(paths, local.Value.Source, schema: true);
@@ -60,6 +61,10 @@ public sealed partial class NativePublicationConsumerTests
         online.Value.Source.ShouldBe(local.Value.Source);
         online.Value.Schema.ShouldNotBeNull().Value.Connection.ShouldBe(connection);
         online.Value.Schema.Value.Types.ShouldContain(type => type.Reference == "Fixture.Task");
+        var layout = online.Value.Schema.Value.Types.Single(type => type.Reference == "Fixture.Task").Presentation
+            .ShouldNotBeNull().Layout.ShouldNotBeNull();
+        layout.Availability.ShouldBe(LayoutAvailability.Served);
+        layout.SystemControls.Single().Id.ShouldBe("System.Title");
         online.Value.Schema.Value.Relations.ShouldContain(kind => kind.Shape == RelationShape.Hierarchy && kind.Directed);
         online.Value.Schema.Value.Fingerprint.ShouldNotBeNullOrWhiteSpace();
         online.Value.SchemaObservedAt.ShouldNotBeNull().ShouldBeGreaterThanOrEqualTo(online.Value.CacheReadAt);
@@ -204,20 +209,25 @@ public sealed partial class NativePublicationConsumerTests
         {
             (await ReadSource(paths, capture.Source)).IsSuccess.ShouldBeFalse("an independent request must not inherit the reader's ambient gate");
             // An independent writer bypasses the native gate to prove no SQLite read transaction spans HTTP.
-            (await store.CommitAsync(connection, 0, new(1, benches: [new(Guid.NewGuid(), "Later", [])]),
+            (await store.CommitAsync(connection, 0, new(1),
                 timeout.Token)).IsSuccess.ShouldBeTrue();
+            (await UserBenchStore.ForRegistry(_bindings.RegistryPath).SaveAsync(new(Guid.NewGuid(), "Later", []),
+                0, timeout.Token)).IsSuccess.ShouldBeTrue();
             var marker = JsonSerializer.Deserialize(await File.ReadAllTextAsync(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)),
                 CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
-            using var database = new SqliteConnection(new SqliteConnectionStringBuilder
+            foreach (var databasePath in new[] { marker.DatabasePath, Path.Combine(Path.GetDirectoryName(_bindings.RegistryPath)!, "benches.db") })
             {
-                DataSource = marker.DatabasePath, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 1,
-            }.ToString());
-            await database.OpenAsync(timeout.Token);
-            using var checkpoint = database.CreateCommand();
-            checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-            using var checkpointResult = await checkpoint.ExecuteReaderAsync(timeout.Token);
-            (await checkpointResult.ReadAsync(timeout.Token)).ShouldBeTrue();
-            checkpointResult.GetInt32(0).ShouldBe(0, "a live pre-HTTP read transaction would prevent the WAL checkpoint");
+                using var database = new SqliteConnection(new SqliteConnectionStringBuilder
+                {
+                    DataSource = databasePath, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 1,
+                }.ToString());
+                await database.OpenAsync(timeout.Token);
+                using var checkpoint = database.CreateCommand();
+                checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                using var checkpointResult = await checkpoint.ExecuteReaderAsync(timeout.Token);
+                (await checkpointResult.ReadAsync(timeout.Token)).ShouldBeTrue();
+                checkpointResult.GetInt32(0).ShouldBe(0, "a live pre-HTTP read transaction would prevent the WAL checkpoint");
+            }
         }
         finally { resume.TrySetResult(); }
         var observed = await reading;

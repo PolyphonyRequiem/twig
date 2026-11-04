@@ -87,9 +87,10 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
             var credentials = selectedCredential ?? Credential(scope!);
             var access = new CleanCoreGitHubAccess(configuration, paths, scope!, targets, origin, credentials,
                 document.Connection, document.PrincipalId, store);
+            var benches = UserBenchStore.ForRegistry(nativeBindings.RegistryPath);
             provider = new(document.Connection, access, store, transport?.CreateHandler());
             var workspace = new CoreWorkspace(document.Connection, provider, store,
-                new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance);
+                new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance, benches);
             var sourceStamp = NativeSourceReader.Stamp(document, paths.RepoRoot, origin.BindingId.ToString(),
                 NativeSourceReader.Number(origin.AttachmentRevision), origin.WorktreeFingerprint,
                 NativeSourceReader.Number(origin.BindingRevision), document.Connection.IdentityRef);

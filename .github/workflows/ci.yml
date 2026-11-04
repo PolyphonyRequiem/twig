@@ -120,6 +120,27 @@ jobs:
           path: artifacts/test-logs/ci/catalog/*.trx
           if-no-files-found: error
 
+      - name: Shared user-wide Bench store and metadata entrypoints
+        id: user_benches
+        shell: python
+        run: |
+          import subprocess, sys
+          for label, project, selector in [
+              ("user-bench-store", "Twig.Infrastructure.Tests", "FullyQualifiedName~UserBenchStoreTests"),
+              ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),
+          ]:
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              f"tests/{project}/{project}.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/user-benches"], check=True)
+      - name: Preserve shared user-wide Bench results
+        if: always() && steps.user_benches.outcome != 'skipped' && steps.user_benches.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-user-benches-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/user-benches/*.trx
+          if-no-files-found: error
+
       - name: Read-only native source host boundary
         id: native_source
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeSource" --logger "trx;LogFileName=native-source.trx" --results-directory artifacts/test-logs/ci/native-source

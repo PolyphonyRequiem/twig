@@ -28,6 +28,8 @@ public interface IProvider
 {
     ProviderCapabilities Capabilities { get; }
     Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct);
+    Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
+        => DiscoverSchemaAsync(connection, ct);
     Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct);
     Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false);
     Task<Result<long>> ImportAsync(Proposal proposal, string confirmation, CancellationToken ct = default);

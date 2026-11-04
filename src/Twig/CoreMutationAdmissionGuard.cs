@@ -49,15 +49,18 @@ internal static class CoreMutationAdmissionGuard
         "init" or "skills" or "help" or "version" => true,
         "auth" => args.Count > 1 && args[1] is "login" or "pat" or "identities" or "status",
         "connection" => args.Count > 1 && args[1] is "bind" or "list" or "status" or "writes",
+        "bench" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "list" or "create" or "rename" or "delete",
         _ => false,
     };
 
     private static bool Retired(IReadOnlyList<string> args)
     {
         if (args.Any(value => value.Split('=', 2)[0] is "--browser" or "--include-browser" or "--browser-version"
-            or "--expect-binding" or "--expect-identity" or "--expect-settings" or "--include-management"
+            or "--expect-binding" or "--expect-identity" or "--expect-settings"
             or "--include-rendering" or "--interactive" or "--live" or "--all-backlog"))
             return true;
+        if (args.Contains("--include-management") && !(args[0] == "bench"
+            && (args.Count == 1 || args[1].StartsWith('-') || args[1] == "list"))) return true;
         return args[0] switch
         {
             "init" or "skills" or "help" or "version" => false,
@@ -69,9 +72,9 @@ internal static class CoreMutationAdmissionGuard
             "process" => args.Count > 1 && args[1] == "layout",
             "seed" => args.Count < 2 || args[1] is not ("new" or "view" or "validate" or "publish" or "discard" or "reconcile" or "chain" or "edit" or "link" or "unlink" or "links"),
             "proposal" or "plan" => args.Count < 2 || args[1] is not ("validate" or "preview" or "apply" or "status"),
-            "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "switch"),
+            "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "switch" or "rename" or "delete"),
             "workspace" or "ws" => args.Contains("--all") || args.Contains("--tree")
-                || args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("view" or "track" or "track-tree" or "untrack" or "sync"),
+                || args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("view" or "track" or "track-tree" or "untrack" or "sync" or "exclude" or "exclusions"),
             "link" => false,
             _ => true,
         };
@@ -84,7 +87,7 @@ internal static class CoreMutationAdmissionGuard
             or "save" or "discard" or "pending" or "query" => !args.Contains("--browser"),
         "link" => args.Count > 2 && args[1] == "local" && args[2] is "related" or "unrelate" or "list",
         "bench" => args.Count == 1 || args.Count > 1 && args[1] is "list" or "create" or "switch",
-        "workspace" or "ws" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "view" or "track" or "untrack",
+        "workspace" or "ws" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "view" or "track" or "untrack" or "exclude" or "exclusions",
         "seed" => args.Count > 1 && args[1] is "new" or "view" or "publish" or "discard" or "validate",
         "proposal" or "plan" => args.Count > 1 && args[1] is "preview" or "apply" or "status" or "validate",
         "skills" or "help" or "version" => true,

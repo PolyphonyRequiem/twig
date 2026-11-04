@@ -15,7 +15,10 @@ public sealed record NativeSourceStamp(Connection Connection, Guid StoreInstance
 
 /// <summary>A coherent local snapshot and, when requested, separately observed provider schema.</summary>
 public sealed record NativeSourceObservation(NativeSourceStamp Source, StoreSnapshot Snapshot,
-    DateTimeOffset CacheReadAt, Result<ProcessSchema>? Schema, DateTimeOffset? SchemaObservedAt);
+    DateTimeOffset CacheReadAt, Result<ProcessSchema>? Schema, DateTimeOffset? SchemaObservedAt)
+{
+    public ImmutableArray<Selector> WorkspaceExclusions { get; init; } = [];
+}
 
 /// <summary>Request-scoped reads of an explicitly initialized native workspace. No native mutations are exposed.</summary>
 public static class NativeSourceReader
@@ -59,14 +62,16 @@ public static class NativeSourceReader
             if (expectedSource is not null && expectedSource != handle.Source)
                 return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict,
                     "The recorded source authority or store changed; explicit source reauthorization is required.");
-            var snapshot = await handle.Workspace.SnapshotAsync(token).ConfigureAwait(false);
+            var snapshot = await handle.Workspace.BenchSnapshotAsync(token).ConfigureAwait(false);
             if (!snapshot.IsSuccess) return Refuse(snapshot.Error, "Native snapshot acquisition failed.");
+            var viewRules = await handle.Workspace.ViewRulesAsync(token).ConfigureAwait(false);
+            if (!viewRules.IsSuccess) return Refuse(viewRules.Error, "Native workspace-view rules could not be read.");
             var readAt = DateTimeOffset.UtcNow;
             Result<ProcessSchema>? schema = null;
             DateTimeOffset? schemaAt = null;
             if (observeSchema)
             {
-                schema = await handle.Workspace.SchemaAsync(token).ConfigureAwait(false);
+                schema = await handle.Workspace.SchemaAsync(token, includePresentation: true).ConfigureAwait(false);
                 if (!schema.IsSuccess) return Refuse(schema.Error, "Native schema observation failed; no offline fallback was selected.");
                 schemaAt = DateTimeOffset.UtcNow;
             }
@@ -82,7 +87,8 @@ public static class NativeSourceReader
                 return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict,
                     "Native authority, workspace location or store changed during capture; no content was released.");
             token.ThrowIfCancellationRequested();
-            return Result<NativeSourceObservation>.Ok(new(handle.Source, snapshot.Value, readAt, schema, schemaAt));
+            return Result<NativeSourceObservation>.Ok(new(handle.Source, snapshot.Value, readAt, schema, schemaAt)
+            { WorkspaceExclusions = viewRules.Value.Exclusions });
 
             async Task<ServiceProvider> ComposeAsync()
             {

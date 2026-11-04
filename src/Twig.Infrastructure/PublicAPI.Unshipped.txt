@@ -1,4 +1,61 @@
 #nullable enable
+Twig.Infrastructure.Services.WorkspaceViewRules
+Twig.Infrastructure.Services.WorkspaceViewRules.WorkspaceViewRules(long Revision, System.Collections.Immutable.ImmutableArray<Twig.Core.Selector!> Exclusions) -> void
+Twig.Infrastructure.Services.WorkspaceViewRules.Revision.get -> long
+Twig.Infrastructure.Services.WorkspaceViewRules.Revision.init -> void
+Twig.Infrastructure.Services.WorkspaceViewRules.Exclusions.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Selector!>
+Twig.Infrastructure.Services.WorkspaceViewRules.Exclusions.init -> void
+Twig.Infrastructure.Services.WorkspaceViewRules.Deconstruct(out long Revision, out System.Collections.Immutable.ImmutableArray<Twig.Core.Selector!> Exclusions) -> void
+Twig.Infrastructure.Services.WorkspaceViewRules.Equals(Twig.Infrastructure.Services.WorkspaceViewRules? other) -> bool
+override Twig.Infrastructure.Services.WorkspaceViewRules.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.WorkspaceViewRules.GetHashCode() -> int
+override Twig.Infrastructure.Services.WorkspaceViewRules.ToString() -> string!
+Twig.Infrastructure.Services.WorkspaceViewRules.<Clone>$() -> Twig.Infrastructure.Services.WorkspaceViewRules!
+static Twig.Infrastructure.Services.WorkspaceViewRules.operator !=(Twig.Infrastructure.Services.WorkspaceViewRules? left, Twig.Infrastructure.Services.WorkspaceViewRules? right) -> bool
+static Twig.Infrastructure.Services.WorkspaceViewRules.operator ==(Twig.Infrastructure.Services.WorkspaceViewRules? left, Twig.Infrastructure.Services.WorkspaceViewRules? right) -> bool
+Twig.Infrastructure.Services.UserBenchStore.ReadViewRulesAsync(string! workspaceRoot, Twig.Core.Connection! connection, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.WorkspaceViewRules!>!>!
+Twig.Infrastructure.Services.UserBenchStore.SaveViewRulesAsync(string! workspaceRoot, Twig.Core.Connection! connection, long expectedRevision, System.Collections.Generic.IEnumerable<Twig.Core.Selector!>! exclusions, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.WorkspaceViewRules!>!>!
+Twig.Infrastructure.Services.NativeSourceObservation.WorkspaceExclusions.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Selector!>
+Twig.Infrastructure.Services.NativeSourceObservation.WorkspaceExclusions.init -> void
+Twig.Infrastructure.Services.UserBenchSnapshot
+Twig.Infrastructure.Services.UserBenchSnapshot.UserBenchSnapshot(System.Guid InstanceId, long Revision, System.Collections.Immutable.ImmutableArray<Twig.Core.Bench!> Benches) -> void
+Twig.Infrastructure.Services.UserBenchSnapshot.InstanceId.get -> System.Guid
+Twig.Infrastructure.Services.UserBenchSnapshot.InstanceId.init -> void
+Twig.Infrastructure.Services.UserBenchSnapshot.Revision.get -> long
+Twig.Infrastructure.Services.UserBenchSnapshot.Revision.init -> void
+Twig.Infrastructure.Services.UserBenchSnapshot.Benches.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Bench!>
+Twig.Infrastructure.Services.UserBenchSnapshot.Benches.init -> void
+Twig.Infrastructure.Services.UserBenchSnapshot.Deconstruct(out System.Guid InstanceId, out long Revision, out System.Collections.Immutable.ImmutableArray<Twig.Core.Bench!> Benches) -> void
+Twig.Infrastructure.Services.UserBenchSnapshot.Equals(Twig.Infrastructure.Services.UserBenchSnapshot? other) -> bool
+override Twig.Infrastructure.Services.UserBenchSnapshot.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.UserBenchSnapshot.GetHashCode() -> int
+override Twig.Infrastructure.Services.UserBenchSnapshot.ToString() -> string!
+Twig.Infrastructure.Services.UserBenchSnapshot.<Clone>$() -> Twig.Infrastructure.Services.UserBenchSnapshot!
+static Twig.Infrastructure.Services.UserBenchSnapshot.operator !=(Twig.Infrastructure.Services.UserBenchSnapshot? left, Twig.Infrastructure.Services.UserBenchSnapshot? right) -> bool
+static Twig.Infrastructure.Services.UserBenchSnapshot.operator ==(Twig.Infrastructure.Services.UserBenchSnapshot? left, Twig.Infrastructure.Services.UserBenchSnapshot? right) -> bool
+Twig.Infrastructure.Services.UserBenchWorkspace
+Twig.Infrastructure.Services.UserBenchWorkspace.UserBenchWorkspace(string! Root, Twig.Core.Connection! Connection, System.Guid StoreInstance) -> void
+Twig.Infrastructure.Services.UserBenchWorkspace.Root.get -> string!
+Twig.Infrastructure.Services.UserBenchWorkspace.Root.init -> void
+Twig.Infrastructure.Services.UserBenchWorkspace.Connection.get -> Twig.Core.Connection!
+Twig.Infrastructure.Services.UserBenchWorkspace.Connection.init -> void
+Twig.Infrastructure.Services.UserBenchWorkspace.StoreInstance.get -> System.Guid
+Twig.Infrastructure.Services.UserBenchWorkspace.StoreInstance.init -> void
+Twig.Infrastructure.Services.UserBenchWorkspace.Deconstruct(out string! Root, out Twig.Core.Connection! Connection, out System.Guid StoreInstance) -> void
+Twig.Infrastructure.Services.UserBenchWorkspace.Equals(Twig.Infrastructure.Services.UserBenchWorkspace? other) -> bool
+override Twig.Infrastructure.Services.UserBenchWorkspace.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.UserBenchWorkspace.GetHashCode() -> int
+override Twig.Infrastructure.Services.UserBenchWorkspace.ToString() -> string!
+Twig.Infrastructure.Services.UserBenchWorkspace.<Clone>$() -> Twig.Infrastructure.Services.UserBenchWorkspace!
+static Twig.Infrastructure.Services.UserBenchWorkspace.operator !=(Twig.Infrastructure.Services.UserBenchWorkspace? left, Twig.Infrastructure.Services.UserBenchWorkspace? right) -> bool
+static Twig.Infrastructure.Services.UserBenchWorkspace.operator ==(Twig.Infrastructure.Services.UserBenchWorkspace? left, Twig.Infrastructure.Services.UserBenchWorkspace? right) -> bool
+Twig.Infrastructure.Services.UserBenchStore
+Twig.Infrastructure.Services.UserBenchStore.UserBenchStore(string! path) -> void
+static Twig.Infrastructure.Services.UserBenchStore.ForCurrentUser() -> Twig.Infrastructure.Services.UserBenchStore!
+Twig.Infrastructure.Services.UserBenchStore.ReadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.UserBenchSnapshot!>!>!
+Twig.Infrastructure.Services.UserBenchStore.SaveAsync(Twig.Core.Bench! definition, long expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Core.Bench!>!>!
+Twig.Infrastructure.Services.UserBenchStore.DeleteAsync(System.Guid id, long expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<bool>!>!
+Twig.Infrastructure.Services.UserBenchStore.WorkspacesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.UserBenchWorkspace!>>!>!
 Twig.Infrastructure.Services.NativeSourceReader
 static Twig.Infrastructure.Services.NativeSourceReader.ReadAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp? expectedSource = null, bool observeSchema = false, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 Twig.Infrastructure.Services.NativeSourceStamp

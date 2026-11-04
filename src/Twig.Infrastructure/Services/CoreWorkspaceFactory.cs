@@ -74,9 +74,10 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var access = new CleanCoreAdoAccess(authentication, bindings, configuration, paths, origin,
             document.Connection, document.PrincipalId, store);
         var source = NativeSourceReader.Stamp(document, paths.RepoRoot, origin);
+        var benches = UserBenchStore.ForRegistry(bindings.RegistryPath);
         var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler());
         var workspace = new CoreWorkspace(document.Connection, provider, store,
-            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance);
+            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance, benches);
         return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider, document, source, access));
     }
 

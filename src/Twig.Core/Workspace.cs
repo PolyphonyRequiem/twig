@@ -36,7 +36,8 @@ public sealed record Query
 
 public sealed record Selector
 {
-    public Selector(SelectorKind kind, ItemKey? item = null, Query? query = null, string? hierarchyRelation = null)
+    public Selector(SelectorKind kind, ItemKey? item = null, Query? query = null, string? hierarchyRelation = null,
+        Connection? connection = null)
     {
         var valid = kind switch
         {
@@ -46,28 +47,35 @@ public sealed record Selector
             _ => false,
         };
         if (!valid) throw new ArgumentException("Selector payload does not match its kind.", nameof(kind));
+        if (connection is not null && item is { IsLocal: false } && !item.BelongsTo(connection))
+            throw new ArgumentException("The selected item belongs to a different connection.", nameof(connection));
         (Kind, Item, Query, HierarchyRelation) = (kind, item, query, hierarchyRelation);
+        Connection = connection;
     }
 
     public SelectorKind Kind { get; }
     public ItemKey? Item { get; }
     public Query? Query { get; }
     public string? HierarchyRelation { get; }
+    public Connection? Connection { get; }
 }
 
 public sealed record Bench
 {
-    public Bench(Guid id, string name, IEnumerable<Selector> selectors)
+    public Bench(Guid id, string name, IEnumerable<Selector> selectors, long revision = 0)
     {
         if (id == Guid.Empty) throw new ArgumentException("A Bench needs a durable identity.", nameof(id));
         Id = id;
         Name = Contract.Text(name, nameof(name));
         Selectors = Contract.Copy(selectors);
+        if (revision < 0) throw new ArgumentOutOfRangeException(nameof(revision));
+        Revision = revision;
     }
 
     public Guid Id { get; }
     public string Name { get; }
     public ImmutableArray<Selector> Selectors { get; }
+    public long Revision { get; }
 }
 
 public enum RuleKind { ParentType, DependencyIntegrity }

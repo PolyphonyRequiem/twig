@@ -471,7 +471,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
-        var snapshot = await workspace.SnapshotAsync(ct);
+        var snapshot = await workspace.BenchSnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var context = await workspace.Context.ReadAsync(ct);
         if (!context.IsSuccess) return Error(output, context.Error.Message);
@@ -537,7 +537,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var workspace = handle.Workspace;
         var context = await workspace.Context.ReadAsync(ct);
         if (!context.IsSuccess) return Error(output, context.Error.Message);
-        var snapshot = await workspace.SnapshotAsync(ct);
+        var snapshot = await workspace.BenchSnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var bench = snapshot.Value.Benches.SingleOrDefault(bench => bench.Id == context.Value.BenchId);
         if (bench is null) return Error(output, "No existing Core Bench is selected. Create one and use `twig bench switch <name>`.");
@@ -551,7 +551,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         {
             var read = await workspace.ReadAsync(mapped, ct);
             if (!read.IsSuccess) return Error(output, read.Error.Message);
-            snapshot = await workspace.SnapshotAsync(ct);
+            snapshot = await workspace.BenchSnapshotAsync(ct);
             if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
             bench = snapshot.Value.Benches.SingleOrDefault(value => value.Id == capturedBenchId);
             if (bench is null) return Error(output, "The captured Bench was removed while reading the target; no selector was changed.");
@@ -693,7 +693,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             var workspace = handle.Workspace;
             var context = await workspace.Context.ReadAsync(ct);
             if (!context.IsSuccess) return exit = Error(format, context.Error.Message);
-            var snapshot = await workspace.SnapshotAsync(ct);
+            var snapshot = await workspace.BenchSnapshotAsync(ct);
             if (!snapshot.IsSuccess) return exit = Error(format, snapshot.Error.Message);
             var bench = snapshot.Value.Benches.SingleOrDefault(value => value.Id == context.Value.BenchId);
             if (bench is null)

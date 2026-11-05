@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify compiled schema-v10 fresh opens refuse v11; no provider transport."""
+"""Verify unchanged legacy fresh opens refuse the current schema; no provider transport."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -26,27 +26,32 @@ var task = (Task)method.Invoke(registry, input)!;
 await task;
 var result = task.GetType().GetProperty("Result")!.GetValue(task)!;
 var success = (bool)result.GetType().GetProperty("IsSuccess")!.GetValue(result)!;
+void CheckTarget() {
+    using var db = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + args[2] + ";Pooling=False");
+    db.Open(); using var command = db.CreateCommand(); command.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
+    if (Convert.ToInt32(command.ExecuteScalar()) != int.Parse(args[3])) throw new Exception("Compatibility target version differs from the actual migrated database.");
+}
 if (create) {
     if (!success) throw new Exception("Current registry initialization failed.");
+    if (args[0] != "cached") CheckTarget();
     if (args[0] == "cached") {
-        using var db = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + args[2] + ";Pooling=False");
-        db.Open();
-        using var command = db.CreateCommand();
-        command.CommandText = "UPDATE layout_meta SET version=11 WHERE id=1;";
-        command.ExecuteNonQuery();
+        Console.WriteLine("CACHED-READY");
+        if (Console.ReadLine() != "continue") throw new Exception("Actual separate-process migration was not confirmed.");
+        CheckTarget();
         var read = (Task)method.Invoke(registry, input)!;
         await read;
         var cached = read.GetType().GetProperty("Result")!.GetValue(read)!;
         if (!(bool)cached.GetType().GetProperty("IsSuccess")!.GetValue(cached)!)
-            throw new Exception("Cached v10 compatibility limit was not reproduced.");
-        Console.WriteLine("COMPILED V10 CACHED-OPEN: still accepts existing connection; quiescence is required.");
+            throw new Exception("Cached legacy compatibility limit was not reproduced.");
+        Console.WriteLine("COMPILED LEGACY CACHED-OPEN: still accepts after actual migration; quiescence is required.");
     }
 } else {
-    if (success) throw new Exception("Compiled v10 reader accepted schema11.");
+    CheckTarget();
+    if (success) throw new Exception("Compiled legacy reader accepted current schema" + args[3] + ".");
     var error = result.GetType().GetProperty("Error")!.GetValue(result)!;
     var message = (string)error.GetType().GetProperty("Message")!.GetValue(error)!;
     if (!message.Contains("system-store-schema-mismatch")) throw new Exception(message);
-    Console.WriteLine("COMPILED V10 FRESH-OPEN: schema11 refused; no provider HTTP.");
+    Console.WriteLine("COMPILED LEGACY FRESH-OPEN: schema" + args[3] + " refused; no provider HTTP.");
 }
 '''
 
@@ -55,6 +60,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--legacy-assembly", required=True)
     parser.add_argument("--current-assembly", required=True)
+    parser.add_argument("--legacy-version", type=int, choices=(10, 11), default=10)
+    parser.add_argument("--current-version", type=int, default=12)
     args = parser.parse_args()
     bounded = [sys.executable, str(Path(__file__).with_name("run-bounded.py"))]
     with tempfile.TemporaryDirectory(prefix="twig-registry-compat-") as directory:
@@ -73,10 +80,25 @@ def main():
         database = str(root / "system.db")
         for mode, assembly in (("create", args.current_assembly), ("reject", args.legacy_assembly)):
             subprocess.run(bounded + ["--timeout", "60", "--", *probe, mode,
-                                      str(Path(assembly).resolve()), database], check=True)
-        subprocess.run(bounded + ["--timeout", "60", "--", *probe, "cached",
-                                  str(Path(args.legacy_assembly).resolve()), str(root / "cached-system.db")], check=True)
-    print("REGISTRY-COMPAT-VERDICT: PASSED; cached v10 processes still require quiescence.", flush=True)
+                                      str(Path(assembly).resolve()), database, str(args.current_version)], check=True)
+        cached_database = str(root / "cached-system.db")
+        cached = subprocess.Popen(bounded + ["--timeout", "60", "--", *probe, "cached",
+                                  str(Path(args.legacy_assembly).resolve()), cached_database, str(args.current_version)],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            line = cached.stdout.readline()
+            if line.strip() != "CACHED-READY":
+                raise RuntimeError("Legacy cached process did not initialize: " + line)
+            subprocess.run(bounded + ["--timeout", "60", "--", *probe, "create",
+                                      str(Path(args.current_assembly).resolve()), cached_database, str(args.current_version)], check=True)
+            output, _ = cached.communicate("continue\n", timeout=60)
+            print(output, end="", flush=True)
+            if cached.returncode: raise RuntimeError("Cached-handle probe failed.")
+        finally:
+            if cached.poll() is None:
+                if not cached.stdin.closed: cached.stdin.close()
+                cached.wait(timeout=60)  # The existing bounded wrapper owns tree cleanup.
+    print(f"REGISTRY-COMPAT-VERDICT: PASSED; v{args.legacy_version} fresh opens refuse {args.current_version}; cached processes require quiescence.", flush=True)
 
 
 if __name__ == "__main__":

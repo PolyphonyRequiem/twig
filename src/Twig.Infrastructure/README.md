@@ -180,12 +180,29 @@ atomically. The actual serialized capture document is checked once, before captu
 writes, against the same 2 MiB UTF-8 byte limit used by reads and integrity hashing.
 The canonical intent retains its separate 1 MiB UTF-8 bound; rich text is not truncated.
 
-This local witness does **not** detect a whole `benches.db` same-instance rollback
-to a pre-capture state that also erases the witness. Public-facade qualification
-must address a surviving Core draft with lost relationship metadata through an
-independently surviving native system/user-generation reference and cross-store
-recovery, not empty-state/latest-value inference. No rollback permission or
-universal lost-capture/rollback protection is implied.
+The local witness alone cannot detect whole `benches.db` same-instance rewind.
+Native registry12 now independently binds canonical user-store path/instance,
+monotonic generation/head, capture document and predecessor digests, exact
+execution/source and before/desired draft fingerprints. User metadata retains
+immutable payload/before-image history and the bidirectional registry anchor.
+Reservation, user commit, stage admission, actual readback and confirmation are
+independently durable; there is no cross-database atomicity claim. Either store's
+rewind, missing payload/reference or mismatched before-image blocks new capture
+and every current native publishing/admission path, including ordinary CLI.
+References never reconstruct missing relationship intent or remote outcomes.
+
+Exact surviving interrupted payload can explicitly restage/cancel against a
+positively matching before-state, preserving prior Ready metadata and normal debt;
+exact completed desired state can finish. Partial metadata confirmation can recover
+only from actual matching immutable history. Missing payload stays unavailable;
+protected inspection is not editing/publishing authority.
+
+Legacy namespaces require the existing one-time actual complete inventory,
+quiescence and provenance migration. Positive sealed Ready bytes and exact Core
+drafts can link into native history; missing history cannot be manufactured by
+attestation. Automatic birth requires native reserved identity and actual exclusive
+file installation; an existing file is never adopted as fresh. No simultaneous
+rewind of all independent authorities or permission to roll back databases is claimed.
 
 Fresh scope enlistment retains a native reservation against an exact registered
 origin and registry/source CAS, owns actual `FileMode.CreateNew`, then persists
@@ -202,10 +219,13 @@ GitHub fields plus origin-local Related CAS and exact verified seed follow-ons
 remain separate integration work. Verified remote effects with local work pending
 must remain explicit; full result delivery/reassociation is not implemented here.
 
-## Native execution safety contract (system registry v11)
+## Native execution safety contract (system registry v12)
 
-Native registry upgrades add pending activation and Core source/attempt references
-atomically with `layout_meta` v11. Original credentials, transport evidence and
+Native registry upgrades add pending capture-provenance schema atomically with
+`layout_meta` v12, preserving prior v11 activation/digest/reference/birth evidence.
+Under-lock version re-probes and CAS prevent new concurrent migrators downgrading
+each other; corrupt v11 prerequisites refuse rather than being recreated empty.
+Original credentials, transport evidence and
 Core proposals/journals are not rewritten or backfilled as successful outcomes.
 Even a fresh registry stays pending: it does not prove historical roots are absent.
 
@@ -235,8 +255,8 @@ The native reference set has a separate integrity digest; missing index rows are
 not absence proof or silently reconstructed. Monotonic observed Core versions and
 ever-Applying admission witnesses cannot be downgraded into reservation-only
 claims by restoring a same-instance store/transport backup. These are reference
-provenance, not another outcome journal. The unpublished v11 schema requires this
-metadata; incomplete older experimental v11 layouts fail closed without backfill.
+provenance, not another outcome journal. Prior v11 reference metadata remains
+required; incomplete experimental layouts fail closed without backfill.
 Attributed native `Failed` receipts with no published identity/revision are
 definitive no-effect results, including complete provider-classified HTTP
 rejections. They allow only a fresh proposal, never replay of the failed request;
@@ -246,13 +266,14 @@ root disappears; that does not restore the old root's Stage/Apply authority.
 Unattempted reclaim still requires the original transport root to be present.
 Protected-intent reassociation and result delivery remain separate work.
 
-The compiled compatibility fixture proves v10 fresh opens refuse registry11 and
-cached v10 handles still accept their old connection. Already-open v10 processes are NOT
+The unchanged compiled v10 and v11 compatibility fixtures prove fresh opens refuse
+registry12, while cached handles still accept after a real separate-process
+migration. Already-open old processes and old in-flight migrators are NOT
 retroactively fenced by the version change. Safe activation requires quiescing
 old processes and deploying the supported fence-aware CLI and panel together.
-The minimum publishing contract is this schema11 target-admission implementation
+The minimum publishing contract includes schema12 generation and target admission
 in both runtimes, not a version-number-only check. Delivery must record their
-exact fence-aware build identities; prior v10 binaries are unsupported publishers.
+exact build identities before first12 open; prior v10/v11 publishers are unsupported.
 Executable-only rollback is unsupported. Never restore a preactivation database
 after new effects: retain inspection backups and use forward-compatible recovery,
 unless explicit evidence establishes that no new effects occurred. No old binary

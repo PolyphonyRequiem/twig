@@ -15,11 +15,13 @@ namespace Twig.Infrastructure.Persistence;
 /// Unknown <c>layout_meta.version</c> values fail closed with
 /// <c>system-store-schema-mismatch</c>. Only bounded additive v3/v4/v5/v6/v7/v8→v9
 /// identity/native-migration/transition/remote-write/default-family upgrades followed
-/// by v9→v10 provider-target storage and v10→v11 Core execution inventory/references
+/// by v9→v10 provider-target storage, v10→v11 Core execution references and
+/// v11→v12 independent native capture-generation provenance
 /// are supported; earlier tuple-storage layouts
 /// remain a hard boundary. Existing worktree, claim and credential authority is retained.
-/// After a v9→v10 upgrade, binaries that only understand schema v9 fail closed; rolling
-/// back the executable alone is unsupported and requires restoring a compatible database backup.
+/// Older fresh opens fail closed. Cached handles/in-flight older migrators are not
+/// retroactively fenced: quiesce them before first v12 open. Executable-only rollback
+/// and preactivation database restoration after new effects are unsupported.
 /// </para>
 /// <para>
 /// <b>Concurrent open safety.</b> Initialization is serialized across
@@ -48,7 +50,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IDisposable
     // v8→v9 adds all-worktree default families; unfinished families fence every affected generation.
     // v9→v10 adds provider-neutral target bindings without referencing ADO rows.
     // v10→v11 adds pending activation and authoritative Core references, never outcome backfill.
-    private const int SchemaVersion = 11;
+    private const int SchemaVersion = 12;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -334,7 +336,7 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
 
     /// <summary>
     /// Forward-only additive upgrades through v9, then atomic native target/
-    /// execution-reference additions through v11. Existing connection/worktree/claim rows
+    /// execution-reference additions through v11 and authoring provenance through v12. Existing connection/worktree/claim rows
     /// and credentials are never rewritten.
     /// </summary>
     private bool TryAdditiveMigrate(SqliteConnection connection, int fromVersion, int toVersion)
@@ -349,24 +351,63 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
             fromVersion = 9;
         }
 
-        if (fromVersion is not (9 or 10))
+        if (fromVersion is not (9 or 10 or 11))
             return false;
 
         using var targetTx = connection.BeginTransaction(deferred: false);
         try
         {
+            using (var probe = connection.CreateCommand())
+            {
+                probe.Transaction = targetTx;
+                probe.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
+                fromVersion = Convert.ToInt32(probe.ExecuteScalar());
+            }
+            if (fromVersion == SchemaVersion)
+            {
+                CheckCaptureReferences(connection, targetTx, CancellationToken.None).GetAwaiter().GetResult();
+                targetTx.Commit();
+                return true;
+            }
+            if (fromVersion is not (9 or 10 or 11)) return false;
             using (var cmd = connection.CreateCommand())
             {
                 cmd.Transaction = targetTx;
-                cmd.CommandText = ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql;
+                if (fromVersion != 11)
+                {
+                    cmd.CommandText = ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql;
+                    cmd.ExecuteNonQuery();
+                }
+                var existing = ReadCoreGate(connection, targetTx, CancellationToken.None, requiredVersion: fromVersion)
+                    .GetAwaiter().GetResult();
+                if (!existing.IsSuccess) return false;
+                cmd.CommandText = """
+                    SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN(
+                        'layout_meta','connections','worktrees','claims','tuple_epochs','profile_cache',
+                        'identities','connection_bindings','connection_defaults','pat_principals','connection_migrations',
+                        'connection_binding_transitions','connection_remote_write_intents','connection_remote_write_observations',
+                        'connection_remote_write_receipts','connection_default_transitions','connection_default_transition_members',
+                        'provider_target_bindings','core_execution_meta','core_store_refs','core_attempt_refs');
+                    """;
+                if (Convert.ToInt32(cmd.ExecuteScalar()) != 21) return false;
+                cmd.CommandText = "SELECT binding_id,provider_kind,resource_scope,descriptor_kind,descriptor_value,locator,display_name,revision,created_at,updated_at FROM provider_target_bindings LIMIT 0;";
+                cmd.ExecuteScalar();
+                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='core_scope_births';";
+                if (Convert.ToInt32(cmd.ExecuteScalar()) != 0)
+                {
+                    cmd.CommandText = "SELECT id,store_instance,origin,source,ownership,registry_instance,registry_revision,origin_version,parent_digest,covered,born,enlisted FROM core_scope_births LIMIT 0;";
+                    cmd.ExecuteScalar();
+                }
+                cmd.CommandText = CaptureSchemaSql;
                 cmd.ExecuteNonQuery();
             }
             using (var cmd = connection.CreateCommand())
             {
                 cmd.Transaction = targetTx;
-                cmd.CommandText = "UPDATE layout_meta SET version = $version WHERE id = 1;";
+                cmd.CommandText = "UPDATE layout_meta SET version = $version WHERE id = 1 AND version=$previous;";
                 cmd.Parameters.AddWithValue("$version", toVersion);
-                cmd.ExecuteNonQuery();
+                cmd.Parameters.AddWithValue("$previous", fromVersion);
+                if (cmd.ExecuteNonQuery() != 1) return false;
             }
             targetTx.Commit();
             return true;
@@ -383,6 +424,13 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
         using var tx = connection.BeginTransaction(deferred: false);
         try
         {
+            using (var probe = connection.CreateCommand())
+            {
+                probe.Transaction = tx; probe.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
+                fromVersion = Convert.ToInt32(probe.ExecuteScalar());
+                if (fromVersion is >= 9 and <= SchemaVersion) { tx.Commit(); return true; }
+                if (fromVersion is < 3 or > 8) return false;
+            }
             using (var cmd = connection.CreateCommand())
             {
                 cmd.Transaction = tx;
@@ -393,8 +441,9 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
             using (var cmd = connection.CreateCommand())
             {
                 cmd.Transaction = tx;
-                cmd.CommandText = "UPDATE layout_meta SET version = 9 WHERE id = 1;";
-                cmd.ExecuteNonQuery();
+                cmd.CommandText = "UPDATE layout_meta SET version = 9 WHERE id = 1 AND version=$previous;";
+                cmd.Parameters.AddWithValue("$previous", fromVersion);
+                if (cmd.ExecuteNonQuery() != 1) return false;
             }
             tx.Commit();
             return true;
@@ -474,6 +523,20 @@ CREATE TABLE IF NOT EXISTS connection_defaults (
     private void EnsureSchema(SqliteConnection connection)
     {
         using var tx = connection.BeginTransaction(deferred: false);
+        using (var probe = connection.CreateCommand())
+        {
+            probe.Transaction = tx;
+            probe.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='layout_meta';";
+            if (Convert.ToInt32(probe.ExecuteScalar()) != 0)
+            {
+                probe.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
+                if (Convert.ToInt32(probe.ExecuteScalar()) != SchemaVersion)
+                    throw new InvalidDataException("A concurrent native initializer committed another schema; no downgrade is allowed.");
+                CheckCaptureReferences(connection, tx, CancellationToken.None).GetAwaiter().GetResult();
+                tx.Commit();
+                return;
+            }
+        }
         using (var cmd = connection.CreateCommand())
         {
             cmd.Transaction = tx;
@@ -541,7 +604,7 @@ CREATE TABLE IF NOT EXISTS profile_cache (
         using (var cmd = connection.CreateCommand())
         {
             cmd.Transaction = tx;
-            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql + ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql;
+            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql + ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql + CaptureSchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

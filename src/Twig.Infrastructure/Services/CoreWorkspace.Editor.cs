@@ -33,7 +33,8 @@ internal sealed partial class CoreWorkspace
         return Result<NativeEditorMetadata>.Fail(ErrorCode.Unsupported, "The selected provider has no native editor capture.");
     }
 
-    internal string DraftFingerprint(Draft? draft) => draft is null ? "none" : new Proposal(connection, "native-draft", 0,
+    internal string DraftFingerprint(Draft? draft) => Fingerprint(connection, draft);
+    internal static string Fingerprint(Connection connection, Draft? draft) => draft is null ? "none" : new Proposal(connection, "native-draft", 0,
         new[] { new Op("draft", draft.Key.IsLocal ? OpKind.Create : OpKind.Batch, draft.Key, draft.Baseline?.Revision,
             draft.Changes, draft.Type, draft.Parent, draft.ParentRelation, resource: draft.Resource, links: draft.Links) }
         .Concat(draft.Baseline is { } baseline ? [new Op("baseline", OpKind.Batch, baseline.Key, baseline.Revision,

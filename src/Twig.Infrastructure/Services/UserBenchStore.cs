@@ -33,6 +33,12 @@ public sealed partial class UserBenchStore
     internal static UserBenchStore ForRegistry(string registryPath)
         => new(Path.Combine(Path.GetDirectoryName(registryPath)!, "benches.db"));
 
+    internal IDisposable AcquireAuthoringLease(Guid benchId)
+        => AcquireAuthoringLeases([benchId]);
+    private IDisposable AcquireAuthoringLeases(IEnumerable<Guid> benchIds)
+        => ConnectionOperationGate.AcquireCoreTargets(path,
+            benchIds.Select(id => "native-bench:" + WorkspaceKey(path) + ":" + id.ToString("D")));
+
     public async Task<Result<UserBenchSnapshot>> ReadAsync(CancellationToken ct = default)
     {
         try
@@ -51,6 +57,7 @@ public sealed partial class UserBenchStore
         try
         {
             Validate(definition);
+            using var authoring = AcquireAuthoringLease(definition.Id);
             if (expectedRevision < 0 || expectedRevision == long.MaxValue)
                 return Result<Bench>.Fail(ErrorCode.InvalidInput, "A valid captured Bench revision is required.");
             await using var db = await Open(ct).ConfigureAwait(false);
@@ -66,6 +73,7 @@ public sealed partial class UserBenchStore
             return Result<Bench>.Ok(next);
         }
         catch (ArgumentException ex) { return Result<Bench>.Fail(ErrorCode.InvalidInput, ex.Message); }
+        catch (ConnectionBindingResolutionException) { return Result<Bench>.Fail(ErrorCode.Conflict, "The Bench has an active native authoring operation."); }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<Bench>(ex); }
     }
 
@@ -79,6 +87,7 @@ public sealed partial class UserBenchStore
                 || incoming.Select(bench => CanonicalName(bench.Name)).Distinct(StringComparer.Ordinal).Count() != incoming.Length)
                 return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "Legacy Bench identities or names conflict; nothing was imported.");
             foreach (var bench in incoming) Validate(bench);
+            using var authoring = AcquireAuthoringLeases(incoming.Select(bench => bench.Id));
             await using var db = await Open(ct).ConfigureAwait(false);
             using var transaction = db.BeginTransaction(deferred: false);
             var before = await Read(db, transaction, ct).ConfigureAwait(false);
@@ -105,6 +114,7 @@ public sealed partial class UserBenchStore
             return Result<UserBenchSnapshot>.Ok(after);
         }
         catch (ArgumentException ex) { return Result<UserBenchSnapshot>.Fail(ErrorCode.InvalidInput, ex.Message); }
+        catch (ConnectionBindingResolutionException) { return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "A native authoring operation protects an imported Bench."); }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<UserBenchSnapshot>(ex); }
     }
 
@@ -112,6 +122,7 @@ public sealed partial class UserBenchStore
     {
         try
         {
+            using var authoring = AcquireAuthoringLease(id);
             await using var db = await Open(ct).ConfigureAwait(false);
             using var transaction = db.BeginTransaction(deferred: false);
             var current = await Find(db, transaction, id, ct).ConfigureAwait(false);
@@ -125,6 +136,7 @@ public sealed partial class UserBenchStore
             transaction.Commit();
             return Result<bool>.Ok(true);
         }
+        catch (ConnectionBindingResolutionException) { return Result<bool>.Fail(ErrorCode.Conflict, "The Bench has an active native authoring operation."); }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
     }
 
@@ -376,6 +388,7 @@ public sealed partial class UserBenchStore
             var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
             var key = OperatingSystem.IsWindows() ? full.ToUpperInvariant() : full;
             var binding = JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection);
+            using var authoring = AcquireAuthoringLeases(legacy.Select(bench => bench.Id));
             await using var db = await Open(ct).ConfigureAwait(false);
             await using (var probe = db.CreateCommand())
             {
@@ -446,6 +459,7 @@ public sealed partial class UserBenchStore
             return Result<bool>.Ok(true);
         }
         catch (ArgumentException ex) { return Result<bool>.Fail(ErrorCode.InvalidInput, ex.Message); }
+        catch (ConnectionBindingResolutionException) { return Result<bool>.Fail(ErrorCode.Conflict, "A native authoring operation protects an observed Bench."); }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
     }
 
@@ -456,6 +470,7 @@ public sealed partial class UserBenchStore
         {
             var before = captured.ToDictionary(bench => bench.Id);
             var after = proposed.ToDictionary(bench => bench.Id);
+            using var authoring = AcquireAuthoringLeases(before.Keys.Union(after.Keys));
             await using var db = await Open(ct).ConfigureAwait(false);
             using var transaction = db.BeginTransaction(deferred: false);
             var changed = false;
@@ -485,6 +500,7 @@ public sealed partial class UserBenchStore
             return Result<bool>.Ok(true);
         }
         catch (ArgumentException ex) { return Result<bool>.Fail(ErrorCode.InvalidInput, ex.Message); }
+        catch (ConnectionBindingResolutionException) { return Result<bool>.Fail(ErrorCode.Conflict, "A native authoring operation protects the captured Bench."); }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
     }
 

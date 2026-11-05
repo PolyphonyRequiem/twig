@@ -485,6 +485,24 @@ public sealed partial class GitHubCoreSpineTests
             using var handle = opened.Value;
             await action(handle.Workspace);
         }
+        internal async Task UseEditor(bool plan, Func<NativeEditor, UserBenchStore, Bench, Task> action)
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<IConnectionBindingService>(_bindings);
+            services.AddSingleton(_processes);
+            services.AddSingleton(new CoreTransportOverride(Http.NewHandle));
+            services.AddTwigWorkspaceServices(Root, [], Path.Combine(Root, "display.json"));
+            using var provider = services.BuildServiceProvider();
+            var factory = provider.GetRequiredService<CoreWorkspaceFactory>();
+            using var handle = (await factory.OpenAsync(default)).Value;
+            var user = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+            var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Native editor", []), 0)).Value;
+            if (plan) (await user.SetPlanModeAsync((await user.ReadAsync()).Value.InstanceId, bench.Id, bench.Revision, 0, true)).IsSuccess.ShouldBeTrue();
+            var opened = await NativeEditor.OpenAsync(factory, user, bench.Id, handle.Source, default);
+            opened.IsSuccess.ShouldBeTrue(opened.IsSuccess ? "" : opened.Error.Message);
+            using var editor = opened.Value;
+            await action(editor, user, bench);
+        }
         public void Dispose()
         {
             _registry.Dispose(); _bindings.Dispose(); Http.Dispose();

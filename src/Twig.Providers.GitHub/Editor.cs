@@ -7,23 +7,36 @@ public sealed partial class GitHubProvider
 {
     public sealed class EditorMetadata
     {
-        internal EditorMetadata(GitHubProvider owner, ProcessSchema schema, string authority)
-            => (Owner, Schema, Authority) = (owner, schema, authority);
+        internal EditorMetadata(GitHubProvider owner, Discovery discovery, string authority)
+            => (Owner, Discovery, Authority) = (owner, discovery, authority);
+        internal Discovery Discovery { get; }
         internal GitHubProvider Owner { get; }
         internal string Authority { get; }
-        public ProcessSchema Schema { get; }
+        public ProcessSchema Schema => Discovery.Schema;
     }
 
     public Task<Result<EditorMetadata>> CaptureEditorMetadataAsync(Connection connection, CancellationToken ct)
         => Guard(() => WithSession(connection, async (bound, token) =>
-            new EditorMetadata(this, (await Discover(bound, token, includePresentation: true)).Schema, bound.Authority), ct));
+            new EditorMetadata(this, await Discover(bound, token, includePresentation: true), bound.Authority), ct));
+
+    public Task<Result<QueryPage>> ReadEditorAsync(EditorMetadata capture, ImmutableArray<ItemKey> keys, CancellationToken ct)
+        => Guard(() => WithSession(_connection, async (bound, token) =>
+        {
+            CheckEditor(capture, bound);
+            return await Refresh(bound, capture.Discovery, keys, token, captureOnly: true);
+        }, ct));
+
+    private void CheckEditor(EditorMetadata capture, Bound bound)
+    {
+        if (capture is null || !ReferenceEquals(capture.Owner, this) || capture.Schema.Connection != _connection || capture.Authority != bound.Authority)
+            throw Wire.Refuse(ErrorCode.Conflict, "The native editor actor/resource/schema capture changed.");
+    }
 
     public Task<Result<EditorChoices>> EditorChoicesAsync(EditorMetadata capture, string type, string field, string query, int limit,
         CancellationToken ct)
         => Guard(() => WithSession(_connection, async (bound, token) =>
         {
-            if (capture is null || !ReferenceEquals(capture.Owner, this) || capture.Schema.Connection != _connection || capture.Authority != bound.Authority)
-                throw Wire.Refuse(ErrorCode.Conflict, "The native editor actor/resource/schema capture changed.");
+            CheckEditor(capture, bound);
             if (limit is < 1 or > 50 || query is null || query.Length > 128 || query.Any(char.IsControl))
                 throw Wire.Refuse(ErrorCode.InvalidInput, "Native choice queries require bounded text and 1-50 results.");
             var itemType = capture.Schema.Types.SingleOrDefault(value => value.Reference == type);

@@ -6,8 +6,8 @@ namespace Twig.Providers.Ado;
 
 public sealed partial class AdoProvider
 {
-    private sealed record NativeRelation(string Reference, string Canonical, bool Forward, RelationShape Shape, bool Directed);
-    private sealed record Discovery(ProcessSchema Schema, ImmutableDictionary<string, string> TypeNames,
+    internal sealed record NativeRelation(string Reference, string Canonical, bool Forward, RelationShape Shape, bool Directed);
+    internal sealed record Discovery(ProcessSchema Schema, ImmutableDictionary<string, string> TypeNames,
         ImmutableDictionary<string, NativeRelation> Relations, ImmutableDictionary<string, FieldDef> Fields,
         ImmutableHashSet<string> NonItemRelations);
 

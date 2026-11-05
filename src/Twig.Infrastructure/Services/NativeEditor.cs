@@ -1,0 +1,287 @@
+using System.Collections.Immutable;
+using System.Text;
+using Twig.Core;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Persistence;
+using Model = Twig.Core.Core;
+
+namespace Twig.Infrastructure.Services;
+
+internal sealed record NativeEditorItem(WorkItem Observation, Draft? Draft, long StoreVersion,
+    NativeEditorCapture? Capture, EditorEvaluation Evaluation);
+
+/// <summary>Native-only authoring session. Cached guidance never grants publication authority.</summary>
+internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore user, CoreWorkspaceHandle handle,
+    NativeSourceStamp origin, UserBenchSnapshot library, Bench bench, NativeBenchPlan plan, NativePlanScope? scope,
+    NativeEditorMetadata metadata) : IDisposable
+{
+    internal NativeEditorMetadata Metadata => metadata;
+    internal CoreWorkspace Workspace => handle.Workspace;
+    internal NativeBenchPlan Plan => plan;
+    internal NativeSourceStamp Origin => origin;
+    internal Guid BenchId => bench.Id;
+    public void Dispose() => handle.Dispose();
+
+    internal static async Task<Result<NativeEditor>> OpenAsync(CoreWorkspaceFactory factory, UserBenchStore user,
+        Guid benchId, NativeSourceStamp expectedSource, CancellationToken ct)
+    {
+        var opened = await factory.OpenAsync(ct).ConfigureAwait(false);
+        if (!opened.IsSuccess) return Result<NativeEditor>.Fail(opened.Error);
+        var handle = opened.Value;
+        try
+        {
+            if (handle.Source != expectedSource)
+                return Result<NativeEditor>.Fail(ErrorCode.Conflict, "The selected native editor source changed.");
+            var admitted = await factory.AdmitSourceAsync(handle, ct).ConfigureAwait(false);
+            if (!admitted.IsSuccess) return Result<NativeEditor>.Fail(admitted.Error);
+            var library = await user.ReadAsync(ct).ConfigureAwait(false);
+            if (!library.IsSuccess) return Result<NativeEditor>.Fail(library.Error);
+            var bench = library.Value.Benches.SingleOrDefault(value => value.Id == benchId);
+            if (bench is null) return Result<NativeEditor>.Fail(ErrorCode.NotFound, "The selected Bench no longer exists.");
+            var mode = await user.ReadPlanAsync(benchId, ct).ConfigureAwait(false);
+            if (!mode.IsSuccess) return Result<NativeEditor>.Fail(mode.Error);
+            NativePlanScope? scope = null;
+            if (mode.Value.PlanMode)
+            {
+                scope = mode.Value.Scopes.SingleOrDefault(value => value.State != NativePlanScopeState.Superseded
+                    && value.Source.Connection == expectedSource.Connection);
+                if (scope is null)
+                {
+                    mode = await user.ReservePlanScopeAsync(library.Value.InstanceId, benchId, mode.Value.Revision,
+                        factory.WorkspaceRoot, expectedSource, ct).ConfigureAwait(false);
+                    if (!mode.IsSuccess) return Result<NativeEditor>.Fail(mode.Error);
+                    scope = mode.Value.Scopes.Single(value => value.Source == expectedSource && value.State == NativePlanScopeState.Preparing);
+                }
+                if (scope.Source != expectedSource)
+                    return Result<NativeEditor>.Fail(ErrorCode.Conflict, "This Plan belongs to another exact origin; reassociation is explicit.");
+                if (scope.State == NativePlanScopeState.Preparing)
+                {
+                    mode = await user.CompleteCoveredPlanScopeAsync(library.Value.InstanceId, benchId, mode.Value.Revision,
+                        scope.Id, factory.ExecutionRegistryPath, new(expectedSource.StoreInstance, handle.Document.DatabasePath,
+                            factory.WorkspaceRoot, expectedSource.Connection), ct).ConfigureAwait(false);
+                    if (!mode.IsSuccess) return Result<NativeEditor>.Fail(mode.Error);
+                    scope = mode.Value.Scopes.Single(value => value.Id == scope.Id);
+                }
+                var scoped = await factory.OpenScopedAsync(scope, expectedSource, ct).ConfigureAwait(false);
+                if (!scoped.IsSuccess) return Result<NativeEditor>.Fail(scoped.Error);
+                handle.Dispose();
+                handle = scoped.Value;
+            }
+            var captured = await handle.Workspace.CaptureEditorMetadataAsync(ct).ConfigureAwait(false);
+            if (!captured.IsSuccess) return Result<NativeEditor>.Fail(captured.Error);
+            var editor = new NativeEditor(factory, user, handle, expectedSource, library.Value, bench, mode.Value, scope, captured.Value);
+            handle = null!;
+            return Result<NativeEditor>.Ok(editor);
+        }
+        finally { handle?.Dispose(); }
+    }
+
+    internal async Task<Result<NativeEditorItem>> SelectAsync(ItemKey key, CancellationToken ct)
+    {
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
+        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        WorkItem observed;
+        if (!key.IsLocal)
+        {
+            var read = await Workspace.ReadAsync(key, ct, metadata).ConfigureAwait(false);
+            if (!read.IsSuccess) return Result<NativeEditorItem>.Fail(read.Error);
+            observed = read.Value;
+        }
+        else
+        {
+            var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+            if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
+            var seed = stored.Value.Drafts.SingleOrDefault(draft => draft.Key == key);
+            if (seed is null) return Result<NativeEditorItem>.Fail(ErrorCode.NotFound, "The exact owned seed is unavailable.");
+            observed = new(key, seed.Type, FieldValues.Empty, null, true);
+        }
+        return await Item(observed, ct).ConfigureAwait(false);
+    }
+
+    private async Task<Result<NativeEditorItem>> Item(WorkItem observed, CancellationToken ct)
+    {
+        var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
+        var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
+        if (!captures.IsSuccess) return Result<NativeEditorItem>.Fail(captures.Error);
+        var matches = captures.Value.Where(value => !value.Settled && value.StoreInstance == handle.Document.DatabaseInstance
+            && value.PlanMode == plan.PlanMode && (!plan.PlanMode || value.PlanId == plan.Id)
+            && UserBenchStore.ParseIntent(value.IntentJson).Operations[0].Item == observed.Key).ToArray();
+        if (matches.Length > 1)
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Multiple protected native captures own this target; none was selected implicitly.");
+        if (matches.SingleOrDefault() is { } retained
+            && (retained.Origin != origin || !NativePathComparer.Instance.Equals(retained.Root, factory.WorkspaceRoot)))
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Retained intent belongs to another native authority/origin; it was not adopted.");
+        var draft = stored.Value.Drafts.SingleOrDefault(value => value.Key == observed.Key);
+        var evaluation = Model.EvaluateEditorFields(metadata.Schema, draft?.Baseline ?? observed, draft?.Changes ?? FieldValues.Empty,
+            Workspace.Capabilities.AtomicFieldBatches, draft?.Type);
+        return evaluation.IsSuccess ? Result<NativeEditorItem>.Ok(new(observed, draft, stored.Value.Version, matches.SingleOrDefault(), evaluation.Value))
+            : Result<NativeEditorItem>.Fail(evaluation.Error);
+    }
+
+    internal async Task<Result<NativeEditorItem>> StageAsync(NativeEditorItem item, FieldValues fields, string? type,
+        ImmutableArray<CreationLink>? relationships, CancellationToken ct)
+    {
+        using var benchLease = user.AcquireAuthoringLease(bench.Id);
+        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
+        var current = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<NativeEditorItem>.Fail(current.Error);
+        if (plan.PlanMode && item.Observation.Key.IsLocal)
+        {
+            var owner = await user.ReadPlanSeedOwnerAsync(item.Observation.Key.LocalId, ct).ConfigureAwait(false);
+            if (!owner.IsSuccess) return Result<NativeEditorItem>.Fail(owner.Error);
+            if (owner.Value.PlanId != plan.Id || owner.Value.ScopeId != scope?.Id || owner.Value.StoreInstance != handle.Document.DatabaseInstance)
+                return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The permanent seed belongs to another exact native scope.");
+        }
+        if (current.Value.Version != item.StoreVersion || Workspace.DraftFingerprint(item.Draft)
+            != Workspace.DraftFingerprint(current.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)))
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The opened native/draft version changed; no intent was overwritten.");
+        var priorIntent = item.Capture is null ? null : UserBenchStore.ParseIntent(item.Capture.IntentJson);
+        var old = priorIntent?.Operations.Single();
+        if (item.Capture is { Ready: false })
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "An incomplete durable capture needs explicit native recovery; all intent remains protected.");
+        if (priorIntent is not null && priorIntent.SchemaFingerprint != metadata.Schema.Fingerprint)
+            return Result<NativeEditorItem>.Fail(ErrorCode.SchemaChanged, "Retained intent has another captured schema; no metadata was silently replaced.");
+        var links = relationships ?? (item.Observation.Key.IsLocal ? item.Draft?.Links ?? [] : old?.Links ?? []);
+        if (links.Length > 128 || fields.Count > 256)
+            return Result<NativeEditorItem>.Fail(ErrorCode.InvalidInput, "Native editor field/relationship bounds exceeded.");
+        if (!item.Observation.Key.IsLocal && old is { Links.IsEmpty: false } && old.ExpectedRevision != item.Observation.Revision)
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Retained relationship intent has an older baseline; it was not silently rebased.");
+        var desired = new Draft(item.Observation.Key, type ?? item.Draft?.Type ?? item.Observation.Type,
+            item.Observation.Key.IsLocal ? null : item.Draft?.Baseline ?? item.Observation,
+            (item.Draft?.Changes ?? FieldValues.Empty).Overlay(fields), item.Draft?.Parent, item.Draft?.ParentRelation,
+            item.Draft?.Resource, item.Observation.Key.IsLocal ? links : []);
+        var endpoints = ImmutableArray.CreateBuilder<NativeEditorEndpoint>();
+        foreach (var endpoint in links.Select(link => link.Other).Distinct())
+        {
+            if (endpoint.IsLocal)
+            {
+                var draft = current.Value.Drafts.SingleOrDefault(value => value.Key == endpoint);
+                if (draft is null) return Result<NativeEditorItem>.Fail(ErrorCode.NotFound, "An exact relationship seed endpoint is missing.");
+                if (plan.PlanMode)
+                {
+                    var owner = await user.ReadPlanSeedOwnerAsync(endpoint.LocalId, ct).ConfigureAwait(false);
+                    if (!owner.IsSuccess) return Result<NativeEditorItem>.Fail(owner.Error);
+                    if (owner.Value.PlanId != plan.Id || owner.Value.ScopeId != scope?.Id || owner.Value.StoreInstance != handle.Document.DatabaseInstance)
+                        return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "A relationship seed endpoint is owned by another exact native scope.");
+                }
+                endpoints.Add(new(CleanCoreAdoAccess.ItemText(endpoint), null, Workspace.DraftFingerprint(draft)));
+            }
+            else
+            {
+                var read = await Workspace.ReadAsync(endpoint, ct, metadata).ConfigureAwait(false);
+                if (!read.IsSuccess) return Result<NativeEditorItem>.Fail(read.Error);
+                endpoints.Add(new(CleanCoreAdoAccess.ItemText(endpoint), read.Value.Revision?.Token, "none"));
+            }
+        }
+        if (relationships is null && item.Capture is { } previous && !previous.Endpoints.SequenceEqual(endpoints))
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "A captured relationship endpoint changed; intent was not silently rebound.");
+        var beforeStage = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!beforeStage.IsSuccess) return Result<NativeEditorItem>.Fail(beforeStage.Error);
+        if (Workspace.DraftFingerprint(beforeStage.Value.Drafts.SingleOrDefault(value => value.Key == desired.Key))
+            != Workspace.DraftFingerprint(item.Draft))
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Draft intent changed while endpoint evidence was captured.");
+        var op = new Op("intent", desired.Key.IsLocal ? OpKind.Create : OpKind.Batch, desired.Key, item.Observation.Revision,
+            desired.Changes, desired.Type, desired.Parent, desired.ParentRelation, resource: desired.Resource, links: links,
+            concurrency: desired.Key.IsLocal ? ConcurrencyMode.ObservedNonAtomic : Workspace.Concurrency);
+        var intent = Encoding.UTF8.GetString(Model.ProposalBytes(new(Workspace.Connection, metadata.Schema.Fingerprint, beforeStage.Value.Version, [op])));
+        var capture = new NativeEditorCapture(item.Capture?.Id ?? Guid.NewGuid(), (item.Capture?.Revision ?? 0) + 1,
+            library.InstanceId, bench.Id, bench.Revision, plan.Id, plan.Revision, plan.PlanMode, scope?.Id ?? Guid.Empty,
+            origin, factory.WorkspaceRoot, handle.Document.DatabaseInstance, beforeStage.Value.Version, intent,
+            Workspace.DraftFingerprint(desired), false) { Endpoints = endpoints.ToImmutable() };
+        var retained = await user.SaveEditorCaptureAsync(capture, capture.Revision - 1, ct).ConfigureAwait(false);
+        if (!retained.IsSuccess) return Result<NativeEditorItem>.Fail(retained.Error);
+        var staged = desired.Key.IsLocal
+            ? await Workspace.StageSeedAsync(desired.Type, fields, ct, desired.Key.LocalId,
+                desired.Parent, desired.ParentRelation, desired.Resource, links).ConfigureAwait(false)
+            : await Workspace.StageEditAsync(desired.Key, fields, ct, type, item.Observation, beforeStage.Value.Version).ConfigureAwait(false);
+        if (!staged.IsSuccess) return Result<NativeEditorItem>.Fail(staged.Error);
+        var after = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!after.IsSuccess) return Result<NativeEditorItem>.Fail(after.Error);
+        var ready = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1, Ready = true,
+            StoreVersion = after.Value.Version }, capture.Revision, ct).ConfigureAwait(false);
+        return ready.IsSuccess ? await Item(item.Observation, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(ready.Error);
+    }
+
+    internal async Task<Result<CoreExecution>> SaveAsync(NativeEditorItem item, CancellationToken ct)
+    {
+        using var benchLease = user.AcquireAuthoringLease(bench.Id);
+        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        if (plan.PlanMode)
+            return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Plan stages locally; publish only its exact whole-Bench review.");
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return Result<CoreExecution>.Fail(valid.Error);
+        var capture = item.Capture;
+        var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!stored.IsSuccess) return Result<CoreExecution>.Fail(stored.Error);
+        var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
+        if (!captures.IsSuccess) return Result<CoreExecution>.Fail(captures.Error);
+        if (capture is not { Ready: true, Settled: false } || !captures.Value.Any(value => value.SameAs(capture))
+            || capture.Origin != origin || stored.Value.Version != item.StoreVersion
+            || capture.PlanMode || !NativePathComparer.Instance.Equals(capture.Root, factory.WorkspaceRoot)
+            || Workspace.DraftFingerprint(stored.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)) != capture.DraftFingerprint)
+            return Result<CoreExecution>.Fail(ErrorCode.Conflict, "The exact normal capture, source or native/draft revision changed.");
+        if (capture.UserInstance != library.InstanceId || capture.BenchId != bench.Id || capture.BenchRevision != bench.Revision
+            || capture.PlanId != plan.Id || capture.PlanRevision != plan.Revision)
+        {
+            var rebound = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1,
+                UserInstance = library.InstanceId, BenchId = bench.Id, BenchRevision = bench.Revision,
+                PlanId = plan.Id, PlanRevision = plan.Revision }, capture.Revision, ct).ConfigureAwait(false);
+            if (!rebound.IsSuccess) return Result<CoreExecution>.Fail(rebound.Error);
+            capture = rebound.Value;
+        }
+        var intent = UserBenchStore.ParseIntent(capture.IntentJson);
+        var schema = await Workspace.SchemaAsync(ct).ConfigureAwait(false);
+        if (!schema.IsSuccess) return Result<CoreExecution>.Fail(schema.Error);
+        if (schema.Value.Fingerprint != intent.SchemaFingerprint)
+            return Result<CoreExecution>.Fail(ErrorCode.SchemaChanged, "The native editor schema changed; reopen without losing captured intent.");
+        var op = intent.Operations.Single();
+        var preview = await Workspace.PreviewEditorDraftAsync(op.Item, op.Item.IsLocal ? [] : op.Links, op.ExpectedRevision, ct,
+            capture.Endpoints).ConfigureAwait(false);
+        if (!preview.IsSuccess) return Result<CoreExecution>.Fail(preview.Error);
+        var result = await Workspace.SaveDraftAsync(preview.Value, preview.Value.Proposal?.Digest, ct).ConfigureAwait(false);
+        if (!result.IsSuccess || !result.Value.EffectsVerified || result.Value.DraftRetained) return result;
+        var settled = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1, Settled = true },
+            capture.Revision, ct).ConfigureAwait(false);
+        return settled.IsSuccess ? result : Result<CoreExecution>.Ok(result.Value with { DraftRetained = true, Error = settled.Error });
+    }
+
+    internal async Task<Result<NativeEditorItem>> RecoverCaptureAsync(NativeEditorItem item, CancellationToken ct)
+    {
+        using var benchLease = user.AcquireAuthoringLease(bench.Id);
+        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
+        var capture = item.Capture;
+        var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
+        if (capture is not { Ready: false, Settled: false } || capture.Origin != origin
+            || stored.Value.Version <= capture.StoreVersion
+            || Workspace.DraftFingerprint(stored.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)) != capture.DraftFingerprint)
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "No exact durable native draft proves this interrupted capture; every artifact remains protected.");
+        var ready = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1,
+            Ready = true, StoreVersion = stored.Value.Version }, capture.Revision, ct).ConfigureAwait(false);
+        return ready.IsSuccess ? await Item(item.Observation, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(ready.Error);
+    }
+
+    internal async Task<Result<bool>> ValidateAsync(CancellationToken ct)
+    {
+        var now = await user.ReadAsync(ct).ConfigureAwait(false);
+        if (!now.IsSuccess) return Result<bool>.Fail(now.Error);
+        var mode = await user.ReadPlanAsync(bench.Id, ct).ConfigureAwait(false);
+        if (!mode.IsSuccess) return Result<bool>.Fail(mode.Error);
+        if (now.Value.InstanceId != library.InstanceId || !now.Value.Benches.Any(value => value.Id == bench.Id && value.Revision == bench.Revision)
+            || mode.Value.Id != plan.Id || mode.Value.Revision != plan.Revision || mode.Value.PlanMode != plan.PlanMode
+            || scope is not null && !mode.Value.Scopes.Contains(scope))
+            return Result<bool>.Fail(ErrorCode.Conflict, "The opened Bench/mode/scope handle is stale; retained intent was preserved.");
+        var opened = await factory.OpenAsync(ct).ConfigureAwait(false);
+        if (!opened.IsSuccess) return Result<bool>.Fail(opened.Error);
+        using var current = opened.Value;
+        if (current.Source != origin)
+            return Result<bool>.Fail(ErrorCode.Conflict, "The native actor, origin store or authority changed.");
+        return await factory.AdmitSourceAsync(current, ct).ConfigureAwait(false);
+    }
+}

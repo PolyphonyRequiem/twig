@@ -40,19 +40,31 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             using var command = db.CreateCommand(); command.Transaction = tx;
             command.CommandText = witnessed
                 ? "UPDATE editor_user_heads SET birth='born' WHERE path=$path AND user_id=$user AND birth='reserved' AND generation=0;"
-                : "INSERT INTO editor_user_heads VALUES($path,$user,0,'','reserved');";
+                : "INSERT INTO editor_user_heads(path,user_id,generation,head,birth) VALUES($path,$user,0,'','reserved');";
             command.Parameters.AddWithValue("$path", path); command.Parameters.AddWithValue("$user", user.ToString("D"));
             return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1 ? Result<bool>.Ok(true)
                 : Result<bool>.Fail(ErrorCode.Conflict, "The exact native user-store birth witness changed.");
         }, ct);
 
-    internal Task<Result<bool>> MigrateCaptureUserAsync(string path, Guid user, string proof, CancellationToken ct)
+    internal Task<Result<bool>> MigrateCaptureUserAsync(string path, Guid user, string proof, CancellationToken ct, string confirmation = "")
         => CaptureWrite(async (db, tx) =>
         {
             using var command = db.CreateCommand(); command.Transaction = tx;
-            command.CommandText = "INSERT INTO editor_user_heads VALUES($path,$user,0,'',$proof);";
+            if (Encoding.UTF8.GetByteCount(confirmation) > 2 * 1024 * 1024)
+                return Result<bool>.Fail(ErrorCode.InvalidInput, "Initial-authoring proof exceeds its byte bound.");
+            command.CommandText = "PRAGMA table_info(editor_user_heads);";
+            var hasProof = false;
+            using (var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
+                while (await reader.ReadAsync(ct).ConfigureAwait(false)) hasProof |= reader.GetString(1) == "adoption_proof";
+            if (!hasProof)
+            {
+                command.CommandText = "ALTER TABLE editor_user_heads ADD COLUMN adoption_proof TEXT NOT NULL DEFAULT '';";
+                await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+            command.CommandText = "INSERT INTO editor_user_heads(path,user_id,generation,head,birth,adoption_proof) VALUES($path,$user,0,'',$proof,$confirmation);";
             command.Parameters.AddWithValue("$path", path); command.Parameters.AddWithValue("$user", user.ToString("D"));
             command.Parameters.AddWithValue("$proof", "migrating:" + proof);
+            command.Parameters.AddWithValue("$confirmation", confirmation);
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             return Result<bool>.Ok(true);
         }, ct);

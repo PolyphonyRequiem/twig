@@ -74,7 +74,8 @@ public sealed partial class UserBenchStore
         return head;
     }
 
-    internal async Task<Result<string>> CaptureInventoryEvidenceAsync(IEnumerable<NativeCoreStoreReference> sources, CancellationToken ct)
+    internal async Task<Result<string>> CaptureInventoryEvidenceAsync(IEnumerable<NativeCoreStoreReference> sources, CancellationToken ct,
+        InitialAuthoringObservation? initialAuthoring = null)
     {
         try
         {
@@ -83,7 +84,13 @@ public sealed partial class UserBenchStore
             using var registry = new SqliteSystemWorktreeRegistry(captureRegistry!, TimeProvider.System);
             var heads = await registry.CaptureHeadsAsync(ct).ConfigureAwait(false);
             if (!heads.IsSuccess) return Result<string>.Fail(heads.Error);
-            if (heads.Value.Any(value => NativePathComparer.Instance.Equals(value.Path, path))) return await registry.CaptureInventoryAsync(ct).ConfigureAwait(false);
+            var user = (await ReadAsync(ct).ConfigureAwait(false)).Value.InstanceId;
+            if (heads.Value.Any(value => NativePathComparer.Instance.Equals(value.Path, path) || value.User == user))
+                return initialAuthoring is not null
+                    ? Result<string>.Fail(ErrorCode.Unavailable, "Existing capture provenance cannot be replaced by readonly adoption.")
+                    : await registry.CaptureInventoryAsync(ct).ConfigureAwait(false);
+            if (initialAuthoring is not null)
+                return Result<string>.Ok(await NativeInitialAuthoring.Evidence(path, initialAuthoring, sources, ct).ConfigureAwait(false));
             var captures = await ReadEditorCapturesAsync(ct, inspect: true).ConfigureAwait(false);
             if (!captures.IsSuccess) return Result<string>.Fail(captures.Error);
             if (captures.Value.IsEmpty || captures.Value.Any(capture => !capture.Ready))
@@ -105,7 +112,8 @@ public sealed partial class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<string>(ex); }
     }
 
-    internal async Task<Result<bool>> MigrateCaptureProvenanceAsync(IEnumerable<NativeCoreStoreReference> sources, CancellationToken ct)
+    internal async Task<Result<bool>> MigrateCaptureProvenanceAsync(IEnumerable<NativeCoreStoreReference> sources, CancellationToken ct,
+        InitialAuthoringObservation? initialAuthoring = null, string proof = "", string? expectedEvidence = null)
     {
         try
         {
@@ -114,14 +122,20 @@ public sealed partial class UserBenchStore
             var heads = await registry.CaptureHeadsAsync(ct).ConfigureAwait(false);
             if (!heads.IsSuccess) return Result<bool>.Fail(heads.Error);
             if (heads.Value.Any(value => NativePathComparer.Instance.Equals(value.Path, path))) return Result<bool>.Ok(true);
-            var evidence = await CaptureInventoryEvidenceAsync(sources, ct).ConfigureAwait(false);
-            if (!evidence.IsSuccess) return Result<bool>.Fail(evidence.Error);
             await using var db = await Open(ct).ConfigureAwait(false);
+            using var adoption = initialAuthoring is null ? null : db.BeginTransaction(deferred: false);
+            var evidence = await CaptureInventoryEvidenceAsync(sources, ct, initialAuthoring).ConfigureAwait(false);
+            if (!evidence.IsSuccess) return Result<bool>.Fail(evidence.Error);
+            if (expectedEvidence is not null && evidence.Value != expectedEvidence)
+                return Result<bool>.Fail(ErrorCode.Conflict, "The exact namespace inventory changed before reservation.");
+            if (initialAuthoring is not null && proof.Length == 0)
+                return Result<bool>.Fail(ErrorCode.PolicyViolation, "Initial authoring confirmation evidence is missing.");
             var user = (await ReadAsync(ct).ConfigureAwait(false)).Value.InstanceId;
             var identity = (await registry.ReadCoreGateAsync(ct).ConfigureAwait(false)).Value.Instance;
-            var registered = await registry.MigrateCaptureUserAsync(path, user, evidence.Value, ct).ConfigureAwait(false);
+            var migration = initialAuthoring is null ? evidence.Value : NativeInitialAuthoring.Hash(evidence.Value);
+            var registered = await registry.MigrateCaptureUserAsync(path, user, migration, ct, proof).ConfigureAwait(false);
             if (!registered.IsSuccess) return registered;
-            using (var tx = db.BeginTransaction(deferred: false))
+            using (var tx = adoption ?? db.BeginTransaction(deferred: false))
             {
                 using var command = db.CreateCommand(); command.Transaction = tx;
                 command.CommandText = """
@@ -133,6 +147,8 @@ public sealed partial class UserBenchStore
                 command.Parameters.AddWithValue("$registry", identity.ToString("N"));
                 await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false); tx.Commit();
             }
+            if (initialAuthoring is not null)
+                return await registry.CompleteCaptureMigrationAsync(user, migration, ct).ConfigureAwait(false);
             using var rows = db.CreateCommand(); rows.CommandText = "SELECT document FROM editor_captures ORDER BY id;";
             var documents = new List<string>();
             using (var reader = await rows.ExecuteReaderAsync(ct).ConfigureAwait(false))

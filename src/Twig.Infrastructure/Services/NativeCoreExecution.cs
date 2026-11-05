@@ -18,6 +18,7 @@ internal sealed record NativeCoreInventory(Guid Instance, long Revision, string 
     ImmutableArray<string> ExplicitRoots, ImmutableArray<NativeCoreStoreReference> ExplicitStores)
 {
     public string CaptureDigest { get; init; } = "";
+    internal InitialAuthoringObservation? InitialAuthoring { get; init; }
 }
 
 internal static class NativeCoreExecution
@@ -44,7 +45,7 @@ internal static class NativeCoreExecution
 
     internal static async Task<Result<NativeCoreInventory>> InventoryAsync(string registryPath,
         IEnumerable<string>? explicitRoots = null, IEnumerable<NativeCoreStoreReference>? explicitStores = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, InitialAuthoringObservation? initialAuthoring = null)
     {
         try
         {
@@ -156,38 +157,46 @@ internal static class NativeCoreExecution
                         return Result<NativeCoreInventory>.Fail(ErrorCode.StorageUnavailable, "Original GitHub intent lacks its exact retained Core store/journal; ACK cannot settle it.");
                 }
             }
-            var captureInventory = await benches.CaptureInventoryEvidenceAsync(captured.Value.Sources, ct).ConfigureAwait(false);
+            var captureInventory = await benches.CaptureInventoryEvidenceAsync(captured.Value.Sources, ct, initialAuthoring).ConfigureAwait(false);
             if (!captureInventory.IsSuccess) return Result<NativeCoreInventory>.Fail(captureInventory.Error);
             var payload = JsonSerializer.Serialize(new NativeCoreInventory(captured.Value.Instance, captured.Value.Revision, "",
                 captured.Value.Sources, versions.ToImmutable(), suppliedRoots, suppliedStores) { CaptureDigest = captureInventory.Value }, NativeCoreExecutionJson.Default.NativeCoreInventory);
             var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload + evidence)));
             return Result<NativeCoreInventory>.Ok(new(captured.Value.Instance, captured.Value.Revision, digest,
-                captured.Value.Sources, versions.ToImmutable(), suppliedRoots, suppliedStores) { CaptureDigest = captureInventory.Value });
+                captured.Value.Sources, versions.ToImmutable(), suppliedRoots, suppliedStores) { CaptureDigest = captureInventory.Value, InitialAuthoring = initialAuthoring });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException)
         { return Result<NativeCoreInventory>.Fail(ErrorCode.StorageUnavailable, "Native source inventory could not be established; original evidence was preserved."); }
     }
 
     internal static async Task<Result<bool>> ActivateAsync(string registryPath, NativeCoreInventory inventory,
-        string exactDigest, bool completeInventoryConfirmed, bool oldProcessesQuiesced, CancellationToken ct = default)
+        string exactDigest, bool completeInventoryConfirmed, bool oldProcessesQuiesced, CancellationToken ct = default,
+        string? initialAuthoringConfirmation = null)
     {
         if (!completeInventoryConfirmed || !oldProcessesQuiesced)
             return Result<bool>.Fail(ErrorCode.PolicyViolation, "Actual source-inventory completeness and old-process quiescence must be explicitly confirmed.");
         if (exactDigest != inventory.Digest) return Result<bool>.Fail(ErrorCode.DigestMismatch, "Confirm the exact native inventory digest.");
+        if (inventory.InitialAuthoring is not null && initialAuthoringConfirmation != NativeInitialAuthoring.Statement(exactDigest))
+            return Result<bool>.Fail(ErrorCode.PolicyViolation, "Explicit initial-authoring namespace confirmation is required for this exact inventory.");
         try
         {
             ct.ThrowIfCancellationRequested();
             using var lease = ConnectionOperationGate.AcquireCoreTargets(registryPath, inventory.Sources.Select(source => Destination(source.Connection)));
-            var fresh = await InventoryAsync(registryPath, inventory.ExplicitRoots, inventory.ExplicitStores, ct).ConfigureAwait(false);
+            var fresh = await InventoryAsync(registryPath, inventory.ExplicitRoots, inventory.ExplicitStores, ct, inventory.InitialAuthoring).ConfigureAwait(false);
             if (!fresh.IsSuccess) return Result<bool>.Fail(fresh.Error);
             if (fresh.Value.Digest != inventory.Digest)
                 return Result<bool>.Fail(ErrorCode.Conflict, "Native inventory/evidence changed; no activation was inferred.");
-            var migrated = await UserBenchStore.ForRegistry(registryPath).MigrateCaptureProvenanceAsync(fresh.Value.Sources, ct).ConfigureAwait(false);
+            var proof = inventory.InitialAuthoring is null ? "" : JsonSerializer.Serialize(inventory, NativeCoreExecutionJson.Default.NativeCoreInventory)
+                + "\ncompleteInventory=true;oldProcessesQuiesced=true\n" + initialAuthoringConfirmation;
+            var migrated = await UserBenchStore.ForRegistry(registryPath).MigrateCaptureProvenanceAsync(fresh.Value.Sources, ct,
+                inventory.InitialAuthoring, proof, fresh.Value.CaptureDigest).ConfigureAwait(false);
             if (!migrated.IsSuccess) return migrated;
-            if (fresh.Value.CaptureDigest.StartsWith("legacy:", StringComparison.Ordinal))
+            if (fresh.Value.CaptureDigest.StartsWith("legacy:", StringComparison.Ordinal) || inventory.InitialAuthoring is not null)
             {
                 fresh = await InventoryAsync(registryPath, inventory.ExplicitRoots, inventory.ExplicitStores, ct).ConfigureAwait(false);
                 if (!fresh.IsSuccess) return Result<bool>.Fail(fresh.Error);
+                if (!fresh.Value.Sources.SequenceEqual(inventory.Sources) || !fresh.Value.Versions.SequenceEqual(inventory.Versions))
+                    return Result<bool>.Fail(ErrorCode.Conflict, "Core inventory changed during the one-time check; review its preserved current state before activation.");
             }
             using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
             return await registry.ConfirmCoreInventoryAsync(fresh.Value, ct).ConfigureAwait(false);

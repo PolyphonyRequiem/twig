@@ -127,6 +127,7 @@ jobs:
           import subprocess, sys
           for label, project, selector in [
               ("user-bench-store", "Twig.Infrastructure.Tests", "FullyQualifiedName~UserBenchStoreTests"),
+              ("native-plan-scopes", "Twig.Infrastructure.Tests", "FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanStoreTests|FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanScopeContractTests"),
               ("planning-consumers", "Twig.Infrastructure.Tests", "FullyQualifiedName~PlanningConsumerTests"),
               ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),
           ]:

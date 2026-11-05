@@ -20,17 +20,22 @@ public sealed class SqliteStore : IStore
         DefaultTimeout = 5,
     }.ToString();
 
-    public static async Task<Result<SqliteStore>> CreateAsync(string path, CancellationToken ct = default)
+    public static Task<Result<SqliteStore>> CreateAsync(string path, CancellationToken ct = default)
+        => CreateAsync(path, Guid.NewGuid(), ct);
+
+    public static async Task<Result<SqliteStore>> CreateAsync(string path, Guid instanceId, CancellationToken ct = default)
     {
         if (!Path.IsPathFullyQualified(path))
             return Result<SqliteStore>.Fail(ErrorCode.InvalidInput, "An explicit absolute database file path is required.");
+        if (instanceId == Guid.Empty)
+            return Result<SqliteStore>.Fail(ErrorCode.InvalidInput, "A reserved nonempty database instance is required.");
         ct.ThrowIfCancellationRequested();
         try
         {
             // Reserve a new file without ever opening an existing workspace for initialization.
             using (new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
             var store = new SqliteStore(path);
-            store.InstanceId = Guid.NewGuid();
+            store.InstanceId = instanceId;
             await using var db = new SqliteConnection(store._connectionString);
             await db.OpenAsync(ct);
             await Execute(db, null, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;", ct);

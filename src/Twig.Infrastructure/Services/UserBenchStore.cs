@@ -14,7 +14,7 @@ public sealed record UserBenchWorkspace(string Root, Connection Connection, Guid
 public sealed record WorkspaceViewRules(long Revision, ImmutableArray<Selector> Exclusions);
 
 /// <summary>The native per-user Bench definitions shared by CLI and graphical hosts.</summary>
-public sealed class UserBenchStore
+public sealed partial class UserBenchStore
 {
     private const int ApplicationId = 0x5457424e;
     private readonly string path;

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Net;
 using System.Text.Json;
+using System.Xml;
 using Twig.Core;
 
 namespace Twig.Providers.Ado;
@@ -23,7 +24,19 @@ public sealed partial class AdoProvider
             throw Wire.Invalid("The native work item icon is not an SVG image.");
         var bytes = await ResponseBytes(response, ct).ConfigureAwait(false);
         if (bytes.Length > 65536) throw Wire.Invalid("The native work item icon exceeds its image bound.");
-        return System.Text.Encoding.UTF8.GetString(bytes);
+        var svg = System.Text.Encoding.UTF8.GetString(bytes);
+        try
+        {
+            using var input = new StringReader(svg);
+            using var reader = XmlReader.Create(input, new XmlReaderSettings
+                { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 65536 });
+            if (reader.MoveToContent() != XmlNodeType.Element || reader.LocalName != "svg"
+                || reader.NamespaceURI != "http://www.w3.org/2000/svg")
+                throw Wire.Invalid("The native work item icon has no SVG root.");
+            while (reader.Read()) { }
+        }
+        catch (XmlException) { throw Wire.Invalid("The native work item icon is malformed SVG."); }
+        return svg;
     }
 
     private static string? PresentationText(JsonElement value, string name)

@@ -158,6 +158,51 @@ internal static class ConnectionOperationGate
 {
     internal const string ActiveFailureCode = "binding-operation-active";
     private static readonly AsyncLocal<Lease?> ExclusiveScope = new();
+    private static readonly AsyncLocal<CoreTargetLease?> CoreScope = new();
+
+    internal static IDisposable AcquireCoreTargets(string registryPath, IEnumerable<string> keys)
+    {
+        var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(registryPath))!, "core-target-locks");
+        Directory.CreateDirectory(directory);
+        var streams = new List<FileStream>();
+        var prior = CoreScope.Value;
+        var owned = keys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        try
+        {
+            foreach (var key in owned)
+            {
+                if (prior is { Active: true } && prior.Keys.Contains(key, StringComparer.Ordinal)) continue;
+                var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)));
+                streams.Add(new FileStream(Path.Combine(directory, hash + ".lock"), FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite, FileShare.None));
+            }
+            var lease = new CoreTargetLease(streams, owned, prior);
+            CoreScope.Value = lease;
+            return lease;
+        }
+        catch (IOException ex)
+        {
+            foreach (var stream in streams.AsEnumerable().Reverse()) stream.Dispose();
+            throw new ConnectionBindingResolutionException(ActiveFailureCode, "A native canonical target lease is already held.", ex);
+        }
+        catch
+        {
+            foreach (var stream in streams.AsEnumerable().Reverse()) stream.Dispose();
+            throw;
+        }
+    }
+
+    private sealed class CoreTargetLease(List<FileStream> streams, string[] keys, CoreTargetLease? prior) : IDisposable
+    {
+        internal string[] Keys { get; } = keys;
+        internal bool Active { get; private set; } = true;
+        public void Dispose()
+        {
+            Active = false;
+            foreach (var stream in streams.AsEnumerable().Reverse()) stream.Dispose();
+            if (ReferenceEquals(CoreScope.Value, this)) CoreScope.Value = prior;
+        }
+    }
 
     internal static IDisposable Acquire(string worktreeRoot, bool exclusive = false)
     {

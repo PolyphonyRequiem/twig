@@ -49,6 +49,7 @@ public sealed class CleanCoreGitHubAccessTests
         var opened = await factory.OpenAsync(default);
         opened.IsSuccess.ShouldBeTrue(opened.IsSuccess ? "" : opened.Error.Message);
         using var runtime = opened.Value;
+        await ActivateFixture(native, store, connection);
         var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "I_issue");
         var staged = await runtime.Workspace.StageEditAsync(key, new([KeyValuePair.Create(GitHubProvider.Title, FieldValue.String("host edit"))]), default);
         staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
@@ -91,7 +92,7 @@ public sealed class CleanCoreGitHubAccessTests
             CleanCoreGitHubAccess.Identity(origin, config, "U_actor"));
         var store = (await SqliteStore.CreateAsync(Path.Combine(native.Root, "core.db"))).Value;
         (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
-        var access = new CleanCoreGitHubAccess(config, native.Paths, scope!, targets, origin, token, connection, "U_actor", store);
+        var access = new CleanCoreGitHubAccess(config, native.Paths, scope!, targets, origin, token, connection, "U_actor", store, native.SystemDbPath);
         var acquired = await access.AcquireAsync(connection, default);
         acquired.IsSuccess.ShouldBeTrue(acquired.IsSuccess ? "" : acquired.Error.Message);
         using var session = acquired.Value;
@@ -119,6 +120,7 @@ public sealed class CleanCoreGitHubAccessTests
         await File.WriteAllTextAsync(policyPath, """{"version":1,"rules":[]}""");
         (await session.AdmitAsync(intent, default)).IsSuccess.ShouldBeFalse("actual policy bytes changed after the retained proposal");
         File.Delete(policyPath);
+        await ActivateFixture(native, store, connection);
         var admitted = await session.AdmitAsync(intent, default);
         admitted.IsSuccess.ShouldBeTrue(admitted.IsSuccess ? "" : admitted.Error.Message);
         using var admission = admitted.Value;
@@ -145,6 +147,16 @@ public sealed class CleanCoreGitHubAccessTests
         session.Dispose();
         await Should.ThrowAsync<InvalidOperationException>(() => session.ValidateAsync(default));
         using var released = new FileStream(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    private static async Task ActivateFixture(GitHubTargetFixture fixture, SqliteStore store, Connection connection)
+    {
+        var source = new NativeCoreStoreReference(store.InstanceId, store.DatabasePath, fixture.Root, connection);
+        (await NativeCoreExecution.RegisterAsync(fixture.SystemDbPath, source, default)).IsSuccess.ShouldBeTrue();
+        var inventory = await NativeCoreExecution.InventoryAsync(fixture.SystemDbPath, explicitStores: [source]);
+        inventory.IsSuccess.ShouldBeTrue(inventory.IsSuccess ? "" : inventory.Error.Message);
+        (await NativeCoreExecution.ActivateAsync(fixture.SystemDbPath, inventory.Value, inventory.Value.Digest, true, true))
+            .IsSuccess.ShouldBeTrue();
     }
 
     private sealed class NativeHttp(string twig, SqliteStore store, Connection connection) : HttpMessageHandler

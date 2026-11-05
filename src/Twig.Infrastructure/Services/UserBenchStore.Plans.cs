@@ -18,6 +18,34 @@ internal sealed record NativePlanSeedOwner(Guid LocalId, Guid BenchId, Guid Plan
 
 public sealed partial class UserBenchStore
 {
+    internal async Task<Result<ImmutableArray<NativeCoreStoreReference>>> CorePlanReferencesAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await Open(ct).ConfigureAwait(false);
+            using var tx = db.BeginTransaction(deferred: true);
+            using var command = db.CreateCommand();
+            command.Transaction = tx;
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='bench_plans';";
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
+                return Result<ImmutableArray<NativeCoreStoreReference>>.Ok([]);
+            command.CommandText = "SELECT bench_id FROM bench_plans;";
+            var ids = new List<Guid>();
+            using (var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
+                while (await reader.ReadAsync(ct).ConfigureAwait(false)) ids.Add(Guid.ParseExact(reader.GetString(0), "D"));
+            var references = ImmutableArray.CreateBuilder<NativeCoreStoreReference>();
+            foreach (var id in ids)
+            {
+                var plan = await ReadPlan(db, tx, id, ct).ConfigureAwait(false);
+                foreach (var scope in plan.Scopes)
+                    references.Add(new(scope.StoreInstance, scope.DatabasePath, scope.OriginRoot, scope.Source.Connection));
+            }
+            tx.Commit();
+            return Result<ImmutableArray<NativeCoreStoreReference>>.Ok(references.ToImmutable());
+        }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<ImmutableArray<NativeCoreStoreReference>>(ex); }
+    }
+
     internal async Task<Result<NativeBenchPlan>> ReadPlanAsync(Guid benchId, CancellationToken ct = default)
     {
         try

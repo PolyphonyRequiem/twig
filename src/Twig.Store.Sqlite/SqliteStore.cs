@@ -10,15 +10,20 @@ public sealed class SqliteStore : IStore
     private const int ApplicationId = 0x54574353; // TWCS, not a legacy Twig cache.
     private const int SchemaVersion = 3;
     private readonly string _connectionString;
+    public string DatabasePath { get; }
     public Guid InstanceId { get; private set; }
 
-    private SqliteStore(string path) => _connectionString = new SqliteConnectionStringBuilder
+    private SqliteStore(string path)
     {
-        DataSource = path,
-        Mode = SqliteOpenMode.ReadWrite,
-        Pooling = false,
-        DefaultTimeout = 5,
-    }.ToString();
+        DatabasePath = Path.GetFullPath(path);
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = DatabasePath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+            DefaultTimeout = 5,
+        }.ToString();
+    }
 
     public static Task<Result<SqliteStore>> CreateAsync(string path, CancellationToken ct = default)
         => CreateAsync(path, Guid.NewGuid(), ct);

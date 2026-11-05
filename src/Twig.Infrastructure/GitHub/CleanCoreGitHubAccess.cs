@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using Twig.Core;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Policy;
+using Twig.Infrastructure.Services;
 using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Providers.GitHub;
 using Twig.Store.Sqlite;
@@ -20,7 +21,7 @@ internal sealed record CoreGitHubNativeAcknowledgement(string RequestHash, int S
 /// <summary>Holds the selected native target generation and records attributed transport intent before dispatch.</summary>
 internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, TwigPaths paths,
     GitHubWorkspaceScope scope, GitHubBoundTargetResolver targets, GitHubBoundReadContext origin,
-    IGitHubTokenSource credentials, Connection connection, string actor, SqliteStore store) : GitHubAccess
+    IGitHubTokenSource credentials, Connection connection, string actor, SqliteStore store, string registryPath) : GitHubAccess
 {
     private readonly TwigConfiguration _configuration = configuration;
     private readonly TwigPaths _paths = paths;
@@ -28,6 +29,7 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
     private readonly Connection _connection = connection;
     private readonly string _actor = actor;
     private readonly SqliteStore _store = store;
+    private readonly string _registryPath = registryPath;
     internal static string Identity(GitHubBoundReadContext target, TwigConfiguration configuration, string actor)
         => JsonSerializer.Serialize(new[]
         {
@@ -134,18 +136,24 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
                 intent.Proposal.Digest, intent.Operation, intent.Attempt, intent.Method, intent.Target.AbsoluteUri,
                 intent.MediaType, hash, intent.Payload);
             var directory = Path.Combine(access._paths.TwigDir, "core-github-intents");
+            var targets = await NativeCoreExecution.AdmitAsync(access._registryPath,
+                new(access._store.InstanceId, access._store.DatabasePath, access._paths.RepoRoot, Connection),
+                intent.Proposal, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
+            if (!targets.IsSuccess) return Result<GitHubWriteAdmission>.Fail(targets.Error);
             try
             {
                 Directory.CreateDirectory(directory);
                 var path = Path.Combine(directory, intent.Attempt.ToString("D") + ".json");
                 await WriteNewAsync(path, native, CoreGitHubNativeJsonContext.Default.CoreGitHubNativeIntent, ct).ConfigureAwait(false);
-                return Result<GitHubWriteAdmission>.Ok(new Admission(path + ".ack", hash, token));
+                return Result<GitHubWriteAdmission>.Ok(new Admission(path + ".ack", hash, token, targets.Value));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                targets.Value.Dispose();
                 return Result<GitHubWriteAdmission>.Fail(ErrorCode.StorageUnavailable,
                     "Native GitHub intent could not be durably recorded; dispatch was refused. " + ex.Message);
             }
+            catch { targets.Value.Dispose(); throw; }
         }
         public override void Dispose()
         {
@@ -153,13 +161,13 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         }
     }
 
-    private sealed class Admission(string path, string requestHash, string token) : GitHubWriteAdmission
+    private sealed class Admission(string path, string requestHash, string token, IDisposable targets) : GitHubWriteAdmission
     {
         public override Task ObserveAsync(int statusCode, string body, CancellationToken ct)
             => WriteNewAsync(path, new CoreGitHubNativeAcknowledgement(requestHash, statusCode,
                 body.Replace(token, "[redacted]", StringComparison.Ordinal)),
                 CoreGitHubNativeJsonContext.Default.CoreGitHubNativeAcknowledgement, ct);
-        public override void Dispose() { }
+        public override void Dispose() => targets.Dispose();
     }
 
     private static async Task WriteNewAsync<T>(string path, T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> type, CancellationToken ct)

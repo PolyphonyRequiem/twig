@@ -18,7 +18,7 @@ internal sealed record CoreExecution(ImmutableArray<Receipt> Receipts, Error? Er
 /// <summary>One draft/proposal/journal application path; no retry, note flush or legacy publisher.</summary>
 internal sealed class CoreWorkspace(Connection connection, IProvider provider, IStore store,
     ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot, Guid storeInstance = default,
-    UserBenchStore? sharedBenches = null, string planningTeam = "")
+    UserBenchStore? sharedBenches = null, string planningTeam = "", string? executionRegistryPath = null)
 {
     internal Connection Connection => connection;
     internal ProviderCapabilities Capabilities => provider.Capabilities;
@@ -870,6 +870,13 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             return Result<CoreExecution>.Fail(ErrorCode.DigestMismatch, "Confirmation must equal the exact retained proposal digest.");
         if (proposal.Connection != connection)
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "The proposal belongs to another immutable connection.");
+        if (executionRegistryPath is not null)
+        {
+            if (store is not Twig.Store.Sqlite.SqliteStore native || native.InstanceId != storeInstance)
+                return Result<CoreExecution>.Fail(ErrorCode.StorageUnavailable, "Native execution requires its exact authoritative Core store.");
+            var activation = await NativeCoreExecution.PublishingAsync(executionRegistryPath, ct).ConfigureAwait(false);
+            if (!activation.IsSuccess) return Result<CoreExecution>.Fail(activation.Error);
+        }
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var stored = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!stored.IsSuccess) return Result<CoreExecution>.Fail(stored.Error);
@@ -898,7 +905,18 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
             Result<Receipt> result;
             if (row.Status == OpStatus.Planned)
             {
-                result = await provider.ApplyAsync(proposal, ordinal, Guid.NewGuid(), ct).ConfigureAwait(false);
+                var attempt = Guid.NewGuid();
+                using var targets = executionRegistryPath is null ? null : ConnectionOperationGate.AcquireCoreTargets(
+                    executionRegistryPath, NativeCoreExecution.OperationKeys(proposal.Operations[ordinal], current.Value, connection));
+                if (executionRegistryPath is not null && store is Twig.Store.Sqlite.SqliteStore nativeStore)
+                {
+                    var admitted = await NativeCoreExecution.AdmitAsync(executionRegistryPath,
+                        new(storeInstance, nativeStore.DatabasePath, worktreeRoot, connection),
+                        proposal, ordinal, attempt, ct, planned: true).ConfigureAwait(false);
+                    if (!admitted.IsSuccess) return Finish(admitted.Error);
+                    admitted.Value.Dispose();
+                }
+                result = await provider.ApplyAsync(proposal, ordinal, attempt, ct).ConfigureAwait(false);
                 dispatched = true;
             }
             else result = await provider.RecoverAsync(proposal, ordinal, ct).ConfigureAwait(false);

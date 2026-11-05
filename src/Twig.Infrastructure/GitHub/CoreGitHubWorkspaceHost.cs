@@ -59,7 +59,8 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
             var connection = new Connection(new("github"), observed.ResourceScope,
                 GitHubProvider.Destination(observed.Target.OwnerId, observed.Target.RepositoryId),
                 CleanCoreGitHubAccess.Identity(origin, configuration, actor.ActorId));
-            return await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, databasePath, connection, actor.ActorId, ct).ConfigureAwait(false);
+            return await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, databasePath, connection, actor.ActorId, ct,
+                nativeBindings.RegistryPath).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException or HttpRequestException
             or System.Text.Json.JsonException or GitHubCredentialUnavailableException)
@@ -86,11 +87,15 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
                 return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Conflict, "The selected immutable GitHub target generation or credential/actor differs from the initialized Core store.");
             var credentials = selectedCredential ?? Credential(scope!);
             var access = new CleanCoreGitHubAccess(configuration, paths, scope!, targets, origin, credentials,
-                document.Connection, document.PrincipalId, store);
+                document.Connection, document.PrincipalId, store, nativeBindings.RegistryPath);
             var benches = UserBenchStore.ForRegistry(nativeBindings.RegistryPath);
+            var registered = await NativeCoreExecution.RegisterAsync(nativeBindings.RegistryPath,
+                new(document.DatabaseInstance, document.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
+            if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
             provider = new(document.Connection, access, store, transport?.CreateHandler());
             var workspace = new CoreWorkspace(document.Connection, provider, store,
-                new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance, benches);
+                new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance,
+                benches, executionRegistryPath: nativeBindings.RegistryPath);
             var sourceStamp = NativeSourceReader.Stamp(document, paths.RepoRoot, origin.BindingId.ToString(),
                 NativeSourceReader.Number(origin.AttachmentRevision), origin.WorktreeFingerprint,
                 NativeSourceReader.Number(origin.BindingRevision), document.Connection.IdentityRef);

@@ -11,11 +11,13 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Theory]
-    [InlineData("Native.Association", false)]
-    [InlineData("Native.DependencyForward", true)]
-    public async Task NativeCompoundEditorFieldsAndRelatedDeltaUseOnePatchAndVerifiedInverseReadback(string relation, bool policy)
+    [InlineData("Native.Association", false, false)]
+    [InlineData("Native.DependencyForward", true, false)]
+    [InlineData("Native.Association", false, true)]
+    public async Task NativeCompoundEditorFieldsAndRelatedDeltaUseOnePatchAndVerifiedInverseReadback(string relation, bool policy, bool omitEmptyRelations)
     {
         var native = await RelationshipWorkspaceAsync();
+        _transport.OmitEmptyRelations = omitEmptyRelations;
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -32,6 +34,7 @@ public sealed partial class NativePublicationConsumerTests
         var observed = await handle.Workspace.ReadAsync(key, default);
         observed.IsSuccess.ShouldBeTrue();
         (await handle.Workspace.ReadAsync(other, default)).IsSuccess.ShouldBeTrue();
+        if (omitEmptyRelations) _transport.OmittedRelationResponses.ShouldBeGreaterThan(0, "native JSON must genuinely omit empty relations");
         var prepared = await handle.Workspace.PrepareAsync([new("compound", OpKind.Batch, key, observed.Value.Revision,
             FieldValues.Empty.Set("System.Title", FieldValue.String("compound title")),
             links: [new(other, relation, true)])], default);

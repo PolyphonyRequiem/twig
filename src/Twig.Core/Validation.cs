@@ -348,16 +348,19 @@ public static partial class Core
         if (unavailable is not null) return Result<EditorEvaluation>.Fail(unavailable);
         var type = schema.Types.FirstOrDefault(value => value.Reference == (typeOverride ?? source.Type));
         if (type is null) return Result<EditorEvaluation>.Fail(ErrorCode.Unavailable, "The exact editor type is unavailable.");
-        var effective = source.Fields.Overlay(changes);
+        var baseline = source.Key.IsLocal ? null : source;
+        var before = baseline?.Fields ?? new FieldValues(type.Fields.Select(field => KeyValuePair.Create(field.Reference, FieldValue.Null)));
+        var effective = before.Overlay(changes);
         var active = new List<FieldRule>();
         foreach (var rule in type.Rules.Where(value => !value.Disabled))
         {
-            var matches = MatchesConditions(rule.Conditions, source.Fields, effective);
+            var matches = MatchesConditions(rule.Conditions, before, effective);
             if (!matches.IsSuccess) return Result<EditorEvaluation>.Fail(matches.Error);
             if (matches.Value) active.Add(rule);
         }
         var errors = ImmutableArray.CreateBuilder<Error>();
-        ValidateFields(new("editor", OpKind.Batch, source.Key, source.Revision, changes, typeOverride), source, type,
+        ValidateFields(new("editor", source.Key.IsLocal ? OpKind.Create : OpKind.Batch, source.Key, source.Revision,
+            changes, source.Key.IsLocal ? type.Reference : typeOverride), baseline, type,
             atomicFields, (code, message) => errors.Add(new(code, message)));
         var fields = type.Fields.Select(field =>
         {
@@ -365,15 +368,16 @@ public static partial class Core
             var allowed = rules.Where(rule => rule.Action == RuleAction.Allowed).Select(rule => rule.Values).ToArray();
             var supplied = rules.Any(rule => rule.Action == RuleAction.Supplied
                 && (rule.Values.IsEmpty || rule.Values.Any(value => !value.IsEmpty)));
-            return new EvaluatedField(field, type.Hidden || field.ReadOnly || rules.Any(rule => rule.Action is RuleAction.ReadOnly or RuleAction.Supplied),
+            return new EvaluatedField(field, type.Hidden || field.ReadOnly || rules.Any(rule => rule.Action == RuleAction.ReadOnly),
                 rules.Any(rule => rule.Action == RuleAction.Required) && !supplied,
                 allowed.Length == 0 ? [] : allowed.Skip(1).Aggregate(allowed[0], (values, next) => values.Intersect(next).ToImmutableArray()),
                 allowed.Length != 0);
         }).ToImmutableArray();
-        source.Fields.TryGetValue(type.StateField, out var previous);
+        before.TryGetValue(type.StateField, out var previous);
         var stateField = fields.Single(field => field.Definition.Reference == type.StateField);
         var states = type.States.Where(state => (state.Name == previous?.Text
-            || !stateField.ReadOnly && type.Transitions.Any(transition => transition.From == previous?.Text && transition.To == state.Name))
+            || !stateField.ReadOnly && (source.Key.IsLocal
+                || type.Transitions.Any(transition => transition.From == previous?.Text && transition.To == state.Name)))
             && (!stateField.HasAllowedConstraint || stateField.Allowed.Contains(FieldValue.String(state.Name))))
             .Select(state => state.Name).ToImmutableArray();
         return Result<EditorEvaluation>.Ok(new(fields, states, errors.ToImmutable()));

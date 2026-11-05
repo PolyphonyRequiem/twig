@@ -2440,6 +2440,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public bool RejectNextPatch { get; set; }
         public HttpStatusCode? RejectNextPatchStatus { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
+        public bool OmitEmptyRelations { get; set; }
+        public int OmittedRelationResponses { get; private set; }
         public Func<Task>? BeforeReadback { get; set; }
         public Func<Task>? BeforeItemReadResponse { get; set; }
         public Func<Task>? AfterCommit { get; set; }
@@ -2747,7 +2749,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 ? int.Parse(segments[2], CultureInfo.InvariantCulture) : null));
         }
 
-        private object ItemData(int id, Item item, int? revision = null) => new
+        private object ItemData(int id, Item item, int? revision = null)
+        {
+            var data = new
             {
                 id, rev = item.Revision,
                 fields = new Dictionary<string, object>
@@ -2764,6 +2768,13 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     attributes = new { name = resource.Name, comment = resource.Comment }
                 }).Cast<object>().Concat(NativeLinks(id, revision)).ToArray()
             };
+            if (!OmitEmptyRelations || item.Resources.Length != 0 || NativeLinks(id, revision).Length != 0) return data;
+            var native = JsonSerializer.SerializeToNode(data)!.AsObject();
+            native.Remove("relations").ShouldBeTrue();
+            native.ContainsKey("relations").ShouldBeFalse();
+            OmittedRelationResponses++;
+            return native;
+        }
 
         private static string Inverse(string relation) => relation switch
         {

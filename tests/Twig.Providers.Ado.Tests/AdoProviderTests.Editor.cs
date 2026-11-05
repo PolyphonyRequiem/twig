@@ -8,6 +8,32 @@ namespace Twig.Providers.Ado.Tests;
 
 public sealed partial class AdoProviderTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompoundEmptyIncidentArrayMayBeOmittedByTheNativeProvider(bool remove)
+    {
+        using var fixture = await Fixture.Create();
+        fixture.Http.Defect = "creation-links";
+        fixture.Http.Items[1].Remove("relations").ShouldBeTrue();
+        fixture.Http.Items[1].ContainsKey("relations").ShouldBeFalse("the actual native JSON fixture must omit the property");
+        var source = (await fixture.Read(1, 2)).Items.Single(item => item.Key == fixture.Key(1));
+        source.RelationshipsComplete.ShouldBeTrue();
+        var proposal = await fixture.Proposal(new("first-related", OpKind.Batch, source.Key, source.Revision,
+            FieldValues.Empty.Set("Custom.Empty", FieldValue.String("first native related edge")),
+            links: [new(fixture.Key(2), "Native.Association", true, remove)]));
+        var imported = await fixture.Provider.ImportAsync(proposal, proposal.Digest);
+        imported.IsSuccess.ShouldBe(!remove, imported.IsSuccess ? "" : imported.Error.Message);
+        fixture.Http.Items[1].ContainsKey("relations").ShouldBeFalse("read/import must not fill in missing native data");
+        if (remove) { fixture.Http.Writes.ShouldBe(0); return; }
+        var applied = await fixture.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        applied.IsSuccess.ShouldBeTrue(applied.IsSuccess ? "" : applied.Error.Message);
+        applied.Value.Status.ShouldBe(OpStatus.Applied);
+        (await fixture.Provider.VerifyAsync(proposal, applied.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        fixture.Http.Writes.ShouldBe(1);
+        fixture.Http.Items[1]["fields"]!["Custom.Empty"]!.GetValue<string>().ShouldBe("first native related edge");
+    }
+
     [Fact]
     public async Task CompoundIncomingHierarchyReparentUsesTheChildRevisionAndBothVerifiedParents()
     {

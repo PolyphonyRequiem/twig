@@ -252,7 +252,9 @@ public sealed partial class AdoProvider
                 throw Wire.Refuse(ErrorCode.Unsupported, "A unique discovered native creation-link direction is required.");
             if (incident is { } source)
             {
-                var matching = source.GetProperty("relations").EnumerateArray().Select((edge, index) => (edge, index))
+                var relations = source.TryGetProperty("relations", out var nativeRelations)
+                    ? nativeRelations.EnumerateArray().ToArray() : [];
+                var matching = relations.Select((edge, index) => (edge, index))
                     .Where(value => Wire.Text(value.edge, "rel") == native[0].Reference
                         && RelationshipTarget(Wire.Text(value.edge, "url"), bound) == target).ToArray();
                 if (matching.Length != (link.Remove ? 1 : 0))

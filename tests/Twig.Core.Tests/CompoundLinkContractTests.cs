@@ -9,6 +9,70 @@ namespace Twig.Core.Tests;
 public sealed class CompoundLinkContractTests
 {
     [Theory]
+    [InlineData("definition-readonly")]
+    [InlineData("rule-readonly")]
+    [InlineData("ambiguous-supplier")]
+    [InlineData("constrained-empty")]
+    [InlineData("null-supplier")]
+    public void SupplierProjectionPreservesActualReadOnlyRequiredAmbiguityAndConstraintSemantics(string scenario)
+    {
+        var rules = new List<FieldRule> { new("title", RuleAction.Required, []),
+            new("title", RuleAction.Supplied, [], [scenario == "null-supplier" ? FieldValue.Null : FieldValue.String("default")]) };
+        if (scenario == "rule-readonly") rules.Add(new("title", RuleAction.ReadOnly, []));
+        if (scenario == "ambiguous-supplier") rules.Add(new("title", RuleAction.Supplied, [], [FieldValue.String("different")]));
+        if (scenario == "constrained-empty")
+        {
+            rules.Add(new("title", RuleAction.Allowed, [], [FieldValue.String("one")]));
+            rules.Add(new("title", RuleAction.Allowed, [], [FieldValue.String("two")]));
+        }
+        var definitions = Schema.Types[0].Fields.Select(field => field.Reference == "title"
+            ? field with { ReadOnly = scenario == "definition-readonly" } : field);
+        var schema = new ProcessSchema(Connection, [new("type", "state", definitions, Schema.Types[0].States, [], rules)], Schema.Relations);
+        var source = new WorkItem(Item, "type", Fields, new(Item, "1"), true);
+        var changes = FieldValues.Empty.Set("title", FieldValue.String("one"));
+        var op = new Op("edit", OpKind.Batch, Item, source.Revision, changes);
+        var proposal = new Proposal(Connection, schema.Fingerprint, 0, [op]);
+        var snapshot = new StoreSnapshot(0, [source], proposals: [proposal], journal: [JournalEntry.Planned(proposal.Digest, 0)]);
+        var actual = Model.ValidateEffect(proposal, 0, schema, snapshot, new([OpKind.Batch], [], [], true, true));
+        var evaluated = Model.EvaluateEditorFields(schema, source, changes, true).Value;
+        var title = evaluated.Fields.Single(field => field.Definition.Reference == "title");
+        title.ReadOnly.ShouldBe(scenario is "definition-readonly" or "rule-readonly");
+        title.Required.ShouldBe(scenario == "null-supplier");
+        evaluated.Errors.Select(error => error.Code).ShouldBe(actual.Select(error => error.Code));
+        if (scenario == "constrained-empty") { title.HasAllowedConstraint.ShouldBeTrue(); title.Allowed.ShouldBeEmpty(); }
+        if (scenario == "ambiguous-supplier") actual.ShouldContain(error => error.Code == ErrorCode.Unavailable);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SuppliedOnlyAuthoringRemainsEditableUnderTheActualCoreEffectRules(bool seed)
+    {
+        var key = seed ? ItemKey.Local(Guid.NewGuid()) : Item;
+        var changes = FieldValues.Empty.Set("title", FieldValue.String("explicit authored value"));
+        if (seed) changes = changes.Set("state", FieldValue.String("Open"));
+        var schema = new ProcessSchema(Connection, [new("type", "state", Schema.Types[0].Fields, Schema.Types[0].States, [],
+            [new("title", RuleAction.Required, []),
+             new("title", RuleAction.Supplied, [], [FieldValue.String("native default")])])], Schema.Relations);
+        var source = new WorkItem(key, "type", seed ? FieldValues.Empty.Set("title", FieldValue.Null).Set("state", FieldValue.Null) : Fields,
+            seed ? null : new(key, "1"), true);
+        var op = new Op("authored", seed ? OpKind.Create : OpKind.Batch, key, source.Revision, changes, seed ? "type" : null,
+            concurrency: seed ? ConcurrencyMode.ObservedNonAtomic : ConcurrencyMode.ExactRevision);
+        var proposal = new Proposal(Connection, schema.Fingerprint, 0, [op]);
+        var snapshot = new StoreSnapshot(0, seed ? [] : [source],
+            drafts: seed ? [new(key, "type", null, changes)] : [], proposals: [proposal],
+            journal: [JournalEntry.Planned(proposal.Digest, 0)]);
+        Model.ValidateEffect(proposal, 0, schema, snapshot, new([OpKind.Create, OpKind.Batch], [], [], true, true)).ShouldBeEmpty();
+        var evaluated = Model.EvaluateEditorFields(schema, source, changes, true);
+        evaluated.IsSuccess.ShouldBeTrue(evaluated.IsSuccess ? "" : evaluated.Error.Message);
+        var field = evaluated.Value.Fields.Single(value => value.Definition.Reference == "title");
+        field.Required.ShouldBeFalse("the active supplier still satisfies its required pairing");
+        field.ReadOnly.ShouldBeFalse("Supplied is not a native ReadOnly rule");
+        evaluated.Value.Errors.ShouldBeEmpty();
+        evaluated.Value.States.ShouldContain("Open", "seed guidance must not invent a null-to-state transition requirement");
+    }
+
+    [Theory]
     [InlineData("capability")]
     [InlineData("incomplete")]
     [InlineData("inverse-association")]

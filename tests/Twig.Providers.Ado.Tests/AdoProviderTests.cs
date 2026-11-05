@@ -1687,6 +1687,7 @@ public sealed partial class AdoProviderTests
                 else if (field == "/relations/-")
                 {
                     var relation = JsonNode.Parse(entry.GetProperty("value").GetRawText())!;
+                    item["relations"] ??= new JsonArray();
                     item["relations"]!.AsArray().Add(relation.DeepClone());
                     if (relation["rel"]!.GetValue<string>() == "Native.ParentForward")
                     {

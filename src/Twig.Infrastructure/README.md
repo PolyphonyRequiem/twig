@@ -126,6 +126,10 @@ Core evaluated editor fields reuse native predicate/field validation and expose
 effective required/read-only/allowed-value guidance and discovered transitions.
 An empty constrained allowed set is distinct from an unconstrained field. These
 are provisional rendering results, not cached permission to publish.
+An active native supplier can satisfy requiredness without making a field
+read-only; only the actual field/read-only rule controls that restriction.
+Local-seed guidance evaluates the complete authored field set against Core's
+null creation baseline, not a fictional remote state transition.
 
 Concrete ADO/GitHub editor metadata captures retain their exact provider owner,
 native actor/resource/acquisition context and schema. Explicit editor entry
@@ -138,8 +142,11 @@ Save/Review/Apply authority, schema, policy and revision checks remain independe
 ADO compound `Batch.Links` requires explicit `AtomicRelationshipBatches`
 capability as well as native field coupling. Directed incident add/remove and
 reparent deltas use one source-revision-tested PATCH, descending removal indices,
-and verification of every declared field and changed inverse endpoint. GitHub
-does not advertise this compound capability; unsupported links cannot become a
+and verification of every declared field and changed inverse endpoint.
+Native empty incident relationships may omit `relations`; matching follows the
+same complete-empty interpretation as native item reads, not missing-schema
+fallback. Empty removals still refuse before dispatch.
+GitHub does not advertise this compound capability; unsupported links cannot become a
 field-only write. The original three-argument `CreationLink` constructor and
 default add tuple bytes remain unchanged; only explicit removal adds a fourth
 true tuple member. Proposal/store format versions are unchanged.

@@ -2478,7 +2478,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public void SetItem(int id, string title, int revision, string principal)
         {
             var prior = _items.GetValueOrDefault(id);
-            var item = new Item(title, revision, principal, prior?.History ?? "", prior?.Resources ?? [], prior?.State ?? "To Do");
+            var item = new Item(title, revision, principal, prior?.History ?? "", prior?.Resources ?? [], prior?.State ?? "To Do",
+                prior?.Description, prior?.CloseEvidence);
             _items[id] = item;
             _history[(id, revision)] = item;
             _linkHistory[(id, revision)] = _links.GetValueOrDefault(id, []).ToArray();
@@ -2663,6 +2664,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 var title = item.Title;
                 var history = item.History;
                 var state = item.State;
+                var description = item.Description;
+                var closeEvidence = item.CloseEvidence;
                 var resources = item.Resources.ToList();
                 foreach (var operation in operations.RootElement.EnumerateArray())
                 {
@@ -2672,6 +2675,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     if (target == "/fields/System.Title") title = operation.GetProperty("value").GetString()!;
                     if (target == "/fields/System.History") history = operation.GetProperty("value").GetString()!;
                     if (target == "/fields/System.State") state = operation.GetProperty("value").GetString()!;
+                    if (target == "/fields/System.Description") description = operation.GetProperty("value").GetString();
+                    if (target == "/fields/Fixture.CloseEvidence") closeEvidence = operation.GetProperty("value").GetString();
                     if (target == "/relations/-")
                     {
                         var value = operation.GetProperty("value");
@@ -2707,7 +2712,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     }
                 }
                 SetItem(id, title, item.Revision + 1, item.Principal);
-                _items[id] = _items[id] with { History = history, Resources = resources.ToArray(), State = state };
+                _items[id] = _items[id] with { History = history, Resources = resources.ToArray(), State = state,
+                    Description = description, CloseEvidence = closeEvidence };
                 _history[(id, _items[id].Revision)] = _items[id];
                 _linkHistory[(id, _items[id].Revision)] = _links.GetValueOrDefault(id, []).ToArray();
                 item = _items[id];
@@ -2769,6 +2775,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     attributes = new { name = resource.Name, comment = resource.Comment }
                 }).Cast<object>().Concat(NativeLinks(id, revision)).ToArray()
             };
+            if (RichTextEnabled) data.fields["System.Description"] = item.Description ?? "";
+            if (item.CloseEvidence is not null) data.fields["Fixture.CloseEvidence"] = item.CloseEvidence;
             if (!OmitEmptyRelations || item.Resources.Length != 0 || NativeLinks(id, revision).Length != 0) return data;
             var native = JsonSerializer.SerializeToNode(data)!.AsObject();
             native.Remove("relations").ShouldBeTrue();
@@ -2869,7 +2877,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         }
 
         private static HttpResponseMessage Reply(HttpStatusCode status, object body) => new(status)
-        { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") };
-        private sealed record Item(string Title, int Revision, string Principal, string History, CoreModel.ResourceLink[] Resources, string State);
+        { Content = new StringContent(JsonSerializer.Serialize(body, new JsonSerializerOptions
+            { TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver() }), Encoding.UTF8, "application/json") };
+        private sealed record Item(string Title, int Revision, string Principal, string History, CoreModel.ResourceLink[] Resources, string State,
+            string? Description = null, string? CloseEvidence = null);
     }
 }

@@ -1,5 +1,24 @@
 # PolyphonyRequiem.Twig.Infrastructure
 
+## Human ADO editor
+
+`NativeItemEditor` caches editor metadata for one exact source/Bench session.
+Evaluation and canonical choices are provisional; human Save uses the durable
+normal capture, Core merge/validation, exact digest, policy, journal and verified
+readback path. It never selects an active item or flushes independent Plan fields.
+Seeds, relationships and GitHub remain outside this first editor surface.
+Protected CLI/relationship debt is refused, not silently adopted.
+
+`NativeAuthoringReview` is the existing one-time safety check, not per-Save
+approval. The operator must actually observe the supported prior readonly release
+and exact paired new CLI/panel source builds, inventory every native source/draft/
+namespace and quiesce old processes. Initial adoption requires the exact existing
+user store with no capture table/marker/generation/reference evidence. Its sealed
+inventory/confirmation preserves Bench/Core debt and creates generation zero,
+not a fake Ready capture. Missing/mismatched capture evidence stays protected.
+This explicit ownership assertion is not binary forensics or universal rollback
+detection. Build/tests do not attest actual user history.
+
 Native host support for [twig](https://github.com/PolyphonyRequiem/twig), targeting
 .NET 10 and .NET 11. The old Domain project and general-purpose application
 registration graph are removed, not moved into this library.

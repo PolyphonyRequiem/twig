@@ -208,6 +208,129 @@ public sealed class AdoProviderTests
     }
 
     [Theory]
+    [InlineData("\"icon_crown\"", "icon_crown")]
+    [InlineData("{\"id\":\"icon_crown\"}", "icon_crown")]
+    [InlineData("null", null)]
+    [InlineData("{}", null)]
+    [InlineData("missing", null)]
+    public async Task PresentationAcceptsDocumentedStringAndCompatibleObjectIconsWithoutChangingMutationDigest(string iconJson, string? expected)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IconJson = iconJson;
+        var ordinary = await f.Schema();
+        f.Http.IconRequests.ShouldBeEmpty("ordinary schema discovery must not acquire artwork");
+        var observed = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
+        observed.Value.Fingerprint.ShouldBe(ordinary.Fingerprint);
+        var presentation = observed.Value.Types.Single().Presentation.ShouldNotBeNull();
+        presentation.IconId.ShouldBe(expected);
+        if (expected is null)
+        {
+            presentation.IconSvg.ShouldBeNull();
+            f.Http.IconRequests.ShouldBeEmpty();
+        }
+        else
+        {
+            presentation.IconSvg.ShouldNotBeNull().ShouldContain("<svg");
+            f.Http.IconRequests.ShouldBe([$"/organization/_apis/wit/workitemicons/{expected}?api-version=7.1&color=B4009E"]);
+        }
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(500)]
+    public async Task PresentationIconMissingIsDistinctFromAuthorizationAndTransportFailure(int status)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IconJson = "\"icon_crown\"";
+        f.Http.IconStatus = status;
+        var observed = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        if (status == 404)
+        {
+            observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
+            observed.Value.Types.Single().Presentation.ShouldNotBeNull().IconId.ShouldBe("icon_crown");
+            observed.Value.Types.Single().Presentation!.IconSvg.ShouldBeNull();
+        }
+        else
+        {
+            observed.IsSuccess.ShouldBeFalse();
+            observed.Error.Evidence.ShouldContain($"http:{status}");
+        }
+        f.Http.IconRequests.Count.ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("42")]
+    [InlineData("[]")]
+    [InlineData("{\"id\":42}")]
+    public async Task PresentationRefusesMalformedIconMetadata(string iconJson)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IconJson = iconJson;
+        var observed = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        observed.IsSuccess.ShouldBeFalse();
+        f.Http.IconRequests.ShouldBeEmpty();
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("mime")]
+    [InlineData("oversized")]
+    [InlineData("malformed")]
+    [InlineData("doctype")]
+    [InlineData("wrong-root")]
+    public async Task PresentationRefusesInvalidOrUnboundedSvgResponses(string defect)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IconJson = "\"icon_crown\"";
+        if (defect == "mime") f.Http.IconMediaType = "text/html";
+        if (defect == "oversized") f.Http.IconBody = "<svg>" + new string(' ', 65536) + "</svg>";
+        if (defect == "malformed") f.Http.IconBody = "<svg xmlns=\"http://www.w3.org/2000/svg\"><path";
+        if (defect == "doctype") f.Http.IconBody = "<!DOCTYPE svg SYSTEM \"https://example.invalid/icon.dtd\"><svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+        if (defect == "wrong-root") f.Http.IconBody = "<html/>";
+        var observed = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        observed.IsSuccess.ShouldBeFalse();
+        f.Http.IconRequests.Count.ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(65536, true)]
+    [InlineData(65537, false)]
+    public async Task PresentationEnforcesTheExactSvgByteBound(int length, bool accepted)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IconJson = "\"icon_crown\"";
+        const string prefix = "<svg xmlns=\"http://www.w3.org/2000/svg\">";
+        const string suffix = "</svg>";
+        f.Http.IconBody = prefix + new string(' ', length - prefix.Length - suffix.Length) + suffix;
+        Encoding.UTF8.GetByteCount(f.Http.IconBody).ShouldBe(length);
+        var observed = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        observed.IsSuccess.ShouldBe(accepted, observed.IsSuccess ? "" : observed.Error.Message);
+        f.Http.IconRequests.Count.ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task PresentationReusesOneAcquiredIconForTheSameObservedIdAndColorPair()
+    {
+        using var f = await Fixture.Create();
+        f.Http.IconJson = "\"icon_crown\"";
+        f.Http.AdditionalType = "Arbitrary.ProcessUnit";
+        var observed = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
+        observed.Value.Types.Length.ShouldBe(2);
+        f.Http.IconRequests.Count.ShouldBe(1);
+        observed.Value.Types.Select(type => type.Presentation!.IconSvg).Distinct().Count().ShouldBe(1);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
     [InlineData(200, LayoutAvailability.Served)]
     [InlineData(404, LayoutAvailability.Unavailable)]
     [InlineData(400, LayoutAvailability.Locked)]
@@ -1236,6 +1359,11 @@ public sealed class AdoProviderTests
         internal string? PlanningDefect;
         internal string? LayoutJson;
         internal int LayoutStatus = 200;
+        internal string IconJson = """{"id":"icon_crown"}""";
+        internal int IconStatus = 200;
+        internal string IconMediaType = "image/svg+xml";
+        internal string IconBody = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#B4009E" d="M1 1h14v14H1z"/></svg>""";
+        internal List<string> IconRequests = [];
         internal bool DivergentProjectType;
         internal List<string> LayoutRequests = [];
         internal List<string> ReadAccessPaths = [];
@@ -1355,9 +1483,9 @@ public sealed class AdoProviderTests
             {
                 request.Headers.Accept.Single().MediaType.ShouldBe("image/svg+xml");
                 query.ShouldContain("color=B4009E");
-                return new(HttpStatusCode.OK) { Content = new StringContent(
-                    """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#B4009E" d="M1 1h14v14H1z"/></svg>""",
-                    Encoding.UTF8, "image/svg+xml") };
+                IconRequests.Add(path + query);
+                return IconStatus != 200 ? Status(IconStatus)
+                    : new(HttpStatusCode.OK) { Content = new StringContent(IconBody, Encoding.UTF8, IconMediaType) };
             }
             if (path.EndsWith("/layout"))
             {
@@ -1458,7 +1586,7 @@ public sealed class AdoProviderTests
                     """)));
             else if (path.EndsWith("/workItemTypes"))
                 response = Rows(string.Join(",", NativeTypes().Select(reference =>
-                    $$"""{"referenceName":"{{reference}}","name":"{{reference}}","isDisabled":false,"color":"B4009E","icon":{"id":"icon_crown"} }""")));
+                    $$"""{"referenceName":"{{reference}}","name":"{{reference}}","isDisabled":false,"color":"B4009E"{{(IconJson == "missing" ? "" : ",\"icon\":" + IconJson)}} }""")));
             else if (path.EndsWith("/states"))
                 response = Rows($$"""{"name":"{{Initial}}","stateCategory":"Proposed"},{"name":"{{Completed}}","stateCategory":"{{(Defect == "unknown-category" ? "Alien" : "Completed")}}"}""");
             else if (path.EndsWith("/rules"))

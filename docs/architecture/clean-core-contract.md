@@ -66,6 +66,11 @@ Unsupported providers fail closed. No additional port or schema model is added.
 ADO presentation reads the exact process roster reference, never a similarly named
 project/parent type. Type artwork is acquired from the native work-item icon route
 as bounded SVG using the discovered icon ID and RGB color, not a guessed glyph.
+The [documented process API string icon](https://learn.microsoft.com/en-us/rest/api/azure/devops/processes/work-item-types/list?view=azure-devops-rest-7.1)
+and prior object/id observations retain the same native identity. Artwork is
+deduplicated per observed icon/color pair during explicit presentation discovery;
+missing icons remain unavailable, while malformed, oversized or denied images
+fail explicitly. SVG parsing prohibits DTDs and external entity resolution.
 It preserves server-defined pages, sections (columns), groups,
 ordered controls and separate system controls, including visibility, read-only and
 contribution markers. Served-but-empty, locked (`VS403115`) and unavailable layouts

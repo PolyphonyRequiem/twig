@@ -205,8 +205,13 @@ public sealed partial class AdoProvider
             if (includePresentation)
             {
                 var layout = await ReadFormLayout(bound, route, reference, ct).ConfigureAwait(false);
-                var icon = row.TryGetProperty("icon", out var iconObject) && iconObject.ValueKind == JsonValueKind.Object
-                    ? PresentationText(iconObject, "id") : null;
+                var icon = !row.TryGetProperty("icon", out var nativeIcon) ? null : nativeIcon.ValueKind switch
+                {
+                    JsonValueKind.String => nativeIcon.GetString(),
+                    JsonValueKind.Object => PresentationText(nativeIcon, "id"),
+                    JsonValueKind.Null => null,
+                    _ => throw Wire.Invalid("The native type icon must be a string or an object with its observed id."),
+                };
                 var color = PresentationText(row, "color");
                 string? svg = null;
                 if (icon is not null && !icons.TryGetValue((icon, color), out svg))

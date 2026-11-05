@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.Core;
@@ -104,6 +105,9 @@ public sealed class UserBenchCommandTests : IDisposable
     public void Dispose()
     {
         bindings.Dispose();
+        using var pool = new SqliteConnection(new SqliteConnectionStringBuilder
+        { DataSource = bindings.RegistryPath, Mode = SqliteOpenMode.ReadWriteCreate, DefaultTimeout = 30 }.ToString());
+        SqliteConnection.ClearPool(pool);
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
     }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.DependencyInjection;
@@ -45,6 +46,9 @@ public sealed class UserWideBenchEntrypointTests
         {
             Console.SetOut(previousOut); Console.SetError(previousError);
             bindings.Dispose();
+            using var pool = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = bindings.RegistryPath, Mode = SqliteOpenMode.ReadWriteCreate, DefaultTimeout = 30 }.ToString());
+            SqliteConnection.ClearPool(pool);
             Directory.Delete(directory, recursive: true);
         }
 

@@ -21,10 +21,15 @@ internal sealed record NativeEditorCapture(Guid Id, long Revision, Guid UserInst
 
 public sealed partial class UserBenchStore
 {
+    private const int EditorCaptureDocumentBytes = 2 * 1024 * 1024;
+
     internal async Task<Result<NativeEditorCapture>> SaveEditorCaptureAsync(NativeEditorCapture capture, long expectedRevision, CancellationToken ct)
     {
         try
         {
+            var document = JsonSerializer.Serialize(capture, NativeEditorJson.Default.NativeEditorCapture);
+            if (Encoding.UTF8.GetByteCount(document) > EditorCaptureDocumentBytes)
+                return Result<NativeEditorCapture>.Fail(ErrorCode.InvalidInput, "The serialized native editor capture exceeds its 2 MiB UTF-8 document bound.");
             using var lease = AcquireAuthoringLease(capture.BenchId);
             await using var db = await Open(ct).ConfigureAwait(false);
             using var tx = db.BeginTransaction(deferred: false);
@@ -44,19 +49,11 @@ public sealed partial class UserBenchStore
                 || proposal.Connection != capture.Origin.Connection || proposal.Operations.Length != 1
                 || proposal.Operations[0].Kind is not (OpKind.Create or OpKind.Batch)
                 || capture.Endpoints.IsDefault || capture.Endpoints.Length > 128 || capture.DraftFingerprint.Length != 64
-                || capture.IntentJson.Length > 1024 * 1024)
+                || Encoding.UTF8.GetByteCount(capture.IntentJson) > 1024 * 1024)
                 return Result<NativeEditorCapture>.Fail(ErrorCode.InvalidInput, "An exact bounded native editor capture is required.");
+            await EnsureCaptureStorage(db, tx, create: true, ct).ConfigureAwait(false);
             using var command = db.CreateCommand();
             command.Transaction = tx;
-            command.CommandText = """
-                CREATE TABLE IF NOT EXISTS editor_captures(id TEXT PRIMARY KEY,bench_id TEXT NOT NULL,plan_id TEXT NOT NULL,
-                    store_instance TEXT NOT NULL,item TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS editor_capture_meta(id INTEGER PRIMARY KEY CHECK(id=1),digest TEXT NOT NULL);
-                INSERT INTO editor_capture_meta SELECT 1,'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-                    WHERE NOT EXISTS(SELECT 1 FROM editor_captures) ON CONFLICT(id) DO NOTHING;
-                """;
-            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            await CheckCaptureSeal(db, tx, ct).ConfigureAwait(false);
             command.CommandText = """
                 SELECT revision FROM editor_captures WHERE id=$id;
                 """;
@@ -85,7 +82,7 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$store", capture.StoreInstance.ToString("D"));
             command.Parameters.AddWithValue("$item", CleanCoreAdoAccess.ItemText(proposal.Operations[0].Item));
             command.Parameters.AddWithValue("$revision", capture.Revision);
-            command.Parameters.AddWithValue("$document", JsonSerializer.Serialize(capture, NativeEditorJson.Default.NativeEditorCapture));
+            command.Parameters.AddWithValue("$document", document);
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             command.CommandText = "UPDATE editor_capture_meta SET digest=$digest WHERE id=1;";
             command.Parameters.AddWithValue("$digest", await CaptureDigest(db, tx, ct).ConfigureAwait(false));
@@ -104,19 +101,18 @@ public sealed partial class UserBenchStore
         {
             await using var db = await Open(ct).ConfigureAwait(false);
             using var command = db.CreateCommand();
-            using var tx = db.BeginTransaction(deferred: true);
+            using var tx = db.BeginTransaction(deferred: false);
             command.Transaction = tx;
-            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN('editor_captures','editor_capture_meta');";
-            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
+            if (!await EnsureCaptureStorage(db, tx, create: false, ct).ConfigureAwait(false))
                 return Result<ImmutableArray<NativeEditorCapture>>.Ok([]);
-            await CheckCaptureSeal(db, tx, ct).ConfigureAwait(false);
             command.CommandText = "SELECT id,revision,document FROM editor_captures ORDER BY id;";
             var captures = ImmutableArray.CreateBuilder<NativeEditorCapture>();
             using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
                 var text = reader.GetString(2);
-                if (text.Length > 2 * 1024 * 1024 || captures.Count >= 1024) throw new InvalidDataException("Native editor capture bounds exceeded.");
+                if (Encoding.UTF8.GetByteCount(text) > EditorCaptureDocumentBytes || captures.Count >= 1024)
+                    throw new InvalidDataException("Native editor capture bounds exceeded.");
                 var capture = JsonSerializer.Deserialize(text, NativeEditorJson.Default.NativeEditorCapture)
                     ?? throw new JsonException("Missing native editor capture.");
                 if (capture.Id.ToString("D") != reader.GetString(0) || capture.Revision != reader.GetInt64(1))
@@ -124,6 +120,8 @@ public sealed partial class UserBenchStore
                 _ = ParseIntent(capture.IntentJson);
                 captures.Add(capture);
             }
+            reader.Close();
+            tx.Commit();
             return Result<ImmutableArray<NativeEditorCapture>>.Ok(captures.ToImmutable());
         }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<ImmutableArray<NativeEditorCapture>>(ex); }
@@ -133,6 +131,52 @@ public sealed partial class UserBenchStore
     {
         using var document = JsonDocument.Parse(json);
         return CoreProposalFiles.Parse(document.RootElement);
+    }
+
+    private static async Task<bool> EnsureCaptureStorage(SqliteConnection db, SqliteTransaction tx, bool create, CancellationToken ct)
+    {
+        using var command = db.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = "PRAGMA table_info(meta);";
+        var hasWitness = false;
+        using (var columns = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
+            while (await columns.ReadAsync(ct).ConfigureAwait(false))
+                hasWitness |= columns.GetString(1) == "editor_initialized";
+        var initialized = false;
+        if (hasWitness)
+        {
+            command.CommandText = "SELECT editor_initialized FROM meta WHERE id=1;";
+            if (await command.ExecuteScalarAsync(ct).ConfigureAwait(false) is not long value || value is < 0 or > 1)
+                throw new InvalidDataException("Native capture initialization provenance is invalid.");
+            initialized = value == 1;
+        }
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN('editor_captures','editor_capture_meta');";
+        var tables = Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false));
+        if (tables == 1 || initialized && tables != 2)
+            throw new InvalidDataException("Previously initialized native capture storage is missing; relationship intent was not treated as absent.");
+        if (tables == 2) await CheckCaptureSeal(db, tx, ct).ConfigureAwait(false);
+        else
+        {
+            if (!create) return false;
+            command.CommandText = """
+                CREATE TABLE editor_captures(id TEXT PRIMARY KEY,bench_id TEXT NOT NULL,plan_id TEXT NOT NULL,
+                    store_instance TEXT NOT NULL,item TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL);
+                CREATE TABLE editor_capture_meta(id INTEGER PRIMARY KEY CHECK(id=1),digest TEXT NOT NULL);
+                INSERT INTO editor_capture_meta VALUES(1,'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+                """;
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        if (!hasWitness)
+        {
+            command.CommandText = "ALTER TABLE meta ADD COLUMN editor_initialized INTEGER NOT NULL DEFAULT 0 CHECK(editor_initialized IN(0,1));";
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        if (!initialized)
+        {
+            command.CommandText = "UPDATE meta SET editor_initialized=1 WHERE id=1;";
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        return true;
     }
 
     private static async Task CheckCaptureSeal(SqliteConnection db, SqliteTransaction tx, CancellationToken ct)
@@ -154,7 +198,7 @@ public sealed partial class UserBenchStore
         var count = 0;
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
-            if (++count > 1024 || reader.GetString(2).Length > 2 * 1024 * 1024)
+            if (++count > 1024 || Encoding.UTF8.GetByteCount(reader.GetString(2)) > EditorCaptureDocumentBytes)
                 throw new InvalidDataException("Native capture bounds exceeded.");
             hash.AppendData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
                 new[] { reader.GetString(0), reader.GetInt64(1).ToString(System.Globalization.CultureInfo.InvariantCulture), reader.GetString(2) },

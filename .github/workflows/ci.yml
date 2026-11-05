@@ -153,6 +153,7 @@ jobs:
               ("native-editor-roundtrip", "Twig.Cli.Tests", "FullyQualifiedName~NativeNormalRelationshipCaptureSurvivesReopen|FullyQualifiedName~NativePlanCaptureIsIsolated"),
               ("native-editor-authority", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorCapturedAuthorityAndVersions|FullyQualifiedName~NativeEditorExactSourceStoreAndUserInstance|FullyQualifiedName~NativeEditorBaselineFingerprint"),
               ("native-editor-recovery", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorInterruptedCapture|FullyQualifiedName~NativeEditorMissingOrCorruptCapture|FullyQualifiedName~NativeEditorCachedGuidance|FullyQualifiedName~NativeEditorPendingSafetyCheck"),
+              ("native-editor-persistence", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorJointlyMissingCaptureTables|FullyQualifiedName~NativeEditorStoredDocumentBound"),
               ("native-gh-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubEditorCaptures"),
               ("planning-consumers", "Twig.Infrastructure.Tests", "FullyQualifiedName~PlanningConsumerTests"),
               ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),

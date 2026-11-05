@@ -173,6 +173,20 @@ their integrity seal. Mode exit preserves captures; stale handles and foreign
 authority cannot adopt them. All current Bench-definition writers share the
 canonical native authoring lease, including legacy imports and selector capture.
 
+The existing user `meta` row witnesses capture-storage initialization separately
+from both capture tables. Joint loss of those tables refuses reads/restaging;
+genuine first use remains empty. Existing sealed storage can establish the witness
+atomically. The actual serialized capture document is checked once, before capture
+writes, against the same 2 MiB UTF-8 byte limit used by reads and integrity hashing.
+The canonical intent retains its separate 1 MiB UTF-8 bound; rich text is not truncated.
+
+This local witness does **not** detect a whole `benches.db` same-instance rollback
+to a pre-capture state that also erases the witness. Public-facade qualification
+must address a surviving Core draft with lost relationship metadata through an
+independently surviving native system/user-generation reference and cross-store
+recovery, not empty-state/latest-value inference. No rollback permission or
+universal lost-capture/rollback protection is implied.
+
 Fresh scope enlistment retains a native reservation against an exact registered
 origin and registry/source CAS, owns actual `FileMode.CreateNew`, then persists
 its birth witness before enlistment. Enlisted provenance is sealed into existing

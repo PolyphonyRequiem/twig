@@ -2449,6 +2449,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public string? ObservedPrincipalOverride { get; set; }
         public Func<Task>? BeforeProjectMetadata { get; set; }
         public bool CloseGateEnabled { get; set; }
+        public bool RichTextEnabled { get; set; }
         public bool FailSchema { get; set; }
         public HttpStatusCode? ReadAccessFailure { get; set; }
         public Func<Task>? AfterReadAccess { get; set; }
@@ -2812,10 +2813,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             {
                 var names = new[] { "System.Title", "System.State", "System.TeamProject", "System.WorkItemType",
                     "System.AreaPath", "System.IterationPath", "System.AssignedTo", "System.History" }
-                    .Concat(CloseGateEnabled ? ["Fixture.CloseEvidence"] : Array.Empty<string>());
+                    .Concat(CloseGateEnabled ? ["Fixture.CloseEvidence"] : Array.Empty<string>())
+                    .Concat(RichTextEnabled ? ["System.Description"] : Array.Empty<string>());
                 return Reply(HttpStatusCode.OK, new { value = names.Select(name => new
                 {
-                    referenceName = name, type = "string", readOnly = name is "System.TeamProject" or "System.WorkItemType",
+                    referenceName = name, type = name == "System.Description" ? "html" : "string", readOnly = name is "System.TeamProject" or "System.WorkItemType",
                     isIdentity = name == "System.AssignedTo", isPicklist = false, required = false
                 }).ToArray() });
             }

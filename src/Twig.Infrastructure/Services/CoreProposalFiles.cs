@@ -82,8 +82,10 @@ internal static class CoreProposalFiles
                 throw new JsonException("Optional creation links must be a nonempty array.");
             foreach (var value in creationLinks.EnumerateArray())
             {
-                Array(value, 3);
-                links.Add(new(Key(value[0]), Text(value[1]), value[2].GetBoolean()));
+                Array(value, value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 4 ? 4 : 3);
+                var remove = value.GetArrayLength() == 4 && value[3].GetBoolean();
+                if (value.GetArrayLength() == 4 && !remove) throw new JsonException("Default add flags must be omitted.");
+                links.Add(new(Key(value[0]), Text(value[1]), value[2].GetBoolean(), remove));
             }
             if (links.Distinct().Count() != links.Count) throw new JsonException("Duplicate creation links.");
         }

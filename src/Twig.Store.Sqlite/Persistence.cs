@@ -154,10 +154,11 @@ internal sealed record DraftData(KeyData Key, string Type, ItemData? Baseline, F
         Parent?.ToCore(), ParentRelation, Resource?.ToCore(), Links?.Select(link => link.ToCore()));
 }
 
-internal sealed record CreationLinkData(KeyData Other, string Relation, bool Outgoing)
+internal sealed record CreationLinkData(KeyData Other, string Relation, bool Outgoing,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Remove = false)
 {
-    internal static CreationLinkData From(CreationLink link) => new(KeyData.From(link.Other), link.Relation, link.Outgoing);
-    internal CreationLink ToCore() => new(Other.ToCore(), Relation, Outgoing);
+    internal static CreationLinkData From(CreationLink link) => new(KeyData.From(link.Other), link.Relation, link.Outgoing, link.Remove);
+    internal CreationLink ToCore() => new(Other.ToCore(), Relation, Outgoing, Remove);
 }
 
 internal sealed record OpData(string Id, OpKind Kind, KeyData Item, RevisionData? ExpectedRevision, FieldData[] Fields,

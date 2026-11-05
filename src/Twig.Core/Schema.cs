@@ -31,6 +31,11 @@ public sealed record FieldRule
 }
 
 public sealed record FieldDef(string Reference, FieldKind Kind, bool ReadOnly = false, string? Name = null);
+public sealed record EvaluatedField(FieldDef Definition, bool ReadOnly, bool Required, ImmutableArray<FieldValue> Allowed,
+    bool HasAllowedConstraint);
+public sealed record EditorEvaluation(ImmutableArray<EvaluatedField> Fields, ImmutableArray<string> States, ImmutableArray<Error> Errors);
+public sealed record EditorChoice(FieldValue Value, string Label);
+public sealed record EditorChoices(ImmutableArray<EditorChoice> Items, bool More);
 public sealed record RelationKind(string Reference, RelationShape Shape, bool Directed);
 
 public enum LayoutAvailability { Served, Locked, Unavailable }

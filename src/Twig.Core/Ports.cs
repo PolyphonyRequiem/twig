@@ -19,6 +19,7 @@ public sealed record ProviderCapabilities
     public ImmutableHashSet<string> LocalRelations { get; }
     public bool ExactRevisions { get; }
     public bool AtomicFieldBatches { get; }
+    public bool AtomicRelationshipBatches { get; init; }
 }
 
 public sealed record QueryPage(ImmutableArray<WorkItem> Items, ImmutableArray<Relationship> Relationships,

@@ -51,6 +51,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
                 command.CommandText = "UPDATE core_execution_meta SET revision=revision+1,source_count=source_count+1,active=0,digest=NULL WHERE id=1;";
                 await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                command.CommandText = "UPDATE editor_provenance_meta SET ready=0 WHERE id=1;";
+                await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
             return await ReadCoreGate(db, tx, ct, validateReferences: false).ConfigureAwait(false);
         }, ct);
@@ -141,6 +143,17 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             }
             using var command = db.CreateCommand();
             command.Transaction = tx;
+            try
+            {
+                await CheckCaptureReferences(db, tx, ct).ConfigureAwait(false);
+                await CheckCapturePayloads(db, tx, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or JsonException or FormatException)
+            { return Result<bool>.Fail(ErrorCode.StorageUnavailable, "Capture provenance changed before activation: " + ex.Message); }
+            if (inventory.CaptureDigest != await CaptureSeal(db, tx, ct).ConfigureAwait(false))
+                return Result<bool>.Fail(ErrorCode.Conflict, "Native generation inventory changed before confirmation.");
+            command.CommandText = "UPDATE editor_provenance_meta SET ready=1 WHERE id=1;";
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             command.CommandText = "UPDATE core_execution_meta SET active=1,digest=$digest WHERE id=1 AND instance=$instance AND revision=$revision;";
             command.Parameters.AddWithValue("$digest", inventory.Digest);
             command.Parameters.AddWithValue("$instance", inventory.Instance.ToString("N"));
@@ -207,13 +220,13 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         }, ct);
 
     private static async Task<Result<NativeCoreGate>> ReadCoreGate(Microsoft.Data.Sqlite.SqliteConnection db,
-        Microsoft.Data.Sqlite.SqliteTransaction? tx, CancellationToken ct, bool validateReferences = true)
+        Microsoft.Data.Sqlite.SqliteTransaction? tx, CancellationToken ct, bool validateReferences = true, int requiredVersion = SchemaVersion)
     {
         using var command = db.CreateCommand();
         command.Transaction = tx;
         command.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
-        if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 11)
-            return Result<NativeCoreGate>.Fail(ErrorCode.StorageUnavailable, "Native execution requires system registry schema 11.");
+        if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != requiredVersion)
+            return Result<NativeCoreGate>.Fail(ErrorCode.StorageUnavailable, "Native execution requires its exact system registry schema.");
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN('core_execution_meta','core_store_refs','core_attempt_refs');";
         if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 3)
             return Result<NativeCoreGate>.Fail(ErrorCode.StorageUnavailable, "Native execution registry tables are incomplete; no reset occurred.");

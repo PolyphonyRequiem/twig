@@ -15,7 +15,10 @@ internal sealed record NativeCoreStoreReference(Guid Instance, string DatabasePa
 internal sealed record NativeCoreGate(Guid Instance, long Revision, bool Active, ImmutableArray<NativeCoreStoreReference> Sources);
 internal sealed record NativeCoreInventory(Guid Instance, long Revision, string Digest,
     ImmutableArray<NativeCoreStoreReference> Sources, ImmutableArray<long> Versions,
-    ImmutableArray<string> ExplicitRoots, ImmutableArray<NativeCoreStoreReference> ExplicitStores);
+    ImmutableArray<string> ExplicitRoots, ImmutableArray<NativeCoreStoreReference> ExplicitStores)
+{
+    public string CaptureDigest { get; init; } = "";
+}
 
 internal static class NativeCoreExecution
 {
@@ -32,8 +35,11 @@ internal static class NativeCoreExecution
     {
         using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
         var gate = await registry.ReadCoreGateAsync(ct).ConfigureAwait(false);
-        return !gate.IsSuccess ? Result<bool>.Fail(gate.Error) : gate.Value.Active ? Result<bool>.Ok(true)
-            : Result<bool>.Fail(ErrorCode.PolicyViolation, "The one-time native publishing safety check is pending. Reads and local drafts remain available.");
+        if (!gate.IsSuccess) return Result<bool>.Fail(gate.Error);
+        var captures = await registry.CapturePublishingAsync(ct).ConfigureAwait(false);
+        if (!captures.IsSuccess) return Result<bool>.Fail(captures.Error);
+        return gate.Value.Active ? Result<bool>.Ok(true) : Result<bool>.Fail(ErrorCode.PolicyViolation,
+            "The one-time native publishing safety check is pending. Reads and protected draft browse remain available.");
     }
 
     internal static async Task<Result<NativeCoreInventory>> InventoryAsync(string registryPath,
@@ -150,11 +156,13 @@ internal static class NativeCoreExecution
                         return Result<NativeCoreInventory>.Fail(ErrorCode.StorageUnavailable, "Original GitHub intent lacks its exact retained Core store/journal; ACK cannot settle it.");
                 }
             }
+            var captureInventory = await benches.CaptureInventoryEvidenceAsync(captured.Value.Sources, ct).ConfigureAwait(false);
+            if (!captureInventory.IsSuccess) return Result<NativeCoreInventory>.Fail(captureInventory.Error);
             var payload = JsonSerializer.Serialize(new NativeCoreInventory(captured.Value.Instance, captured.Value.Revision, "",
-                captured.Value.Sources, versions.ToImmutable(), suppliedRoots, suppliedStores), NativeCoreExecutionJson.Default.NativeCoreInventory);
+                captured.Value.Sources, versions.ToImmutable(), suppliedRoots, suppliedStores) { CaptureDigest = captureInventory.Value }, NativeCoreExecutionJson.Default.NativeCoreInventory);
             var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload + evidence)));
             return Result<NativeCoreInventory>.Ok(new(captured.Value.Instance, captured.Value.Revision, digest,
-                captured.Value.Sources, versions.ToImmutable(), suppliedRoots, suppliedStores));
+                captured.Value.Sources, versions.ToImmutable(), suppliedRoots, suppliedStores) { CaptureDigest = captureInventory.Value });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException)
         { return Result<NativeCoreInventory>.Fail(ErrorCode.StorageUnavailable, "Native source inventory could not be established; original evidence was preserved."); }
@@ -174,6 +182,13 @@ internal static class NativeCoreExecution
             if (!fresh.IsSuccess) return Result<bool>.Fail(fresh.Error);
             if (fresh.Value.Digest != inventory.Digest)
                 return Result<bool>.Fail(ErrorCode.Conflict, "Native inventory/evidence changed; no activation was inferred.");
+            var migrated = await UserBenchStore.ForRegistry(registryPath).MigrateCaptureProvenanceAsync(fresh.Value.Sources, ct).ConfigureAwait(false);
+            if (!migrated.IsSuccess) return migrated;
+            if (fresh.Value.CaptureDigest.StartsWith("legacy:", StringComparison.Ordinal))
+            {
+                fresh = await InventoryAsync(registryPath, inventory.ExplicitRoots, inventory.ExplicitStores, ct).ConfigureAwait(false);
+                if (!fresh.IsSuccess) return Result<bool>.Fail(fresh.Error);
+            }
             using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
             return await registry.ConfirmCoreInventoryAsync(fresh.Value, ct).ConfigureAwait(false);
         }
@@ -187,6 +202,8 @@ internal static class NativeCoreExecution
         IDisposable? lease = null;
         try
         {
+            var provenance = await PublishingAsync(registryPath, ct).ConfigureAwait(false);
+            if (!provenance.IsSuccess) return Result<IDisposable>.Fail(provenance.Error);
             if (operation < 0 || operation >= proposal.Operations.Length || attempt == Guid.Empty || proposal.Connection != source.Connection)
                 return Result<IDisposable>.Fail(ErrorCode.InvalidInput, "An exact native Core source and attempt are required.");
             var own = await Snapshot(source, ct).ConfigureAwait(false);

@@ -171,7 +171,10 @@ internal static class ConnectionOperationGate
         {
             foreach (var key in owned)
             {
-                if (prior is { Active: true } && prior.Keys.Contains(key, StringComparer.Ordinal)) continue;
+                var inherited = false;
+                for (var ancestor = prior; ancestor is not null; ancestor = ancestor.Prior)
+                    inherited |= ancestor.Active && ancestor.Keys.Contains(key, StringComparer.Ordinal);
+                if (inherited) continue;
                 var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)));
                 streams.Add(new FileStream(Path.Combine(directory, hash + ".lock"), FileMode.OpenOrCreate,
                     FileAccess.ReadWrite, FileShare.None));
@@ -195,6 +198,7 @@ internal static class ConnectionOperationGate
     private sealed class CoreTargetLease(List<FileStream> streams, string[] keys, CoreTargetLease? prior) : IDisposable
     {
         internal string[] Keys { get; } = keys;
+        internal CoreTargetLease? Prior => prior;
         internal bool Active { get; private set; } = true;
         public void Dispose()
         {

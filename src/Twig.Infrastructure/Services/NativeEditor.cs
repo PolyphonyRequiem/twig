@@ -105,7 +105,7 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
         if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
         if (!captures.IsSuccess) return Result<NativeEditorItem>.Fail(captures.Error);
-        var matches = captures.Value.Where(value => !value.Settled && value.StoreInstance == handle.Document.DatabaseInstance
+        var matches = captures.Value.Where(value => !value.Settled && !value.Cancelled && value.StoreInstance == handle.Document.DatabaseInstance
             && value.PlanMode == plan.PlanMode && (!plan.PlanMode || value.PlanId == plan.Id)
             && UserBenchStore.ParseIntent(value.IntentJson).Operations[0].Item == observed.Key).ToArray();
         if (matches.Length > 1)
@@ -139,6 +139,8 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
         if (current.Value.Version != item.StoreVersion || Workspace.DraftFingerprint(item.Draft)
             != Workspace.DraftFingerprint(current.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The opened native/draft version changed; no intent was overwritten.");
+        if (item.Capture is { Ready: true } owned && owned.DraftFingerprint != Workspace.DraftFingerprint(item.Draft))
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Protected captured debt differs from Core; explicit recovery/review is required before restaging.");
         var priorIntent = item.Capture is null ? null : UserBenchStore.ParseIntent(item.Capture.IntentJson);
         var old = priorIntent?.Operations.Single();
         if (item.Capture is { Ready: false })
@@ -191,9 +193,12 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
         var capture = new NativeEditorCapture(item.Capture?.Id ?? Guid.NewGuid(), (item.Capture?.Revision ?? 0) + 1,
             library.InstanceId, bench.Id, bench.Revision, plan.Id, plan.Revision, plan.PlanMode, scope?.Id ?? Guid.Empty,
             origin, factory.WorkspaceRoot, handle.Document.DatabaseInstance, beforeStage.Value.Version, intent,
-            Workspace.DraftFingerprint(desired), false) { Endpoints = endpoints.ToImmutable() };
+            Workspace.DraftFingerprint(desired), false) { Endpoints = endpoints.ToImmutable(),
+                ExecutionPath = handle.Document.DatabasePath, BeforeFingerprint = Workspace.DraftFingerprint(item.Draft) };
         var retained = await user.SaveEditorCaptureAsync(capture, capture.Revision - 1, ct).ConfigureAwait(false);
         if (!retained.IsSuccess) return Result<NativeEditorItem>.Fail(retained.Error);
+        var admission = await user.AdmitCaptureStageAsync(capture, null, ct).ConfigureAwait(false);
+        if (!admission.IsSuccess) return Result<NativeEditorItem>.Fail(admission.Error);
         var staged = desired.Key.IsLocal
             ? await Workspace.StageSeedAsync(desired.Type, fields, ct, desired.Key.LocalId,
                 desired.Parent, desired.ParentRelation, desired.Resource, links).ConfigureAwait(false)
@@ -201,6 +206,8 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
         if (!staged.IsSuccess) return Result<NativeEditorItem>.Fail(staged.Error);
         var after = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!after.IsSuccess) return Result<NativeEditorItem>.Fail(after.Error);
+        var observedStage = await user.AdmitCaptureStageAsync(capture, after.Value.Version, ct).ConfigureAwait(false);
+        if (!observedStage.IsSuccess) return Result<NativeEditorItem>.Fail(observedStage.Error);
         var ready = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1, Ready = true,
             StoreVersion = after.Value.Version }, capture.Revision, ct).ConfigureAwait(false);
         return ready.IsSuccess ? await Item(item.Observation, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(ready.Error);
@@ -262,9 +269,45 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
             || stored.Value.Version <= capture.StoreVersion
             || Workspace.DraftFingerprint(stored.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)) != capture.DraftFingerprint)
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "No exact durable native draft proves this interrupted capture; every artifact remains protected.");
+        var witnessed = await user.AdmitCaptureStageAsync(capture, stored.Value.Version, ct).ConfigureAwait(false);
+        if (!witnessed.IsSuccess) return Result<NativeEditorItem>.Fail(witnessed.Error);
         var ready = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1,
             Ready = true, StoreVersion = stored.Value.Version }, capture.Revision, ct).ConfigureAwait(false);
         return ready.IsSuccess ? await Item(item.Observation, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(ready.Error);
+    }
+
+    internal async Task<Result<NativeEditorItem>> ResolveInterruptedAsync(NativeEditorItem item, bool cancel, CancellationToken ct)
+    {
+        using var benchLease = user.AcquireAuthoringLease(bench.Id);
+        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
+        var pending = item.Capture;
+        var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
+        if (pending is not { Ready: false, Settled: false, Cancelled: false } || pending.Origin != origin
+            || stored.Value.Version < pending.StoreVersion
+            || Workspace.DraftFingerprint(stored.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)) != pending.BeforeFingerprint)
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The exact before-state is not present; interrupted intent remains protected.");
+        if (cancel)
+        {
+            var cancelled = await user.CancelCaptureAsync(pending, ct).ConfigureAwait(false);
+            return cancelled.IsSuccess ? await Item(item.Observation, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(cancelled.Error);
+        }
+        var intent = UserBenchStore.ParseIntent(pending.IntentJson).Operations.Single();
+        var candidate = new Draft(intent.Item, intent.Type ?? item.Observation.Type,
+            intent.Item.IsLocal ? null : item.Draft?.Baseline ?? item.Observation, intent.Fields,
+            intent.Other, intent.Relation, intent.Resource, intent.Item.IsLocal ? intent.Links : []);
+        if (Workspace.DraftFingerprint(candidate) != pending.DraftFingerprint)
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Fresh baseline differs from exact retained intent; review is required.");
+        var admitted = await user.AdmitCaptureStageAsync(pending, null, ct).ConfigureAwait(false);
+        if (!admitted.IsSuccess) return Result<NativeEditorItem>.Fail(admitted.Error);
+        var stage = intent.Item.IsLocal
+            ? await Workspace.StageSeedAsync(candidate.Type, candidate.Changes, ct, intent.Item.LocalId,
+                candidate.Parent, candidate.ParentRelation, candidate.Resource, candidate.Links).ConfigureAwait(false)
+            : await Workspace.StageEditAsync(intent.Item, candidate.Changes, ct, candidate.Type, item.Observation,
+                stored.Value.Version).ConfigureAwait(false);
+        return stage.IsSuccess ? await RecoverCaptureAsync(item, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(stage.Error);
     }
 
     internal async Task<Result<bool>> ValidateAsync(CancellationToken ct)

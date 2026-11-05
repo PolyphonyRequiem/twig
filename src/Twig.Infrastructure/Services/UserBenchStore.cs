@@ -18,20 +18,23 @@ public sealed partial class UserBenchStore
 {
     private const int ApplicationId = 0x5457424e;
     private readonly string path;
+    private readonly string? captureRegistry;
     private readonly object identityGate = new();
     private Guid? instanceId;
 
-    public UserBenchStore(string path)
+    public UserBenchStore(string path) : this(path, null) { }
+    private UserBenchStore(string path, string? registry)
     {
         if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("An absolute native Bench store path is required.", nameof(path));
         this.path = Path.GetFullPath(path);
+        captureRegistry = registry;
     }
 
     public static UserBenchStore ForCurrentUser()
-        => new(Path.Combine(ConnectionBindingService.ResolveUserHome(), "benches.db"));
+        => ForRegistry(Path.Combine(ConnectionBindingService.ResolveUserHome(), "system.db"));
 
     internal static UserBenchStore ForRegistry(string registryPath)
-        => new(Path.Combine(Path.GetDirectoryName(registryPath)!, "benches.db"));
+        => new(Path.Combine(Path.GetDirectoryName(registryPath)!, "benches.db"), Path.GetFullPath(registryPath));
 
     internal IDisposable AcquireAuthoringLease(Guid benchId)
         => AcquireAuthoringLeases([benchId]);
@@ -602,7 +605,18 @@ public sealed partial class UserBenchStore
 
     private async Task Create(CancellationToken ct)
     {
+        using var owner = captureRegistry is null ? null : AcquireCaptureLease();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (File.Exists(path)) return;
+        var user = Guid.NewGuid();
+        Guid? registryIdentity = null;
+        using var registry = captureRegistry is null ? null : new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(captureRegistry, TimeProvider.System);
+        if (registry is not null)
+        {
+            var reserved = await registry.CaptureUserBirthAsync(path, user, false, ct).ConfigureAwait(false);
+            if (!reserved.IsSuccess) throw new InvalidDataException(reserved.Error.Message);
+            registryIdentity = (await registry.ReadCoreGateAsync(ct).ConfigureAwait(false)).Value.Instance;
+        }
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".new";
         try
         {
@@ -616,8 +630,9 @@ public sealed partial class UserBenchStore
                     PRAGMA synchronous=FULL;
                     PRAGMA application_id={ApplicationId};
                     PRAGMA user_version=1;
-                    CREATE TABLE meta(id INTEGER PRIMARY KEY CHECK(id=1),instance TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>=0)) STRICT;
-                    INSERT INTO meta VALUES(1,'{Guid.NewGuid():D}',0);
+                    CREATE TABLE meta(id INTEGER PRIMARY KEY CHECK(id=1),instance TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>=0),
+                        editor_registry TEXT,editor_generation INTEGER NOT NULL DEFAULT 0,editor_head TEXT NOT NULL DEFAULT '') STRICT;
+                    INSERT INTO meta(id,instance,revision,editor_registry) VALUES(1,'{user:D}',0,{(registryIdentity is null ? "NULL" : "'" + registryIdentity.Value.ToString("N") + "'")});
                     CREATE TABLE benches(id TEXT PRIMARY KEY,canonical_name TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),deleted INTEGER NOT NULL CHECK(deleted IN(0,1)),document TEXT NOT NULL) STRICT;
                     CREATE UNIQUE INDEX bench_names ON benches(canonical_name) WHERE deleted=0;
                     CREATE TABLE imports(store_instance TEXT PRIMARY KEY,connection TEXT NOT NULL) STRICT;
@@ -628,7 +643,16 @@ public sealed partial class UserBenchStore
             }
             ct.ThrowIfCancellationRequested();
             try { File.Move(temporary, path); }
-            catch (IOException) when (File.Exists(path)) { } // Another creator installed its complete store first.
+            catch (IOException) when (File.Exists(path))
+            {
+                if (registry is not null)
+                    throw new InvalidDataException("A reserved native user-store path was replaced before birth; no existing file was adopted.");
+            }
+            if (registry is not null)
+            {
+                var born = await registry.CaptureUserBirthAsync(path, user, true, ct).ConfigureAwait(false);
+                if (!born.IsSuccess) throw new InvalidDataException(born.Error.Message);
+            }
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }

@@ -32,20 +32,21 @@ jobs:
       - name: Supported solution build (120-second deadline)
         run: python tools/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:1"
 
-      - name: Compiled v10 registry fresh-open and cached-handle compatibility (offline)
+      - name: Compiled v10/v11 registry fresh-open and cached-handle compatibility (offline)
         shell: python
         run: |
           import subprocess, sys
           from pathlib import Path
-          legacy = Path("artifacts") / "legacy-core-v10"
-          subprocess.run(["git", "worktree", "add", "--detach", str(legacy),
-                          "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"], check=True)
-          subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "120", "--",
-                          "dotnet", "build", str(legacy / "src" / "Twig.Infrastructure" / "Twig.Infrastructure.csproj"),
-                          "-f", "net11.0", "-m:1", "--verbosity", "minimal"], check=True)
-          subprocess.run([sys.executable, "tools/verify-core-registry-compat.py",
-                          "--legacy-assembly", str(legacy / "src" / "Twig.Infrastructure" / "bin" / "Debug" / "net11.0" / "Twig.Infrastructure.dll"),
-                          "--current-assembly", str(Path("src") / "Twig.Infrastructure" / "bin" / "Debug" / "net11.0" / "Twig.Infrastructure.dll")], check=True)
+          for version, revision in [(10, "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"),
+                                    (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
+              legacy = Path("artifacts") / f"legacy-core-v{version}"
+              subprocess.run(["git", "worktree", "add", "--detach", str(legacy), revision], check=True)
+              subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "120", "--",
+                              "dotnet", "build", str(legacy / "src" / "Twig.Infrastructure" / "Twig.Infrastructure.csproj"),
+                              "-f", "net11.0", "-m:1", "--verbosity", "minimal"], check=True)
+              subprocess.run([sys.executable, "tools/verify-core-registry-compat.py", "--legacy-version", str(version),
+                              "--legacy-assembly", str(legacy / "src" / "Twig.Infrastructure" / "bin" / "Debug" / "net11.0" / "Twig.Infrastructure.dll"),
+                              "--current-assembly", str(Path("src") / "Twig.Infrastructure" / "bin" / "Debug" / "net11.0" / "Twig.Infrastructure.dll")], check=True)
 
       - name: Clean-core invariant regression
         id: core
@@ -154,6 +155,10 @@ jobs:
               ("native-editor-authority", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorCapturedAuthorityAndVersions|FullyQualifiedName~NativeEditorExactSourceStoreAndUserInstance|FullyQualifiedName~NativeEditorBaselineFingerprint"),
               ("native-editor-recovery", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorInterruptedCapture|FullyQualifiedName~NativeEditorMissingOrCorruptCapture|FullyQualifiedName~NativeEditorCachedGuidance|FullyQualifiedName~NativeEditorPendingSafetyCheck"),
               ("native-editor-persistence", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorJointlyMissingCaptureTables|FullyQualifiedName~NativeEditorStoredDocumentBound"),
+              ("native-capture-schema", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeCaptureRegistryMigrationTests"),
+              ("native-capture-rewind", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureWholeDatabaseRewind"),
+              ("native-capture-lifecycle", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureInterruptedBeforeCoreStage|FullyQualifiedName~NativeCaptureUserCommitBeforeRegistryConfirmation|FullyQualifiedName~NativeCaptureReserveAndPostCoreCrash"),
+              ("native-capture-bootstrap", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureLegacyBootstrap|FullyQualifiedName~NativeCaptureMissingBidirectionalHistory"),
               ("native-gh-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubEditorCaptures"),
               ("planning-consumers", "Twig.Infrastructure.Tests", "FullyQualifiedName~PlanningConsumerTests"),
               ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),

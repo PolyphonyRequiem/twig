@@ -37,7 +37,7 @@ public sealed class NativeCoreRegistryMigrationTests : IDisposable
         var gate = await upgraded.ReadCoreGateAsync(default);
         gate.IsSuccess.ShouldBeTrue(gate.IsSuccess ? "" : gate.Error.Message);
         gate.Value.Active.ShouldBeFalse();
-        (await Scalar("SELECT version FROM layout_meta WHERE id=1;")).ShouldBe("11");
+        (await Scalar("SELECT version FROM layout_meta WHERE id=1;")).ShouldBe("12");
         (await Scalar("SELECT record_json FROM claims WHERE claim_id='preserved';")).ShouldBe(before);
         (await Scalar("SELECT intent_json FROM connection_remote_write_intents WHERE intent_id='preserved-intent';")).ShouldBe(transport);
         (await Scalar("SELECT receipt_json FROM connection_remote_write_receipts WHERE intent_id='preserved-intent';")).ShouldBe(acknowledged);
@@ -47,7 +47,7 @@ public sealed class NativeCoreRegistryMigrationTests : IDisposable
     public async Task UpgradeFailureRollsBackVersionAndAllNewClaimTables()
     {
         await Ten();
-        await Execute("CREATE TRIGGER reject_upgrade BEFORE UPDATE OF version ON layout_meta WHEN new.version=11 BEGIN SELECT RAISE(ABORT,'fixture rejected upgrade'); END;");
+        await Execute("CREATE TRIGGER reject_upgrade BEFORE UPDATE OF version ON layout_meta WHEN new.version=12 BEGIN SELECT RAISE(ABORT,'fixture rejected upgrade'); END;");
         using var failed = new SqliteSystemWorktreeRegistry(PathName, TimeProvider.System);
         (await failed.ReadCoreGateAsync(default)).IsSuccess.ShouldBeFalse();
         (await Scalar("SELECT version FROM layout_meta WHERE id=1;")).ShouldBe("10");
@@ -64,7 +64,7 @@ public sealed class NativeCoreRegistryMigrationTests : IDisposable
         var gates = await Task.WhenAll(first.ReadCoreGateAsync(default), second.ReadCoreGateAsync(default));
         gates.ShouldAllBe(value => value.IsSuccess);
         gates[0].Value.Instance.ShouldBe(gates[1].Value.Instance);
-        (await Scalar("SELECT version FROM layout_meta WHERE id=1;")).ShouldBe("11");
+        (await Scalar("SELECT version FROM layout_meta WHERE id=1;")).ShouldBe("12");
         (await first.ReadCoreGateAsync(default)).Value.Instance.ShouldBe(gates[0].Value.Instance);
     }
 
@@ -79,6 +79,7 @@ public sealed class NativeCoreRegistryMigrationTests : IDisposable
             INSERT INTO connection_remote_write_intents(intent_id,request_digest,worktree_fingerprint,intent_json)
                 VALUES('preserved-intent','original-digest','fixture-root','{"original":"unresolved transport"}');
             INSERT INTO connection_remote_write_receipts VALUES('preserved-intent','preserved-receipt','{"status":"acknowledged-not-verified"}');
+            DROP TABLE editor_capture_refs; DROP TABLE editor_user_heads; DROP TABLE editor_provenance_meta;
             DROP TABLE core_attempt_refs; DROP TABLE core_store_refs; DROP TABLE core_execution_meta;
             UPDATE layout_meta SET version=10 WHERE id=1;
             """);

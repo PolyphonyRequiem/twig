@@ -15,6 +15,9 @@ internal sealed record NativeEditorCapture(Guid Id, long Revision, Guid UserInst
     Guid StoreInstance, long StoreVersion, string IntentJson, string DraftFingerprint, bool Ready, bool Settled = false)
 {
     public ImmutableArray<NativeEditorEndpoint> Endpoints { get; init; } = [];
+    public string ExecutionPath { get; init; } = "";
+    public string BeforeFingerprint { get; init; } = "none";
+    public bool Cancelled { get; init; }
     internal bool SameAs(NativeEditorCapture other)
         => this with { Endpoints = other.Endpoints } == other && Endpoints.SequenceEqual(other.Endpoints);
 }
@@ -30,7 +33,9 @@ public sealed partial class UserBenchStore
             var document = JsonSerializer.Serialize(capture, NativeEditorJson.Default.NativeEditorCapture);
             if (Encoding.UTF8.GetByteCount(document) > EditorCaptureDocumentBytes)
                 return Result<NativeEditorCapture>.Fail(ErrorCode.InvalidInput, "The serialized native editor capture exceeds its 2 MiB UTF-8 document bound.");
+            using var namespaceLease = AcquireCaptureLease();
             using var lease = AcquireAuthoringLease(capture.BenchId);
+            var generation = await CaptureGeneration(ct).ConfigureAwait(false);
             await using var db = await Open(ct).ConfigureAwait(false);
             using var tx = db.BeginTransaction(deferred: false);
             var library = await Read(db, tx, ct).ConfigureAwait(false);
@@ -62,7 +67,8 @@ public sealed partial class UserBenchStore
             if ((revision is null ? 0 : Convert.ToInt64(revision)) != expectedRevision)
                 return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "The durable editor draft version changed; no capture was overwritten.");
             command.CommandText = "SELECT document FROM editor_captures WHERE id=$id;";
-            if (await command.ExecuteScalarAsync(ct).ConfigureAwait(false) is string previousText)
+            var previousText = await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string ?? "";
+            if (previousText.Length != 0)
             {
                 var previous = JsonSerializer.Deserialize(previousText, NativeEditorJson.Default.NativeEditorCapture)
                     ?? throw new JsonException("Missing native capture.");
@@ -83,11 +89,16 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$item", CleanCoreAdoAccess.ItemText(proposal.Operations[0].Item));
             command.Parameters.AddWithValue("$revision", capture.Revision);
             command.Parameters.AddWithValue("$document", document);
+            var reference = await ReserveCapture(capture, document, previousText, generation, ct).ConfigureAwait(false);
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await RecordCaptureHistory(db, tx, reference, document, previousText, ct).ConfigureAwait(false);
             command.CommandText = "UPDATE editor_capture_meta SET digest=$digest WHERE id=1;";
             command.Parameters.AddWithValue("$digest", await CaptureDigest(db, tx, ct).ConfigureAwait(false));
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             tx.Commit();
+            using var registry = new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(captureRegistry!, TimeProvider.System);
+            var confirmed = await registry.MarkCaptureAsync(reference.User, reference.Generation, reference.Head, false, null, ct).ConfigureAwait(false);
+            if (!confirmed.IsSuccess) return Result<NativeEditorCapture>.Fail(confirmed.Error);
             return Result<NativeEditorCapture>.Ok(capture);
         }
         catch (ConnectionBindingResolutionException)
@@ -95,11 +106,13 @@ public sealed partial class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<NativeEditorCapture>(ex); }
     }
 
-    internal async Task<Result<ImmutableArray<NativeEditorCapture>>> ReadEditorCapturesAsync(CancellationToken ct)
+    internal async Task<Result<ImmutableArray<NativeEditorCapture>>> ReadEditorCapturesAsync(CancellationToken ct, bool inspect = false)
     {
         try
         {
+            using var namespaceLease = AcquireCaptureLease();
             await using var db = await Open(ct).ConfigureAwait(false);
+            if (!inspect) _ = await CaptureGeneration(ct).ConfigureAwait(false);
             using var command = db.CreateCommand();
             using var tx = db.BeginTransaction(deferred: false);
             command.Transaction = tx;

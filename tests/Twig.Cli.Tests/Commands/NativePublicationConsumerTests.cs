@@ -263,6 +263,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "relationships-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
@@ -513,6 +514,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var created = await CleanStore.CreateAsync(database);
         created.IsSuccess.ShouldBeTrue();
         (await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         return (paths, connection, created.Value);
     }
 
@@ -537,6 +539,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "process-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
@@ -680,6 +683,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         created.IsSuccess.ShouldBeTrue();
         var store = created.Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -865,6 +869,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "scoped-pull-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -963,6 +968,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "sync-save-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1042,6 +1048,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "bench-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1158,6 +1165,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "editor-context-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1354,6 +1362,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "chain-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1465,6 +1474,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "parented-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1591,6 +1601,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "seed-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1713,6 +1724,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var database = Path.Combine(paths.TwigDir, "save-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -2023,6 +2035,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         created.IsSuccess.ShouldBeTrue();
         var store = created.Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths);
         var arguments = new[] { "update", "System.Title", "Core production title", "--id", "42", "-o", "json" };
         var originalOut = Console.Out;
         var originalError = Console.Error;
@@ -2213,6 +2226,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var created = await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"));
         created.IsSuccess.ShouldBeTrue();
         var store = created.Value;
+        (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths, store, connection);
         var planned = CoreModel.JournalEntry.Planned(proposal.Digest, 0);
         (await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
         var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
@@ -2272,6 +2287,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         acknowledged.Observations.ShouldBe(outcome.Observations);
         acknowledged.CanReconcile.ShouldBeFalse();
         _transport.CommittedWrites.ShouldBe(1);
+        admission.Dispose();
         await Should.ThrowAsync<InvalidOperationException>(() => session.AdmitAsync(intent, default));
         _transport.CommittedWrites.ShouldBe(1, "native attempt admission cannot replay after an acknowledgement");
     }
@@ -2297,6 +2313,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("reviewed"))]))],
             observed.Identity, observed.Revision);
         var store = (await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"))).Value;
+        (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths, store, connection);
         var planned = CoreModel.JournalEntry.Planned(proposal.Digest, 0);
         (await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
         var attempt = Guid.NewGuid();
@@ -2327,6 +2345,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
         var store = (await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"))).Value;
+        (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
+        await ActivateNativeSafetyFixtureAsync(paths, store, connection);
         var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
             config, paths, origin, connection, Actor, store);
         var replacement = await _bindings.CreateBindingAsync(config.Organization, config.Project, "sibling", false);
@@ -2418,6 +2438,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public List<int> QueryAfterIds { get; } = [];
         public List<int> ItemReadIds { get; } = [];
         public bool RejectNextPatch { get; set; }
+        public HttpStatusCode? RejectNextPatchStatus { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
         public Func<Task>? BeforeReadback { get; set; }
         public Func<Task>? BeforeItemReadResponse { get; set; }
@@ -2624,10 +2645,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             if (request.Method == HttpMethod.Patch)
             {
                 PatchAttempts++;
-                if (RejectNextPatch)
+                if (RejectNextPatch || RejectNextPatchStatus is not null)
                 {
+                    var status = RejectNextPatchStatus ?? HttpStatusCode.BadRequest;
                     RejectNextPatch = false;
-                    return Reply(HttpStatusCode.BadRequest, new { message = "Fixture rejected the transaction before committing" });
+                    RejectNextPatchStatus = null;
+                    return Reply(status, new { message = "Fixture rejected the transaction before committing" });
                 }
                 var patchBody = await request.Content!.ReadAsStringAsync(ct);
                 using var operations = JsonDocument.Parse(patchBody);

@@ -59,7 +59,8 @@ internal static class CoreWorkspaceInitializer
                 return Result<bool>.Fail(ErrorCode.InvalidInput, "The explicitly selected database directory must already exist.");
             var created = await SqliteStore.CreateAsync(databasePath, ct).ConfigureAwait(false);
             if (!created.IsSuccess) return Result<bool>.Fail(created.Error);
-            return await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, databasePath, connection, principal, ct).ConfigureAwait(false);
+            return await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, databasePath, connection, principal, ct,
+                bindings.RegistryPath).ConfigureAwait(false);
 
             async Task<JsonElement> GetAsync(string route)
             {

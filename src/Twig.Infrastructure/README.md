@@ -120,6 +120,63 @@ authorize provider writes or expose an editor to external hosts. Source stamps
 remain comparison evidence only. Human editor publication, result delivery and
 global target admission require the separate native execution contract.
 
+## Native execution safety contract (system registry v11)
+
+Native registry upgrades add pending activation and Core source/attempt references
+atomically with `layout_meta` v11. Original credentials, transport evidence and
+Core proposals/journals are not rewritten or backfilled as successful outcomes.
+Even a fresh registry stays pending: it does not prove historical roots are absent.
+
+Before publishing, the native coordinator inventories system-worktree roots,
+user-wide Bench workspaces, every retained Plan scope (including superseded or
+deleted-Bench remnants), and explicitly supplied historical roots/store locators.
+Only known native artifact directories are inspected; no filesystem hunting.
+An unavailable locator, replacement store or unmatched original intent refuses
+activation. Exact inventory/source revisions and Core versions bind the digest.
+Completeness and old-process quiescence are explicit human delivery confirmations,
+not mechanically inferred from currently registered roots or fabricated now.
+Reads/status and local draft capture remain available while publishing is pending.
+New previously unknown opened stores invalidate inventory confirmation.
+
+Current native CLI, normal Save and Plan execution share this gate. Canonical
+provider/resource/item and permanent UUID references retain exact owner-store,
+proposal, operation and attempt attribution. Deterministically ordered native
+leases coordinate roots/actors. Core journal state is execution authority: an
+HTTP ACK cannot clear Applied, Partial or Indeterminate evidence. An unmapped
+unknown create conservatively fences mutations in its immutable destination;
+an attributed mapping additionally fences the remote key but is not verification.
+UUID-owning references force authoritative mapping lookup across destinations;
+this does not depend on a later inventory refresh or post-ACK index write.
+Unattempted Planned references can be reclaimed only under an exclusive lease,
+fresh exact store/journal proof and exclusion of original transport dispatch.
+The native reference set has a separate integrity digest; missing index rows are
+not absence proof or silently reconstructed. Monotonic observed Core versions and
+ever-Applying admission witnesses cannot be downgraded into reservation-only
+claims by restoring a same-instance store/transport backup. These are reference
+provenance, not another outcome journal. The unpublished v11 schema requires this
+metadata; incomplete older experimental v11 layouts fail closed without backfill.
+Attributed native `Failed` receipts with no published identity/revision are
+definitive no-effect results, including complete provider-classified HTTP
+rejections. They allow only a fresh proposal, never replay of the failed request;
+partial/indeterminate effects and attempted creation UUIDs remain fenced.
+Historical exact-instance Core evidence can be inspected after its authoring
+root disappears; that does not restore the old root's Stage/Apply authority.
+Unattempted reclaim still requires the original transport root to be present.
+Protected-intent reassociation and result delivery remain separate work.
+
+The compiled compatibility fixture proves v10 fresh opens refuse registry11 and
+cached v10 handles still accept their old connection. Already-open v10 processes are NOT
+retroactively fenced by the version change. Safe activation requires quiescing
+old processes and deploying the supported fence-aware CLI and panel together.
+The minimum publishing contract is this schema11 target-admission implementation
+in both runtimes, not a version-number-only check. Delivery must record their
+exact fence-aware build identities; prior v10 binaries are unsupported publishers.
+Executable-only rollback is unsupported. Never restore a preactivation database
+after new effects: retain inspection backups and use forward-compatible recovery,
+unless explicit evidence establishes that no new effects occurred. No old binary
+or ADO/GitHub web-client enforcement is claimed; external non-atomic races remain.
+These APIs stay native/internal; no new approval catalog or per-Save ceremony.
+
 ## License
 
 MIT.

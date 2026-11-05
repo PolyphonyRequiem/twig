@@ -372,11 +372,11 @@ public sealed partial class GitHubCoreSpineTests
         internal int CredentialCalls;
         internal ITelemetryClient? Telemetry;
         private string Database => _document?.DatabasePath ?? Path.Combine(Root, "core.db");
-        internal Fixture()
+        internal Fixture(string? userHome = null)
         {
             InitCommandTestFixture.InitTempWorktree(Root).ShouldBeTrue();
             Directory.Exists(Path.Combine(Root, ".twig")).ShouldBeFalse();
-            _bindings = new(Path.Combine(Root, "home"));
+            _bindings = new(userHome ?? Path.Combine(Root, "home"));
             _registry = new(_bindings.RegistryPath, TimeProvider.System);
             _processes.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(),
                 Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<IReadOnlyList<string>?>()).Returns(call =>
@@ -407,6 +407,12 @@ public sealed partial class GitHubCoreSpineTests
             Http.WorkRequests.ShouldBe(0);
             Http.SchemaRequests.ShouldBe(0);
             Http.Writes.ShouldBe(0);
+            var source = new NativeCoreStoreReference(_document.DatabaseInstance, _document.DatabasePath, Root, _document.Connection);
+            (await NativeCoreExecution.RegisterAsync(_bindings.RegistryPath, source, default)).IsSuccess.ShouldBeTrue();
+            var inventory = await NativeCoreExecution.InventoryAsync(_bindings.RegistryPath, [Root], [source]);
+            inventory.IsSuccess.ShouldBeTrue(inventory.IsSuccess ? "" : inventory.Error.Message);
+            (await NativeCoreExecution.ActivateAsync(_bindings.RegistryPath, inventory.Value, inventory.Value.Digest, true, true))
+                .IsSuccess.ShouldBeTrue();
         }
         internal int Run(params string[] args)
         {
@@ -491,6 +497,7 @@ public sealed partial class GitHubCoreSpineTests
     {
         internal int Requests, WorkRequests, Writes, Creates, SchemaRequests, OnlineAccessRequests;
         internal bool LoseAcknowledgement, MoreCandidates;
+        internal HttpStatusCode? RejectNextMutation;
         internal string? Defect, Comment;
         internal JsonObject Issue { get; } = new()
         {
@@ -531,6 +538,11 @@ public sealed partial class GitHubCoreSpineTests
             if (query.StartsWith("mutation", StringComparison.Ordinal))
             {
                 Writes++;
+                if (RejectNextMutation is { } status)
+                {
+                    RejectNextMutation = null;
+                    return new(status) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+                }
                 var input = variables["input"]!;
                 Guid.Parse(input["clientMutationId"]!.GetValue<string>()).ShouldNotBe(Guid.Empty);
                 var mutation = query.Contains("createIssue(", StringComparison.Ordinal) ? "createIssue"

@@ -8,6 +8,7 @@ using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Policy;
+using Twig.Infrastructure.Services;
 using Twig.Providers.Ado;
 using Twig.Store.Sqlite;
 
@@ -23,6 +24,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     private readonly Connection _connection = connection;
     private readonly string _principal = principal;
     private readonly IStore _store = store;
+    private readonly IConnectionBindingService _bindings = bindings;
     private readonly TwigPaths _paths = paths;
     private readonly Guid _storeInstance = (store as SqliteStore)?.InstanceId ?? Guid.Empty;
 
@@ -50,7 +52,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
         {
             lease = await guard.AcquireOperationAsync(ct).ConfigureAwait(false);
             if (lease is not IAdmittedConnectionOperation admitted
-                || admitted.GetAuthority(bindings) is not { } observed
+                || admitted.GetAuthority(_bindings) is not { } observed
                 || !ConnectionRemoteWriteAdmission.SameAuthority(observed, _origin))
                 return Refuse("The native binding/generation lease does not belong to this runtime.");
             await RevalidateAsync(ct).ConfigureAwait(false);
@@ -79,7 +81,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     private async Task RevalidateAsync(CancellationToken ct)
     {
         var currentConfiguration = await TwigConfiguration.LoadSplitAsync(_paths, ct).ConfigureAwait(false);
-        var current = await bindings.ResolveAsync(currentConfiguration, _paths, ct).ConfigureAwait(false);
+        var current = await _bindings.ResolveAsync(currentConfiguration, _paths, ct).ConfigureAwait(false);
         if (!ConnectionRemoteWriteAdmission.SameAuthority(current, _origin)
             || current.Operation.Organization != _origin.Operation.Organization
             || current.Operation.Project != _origin.Operation.Project
@@ -138,9 +140,17 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
             var correlation = new CoreWriteCorrelation(ConnectionText(Connection), proposal.Digest, intent.Operation,
                 intent.Attempt, ItemText(op.Item), op.Kind == OpKind.Create ? op.Item.LocalId : null,
                 op.ExpectedRevision?.Token, access._storeInstance);
-            var admission = await ((IConnectionRemoteWriteGuard)access._authentication).BeginRemoteWriteAsync(
-                new(kind, intent.Method, intent.Target.AbsoluteUri, intent.Payload, null, CoreCorrelation: correlation), ct).ConfigureAwait(false);
-            return Result<AdoWriteAdmission>.Ok(new Admission(admission, token, authorization.Parameter));
+            var targets = await NativeCoreExecution.AdmitAsync(access._bindings.RegistryPath,
+                new(access._storeInstance, ((SqliteStore)access._store).DatabasePath, access._paths.RepoRoot, Connection),
+                proposal, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
+            if (!targets.IsSuccess) return Result<AdoWriteAdmission>.Fail(targets.Error);
+            try
+            {
+                var admission = await ((IConnectionRemoteWriteGuard)access._authentication).BeginRemoteWriteAsync(
+                    new(kind, intent.Method, intent.Target.AbsoluteUri, intent.Payload, null, CoreCorrelation: correlation), ct).ConfigureAwait(false);
+                return Result<AdoWriteAdmission>.Ok(new Admission(admission, token, authorization.Parameter, targets.Value));
+            }
+            catch { targets.Value.Dispose(); throw; }
         }
 
         public override void Dispose()
@@ -149,12 +159,13 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
         }
     }
 
-    private sealed class Admission(IConnectionRemoteWriteAdmission admission, string token, string? parameter) : AdoWriteAdmission
+    private sealed class Admission(IConnectionRemoteWriteAdmission admission, string token, string? parameter,
+        IDisposable targets) : AdoWriteAdmission
     {
         public override Task ObserveAsync(int statusCode, string body, CancellationToken ct)
             => admission.RecordResponseAsync(new(statusCode,
                 ConnectionOperationAdmission.RedactCredential(body, token, parameter), null, null), ct);
-        public override void Dispose() { }
+        public override void Dispose() => targets.Dispose();
     }
 
     private static bool HasReviewedRevision(string payload, Op op)
@@ -174,13 +185,13 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
             && test.TryGetProperty("value", out var value) && value.TryGetInt32(out var observed) && observed == revision;
     }
 
-    private static string ConnectionText(Connection value) => Json(writer =>
+    internal static string ConnectionText(Connection value) => Json(writer =>
     {
         writer.WriteStartArray(); writer.WriteStringValue(value.Provider.Value); writer.WriteStringValue(value.ResourceScope);
         writer.WriteStringValue(value.Destination); writer.WriteStringValue(value.IdentityRef); writer.WriteEndArray();
     });
 
-    private static string ItemText(ItemKey value) => Json(writer =>
+    internal static string ItemText(ItemKey value) => Json(writer =>
     {
         writer.WriteStartArray(); writer.WriteStringValue(value.IsLocal ? value.LocalId.ToString("D") : null);
         writer.WriteStringValue(value.Provider?.Value); writer.WriteStringValue(value.ResourceScope);

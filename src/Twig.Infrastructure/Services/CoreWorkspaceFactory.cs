@@ -75,9 +75,13 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
             document.Connection, document.PrincipalId, store);
         var source = NativeSourceReader.Stamp(document, paths.RepoRoot, origin);
         var benches = UserBenchStore.ForRegistry(bindings.RegistryPath);
+        var registered = await NativeCoreExecution.RegisterAsync(bindings.RegistryPath,
+            new(document.DatabaseInstance, document.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
+        if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
         var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler());
         var workspace = new CoreWorkspace(document.Connection, provider, store,
-            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance, benches, configuration.Team);
+            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance,
+            benches, configuration.Team, bindings.RegistryPath);
         return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider, document, source, access));
     }
 
@@ -184,7 +188,7 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
     }
 
     internal static async Task<Result<bool>> RecordNewAsync(TwigPaths paths, SqliteStore store, string databasePath,
-        Connection connection, string principal, CancellationToken ct)
+        Connection connection, string principal, CancellationToken ct, string? executionRegistryPath = null)
     {
         if (!Path.IsPathFullyQualified(databasePath) || store.InstanceId == Guid.Empty)
             return Result<bool>.Fail(ErrorCode.InvalidInput, "A new explicitly located native store instance is required.");
@@ -198,6 +202,9 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
                 connection, principal), CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument, ct).ConfigureAwait(false);
             await file.FlushAsync(ct).ConfigureAwait(false);
             file.Flush(flushToDisk: true);
+            if (executionRegistryPath is not null)
+                return await NativeCoreExecution.RegisterAsync(executionRegistryPath,
+                    new(store.InstanceId, store.DatabasePath, paths.RepoRoot, connection), ct).ConfigureAwait(false);
             return Result<bool>.Ok(true);
         }
 

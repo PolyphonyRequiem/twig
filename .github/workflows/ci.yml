@@ -32,6 +32,21 @@ jobs:
       - name: Supported solution build (120-second deadline)
         run: python tools/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:1"
 
+      - name: Compiled v10 registry fresh-open and cached-handle compatibility (offline)
+        shell: python
+        run: |
+          import subprocess, sys
+          from pathlib import Path
+          legacy = Path("artifacts") / "legacy-core-v10"
+          subprocess.run(["git", "worktree", "add", "--detach", str(legacy),
+                          "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"], check=True)
+          subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "120", "--",
+                          "dotnet", "build", str(legacy / "src" / "Twig.Infrastructure" / "Twig.Infrastructure.csproj"),
+                          "-f", "net11.0", "-m:1", "--verbosity", "minimal"], check=True)
+          subprocess.run([sys.executable, "tools/verify-core-registry-compat.py",
+                          "--legacy-assembly", str(legacy / "src" / "Twig.Infrastructure" / "bin" / "Debug" / "net11.0" / "Twig.Infrastructure.dll"),
+                          "--current-assembly", str(Path("src") / "Twig.Infrastructure" / "bin" / "Debug" / "net11.0" / "Twig.Infrastructure.dll")], check=True)
+
       - name: Clean-core invariant regression
         id: core
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Core.Tests/Twig.Core.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Core.Tests" --logger "trx;LogFileName=core.trx" --results-directory artifacts/test-logs/ci/core
@@ -128,6 +143,9 @@ jobs:
           for label, project, selector in [
               ("user-bench-store", "Twig.Infrastructure.Tests", "FullyQualifiedName~UserBenchStoreTests"),
               ("native-plan-scopes", "Twig.Infrastructure.Tests", "FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanStoreTests|FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanScopeContractTests"),
+              ("native-core-execution", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeCoreExecutionTests|FullyQualifiedName~NativeCoreRegistryMigrationTests"),
+              ("native-publishing-gate", "Twig.Cli.Tests", "FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativePublishingBeforeActivationIsRefusedByTheActualCliComposition|FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeUnknownWriteBlocksAnotherInitializedRootNormalSaveWithoutMutationHttp|FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeUnknownGitHubWriteFencesAnotherRootNormalSaveThroughRealComposition"),
+              ("native-no-effect", "Twig.Cli.Tests", "FullyQualifiedName~NativeHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits|FullyQualifiedName~NativeGitHubHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits"),
               ("planning-consumers", "Twig.Infrastructure.Tests", "FullyQualifiedName~PlanningConsumerTests"),
               ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),
           ]:

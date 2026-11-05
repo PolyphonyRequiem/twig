@@ -497,6 +497,7 @@ public sealed partial class GitHubCoreSpineTests
     {
         internal int Requests, WorkRequests, Writes, Creates, SchemaRequests, OnlineAccessRequests;
         internal bool LoseAcknowledgement, MoreCandidates;
+        internal HttpStatusCode? RejectNextMutation;
         internal string? Defect, Comment;
         internal JsonObject Issue { get; } = new()
         {
@@ -537,6 +538,11 @@ public sealed partial class GitHubCoreSpineTests
             if (query.StartsWith("mutation", StringComparison.Ordinal))
             {
                 Writes++;
+                if (RejectNextMutation is { } status)
+                {
+                    RejectNextMutation = null;
+                    return new(status) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+                }
                 var input = variables["input"]!;
                 Guid.Parse(input["clientMutationId"]!.GetValue<string>()).ShouldNotBe(Guid.Empty);
                 var mutation = query.Contains("createIssue(", StringComparison.Ordinal) ? "createIssue"

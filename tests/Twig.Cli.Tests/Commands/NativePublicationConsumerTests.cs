@@ -2438,6 +2438,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public List<int> QueryAfterIds { get; } = [];
         public List<int> ItemReadIds { get; } = [];
         public bool RejectNextPatch { get; set; }
+        public HttpStatusCode? RejectNextPatchStatus { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
         public Func<Task>? BeforeReadback { get; set; }
         public Func<Task>? BeforeItemReadResponse { get; set; }
@@ -2644,10 +2645,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             if (request.Method == HttpMethod.Patch)
             {
                 PatchAttempts++;
-                if (RejectNextPatch)
+                if (RejectNextPatch || RejectNextPatchStatus is not null)
                 {
+                    var status = RejectNextPatchStatus ?? HttpStatusCode.BadRequest;
                     RejectNextPatch = false;
-                    return Reply(HttpStatusCode.BadRequest, new { message = "Fixture rejected the transaction before committing" });
+                    RejectNextPatchStatus = null;
+                    return Reply(status, new { message = "Fixture rejected the transaction before committing" });
                 }
                 var patchBody = await request.Content!.ReadAsStringAsync(ct);
                 using var operations = JsonDocument.Parse(patchBody);

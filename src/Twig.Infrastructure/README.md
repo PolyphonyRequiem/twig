@@ -149,6 +149,20 @@ UUID-owning references force authoritative mapping lookup across destinations;
 this does not depend on a later inventory refresh or post-ACK index write.
 Unattempted Planned references can be reclaimed only under an exclusive lease,
 fresh exact store/journal proof and exclusion of original transport dispatch.
+The native reference set has a separate integrity digest; missing index rows are
+not absence proof or silently reconstructed. Monotonic observed Core versions and
+ever-Applying admission witnesses cannot be downgraded into reservation-only
+claims by restoring a same-instance store/transport backup. These are reference
+provenance, not another outcome journal. The unpublished v11 schema requires this
+metadata; incomplete older experimental v11 layouts fail closed without backfill.
+Attributed native `Failed` receipts with no published identity/revision are
+definitive no-effect results, including complete provider-classified HTTP
+rejections. They allow only a fresh proposal, never replay of the failed request;
+partial/indeterminate effects and attempted creation UUIDs remain fenced.
+Historical exact-instance Core evidence can be inspected after its authoring
+root disappears; that does not restore the old root's Stage/Apply authority.
+Unattempted reclaim still requires the original transport root to be present.
+Protected-intent reassociation and result delivery remain separate work.
 
 The compiled compatibility fixture proves v10 fresh opens refuse registry11 and
 cached v10 handles still accept their old connection. Already-open v10 processes are NOT

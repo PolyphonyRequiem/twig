@@ -13,6 +13,27 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class NativePublicationConsumerTests
 {
+    [Theory]
+    [InlineData(409, true)]
+    [InlineData(412, true)]
+    [InlineData(503, false)]
+    public async Task NativeHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits(int status, bool definitive)
+    {
+        var native = await RelationshipWorkspaceAsync();
+        _transport.RejectNextPatchStatus = (System.Net.HttpStatusCode)status;
+        RunCoreLink(native.Paths, ["update", "title", "original rejected request", "--id", "42", "-o", "json"]).ShouldBe(1);
+        var before = (await native.Store.ReadAsync(native.Connection, default)).Value;
+        before.Journal.Single().Status.ShouldBe(definitive ? CoreModel.OpStatus.Failed : CoreModel.OpStatus.Indeterminate);
+        var originalDigest = before.Journal.Single().Digest;
+        RunCoreLink(native.Paths, ["update", "title", "fresh reviewed request", "--id", "42", "-o", "json"]).ShouldBe(definitive ? 0 : 1);
+        _transport.PatchAttempts.ShouldBe(definitive ? 2 : 1);
+        var after = (await native.Store.ReadAsync(native.Connection, default)).Value;
+        var retained = after.Journal.Single(row => row.Digest == originalDigest);
+        retained.Status.ShouldBe(before.Journal.Single().Status);
+        retained.Attempt.ShouldBe(before.Journal.Single().Attempt);
+        if (definitive) after.Journal.ShouldContain(row => row.Digest != originalDigest && row.Status == CoreModel.OpStatus.Verified);
+    }
+
     [Fact]
     public async Task NativePublishingBeforeActivationIsRefusedByTheActualCliComposition()
     {

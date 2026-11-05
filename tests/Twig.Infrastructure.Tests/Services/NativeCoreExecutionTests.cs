@@ -105,8 +105,10 @@ public sealed class NativeCoreExecutionTests : IDisposable
         using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, unrelated, edit.Proposal, 0, edit.Attempt, default));
     }
 
-    [Fact]
-    public async Task NewAttributedMappingFencesItsStableKeyAcrossDestinationsWithoutAnInventoryRefresh()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NewAttributedMappingFencesItsStableKeyAcrossDestinationsWithoutAnInventoryRefresh(bool deletedReferences)
     {
         var first = await Source("first", connection);
         var second = await Source("second", new(connection.Provider, connection.ResourceScope, "other-project", "other"));
@@ -122,11 +124,89 @@ public sealed class NativeCoreExecutionTests : IDisposable
             OpStatus.Applied, ["attributed synthetic create ACK"], publishedKey: remote)));
         Required(await store.CommitAsync(connection, before.Version, new(before.Version + 1, drafts: before.Drafts,
             proposals: before.Proposals, journal: [acknowledged], mappings: [new(uuid, remote, create.Proposal.Digest, 0)]), default));
+        if (deletedReferences)
+        {
+            await DeleteReferences(first);
+            Required(await NativeCoreExecution.RegisterAsync(Registry, first, default));
+            (await NativeCoreExecution.InventoryAsync(Registry)).IsSuccess.ShouldBeFalse("inventory must not silently reconstruct deleted reference evidence");
+        }
         var edit = await Attempt(second, remote, OpStatus.Planned);
         var denied = await NativeCoreExecution.AdmitAsync(Registry, second, edit.Proposal, 0, edit.Attempt, default, planned: true);
         if (denied.IsSuccess) denied.Value.Dispose();
         denied.IsSuccess.ShouldBeFalse("immutable remote-key fences must not depend on destination, inventory refresh, or post-ACK indexing");
-        denied.Error.Code.ShouldBe(ErrorCode.Indeterminate);
+        (denied.Error.Code is ErrorCode.StorageUnavailable or ErrorCode.Indeterminate).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeletedUuidIndexCannotAllowReuseFromAnotherProvider()
+    {
+        var first = await Source("first", connection);
+        var second = await Source("second", new(new("github"), "other-service", "other-repository", "other"));
+        var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
+        Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
+        var uuid = ItemKey.Local(Guid.NewGuid());
+        var original = await Attempt(first, uuid, OpStatus.Applying);
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Proposal, 0, original.Attempt, default))) { }
+        await DeleteReferences(first);
+        var next = await Attempt(second, uuid, OpStatus.Planned);
+        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true);
+        if (denied.IsSuccess) denied.Value.Dispose();
+        denied.IsSuccess.ShouldBeFalse("a missing index is not proof a permanent UUID was never attempted");
+        (denied.Error.Code is ErrorCode.StorageUnavailable or ErrorCode.Indeterminate).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RestoredSameInstancePlannedSnapshotCannotEraseApplyingAdmissionProvenance()
+    {
+        var first = await Source("first", connection);
+        var second = await Source("second", new(connection.Provider, connection.ResourceScope, connection.Destination, "other"));
+        var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+        var original = await Attempt(first, key, OpStatus.Planned);
+        var next = await Attempt(second, key, OpStatus.Planned);
+        var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
+        Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Proposal, 0, original.Attempt, default, planned: true))) { }
+        var backup = first.DatabasePath + ".synthetic-preattempt";
+        File.Copy(first.DatabasePath, backup);
+        var store = Required(await SqliteStore.OpenAsync(first.DatabasePath, expectedInstance: first.Instance));
+        var before = Required(await store.ReadAsync(connection, default));
+        var applying = Required(before.Journal.Single().Begin(original.Attempt));
+        Required(await store.CommitAsync(connection, before.Version, new(before.Version + 1,
+            proposals: before.Proposals, journal: [applying]), default));
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Proposal, 0, original.Attempt, default))) { }
+        File.Copy(backup, first.DatabasePath, overwrite: true);
+        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true);
+        if (denied.IsSuccess) denied.Value.Dispose();
+        denied.IsSuccess.ShouldBeFalse("a same-instance rollback cannot become positively unattempted proof");
+        using var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System);
+        Required(await registry.CoreAttemptReferencesAsync(first.Instance, default)).ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public async Task VerifiedCoreHistorySurvivesDeletedAuthoringRootWithoutGrantingThatRootApplyAuthority()
+    {
+        var first = await Source("historical", connection, outsideRoot: true);
+        var second = await Source("current", new(connection.Provider, connection.ResourceScope, connection.Destination, "other"));
+        var uuid = ItemKey.Local(Guid.NewGuid());
+        var remote = ItemKey.Remote(connection.Provider, connection.ResourceScope, "99");
+        await Attempt(first, uuid, OpStatus.Verified, remote);
+        var next = await Attempt(second, remote, OpStatus.Planned);
+        var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
+        Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
+        Directory.Delete(first.Root);
+        Required(await NativeCoreExecution.InventoryAsync(Registry));
+        (await NativeCoreExecution.Snapshot(first, default)).IsSuccess.ShouldBeFalse("a missing old authoring root still has no write authority");
+        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true));
+    }
+
+    private async Task DeleteReferences(NativeCoreStoreReference source)
+    {
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Registry, Pooling = false }.ToString());
+        await db.OpenAsync();
+        using var command = db.CreateCommand();
+        command.CommandText = "DELETE FROM core_attempt_refs WHERE instance=$instance;";
+        command.Parameters.AddWithValue("$instance", source.Instance.ToString("D"));
+        await command.ExecuteNonQueryAsync();
     }
 
     [Fact]
@@ -288,11 +368,11 @@ public sealed class NativeCoreExecutionTests : IDisposable
         using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, source, attempt.Proposal, 0, attempt.Attempt, default, planned: true));
     }
 
-    private async Task<NativeCoreStoreReference> Source(string name, Connection bound)
+    private async Task<NativeCoreStoreReference> Source(string name, Connection bound, bool outsideRoot = false)
     {
         var directory = Path.Combine(root, name);
         Directory.CreateDirectory(directory);
-        var store = Required(await SqliteStore.CreateAsync(Path.Combine(directory, "core.db")));
+        var store = Required(await SqliteStore.CreateAsync(outsideRoot ? Path.Combine(root, name + ".db") : Path.Combine(directory, "core.db")));
         Required(await store.PinWorkspaceAsync(bound));
         var source = new NativeCoreStoreReference(store.InstanceId, store.DatabasePath, directory, bound);
         Required(await NativeCoreExecution.RegisterAsync(Registry, source, default));

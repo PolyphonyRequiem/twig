@@ -21,7 +21,7 @@ internal static class NativeCoreExecution
 {
     internal static async Task<Result<bool>> RegisterAsync(string registryPath, NativeCoreStoreReference source, CancellationToken ct)
     {
-        var read = await Snapshot(source, ct).ConfigureAwait(false);
+        var read = await InspectAsync(source, ct).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
         using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
         var registered = await registry.RegisterCoreStoreAsync(source, ct).ConfigureAwait(false);
@@ -54,7 +54,9 @@ internal static class NativeCoreExecution
             if (!scopes.IsSuccess) return Result<NativeCoreInventory>.Fail(scopes.Error);
             var legacy = await registry.CoreLegacyIntentsAsync(ct).ConfigureAwait(false);
             if (!legacy.IsSuccess) return Result<NativeCoreInventory>.Fail(legacy.Error);
-            var references = suppliedStores.Concat(scopes.Value).ToList();
+            var known = await registry.ReadCoreGateAsync(ct).ConfigureAwait(false);
+            if (!known.IsSuccess) return Result<NativeCoreInventory>.Fail(known.Error);
+            var references = suppliedStores.Concat(scopes.Value).Concat(known.Value.Sources).ToList();
             foreach (var root in roots.Value.Concat(workspaces.Value.Select(value => value.Root))
                 .Concat(legacy.Value.Select(value => value.Origin.WorktreeRoot)).Concat(suppliedRoots)
                 .Distinct(NativePathComparer.Instance))
@@ -89,7 +91,7 @@ internal static class NativeCoreExecution
             var evidence = new StringBuilder();
             foreach (var source in captured.Value.Sources)
             {
-                var read = await Snapshot(source, ct).ConfigureAwait(false);
+                var read = await InspectAsync(source, ct).ConfigureAwait(false);
                 if (!read.IsSuccess) return Result<NativeCoreInventory>.Fail(read.Error);
                 snapshots.Add(source.Instance, read.Value);
                 versions.Add(read.Value.Version);
@@ -126,7 +128,7 @@ internal static class NativeCoreExecution
                 {
                     var proposal = snapshots[source.Instance].Proposals.Single(value => value.Digest == row.Digest);
                     var indexed = await registry.IndexRetainedCoreAttemptAsync(source, proposal, row,
-                        Targets(proposal.Operations[row.Operation], snapshots[source.Instance]), ct).ConfigureAwait(false);
+                        Targets(proposal.Operations[row.Operation], snapshots[source.Instance]), snapshots[source.Instance].Version, ct).ConfigureAwait(false);
                     if (!indexed.IsSuccess) return Result<NativeCoreInventory>.Fail(indexed.Error);
                 }
             foreach (var root in captured.Value.Sources.Select(value => value.Root).Distinct(NativePathComparer.Instance))
@@ -211,7 +213,7 @@ internal static class NativeCoreExecution
                 || value.Connection.Provider == source.Connection.Provider && value.Connection.ResourceScope == source.Connection.ResourceScope
                     && value.Connection.Destination == source.Connection.Destination))
             {
-                var prior = await Snapshot(priorSource, ct).ConfigureAwait(false);
+                var prior = await InspectAsync(priorSource, ct).ConfigureAwait(false);
                 if (!prior.IsSuccess) return Result<IDisposable>.Fail(prior.Error);
                 var references = await registry.CoreAttemptReferencesAsync(priorSource.Instance, ct).ConfigureAwait(false);
                 if (!references.IsSuccess) return Result<IDisposable>.Fail(references.Error);
@@ -222,7 +224,7 @@ internal static class NativeCoreExecution
                         && value.Operation == reference.Operation && value.Status == OpStatus.Planned && value.Attempt == Guid.Empty)))
                 {
                     var transport = await registry.CoreLegacyIntentsAsync(ct).ConfigureAwait(false);
-                    if (!transport.IsSuccess || transport.Value.Any(value => value.Request.CoreCorrelation?.Attempt == reference.Attempt)
+                    if (!Directory.Exists(priorSource.Root) || !transport.IsSuccess || transport.Value.Any(value => value.Request.CoreCorrelation?.Attempt == reference.Attempt)
                         || File.Exists(Path.Combine(priorSource.Root, ".twig", "core-github-intents", reference.Attempt.ToString("D") + ".json")))
                         return Result<IDisposable>.Fail(ErrorCode.Indeterminate, "An original native dispatch cannot be excluded; unattempted-reference reclaim was refused.");
                     var reclaimed = await registry.ReclaimUnattemptedCoreReferenceAsync(reference, ct).ConfigureAwait(false);
@@ -239,7 +241,7 @@ internal static class NativeCoreExecution
                     if (op.Kind == OpKind.Create && proposal.Operations[operation].Kind == OpKind.Create
                         && op.Item == proposal.Operations[operation].Item)
                         return Result<IDisposable>.Fail(ErrorCode.Indeterminate, "This permanent creation UUID was already attempted; no replacement request is allowed.");
-                    if (previous.Status == OpStatus.Verified || NoDispatch(previous)) continue;
+                    if (previous.Status == OpStatus.Verified || NoEffect(previous)) continue;
                     var unmappedCreate = op.Kind == OpKind.Create && !prior.Value.Mappings.Any(value => value.Local == op.Item);
                     if (overlaps || unmappedCreate && previousProposal.Connection.Destination == source.Connection.Destination)
                         return Result<IDisposable>.Fail(ErrorCode.Indeterminate,
@@ -247,7 +249,7 @@ internal static class NativeCoreExecution
                 }
             }
             var recorded = await registry.RecordCoreAttemptAsync(source, proposal, operation, attempt, targets,
-                captured.Value.Instance, captured.Value.Revision, ct).ConfigureAwait(false);
+                own.Value.Version, !planned, captured.Value.Instance, captured.Value.Revision, ct).ConfigureAwait(false);
             if (!recorded.IsSuccess) return Result<IDisposable>.Fail(recorded.Error);
             var retained = lease ?? throw new InvalidOperationException("Missing native target lease.");
             lease = null;
@@ -260,15 +262,17 @@ internal static class NativeCoreExecution
         finally { lease?.Dispose(); }
     }
 
-    private static bool NoDispatch(JournalEntry row) => row.Status == OpStatus.Failed && row.Receipts.Any(receipt =>
-        receipt.Status == OpStatus.Failed && receipt.PublishedKey is null && receipt.Evidence.Any(value => value.StartsWith("no-dispatch:", StringComparison.Ordinal)));
+    private static bool NoEffect(JournalEntry row) => row.Status == OpStatus.Failed && row.Receipts.Any(receipt =>
+        receipt.Status == OpStatus.Failed && receipt.PublishedKey is null && receipt.Revision is null && receipt.Error is not null
+        && receipt.Digest == row.Digest && receipt.Operation == row.Operation && receipt.Attempt == row.Attempt);
 
     private static bool ReferencesMatch(StoreSnapshot snapshot, IEnumerable<CoreAttemptReference> references)
         => references.All(reference => snapshot.Proposals.FirstOrDefault(value => value.Digest == reference.Digest) is { } proposal
+            && reference.MinimumVersion <= snapshot.Version
             && reference.Operation >= 0 && reference.Operation < proposal.Operations.Length
             && Targets(proposal.Operations[reference.Operation], snapshot).Contains(reference.Target, StringComparer.Ordinal)
             && snapshot.Journal.Any(value => value.Digest == reference.Digest && value.Operation == reference.Operation
-                && (value.Status == OpStatus.Planned && value.Attempt == Guid.Empty || value.Attempt == reference.Attempt)));
+                && (value.Status == OpStatus.Planned && value.Attempt == Guid.Empty && !reference.EverApplying || value.Attempt == reference.Attempt)));
 
     private static bool LegacyCorrelationMatches(CoreWriteCorrelation correlation, StoreSnapshot snapshot)
     {
@@ -295,12 +299,15 @@ internal static class NativeCoreExecution
         new[] { connection.Provider.Value, connection.ResourceScope, connection.Destination }, NativeCoreExecutionJson.Default.StringArray);
 
     internal static async Task<Result<StoreSnapshot>> Snapshot(NativeCoreStoreReference source, CancellationToken ct)
+        => !Directory.Exists(source.Root)
+            ? Result<StoreSnapshot>.Fail(ErrorCode.StorageUnavailable, "The exact authoritative native root is unavailable; its store reference was preserved.")
+            : await InspectAsync(source, ct).ConfigureAwait(false);
+
+    internal static async Task<Result<StoreSnapshot>> InspectAsync(NativeCoreStoreReference source, CancellationToken ct)
     {
         try
         {
             CanonicalPath(source.DatabasePath); CanonicalPath(source.Root);
-            if (!Directory.Exists(source.Root))
-                return Result<StoreSnapshot>.Fail(ErrorCode.StorageUnavailable, "The exact authoritative native root is unavailable; its store reference was preserved.");
             var store = await SqliteStore.OpenAsync(source.DatabasePath, ct, source.Instance).ConfigureAwait(false);
             if (!store.IsSuccess) return Result<StoreSnapshot>.Fail(store.Error);
             var pinned = await store.Value.CheckWorkspaceAsync(source.Connection, ct).ConfigureAwait(false);

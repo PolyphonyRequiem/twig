@@ -77,7 +77,9 @@ public static partial class Core
                 foreach (var link in op.Links)
                 {
                     w.WriteStartArray(); WriteKey(w, link.Other); w.WriteStringValue(link.Relation);
-                    w.WriteBooleanValue(link.Outgoing); w.WriteEndArray();
+                    w.WriteBooleanValue(link.Outgoing);
+                    if (link.Remove) w.WriteBooleanValue(true);
+                    w.WriteEndArray();
                 }
                 w.WriteEndArray();
             }

@@ -995,12 +995,15 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         var proposed = edges.ToHashSet();
         foreach (var op in proposal.Operations.Where(op => op.Kind == OpKind.Create && op.Other is not null))
             proposed.Add(new(Resolve(captured.Value, op.Other!), op.Item, op.Relation!, RelationshipOrigin.Provider));
-        foreach (var op in proposal.Operations.Where(op => op.Kind == OpKind.Create))
+        foreach (var op in proposal.Operations.Where(op => op.Kind is OpKind.Create or OpKind.Batch))
             foreach (var link in op.Links.Where(link => kinds.Contains(link.Relation)))
             {
                 var target = Resolve(captured.Value, link.Other);
-                proposed.Add(new(link.Outgoing ? op.Item : target, link.Outgoing ? target : op.Item,
-                    link.Relation, RelationshipOrigin.Provider));
+                var edge = new Relationship(link.Outgoing ? op.Item : target, link.Outgoing ? target : op.Item,
+                    link.Relation, RelationshipOrigin.Provider);
+                if (!link.Remove) proposed.Add(edge);
+                else proposed.RemoveWhere(value => value.From == edge.From && value.To == edge.To
+                    && value.Kind == edge.Kind && value.Origin == edge.Origin);
             }
         foreach (var op in proposal.Operations.Where(o => o.Kind is OpKind.Relate or OpKind.Unrelate))
         {

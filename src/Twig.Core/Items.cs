@@ -7,15 +7,20 @@ public enum RelationshipOrigin { Provider, Local }
 public sealed record CreationLink
 {
     public CreationLink(ItemKey other, string relation, bool outgoing)
+        : this(other, relation, outgoing, false) { }
+
+    public CreationLink(ItemKey other, string relation, bool outgoing, bool remove)
     {
         Other = other ?? throw new ArgumentNullException(nameof(other));
         Relation = Contract.Text(relation, nameof(relation));
         Outgoing = outgoing;
+        Remove = remove;
     }
 
     public ItemKey Other { get; }
     public string Relation { get; }
     public bool Outgoing { get; }
+    public bool Remove { get; }
 }
 
 public sealed record WorkItem

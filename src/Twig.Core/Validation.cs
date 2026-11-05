@@ -77,8 +77,8 @@ public static partial class Core
         }
         var link = op.Kind is OpKind.Relate or OpKind.Unrelate;
         var local = link && op.Origin == RelationshipOrigin.Local;
-        if (!op.Links.IsEmpty && op.Kind != OpKind.Create)
-            Fail(ErrorCode.InvalidInput, "Creation links belong only to an explicit create effect.");
+        if (!op.Links.IsEmpty && op.Kind is not (OpKind.Create or OpKind.Batch))
+            Fail(ErrorCode.InvalidInput, "Compound links belong only to an explicit create or native batch effect.");
         if (!local && op.ExpectedLocalVersion is not null)
             Fail(ErrorCode.InvalidInput, "Only a local relationship can carry a local edge precondition.");
         if ((!link && op.Kind != OpKind.Create && (op.Other is not null || op.Relation is not null || op.Origin != RelationshipOrigin.Provider))
@@ -107,6 +107,7 @@ public static partial class Core
                 Fail(ErrorCode.InvalidInput, "Creation link intent contains a duplicate or self edge.");
             foreach (var edge in op.Links)
             {
+                if (edge.Remove) Fail(ErrorCode.InvalidInput, "Creation cannot remove an existing relationship.");
                 var kind = schema.Relations.FirstOrDefault(kind => kind.Reference == edge.Relation);
                 var endpoint = store.Mappings.FirstOrDefault(mapping => mapping.Local == edge.Other)?.Remote ?? edge.Other;
                 var predecessor = proposal.Operations.TakeWhile(candidate => candidate != op)
@@ -156,6 +157,29 @@ public static partial class Core
                 Fail(ErrorCode.Conflict, "The expected revision is not the observed item revision.");
             if (op.Concurrency == ConcurrencyMode.ExactRevision && !capabilities.ExactRevisions)
                 Fail(ErrorCode.Unsupported, "Provider cannot enforce exact revisions; observed non-atomic intent must be explicit.");
+        }
+        if (op.Kind == OpKind.Batch && !op.Links.IsEmpty)
+        {
+            if (!capabilities.AtomicFieldBatches || !capabilities.AtomicRelationshipBatches
+                || op.Links.GroupBy(edge => (edge.Other, edge.Relation, edge.Outgoing)).Any(group => group.Count() > 1))
+                Fail(ErrorCode.Unsupported, "Compound relationship deltas require atomic native coupling and unique directed effects.");
+            foreach (var delta in op.Links)
+            {
+                var kind = schema.Relations.FirstOrDefault(value => value.Reference == delta.Relation);
+                if (kind is null || kind.Shape == RelationShape.Resource || !delta.Outgoing && !kind.Directed
+                    || !capabilities.NativeRelations.Contains(delta.Relation)
+                    || !capabilities.Operations.Contains(delta.Remove ? OpKind.Unrelate : OpKind.Relate)
+                    || delta.Other == op.Item || !delta.Other.BelongsTo(proposal.Connection))
+                { Fail(ErrorCode.Unsupported, "Every compound delta needs native incident semantics and an exact in-scope endpoint."); continue; }
+                if (new[] { op.Item, delta.Other }.Any(key => !store.Items.Any(item => item.Key == key && item.RelationshipsComplete)))
+                    Fail(ErrorCode.Unavailable, "Every changed incident endpoint must be completely observed.");
+                var exists = store.Relationships.Any(edge => edge.Origin == RelationshipOrigin.Provider && !edge.Deleted
+                    && edge.Kind == delta.Relation && (delta.Outgoing ? edge.From == op.Item && edge.To == delta.Other
+                        : edge.To == op.Item && edge.From == delta.Other)
+                    || !kind.Directed && edge.Origin == RelationshipOrigin.Provider && !edge.Deleted
+                        && edge.Kind == delta.Relation && edge.From == delta.Other && edge.To == op.Item);
+                if (exists != delta.Remove) Fail(ErrorCode.Conflict, "The exact relationship add/remove baseline changed.");
+            }
         }
         if (local && op.ExpectedRevision is not null)
             Fail(ErrorCode.InvalidInput, "A local relationship uses the store CAS, not a provider revision.");
@@ -222,7 +246,7 @@ public static partial class Core
             Fail(ErrorCode.Unsupported, "A batch note requires a nonempty typed body and proven single-request atomic coupling.");
         if (op.Kind is OpKind.Batch or OpKind.Create)
         {
-            if (op.Fields.Count == 0 && (op.Kind != OpKind.Batch || op.Type is null))
+            if (op.Fields.Count == 0 && (op.Kind != OpKind.Batch || op.Type is null && op.Links.IsEmpty))
                 Fail(ErrorCode.InvalidInput, "A field effect cannot be empty.");
             if (op.Kind == OpKind.Batch && !capabilities.AtomicFieldBatches
                 && (op.Type is not null || op.Fields.Count > 1 && op.Concurrency != ConcurrencyMode.ObservedNonAtomic))
@@ -313,6 +337,46 @@ public static partial class Core
         if (active.Where(r => r.Action == RuleAction.Supplied && !r.Values.IsEmpty)
             .GroupBy(r => r.Field, StringComparer.Ordinal).Any(g => g.SelectMany(r => r.Values).Distinct().Count() > 1))
             fail(ErrorCode.Unavailable, "Enabled suppliers disagree about the effective field value.");
+    }
+
+    public static Result<EditorEvaluation> EvaluateEditorFields(ProcessSchema schema, WorkItem source, FieldValues changes,
+        bool atomicFields, string? typeOverride = null)
+    {
+        if (!source.Key.IsLocal && !source.Key.BelongsTo(schema.Connection))
+            return Result<EditorEvaluation>.Fail(ErrorCode.Conflict, "Editor observations belong to another provider resource scope.");
+        var unavailable = SchemaErrors(schema).FirstOrDefault();
+        if (unavailable is not null) return Result<EditorEvaluation>.Fail(unavailable);
+        var type = schema.Types.FirstOrDefault(value => value.Reference == (typeOverride ?? source.Type));
+        if (type is null) return Result<EditorEvaluation>.Fail(ErrorCode.Unavailable, "The exact editor type is unavailable.");
+        var effective = source.Fields.Overlay(changes);
+        var active = new List<FieldRule>();
+        foreach (var rule in type.Rules.Where(value => !value.Disabled))
+        {
+            var matches = MatchesConditions(rule.Conditions, source.Fields, effective);
+            if (!matches.IsSuccess) return Result<EditorEvaluation>.Fail(matches.Error);
+            if (matches.Value) active.Add(rule);
+        }
+        var errors = ImmutableArray.CreateBuilder<Error>();
+        ValidateFields(new("editor", OpKind.Batch, source.Key, source.Revision, changes, typeOverride), source, type,
+            atomicFields, (code, message) => errors.Add(new(code, message)));
+        var fields = type.Fields.Select(field =>
+        {
+            var rules = active.Where(rule => rule.Field == field.Reference).ToArray();
+            var allowed = rules.Where(rule => rule.Action == RuleAction.Allowed).Select(rule => rule.Values).ToArray();
+            var supplied = rules.Any(rule => rule.Action == RuleAction.Supplied
+                && (rule.Values.IsEmpty || rule.Values.Any(value => !value.IsEmpty)));
+            return new EvaluatedField(field, type.Hidden || field.ReadOnly || rules.Any(rule => rule.Action is RuleAction.ReadOnly or RuleAction.Supplied),
+                rules.Any(rule => rule.Action == RuleAction.Required) && !supplied,
+                allowed.Length == 0 ? [] : allowed.Skip(1).Aggregate(allowed[0], (values, next) => values.Intersect(next).ToImmutableArray()),
+                allowed.Length != 0);
+        }).ToImmutableArray();
+        source.Fields.TryGetValue(type.StateField, out var previous);
+        var stateField = fields.Single(field => field.Definition.Reference == type.StateField);
+        var states = type.States.Where(state => (state.Name == previous?.Text
+            || !stateField.ReadOnly && type.Transitions.Any(transition => transition.From == previous?.Text && transition.To == state.Name))
+            && (!stateField.HasAllowedConstraint || stateField.Allowed.Contains(FieldValue.String(state.Name))))
+            .Select(state => state.Name).ToImmutableArray();
+        return Result<EditorEvaluation>.Ok(new(fields, states, errors.ToImmutable()));
     }
 
     private static Result<bool> RequiredBefore(ItemType type, string field, FieldValues before)

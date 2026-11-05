@@ -13,7 +13,7 @@ using Xunit;
 
 namespace Twig.Providers.Ado.Tests;
 
-public sealed class AdoProviderTests
+public sealed partial class AdoProviderTests
 {
     [Fact]
     public async Task ReadAccessValidatesImmutableActorAndTargetWithoutSchemaOrPresentationCrawl()
@@ -1367,6 +1367,7 @@ public sealed class AdoProviderTests
         internal bool DivergentProjectType;
         internal List<string> LayoutRequests = [];
         internal List<string> ReadAccessPaths = [];
+        internal string? ChoiceDefect;
         internal string? LastPayload;
         internal Func<Task>? AfterWrite;
         internal Dictionary<int, JsonObject> Items = [];
@@ -1401,6 +1402,12 @@ public sealed class AdoProviderTests
             var path = Uri.UnescapeDataString(request.RequestUri!.AbsolutePath);
             var query = request.RequestUri.Query;
             ReadAccessPaths.Add(path);
+            if (path.EndsWith("/_apis/identities"))
+            {
+                if (ChoiceDefect == "denied") return Status(403);
+                var identity = ChoiceDefect == "invalid" ? "display-name-is-not-an-id" : Fixture.Actor;
+                return Rows($$"""{"id":"{{identity}}","providerDisplayName":"Same display","isActive":true}""");
+            }
             if (request.Method == HttpMethod.Patch || request.Method == HttpMethod.Post && path.Contains("/workitems/$", StringComparison.OrdinalIgnoreCase))
                 return await Write(request, path, ct);
             if (path.EndsWith("/connectionData"))
@@ -1708,8 +1715,19 @@ public sealed class AdoProviderTests
                 }
                 else if (op == "remove" && field.StartsWith("/relations/"))
                 {
-                    item["relations"]!.AsArray().RemoveAt(int.Parse(field[11..], System.Globalization.CultureInfo.InvariantCulture));
-                    Items[2]["relations"] = new JsonArray();
+                    var index = int.Parse(field[11..], System.Globalization.CultureInfo.InvariantCulture);
+                    var removed = item["relations"]!.AsArray()[index]!;
+                    var endpoint = int.Parse(removed["url"]!.GetValue<string>().Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+                    var inverse = removed["rel"]!.GetValue<string>() switch
+                    {
+                        "Native.ParentForward" => "Native.ParentReverse", "Native.ParentReverse" => "Native.ParentForward",
+                        "Native.DependencyForward" => "Native.DependencyReverse", "Native.DependencyReverse" => "Native.DependencyForward",
+                        _ => "Native.Association",
+                    };
+                    item["relations"]!.AsArray().RemoveAt(index);
+                    var links = Items[endpoint]["relations"]!.AsArray();
+                    foreach (var edge in links.Where(edge => edge!["rel"]!.GetValue<string>() == inverse
+                        && edge["url"]!.GetValue<string>().EndsWith("/" + id, StringComparison.Ordinal)).ToArray()) links.Remove(edge);
                 }
                 else throw new InvalidOperationException("Unexpected patch operation");
             }

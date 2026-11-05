@@ -14,7 +14,7 @@ using Provider = Twig.Providers.GitHub.GitHubProvider;
 
 namespace Twig.Providers.GitHub.Tests;
 
-public sealed class GitHubProviderTests
+public sealed partial class GitHubProviderTests
 {
     [Fact]
     public async Task ReadAccessValidatesActorRepositoryAndIssueReadWithoutIntrospectionOrItemBodies()
@@ -798,6 +798,7 @@ public sealed class GitHubProviderTests
         internal string? Defect, WriteFailure, LastPayload, MutationOnlyRelation;
         internal int Writes, WriteStatus = 200;
         internal List<string> ReadQueries = [];
+        internal string? ChoiceDefect;
         internal Dictionary<string, JsonObject> Issues { get; } = new()
         {
             ["I1"] = Issue("I1"), ["I2"] = Issue("I2"),
@@ -850,7 +851,19 @@ public sealed class GitHubProviderTests
                 return Write(root, raw);
             if (Defect == "partial-graphql") return Json(new JsonObject { ["data"] = new JsonObject(), ["errors"] = new JsonArray(new JsonObject { ["message"] = "denied" }) });
             JsonObject data;
-            if (query.Contains("viewer {", StringComparison.Ordinal))
+            if (query.StartsWith("query($id: ID!, $count: Int!, $query: String!)", StringComparison.Ordinal))
+            {
+                if (ChoiceDefect == "denied") return new(HttpStatusCode.Forbidden);
+                var member = query.Contains("assignableUsers(first:", StringComparison.Ordinal) ? "assignableUsers"
+                    : query.Contains("labels(first:", StringComparison.Ordinal) ? "labels" : "milestones";
+                var choice = new JsonObject { ["id"] = ChoiceDefect == "invalid" ? "" : "N_canonical",
+                    [member == "labels" ? "name" : member == "milestones" ? "title" : "login"] = "Same display" };
+                var repo = Repo();
+                if (ChoiceDefect == "repository") repo["id"] = "R_other";
+                repo[member] = Page([choice], ChoiceDefect == "more");
+                data = new() { ["node"] = repo };
+            }
+            else if (query.Contains("viewer {", StringComparison.Ordinal))
             {
                 var repo = Repo(); repo["__typename"] = "Repository";
                 data = new() { ["viewer"] = new JsonObject { ["id"] = Actor }, ["node"] = repo };

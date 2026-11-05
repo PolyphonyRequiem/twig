@@ -146,6 +146,8 @@ jobs:
               ("native-core-execution", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeCoreExecutionTests|FullyQualifiedName~NativeCoreRegistryMigrationTests"),
               ("native-publishing-gate", "Twig.Cli.Tests", "FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativePublishingBeforeActivationIsRefusedByTheActualCliComposition|FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeUnknownWriteBlocksAnotherInitializedRootNormalSaveWithoutMutationHttp|FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeUnknownGitHubWriteFencesAnotherRootNormalSaveThroughRealComposition"),
               ("native-no-effect", "Twig.Cli.Tests", "FullyQualifiedName~NativeHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits|FullyQualifiedName~NativeGitHubHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits"),
+              ("native-compound-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeCompoundEditorFieldsAndRelatedDelta"),
+              ("native-authoring-contract", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeAuthoringContractTests"),
               ("planning-consumers", "Twig.Infrastructure.Tests", "FullyQualifiedName~PlanningConsumerTests"),
               ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),
           ]:

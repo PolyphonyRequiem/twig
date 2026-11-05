@@ -117,12 +117,12 @@ public sealed class CreationLinkInvariantTests
     }
 
     [Fact]
-    public void CreationLinksCannotAppearOnAnExistingItemMutation()
+    public void CompoundLinksCannotAppearOnANonBatchExistingItemMutation()
     {
         var other = ItemKey.Remote(Connection.Provider, Connection.ResourceScope, "2");
         var source = Item(Target);
-        var operation = new Op("edit", OpKind.Batch, Target, source.Revision, Fields,
-            links: [new(other, "dependency", true)]);
+        var operation = new Op("comment", OpKind.Comment, Target, source.Revision,
+            body: FieldValue.String("note"), links: [new(other, "dependency", true)]);
         var proposal = Proposal(operation);
         Rules.Validate(proposal, proposal.Digest, Schema, new(0, [source, Item(other)]), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.InvalidInput);

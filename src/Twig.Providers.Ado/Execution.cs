@@ -151,8 +151,7 @@ public sealed partial class AdoProvider
                                 || edges.Contains(new(Resolve(stored, op.Other), key, op.Relation!, RelationshipOrigin.Provider)))
                             && (op.Kind != OpKind.Create || op.Resource is null
                                 || item.ResourcesComplete && item.Resources.Contains(op.Resource))
-                            && (op.Kind != OpKind.Create || op.Links.All(link =>
-                                edges.Contains(CreationEdge(stored, discovery, key, link)))),
+                            && op.Links.All(link => edges.Contains(CreationEdge(stored, discovery, key, link)) != link.Remove),
                         OpKind.Comment => item.Fields.TryGetValue("System.History", out var history) && history.Text == op.Body!.Text,
                         OpKind.LinkResource => item.ResourcesComplete && item.Resources.Contains(op.Resource!),
                         OpKind.Relate => edges.Contains(Edge(op, discovery)),
@@ -162,8 +161,16 @@ public sealed partial class AdoProvider
                     var keys = Targets(op).Where(target => target != op.Item).Select(target => Resolve(stored, target))
                         .Prepend(key).Distinct().ToImmutableArray();
                     observations = await Read(bound, discovery, keys, token);
-                    if (op.Kind == OpKind.Create)
-                        matches &= op.Links.All(link => observations.Relationships.Contains(CreationEdge(stored, discovery, key, link)));
+                    matches &= op.Links.All(link =>
+                        observations.Items.All(endpoint => endpoint.RelationshipsComplete)
+                        && observations.Relationships.Contains(CreationEdge(stored, discovery, key, link)) != link.Remove);
+                    foreach (var endpoint in op.Links.Select(link => Resolve(stored, link.Other)).Distinct())
+                    {
+                        var inverse = await Read(bound, discovery, [endpoint], token);
+                        matches &= inverse.Items.Single(item => item.Key == endpoint).RelationshipsComplete
+                            && op.Links.Where(link => Resolve(stored, link.Other) == endpoint).All(link =>
+                                inverse.Relationships.Contains(CreationEdge(stored, discovery, key, link)) != link.Remove);
+                    }
                     if (op.Other is not null && op.Kind != OpKind.Create)
                     {
                         var intended = Edge(op, discovery);
@@ -224,16 +231,35 @@ public sealed partial class AdoProvider
             throw Wire.Refuse(ErrorCode.Unsupported, "Only enabled native artifact/hyperlink shapes with reviewed locators are supported.");
         string? parentRelation = null;
         ItemKey? parentKey = null;
-        var current = op.Kind == OpKind.Create ? await Snapshot(ct) : null;
+        var current = op.Kind == OpKind.Create || !op.Links.IsEmpty ? await Snapshot(ct) : null;
         var creationLinks = new List<(string Relation, ItemKey Target)>();
+        var removals = new List<int>();
+        JsonElement? incident = null;
+        if (op.Kind == OpKind.Batch && !op.Links.IsEmpty)
+        {
+            incident = await Get(bound, $"{bound.Project}/_apis/wit/workitems/{Id(op.Item)}?$expand=relations&api-version={Api}", ct);
+            if (MapItem(incident.Value, bound, schema, op.Item).Item.Revision != op.ExpectedRevision)
+                throw Wire.Refuse(ErrorCode.Conflict, "Compound relationship source revision moved.");
+        }
         foreach (var link in op.Links)
         {
+            if (op.Kind == OpKind.Create && link.Remove)
+                throw Wire.Refuse(ErrorCode.InvalidInput, "Creation cannot remove native relationships.");
             var target = CreationEndpoint(current!, link.Other);
             var native = schema.Relations.Values.Where(relation => relation.Canonical == link.Relation
-                && relation.Forward == link.Outgoing && relation.Shape is RelationShape.Dependency or RelationShape.Association).ToArray();
+                && relation.Forward == link.Outgoing && relation.Shape is RelationShape.Hierarchy or RelationShape.Dependency or RelationShape.Association).ToArray();
             if (native.Length != 1)
                 throw Wire.Refuse(ErrorCode.Unsupported, "A unique discovered native creation-link direction is required.");
-            creationLinks.Add((native[0].Reference, target));
+            if (incident is { } source)
+            {
+                var matching = source.GetProperty("relations").EnumerateArray().Select((edge, index) => (edge, index))
+                    .Where(value => Wire.Text(value.edge, "rel") == native[0].Reference
+                        && RelationshipTarget(Wire.Text(value.edge, "url"), bound) == target).ToArray();
+                if (matching.Length != (link.Remove ? 1 : 0))
+                    throw Wire.Refuse(ErrorCode.Conflict, "The reviewed native relationship delta baseline changed.");
+                if (link.Remove) removals.Add(matching[0].index);
+            }
+            if (!link.Remove) creationLinks.Add((native[0].Reference, target));
         }
         if (op.Kind == OpKind.Create && op.Other is not null)
         {
@@ -293,6 +319,8 @@ public sealed partial class AdoProvider
                     json.WriteString("url", bound.Url($"_apis/wit/workItems/{Id(parentKey!)}").AbsoluteUri);
                     json.WriteEndObject();
                 });
+            foreach (var index in removals.OrderDescending())
+                PatchEntry("remove", $"/relations/{index}", null);
             foreach (var link in creationLinks)
                 PatchEntry("add", "/relations/-", () =>
                 {

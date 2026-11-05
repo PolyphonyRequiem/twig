@@ -120,6 +120,35 @@ authorize provider writes or expose an editor to external hosts. Source stamps
 remain comparison evidence only. Human editor publication, result delivery and
 global target admission require the separate native execution contract.
 
+## Native authoring primitives
+
+Core evaluated editor fields reuse native predicate/field validation and expose
+effective required/read-only/allowed-value guidance and discovered transitions.
+An empty constrained allowed set is distinct from an unconstrained field. These
+are provisional rendering results, not cached permission to publish.
+
+Concrete ADO/GitHub editor metadata captures retain their exact provider owner,
+native actor/resource/acquisition context and schema. Explicit editor entry
+acquires presentation once; bounded canonical-choice queries reuse that capture
+without another process/layout/icon crawl. ADO identities retain native GUIDs;
+GitHub assignees/labels/milestones retain native node IDs. Labels are display only.
+Choices perform fresh native actor/resource admission and no mutation. Required
+Save/Review/Apply authority, schema, policy and revision checks remain independent.
+
+ADO compound `Batch.Links` requires explicit `AtomicRelationshipBatches`
+capability as well as native field coupling. Directed incident add/remove and
+reparent deltas use one source-revision-tested PATCH, descending removal indices,
+and verification of every declared field and changed inverse endpoint. GitHub
+does not advertise this compound capability; unsupported links cannot become a
+field-only write. The original three-argument `CreationLink` constructor and
+default add tuple bytes remain unchanged; only explicit removal adds a fourth
+true tuple member. Proposal/store format versions are unchanged.
+
+Remote Core Draft relationship restrictions remain unchanged. Durable NORMAL
+and PLAN relationship capture, guarded editor/Plan APIs and fresh-scope
+enlistment are separate native integration work, not provided by these primitives.
+No browser/SDK editing or publication route is enabled here.
+
 ## Native execution safety contract (system registry v11)
 
 Native registry upgrades add pending activation and Core source/attempt references

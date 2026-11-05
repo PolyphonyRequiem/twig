@@ -177,6 +177,8 @@ jobs:
 
       - name: Read-only native source host boundary
         id: native_source
+        env:
+          TWIG_TEST_TRACE: ${{ format('{0}{1}', github.workspace, runner.os == 'Windows' && '\artifacts\trace-311\native-source' || '/artifacts/trace-311/native-source') }}
         run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeSource|FullyQualifiedName~NativePanelSelection" --logger "trx;LogFileName=native-source.trx" --results-directory artifacts/test-logs/ci/native-source
       - name: Preserve native source host results
         if: always() && steps.native_source.outcome != 'skipped' && steps.native_source.outcome != ''

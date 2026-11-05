@@ -91,6 +91,28 @@ native Bench, work-item, context, journal, initialization or migration mutations
 Libraries are currently consumed through a pinned source dependency, not a
 claim of published NuGet packages.
 
+## Internal Bench Plan ownership
+
+Native user-wide Bench metadata can retain an explicit Plan mode and independently
+revisioned Plan descriptor. Each connection owns a separately reserved/pinned
+`SqliteStore` instance under native user storage; the ordinary workspace database
+and `.twig/core-workspace.json` are never replaced. Normal drafts, selection and
+active history are not copied or changed. Leaving Plan mode or deleting its Bench
+preserves the descriptor, scopes and permanent seed ownership.
+
+Scope creation first retains its path/instance reservation. Incomplete creation
+can complete only that exact reservation; mismatched files, paths, connection pins
+and source stamps fail closed. Reassociation creates a new scope and preserves
+the old store. Unresolved journal attempts and protected drafts/unsettled seed
+ownership block reassociation until an explicit reviewed transfer is available.
+Native seed ownership is permanent across Bench/mode changes and cannot be claimed
+by another scope.
+
+These internal persistence methods do not acquire credentials, refresh metadata,
+authorize provider writes or expose an editor to external hosts. Source stamps
+remain comparison evidence only. Human editor publication, result delivery and
+global target admission require the separate native execution contract.
+
 ## License
 
 MIT.

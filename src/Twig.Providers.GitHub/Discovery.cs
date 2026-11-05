@@ -19,7 +19,7 @@ public sealed partial class GitHubProvider
     public const string Untyped = "github.issue";
     public const string RuleDiscovery = "unsupported: GitHub does not expose process/workflow field rules; external repository automation is outside Twig validation";
 
-    private sealed record Discovery(ProcessSchema Schema, ImmutableHashSet<string> Fields,
+    internal sealed record Discovery(ProcessSchema Schema, ImmutableHashSet<string> Fields,
         ImmutableHashSet<string> Mutations, ImmutableHashSet<string> UpdateInputs,
         ImmutableHashSet<string> CreateInputs, ImmutableHashSet<string> NativeRelations, ProviderCapabilities Capabilities);
 

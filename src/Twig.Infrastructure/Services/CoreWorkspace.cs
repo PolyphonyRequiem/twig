@@ -16,7 +16,7 @@ internal sealed record CoreExecution(ImmutableArray<Receipt> Receipts, Error? Er
 }
 
 /// <summary>One draft/proposal/journal application path; no retry, note flush or legacy publisher.</summary>
-internal sealed class CoreWorkspace(Connection connection, IProvider provider, IStore store,
+internal sealed partial class CoreWorkspace(Connection connection, IProvider provider, IStore store,
     ConfiguredPolicyProjectionSource policies, string nativeActor, string worktreeRoot, Guid storeInstance = default,
     UserBenchStore? sharedBenches = null, string planningTeam = "", string? executionRegistryPath = null)
 {
@@ -457,13 +457,16 @@ internal sealed class CoreWorkspace(Connection connection, IProvider provider, I
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
 
-    internal async Task<Result<WorkItem>> ReadAsync(ItemKey key, CancellationToken ct)
+    internal async Task<Result<WorkItem>> ReadAsync(ItemKey key, CancellationToken ct, NativeEditorMetadata? editor = null)
     {
         var stored = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!stored.IsSuccess) return Result<WorkItem>.Fail(stored.Error);
         key = Resolve(stored.Value, key);
         if (key.IsLocal) return Result<WorkItem>.Fail(ErrorCode.InvalidInput, "A local draft is not a native item observation.");
-        var read = await provider.ReadAsync(connection, [key], ct, captureOnly: true).ConfigureAwait(false);
+        if (editor is not null && editor.Schema.Connection != connection)
+            return Result<WorkItem>.Fail(ErrorCode.Conflict, "Editor metadata belongs to another native connection.");
+        var read = editor is null ? await provider.ReadAsync(connection, [key], ct, captureOnly: true).ConfigureAwait(false)
+            : await editor.Read([key], ct).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<WorkItem>.Fail(read.Error);
         if (read.Value.Items.Length != 1 || read.Value.Items[0].Key != key)
             return Result<WorkItem>.Fail(ErrorCode.Unavailable, "The provider did not observe the exact requested item.");

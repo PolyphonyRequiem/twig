@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using Twig.Core;
 using Twig.Infrastructure.Persistence;
 using Twig.Store.Sqlite;
+using Twig.Infrastructure.Auth;
 
 namespace Twig.Infrastructure.Services;
 
@@ -108,6 +109,25 @@ public sealed partial class UserBenchStore
                 Scopes = plan.Scopes.Select(value => value.Id == scope.Id
                     ? value with { State = NativePlanScopeState.Ready } : value).ToImmutableArray(),
             });
+        }, ct);
+
+    internal Task<Result<NativeBenchPlan>> CompleteCoveredPlanScopeAsync(Guid expectedInstance, Guid benchId,
+        long expectedPlanRevision, Guid scopeId, string registryPath, NativeCoreStoreReference origin, CancellationToken ct = default)
+        => ChangePlan(expectedInstance, benchId, expectedPlanRevision, async (_, _, plan) =>
+        {
+            var scope = plan.Scopes.SingleOrDefault(value => value.Id == scopeId);
+            if (!plan.PlanMode || scope is null || scope.State != NativePlanScopeState.Preparing
+                || scope.Source.StoreInstance != origin.Instance || scope.Source.Connection != origin.Connection
+                || !NativePathComparer.Instance.Equals(scope.OriginRoot, origin.Root)
+                || !NativePathComparer.Instance.Equals(path, ForRegistry(registryPath).path))
+                return Result<NativeBenchPlan>.Fail(ErrorCode.Conflict, "The exact native scope reservation or originating context changed.");
+            using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
+            var created = await registry.CreateCoveredScopeAsync(scope.Id, origin,
+                new(scope.StoreInstance, scope.DatabasePath, scope.OriginRoot, scope.Source.Connection),
+                JsonSerializer.Serialize(plan, NativePlanJson.Default.NativeBenchPlan), ct).ConfigureAwait(false);
+            if (!created.IsSuccess) return Result<NativeBenchPlan>.Fail(created.Error);
+            return Result<NativeBenchPlan>.Ok(plan with { Scopes = plan.Scopes.Select(value => value.Id == scope.Id
+                ? value with { State = NativePlanScopeState.Ready } : value).ToImmutableArray() });
         }, ct);
 
     internal Task<Result<NativeBenchPlan>> ReservePlanSeedAsync(Guid expectedInstance, Guid benchId,
@@ -261,6 +281,7 @@ public sealed partial class UserBenchStore
         {
             if (expectedInstance == Guid.Empty || benchId == Guid.Empty || expectedRevision is < 0 or long.MaxValue)
                 return Result<NativeBenchPlan>.Fail(ErrorCode.InvalidInput, "Captured nonempty user/Bench identity and Plan revision are required.");
+            using var authoring = AcquireAuthoringLease(benchId);
             await using var db = await Open(ct).ConfigureAwait(false);
             using var tx = db.BeginTransaction(deferred: false);
             var library = await Read(db, tx, ct).ConfigureAwait(false);
@@ -296,6 +317,8 @@ public sealed partial class UserBenchStore
             tx.Commit();
             return Result<NativeBenchPlan>.Ok(next);
         }
+        catch (ConnectionBindingResolutionException)
+        { return Result<NativeBenchPlan>.Fail(ErrorCode.Conflict, "An active native authoring operation protects this Plan and its intent."); }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<NativeBenchPlan>(ex); }
     }
 

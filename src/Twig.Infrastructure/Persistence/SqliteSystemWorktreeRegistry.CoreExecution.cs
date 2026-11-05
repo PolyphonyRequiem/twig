@@ -308,11 +308,21 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         command.Transaction = tx;
         command.CommandText = "SELECT digest,operation,attempt,target,minimum_version,ever_applying FROM core_attempt_refs WHERE instance=$instance ORDER BY digest,operation,attempt,target;";
         command.Parameters.AddWithValue("$instance", instance.ToString("D"));
-        using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            hash.AppendData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
-                Enumerable.Range(0, 6).Select(index => Convert.ToString(reader.GetValue(index), System.Globalization.CultureInfo.InvariantCulture)!).ToArray(),
-                NativeCoreExecutionJson.Default.StringArray)));
+        using (var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                hash.AppendData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
+                    Enumerable.Range(0, 6).Select(index => Convert.ToString(reader.GetValue(index), System.Globalization.CultureInfo.InvariantCulture)!).ToArray(),
+                    NativeCoreExecutionJson.Default.StringArray)));
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='core_scope_births';";
+        if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 0)
+        {
+            command.CommandText = "SELECT id,origin,source,ownership,registry_instance,registry_revision,origin_version,parent_digest,covered,born,enlisted FROM core_scope_births WHERE store_instance=$instance;";
+            using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                hash.AppendData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
+                    Enumerable.Range(0, 11).Select(index => Convert.ToString(reader.GetValue(index), System.Globalization.CultureInfo.InvariantCulture)!).ToArray(),
+                    NativeCoreExecutionJson.Default.StringArray)));
+        }
         return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 }

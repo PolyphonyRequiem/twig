@@ -69,7 +69,7 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
         }
     }
 
-    internal async Task<Result<CoreWorkspaceHandle>> OpenAsync(CoreWorkspaceDocument document, SqliteStore store, CancellationToken ct)
+    internal async Task<Result<CoreWorkspaceHandle>> OpenAsync(CoreWorkspaceDocument document, SqliteStore store, CancellationToken ct, bool scoped = false)
     {
         SqliteSystemWorktreeRegistry? registry = null;
         WorktreeLocalProviderTargetAttachmentStore? attachment = null;
@@ -95,7 +95,7 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
             provider = new(document.Connection, access, store, transport?.CreateHandler());
             var workspace = new CoreWorkspace(document.Connection, provider, store,
                 new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance,
-                benches, executionRegistryPath: nativeBindings.RegistryPath);
+                scoped ? null : benches, executionRegistryPath: nativeBindings.RegistryPath);
             var sourceStamp = NativeSourceReader.Stamp(document, paths.RepoRoot, origin.BindingId.ToString(),
                 NativeSourceReader.Number(origin.AttachmentRevision), origin.WorktreeFingerprint,
                 NativeSourceReader.Number(origin.BindingRevision), document.Connection.IdentityRef);

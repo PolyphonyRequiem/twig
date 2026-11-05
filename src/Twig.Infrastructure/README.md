@@ -151,10 +151,56 @@ field-only write. The original three-argument `CreationLink` constructor and
 default add tuple bytes remain unchanged; only explicit removal adds a fourth
 true tuple member. Proposal/store format versions are unchanged.
 
-Remote Core Draft relationship restrictions remain unchanged. Durable NORMAL
-and PLAN relationship capture, guarded editor/Plan APIs and fresh-scope
-enlistment are separate native integration work, not provided by these primitives.
-No browser/SDK editing or publication route is enabled here.
+Remote Core Draft relationship restrictions remain unchanged. No browser/SDK
+editing or publication route is enabled here.
+
+## Internal native capture and allocation primitives
+
+The internal editor session retains one actor/resource/schema-bound metadata
+capture. Item and endpoint reads reuse its native mapping without another
+process/layout/icon crawl, while still admitting the actual native actor/project
+or repository. Save/Review/Apply must independently acquire fresh authority,
+schema, policy and revision evidence; cached rendering is never write permission.
+
+NORMAL captures own the normal store's exact draft; PLAN captures own only their
+explicit native scope. Captures bind user/Bench/mode/scope/source/store versions,
+canonical typed intent, original draft fingerprint and relationship endpoint
+proofs. Native remote Drafts still contain no links. Durable Preparing intent
+precedes Core staging; Ready follows its actual result. Interrupted captures
+require an exact matching authoritative draft to become Ready, never publication
+or an inferred remote outcome. Missing/corrupt capture rows fail closed through
+their integrity seal. Mode exit preserves captures; stale handles and foreign
+authority cannot adopt them. All current Bench-definition writers share the
+canonical native authoring lease, including legacy imports and selector capture.
+
+The existing user `meta` row witnesses capture-storage initialization separately
+from both capture tables. Joint loss of those tables refuses reads/restaging;
+genuine first use remains empty. Existing sealed storage can establish the witness
+atomically. The actual serialized capture document is checked once, before capture
+writes, against the same 2 MiB UTF-8 byte limit used by reads and integrity hashing.
+The canonical intent retains its separate 1 MiB UTF-8 bound; rich text is not truncated.
+
+This local witness does **not** detect a whole `benches.db` same-instance rollback
+to a pre-capture state that also erases the witness. Public-facade qualification
+must address a surviving Core draft with lost relationship metadata through an
+independently surviving native system/user-generation reference and cross-store
+recovery, not empty-state/latest-value inference. No rollback permission or
+universal lost-capture/rollback protection is implied.
+
+Fresh scope enlistment retains a native reservation against an exact registered
+origin and registry/source CAS, owns actual `FileMode.CreateNew`, then persists
+its birth witness before enlistment. Enlisted provenance is sealed into existing
+reference integrity. Missing/replaced files, changed coverage/source versions or
+interrupted reservations preserve every artifact and refuse silent adoption.
+Confirmed coverage can extend only from its already covered exact origin; a
+pending registry can allocate local drafts but remains pending. Neither path
+fabricates completeness/quiescence, clears old claims or settles old effects.
+
+These are disabled internal primitives, not a complete editor/Plan facade.
+Whole-Bench multi-connection review/apply, ordered immutable effect envelopes,
+GitHub fields plus origin-local Related CAS and exact verified seed follow-ons
+remain separate integration work. Verified remote effects with local work pending
+must remain explicit; full result delivery/reassociation is not implemented here.
 
 ## Native execution safety contract (system registry v11)
 

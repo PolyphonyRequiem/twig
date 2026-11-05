@@ -39,6 +39,7 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         => (configuration.Display.TreeDepthUp, configuration.Display.TreeDepthDown, configuration.Display.TreeDepthSideways);
     internal IReadOnlyList<(string Path, bool IncludeChildren)> QueryAreaDefaults
         => configuration.Defaults?.ResolveAreaPaths() ?? [];
+    internal string ExecutionRegistryPath => bindings.RegistryPath;
 
     internal async Task<Result<CoreWorkspaceHandle>> OpenAsync(CancellationToken ct)
     {
@@ -93,6 +94,40 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         if (captured.Source != handle.Source)
             return Result<bool>.Fail(ErrorCode.Conflict, "The native workspace, actor, store or authority changed; no content or rule change was released.");
         return await AdmitSourceAsync(captured, ct).ConfigureAwait(false);
+    }
+
+    internal async Task<Result<CoreWorkspaceHandle>> OpenScopedAsync(NativePlanScope scope, NativeSourceStamp expectedOrigin, CancellationToken ct)
+    {
+        var current = await OpenAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(current.Error);
+        using var originHandle = current.Value;
+        if (originHandle.Source != expectedOrigin || scope.Source != expectedOrigin
+            || scope.State != NativePlanScopeState.Ready || !NativePathComparer.Instance.Equals(scope.OriginRoot, paths.RepoRoot))
+            return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Conflict, "The exact Plan origin, native actor or scope ownership changed.");
+        var opened = await SqliteStore.OpenAsync(scope.DatabasePath, ct, scope.StoreInstance).ConfigureAwait(false);
+        if (!opened.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(opened.Error);
+        var pinned = await opened.Value.CheckWorkspaceAsync(scope.Source.Connection, ct).ConfigureAwait(false);
+        if (!pinned.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(pinned.Error);
+        var document = originHandle.Document with { DatabasePath = scope.DatabasePath, DatabaseInstance = scope.StoreInstance };
+        if (document.Connection.Provider.Value == "github" && github is not null)
+            return await github.OpenAsync(document, opened.Value, ct, scoped: true).ConfigureAwait(false);
+        if (document.Connection.Provider.Value != "ado")
+            return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Unsupported, "This Plan has no native execution composition.");
+        var authority = await bindings.ResolveAsync(configuration, paths, ct).ConfigureAwait(false);
+        var source = NativeSourceReader.Stamp(originHandle.Document, paths.RepoRoot, authority);
+        if (source != expectedOrigin)
+            return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Conflict, "Native authoring authority changed while opening the Plan store.");
+        var access = new CleanCoreAdoAccess(authentication, bindings, configuration, paths, authority,
+            document.Connection, document.PrincipalId, opened.Value);
+        var registered = await NativeCoreExecution.RegisterAsync(bindings.RegistryPath,
+            new(scope.StoreInstance, scope.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
+        if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
+        var provider = new AdoProvider(document.Connection, access, opened.Value, transport?.CreateHandler());
+        var workspace = new CoreWorkspace(document.Connection, provider, opened.Value,
+            new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, scope.StoreInstance,
+            executionRegistryPath: bindings.RegistryPath);
+        return Result<CoreWorkspaceHandle>.Ok(new(workspace, provider, document,
+            NativeSourceReader.Stamp(document, paths.RepoRoot, authority), access));
     }
 
     internal async Task<Result<bool>> AdmitSourceAsync(CoreWorkspaceHandle handle, CancellationToken ct)

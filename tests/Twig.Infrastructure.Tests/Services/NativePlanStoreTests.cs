@@ -16,6 +16,43 @@ public sealed class NativePlanStoreTests : IDisposable
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MissingSeedUuidReturnsNotFoundWhetherOrNotTheOwnershipIndexExists(bool indexExists)
+    {
+        var (library, bench, plan, _) = await Reserve();
+        if (indexExists)
+        {
+            var scope = plan.Scopes.Single();
+            var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+            Required(await User.ReservePlanSeedAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, Guid.NewGuid()));
+        }
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+        { DataSource = Path.Combine(root, "user", "benches.db"), Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+        await db.OpenAsync();
+        using var command = db.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='plan_seed_owners';";
+        Convert.ToInt32(await command.ExecuteScalarAsync()).ShouldBe(indexExists ? 1 : 0);
+        var missing = await User.ReadPlanSeedOwnerAsync(Guid.NewGuid());
+        missing.IsSuccess.ShouldBeFalse();
+        missing.Error.Code.ShouldBe(ErrorCode.NotFound);
+        missing.Error.Message.ShouldContain("not registered");
+    }
+
+    [Fact]
+    public async Task ScopeReadOwnershipRemainsAvailableAfterLeavingPlanMode()
+    {
+        var (library, bench, plan, source) = await Reserve();
+        var scope = plan.Scopes.Single();
+        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var left = Required(await User.SetPlanModeAsync(library.InstanceId, bench.Id, bench.Revision, ready.Revision, false));
+        var opened = Required(await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, left.Revision, scope.Id, root, source));
+        opened.InstanceId.ShouldBe(scope.StoreInstance);
+        Required(await opened.ReadAsync(connection, default)).Version.ShouldBe(0);
+        Required(await User.ReadPlanAsync(bench.Id)).PlanMode.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task PreparingScopeResumesOnlyItsReservedInstanceAndNeverAdoptsAReplacement()
     {
@@ -74,7 +111,7 @@ public sealed class NativePlanStoreTests : IDisposable
         var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
         var id = Guid.NewGuid();
         var captured = Required(await User.ReservePlanSeedAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, id));
-        var owner = Required(await User.ReadPlanSeedOwnerAsync(id))!;
+        var owner = Required(await User.ReadPlanSeedOwnerAsync(id));
         owner.StoreInstance.ShouldBe(scope.StoreInstance);
         var other = Required(await User.SaveAsync(new(Guid.NewGuid(), "Other", []), 0));
         var otherMode = Required(await User.SetPlanModeAsync(library.InstanceId, other.Id, other.Revision, 0, true));

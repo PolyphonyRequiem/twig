@@ -111,26 +111,26 @@ public sealed partial class UserBenchStore
             return Result<NativeBenchPlan>.Ok(plan);
         }, ct);
 
-    internal async Task<Result<NativePlanSeedOwner?>> ReadPlanSeedOwnerAsync(Guid localId, CancellationToken ct = default)
+    internal async Task<Result<NativePlanSeedOwner>> ReadPlanSeedOwnerAsync(Guid localId, CancellationToken ct = default)
     {
         try
         {
-            if (localId == Guid.Empty) return Result<NativePlanSeedOwner?>.Fail(ErrorCode.InvalidInput, "A permanent seed UUID is required.");
+            if (localId == Guid.Empty) return Result<NativePlanSeedOwner>.Fail(ErrorCode.InvalidInput, "A permanent seed UUID is required.");
             await using var db = await Open(ct).ConfigureAwait(false);
             using var tx = db.BeginTransaction(deferred: true);
             var owner = await ReadSeedOwner(db, tx, localId, ct).ConfigureAwait(false);
-            if (owner is not null)
-            {
-                var plan = await ReadPlan(db, tx, owner.BenchId, ct).ConfigureAwait(false);
-                var scope = plan.Scopes.SingleOrDefault(value => value.Id == owner.ScopeId);
-                if (plan.Id != owner.PlanId || scope is null || scope.StoreInstance != owner.StoreInstance
-                    || scope.Source.Connection != owner.Connection)
-                    throw new InvalidDataException("The permanent seed ownership index disagrees with its native scope.");
-            }
+            if (owner is null)
+                return Result<NativePlanSeedOwner>.Fail(ErrorCode.NotFound,
+                    "The permanent seed UUID is not registered in the native ownership index.");
+            var plan = await ReadPlan(db, tx, owner.BenchId, ct).ConfigureAwait(false);
+            var scope = plan.Scopes.SingleOrDefault(value => value.Id == owner.ScopeId);
+            if (plan.Id != owner.PlanId || scope is null || scope.StoreInstance != owner.StoreInstance
+                || scope.Source.Connection != owner.Connection)
+                throw new InvalidDataException("The permanent seed ownership index disagrees with its native scope.");
             tx.Commit();
-            return Result<NativePlanSeedOwner?>.Ok(owner);
+            return Result<NativePlanSeedOwner>.Ok(owner);
         }
-        catch (Exception ex) when (StorageFailure(ex)) { return Failure<NativePlanSeedOwner?>(ex); }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<NativePlanSeedOwner>(ex); }
     }
 
     internal async Task<Result<SqliteStore>> OpenPlanScopeAsync(Guid expectedInstance, Guid benchId,

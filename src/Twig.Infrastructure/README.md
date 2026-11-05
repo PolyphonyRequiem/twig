@@ -108,6 +108,13 @@ ownership block reassociation until an explicit reviewed transfer is available.
 Native seed ownership is permanent across Bench/mode changes and cannot be claimed
 by another scope.
 
+`ReadPlanSeedOwnerAsync` returns an explicit `NotFound` for an unregistered UUID;
+callers must not treat absence as a successful mapping or borrow another scope.
+`OpenPlanScopeAsync` can reopen an owned store for reads/status while Bench mode
+is Edit. Its checks establish only store/source ownership, not Stage/Apply
+permission. The final write facade must independently validate current mode,
+capture revisions and fresh provider authority before staging or publication.
+
 These internal persistence methods do not acquire credentials, refresh metadata,
 authorize provider writes or expose an editor to external hosts. Source stamps
 remain comparison evidence only. Human editor publication, result delivery and

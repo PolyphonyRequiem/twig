@@ -35,6 +35,8 @@ public interface IProvider
         => DiscoverSchemaAsync(connection, ct);
     Task<Result<PlanningMetadata>> DiscoverPlanningAsync(Connection connection, string? team, CancellationToken ct)
         => Task.FromResult(Result<PlanningMetadata>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning metadata."));
+    Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(Connection connection, CancellationToken ct)
+        => Task.FromResult(Result<ImmutableArray<PlanningTeam>>.Fail(ErrorCode.Unsupported, "This provider does not expose native project teams."));
     Task<Result<PlanningSources>> DiscoverPlanningSourcesAsync(Connection connection, string? team, CancellationToken ct)
         => Task.FromResult(Result<PlanningSources>.Fail(ErrorCode.Unsupported, "This provider does not expose saved queries or backlogs."));
     Task<Result<PlanningBrowsePage>> BrowsePlanningAsync(Connection connection, string? team, PlanningSourceKind kind, string id, string? expectedTeam, CancellationToken ct)

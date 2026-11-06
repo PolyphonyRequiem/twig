@@ -263,8 +263,12 @@ public sealed class UserBenchStoreTests : IDisposable
         Required(await native.Store.ReadAsync(ado, default)).Benches.ShouldBeEmpty();
         var different = new CoreWorkspace(ado, provider, native.Store, new ConfiguredPolicyProjectionSource(native.Root),
             "actor", native.Root, native.Store.InstanceId, owner, "Another configured team");
-        (await different.QueryAsync(rule, default)).Error.Code.ShouldBe(ErrorCode.Unavailable);
-        await provider.Received(1).QueryAsync(ado, Arg.Any<Query>(), null, Arg.Any<CancellationToken>());
+        Required(await different.QueryAsync(rule, default)).Complete.ShouldBeTrue("retained canonical intent is independent of the configured team");
+        dispatched!.Children[1].Value!.Text.ShouldBe("Project\\Next");
+        var unavailable = new Query(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current"]),
+            planningTeam: "uncached-native-team");
+        (await different.QueryAsync(unavailable, default)).Error.Code.ShouldBe(ErrorCode.Unavailable);
+        await provider.Received(2).QueryAsync(ado, Arg.Any<Query>(), null, Arg.Any<CancellationToken>());
     }
 
     private static ItemKey Key(Connection connection, string id)

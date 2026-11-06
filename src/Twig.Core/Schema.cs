@@ -99,6 +99,7 @@ public sealed record ProcessSchema
     public ImmutableArray<string> Gaps { get; }
     public string? WebUrl { get; }
     public PlanningMetadata? Planning { get; init; }
+    public ImmutableArray<PlanningMetadata> PlanningCalendars { get; init; } = [];
     public ImmutableArray<PlanningMembership> Memberships { get; init; } = [];
     public string Fingerprint => Core.SchemaDigest(this);
 }

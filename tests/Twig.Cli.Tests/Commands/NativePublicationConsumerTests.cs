@@ -2422,6 +2422,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     private sealed class PrincipalTransport : HttpMessageHandler
     {
         internal const string SavedQuery = "77777777-7777-7777-7777-777777777777";
+        internal const string TeamA = "88888888-8888-8888-8888-888888888888";
+        internal const string TeamB = "99999999-9999-9999-9999-999999999999";
+        internal bool ExplicitPlanningTeams;
+        internal bool TeamBPast;
+        internal string? TeamLookupOverride;
+        internal Func<Task>? BeforeTeamCalendarResponse;
         internal int[] SavedQueryItems { get; set; } = [42];
         internal Func<Task>? BeforePlanningBatchResponse { get; set; }
         private readonly Dictionary<int, Item> _items = new();
@@ -2521,6 +2527,33 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 return ReadAccessFailure is { } failure ? Reply(failure, new { message = "Fixture work metadata unavailable" })
                     : Reply(HttpStatusCode.OK, new { count = 1, value = new[] { new { referenceName = "Fixture.Task" } } });
             }
+            if (CoreMetadataEnabled && ExplicitPlanningTeams && path.EndsWith("/teams", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { count = 2, value = new[] {
+                    new { id = TeamA, name = "Actual team A" }, new { id = TeamB, name = "Actual team B" } } });
+            if (CoreMetadataEnabled && ExplicitPlanningTeams && path.Contains("/classificationnodes/", StringComparison.Ordinal))
+            {
+                var kind = path.EndsWith("/areas", StringComparison.Ordinal) ? "Area" : "Iteration";
+                return Reply(HttpStatusCode.OK, new { path = "\\Project\\" + kind, hasChildren = true,
+                    children = new[] { new { path = "\\Project\\" + kind + "\\A", hasChildren = false },
+                        new { path = "\\Project\\" + kind + "\\B", hasChildren = false } } });
+            }
+            if (CoreMetadataEnabled && ExplicitPlanningTeams && path.EndsWith("/teamsettings/iterations", StringComparison.Ordinal))
+            {
+                if (BeforeTeamCalendarResponse is { } before) { BeforeTeamCalendarResponse = null; await before(); }
+                var b = path.Contains(TeamB, StringComparison.Ordinal);
+                var now = DateTimeOffset.UtcNow;
+                return Reply(HttpStatusCode.OK, new { count = 1, value = new[] {
+                    new { path = b ? "Project\\B" : "Project\\A",
+                        attributes = new { startDate = now.AddDays(b && TeamBPast ? -5 : -1), finishDate = now.AddDays(b && TeamBPast ? -3 : 1) } } } });
+            }
+            if (CoreMetadataEnabled && ExplicitPlanningTeams && path.Contains("/teams/", StringComparison.Ordinal))
+            {
+                var requested = path.Split('/')[^1];
+                if (requested != TeamA && requested != TeamB && requested != "Team")
+                    return Reply(HttpStatusCode.NotFound, new { message = "No such project team" });
+                var teamId = TeamLookupOverride ?? (requested == TeamB ? TeamB : TeamA);
+                return Reply(HttpStatusCode.OK, new { id = teamId, name = requested == TeamB ? "Actual team B" : "Actual team A" });
+            }
             if (CoreMetadataEnabled && path.Contains("/teams/", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { id = "88888888-8888-8888-8888-888888888888",
                     name = Uri.UnescapeDataString(path.Split('/')[^1]) });
@@ -2529,10 +2562,16 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     new { id = SavedQuery, name = "Fixture saved query", path = "Shared/Fixture query", isFolder = false,
                         queryType = "flat", wiql = "SELECT [System.Id] FROM WorkItems" } } });
             if (CoreMetadataEnabled && path.EndsWith("/_apis/work/backlogs", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
+                return ExplicitPlanningTeams
+                    ? Reply(HttpStatusCode.OK, new { count = 1, value = new[] { new { id = "Fixture.Requirements", name = "Actual backlog" } } })
+                    : Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
+            if (CoreMetadataEnabled && ExplicitPlanningTeams && path.EndsWith("/backlogs/Fixture.Requirements/workItems", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { workItems = new[] {
+                    new { source = (object?)null, target = new { id = path.Contains(TeamB, StringComparison.Ordinal) ? 43 : 42 } } } });
             if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/wiql/" + SavedQuery, StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { queryType = "flat", asOf = DateTimeOffset.UtcNow,
-                    workItems = SavedQueryItems.Select(id => new { id }).ToArray() });
+                    workItems = (ExplicitPlanningTeams ? path.Contains(TeamB, StringComparison.Ordinal) ? [43] : new[] { 42 }
+                        : SavedQueryItems).Select(id => new { id }).ToArray() });
             if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/workitemsbatch", StringComparison.Ordinal))
             {
                 request.Method.ShouldBe(HttpMethod.Post);
@@ -2766,7 +2805,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     ["System.Title"] = item.Title, ["System.WorkItemType"] = "Task", ["System.State"] = item.State,
                     ["System.TeamProject"] = "Project",
                     ["System.History"] = item.History,
-                    ["System.AreaPath"] = "fixture", ["System.IterationPath"] = "fixture",
+                    ["System.AreaPath"] = "fixture", ["System.IterationPath"] = ExplicitPlanningTeams ? id == 42 ? "Project\\A" : "Project\\B" : "fixture",
                     ["System.AssignedTo"] = new { id = item.Principal, displayName = "Same display", uniqueName = item.Principal }
                 },
                 relations = item.Resources.Select(resource => new

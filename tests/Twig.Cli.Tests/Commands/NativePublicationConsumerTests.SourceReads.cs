@@ -17,6 +17,49 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Fact]
+    public async Task NativeRetainedTeamCalendarsResolveNestedBenchRulesAndExclusionsWithoutLastTeamWins()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var shared = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        var teamA = "aaaaaaaa-1111-1111-1111-111111111111";
+        var teamB = "bbbbbbbb-2222-2222-2222-222222222222";
+        var now = DateTimeOffset.UtcNow;
+        PlanningMetadata Calendar(string team, string path) => new(now, [],
+            [new(path, now.AddDays(-1), now.AddDays(1))], [], team);
+        Query Current(string team) => new(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current"]), planningTeam: team);
+        var a = ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+        var b = ItemKey.Remote(connection.Provider, connection.ResourceScope, "43");
+        WorkItem Item(ItemKey key, string iteration) => new(key, "Fixture.Task",
+            FieldValues.Empty.Set("System.IterationPath", FieldValue.String(iteration)), new(key, "1"), true);
+        (await store.CommitAsync(connection, 0, new(1, [Item(a, "Project\\A"), Item(b, "Project\\B")]), default)).IsSuccess.ShouldBeTrue();
+        (await shared.SavePlanningAsync(connection, teamA, Calendar(teamA, "Project\\A"))).IsSuccess.ShouldBeTrue();
+        (await shared.SavePlanningAsync(connection, teamB, Calendar(teamB, "Project\\B"))).IsSuccess.ShouldBeTrue();
+        var foreign = new Connection(new("github"), "api", "repo", "foreign");
+        var foreignRule = new Selector(SelectorKind.Query, query: Current("unknown"), connection: foreign);
+        var definition = (await shared.SaveAsync(new(Guid.NewGuid(), "Several team calendars", [
+            new(SelectorKind.Query, query: new(QueryKind.And, children: [new(QueryKind.All),
+                new(QueryKind.Or, children: [Current(teamA), Current(teamB)])]), connection: connection),
+            new(SelectorKind.Query, query: Current(teamB), connection: connection), foreignRule]), 0)).Value;
+        (await shared.ReadPlanningAsync(connection, teamA)).Value.Metadata!.Iterations.Single().Path.ShouldBe("Project\\A");
+        (await shared.ReadPlanningAsync(connection, teamB)).Value.Metadata!.Iterations.Single().Path.ShouldBe("Project\\B");
+        var observed = await ReadSource(paths, schema: true);
+        observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
+        var resolved = Twig.Core.Core.ResolveBench(definition, observed.Value.Snapshot, observed.Value.Schema!.Value, now);
+        resolved.IsSuccess.ShouldBeTrue(resolved.IsSuccess ? "" : resolved.Error.Message);
+        resolved.Value.ShouldBe([a, b]);
+        var visible = Twig.Core.Core.ApplyViewExclusions(resolved.Value,
+            [new(SelectorKind.Query, query: new(QueryKind.And, children: [new(QueryKind.All), Current(teamB)]), connection: connection)],
+            observed.Value.Snapshot, observed.Value.Schema.Value, now);
+        visible.IsSuccess.ShouldBeTrue(visible.IsSuccess ? "" : visible.Error.Message);
+        visible.Value.ShouldBe([a]);
+        (await shared.SavePlanningAsync(connection, teamB, Calendar(teamB, "Project\\B refreshed"))).IsSuccess.ShouldBeTrue();
+        (await shared.ReadPlanningAsync(connection, teamA)).Value.Metadata!.Iterations.Single().Path.ShouldBe("Project\\A");
+        BenchCodec.Serialize((await shared.ReadAsync()).Value.Benches.Single()).ShouldBe(BenchCodec.Serialize(definition));
+        _transport.CommittedWrites.ShouldBe(0);
+        _transport.PostCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task NativeOnlineReadUsesFreshRemoteAccessWithoutSchemaCrawlAndExplicitSchemaReadRemainsFull()
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
@@ -144,7 +187,7 @@ public sealed partial class NativePublicationConsumerTests
     [Fact]
     public async Task NativeSourcePlanningBrowseRevalidatesAuthorityAfterAcquisitionBeforeReleasingContent()
     {
-        var (paths, _, _) = await RelationshipWorkspaceAsync();
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var initial = (await ReadSource(paths)).Value;
         void Configure(IServiceCollection services)
         {
@@ -163,6 +206,10 @@ public sealed partial class NativePublicationConsumerTests
             PrincipalTransport.SavedQuery, choices.PlanningSources!.Team, Configure, default);
         result.IsSuccess.ShouldBeFalse();
         result.Error.Code.ShouldBe(ErrorCode.Conflict);
+        (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(0, "replaced authority must refuse before mirroring acquired items");
+        (await UserBenchStore.ForRegistry(_bindings.RegistryPath).ReadMembershipsAsync(connection,
+            (await TwigConfiguration.LoadSplitAsync(paths)).Team, default))
+            .Value.ShouldBeEmpty("replaced authority must refuse before saving source/team membership");
         _transport.CommittedWrites.ShouldBe(0);
         _transport.PatchAttempts.ShouldBe(0);
         using var released = ConnectionOperationGate.Acquire(paths.RepoRoot, exclusive: true);

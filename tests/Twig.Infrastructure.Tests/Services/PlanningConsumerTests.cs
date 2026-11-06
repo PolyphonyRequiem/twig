@@ -14,6 +14,29 @@ public sealed class PlanningConsumerTests : IDisposable
     private readonly Connection connection = new(new("ado"), "collection", "project", "actor");
 
     [Fact]
+    public async Task ConfiguredAliasAndExplicitCanonicalRefreshesResolveNewestCalendarForOnlyTheirActualTeam()
+    {
+        Directory.CreateDirectory(root);
+        var native = Required(await SqliteStore.CreateAsync(Path.Combine(root, "items.db")));
+        var shared = new UserBenchStore(Path.Combine(root, "benches.db"));
+        var provider = Substitute.For<IProvider>();
+        var workspace = new CoreWorkspace(connection, provider, native, new ConfiguredPolicyProjectionSource(root),
+            "actor", root, native.InstanceId, shared, "Configured alias");
+        var now = DateTimeOffset.UtcNow;
+        PlanningMetadata Calendar(string team, string path, DateTimeOffset instant)
+            => new(instant, [], [new(path, now.AddDays(-1), now.AddDays(1))], [], team);
+        Required(await shared.SavePlanningAsync(connection, "team-a", Calendar("team-a", "Project\\Original", now)));
+        Required(await shared.SavePlanningAsync(connection, "team-b", Calendar("team-b", "Project\\B", now)));
+        Required(await workspace.SavePlanningAsync(Calendar("team-a", "Project\\Configured refresh", now.AddSeconds(1)), default));
+        Required(await workspace.PlanningAsync("team-a", default)).Metadata!.Iterations.Single().Path.ShouldBe("Project\\Configured refresh");
+        Required(await workspace.PlanningAsync("team-b", default)).Metadata!.Iterations.Single().Path.ShouldBe("Project\\B");
+        Required(await workspace.SavePlanningAsync("team-a", Calendar("team-a", "Project\\Explicit refresh", now.AddSeconds(2)), default));
+        Required(await workspace.PlanningAsync("team-a", default)).Metadata!.Iterations.Single().Path.ShouldBe("Project\\Explicit refresh");
+        Required(await workspace.PlanningAsync(default)).Metadata!.Iterations.Single().Path.ShouldBe("Project\\Explicit refresh");
+        Required(await workspace.PlanningCalendarsAsync(default)).Length.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task ExplicitNativeBrowseMirrorsItemsWithoutReplacingSharedRulesOrWritingProposals()
     {
         Directory.CreateDirectory(Path.Combine(root, ".twig"));
@@ -85,7 +108,7 @@ public sealed class PlanningConsumerTests : IDisposable
         var provider = Substitute.For<IProvider>();
         provider.Capabilities.Returns(new ProviderCapabilities([], [], [], true, true));
         var refresh = 0;
-        provider.BrowsePlanningAsync(connection, "Selected team", source.Kind, source.Id, "canonical-team", Arg.Any<CancellationToken>())
+        provider.BrowsePlanningAsync(connection, "canonical-team", source.Kind, source.Id, "canonical-team", Arg.Any<CancellationToken>())
             .Returns(_ => Result<PlanningBrowsePage>.Ok(new(source,
                 new(++refresh == 1 ? [first] : refresh == 2 ? [second] : [], [], null, true),
                 DateTimeOffset.UtcNow, "canonical-team")));
@@ -95,7 +118,7 @@ public sealed class PlanningConsumerTests : IDisposable
         {
             Required(await workspace.QueryAsync(query, default)).Items.Select(item => item.Key).ShouldBe(expected);
             var reopened = new UserBenchStore(Path.Combine(root, "benches.db"));
-            var cached = Required(await reopened.ReadMembershipsAsync(connection, "Selected team", default));
+            var cached = Required(await reopened.ReadMembershipsAsync(connection, "canonical-team", default));
             var schema = new ProcessSchema(connection, [], []) { Memberships = cached };
             var snapshot = Required(await native.ReadAsync(connection, default));
             Twig.Core.Core.ResolveBench(bench, snapshot, schema).Value.ShouldBe(expected);

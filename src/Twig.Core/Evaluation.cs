@@ -6,6 +6,10 @@ public static partial class Core
 {
     public static Result<bool> Matches(Query query, WorkItem item, PlanningMetadata? planning = null, DateTimeOffset? now = null,
         IEnumerable<PlanningMembership>? memberships = null)
+        => Matches(query, item, planning, now, memberships, null);
+
+    public static Result<bool> Matches(Query query, WorkItem item, PlanningMetadata? planning, DateTimeOffset? now,
+        IEnumerable<PlanningMembership>? memberships, IEnumerable<PlanningMetadata>? planningCalendars)
     {
         if (query.Kind is QueryKind.SavedQuery or QueryKind.Backlog)
         {
@@ -14,8 +18,8 @@ public static partial class Core
         }
         if (query.Kind == QueryKind.Iteration)
         {
-            var resolved = ResolvePlanningQuery(query, planning, now);
-            return resolved.IsSuccess ? Matches(resolved.Value, item, planning, now, memberships) : Result<bool>.Fail(resolved.Error);
+            var resolved = ResolvePlanningQuery(query, planning, now, planningCalendars);
+            return resolved.IsSuccess ? Matches(resolved.Value, item, planning, now, memberships, planningCalendars) : Result<bool>.Fail(resolved.Error);
         }
         if (query.Kind == QueryKind.All) return Result<bool>.Ok(true);
         if (query.Kind == QueryKind.Equal)
@@ -39,7 +43,7 @@ public static partial class Core
                 _ => false,
             });
         }
-        var children = query.Children.Select(c => Matches(c, item, planning, now, memberships)).ToArray();
+        var children = query.Children.Select(c => Matches(c, item, planning, now, memberships, planningCalendars)).ToArray();
         if (query.Kind == QueryKind.And && children.Any(c => c.IsSuccess && !c.Value))
             return Result<bool>.Ok(false);
         if (query.Kind == QueryKind.Or && children.Any(c => c.IsSuccess && c.Value))
@@ -79,7 +83,8 @@ public static partial class Core
             if (selector.Kind == SelectorKind.Query)
             {
                 if (IsEmptyQuery(selector.Query!)) continue;
-                var resolved = ResolvePlanningQuery(selector.Query!, schema.Planning, now);
+                var resolved = ResolvePlanningQuery(selector.Query!, schema.Planning, now,
+                    schema.PlanningCalendars.IsEmpty ? null : schema.PlanningCalendars);
                 if (!resolved.IsSuccess) return Result<ImmutableArray<ItemKey>>.Fail(resolved.Error);
                 if (IsEmptyQuery(resolved.Value)) continue;
                 var evidence = new List<PlanningMembership>();

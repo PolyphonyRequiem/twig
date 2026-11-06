@@ -101,11 +101,11 @@ internal sealed class WorkspaceCommand(
             // Schema is not persisted in StoreSnapshot. Only provider metadata is acquired on an ordinary read.
             var schema = await workspace.SchemaAsync(ct);
             if (!schema.IsSuccess) return Error(schema.Error.Message);
-            var planning = await workspace.PlanningAsync(ct);
+            var planning = await workspace.PlanningCalendarsAsync(ct);
             if (!planning.IsSuccess) return Error(planning.Error.Message);
             var memberships = await workspace.MembershipsAsync(ct);
             if (!memberships.IsSuccess) return Error(memberships.Error.Message);
-            schema = Result<ProcessSchema>.Ok(schema.Value with { Planning = planning.Value.Metadata, Memberships = memberships.Value });
+            schema = Result<ProcessSchema>.Ok(schema.Value with { PlanningCalendars = planning.Value, Memberships = memberships.Value });
             var evaluationTime = DateTimeOffset.UtcNow;
             if (KnownLocalKeys(snapshot).GroupBy(LocalAlias).Any(group => group.Count() != 1))
                 return Error("Local aliases are ambiguous; no workspace identity was guessed.");
@@ -113,8 +113,9 @@ internal sealed class WorkspaceCommand(
                 ? snapshot.Mappings.SingleOrDefault(mapping => mapping.Local == key)?.Remote ?? key : key;
             bool Qualified(ItemKey key) => CoreWorkspace.DisplayId(workspace.Connection, snapshot, key).IsSuccess;
             var selectors = selected.Selectors.Select(selector => selector.Item is null ? selector
-                : new Selector(selector.Kind, Resolve(selector.Item), hierarchyRelation: selector.HierarchyRelation)).ToArray();
-            if (selectors.Any(selector => selector.Item is { } key && !Qualified(key))
+                : new Selector(selector.Kind, Resolve(selector.Item), hierarchyRelation: selector.HierarchyRelation, connection: selector.Connection)).ToArray();
+            if (selectors.Any(selector => (selector.Connection is null || selector.Connection == workspace.Connection)
+                    && selector.Item is { } key && !Qualified(key))
                 || snapshot.Items.Any(item => !Qualified(item.Key))
                 || snapshot.Drafts.Any(draft => !Qualified(Resolve(draft.Key))))
                 return Error("The retained scope contains an unqualified native identity; no integer identity or broader scope was fabricated.");

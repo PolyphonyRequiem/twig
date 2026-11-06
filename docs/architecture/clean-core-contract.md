@@ -37,6 +37,59 @@ run without an initialized worktree. Selecting a Bench or editing contextual
 pins still requires an admitted Core workspace. This foundation does not claim
 that every retired area/iteration management or graphical surface is restored.
 
+### Explicit-team native planning
+
+A Bench can retain rules from several teams on one connection as well as rules
+from other connections. Each relative iteration, saved-query or backlog leaf
+retains its canonical native team ID in `Query.PlanningTeam`. Nested AND/OR rules,
+cached membership, workspace exclusions and explicit Bench pulls resolve each
+leaf against that exact team's evidence; the configured workspace team is not a
+substitute. A connection-scoped pull ignores another connection's selectors.
+
+The public `NativeSourceReader` supports add-time selection without changing
+workspace configuration or active context:
+
+```csharp
+Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(
+    string workspaceRoot, NativeSourceStamp expectedSource, CancellationToken ct = default);
+Task<Result<NativeSourceObservation>> ReadPlanningAsync(
+    string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam, CancellationToken ct = default);
+Task<Result<NativeSourceObservation>> RefreshPlanningAsync(
+    string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam, CancellationToken ct);
+Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(
+    string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam, CancellationToken ct);
+Task<Result<NativeSourceObservation>> BrowsePlanningAsync(
+    string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam,
+    PlanningSourceKind kind, string id, CancellationToken ct);
+```
+
+`PlanningTeam.Id` is the canonical GUID and `Name` is the actual ADO display name,
+not a configured alias. Project-team enumeration exhausts native `$top`/`$skip`
+pages of 100, with a 4,096-team limit; repeated identities, unsupported continuation,
+permission failures and incomplete evidence refuse without returning a partial
+roster. In the new overloads, non-null `selectedTeam` must be a canonical ID;
+null means explicit project scope, never the configured team. Project scope
+permits absolute paths and project saved queries, but cannot supply a team
+calendar, team backlogs or team-dependent queries. Existing configured-team
+overloads and the old browse overload's separate `expectedTeam` meaning remain.
+
+`ReadPlanningAsync` validates fresh actor/target read access and team existence,
+then returns the retained calendar without schema discovery. A missing retained
+calendar requires explicit refresh; it is not an empty successful calendar.
+Refresh/source discovery/browse opt into full schema observation. All native
+operations revalidate actor/source/store before releasing observations; refresh
+and browse also perform that check before saving acquired calendar or membership
+evidence. They expose no work-item mutation or persisted authorization grant.
+
+`NativeSourceObservation.Planning` remains the selected/configured calendar.
+Its `PlanningCalendars` and `Memberships`, and the corresponding `ProcessSchema`
+properties, expose retained evidence for all teams on the admitted connection,
+not other connections. `PlanningCalendars` contains one calendar per actual team
+ID; Core uses that collection for exact per-leaf resolution. These observations
+reuse the existing connection/team-keyed planning and membership tables.
+Refreshing one canonical team preserves every other team's calendar and rules;
+no additional cache or local-data migration is introduced.
+
 ### Closed production command catalog
 
 The final phase-5 closure narrows existing production owners, rather than adding

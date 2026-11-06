@@ -1357,6 +1357,9 @@ public sealed partial class AdoProviderTests
         internal List<int> QueryAfterIds = [];
         internal int WorkItemReads;
         internal string? PlanningDefect;
+        internal string? TeamRosterDefect;
+        internal int TeamRosterCount = 101;
+        internal List<int> TeamRosterSkips = [];
         internal string? LayoutJson;
         internal int LayoutStatus = 200;
         internal string IconJson = """{"id":"icon_crown"}""";
@@ -1479,6 +1482,24 @@ public sealed partial class AdoProviderTests
                 }
                 return Json(new JsonObject { ["path"] = $"\\Native Project\\{structure}",
                     ["hasChildren"] = true, ["children"] = children }.ToJsonString());
+            }
+            if (path.EndsWith("/teams"))
+            {
+                if (TeamRosterDefect == "denied") return Status(403);
+                var skip = int.Parse(System.Text.RegularExpressions.Regex.Match(query, @"\$skip=(\d+)").Groups[1].Value,
+                    System.Globalization.CultureInfo.InvariantCulture);
+                query.ShouldContain("$top=100");
+                TeamRosterSkips.Add(skip);
+                var rows = Enumerable.Range(skip, Math.Max(0, Math.Min(100, TeamRosterCount - skip)))
+                    .Select(index => (JsonNode)new JsonObject {
+                        ["id"] = TeamRosterDefect == "invalid-id" ? "not-an-id"
+                            : $"00000000-0000-0000-0000-{(TeamRosterDefect == "duplicate" ? 1
+                                : TeamRosterDefect == "overlap" && index >= 100 ? index - 99 : index + 1):D12}",
+                        ["name"] = TeamRosterDefect == "missing-name" ? "" : index == 0 ? "Actual display / not ID" : "Actual team " + index,
+                    }).ToArray();
+                var rosterResponse = Json(new JsonObject { ["count"] = rows.Length, ["value"] = new JsonArray(rows) }.ToJsonString());
+                if (TeamRosterDefect == "unsupported-continuation") rosterResponse.Headers.Add("x-ms-continuationtoken", "opaque");
+                return rosterResponse;
             }
             if (path.Contains("/teams/"))
                 return Json($$"""{"id":"{{Fixture.Process}}","name":"{{(PlanningDefect == "foreign-team" ? "Different team" : "Selected team")}}"}""");

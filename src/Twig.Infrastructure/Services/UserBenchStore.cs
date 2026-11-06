@@ -225,6 +225,50 @@ public sealed partial class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<PlanningMetadata>(ex); }
     }
 
+    internal async Task<Result<ImmutableArray<PlanningMetadata>>> ReadPlanningCalendarsAsync(Connection connection, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await Open(ct).ConfigureAwait(false);
+            await using var command = db.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='planning';";
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
+                return Result<ImmutableArray<PlanningMetadata>>.Ok([]);
+            command.CommandText = "SELECT team,document FROM planning WHERE connection=$connection ORDER BY team;";
+            command.Parameters.AddWithValue("$connection", JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection));
+            var rows = new List<(string SelectedTeam, PlanningMetadata Metadata)>();
+            var bytes = 0L;
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var text = reader.GetString(1);
+                bytes += text.Length;
+                if (rows.Count >= 1024 || text.Length > 1024 * 1024 || bytes > 16 * 1024 * 1024)
+                    throw new InvalidDataException("Native planning calendars exceed their bounded read budget.");
+                var metadata = JsonSerializer.Deserialize(text, UserBenchJson.Default.PlanningMetadata)
+                    ?? throw new JsonException("Missing native planning metadata.");
+                ValidatePlanning(metadata);
+                var selected = reader.GetString(0);
+                if (Guid.TryParseExact(selected, "D", out _) && selected != metadata.Team)
+                    throw new InvalidDataException("The canonical team calendar row belongs to another team.");
+                rows.Add((selected, metadata));
+            }
+            var result = ImmutableArray.CreateBuilder<PlanningMetadata>();
+            foreach (var group in rows.Where(row => row.Metadata.Team is not null).GroupBy(row => row.Metadata.Team))
+            {
+                var latest = group.Max(row => row.Metadata.ObservedAt);
+                var fresh = group.Where(row => row.Metadata.ObservedAt == latest).ToArray();
+                var exact = fresh.Where(row => row.SelectedTeam == group.Key).ToArray();
+                var candidates = exact.Length == 0 ? fresh : exact;
+                if (candidates.Length != 1)
+                    throw new InvalidDataException("Native team calendar identity is ambiguous; no calendar was substituted.");
+                result.Add(candidates[0].Metadata);
+            }
+            return Result<ImmutableArray<PlanningMetadata>>.Ok(result.ToImmutable());
+        }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<ImmutableArray<PlanningMetadata>>(ex); }
+    }
+
     private static void ValidatePlanning(PlanningMetadata value)
     {
         if (value.ObservedAt == default || value.Areas.IsDefault || value.Iterations.IsDefault || value.Gaps.IsDefault
@@ -234,7 +278,13 @@ public sealed partial class UserBenchStore
             || value.Iterations.Select(iteration => iteration.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != value.Iterations.Length)
             throw new InvalidDataException("Native planning metadata is invalid or incomplete.");
     }
-    internal async Task<Result<ImmutableArray<PlanningMembership>>> ReadMembershipsAsync(Connection connection, string selectedTeam, CancellationToken ct)
+    internal Task<Result<ImmutableArray<PlanningMembership>>> ReadMembershipsAsync(Connection connection, string selectedTeam, CancellationToken ct)
+        => ReadMembershipsCoreAsync(connection, selectedTeam, ct);
+
+    internal Task<Result<ImmutableArray<PlanningMembership>>> ReadMembershipsAsync(Connection connection, CancellationToken ct)
+        => ReadMembershipsCoreAsync(connection, null, ct);
+
+    private async Task<Result<ImmutableArray<PlanningMembership>>> ReadMembershipsCoreAsync(Connection connection, string? selectedTeam, CancellationToken ct)
     {
         try
         {
@@ -243,10 +293,11 @@ public sealed partial class UserBenchStore
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='planning_memberships';";
             if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
                 return Result<ImmutableArray<PlanningMembership>>.Ok([]);
-            command.CommandText = "SELECT kind,source_id,item_count,document FROM planning_memberships WHERE connection=$connection AND selected_team=$team ORDER BY kind,source_id;";
+            command.CommandText = "SELECT kind,source_id,item_count,document,selected_team FROM planning_memberships WHERE connection=$connection"
+                + (selectedTeam is null ? "" : " AND selected_team=$team") + " ORDER BY selected_team,kind,source_id;";
             command.Parameters.AddWithValue("$connection", JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection));
-            command.Parameters.AddWithValue("$team", selectedTeam);
-            var result = ImmutableArray.CreateBuilder<PlanningMembership>();
+            if (selectedTeam is not null) command.Parameters.AddWithValue("$team", selectedTeam);
+            var result = new List<(string SelectedTeam, PlanningMembership Membership)>();
             var totalItems = 0;
             await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -260,11 +311,22 @@ public sealed partial class UserBenchStore
                     throw new InvalidDataException("The native membership document belongs to another source.");
                 var membership = value.ToCore(connection);
                 ValidateMembership(connection, membership);
+                if (Guid.TryParseExact(reader.GetString(4), "D", out _) && reader.GetString(4) != membership.Team)
+                    throw new InvalidDataException("The canonical team membership row belongs to another team.");
                 totalItems += membership.Items.Length;
                 if (totalItems > 100000) throw new InvalidDataException("Native planning memberships exceed their total identity bound.");
-                result.Add(membership);
+                result.Add((reader.GetString(4), membership));
             }
-            return Result<ImmutableArray<PlanningMembership>>.Ok(result.ToImmutable());
+            var retained = ImmutableArray.CreateBuilder<PlanningMembership>();
+            foreach (var group in result.GroupBy(row => (row.Membership.Kind, row.Membership.Id, row.Membership.Team)))
+            {
+                var exact = group.Where(row => row.SelectedTeam == (group.Key.Team ?? "")).ToArray();
+                var candidates = exact.Length == 0 ? group.ToArray() : exact;
+                if (candidates.Length != 1)
+                    throw new InvalidDataException("Native team membership identity is ambiguous; no membership was substituted.");
+                retained.Add(candidates[0].Membership);
+            }
+            return Result<ImmutableArray<PlanningMembership>>.Ok(retained.ToImmutable());
         }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<ImmutableArray<PlanningMembership>>(ex); }
     }

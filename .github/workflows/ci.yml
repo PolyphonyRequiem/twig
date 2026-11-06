@@ -164,6 +164,8 @@ jobs:
               ("native-capture-bootstrap", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureLegacyBootstrap|FullyQualifiedName~NativeCaptureMissingBidirectionalHistory"),
               ("native-gh-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubEditorCaptures"),
               ("planning-consumers", "Twig.Infrastructure.Tests", "FullyQualifiedName~PlanningConsumerTests"),
+              ("native-team-planning", "Twig.Cli.Tests", "FullyQualifiedName~NativeExplicitTeamPlanningRefreshBrowseAndPull|FullyQualifiedName~NativeExplicitProjectPlanning|FullyQualifiedName~NativeExplicitTeamPlanningRead|FullyQualifiedName~NativeExplicitTeamPlanningBacklog"),
+              ("native-team-planning-guards", "Twig.Cli.Tests", "FullyQualifiedName~NativeExplicitTeamPlanningRefuses|FullyQualifiedName~NativeRetainedTeamCalendars|FullyQualifiedName~NativeSourcePlanningBrowseRevalidatesAuthority"),
               ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),
           ]:
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",

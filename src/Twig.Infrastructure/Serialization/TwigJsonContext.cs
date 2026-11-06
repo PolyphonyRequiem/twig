@@ -20,6 +20,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.GitHub.GitHubDeviceAuthorizationResponse))]
 [JsonSerializable(typeof(Twig.Infrastructure.GitHub.GitHubDeviceTokenResponse))]
 [JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(System.Collections.Immutable.ImmutableArray<Twig.Core.PlanningTeam>))]
+[JsonSerializable(typeof(System.Collections.Immutable.ImmutableArray<Twig.Core.PlanningMetadata>))]
 [JsonSerializable(typeof(GitHubIssueGraphQlResponse))]
 [JsonSerializable(typeof(AdoConnectionDataResponse))]
 [JsonSerializable(typeof(PatCredentialEntry))]

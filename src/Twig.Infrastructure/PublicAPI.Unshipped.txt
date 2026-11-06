@@ -1,4 +1,13 @@
 #nullable enable
+static Twig.Infrastructure.Services.NativeSourceReader.DiscoverPlanningTeamsAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Core.PlanningTeam!>>!>!
+static Twig.Infrastructure.Services.NativeSourceReader.ReadPlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+static Twig.Infrastructure.Services.NativeSourceReader.RefreshPlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+static Twig.Infrastructure.Services.NativeSourceReader.DiscoverPlanningSourcesAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+static Twig.Infrastructure.Services.NativeSourceReader.BrowsePlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, Twig.Core.PlanningSourceKind kind, string! id, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningCalendars.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.PlanningMetadata!>
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningCalendars.init -> void
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningTeams.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.PlanningTeam!>
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningTeams.init -> void
 Twig.Infrastructure.Services.NativeAuthoringReview
 Twig.Infrastructure.Services.NativeAuthoringReview.Digest.get -> string!
 Twig.Infrastructure.Services.NativeAuthoringReview.Confirmation.get -> string!

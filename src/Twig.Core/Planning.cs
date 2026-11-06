@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace Twig.Core;
 
+public sealed record PlanningTeam(string Id, string Name);
 public sealed record PlanningIteration(string Path, DateTimeOffset? Start, DateTimeOffset? Finish, bool SelectedTeam = true);
 public sealed record PlanningMetadata(DateTimeOffset ObservedAt, ImmutableArray<string> Areas,
     ImmutableArray<PlanningIteration> Iterations, ImmutableArray<string> Gaps, string? Team = null);
@@ -44,9 +45,20 @@ public static partial class Core
     };
 
     public static Result<Query> ResolvePlanningQuery(Query query, PlanningMetadata? planning, DateTimeOffset? now = null)
+        => ResolvePlanningQuery(query, planning, now, null);
+
+    public static Result<Query> ResolvePlanningQuery(Query query, PlanningMetadata? planning, DateTimeOffset? now,
+        IEnumerable<PlanningMetadata>? planningCalendars)
     {
         if (query.Kind == QueryKind.Iteration)
         {
+            if (planningCalendars is not null && query.Value!.Values.Any(text => new IterationExpression(text).IsRelative))
+            {
+                var calendars = planningCalendars.Where(value => value.Team == query.PlanningTeam).ToArray();
+                if (query.PlanningTeam is null || calendars.Length != 1)
+                    return Result<Query>.Fail(ErrorCode.Unavailable, "This exact native team has no unique retained calendar; another team's calendar is not a substitute.");
+                planning = calendars[0];
+            }
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var text in query.Value!.Values)
             {
@@ -74,7 +86,7 @@ public static partial class Core
         var children = new List<Query>();
         foreach (var child in query.Children)
         {
-            var resolved = ResolvePlanningQuery(child, planning, now);
+            var resolved = ResolvePlanningQuery(child, planning, now, planningCalendars);
             if (!resolved.IsSuccess) return resolved;
             children.Add(resolved.Value);
         }

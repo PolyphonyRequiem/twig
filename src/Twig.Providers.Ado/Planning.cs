@@ -6,6 +6,31 @@ namespace Twig.Providers.Ado;
 
 public sealed partial class AdoProvider
 {
+    public Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(Connection connection, CancellationToken ct)
+        => Guard(() => WithSession(connection, async (bound, token) =>
+        {
+            const int pageSize = 100;
+            const int limit = 4096;
+            var teams = ImmutableArray.CreateBuilder<PlanningTeam>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (var skip = 0; ; skip += pageSize)
+            {
+                var rows = Wire.Rows(await Get(bound,
+                    $"_apis/projects/{bound.Project}/teams?$top={pageSize}&$skip={skip}&api-version={Api}", token));
+                if (rows.Length > pageSize || teams.Count + rows.Length > limit)
+                    throw Wire.Refuse(ErrorCode.Partial, "The native project team roster exceeds its bounded discovery limit.");
+                foreach (var row in rows)
+                {
+                    var id = Wire.GuidText(Wire.Text(row, "id"));
+                    var name = Wire.Text(row, "name");
+                    if (!seen.Add(id) || name.Length > 256 || name.Any(char.IsControl))
+                        throw Wire.Invalid("The native team roster repeats an identity or has an invalid display name.");
+                    teams.Add(new(id, name));
+                }
+                if (rows.Length < pageSize) return teams.ToImmutable();
+            }
+        }, ct));
+
     public Task<Result<PlanningMetadata>> DiscoverPlanningAsync(Connection connection, string? team, CancellationToken ct)
         => Guard(() => WithSession(connection, async (bound, token) =>
         {

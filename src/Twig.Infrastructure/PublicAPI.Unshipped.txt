@@ -1,4 +1,22 @@
 #nullable enable
+static Twig.Infrastructure.Services.NativeSourceReader.ReadPlanningSourcesAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+static Twig.Infrastructure.Services.NativeSourceReader.BrowsePlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, Twig.Core.PlanningSourceKind kind, string! id, Twig.Core.ProcessSchema! mappingSchema, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningSourcesCache.get -> Twig.Infrastructure.Services.NativePlanningSourcesCache!
+Twig.Infrastructure.Services.NativeSourceObservation.PlanningSourcesCache.init -> void
+Twig.Infrastructure.Services.NativePlanningSourcesCache
+Twig.Infrastructure.Services.NativePlanningSourcesCache.NativePlanningSourcesCache(Twig.Core.PlanningSources? Sources, System.DateTimeOffset? ObservedAt) -> void
+Twig.Infrastructure.Services.NativePlanningSourcesCache.Sources.get -> Twig.Core.PlanningSources?
+Twig.Infrastructure.Services.NativePlanningSourcesCache.Sources.init -> void
+Twig.Infrastructure.Services.NativePlanningSourcesCache.ObservedAt.get -> System.DateTimeOffset?
+Twig.Infrastructure.Services.NativePlanningSourcesCache.ObservedAt.init -> void
+Twig.Infrastructure.Services.NativePlanningSourcesCache.Deconstruct(out Twig.Core.PlanningSources? Sources, out System.DateTimeOffset? ObservedAt) -> void
+Twig.Infrastructure.Services.NativePlanningSourcesCache.Equals(Twig.Infrastructure.Services.NativePlanningSourcesCache? other) -> bool
+override Twig.Infrastructure.Services.NativePlanningSourcesCache.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativePlanningSourcesCache.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativePlanningSourcesCache.ToString() -> string!
+Twig.Infrastructure.Services.NativePlanningSourcesCache.<Clone>$() -> Twig.Infrastructure.Services.NativePlanningSourcesCache!
+static Twig.Infrastructure.Services.NativePlanningSourcesCache.operator !=(Twig.Infrastructure.Services.NativePlanningSourcesCache? left, Twig.Infrastructure.Services.NativePlanningSourcesCache? right) -> bool
+static Twig.Infrastructure.Services.NativePlanningSourcesCache.operator ==(Twig.Infrastructure.Services.NativePlanningSourcesCache? left, Twig.Infrastructure.Services.NativePlanningSourcesCache? right) -> bool
 static Twig.Infrastructure.Services.NativeSourceReader.DiscoverPlanningTeamsAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Core.PlanningTeam!>>!>!
 static Twig.Infrastructure.Services.NativeSourceReader.ReadPlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 static Twig.Infrastructure.Services.NativeSourceReader.RefreshPlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!

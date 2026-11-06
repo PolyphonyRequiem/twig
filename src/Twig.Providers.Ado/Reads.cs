@@ -137,7 +137,7 @@ public sealed partial class AdoProvider
             throw Wire.Refuse(ErrorCode.Conflict, "Item is not in the immutable destination project.");
         var nativeType = Wire.Text(fields, "System.WorkItemType");
         var type = schema.TypeNames.SingleOrDefault(p => p.Value == nativeType).Key
-            ?? throw Wire.Invalid("Item type has no unique process reference.");
+            ?? throw Wire.Invalid("Item type has no unique process reference; refresh native mapping metadata explicitly.");
         var definition = schema.Schema.Types.Single(t => t.Reference == type);
         var values = new List<KeyValuePair<string, FieldValue>>();
         foreach (var field in definition.Fields)
@@ -165,7 +165,7 @@ public sealed partial class AdoProvider
                         resources.Add(new(name, Wire.Text(relation, "url"), Attribute("name"), Attribute("comment")));
                         continue;
                     }
-                    throw Wire.Invalid("An incident relation has unknown native semantics.");
+                    throw Wire.Invalid("An incident relation has unknown native semantics; refresh native mapping metadata explicitly.");
                 }
                 var other = RelationshipTarget(Wire.Text(relation, "url"), bound);
                 var from = kind.Forward ? key : other;

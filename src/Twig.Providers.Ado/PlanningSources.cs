@@ -11,18 +11,38 @@ public sealed partial class AdoProvider
 
     public Task<Result<PlanningBrowsePage>> BrowsePlanningAsync(Connection connection, string? team,
         PlanningSourceKind kind, string id, string? expectedTeam, CancellationToken ct)
+        => BrowsePlanning(connection, team, kind, id, expectedTeam, null, ct);
+
+    public Task<Result<PlanningBrowsePage>> BrowsePlanningAsync(Connection connection, string? team,
+        PlanningSourceKind kind, string id, string? expectedTeam, ProcessSchema mappingSchema, CancellationToken ct)
+        => mappingSchema is null || mappingSchema.Connection != connection
+            ? Task.FromResult(Result<PlanningBrowsePage>.Fail(ErrorCode.Conflict, "The recorded native mapping belongs to another connection or is missing."))
+            : BrowsePlanning(connection, team, kind, id, expectedTeam, mappingSchema, ct);
+
+    private Task<Result<PlanningBrowsePage>> BrowsePlanning(Connection connection, string? team,
+        PlanningSourceKind kind, string id, string? expectedTeam, ProcessSchema? mappingSchema, CancellationToken ct)
         => Guard(() => WithSession(connection, async (bound, token) =>
         {
             if (!Enum.IsDefined(kind) || string.IsNullOrWhiteSpace(id) || id.Length > 256)
                 throw Wire.Refuse(ErrorCode.InvalidInput, "An exact native saved-query or backlog identity is required.");
-            var sources = await DiscoverPlanningSources(bound, team, token);
-            if (sources.Team != expectedTeam)
+            var canonicalTeam = await ResolvePlanningTeam(bound, team, token);
+            if (canonicalTeam != expectedTeam)
                 throw Wire.Refuse(ErrorCode.Conflict, "The selected canonical native team changed; no query or backlog items were acquired.");
-            var source = sources.Entries.SingleOrDefault(value => value.Kind == kind && value.Id == id && !value.IsFolder)
-                ?? throw Wire.Refuse(ErrorCode.NotFound, "The requested saved query or backlog is outside the discovered native scope.");
-            if (source.RequiresTeam && sources.Team is null)
+            if (kind == PlanningSourceKind.SavedQuery && Wire.GuidText(id) != id)
+                throw Wire.Refuse(ErrorCode.InvalidInput, "An exact canonical native saved-query ID is required.");
+            if (kind == PlanningSourceKind.Backlog && canonicalTeam is null)
+                throw Wire.Refuse(ErrorCode.Unavailable, "A native backlog requires an explicitly selected team.");
+            var metadataRoute = kind == PlanningSourceKind.SavedQuery
+                ? $"{bound.Project}/_apis/wit/queries/{Wire.Escape(id)}?$expand=all&api-version={Api}"
+                : $"{bound.Project}/{canonicalTeam}/_apis/work/backlogs/{Wire.Escape(id)}?api-version={Api}";
+            var metadata = await Get(bound, metadataRoute, token);
+            var source = kind == PlanningSourceKind.SavedQuery ? QuerySource(metadata, "")
+                : new PlanningSource(kind, Wire.Text(metadata, "id"), Wire.Text(metadata, "name"), Wire.Text(metadata, "name"), RequiresTeam: true);
+            if (source.Id != id || source.Kind != kind || source.IsFolder)
+                throw Wire.Refuse(ErrorCode.Conflict, "The direct native source lookup returned another identity or a folder; no source was executed.");
+            if (source.RequiresTeam && canonicalTeam is null)
                 throw Wire.Refuse(ErrorCode.Unavailable, "This native query or backlog requires an explicitly selected team; no default team was substituted.");
-            var scope = bound.Project + (sources.Team is null ? "" : "/" + Wire.Escape(sources.Team));
+            var scope = bound.Project + (canonicalTeam is null ? "" : "/" + Wire.Escape(canonicalTeam));
             var route = kind == PlanningSourceKind.SavedQuery
                 ? $"{scope}/_apis/wit/wiql/{Wire.Escape(source.Id)}?api-version={Api}"
                 : $"{scope}/_apis/work/backlogs/{Wire.Escape(source.Id)}/workItems?api-version={Api}";
@@ -52,9 +72,30 @@ public sealed partial class AdoProvider
             if (distinct.Length > 10000)
                 throw Wire.Refuse(ErrorCode.Partial, "The native planning result exceeds the bounded item acquisition limit; no truncated result was mirrored.");
             // Link-result rows establish membership only. Hierarchy comes from each item's native incident observations.
-            var page = await ReadPlanningItems(bound, await Discover(bound, token), distinct, token);
-            return new PlanningBrowsePage(source, page, observedAt, sources.Team);
+            var mapping = mappingSchema is null ? await Discover(bound, token) : await PlanningMapping(bound, mappingSchema, token);
+            var page = await ReadPlanningItems(bound, mapping, distinct, token);
+            return new PlanningBrowsePage(source, page, observedAt, canonicalTeam);
         }, ct));
+
+    private async Task<Discovery> PlanningMapping(Bound bound, ProcessSchema schema, CancellationToken ct)
+    {
+        if (schema.Connection != bound.Connection || schema.Types.IsEmpty || schema.Types.Length > 256)
+            throw Wire.Refuse(ErrorCode.Conflict, "Recorded native mapping metadata is missing or belongs to another connection; refresh process metadata explicitly.");
+        var names = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+        foreach (var type in schema.Types)
+        {
+            var candidates = type.Rules.Where(rule => rule.Disabled).SelectMany(rule => rule.Values)
+                .Where(value => value.Kind == FieldKind.Raw && value.DataType == "ado.native-type-name").ToArray();
+            if (candidates.Length != 1 || string.IsNullOrWhiteSpace(candidates[0].Text)
+                || names.Values.Contains(candidates[0].Text, StringComparer.Ordinal))
+                throw Wire.Refuse(ErrorCode.Unavailable, "A recorded item type has no unique native name mapping; refresh process metadata explicitly.");
+            names.Add(type.Reference, candidates[0].Text!);
+        }
+        var (relations, nonItems, _) = await DiscoverRelations(bound, ct);
+        var known = relations.Where(pair => schema.Relations.Any(kind => kind.Reference == pair.Value.Canonical
+            && kind.Shape == pair.Value.Shape && kind.Directed == pair.Value.Directed)).ToImmutableDictionary(StringComparer.Ordinal);
+        return new(schema, names.ToImmutable(), known, ImmutableDictionary<string, FieldDef>.Empty, nonItems);
+    }
 
     private async Task<QueryPage> ReadPlanningItems(Bound bound, Discovery schema, ImmutableArray<ItemKey> keys, CancellationToken ct)
     {
@@ -96,15 +137,10 @@ public sealed partial class AdoProvider
             var node = entry.Node;
             var id = Wire.GuidText(Wire.Text(node, "id"));
             if (!identities.Add(id)) throw Wire.Invalid("The native saved-query hierarchy repeats an identity or contains a cycle.");
-            var name = Wire.Text(node, "name");
-            var path = node.TryGetProperty("path", out var pathValue) && pathValue.ValueKind == JsonValueKind.String
-                ? pathValue.GetString()! : entry.Parent.Length == 0 ? name : entry.Parent + "/" + name;
-            var folder = node.TryGetProperty("isFolder", out var folderValue) && folderValue.GetBoolean();
-            string? Text(string property) => node.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-            var wiql = Text("wiql");
-            entries.Add(new(PlanningSourceKind.SavedQuery, id, name, path, folder, Text("queryType"),
-                !folder && (wiql is null || wiql.Contains("@CurrentIteration", StringComparison.OrdinalIgnoreCase)
-                    || wiql.Contains("@TeamAreas", StringComparison.OrdinalIgnoreCase))));
+            var source = QuerySource(node, entry.Parent);
+            var path = source.Path;
+            var folder = source.IsFolder;
+            entries.Add(source);
             var children = node.TryGetProperty("children", out var values) ? values.EnumerateArray().ToArray() : [];
             var hasChildren = node.TryGetProperty("hasChildren", out var hasValue) && hasValue.GetBoolean();
             if (!folder && (hasChildren || children.Length != 0)) throw Wire.Invalid("A native saved query unexpectedly contains folder children.");
@@ -114,7 +150,7 @@ public sealed partial class AdoProvider
                 if (Wire.GuidText(Wire.Text(node, "id")) != id)
                     throw Wire.Refuse(ErrorCode.Conflict, "The native query folder lookup resolved a different identity.");
                 children = node.TryGetProperty("children", out values) ? values.EnumerateArray().ToArray() : [];
-                if (children.Length == 0)
+                if (children.Length == 0 && node.TryGetProperty("hasChildren", out var remaining) && remaining.GetBoolean())
                     throw Wire.Refuse(ErrorCode.Partial, "The native query folder was not exhausted; no complete hierarchy was claimed.");
             }
             foreach (var child in children.Reverse()) pending.Push((child, path, entry.Depth + 1));
@@ -134,5 +170,19 @@ public sealed partial class AdoProvider
         }
         else gaps = ["No native team is selected; team backlogs and team-dependent saved queries are unavailable."];
         return new(canonicalTeam, entries.ToImmutable(), gaps);
+    }
+
+    private static PlanningSource QuerySource(JsonElement node, string parent)
+    {
+        var id = Wire.GuidText(Wire.Text(node, "id"));
+        var name = Wire.Text(node, "name");
+        var path = node.TryGetProperty("path", out var pathValue) && pathValue.ValueKind == JsonValueKind.String
+            ? pathValue.GetString()! : parent.Length == 0 ? name : parent + "/" + name;
+        var folder = node.TryGetProperty("isFolder", out var folderValue) && folderValue.GetBoolean();
+        string? Text(string property) => node.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        var wiql = Text("wiql");
+        return new(PlanningSourceKind.SavedQuery, id, name, path, folder, Text("queryType"),
+            !folder && (wiql is null || wiql.Contains("@CurrentIteration", StringComparison.OrdinalIgnoreCase)
+                || wiql.Contains("@TeamAreas", StringComparison.OrdinalIgnoreCase)));
     }
 }

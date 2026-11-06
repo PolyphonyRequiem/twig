@@ -58,9 +58,14 @@ Task<Result<NativeSourceObservation>> RefreshPlanningAsync(
     string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam, CancellationToken ct);
 Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(
     string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam, CancellationToken ct);
+Task<Result<NativeSourceObservation>> ReadPlanningSourcesAsync(
+    string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam, CancellationToken ct = default);
 Task<Result<NativeSourceObservation>> BrowsePlanningAsync(
     string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam,
     PlanningSourceKind kind, string id, CancellationToken ct);
+Task<Result<NativeSourceObservation>> BrowsePlanningAsync(
+    string workspaceRoot, NativeSourceStamp expectedSource, string? selectedTeam,
+    PlanningSourceKind kind, string id, ProcessSchema mappingSchema, CancellationToken ct);
 ```
 
 `PlanningTeam.Id` is the canonical GUID and `Name` is the actual ADO display name,
@@ -76,7 +81,9 @@ overloads and the old browse overload's separate `expectedTeam` meaning remain.
 `ReadPlanningAsync` validates fresh actor/target read access and team existence,
 then returns the retained calendar without schema discovery. A missing retained
 calendar requires explicit refresh; it is not an empty successful calendar.
-Refresh/source discovery/browse opt into full schema observation. All native
+Calendar refresh retains its full schema observation. Source catalogue
+read/refresh and source execution return no fresh `Schema` or `SchemaObservedAt`.
+All native
 operations revalidate actor/source/store before releasing observations; refresh
 and browse also perform that check before saving acquired calendar or membership
 evidence. They expose no work-item mutation or persisted authorization grant.
@@ -89,6 +96,52 @@ ID; Core uses that collection for exact per-leaf resolution. These observations
 reuse the existing connection/team-keyed planning and membership tables.
 Refreshing one canonical team preserves every other team's calendar and rules;
 no additional cache or local-data migration is introduced.
+
+### Durable native source catalogues and lightweight execution
+
+The per-user `UserBenchStore` owns the durable `planning_sources` catalogue
+table, keyed by the complete native `Connection` (including actor identity)
+and the exact canonical team ID or explicit project-scope key. It is separate
+from planning calendars and executed-source memberships. No local-data
+migration, default-team alias, access grant or expiry is stored.
+
+`NativeSourceObservation.PlanningSourcesCache` is
+`NativePlanningSourcesCache(PlanningSources? Sources, DateTimeOffset? ObservedAt)`.
+Both null means no retained catalogue, a successful recorded-metadata read
+after fresh actor/target and final native source/store validation.
+`PlanningSources` remains the compatible sources field. The cache retains native
+saved-query/backlog IDs, names, paths, folder hierarchy (including empty folders),
+query kinds, team execution requirements and declared gaps, never membership
+item IDs. Explicit `DiscoverPlanningSourcesAsync` acquires catalogue metadata
+only, then replaces one complete exact-scope row atomically after final native
+admission. Partial, denied, failed, cancelled or replaced-authority refreshes
+preserve the previous complete catalogue and return an error, not cached success.
+An older concurrent observation cannot replace a newer retained catalogue.
+
+Reading or refreshing a catalogue never executes a query/backlog or discovers
+per-type process fields, rules, states, layouts or icons. Recorded catalogues
+are not evidence that every source is still executable or every listed team is
+still available. Explicit execution validates the current actor, immutable
+project, selected team and the source's direct native ID endpoint rather than
+rediscovering the whole query hierarchy. Native identity changes, unsupported
+pagination, bounded acquisition and complete membership checks still refuse.
+
+The browse overload accepting an already-admitted `ProcessSchema` reuses it
+only as type/field read-mapping evidence. The native ADO type-name observations
+already retained in that schema are required; unknown types or incident
+relations refuse with an explicit request to refresh mapping metadata. One
+bounded current relation-roster read supplies authoritative forward/reverse
+endpoint semantics; no reverse names are guessed and no per-type process
+discovery or presentation crawl runs. Connection mismatch refuses before
+execution. Callers without recorded mapping can retain the original browse
+overload, which still acquires the mapping it needs but no longer performs a
+second native presentation discovery.
+
+Hosts may reuse their admitted schema/presentation observation and compose
+the current native calendars/memberships into it. They must not label reused
+schema as freshly discovered or treat recorded catalogue timestamps or supplied
+mapping metadata as authorization. Same-root native operation coordination
+and all existing publication checks remain unchanged.
 
 ### Closed production command catalog
 

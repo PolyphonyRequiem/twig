@@ -173,7 +173,10 @@ public sealed partial class NativePublicationConsumerTests
         var refreshed = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, PlanningSourceKind.SavedQuery,
             PrincipalTransport.SavedQuery, team, Configure, default);
         refreshed.IsSuccess.ShouldBeTrue(refreshed.IsSuccess ? "" : refreshed.Error.Message);
-        Twig.Core.Core.ResolveBench(refreshed.Value.Snapshot.Benches.Single(), refreshed.Value.Snapshot, refreshed.Value.Schema!.Value)
+        refreshed.Value.Schema.ShouldBeNull();
+        var retainedSchema = cached.Value.Schema!.Value with { Memberships = refreshed.Value.Memberships,
+            Planning = refreshed.Value.Planning, PlanningCalendars = refreshed.Value.PlanningCalendars };
+        Twig.Core.Core.ResolveBench(refreshed.Value.Snapshot.Benches.Single(), refreshed.Value.Snapshot, retainedSchema)
             .Value.Single().NativeId.ShouldBe("43");
         BenchCodec.Serialize((await shared.ReadAsync()).Value.Benches.Single()).ShouldBe(definition);
         (await store.ReadAsync(connection, default)).Value.Benches.ShouldBeEmpty();

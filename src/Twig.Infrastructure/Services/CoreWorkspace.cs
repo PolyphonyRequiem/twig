@@ -201,6 +201,23 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         => provider.DiscoverPlanningSourcesAsync(connection, planningTeam, ct);
     internal Task<Result<PlanningSources>> DiscoverPlanningSourcesAsync(string? selectedTeam, CancellationToken ct)
         => provider.DiscoverPlanningSourcesAsync(connection, selectedTeam, ct);
+    internal Task<Result<NativePlanningSourcesCache>> PlanningSourcesAsync(string? selectedTeam, CancellationToken ct)
+        => sharedBenches is not null ? sharedBenches.ReadPlanningSourcesAsync(connection, selectedTeam, ct)
+            : Task.FromResult(Result<NativePlanningSourcesCache>.Ok(new(null, null)));
+    internal async Task<Result<NativePlanningSourcesCache>> PlanningSourcesAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(planningTeam)) return await PlanningSourcesAsync(null, ct).ConfigureAwait(false);
+        if (Guid.TryParseExact(planningTeam, "D", out var id) && id.ToString("D") == planningTeam)
+            return await PlanningSourcesAsync(planningTeam, ct).ConfigureAwait(false);
+        var calendar = await PlanningAsync(ct).ConfigureAwait(false);
+        if (!calendar.IsSuccess) return Result<NativePlanningSourcesCache>.Fail(calendar.Error);
+        return calendar.Value.Metadata?.Team is { } team ? await PlanningSourcesAsync(team, ct).ConfigureAwait(false)
+            : Result<NativePlanningSourcesCache>.Ok(new(null, null));
+    }
+    internal Task<Result<NativePlanningSourcesCache>> SavePlanningSourcesAsync(NativePlanningSourcesCache cache, CancellationToken ct)
+        => sharedBenches is not null && cache.Sources is { } sources
+            ? sharedBenches.SavePlanningSourcesAsync(connection, sources.Team, cache, ct)
+            : Task.FromResult(Result<NativePlanningSourcesCache>.Fail(ErrorCode.Unavailable, "The native source catalogue store is unavailable."));
 
     internal Task<Result<PlanningBrowse>> BrowsePlanningAsync(PlanningSourceKind kind, string id, string? expectedTeam, CancellationToken ct)
         => BrowsePlanningAsync(planningTeam, kind, id, expectedTeam, ct);
@@ -219,9 +236,11 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         => ObservePlanningBrowseAsync(planningTeam, kind, id, expectedTeam, ct);
 
     internal async Task<Result<PlanningBrowsePage>> ObservePlanningBrowseAsync(string? selectedTeam, PlanningSourceKind kind, string id,
-        string? expectedTeam, CancellationToken ct)
+        string? expectedTeam, CancellationToken ct, ProcessSchema? mappingSchema = null)
     {
-        var observed = await provider.BrowsePlanningAsync(connection, selectedTeam, kind, id, expectedTeam, ct).ConfigureAwait(false);
+        var observed = mappingSchema is null
+            ? await provider.BrowsePlanningAsync(connection, selectedTeam, kind, id, expectedTeam, ct).ConfigureAwait(false)
+            : await provider.BrowsePlanningAsync(connection, selectedTeam, kind, id, expectedTeam, mappingSchema, ct).ConfigureAwait(false);
         if (!observed.IsSuccess) return observed;
         if (observed.Value.Source.Kind != kind || observed.Value.Source.Id != id || observed.Value.Source.IsFolder
             || observed.Value.ObservedAt == default || observed.Value.Team != expectedTeam

@@ -2428,6 +2428,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         internal bool TeamBPast;
         internal string? TeamLookupOverride;
         internal Func<Task>? BeforeTeamCalendarResponse;
+        internal Func<Task>? BeforeCatalogueResponse;
+        internal string? CatalogueDefect;
+        internal string CatalogueName = "Fixture saved query";
         internal int[] SavedQueryItems { get; set; } = [42];
         internal Func<Task>? BeforePlanningBatchResponse { get; set; }
         private readonly Dictionary<int, Item> _items = new();
@@ -2558,9 +2561,22 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 return Reply(HttpStatusCode.OK, new { id = "88888888-8888-8888-8888-888888888888",
                     name = Uri.UnescapeDataString(path.Split('/')[^1]) });
             if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/queries", StringComparison.Ordinal))
+            {
+                if (BeforeCatalogueResponse is { } before) { BeforeCatalogueResponse = null; await before(); }
+                if (CatalogueDefect is "denied" or "unauthorized")
+                    return Reply(CatalogueDefect == "denied" ? HttpStatusCode.Forbidden : HttpStatusCode.Unauthorized, new { message = "Fixture source catalogue access unavailable" });
+                if (CatalogueDefect == "partial")
+                    return Reply(HttpStatusCode.OK, new { count = 1, value = new[] {
+                        new { id = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", name = "Truncated folder", isFolder = true, hasChildren = true } } });
                 return Reply(HttpStatusCode.OK, new { count = 1, value = new[] {
-                    new { id = SavedQuery, name = "Fixture saved query", path = "Shared/Fixture query", isFolder = false,
+                    new { id = SavedQuery, name = CatalogueName, path = "Shared/Fixture query", isFolder = false,
                         queryType = "flat", wiql = "SELECT [System.Id] FROM WorkItems" } } });
+            }
+            if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/queries/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { id = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", name = "Truncated folder", isFolder = true, hasChildren = true });
+            if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/queries/" + SavedQuery, StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { id = SavedQuery, name = CatalogueName, path = "Shared/Fixture query",
+                    isFolder = false, queryType = "flat", wiql = "SELECT [System.Id] FROM WorkItems" });
             if (CoreMetadataEnabled && path.EndsWith("/_apis/work/backlogs", StringComparison.Ordinal))
                 return ExplicitPlanningTeams
                     ? Reply(HttpStatusCode.OK, new { count = 1, value = new[] { new { id = "Fixture.Requirements", name = "Actual backlog" } } })
@@ -2568,6 +2584,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             if (CoreMetadataEnabled && ExplicitPlanningTeams && path.EndsWith("/backlogs/Fixture.Requirements/workItems", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { workItems = new[] {
                     new { source = (object?)null, target = new { id = path.Contains(TeamB, StringComparison.Ordinal) ? 43 : 42 } } } });
+            if (CoreMetadataEnabled && ExplicitPlanningTeams && path.EndsWith("/backlogs/Fixture.Requirements", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { id = "Fixture.Requirements", name = "Actual backlog" });
             if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/wiql/" + SavedQuery, StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { queryType = "flat", asOf = DateTimeOffset.UtcNow,
                     workItems = (ExplicitPlanningTeams ? path.Contains(TeamB, StringComparison.Ordinal) ? [43] : new[] { 42 }

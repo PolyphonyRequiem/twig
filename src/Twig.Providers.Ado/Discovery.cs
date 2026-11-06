@@ -31,42 +31,7 @@ public sealed partial class AdoProvider
         var gaps = new List<string>();
         var fields = Wire.Rows(await Get(bound, $"_apis/wit/fields?api-version={Api}", ct))
             .ToDictionary(f => Wire.Text(f, "referenceName"), StringComparer.OrdinalIgnoreCase);
-        var relationRows = Wire.Rows(await Get(bound, $"_apis/wit/workitemrelationtypes?api-version={Api}", ct));
-        var relations = new Dictionary<string, NativeRelation>(StringComparer.Ordinal);
-        var nonItems = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
-        var resources = new List<RelationKind>();
-        foreach (var row in relationRows)
-        {
-            var attributes = row.GetProperty("attributes");
-            var usage = Wire.Text(attributes, "usage");
-            if (usage == "resourceLink")
-            {
-                nonItems.Add(Wire.Text(row, "referenceName"));
-                var name = Wire.Text(row, "referenceName");
-                if (name is "ArtifactLink" or "Hyperlink"
-                    && attributes.TryGetProperty("enabled", out var enabled) && enabled.GetBoolean())
-                    resources.Add(new(name, RelationShape.Resource, false));
-                continue;
-            }
-            if (usage != "workItemLink") throw Wire.Invalid("Unknown relation usage cannot certify incident completeness.");
-            if (!Wire.Flag(attributes, "enabled")) continue;
-            var reference = Wire.Text(row, "referenceName");
-            var directed = Wire.Flag(attributes, "directional");
-            var forward = !directed || Wire.Flag(attributes, "isForward");
-            var canonical = forward ? reference : Wire.Text(attributes, "oppositeEndReferenceName");
-            var shape = Wire.Text(attributes, "topology") switch
-            {
-                "tree" when canonical == "System.LinkTypes.Duplicate-Forward" => RelationShape.Association,
-                "tree" => RelationShape.Hierarchy,
-                "dependency" => RelationShape.Dependency,
-                "network" => RelationShape.Association,
-                _ => throw Wire.Invalid("Unknown native relation topology."),
-            };
-            relations.Add(reference, new(reference, canonical, forward, shape, directed));
-        }
-        if (relations.Values.Any(r => !relations.TryGetValue(r.Canonical, out var other) || !other.Forward
-            || other.Shape != r.Shape || other.Directed != r.Directed))
-            throw Wire.Invalid("Native relationship endpoints disagree.");
+        var (relations, nonItems, resources) = await DiscoverRelations(bound, ct);
         var transitions = Wire.Rows(await Get(bound,
             $"{bound.Project}/_apis/wit/workitemtypes?$expand=all&api-version={Api}", ct))
             .ToDictionary(t => Wire.Text(t, "referenceName"), StringComparer.OrdinalIgnoreCase);
@@ -232,6 +197,49 @@ public sealed partial class AdoProvider
             .Concat(resources.Count > 0 ? [OpKind.LinkResource] : Array.Empty<OpKind>()),
             schema.Relations.Select(r => r.Reference), [], true, true) { AtomicRelationshipBatches = true };
         return new(schema, names.ToImmutable(), relations.ToImmutableDictionary(StringComparer.Ordinal), definitions.ToImmutable(),
-            nonItems.ToImmutable());
+            nonItems);
+    }
+
+    private async Task<(Dictionary<string, NativeRelation> Relations, ImmutableHashSet<string> NonItems,
+        List<RelationKind> Resources)> DiscoverRelations(Bound bound, CancellationToken ct)
+    {
+        var rows = Wire.Rows(await Get(bound, $"_apis/wit/workitemrelationtypes?api-version={Api}", ct));
+        if (rows.Length > 1024) throw Wire.Refuse(ErrorCode.Partial, "The native relation roster exceeds its bounded mapping limit.");
+        var relations = new Dictionary<string, NativeRelation>(StringComparer.Ordinal);
+        var nonItems = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+        var resources = new List<RelationKind>();
+        foreach (var row in rows)
+        {
+            var attributes = row.GetProperty("attributes");
+            var usage = Wire.Text(attributes, "usage");
+            if (usage == "resourceLink")
+            {
+                var name = Wire.Text(row, "referenceName");
+                if (!nonItems.Add(name)) throw Wire.Invalid("The native resource relation roster repeats an identity.");
+                if (name is "ArtifactLink" or "Hyperlink"
+                    && attributes.TryGetProperty("enabled", out var enabled) && enabled.GetBoolean())
+                    resources.Add(new(name, RelationShape.Resource, false));
+                continue;
+            }
+            if (usage != "workItemLink") throw Wire.Invalid("Unknown relation usage cannot certify incident completeness.");
+            if (!Wire.Flag(attributes, "enabled")) continue;
+            var reference = Wire.Text(row, "referenceName");
+            var directed = Wire.Flag(attributes, "directional");
+            var forward = !directed || Wire.Flag(attributes, "isForward");
+            var canonical = forward ? reference : Wire.Text(attributes, "oppositeEndReferenceName");
+            var shape = Wire.Text(attributes, "topology") switch
+            {
+                "tree" when canonical == "System.LinkTypes.Duplicate-Forward" => RelationShape.Association,
+                "tree" => RelationShape.Hierarchy,
+                "dependency" => RelationShape.Dependency,
+                "network" => RelationShape.Association,
+                _ => throw Wire.Invalid("Unknown native relation topology."),
+            };
+            relations.Add(reference, new(reference, canonical, forward, shape, directed));
+        }
+        if (relations.Values.Any(r => !relations.TryGetValue(r.Canonical, out var other) || !other.Forward
+            || other.Shape != r.Shape || other.Directed != r.Directed))
+            throw Wire.Invalid("Native relationship endpoints disagree.");
+        return (relations, nonItems.ToImmutable(), resources);
     }
 }

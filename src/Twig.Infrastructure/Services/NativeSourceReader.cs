@@ -23,6 +23,7 @@ public sealed record NativeSourceObservation(NativeSourceStamp Source, StoreSnap
     public ImmutableArray<PlanningMetadata> PlanningCalendars { get; init; } = [];
     public ImmutableArray<PlanningTeam> PlanningTeams { get; init; } = [];
     public PlanningSources? PlanningSources { get; init; }
+    public NativePlanningSourcesCache PlanningSourcesCache { get; init; } = new(null, null);
     public PlanningBrowse? PlanningBrowse { get; init; }
     public ImmutableArray<PlanningMembership> Memberships { get; init; } = [];
 }
@@ -101,6 +102,15 @@ public static class NativeSourceReader
             : ReadCoreAsync(workspaceRoot, expectedSource, true, null, null, ct, refreshPlanning: true);
 #pragma warning restore RS0027
 
+    /// <summary>Reads an optional recorded catalogue for this exact canonical team or explicit project scope, with fresh native access checks.</summary>
+    public static Task<Result<NativeSourceObservation>> ReadPlanningSourcesAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, string? selectedTeam, CancellationToken ct = default)
+        => ReadPlanningSourcesAsync(workspaceRoot, expectedSource, selectedTeam, null, ct);
+
+    internal static Task<Result<NativeSourceObservation>> ReadPlanningSourcesAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, string? selectedTeam, Action<IServiceCollection>? configure, CancellationToken ct)
+        => ExplicitPlanningAsync(workspaceRoot, expectedSource, selectedTeam, configure, ct);
+
     /// <summary>Refreshes only the selected canonical team (or explicit project scope), preserving every other calendar and workspace selection.</summary>
     public static Task<Result<NativeSourceObservation>> RefreshPlanningAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, string? selectedTeam, CancellationToken ct)
@@ -127,7 +137,7 @@ public static class NativeSourceReader
     internal static Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, Action<IServiceCollection>? configure, CancellationToken ct)
         => expectedSource is null ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority is required."))
-            : ReadCoreAsync(workspaceRoot, expectedSource, true, configure, null, ct, discoverSources: true);
+            : ReadCoreAsync(workspaceRoot, expectedSource, false, configure, null, ct, discoverSources: true, validateReadAccess: true);
 
 #pragma warning disable RS0027 // Preserve expectedTeam semantics; the explicit selectedTeam overload requires its token.
     public static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
@@ -140,12 +150,12 @@ public static class NativeSourceReader
         Action<IServiceCollection>? configure, CancellationToken ct)
         => expectedSource is null || !Enum.IsDefined(kind) || string.IsNullOrWhiteSpace(id) || id.Length > 256
             ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority and an exact planning source are required."))
-            : ReadCoreAsync(workspaceRoot, expectedSource, true, configure, null, ct, browse: new(kind, id, expectedTeam));
+            : ReadCoreAsync(workspaceRoot, expectedSource, false, configure, null, ct, browse: new(kind, id, expectedTeam), validateReadAccess: true);
 
     /// <summary>Browses an exact source using the selected team as both selection and required canonical response identity.</summary>
     public static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, string? selectedTeam, PlanningSourceKind kind, string id, CancellationToken ct)
-        => BrowsePlanningAsync(workspaceRoot, expectedSource, selectedTeam, kind, id, null, ct);
+        => BrowsePlanningAsync(workspaceRoot, expectedSource, selectedTeam, kind, id, (Action<IServiceCollection>?)null, ct);
 
     internal static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, string? selectedTeam, PlanningSourceKind kind, string id,
@@ -154,17 +164,32 @@ public static class NativeSourceReader
             ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "An exact planning source is required."))
             : ExplicitPlanningAsync(workspaceRoot, expectedSource, selectedTeam, configure, ct, browse: new(kind, id, selectedTeam));
 
+    /// <summary>Executes one exact native source using recorded field/type mapping, without acquiring process presentation or claiming fresh schema.</summary>
+    public static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, string? selectedTeam, PlanningSourceKind kind, string id,
+        ProcessSchema mappingSchema, CancellationToken ct)
+        => BrowsePlanningAsync(workspaceRoot, expectedSource, selectedTeam, kind, id, mappingSchema, null, ct);
+
+    internal static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, string? selectedTeam, PlanningSourceKind kind, string id,
+        ProcessSchema mappingSchema, Action<IServiceCollection>? configure, CancellationToken ct)
+        => mappingSchema is null || expectedSource is null || mappingSchema.Connection != expectedSource.Connection
+            ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Recorded native mapping metadata must belong to the captured source connection."))
+            : !Enum.IsDefined(kind) || string.IsNullOrWhiteSpace(id) || id.Length > 256
+                ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "An exact planning source is required."))
+                : ExplicitPlanningAsync(workspaceRoot, expectedSource, selectedTeam, configure, ct, browse: new(kind, id, selectedTeam, mappingSchema));
+
     private static Task<Result<NativeSourceObservation>> ExplicitPlanningAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, string? selectedTeam, Action<IServiceCollection>? configure, CancellationToken ct,
         bool readPlanning = false, bool refreshPlanning = false, bool discoverSources = false, BrowseRequest? browse = null)
         => expectedSource is null || selectedTeam is not null
             && (!Guid.TryParseExact(selectedTeam, "D", out var id) || id == Guid.Empty || id.ToString("D") != selectedTeam)
             ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority and a canonical team ID (or explicit project scope) are required."))
-            : ReadCoreAsync(workspaceRoot, expectedSource, !readPlanning, configure, null, ct, refreshPlanning, discoverSources, browse,
-                validateReadAccess: readPlanning, explicitTeam: new(selectedTeam), readPlanning: readPlanning);
+            : ReadCoreAsync(workspaceRoot, expectedSource, refreshPlanning, configure, null, ct, refreshPlanning, discoverSources, browse,
+                validateReadAccess: true, explicitTeam: new(selectedTeam), readPlanning: readPlanning);
 
     private sealed record TeamSelection(string? Team);
-    private sealed record BrowseRequest(PlanningSourceKind Kind, string Id, string? Team);
+    private sealed record BrowseRequest(PlanningSourceKind Kind, string Id, string? Team, ProcessSchema? MappingSchema = null);
 
     private static async Task<Result<NativeSourceObservation>> ReadCoreAsync(string workspaceRoot,
         NativeSourceStamp? expectedSource, bool observeSchema, Action<IServiceCollection>? configure, Selection? selection, CancellationToken ct,
@@ -220,6 +245,7 @@ public static class NativeSourceReader
                     return Result<NativeSourceObservation>.Fail(ErrorCode.NotFound, "The explicitly selected team is not available in this project.");
             }
             PlanningSources? sourceChoices = null;
+            NativePlanningSourcesCache? discoveredCatalogue = null;
             PlanningBrowse? browsed = null;
             PlanningBrowsePage? browsePage = null;
             if (discoverSources)
@@ -231,12 +257,13 @@ public static class NativeSourceReader
                 if (explicitTeam is not null && discovered.Value.Team != explicitTeam.Team)
                     return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "The discovered sources belong to another native team.");
                 sourceChoices = discovered.Value;
+                discoveredCatalogue = new(sourceChoices, DateTimeOffset.UtcNow);
             }
             if (browse is not null)
             {
                 var acquired = explicitTeam is null
                     ? await handle.Workspace.ObservePlanningBrowseAsync(browse.Kind, browse.Id, browse.Team, token).ConfigureAwait(false)
-                    : await handle.Workspace.ObservePlanningBrowseAsync(explicitTeam.Team, browse.Kind, browse.Id, browse.Team, token).ConfigureAwait(false);
+                    : await handle.Workspace.ObservePlanningBrowseAsync(explicitTeam.Team, browse.Kind, browse.Id, browse.Team, token, browse.MappingSchema).ConfigureAwait(false);
                 if (!acquired.IsSuccess) return Refuse(acquired.Error, "Native saved-query/backlog acquisition failed.");
                 browsePage = acquired.Value;
             }
@@ -272,6 +299,10 @@ public static class NativeSourceReader
                 return Result<NativeSourceObservation>.Fail(ErrorCode.Unavailable, "This explicit planning scope has no retained calendar; refresh it explicitly.");
             var calendars = await handle.Workspace.PlanningCalendarsAsync(token).ConfigureAwait(false);
             if (!calendars.IsSuccess) return Refuse(calendars.Error, "Native team calendars could not be read.");
+            var catalogue = explicitTeam is null
+                ? await handle.Workspace.PlanningSourcesAsync(token).ConfigureAwait(false)
+                : await handle.Workspace.PlanningSourcesAsync(explicitTeam.Team, token).ConfigureAwait(false);
+            if (!catalogue.IsSuccess) return Refuse(catalogue.Error, "The retained native source catalogue could not be read.");
             var memberships = await handle.Workspace.MembershipsAsync(token).ConfigureAwait(false);
             if (!memberships.IsSuccess) return Refuse(memberships.Error, "Native query/backlog membership metadata could not be read.");
             var readAt = DateTimeOffset.UtcNow;
@@ -296,6 +327,11 @@ public static class NativeSourceReader
             if (handle.Source != final.Source)
                 return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict,
                     "Native authority, workspace location or store changed during capture; no content was released.");
+            if (discoveredCatalogue is not null)
+            {
+                catalogue = await handle.Workspace.SavePlanningSourcesAsync(discoveredCatalogue, token).ConfigureAwait(false);
+                if (!catalogue.IsSuccess) return Refuse(catalogue.Error, "The native source catalogue was not saved; previous complete metadata was preserved.");
+            }
             if (refreshPlanning)
             {
                 var saved = explicitTeam is null
@@ -323,7 +359,8 @@ public static class NativeSourceReader
             token.ThrowIfCancellationRequested();
             return Result<NativeSourceObservation>.Ok(new(handle.Source, snapshot.Value, readAt, schema, schemaAt)
             { WorkspaceExclusions = viewRules.Value.Exclusions, SelectedBenchId = selection is null ? context.Value.BenchId : selection.Next,
-                Planning = planning.Value.Metadata, PlanningSources = sourceChoices, PlanningBrowse = browsed,
+                Planning = planning.Value.Metadata, PlanningSources = sourceChoices ?? catalogue.Value.Sources,
+                PlanningSourcesCache = catalogue.Value, PlanningBrowse = browsed,
                 PlanningCalendars = calendars.Value, PlanningTeams = teams, Memberships = memberships.Value });
 
             async Task<ServiceProvider> ComposeAsync()

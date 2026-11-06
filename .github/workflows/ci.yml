@@ -140,7 +140,8 @@ jobs:
         id: user_benches
         shell: python
         run: |
-          import subprocess, sys
+          import os, subprocess, sys
+          os.environ["PYTHON"] = sys.executable
           for label, project, selector in [
               ("user-bench-store", "Twig.Infrastructure.Tests", "FullyQualifiedName~UserBenchStoreTests"),
               ("native-plan-scopes", "Twig.Infrastructure.Tests", "FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanStoreTests|FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanScopeContractTests"),
@@ -166,6 +167,10 @@ jobs:
               ("planning-consumers", "Twig.Infrastructure.Tests", "FullyQualifiedName~PlanningConsumerTests"),
               ("native-team-planning", "Twig.Cli.Tests", "FullyQualifiedName~NativeExplicitTeamPlanningRefreshBrowseAndPull|FullyQualifiedName~NativeExplicitProjectPlanning|FullyQualifiedName~NativeExplicitTeamPlanningRead|FullyQualifiedName~NativeExplicitTeamPlanningBacklog"),
               ("native-team-planning-guards", "Twig.Cli.Tests", "FullyQualifiedName~NativeExplicitTeamPlanningRefuses|FullyQualifiedName~NativeRetainedTeamCalendars|FullyQualifiedName~NativeSourcePlanningBrowseRevalidatesAuthority"),
+              ("native-source-catalogue-cache", "Twig.Cli.Tests", "FullyQualifiedName~NativeSourceCatalogueRefreshDoesNotAcquireProcessSchemaOrExecuteItems|FullyQualifiedName~NativeSourceCatalogueCachePersists"),
+              ("native-source-catalogue-refresh-guards", "Twig.Cli.Tests", "FullyQualifiedName~NativeSourceCatalogueFailedRefresh"),
+              ("native-source-catalogue-authority", "Twig.Cli.Tests", "FullyQualifiedName~NativeSourceCatalogueAuthorityReplacement"),
+              ("native-source-lightweight-execution", "Twig.Cli.Tests", "FullyQualifiedName~NativeSourceCatalogueLightweightExecution"),
               ("user-bench-cli", "Twig.Cli.Tests", "FullyQualifiedName~UserBenchCommandTests|FullyQualifiedName~UserWideBenchEntrypointTests"),
           ]:
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",

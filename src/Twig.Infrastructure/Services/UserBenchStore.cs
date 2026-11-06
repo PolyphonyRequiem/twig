@@ -813,5 +813,6 @@ internal sealed record UserMembershipDocument(PlanningSourceKind Kind, string Id
     RespectNullableAnnotations = true, RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(Connection))]
 [JsonSerializable(typeof(PlanningMetadata))]
+[JsonSerializable(typeof(NativePlanningSourcesCache))]
 [JsonSerializable(typeof(UserMembershipDocument))]
 internal sealed partial class UserBenchJson : JsonSerializerContext;

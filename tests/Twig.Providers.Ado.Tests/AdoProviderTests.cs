@@ -58,7 +58,7 @@ public sealed partial class AdoProviderTests
         var sources = await f.Provider.DiscoverPlanningSourcesAsync(f.Connection, "Selected team", default);
         sources.IsSuccess.ShouldBeTrue(sources.IsSuccess ? "" : sources.Error.Message);
         sources.Value.Team.ShouldBe(Fixture.Process);
-        sources.Value.Entries.Count(source => source.IsFolder).ShouldBe(1);
+        sources.Value.Entries.Count(source => source.IsFolder).ShouldBe(2);
         sources.Value.Entries.ShouldContain(source => source.Id == NativeHttp.FlatQuery && source.Path == "Shared Queries/Flat query");
         sources.Value.Entries.ShouldContain(source => source.Kind == PlanningSourceKind.Backlog && source.Id == "Native.Requirements");
         var flat = await f.Provider.BrowsePlanningAsync(f.Connection, "Selected team", PlanningSourceKind.SavedQuery, NativeHttp.FlatQuery, Fixture.Process, default);
@@ -77,9 +77,9 @@ public sealed partial class AdoProviderTests
     }
 
     [Theory]
-    [InlineData("truncated-folder")]
-    [InlineData("changed-folder")]
     [InlineData("sources-denied")]
+    [InlineData("changed-query")]
+    [InlineData("query-folder")]
     [InlineData("query-denied")]
     [InlineData("unknown-query-shape")]
     [InlineData("oversized-membership")]
@@ -1437,6 +1437,18 @@ public sealed partial class AdoProviderTests
                     : Json($$"""{"count":1,"value":[{"id":"{{QueryFolder}}","name":"Shared Queries","isFolder":true,"hasChildren":true}]}""");
             if (path.Contains("/_apis/wit/queries/"))
             {
+                if (path.EndsWith(FlatQuery) || path.EndsWith(TreeQuery))
+                {
+                    if (SourceDefect == "sources-denied") return Status(403);
+                    return Json(new JsonObject {
+                        ["id"] = SourceDefect == "changed-query" ? Fixture.Process : path.Split('/')[^1],
+                        ["name"] = path.EndsWith(TreeQuery) ? "Tree query" : "Flat query",
+                        ["path"] = path.EndsWith(TreeQuery) ? "Shared Queries/Tree query" : "Shared Queries/Flat query",
+                        ["isFolder"] = SourceDefect == "query-folder",
+                        ["queryType"] = path.EndsWith(TreeQuery) ? "tree" : "flat",
+                        ["wiql"] = "SELECT [System.Id] FROM WorkItems",
+                    }.ToJsonString());
+                }
                 var children = new JsonArray();
                 if (SourceDefect != "truncated-folder")
                 {
@@ -1444,6 +1456,7 @@ public sealed partial class AdoProviderTests
                         ["queryType"] = "flat", ["wiql"] = "SELECT [System.Id] FROM WorkItems" });
                     children.Add(new JsonObject { ["id"] = TreeQuery, ["name"] = "Tree query", ["isFolder"] = false,
                         ["queryType"] = "tree", ["wiql"] = "SELECT [System.Id] FROM WorkItemLinks" });
+                    children.Add(new JsonObject { ["id"] = "22222222-2222-2222-2222-222222222222", ["name"] = "Empty folder", ["isFolder"] = true, ["hasChildren"] = false });
                 }
                 return Json(new JsonObject { ["id"] = SourceDefect == "changed-folder" ? Fixture.Process : QueryFolder,
                     ["name"] = "Shared Queries", ["isFolder"] = true, ["hasChildren"] = true, ["children"] = children }.ToJsonString());
@@ -1455,6 +1468,8 @@ public sealed partial class AdoProviderTests
                 BacklogMembershipReads++;
                 return Json("""{"workItems":[{"rel":null,"source":null,"target":{"id":1}},{"rel":"Native.Link","source":{"id":1},"target":{"id":2}}]}""");
             }
+            if (path.EndsWith("/_apis/work/backlogs/Native.Requirements"))
+                return Json("""{"id":"Native.Requirements","name":"Native backlog"}""");
             if (path.Contains("/_apis/wit/wiql/"))
             {
                 PlanningMembershipReads++;

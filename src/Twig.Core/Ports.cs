@@ -41,6 +41,9 @@ public interface IProvider
         => Task.FromResult(Result<PlanningSources>.Fail(ErrorCode.Unsupported, "This provider does not expose saved queries or backlogs."));
     Task<Result<PlanningBrowsePage>> BrowsePlanningAsync(Connection connection, string? team, PlanningSourceKind kind, string id, string? expectedTeam, CancellationToken ct)
         => Task.FromResult(Result<PlanningBrowsePage>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning membership."));
+    Task<Result<PlanningBrowsePage>> BrowsePlanningAsync(Connection connection, string? team, PlanningSourceKind kind, string id,
+        string? expectedTeam, ProcessSchema mappingSchema, CancellationToken ct)
+        => Task.FromResult(Result<PlanningBrowsePage>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning reads with recorded mapping metadata."));
     Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct);
     Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false);
     Task<Result<long>> ImportAsync(Proposal proposal, string confirmation, CancellationToken ct = default);

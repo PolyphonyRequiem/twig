@@ -109,12 +109,12 @@ public sealed partial class NativePublicationConsumerTests
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
         _transport.ExplicitPlanningTeams = true;
-        var initial = RequiredPlanning(await ReadSource(paths));
+        var initial = RequiredPlanning(await ReadSource(paths, schema: true));
         NativeSourceObservation? observed = null;
         foreach (var team in new[] { PrincipalTransport.TeamA, PrincipalTransport.TeamB })
         {
             observed = RequiredPlanning(await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source,
-                team, PlanningSourceKind.Backlog, "Fixture.Requirements", ConfigurePlanning, default));
+                team, PlanningSourceKind.Backlog, "Fixture.Requirements", initial.Schema!.Value, ConfigurePlanning, default));
             observed.PlanningBrowse!.Items.Single().NativeId.ShouldBe(team == PrincipalTransport.TeamA ? "42" : "43");
         }
         observed.ShouldNotBeNull();
@@ -122,10 +122,12 @@ public sealed partial class NativePublicationConsumerTests
         Query Backlog(string team) => new(QueryKind.Backlog, value: FieldValue.String("Fixture.Requirements"), planningTeam: team);
         var both = new Bench(Guid.NewGuid(), "Two team backlogs", [new(SelectorKind.Query,
             query: new(QueryKind.Or, children: [Backlog(PrincipalTransport.TeamA), Backlog(PrincipalTransport.TeamB)]), connection: connection)]);
-        var keys = RequiredPlanning(Twig.Core.Core.ResolveBench(both, observed.Snapshot, observed.Schema!.Value));
+        observed.Schema.ShouldBeNull();
+        var retainedSchema = initial.Schema!.Value with { Memberships = observed.Memberships };
+        var keys = RequiredPlanning(Twig.Core.Core.ResolveBench(both, observed.Snapshot, retainedSchema));
         keys.Select(key => key.NativeId).ShouldBe(["42", "43"]);
         var visible = RequiredPlanning(Twig.Core.Core.ApplyViewExclusions(keys,
-            [new(SelectorKind.Query, query: Backlog(PrincipalTransport.TeamB), connection: connection)], observed.Snapshot, observed.Schema.Value));
+            [new(SelectorKind.Query, query: Backlog(PrincipalTransport.TeamB), connection: connection)], observed.Snapshot, retainedSchema));
         visible.Single().NativeId.ShouldBe("42");
         RequiredPlanning(await store.ReadAsync(connection, default)).Proposals.ShouldBeEmpty();
         _transport.CommittedWrites.ShouldBe(0);

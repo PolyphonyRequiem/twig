@@ -288,11 +288,11 @@ internal static class NativeCoreExecution
         finally { lease?.Dispose(); }
     }
 
-    private static bool NoEffect(JournalEntry row) => row.Status == OpStatus.Failed && row.Receipts.Any(receipt =>
+    internal static bool NoEffect(JournalEntry row) => row.Status == OpStatus.Failed && row.Receipts.Any(receipt =>
         receipt.Status == OpStatus.Failed && receipt.PublishedKey is null && receipt.Revision is null && receipt.Error is not null
         && receipt.Digest == row.Digest && receipt.Operation == row.Operation && receipt.Attempt == row.Attempt);
 
-    private static bool ReferencesMatch(StoreSnapshot snapshot, IEnumerable<CoreAttemptReference> references)
+    internal static bool ReferencesMatch(StoreSnapshot snapshot, IEnumerable<CoreAttemptReference> references)
         => references.All(reference => snapshot.Proposals.FirstOrDefault(value => value.Digest == reference.Digest) is { } proposal
             && reference.MinimumVersion <= snapshot.Version
             && reference.Operation >= 0 && reference.Operation < proposal.Operations.Length

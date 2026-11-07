@@ -461,19 +461,23 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             && (pair.First.Query is null ? pair.Second.Query is null
                 : pair.Second.Query is not null && Model.QueryBytes(pair.First.Query).SequenceEqual(Model.QueryBytes(pair.Second.Query))));
 
-    internal async Task<Result<Proposal>> PrepareAsync(IEnumerable<Op> operations, CancellationToken ct)
+    internal async Task<Result<Proposal>> PrepareAsync(IEnumerable<Op> operations, CancellationToken ct,
+        CorePlanReviewCapture? review = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var intent = operations.ToImmutableArray();
-        var schema = await SchemaAsync(ct).ConfigureAwait(false);
+        if (review is not null && !OwnsPlanReview(review))
+            return Result<Proposal>.Fail(ErrorCode.Conflict, "The operation-local review capture belongs to another exact scope.");
+        var schema = review is null ? await SchemaAsync(ct).ConfigureAwait(false) : Result<ProcessSchema>.Ok(review.Metadata.Schema);
         if (!schema.IsSuccess) return Result<Proposal>.Fail(schema.Error);
-        var policy = await policies.CaptureAsync(connection, nativeActor, schema.Value, ct).ConfigureAwait(false);
+        var policy = review is null ? await policies.CaptureAsync(connection, nativeActor, schema.Value, ct).ConfigureAwait(false)
+            : Result<CapturedDeclaredPolicy>.Ok(review.Policy);
         if (!policy.IsSuccess) return Result<Proposal>.Fail(policy.Error);
         var snapshot = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!snapshot.IsSuccess) return Result<Proposal>.Fail(snapshot.Error);
         var proposal = new Proposal(connection, schema.Value.Fingerprint, snapshot.Value.Version, intent,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
-        var checkedPolicy = await CheckPolicyAsync(proposal, schema.Value, policy.Value, ct).ConfigureAwait(false);
+        var checkedPolicy = await CheckPolicyAsync(proposal, schema.Value, policy.Value, ct, review).ConfigureAwait(false);
         if (!checkedPolicy.IsSuccess) return Result<Proposal>.Fail(checkedPolicy.Error);
         snapshot = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!snapshot.IsSuccess) return Result<Proposal>.Fail(snapshot.Error);
@@ -710,14 +714,17 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     }
 
     internal async Task<Result<CoreDraftPreview>> PreviewDraftAsync(ItemKey key, CancellationToken ct,
-        IEnumerable<Op>? precedingCreates = null)
+        IEnumerable<Op>? precedingCreates = null, CorePlanReviewCapture? review = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<CoreDraftPreview>.Fail(read.Error);
         var draft = read.Value.Drafts.FirstOrDefault(d => d.Key == Resolve(read.Value, key));
         if (draft is null) return Result<CoreDraftPreview>.Fail(ErrorCode.NotFound, "No retained draft exists for the exact target.");
-        var discovery = await provider.DiscoverSchemaAsync(connection, ct).ConfigureAwait(false);
+        if (review is not null && !OwnsPlanReview(review))
+            return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The operation-local review capture belongs to another exact scope.");
+        var discovery = review is null ? await provider.DiscoverSchemaAsync(connection, ct).ConfigureAwait(false)
+            : Result<ProcessSchema>.Ok(review.Metadata.Schema);
         if (!discovery.IsSuccess) return Result<CoreDraftPreview>.Fail(discovery.Error);
         var schema = discovery.Value;
         Op op;
@@ -728,7 +735,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 var target = Resolve(read.Value, endpoint);
                 if (!target.IsLocal)
                 {
-                    var observed = await ReadAsync(target, ct).ConfigureAwait(false);
+                    var observed = await ReadAsync(target, ct, review?.Metadata).ConfigureAwait(false);
                     if (!observed.IsSuccess) return Result<CoreDraftPreview>.Fail(observed.Error);
                 }
                 else if (!read.Value.Drafts.Any(value => value.Key == target))
@@ -739,7 +746,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 var parentKey = Resolve(read.Value, parent);
                 if (!parentKey.IsLocal)
                 {
-                    var observed = await ReadAsync(parentKey, ct).ConfigureAwait(false);
+                    var observed = await ReadAsync(parentKey, ct, review?.Metadata).ConfigureAwait(false);
                     if (!observed.IsSuccess) return Result<CoreDraftPreview>.Fail(observed.Error);
                 }
                 else if (!read.Value.Drafts.Any(value => value.Key == parentKey))
@@ -751,7 +758,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         }
         else
         {
-            var remote = await ReadAsync(draft.Key, ct).ConfigureAwait(false);
+            var remote = await ReadAsync(draft.Key, ct, review?.Metadata).ConfigureAwait(false);
             if (!remote.IsSuccess) return Result<CoreDraftPreview>.Fail(remote.Error);
             var merge = Model.Merge(draft, remote.Value);
             if (!merge.IsSuccess) return Result<CoreDraftPreview>.Fail(merge.Error);
@@ -774,7 +781,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             op = new("edit", OpKind.Batch, draft.Key, remote.Value.Revision, fields, type,
                 concurrency: provider.Capabilities.ExactRevisions ? ConcurrencyMode.ExactRevision : ConcurrencyMode.ObservedNonAtomic);
         }
-        var policy = await policies.CaptureAsync(connection, nativeActor, schema, ct).ConfigureAwait(false);
+        var policy = review is null ? await policies.CaptureAsync(connection, nativeActor, schema, ct).ConfigureAwait(false)
+            : Result<CapturedDeclaredPolicy>.Ok(review.Policy);
         if (!policy.IsSuccess) return Result<CoreDraftPreview>.Fail(policy.Error);
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<CoreDraftPreview>.Fail(current.Error);
@@ -783,7 +791,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var operations = (precedingCreates ?? []).Append(op).ToImmutableArray();
         var proposal = new Proposal(connection, schema.Fingerprint, current.Value.Version, operations,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
-        var checkedPolicy = await CheckPolicyAsync(proposal, schema, policy.Value, ct).ConfigureAwait(false);
+        var checkedPolicy = await CheckPolicyAsync(proposal, schema, policy.Value, ct, review).ConfigureAwait(false);
         if (!checkedPolicy.IsSuccess) return Result<CoreDraftPreview>.Fail(checkedPolicy.Error);
         current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<CoreDraftPreview>.Fail(current.Error);
@@ -1023,7 +1031,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             : Result<bool>.Fail(capture.Error);
     }
 
-    private async Task<Result<bool>> CheckPolicyAsync(Proposal proposal, ProcessSchema schema, CapturedDeclaredPolicy policy, CancellationToken ct)
+    private async Task<Result<bool>> CheckPolicyAsync(Proposal proposal, ProcessSchema schema, CapturedDeclaredPolicy policy,
+        CancellationToken ct, CorePlanReviewCapture? review = null)
     {
         if (proposal.PolicyIdentity != policy.Document.Identity || proposal.PolicyRevision != policy.Document.Revision)
             return Result<bool>.Fail(ErrorCode.SchemaChanged, "The actual declared policy presence or bytes differ from the reviewed intent.");
@@ -1050,7 +1059,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             }
             else
             {
-                var read = await provider.ReadAsync(connection, [key], ct, captureOnly: true).ConfigureAwait(false);
+                var read = review is null ? await provider.ReadAsync(connection, [key], ct, captureOnly: true).ConfigureAwait(false)
+                    : await review.Metadata.Read([key], ct).ConfigureAwait(false);
                 if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
                 var item = read.Value.Items.SingleOrDefault(i => i.Key == key);
                 if (item?.RelationshipsComplete != true)

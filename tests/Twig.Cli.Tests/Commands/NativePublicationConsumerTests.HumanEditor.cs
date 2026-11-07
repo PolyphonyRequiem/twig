@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Immutable;
 using Shouldly;
 using Twig.Core;
 using Twig.Infrastructure.Auth;
@@ -9,6 +10,78 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class NativePublicationConsumerTests
 {
+    [Fact]
+    public async Task NativeHumanPlanEditorOpensOwnedScopeWithoutPublishingOrTouchingNormalDraft()
+    {
+        var host = await CreateHumanHostAsync();
+        using var services = EditorServices(host.Root);
+        var factory = services.GetRequiredService<CoreWorkspaceFactory>();
+        var user = UserBenchStore.ForRegistry(host.Registry);
+        var library = (await user.ReadAsync()).Value;
+        var bench = library.Benches.Single();
+        var key = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "42");
+        using var origin = (await factory.OpenAsync(default)).Value;
+        (await origin.Workspace.StageEditAsync(key,
+            FieldValues.Empty.Set("System.Title", FieldValue.String("Independent normal intent")), default)).IsSuccess.ShouldBeTrue();
+        (await user.SetPlanModeAsync(library.InstanceId, bench.Id, bench.Revision, 0, true)).IsSuccess.ShouldBeTrue();
+        (await user.ReadPlanAsync(bench.Id)).Value.PlanMode.ShouldBeTrue();
+        var opened = await OpenHumanHostAsync(host.Root, bench.Id, host.Stamp, default);
+        opened.IsSuccess.ShouldBeTrue(opened.IsSuccess ? "" : opened.Error.Message);
+        using var editor = opened.Value;
+        var selected = await editor.SelectAsync(key);
+        selected.IsSuccess.ShouldBeTrue(selected.IsSuccess ? "" : selected.Error.Message);
+        selected.Value.Values["System.Title"].Text.ShouldNotBe("Independent normal intent");
+        (await editor.SaveAsync(selected.Value.Ticket,
+            FieldValues.Empty.Set("System.Title", FieldValue.String("Must not publish")))).IsSuccess.ShouldBeFalse();
+        HumanPatchAttempts.ShouldBe(0);
+        (await origin.Workspace.SnapshotAsync(default)).Value.Drafts.Single()
+            .Changes["System.Title"].Text.ShouldBe("Independent normal intent");
+    }
+
+    [Fact]
+    public async Task NativeHumanPlanStagesAcrossItemsAndSeedsAndReopensWithoutCopyingNormalIntent()
+    {
+        var host = await CreateHumanHostAsync();
+        var user = UserBenchStore.ForRegistry(host.Registry);
+        var status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        (await user.ChangePlanModeAsync(status.UserInstance, host.Bench, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+        Guid seedId;
+        using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+        {
+            editor.PlanMode.ShouldBeTrue();
+            editor.StoreInstance.ShouldNotBe(host.Stamp.StoreInstance);
+            var first = (await editor.SelectAsync(ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "42"))).Value;
+            (await editor.StageAsync(first.Ticket, FieldValues.Empty.Set("System.Title", FieldValue.String("Planned 42")))).IsSuccess.ShouldBeTrue();
+            var second = (await editor.SelectAsync(ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "43"))).Value;
+            (await editor.StageAsync(second.Ticket, FieldValues.Empty.Set("System.Title", FieldValue.String("Planned 43")))).IsSuccess.ShouldBeTrue();
+            var created = await editor.CreateSeedAsync(first.Type);
+            created.IsSuccess.ShouldBeTrue(created.IsSuccess ? "" : created.Error.Message);
+            created.Value.Item.IsLocal.ShouldBeTrue();
+            seedId = created.Value.Item.LocalId;
+            (await editor.StageAsync(created.Value.Ticket,
+                FieldValues.Empty.Set("System.Title", FieldValue.String("Planned local seed")))).IsSuccess.ShouldBeTrue();
+            (await editor.ReadPlanDraftsAsync()).Value.Length.ShouldBe(3);
+            HumanPatchAttempts.ShouldBe(0);
+            status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+            (await user.ChangePlanModeAsync(status.UserInstance, host.Bench, status.BenchRevision, status.Revision, false)).IsSuccess.ShouldBeTrue();
+            (await editor.StageAsync(created.Value.Ticket,
+                FieldValues.Empty.Set("System.Title", FieldValue.String("Stale handle")))).Error.Code.ShouldBe(ErrorCode.Conflict);
+        }
+        using (var normal = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+        {
+            normal.PlanMode.ShouldBeFalse();
+            (await normal.CreateSeedAsync("Task")).Error.Code.ShouldBe(ErrorCode.Unsupported);
+            (await normal.SelectAsync(ItemKey.Local(seedId))).Error.Code.ShouldBe(ErrorCode.Unsupported);
+        }
+        status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        (await user.ChangePlanModeAsync(status.UserInstance, host.Bench, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+        using var reopened = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value;
+        var drafts = (await reopened.ReadPlanDraftsAsync()).Value;
+        drafts.Length.ShouldBe(3);
+        drafts.Single(value => value.Key.IsLocal && value.Key.LocalId == seedId).Changes["System.Title"].Text.ShouldBe("Planned local seed");
+        HumanPatchAttempts.ShouldBe(0);
+    }
+
     public async Task<(string Root, string Registry, Guid Bench, NativeSourceStamp Stamp)> CreateHumanHostAsync()
     {
         var native = await RelationshipWorkspaceAsync();
@@ -30,6 +103,11 @@ public sealed partial class NativePublicationConsumerTests
         => NativeSourceReader.ReadOnlineAsync(root, expected, ConfigureHumanEditor, ct);
     public Task<Result<NativeItemEditor>> OpenHumanHostAsync(string root, Guid bench, NativeSourceStamp expected, CancellationToken ct)
         => NativeItemEditor.OpenAsync(root, bench, expected, ConfigureHumanEditor, ct);
+    public Task<Result<NativePlanReview>> ReviewHumanPlanAsync(string root, Guid bench, ImmutableArray<NativePlanSource> sources, CancellationToken ct)
+        => NativePlanReview.ReviewAsync(root, bench, sources, ConfigureHumanEditor, ct);
+    public Task<Result<NativePlanReview>> OpenHumanPlanReviewAsync(string root, string digest, CancellationToken ct)
+        => NativePlanReview.OpenAsync(root, digest, ConfigureHumanEditor, ct);
+    public Func<Task>? HumanBeforeProjectMetadata { set => _transport.BeforeProjectMetadata = value; }
     public Task<Result<NativeSourceObservation>> SelectHumanBenchAsync(string root, NativeSourceStamp expected, Guid? previous, Guid? next, CancellationToken ct)
         => NativeSourceReader.SelectBenchAsync(root, expected, previous, next, ConfigureHumanEditor, ct);
     public int HumanPatchAttempts => _transport.PatchAttempts;

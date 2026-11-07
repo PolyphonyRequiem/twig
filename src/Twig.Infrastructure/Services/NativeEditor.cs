@@ -20,6 +20,8 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
     internal NativeBenchPlan Plan => plan;
     internal NativeSourceStamp Origin => origin;
     internal Guid BenchId => bench.Id;
+    internal Guid ScopeId => scope?.Id ?? Guid.Empty;
+    internal Guid StoreInstance => handle.Document.DatabaseInstance;
     public void Dispose() => handle.Dispose();
 
     internal static async Task<Result<NativeEditor>> OpenAsync(CoreWorkspaceFactory factory, UserBenchStore user,
@@ -97,6 +99,23 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
             observed = new(key, seed.Type, FieldValues.Empty, null, true);
         }
         return await Item(observed, ct).ConfigureAwait(false);
+    }
+
+    internal async Task<Result<NativeEditorItem>> CreateSeedAsync(string type, CancellationToken ct)
+    {
+        using var benchLease = user.AcquireAuthoringLease(bench.Id);
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
+        if (!plan.PlanMode || scope is null || !metadata.Schema.Types.Any(value => value.Reference == type))
+            return Result<NativeEditorItem>.Fail(ErrorCode.InvalidInput, "Choose a native type in this exact Plan scope.");
+        var key = ItemKey.Local(Guid.CreateVersion7());
+        var reserved = await user.ReservePlanSeedAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id, key.LocalId, ct).ConfigureAwait(false);
+        if (!reserved.IsSuccess) return Result<NativeEditorItem>.Fail(reserved.Error);
+        plan = reserved.Value;
+        var observed = new WorkItem(key, type, FieldValues.Empty, null, true);
+        var item = await Item(observed, ct).ConfigureAwait(false);
+        return item.IsSuccess ? await StageAsync(item.Value, FieldValues.Empty, type, [], ct).ConfigureAwait(false)
+            : Result<NativeEditorItem>.Fail(item.Error);
     }
 
     private async Task<Result<NativeEditorItem>> Item(WorkItem observed, CancellationToken ct)

@@ -6,8 +6,46 @@
 Evaluation and canonical choices are provisional; human Save uses the durable
 normal capture, Core merge/validation, exact digest, policy, journal and verified
 readback path. It never selects an active item or flushes independent Plan fields.
-Seeds, relationships and GitHub remain outside this first editor surface.
+Normal-mode seeds, relationship authoring and GitHub remain outside this editor surface.
 Protected CLI/relationship debt is refused, not silently adopted.
+
+## Whole-Bench Plan host boundary
+
+`UserBenchStore.ReadPlanStatusAsync` and `ChangePlanModeAsync` address the named
+user-wide Bench with explicit user-store/Bench/Plan revision checks. Exiting Plan
+preserves its owned connection scopes and drafts. `NativeItemEditor` captures the
+current mode and exposes its exact Plan/scope/store binding; `StageAsync` and
+`CreateSeedAsync` operate only in Plan, while `SaveAsync` refuses Plan before any
+stage or dispatch. Creation evaluation retains native required/allowed/read-only
+fields; a local seed has no remote pre-state to which closure gates could apply.
+Normal drafts and active-item context remain separate.
+
+`NativePlanReview` retains a whole digest over exact scopes, sources, capture
+revisions, draft fingerprints and immutable Core proposal bytes. Apply validates
+every affected scope before the first dispatch, then rechecks each remaining
+scope and passes those exact retained Core digests to `SaveDraftSetAsync`.
+Application is sequential, not cross-source atomic. The Core journal remains the
+only remote outcome authority; native review rows retain admission/delivery
+references, not a second outcome journal. A dispatch marker alone is not an
+outcome: fresh explicit review of an untouched remainder requires both the
+original sealed Core store and native registry to prove no original attempt.
+Definitively no-effect existing-item edits use that same native receipt/registry
+proof for a new review, never a replay. Attempted creation UUIDs stay fenced.
+One fresh, exact-scope metadata/policy capture serves a Review operation's
+previews and preparation; it is neither global nor TTL-cached and cannot authorize
+Apply. Apply retains its independent fresh authority/schema/policy checks.
+
+Verified remote effects, original-cache read delivery, additive Bench seed pins
+and capture settlement are separate. Failed delivery remains
+`VerifiedDeliveryPending`; `ContinueDeliveryAsync` never dispatches an upstream
+operation. Converged null-proposal drafts settle locally without manufacturing a
+Verified receipt. Uncertain attempts remain protected across restart and are
+never automatically replayed. Historical Verified rows do not block new intent
+to the same item after the original capture was fully delivered and settled.
+Delivery can settle only an attributable Verified prefix within one scope and
+preserves the unattempted/no-effect or uncertain remainder. Exact retained drafts
+and mapped seeds can finish local cleanup after a verified-remote/local-storage
+failure; newer drafts are preserved, not silently consumed.
 
 `NativeAuthoringReview` is the existing one-time safety check, not per-Save
 approval. The operator must actually observe the supported prior readonly release

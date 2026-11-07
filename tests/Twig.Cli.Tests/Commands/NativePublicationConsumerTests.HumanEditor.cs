@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Immutable;
 using Shouldly;
 using Twig.Core;
 using Twig.Infrastructure.Auth;
@@ -102,6 +103,11 @@ public sealed partial class NativePublicationConsumerTests
         => NativeSourceReader.ReadOnlineAsync(root, expected, ConfigureHumanEditor, ct);
     public Task<Result<NativeItemEditor>> OpenHumanHostAsync(string root, Guid bench, NativeSourceStamp expected, CancellationToken ct)
         => NativeItemEditor.OpenAsync(root, bench, expected, ConfigureHumanEditor, ct);
+    public Task<Result<NativePlanReview>> ReviewHumanPlanAsync(string root, Guid bench, ImmutableArray<NativePlanSource> sources, CancellationToken ct)
+        => NativePlanReview.ReviewAsync(root, bench, sources, ConfigureHumanEditor, ct);
+    public Task<Result<NativePlanReview>> OpenHumanPlanReviewAsync(string root, string digest, CancellationToken ct)
+        => NativePlanReview.OpenAsync(root, digest, ConfigureHumanEditor, ct);
+    public Func<Task>? HumanBeforeProjectMetadata { set => _transport.BeforeProjectMetadata = value; }
     public Task<Result<NativeSourceObservation>> SelectHumanBenchAsync(string root, NativeSourceStamp expected, Guid? previous, Guid? next, CancellationToken ct)
         => NativeSourceReader.SelectBenchAsync(root, expected, previous, next, ConfigureHumanEditor, ct);
     public int HumanPatchAttempts => _transport.PatchAttempts;

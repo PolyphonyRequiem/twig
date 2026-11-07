@@ -360,13 +360,13 @@ public sealed partial class GitHubCoreSpineTests
         (await f.Snapshot()).Proposals.ShouldBeEmpty();
     }
 
-    private sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         internal string Root { get; } = CanonicalTempRoot.Create("twig-gh-spine-");
         internal NativeHttp Http { get; } = new();
-        private readonly ConnectionBindingService _bindings;
+        internal readonly ConnectionBindingService _bindings;
         private readonly SqliteSystemWorktreeRegistry _registry;
-        private readonly IBoundedProcessRunner _processes = Substitute.For<IBoundedProcessRunner>();
+        internal readonly IBoundedProcessRunner _processes = Substitute.For<IBoundedProcessRunner>();
         private CoreWorkspaceDocument _document = null!;
         internal string Output = "", Error = "";
         internal int CredentialCalls;
@@ -511,7 +511,7 @@ public sealed partial class GitHubCoreSpineTests
         }
     }
 
-    private sealed class NativeHttp : HttpMessageHandler
+    internal sealed class NativeHttp : HttpMessageHandler
     {
         internal int Requests, WorkRequests, Writes, Creates, SchemaRequests, OnlineAccessRequests;
         internal bool LoseAcknowledgement, MoreCandidates;
@@ -603,7 +603,8 @@ public sealed partial class GitHubCoreSpineTests
             }
             else if (query.Contains("__type(", StringComparison.Ordinal))
             {
-                var update = Names("id", "title", "body", "state", "assigneeIds"); update["inputFields"] = update["fields"]!.DeepClone(); update.Remove("fields");
+                var update = Names(Defect == "schema" ? ["id", "title", "state", "assigneeIds"] : ["id", "title", "body", "state", "assigneeIds"]);
+                update["inputFields"] = update["fields"]!.DeepClone(); update.Remove("fields");
                 var create = Names("repositoryId", "title", "body", "assigneeIds"); create["inputFields"] = create["fields"]!.DeepClone(); create.Remove("fields");
                 data = new JsonObject { ["issue"] = Names("id", "number", "title", "body", "state", "updatedAt", "repository", "assignees"),
                     ["issueType"] = null, ["repository"] = Names("issues"),

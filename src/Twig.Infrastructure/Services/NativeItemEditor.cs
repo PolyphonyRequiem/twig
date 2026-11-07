@@ -34,8 +34,8 @@ public sealed class NativeItemEditor : IDisposable
     internal static async Task<Result<NativeItemEditor>> OpenAsync(string root, Guid benchId,
         NativeSourceStamp expected, Action<IServiceCollection>? configure, CancellationToken ct)
     {
-        if (expected.Connection.Provider.Value != "ado")
-            return Result<NativeItemEditor>.Fail(ErrorCode.Unsupported, "This authoring surface supports Azure DevOps only; GitHub remains read-only.");
+        if (expected.Connection.Provider.Value is not ("ado" or "github"))
+            return Result<NativeItemEditor>.Fail(ErrorCode.Unsupported, "This provider has no qualified native item editor.");
         if (!Path.IsPathFullyQualified(root) || Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) != root)
             return Result<NativeItemEditor>.Fail(ErrorCode.InvalidInput, "An exact native workspace is required.");
         var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), new TwigConfiguration(), root);

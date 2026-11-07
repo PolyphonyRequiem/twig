@@ -46,6 +46,19 @@ policies**, not external repository automation. An absent optional Twig
 declaration means no declared local rules, never that external workflows have
 been discovered, satisfied or waived.
 
+The existing native human item editor now admits existing GitHub issues for
+`github.title`, `github.body` (Markdown) and the discovered `github.state`.
+`EditorMetadata.EditableFields` projects only acquired existing scalar update
+inputs through the provider's native mapping; it is not write authorization.
+Canonical ordinal mutation/input membership participates in schema identity, so
+an input disappearing after capture invalidates Save. Collection/type/creation
+and protected relationship intent are refused by this scalar surface, not
+silently dropped. ADO required-field and atomic close-gate behavior is unchanged.
+Normal Save uses existing Core preview/prepare/execute/readback. Plan Stage uses
+the exact isolated native scope and never publishes or flushes through normal
+Save. Both retain observed-non-atomic semantics and the undiscoverable automation
+limitation; explicit empty Markdown clears are distinct from null/HTML.
+
 `ReadRuleProjectionAsync` must acquire connection/actor/native-fingerprint-bound
 `GitHubRuleProjection` evidence explicitly naming that scope. Policy identity,
 actual revision and per-type field rules participate in confirmation. Missing,

@@ -151,7 +151,19 @@ public sealed partial class GitHubProvider
                 : Array.Empty<FieldRule>()).Append(new FieldRule(Title, RuleAction.Unknown, [],
                 [FieldValue.Raw(bound.Authority, "github.acquired-authority")], disabled: true))
                 .Append(new FieldRule(Title, RuleAction.Unknown, [],
-                    [FieldValue.Raw(RuleDiscovery, "github.native-rule-discovery")], disabled: true)), t.Hidden)).ToArray();
+                    [FieldValue.Raw(RuleDiscovery, "github.native-rule-discovery")], disabled: true))
+                .Append(new FieldRule(Title, RuleAction.Unknown, [],
+                    [FieldValue.Raw(Wire.Utf8(Wire.Json(json =>
+                    {
+                        json.WriteStartArray();
+                        foreach (var members in new[] { mutations, update, create })
+                        {
+                            json.WriteStartArray();
+                            foreach (var member in members.Order(StringComparer.Ordinal)) json.WriteStringValue(member);
+                            json.WriteEndArray();
+                        }
+                        json.WriteEndArray();
+                    })), "github.native-mutation-inputs")], disabled: true)), t.Hidden)).ToArray();
         var nativeSchema = new ProcessSchema(_connection, itemTypes, relations, gaps);
         var rules = await bound.Session.ReadRuleProjectionAsync(nativeSchema, ct);
         if (!rules.IsSuccess) gaps.Add($"{RuleDiscovery}; {rules.Error.Code}: {rules.Error.Message}");

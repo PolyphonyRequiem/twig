@@ -11,7 +11,7 @@ internal sealed record NativeEditorItem(WorkItem Observation, Draft? Draft, long
     NativeEditorCapture? Capture, EditorEvaluation Evaluation);
 
 /// <summary>Native-only authoring session. Cached guidance never grants publication authority.</summary>
-internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore user, CoreWorkspaceHandle handle,
+internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore user, CoreWorkspaceHandle handle,
     NativeSourceStamp origin, UserBenchSnapshot library, Bench bench, NativeBenchPlan plan, NativePlanScope? scope,
     NativeEditorMetadata metadata) : IDisposable
 {
@@ -95,7 +95,8 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
             var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
             if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
             var seed = stored.Value.Drafts.SingleOrDefault(draft => draft.Key == key);
-            if (seed is null) return Result<NativeEditorItem>.Fail(ErrorCode.NotFound, "The exact owned seed is unavailable.");
+            if (seed is null) return Result<NativeEditorItem>.Fail(plan.PlanMode ? ErrorCode.NotFound : ErrorCode.Unsupported,
+                "The exact owned seed is unavailable in this native store/mode; other Plan or CLI debt was not adopted.");
             observed = new(key, seed.Type, FieldValues.Empty, null, true);
         }
         return await Item(observed, ct).ConfigureAwait(false);
@@ -106,12 +107,17 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
         using var benchLease = user.AcquireAuthoringLease(bench.Id);
         var valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
-        if (!plan.PlanMode || scope is null || !metadata.Schema.Types.Any(value => value.Reference == type))
-            return Result<NativeEditorItem>.Fail(ErrorCode.InvalidInput, "Choose a native type in this exact Plan scope.");
+        if (plan.PlanMode && scope is null || !metadata.Schema.Types.Any(value => value.Reference == type && !value.Hidden))
+            return Result<NativeEditorItem>.Fail(ErrorCode.InvalidInput, "Choose an available discovered type in this exact native source.");
+        if (!plan.PlanMode && origin.Connection.Provider.Value != "ado")
+            return Result<NativeEditorItem>.Fail(ErrorCode.Unsupported, "Normal native creation supports an explicit ADO source only.");
         var key = ItemKey.Local(Guid.CreateVersion7());
-        var reserved = await user.ReservePlanSeedAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id, key.LocalId, ct).ConfigureAwait(false);
-        if (!reserved.IsSuccess) return Result<NativeEditorItem>.Fail(reserved.Error);
-        plan = reserved.Value;
+        if (scope is not null)
+        {
+            var reserved = await user.ReservePlanSeedAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id, key.LocalId, ct).ConfigureAwait(false);
+            if (!reserved.IsSuccess) return Result<NativeEditorItem>.Fail(reserved.Error);
+            plan = reserved.Value;
+        }
         var observed = new WorkItem(key, type, FieldValues.Empty, null, true);
         var item = await Item(observed, ct).ConfigureAwait(false);
         return item.IsSuccess ? await StageAsync(item.Value, FieldValues.Empty, type, [], ct).ConfigureAwait(false)
@@ -133,6 +139,8 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
             && (retained.Origin != origin || !NativePathComparer.Instance.Equals(retained.Root, factory.WorkspaceRoot)))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Retained intent belongs to another native authority/origin; it was not adopted.");
         var draft = stored.Value.Drafts.SingleOrDefault(value => value.Key == observed.Key);
+        if (observed.Key.IsLocal && !plan.PlanMode && matches.SingleOrDefault() is { } owner && owner.BenchId != bench.Id)
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The normal seed is owned by another exact Bench; its capture was not adopted.");
         var evaluation = Model.EvaluateEditorFields(metadata.Schema, draft?.Baseline ?? observed, draft?.Changes ?? FieldValues.Empty,
             Workspace.Capabilities.AtomicFieldBatches, draft?.Type);
         return evaluation.IsSuccess ? Result<NativeEditorItem>.Ok(new(observed, draft, stored.Value.Version, matches.SingleOrDefault(), evaluation.Value))
@@ -148,6 +156,21 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
         if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
         var current = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<NativeEditorItem>.Fail(current.Error);
+        if (!plan.PlanMode && item.Observation.Key.IsLocal)
+        {
+            if (item.Draft is not null && item.Capture is null)
+                return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Unowned CLI seed debt cannot be adopted by native authoring.");
+            if (item.Capture is { } normal && (normal.BenchId != bench.Id || normal.PlanMode
+                || normal.SeedProposal is not null || normal.Origin != origin))
+                return Result<NativeEditorItem>.Fail(ErrorCode.Indeterminate, "The original normal seed reference is protected; inspect or continue its delivery without restaging.");
+            if (current.Value.Journal.Any(row => row.Status != OpStatus.Planned
+                && current.Value.Proposals.Single(value => value.Digest == row.Digest).Operations[row.Operation].Item == item.Observation.Key))
+                return Result<NativeEditorItem>.Fail(ErrorCode.Indeterminate, "An original creation attempt protects this UUID; no replacement intent was staged.");
+            if (type is not null && type != item.Observation.Type || relationships is { IsEmpty: false }
+                || item.Draft is { } seed && (seed.Parent is not null || seed.ParentRelation is not null
+                    || seed.Resource is not null || !seed.Links.IsEmpty))
+                return Result<NativeEditorItem>.Fail(ErrorCode.Unsupported, "Normal seeds support one explicit type and scalar fields only, without parent, links or resources.");
+        }
         if (plan.PlanMode && item.Observation.Key.IsLocal)
         {
             var owner = await user.ReadPlanSeedOwnerAsync(item.Observation.Key.LocalId, ct).ConfigureAwait(false);
@@ -259,6 +282,8 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
             if (!rebound.IsSuccess) return Result<CoreExecution>.Fail(rebound.Error);
             capture = rebound.Value;
         }
+        if (capture.SeedProposal is not null)
+            return Result<CoreExecution>.Fail(ErrorCode.Indeterminate, "The original seed execution is already retained; continue delivery only.");
         var intent = UserBenchStore.ParseIntent(capture.IntentJson);
         var schema = await Workspace.SchemaAsync(ct).ConfigureAwait(false);
         if (!schema.IsSuccess) return Result<CoreExecution>.Fail(schema.Error);
@@ -268,7 +293,24 @@ internal sealed class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore 
         var preview = await Workspace.PreviewEditorDraftAsync(op.Item, op.Item.IsLocal ? [] : op.Links, op.ExpectedRevision, ct,
             capture.Endpoints).ConfigureAwait(false);
         if (!preview.IsSuccess) return Result<CoreExecution>.Fail(preview.Error);
+        if (op.Item.IsLocal)
+        {
+            if (preview.Value.Proposal is null)
+                return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Native seed creation requires an exact Core proposal.");
+            var retained = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1,
+                SeedProposal = Encoding.UTF8.GetString(Model.ProposalBytes(preview.Value.Proposal)) }, capture.Revision, ct).ConfigureAwait(false);
+            if (!retained.IsSuccess) return Result<CoreExecution>.Fail(retained.Error);
+            capture = retained.Value;
+        }
         var result = await Workspace.SaveDraftAsync(preview.Value, preview.Value.Proposal?.Digest, ct).ConfigureAwait(false);
+        if (op.Item.IsLocal)
+        {
+            var delivered = await ContinueSeedDeliveryAsync(capture.Id, preview.Value.Proposal!.Digest, ct).ConfigureAwait(false);
+            var execution = result.IsSuccess ? result.Value : new CoreExecution([], result.Error);
+            return delivered.IsSuccess ? Result<CoreExecution>.Ok(execution with
+                { DraftRetained = delivered.Value.Status != "Complete", Error = delivered.Value.Error ?? execution.Error })
+                : Result<CoreExecution>.Ok(execution with { DraftRetained = true, Error = delivered.Error });
+        }
         if (!result.IsSuccess || !result.Value.EffectsVerified || result.Value.DraftRetained) return result;
         var settled = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1, Settled = true },
             capture.Revision, ct).ConfigureAwait(false);

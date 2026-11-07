@@ -10,7 +10,10 @@ namespace Twig.Infrastructure.Services;
 
 public sealed record NativeEditForm(Guid Ticket, ItemKey Item, string Type, string StateField,
     FieldValues Values, EditorEvaluation Evaluation);
-public sealed record NativeEditResult(bool Verified, bool DraftRetained, Error? Error);
+public sealed record NativeEditResult(bool Verified, bool DraftRetained, Error? Error)
+{
+    public NativeSeedPublication? SeedPublication { get; init; }
+}
 
 /// <summary>Human-host editor session. No active-item selection or alternate publisher.</summary>
 public sealed class NativeItemEditor : IDisposable
@@ -66,11 +69,11 @@ public sealed class NativeItemEditor : IDisposable
         {
             if (key.IsLocal && GitHub)
                 return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "GitHub authoring here supports existing issues only; local creation intent remains protected.");
-            if (key.IsLocal && !PlanMode)
-                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Local seeds remain read-only outside Plan mode.");
             var selected = await editor.SelectAsync(key, ct).ConfigureAwait(false);
             if (!selected.IsSuccess) return Result<NativeEditForm>.Fail(selected.Error);
             var item = selected.Value;
+            if (key.IsLocal && !PlanMode && item.Capture is { SeedProposal: not null })
+                return Result<NativeEditForm>.Fail(ErrorCode.Indeterminate, "The original seed publication is protected. Observe or continue its exact delivery reference; never edit or create it again.");
             if (item.Capture is { Ready: false })
                 return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Interrupted native intent requires explicit recovery before editing.");
             if (item.Capture is { } capture && !UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Links.IsEmpty)
@@ -124,8 +127,16 @@ public sealed class NativeItemEditor : IDisposable
             items[ticket] = staged.Value;
             var saved = await editor.SaveAsync(staged.Value, ct).ConfigureAwait(false);
             if (!saved.IsSuccess) return Result<NativeEditResult>.Fail(saved.Error);
+            NativeSeedPublication? publication = null;
+            if (staged.Value.Observation.Key.IsLocal)
+            {
+                var observed = await editor.ObserveSeedAsync(staged.Value.Capture!.Id, ct).ConfigureAwait(false);
+                if (!observed.IsSuccess) return Result<NativeEditResult>.Fail(observed.Error);
+                publication = observed.Value with { Error = saved.Value.Error ?? observed.Value.Error };
+            }
             if (saved.Value.EffectsVerified && !saved.Value.DraftRetained) items.Remove(ticket);
-            return Result<NativeEditResult>.Ok(new(saved.Value.EffectsVerified, saved.Value.DraftRetained, saved.Value.Error));
+            return Result<NativeEditResult>.Ok(new(saved.Value.EffectsVerified, saved.Value.DraftRetained, saved.Value.Error)
+                { SeedPublication = publication });
         }
         finally { gate.Release(); }
     }
@@ -138,9 +149,10 @@ public sealed class NativeItemEditor : IDisposable
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (!PlanMode) return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Enter Plan mode explicitly before staging.");
             if (!items.TryGetValue(ticket, out var item))
-                return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Reopen the exact Plan item before staging.");
+                return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Reopen the exact native item before staging.");
+            if (!PlanMode && (!item.Observation.Key.IsLocal || GitHub))
+                return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Normal staging supports owned ADO seeds only; existing scalar edits use Save.");
             var evaluated = Form(ticket, item, changes);
             if (!evaluated.IsSuccess) return evaluated;
             var staged = await editor.StageAsync(item, changes, null, null, ct).ConfigureAwait(false);
@@ -159,7 +171,6 @@ public sealed class NativeItemEditor : IDisposable
         {
             if (GitHub)
                 return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "GitHub authoring here supports existing issues only; creation remains in its native workflow.");
-            if (!PlanMode) return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Local seed authoring requires explicit Plan mode.");
             var created = await editor.CreateSeedAsync(type, ct).ConfigureAwait(false);
             if (!created.IsSuccess) return Result<NativeEditForm>.Fail(created.Error);
             items.Clear();
@@ -167,6 +178,27 @@ public sealed class NativeItemEditor : IDisposable
             items[ticket] = created.Value;
             return Form(ticket, created.Value, FieldValues.Empty);
         }
+        finally { gate.Release(); }
+    }
+
+    public async Task<Result<ImmutableArray<NativeOwnedSeed>>> ReadOwnedSeedsAsync(CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try { return await editor.ReadOwnedSeedsAsync(ct).ConfigureAwait(false); }
+        finally { gate.Release(); }
+    }
+
+    public async Task<Result<NativeSeedPublication>> ObserveSeedAsync(Guid captureId, CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try { return await editor.ObserveSeedAsync(captureId, ct).ConfigureAwait(false); }
+        finally { gate.Release(); }
+    }
+
+    public async Task<Result<NativeSeedPublication>> ContinueSeedDeliveryAsync(Guid captureId, string exactDigest, CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try { return await editor.ContinueSeedDeliveryAsync(captureId, exactDigest, ct).ConfigureAwait(false); }
         finally { gate.Release(); }
     }
 

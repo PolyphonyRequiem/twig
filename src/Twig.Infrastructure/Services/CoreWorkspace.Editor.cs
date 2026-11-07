@@ -41,9 +41,10 @@ internal sealed partial class CoreWorkspace
             baseline.Fields, baseline.Type)] : [])).Digest;
 
     internal async Task<Result<CoreDraftPreview>> PreviewEditorDraftAsync(ItemKey key, ImmutableArray<CreationLink> links,
-        Revision? relationshipBaseline, CancellationToken ct, ImmutableArray<NativeEditorEndpoint> endpoints = default)
+        Revision? relationshipBaseline, CancellationToken ct, ImmutableArray<NativeEditorEndpoint> endpoints = default,
+        CorePlanReviewCapture? review = null)
     {
-        var preview = await PreviewDraftAsync(key, ct).ConfigureAwait(false);
+        var preview = await PreviewDraftAsync(key, ct, review: review).ConfigureAwait(false);
         if (!preview.IsSuccess || links.IsEmpty) return preview;
         if (key.IsLocal) return Result<CoreDraftPreview>.Fail(ErrorCode.InvalidInput, "Seed links must remain in their exact native seed draft.");
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
@@ -53,7 +54,7 @@ internal sealed partial class CoreWorkspace
             return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The native relationship baseline changed; exact directed intent was preserved.");
         foreach (var endpoint in links.Select(link => link.Other).Distinct())
         {
-            var read = await ReadAsync(endpoint, ct).ConfigureAwait(false);
+            var read = await ReadAsync(endpoint, ct, review?.Metadata).ConfigureAwait(false);
             if (!read.IsSuccess) return Result<CoreDraftPreview>.Fail(read.Error);
             if (endpoints.IsDefault || !endpoints.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(endpoint)
                 && proof.Revision == read.Value.Revision?.Token))
@@ -61,7 +62,7 @@ internal sealed partial class CoreWorkspace
         }
         var effect = preview.Value.Proposal?.Operations.Single(value => value.Item == key);
         var prepared = await PrepareAsync([new("edit", OpKind.Batch, key, observed.Revision,
-            effect?.Fields ?? FieldValues.Empty, effect?.Type, concurrency: Concurrency, links: links)], ct).ConfigureAwait(false);
+            effect?.Fields ?? FieldValues.Empty, effect?.Type,             concurrency: Concurrency, links: links)], ct, review).ConfigureAwait(false);
         return prepared.IsSuccess ? Result<CoreDraftPreview>.Ok(new(preview.Value.Draft, prepared.Value))
             : Result<CoreDraftPreview>.Fail(prepared.Error);
     }

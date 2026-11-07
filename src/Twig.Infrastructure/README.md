@@ -29,6 +29,11 @@ only remote outcome authority; native review rows retain admission/delivery
 references, not a second outcome journal. A dispatch marker alone is not an
 outcome: fresh explicit review of an untouched remainder requires both the
 original sealed Core store and native registry to prove no original attempt.
+Definitively no-effect existing-item edits use that same native receipt/registry
+proof for a new review, never a replay. Attempted creation UUIDs stay fenced.
+One fresh, exact-scope metadata/policy capture serves a Review operation's
+previews and preparation; it is neither global nor TTL-cached and cannot authorize
+Apply. Apply retains its independent fresh authority/schema/policy checks.
 
 Verified remote effects, original-cache read delivery, additive Bench seed pins
 and capture settlement are separate. Failed delivery remains
@@ -37,6 +42,10 @@ operation. Converged null-proposal drafts settle locally without manufacturing a
 Verified receipt. Uncertain attempts remain protected across restart and are
 never automatically replayed. Historical Verified rows do not block new intent
 to the same item after the original capture was fully delivered and settled.
+Delivery can settle only an attributable Verified prefix within one scope and
+preserves the unattempted/no-effect or uncertain remainder. Exact retained drafts
+and mapped seeds can finish local cleanup after a verified-remote/local-storage
+failure; newer drafts are preserved, not silently consumed.
 
 `NativeAuthoringReview` is the existing one-time safety check, not per-Save
 approval. The operator must actually observe the supported prior readonly release

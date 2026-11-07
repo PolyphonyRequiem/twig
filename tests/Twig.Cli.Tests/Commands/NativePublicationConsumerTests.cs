@@ -2448,6 +2448,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public List<int> ItemReadIds { get; } = [];
         public bool RejectNextPatch { get; set; }
         public HttpStatusCode? RejectNextPatchStatus { get; set; }
+        public HttpStatusCode? RejectNextCreateStatus { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
         public bool FailCurrentReadsAfterCommit { get; set; }
         public bool OmitEmptyRelations { get; set; }
@@ -2633,6 +2634,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var segments = path[(routeIndex + route.Length)..].Split('/');
             if (CoreMetadataEnabled && request.Method == HttpMethod.Post && segments[0] == "$Task")
             {
+                if (RejectNextCreateStatus is { } rejectedCreate)
+                {
+                    RejectNextCreateStatus = null;
+                    return Reply(rejectedCreate, new { message = "Fixture definitive creation refusal" });
+                }
                 using var create = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
                 var title = create.RootElement.EnumerateArray()
                     .Single(operation => operation.GetProperty("path").GetString() == "/fields/System.Title")

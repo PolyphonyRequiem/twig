@@ -77,9 +77,11 @@ public sealed partial class UserBenchStore
                     for (var index = 0; index < previous.Scopes.Length; index++)
                     {
                         var scope = previous.Scopes[index];
-                        if (!scope.Captures.Any(capture => document.Scopes.SelectMany(value => value.Captures).Any(current => current.Id == capture.Id)))
+                        var overlap = scope.Captures.Where(capture =>
+                            document.Scopes.SelectMany(value => value.Captures).Any(current => current.Id == capture.Id)).ToImmutableArray();
+                        if (overlap.IsEmpty)
                             continue;
-                        var untouched = await ProveUnattempted(scope, ct).ConfigureAwait(false);
+                        var untouched = await ProveUnattempted(scope, overlap, ct).ConfigureAwait(false);
                         if (!untouched.IsSuccess) return Result<NativePlanReviewReference>.Fail(untouched.Error);
                     }
                 }
@@ -148,7 +150,8 @@ public sealed partial class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
     }
 
-    private async Task<Result<bool>> ProveUnattempted(NativePlanReviewScope scope, CancellationToken ct)
+    private async Task<Result<bool>> ProveUnattempted(NativePlanReviewScope scope,
+        ImmutableArray<NativeEditorCapture> overlap, CancellationToken ct)
     {
         var source = scope.Scope;
         var snapshot = await NativeCoreExecution.InspectAsync(new(source.StoreInstance, source.DatabasePath,
@@ -156,17 +159,28 @@ public sealed partial class UserBenchStore
         if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
         if (scope.Proposal is null) return Result<bool>.Ok(true);
         var proposal = ParseIntent(scope.Proposal);
-        if (snapshot.Value.Journal.Any(row => row.Digest == proposal.Digest && row.Status != OpStatus.Planned))
+        var keys = overlap.Select(capture => ParseIntent(capture.IntentJson).Operations.Single().Item).ToHashSet();
+        var ordinals = proposal.Operations.Select((op, index) => (op, index))
+            .Where(value => keys.Contains(value.op.Item)).Select(value => value.index).ToHashSet();
+        var rows = snapshot.Value.Journal.Where(row => row.Digest == proposal.Digest && ordinals.Contains(row.Operation)).ToArray();
+        if (rows.Any(row => row.Status != OpStatus.Planned && !DefinitivePlanEditNoEffect(snapshot.Value, row)))
             return Result<bool>.Fail(ErrorCode.Indeterminate, "Original Core journal evidence fences this remainder.");
         if (captureRegistry is null)
             return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The original native registry is required to prove an untouched remainder.");
         using var registry = new SqliteSystemWorktreeRegistry(captureRegistry, TimeProvider.System);
         var claims = await registry.CoreAttemptReferencesAsync(source.StoreInstance, ct).ConfigureAwait(false);
         if (!claims.IsSuccess) return Result<bool>.Fail(claims.Error);
-        return claims.Value.Any(claim => claim.Digest == proposal.Digest)
-            ? Result<bool>.Fail(ErrorCode.Indeterminate, "An original native attempt reference fences this remainder.")
-            : Result<bool>.Ok(true);
+        var originalClaims = claims.Value.Where(claim => claim.Digest == proposal.Digest && ordinals.Contains(claim.Operation)).ToArray();
+        if (!NativeCoreExecution.ReferencesMatch(snapshot.Value, originalClaims)
+            || rows.Where(row => row.Status != OpStatus.Planned).Any(row => !originalClaims.Any(claim =>
+                claim.Operation == row.Operation && claim.Attempt == row.Attempt)))
+            return Result<bool>.Fail(ErrorCode.StorageUnavailable, "Original Core/registry attempt attribution is incomplete; this remainder remains protected.");
+        return Result<bool>.Ok(true);
     }
+
+    internal static bool DefinitivePlanEditNoEffect(StoreSnapshot snapshot, JournalEntry row)
+        => NativeCoreExecution.NoEffect(row) && snapshot.Proposals.Single(value => value.Digest == row.Digest)
+            .Operations[row.Operation] is { Kind: OpKind.Batch, Item.IsLocal: false };
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

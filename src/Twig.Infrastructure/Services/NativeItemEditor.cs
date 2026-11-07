@@ -20,6 +20,11 @@ public sealed class NativeItemEditor : IDisposable
     private readonly Dictionary<Guid, NativeEditorItem> items = [];
     private NativeItemEditor(ServiceProvider runtime, NativeEditor editor)
         => (this.runtime, this.editor) = (runtime, editor);
+    public bool PlanMode => editor.Plan.PlanMode;
+    public Guid PlanId => editor.Plan.Id;
+    public long PlanRevision => editor.Plan.Revision;
+    public Guid ScopeId => editor.ScopeId;
+    public Guid StoreInstance => editor.StoreInstance;
     public void Dispose() { editor.Dispose(); runtime.Dispose(); gate.Dispose(); }
 
     public static Task<Result<NativeItemEditor>> OpenAsync(string root, Guid benchId,
@@ -30,7 +35,7 @@ public sealed class NativeItemEditor : IDisposable
         NativeSourceStamp expected, Action<IServiceCollection>? configure, CancellationToken ct)
     {
         if (expected.Connection.Provider.Value != "ado")
-            return Result<NativeItemEditor>.Fail(ErrorCode.Unsupported, "This editor supports existing Azure DevOps items only.");
+            return Result<NativeItemEditor>.Fail(ErrorCode.Unsupported, "This authoring surface supports Azure DevOps only; GitHub remains read-only.");
         if (!Path.IsPathFullyQualified(root) || Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) != root)
             return Result<NativeItemEditor>.Fail(ErrorCode.InvalidInput, "An exact native workspace is required.");
         var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), new TwigConfiguration(), root);
@@ -43,10 +48,6 @@ public sealed class NativeItemEditor : IDisposable
         {
             var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
             var user = UserBenchStore.ForRegistry(factory.ExecutionRegistryPath);
-            var mode = await user.ReadPlanAsync(benchId, ct).ConfigureAwait(false);
-            if (!mode.IsSuccess) return Result<NativeItemEditor>.Fail(mode.Error);
-            if (mode.Value.PlanMode)
-                return Result<NativeItemEditor>.Fail(ErrorCode.Unsupported, "This Bench is in Plan mode. Its staged changes remain read-only in this editor.");
             var opened = await NativeEditor.OpenAsync(factory, user, benchId, expected, ct).ConfigureAwait(false);
             if (!opened.IsSuccess) return Result<NativeItemEditor>.Fail(opened.Error);
             var result = new NativeItemEditor(runtime, opened.Value);
@@ -61,7 +62,8 @@ public sealed class NativeItemEditor : IDisposable
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (key.IsLocal) return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Local seeds remain read-only in this editor.");
+            if (key.IsLocal && !PlanMode)
+                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Local seeds remain read-only outside Plan mode.");
             var selected = await editor.SelectAsync(key, ct).ConfigureAwait(false);
             if (!selected.IsSuccess) return Result<NativeEditForm>.Fail(selected.Error);
             var item = selected.Value;
@@ -97,6 +99,8 @@ public sealed class NativeItemEditor : IDisposable
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (PlanMode)
+                return Result<NativeEditResult>.Fail(ErrorCode.Conflict, "Plan work stages locally. Review and apply the whole Plan explicitly.");
             if (!items.TryGetValue(ticket, out var item))
                 return Result<NativeEditResult>.Fail(ErrorCode.Conflict, "The exact item handle expired; reopen before saving.");
             var evaluated = Form(ticket, item, changes);
@@ -117,6 +121,56 @@ public sealed class NativeItemEditor : IDisposable
     public Task<Result<EditorChoices>> ChoicesAsync(string type, string field, string query, CancellationToken ct = default)
         => editor.Metadata.Choices(type, field, query, 50, ct);
 
+    public async Task<Result<NativeEditForm>> StageAsync(Guid ticket, FieldValues changes, CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!PlanMode) return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Enter Plan mode explicitly before staging.");
+            if (!items.TryGetValue(ticket, out var item))
+                return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Reopen the exact Plan item before staging.");
+            var evaluated = Form(ticket, item, changes);
+            if (!evaluated.IsSuccess) return evaluated;
+            var staged = await editor.StageAsync(item, changes, null, null, ct).ConfigureAwait(false);
+            if (!staged.IsSuccess) return Result<NativeEditForm>.Fail(staged.Error);
+            items.Clear();
+            items[ticket] = staged.Value;
+            return Form(ticket, staged.Value, FieldValues.Empty);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<Result<NativeEditForm>> CreateSeedAsync(string type, CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!PlanMode) return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Local seed authoring requires explicit Plan mode.");
+            var created = await editor.CreateSeedAsync(type, ct).ConfigureAwait(false);
+            if (!created.IsSuccess) return Result<NativeEditForm>.Fail(created.Error);
+            items.Clear();
+            var ticket = Guid.NewGuid();
+            items[ticket] = created.Value;
+            return Form(ticket, created.Value, FieldValues.Empty);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<Result<ImmutableArray<Draft>>> ReadPlanDraftsAsync(CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!PlanMode) return Result<ImmutableArray<Draft>>.Fail(ErrorCode.Conflict, "This editor is outside Plan mode.");
+            var valid = await editor.ValidateAsync(ct).ConfigureAwait(false);
+            if (!valid.IsSuccess) return Result<ImmutableArray<Draft>>.Fail(valid.Error);
+            var snapshot = await editor.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+            return snapshot.IsSuccess ? Result<ImmutableArray<Draft>>.Ok(snapshot.Value.Drafts)
+                : Result<ImmutableArray<Draft>>.Fail(snapshot.Error);
+        }
+        finally { gate.Release(); }
+    }
+
     private Result<NativeEditForm> Form(Guid ticket, NativeEditorItem item, FieldValues changes)
     {
         if (changes.Count > 64) return Result<NativeEditForm>.Fail(ErrorCode.InvalidInput, "Too many edited fields.");
@@ -125,7 +179,8 @@ public sealed class NativeItemEditor : IDisposable
         var evaluated = Model.EvaluateEditorFields(editor.Metadata.Schema, baseline, draft,
             editor.Workspace.Capabilities.AtomicFieldBatches);
         if (!evaluated.IsSuccess) return Result<NativeEditForm>.Fail(evaluated.Error);
-        var gates = Model.CloseGates(editor.Metadata.Schema, baseline, draft);
+        var gates = baseline.Key.IsLocal ? Result<ImmutableArray<string>>.Ok([])
+            : Model.CloseGates(editor.Metadata.Schema, baseline, draft);
         if (!gates.IsSuccess) return Result<NativeEditForm>.Fail(gates.Error);
         var type = editor.Metadata.Schema.Types.Single(value => value.Reference == item.Observation.Type);
         foreach (var field in changes)

@@ -2449,6 +2449,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public bool RejectNextPatch { get; set; }
         public HttpStatusCode? RejectNextPatchStatus { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
+        public bool FailCurrentReadsAfterCommit { get; set; }
         public bool OmitEmptyRelations { get; set; }
         public int OmittedRelationResponses { get; private set; }
         public Func<Task>? BeforeReadback { get; set; }
@@ -2786,6 +2787,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     throw new HttpRequestException("Fixture lost acknowledgement after commit");
                 }
             }
+            else if (FailCurrentReadsAfterCommit && CommittedWrites > 0 && segments.Length == 1 && ReadbacksAfterCommit >= 2)
+                throw new HttpRequestException("Fixture origin-cache delivery unavailable after exact revision verification");
             else if (FailReadbackAfterCommit && CommittedWrites > 0)
                 throw new HttpRequestException("Fixture readback unavailable after acknowledged commit");
             else if (segments.Length == 3 && segments[1] == "revisions")

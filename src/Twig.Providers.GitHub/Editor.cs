@@ -8,11 +8,21 @@ public sealed partial class GitHubProvider
     public sealed class EditorMetadata
     {
         internal EditorMetadata(GitHubProvider owner, Discovery discovery, string authority)
-            => (Owner, Discovery, Authority) = (owner, discovery, authority);
+        {
+            (Owner, Discovery, Authority) = (owner, discovery, authority);
+            EditableFields = discovery.Mutations.Contains("updateIssue") && discovery.UpdateInputs.Contains("id")
+                ? discovery.Schema.Types.SelectMany(type => type.Fields).Where(field => field.Reference is Title or Body or StateField
+                    && !field.ReadOnly
+                    && discovery.UpdateInputs.Contains(NativeField(field.Reference)))
+                    .Select(field => field.Reference).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray()
+                : [];
+        }
         internal Discovery Discovery { get; }
         internal GitHubProvider Owner { get; }
         internal string Authority { get; }
         public ProcessSchema Schema => Discovery.Schema;
+        /// <summary>Captured existing-issue scalar input shapes; fresh validation still determines write admission.</summary>
+        public ImmutableArray<string> EditableFields { get; }
     }
 
     public Task<Result<EditorMetadata>> CaptureEditorMetadataAsync(Connection connection, CancellationToken ct)

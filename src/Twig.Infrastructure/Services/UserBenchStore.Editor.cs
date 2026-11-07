@@ -18,6 +18,7 @@ internal sealed record NativeEditorCapture(Guid Id, long Revision, Guid UserInst
     public string ExecutionPath { get; init; } = "";
     public string BeforeFingerprint { get; init; } = "none";
     public bool Cancelled { get; init; }
+    public string? SeedProposal { get; init; }
     internal bool SameAs(NativeEditorCapture other)
         => this with { Endpoints = other.Endpoints } == other && Endpoints.SequenceEqual(other.Endpoints);
 }
@@ -56,6 +57,18 @@ public sealed partial class UserBenchStore
                 || capture.Endpoints.IsDefault || capture.Endpoints.Length > 128 || capture.DraftFingerprint.Length != 64
                 || Encoding.UTF8.GetByteCount(capture.IntentJson) > 1024 * 1024)
                 return Result<NativeEditorCapture>.Fail(ErrorCode.InvalidInput, "An exact bounded native editor capture is required.");
+            if (capture.SeedProposal is { } publication)
+            {
+                var original = ParseIntent(publication);
+                if (capture.PlanMode || capture.Origin.Connection.Provider.Value != "ado"
+                    || !capture.Ready || original.Connection != capture.Origin.Connection
+                    || original.SchemaFingerprint != proposal.SchemaFingerprint || original.Operations.Length != 1
+                    || original.Operations[0] is not { Kind: OpKind.Create, Item.IsLocal: true } effect
+                    || effect.Item != proposal.Operations[0].Item || effect.Type != proposal.Operations[0].Type
+                    || !effect.Fields.Equals(proposal.Operations[0].Fields) || effect.Other is not null
+                    || effect.Relation is not null || effect.Resource is not null || !effect.Links.IsEmpty)
+                    return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "An exact scalar normal ADO creation proposal is required.");
+            }
             await EnsureCaptureStorage(db, tx, create: true, ct).ConfigureAwait(false);
             using var command = db.CreateCommand();
             command.Transaction = tx;
@@ -75,6 +88,10 @@ public sealed partial class UserBenchStore
                 if (previous.Settled || previous.UserInstance != capture.UserInstance || previous.PlanMode != capture.PlanMode
                     || previous.StoreInstance != capture.StoreInstance || previous.ScopeId != capture.ScopeId || previous.Origin != capture.Origin
                     || previous.Root != capture.Root || previous.PlanMode && previous.PlanId != capture.PlanId
+                    || !previous.PlanMode && proposal.Operations[0].Item.IsLocal && previous.BenchId != capture.BenchId
+                    || previous.SeedProposal is not null && (previous.SeedProposal != capture.SeedProposal
+                        || previous.IntentJson != capture.IntentJson || previous.DraftFingerprint != capture.DraftFingerprint
+                        || previous.BenchId != capture.BenchId || previous.PlanId != capture.PlanId || capture.Cancelled)
                     || ParseIntent(previous.IntentJson).Operations[0].Item != proposal.Operations[0].Item)
                     return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "A durable capture cannot be retargeted or resurrect settled intent.");
             }

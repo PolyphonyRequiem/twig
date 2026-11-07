@@ -327,9 +327,9 @@ public sealed class NativePlanReview
         using var scopeHandle = openedScope.Value;
         if (proposal is not null && !verified.IsEmpty)
         {
-            var settled = await scopeHandle.Workspace.SettleVerifiedPlanDraftsAsync(proposal, deliveredCaptures.Where(capture =>
+            var settled = await scopeHandle.Workspace.SettleVerifiedDraftsAsync(proposal, deliveredCaptures.Where(capture =>
                 verified.Any(op => op.Item == Parse(capture.IntentJson).Operations.Single().Item)).Select(capture =>
-                new NativePlanDraftReference(Parse(capture.IntentJson).Operations.Single().Item, capture.DraftFingerprint)).ToImmutableArray(), ct).ConfigureAwait(false);
+                new NativeVerifiedDraftReference(Parse(capture.IntentJson).Operations.Single().Item, capture.DraftFingerprint)).ToImmutableArray(), ct).ConfigureAwait(false);
             if (!settled.IsSuccess) return Result<bool>.Fail(settled.Error);
         }
         var converged = deliveredCaptures.Where(capture => !verified.Any(op => op.Item == Parse(capture.IntentJson).Operations.Single().Item)).ToArray();
@@ -359,48 +359,14 @@ public sealed class NativePlanReview
         using var origin = opened.Value;
         if (origin.Source != scope.Scope.Source)
             return Result<bool>.Fail(ErrorCode.Conflict, "The original delivery source changed; verified effects remain protected.");
-        var pins = new List<Selector>();
-        foreach (var op in verified)
-        {
-            var key = op.Item;
-            if (key.IsLocal)
-            {
-                var mapping = snapshot.Value.Mappings.SingleOrDefault(value => value.Local == key
-                    && value.ProposalDigest == proposal!.Digest);
-                if (mapping is null) return Result<bool>.Fail(ErrorCode.Indeterminate, "The attributable Verified seed mapping is unavailable.");
-                key = mapping.Remote;
-                pins.Add(new(SelectorKind.Pin, key, connection: proposal!.Connection));
-            }
-            var read = await origin.Workspace.ReadAsync(key, ct).ConfigureAwait(false);
-            if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
-        }
-        var library = await user.ReadAsync(ct).ConfigureAwait(false);
-        if (!library.IsSuccess) return Result<bool>.Fail(library.Error);
-        var bench = library.Value.Benches.SingleOrDefault(value => value.Id == BenchId);
-        if (library.Value.InstanceId != reference.Document.UserInstance || bench is null)
-            return Result<bool>.Fail(ErrorCode.Conflict, "The original Bench was replaced or deleted; verified delivery is pending.");
-        var known = bench.Selectors.Select(selector => BenchCodec.SerializeSelectors([selector])).ToHashSet(StringComparer.Ordinal);
-        var additions = pins.Where(pin => known.Add(BenchCodec.SerializeSelectors([pin]))).ToArray();
-        if (additions.Length != 0)
-        {
-            var pinned = await user.SaveAsync(new(bench.Id, bench.Name, bench.Selectors.Concat(additions)), bench.Revision, ct).ConfigureAwait(false);
-            if (!pinned.IsSuccess) return Result<bool>.Fail(pinned.Error);
-            bench = pinned.Value;
-        }
-        var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
-        if (!captures.IsSuccess) return Result<bool>.Fail(captures.Error);
-        var plan = await user.ReadPlanAsync(BenchId, ct).ConfigureAwait(false);
-        if (!plan.IsSuccess) return Result<bool>.Fail(plan.Error);
-        foreach (var capture in deliveredCaptures)
-        {
-            var current = captures.Value.SingleOrDefault(value => value.Id == capture.Id);
-            if (current is null || !current.Settled && !current.SameAs(capture))
-                return Result<bool>.Fail(ErrorCode.Conflict, "Original verified effects cannot consume changed captured intent.");
-            if (current.Settled) continue;
-            var settled = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1,
-                BenchRevision = bench.Revision, PlanRevision = plan.Value.Revision, Settled = true }, capture.Revision, ct).ConfigureAwait(false);
-            if (!settled.IsSuccess) return Result<bool>.Fail(settled.Error);
-        }
+        var pins = proposal is null ? Result<ImmutableArray<Selector>>.Ok([])
+            : await NativeVerifiedDelivery.ReadbackAsync(snapshot.Value, proposal, verified, origin.Workspace, ct).ConfigureAwait(false);
+        if (!pins.IsSuccess) return Result<bool>.Fail(pins.Error);
+        var bench = await NativeVerifiedDelivery.AddPinsAsync(user, reference.Document.UserInstance, BenchId, pins.Value, ct).ConfigureAwait(false);
+        if (!bench.IsSuccess) return Result<bool>.Fail(bench.Error);
+        var settledCaptures = await NativeVerifiedDelivery.SettleCapturesAsync(user, BenchId, bench.Value.Revision,
+            deliveredCaptures, ct).ConfigureAwait(false);
+        if (!settledCaptures.IsSuccess) return Result<bool>.Fail(settledCaptures.Error);
         return Result<bool>.Ok(proposal is null || verified.Length == proposal.Operations.Length);
     }
 
@@ -430,9 +396,7 @@ public sealed class NativePlanReview
     }
 
     private static bool Verified(StoreSnapshot snapshot, Proposal proposal)
-        => snapshot.Proposals.Any(current => current.Digest == proposal.Digest)
-            && proposal.Operations.Select((_, ordinal) => snapshot.Journal.Any(row =>
-                row.Digest == proposal.Digest && row.Operation == ordinal && row.Status == OpStatus.Verified)).All(value => value);
+        => NativeVerifiedDelivery.Verified(snapshot, proposal);
     private static async Task<Result<StoreSnapshot>> Snapshot(NativePlanScope scope, CancellationToken ct)
     {
         var store = await SqliteStore.OpenAsync(scope.DatabasePath, ct, scope.StoreInstance).ConfigureAwait(false);

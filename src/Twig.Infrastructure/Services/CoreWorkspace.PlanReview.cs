@@ -6,7 +6,7 @@ using Twig.Infrastructure.Policy;
 namespace Twig.Infrastructure.Services;
 
 internal sealed record CorePlanReviewCapture(CoreWorkspace Owner, NativeEditorMetadata Metadata, CapturedDeclaredPolicy Policy);
-internal sealed record NativePlanDraftReference(ItemKey Key, string Fingerprint);
+internal sealed record NativeVerifiedDraftReference(ItemKey Key, string Fingerprint);
 
 internal sealed partial class CoreWorkspace
 {
@@ -35,8 +35,8 @@ internal sealed partial class CoreWorkspace
             : Result<bool>.Fail(ErrorCode.SchemaChanged, "Declared policy changed during this exact review operation.");
     }
 
-    internal async Task<Result<bool>> SettleVerifiedPlanDraftsAsync(Proposal proposal,
-        ImmutableArray<NativePlanDraftReference> captures, CancellationToken ct)
+    internal async Task<Result<bool>> SettleVerifiedDraftsAsync(Proposal proposal,
+        ImmutableArray<NativeVerifiedDraftReference> captures, CancellationToken ct)
     {
         using var lease = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
@@ -55,7 +55,7 @@ internal sealed partial class CoreWorkspace
                 return Result<bool>.Fail(ErrorCode.Indeterminate, "Only attributable original Verified operations can settle local draft intent.");
             var draft = snapshot.Drafts.SingleOrDefault(value => value.Key == capture.Key);
             if (draft is not null && DraftFingerprint(draft) != capture.Fingerprint)
-                return Result<bool>.Fail(ErrorCode.Conflict, "Remote effects verified; newer Plan draft intent was preserved.");
+                return Result<bool>.Fail(ErrorCode.Conflict, "Remote effects verified; newer native draft intent was preserved.");
             if (capture.Key.IsLocal && !snapshot.Mappings.Any(mapping =>
                 mapping.Local == capture.Key && mapping.ProposalDigest == proposal.Digest))
                 return Result<bool>.Fail(ErrorCode.Indeterminate, "The original Verified seed mapping is required; its UUID was not recreated.");

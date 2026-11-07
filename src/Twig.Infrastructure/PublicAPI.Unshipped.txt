@@ -1,4 +1,49 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeEditResult.SeedPublication.get -> Twig.Infrastructure.Services.NativeSeedPublication?
+Twig.Infrastructure.Services.NativeEditResult.SeedPublication.init -> void
+Twig.Infrastructure.Services.NativeItemEditor.ReadOwnedSeedsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeOwnedSeed!>>!>!
+Twig.Infrastructure.Services.NativeItemEditor.ObserveSeedAsync(System.Guid captureId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSeedPublication!>!>!
+Twig.Infrastructure.Services.NativeItemEditor.ContinueSeedDeliveryAsync(System.Guid captureId, string! exactDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSeedPublication!>!>!
+Twig.Infrastructure.Services.NativeSeedPublication
+Twig.Infrastructure.Services.NativeSeedPublication.NativeSeedPublication(System.Guid CaptureId, Twig.Core.ItemKey! Item, string! Digest, string! Status, Twig.Core.Error? Error) -> void
+Twig.Infrastructure.Services.NativeSeedPublication.CaptureId.get -> System.Guid
+Twig.Infrastructure.Services.NativeSeedPublication.CaptureId.init -> void
+Twig.Infrastructure.Services.NativeSeedPublication.Item.get -> Twig.Core.ItemKey!
+Twig.Infrastructure.Services.NativeSeedPublication.Item.init -> void
+Twig.Infrastructure.Services.NativeSeedPublication.Digest.get -> string!
+Twig.Infrastructure.Services.NativeSeedPublication.Digest.init -> void
+Twig.Infrastructure.Services.NativeSeedPublication.Status.get -> string!
+Twig.Infrastructure.Services.NativeSeedPublication.Status.init -> void
+Twig.Infrastructure.Services.NativeSeedPublication.Error.get -> Twig.Core.Error?
+Twig.Infrastructure.Services.NativeSeedPublication.Error.init -> void
+Twig.Infrastructure.Services.NativeSeedPublication.Deconstruct(out System.Guid CaptureId, out Twig.Core.ItemKey! Item, out string! Digest, out string! Status, out Twig.Core.Error? Error) -> void
+Twig.Infrastructure.Services.NativeSeedPublication.Equals(Twig.Infrastructure.Services.NativeSeedPublication? other) -> bool
+Twig.Infrastructure.Services.NativeSeedPublication.<Clone>$() -> Twig.Infrastructure.Services.NativeSeedPublication!
+override Twig.Infrastructure.Services.NativeSeedPublication.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeSeedPublication.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeSeedPublication.ToString() -> string!
+static Twig.Infrastructure.Services.NativeSeedPublication.operator !=(Twig.Infrastructure.Services.NativeSeedPublication? left, Twig.Infrastructure.Services.NativeSeedPublication? right) -> bool
+static Twig.Infrastructure.Services.NativeSeedPublication.operator ==(Twig.Infrastructure.Services.NativeSeedPublication? left, Twig.Infrastructure.Services.NativeSeedPublication? right) -> bool
+Twig.Infrastructure.Services.NativeOwnedSeed
+Twig.Infrastructure.Services.NativeOwnedSeed.NativeOwnedSeed(Twig.Core.ItemKey! Item, Twig.Core.Draft? Draft, System.Guid CaptureId, bool Ready, Twig.Infrastructure.Services.NativeSeedPublication? Publication) -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.Item.get -> Twig.Core.ItemKey!
+Twig.Infrastructure.Services.NativeOwnedSeed.Item.init -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.Draft.get -> Twig.Core.Draft?
+Twig.Infrastructure.Services.NativeOwnedSeed.Draft.init -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.CaptureId.get -> System.Guid
+Twig.Infrastructure.Services.NativeOwnedSeed.CaptureId.init -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.Ready.get -> bool
+Twig.Infrastructure.Services.NativeOwnedSeed.Ready.init -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.Publication.get -> Twig.Infrastructure.Services.NativeSeedPublication?
+Twig.Infrastructure.Services.NativeOwnedSeed.Publication.init -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.Deconstruct(out Twig.Core.ItemKey! Item, out Twig.Core.Draft? Draft, out System.Guid CaptureId, out bool Ready, out Twig.Infrastructure.Services.NativeSeedPublication? Publication) -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.Equals(Twig.Infrastructure.Services.NativeOwnedSeed? other) -> bool
+Twig.Infrastructure.Services.NativeOwnedSeed.<Clone>$() -> Twig.Infrastructure.Services.NativeOwnedSeed!
+override Twig.Infrastructure.Services.NativeOwnedSeed.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeOwnedSeed.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeOwnedSeed.ToString() -> string!
+static Twig.Infrastructure.Services.NativeOwnedSeed.operator !=(Twig.Infrastructure.Services.NativeOwnedSeed? left, Twig.Infrastructure.Services.NativeOwnedSeed? right) -> bool
+static Twig.Infrastructure.Services.NativeOwnedSeed.operator ==(Twig.Infrastructure.Services.NativeOwnedSeed? left, Twig.Infrastructure.Services.NativeOwnedSeed? right) -> bool
 Twig.Infrastructure.Services.NativePlanOutcome
 Twig.Infrastructure.Services.NativePlanOutcome.Status.get -> string!
 Twig.Infrastructure.Services.NativePlanOutcome.VerifiedScopes.get -> int

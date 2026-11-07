@@ -70,7 +70,8 @@ public sealed partial class NativePublicationConsumerTests
         using (var normal = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
         {
             normal.PlanMode.ShouldBeFalse();
-            (await normal.CreateSeedAsync("Task")).Error.Code.ShouldBe(ErrorCode.Unsupported);
+            (await normal.CreateSeedAsync("Task")).Error.Code.ShouldBe(ErrorCode.InvalidInput,
+                "Normal creation still requires the exact discovered reference, not a display type name.");
             (await normal.SelectAsync(ItemKey.Local(seedId))).Error.Code.ShouldBe(ErrorCode.Unsupported);
         }
         status = (await user.ReadPlanStatusAsync(host.Bench)).Value;

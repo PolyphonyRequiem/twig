@@ -37,6 +37,44 @@ run without an initialized worktree. Selecting a Bench or editing contextual
 pins still requires an admitted Core workspace. This foundation does not claim
 that every retired area/iteration management or graphical surface is restored.
 
+### Normal native ADO seed authoring
+
+`NativeItemEditor.CreateSeedAsync` accepts one explicit discovered ADO type in
+normal mode as well as the separate Plan path. It reserves a version-7 UUID in
+the native capture before staging that same identity in the original Core store.
+Creation starts with empty fields and no remote baseline; it never copies the
+active item's type, state or assignment, infers a parent, or adds relationships,
+resources or local-local dependencies. Connected creation requiredness is
+evaluated against that null pre-state, separately from remote completion gates.
+Incomplete fields may remain staged, but Save refuses them before Create.
+
+`ReadOwnedSeedsAsync` supplies a temporary, exact-source/per-Bench projection
+for native hosts. It includes only normal seed captures owned by that user
+store, origin, Core store and Bench, not arbitrary CLI debt or isolated Plan
+drafts. Hosts must overlay those drafts rather than save permanent local-UUID
+Bench pins. A published seed's UUID is not a remote selector: Core Bench
+resolution does not translate literal local pins through mappings.
+
+Before Save dispatches, the sealed native capture retains the exact original
+Core proposal and digest. `NativeEditResult.SeedPublication` exposes its durable
+capture ID, UUID and digest, with `Protected`, `VerifiedDeliveryPending` or
+`Complete` status. A lost response keeps the original draft, proposal, attempts
+and receipts protected; no remote identity or successful outcome is guessed.
+Verified-but-undelivered captures remain enumerable even if Core already
+settled its draft. Reopen the same normal editor/source/Bench and use
+`ObserveSeedAsync` or digest-bound `ContinueSeedDeliveryAsync` on that capture.
+Neither operation prepares a proposal or calls Create/Apply again.
+
+Normal and Plan delivery share native Infrastructure primitives for original
+Verified journal/mapping attribution, original-source readback, additive latest
+remote Bench pins and exact capture settlement. The capture is settled only
+after readback and pin delivery succeed. Delivery recovery can complete local
+settlement but cannot establish an uncertain remote outcome. Core remains the
+only provider, policy, merge, proposal and journal publisher; there is no new
+Core port, alternate executor, Plan scope for normal writes, or UI/install work.
+GitHub seed creation and type/collection authoring remain unsupported; existing
+scalar editing and isolated Plan review retain their previous boundaries.
+
 ### Explicit-team native planning
 
 A Bench can retain rules from several teams on one connection as well as rules

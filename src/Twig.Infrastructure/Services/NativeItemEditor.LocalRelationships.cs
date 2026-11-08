@@ -5,9 +5,11 @@ namespace Twig.Infrastructure.Services;
 
 public sealed class NativeLocalRelationshipReview
 {
-    internal NativeLocalRelationshipReview(Guid captureId, Proposal proposal) => (CaptureId, Proposal) = (captureId, proposal);
+    internal NativeLocalRelationshipReview(Guid captureId, Proposal proposal, NativeLocalRelationshipOutcome? outcome = null)
+        => (CaptureId, Proposal, Outcome) = (captureId, proposal, outcome);
     public Guid CaptureId { get; }
     public Proposal Proposal { get; }
+    public NativeLocalRelationshipOutcome? Outcome { get; }
 }
 
 public sealed class NativeLocalRelationshipOutcome
@@ -24,6 +26,13 @@ public sealed class NativeLocalRelationshipOutcome
 public sealed partial class NativeItemEditor
 {
     private readonly Dictionary<Guid, NativeLocalRelationshipSelection> localPairs = [];
+
+    public async Task<Result<ImmutableArray<NativeLocalRelationshipReview>>> ReadLocalRelationshipReviewsAsync(CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try { return await editor.ReadLocalRelationshipReviewsAsync(ct).ConfigureAwait(false); }
+        finally { gate.Release(); }
+    }
 
     private async Task<Result<NativeRelationshipForm>> SelectLocalRelationshipAsync(ItemKey key, ItemKey other, CancellationToken ct)
     {

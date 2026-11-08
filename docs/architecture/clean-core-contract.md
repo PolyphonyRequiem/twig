@@ -179,7 +179,16 @@ This does not grant GitHub revision CAS or an atomic field/link transaction.
 
 `ObserveLocalRelationshipAsync(captureId, exactDigest)` returns the original
 Core journal entry, settlement flag and any error; no new status or receipt is
-invented. Reopen the same normal source/Bench and use
+invented. `ReadLocalRelationshipReviewsAsync()` rediscovers original owned
+captures after a host closes, without remembering its first review ID/digest
+or trusting cached browser effect text. It returns the original `CaptureId`,
+canonical `Proposal` and actual `Outcome`, including preparing, attempted,
+protected and settled originals. Sealed namespace/document bounds still apply;
+foreign source/Bench/Plan/seed/CLI captures are not adopted or exposed. Missing
+owned canonical capture/proposal/journal proof refuses instead of returning
+empty success. Discovery does not prepare, retain, apply, verify, settle or
+change any capture/store/draft/cache, and returned intent grants no Apply
+eligibility or replay authority. Reopen the same normal source/Bench and use
 `ContinueLocalRelationshipAsync` for exact interrupted retention, separate
 verification of an original durable Applied receipt, or Verified capture
 settlement. It never prepares new intent or invokes Apply again.

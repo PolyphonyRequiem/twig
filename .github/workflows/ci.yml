@@ -331,6 +331,11 @@ jobs:
               ("native-local-capture-witness", ["NativeGitHubLocalCaptureWitnessCannotBecomeAbsentIntent"]),
               ("native-local-explicit-scope", ["NativeGitHubLocalQualificationRejectsImplicitScopeAndPreservesMissingRemove"]),
               ("native-local-late-acquisition", ["NativeGitHubLocalLateAcquisitionCannotReplaceCapturedEndpointProof"]),
+              ("native-local-read-rediscovery", ["NativeGitHubLocalReaderRediscoversOriginalPlannedAndSettledReviewWithoutCachedReference"]),
+              ("native-local-read-preparing", ["NativeGitHubLocalReaderIncludesOriginalPreparingCaptureWithoutCreatingJournal"]),
+              ("native-local-read-protected", ["NativeGitHubLocalReaderIncludesProtectedOriginalAttemptWithoutReplay"]),
+              ("native-local-read-ownership", ["NativeGitHubLocalReaderDoesNotExposeAnotherBenchOrAdoptPlanMode"]),
+              ("native-local-read-missing-proof", ["NativeGitHubLocalReaderMissingOriginalProofRefusesInsteadOfEmptySuccess"]),
           ]
           for label, methods in groups:
               selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.{method}" for method in methods)

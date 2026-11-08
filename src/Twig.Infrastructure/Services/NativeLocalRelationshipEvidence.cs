@@ -91,5 +91,33 @@ internal static class NativeLocalRelationshipEvidence
             : Result<bool>.Ok(true);
     }
 
+    internal static Result<bool> CheckOriginalReference(NativeEditorCapture capture, StoreSnapshot state)
+    {
+        var proposal = UserBenchStore.ParseIntent(capture.IntentJson);
+        if (!IsLocal(proposal) || capture.LocalRelationship is null || capture.SeedProposal is not null
+            || capture.DraftFingerprint != "none" || capture.BeforeFingerprint != "none"
+            || capture.Endpoints.Length != 2 || capture.Endpoints.Select(endpoint => endpoint.Key).Distinct().Count() != 2
+            || capture.Endpoints.Any(endpoint => string.IsNullOrEmpty(endpoint.Revision) || endpoint.DraftFingerprint != "none")
+            || capture.LocalRelationship.EdgeFingerprint != "none" && (capture.LocalRelationship.EdgeFingerprint.Length != 64
+                || capture.LocalRelationship.EdgeFingerprint.Any(value => value is not (>= '0' and <= '9' or >= 'a' and <= 'f')))
+            || proposal.Operations[0].ExpectedLocalVersion is < 1
+            || Encoding.UTF8.GetString(Model.ProposalBytes(proposal)) != capture.IntentJson)
+            return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The original LOCAL capture is malformed; no review was reconstructed.");
+        var retained = state.Proposals.SingleOrDefault(value => value.Digest == proposal.Digest);
+        var row = state.Journal.SingleOrDefault(value => value.Digest == proposal.Digest && value.Operation == 0);
+        if (capture.Ready && (retained is null || row is null || state.Version < capture.StoreVersion)
+            || (retained is null) != (row is null)
+            || retained is not null && Encoding.UTF8.GetString(Model.ProposalBytes(retained)) != capture.IntentJson)
+            return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The original retained LOCAL proposal/journal proof is missing or changed.");
+        foreach (var endpoint in new[] { proposal.Operations[0].Item, proposal.Operations[0].Other! })
+        {
+            var logical = CoreWorkspace.LocalLogical(state, endpoint);
+            if (logical.IsLocal || !logical.BelongsTo(proposal.Connection)
+                || !capture.Endpoints.Any(value => value.Key == CleanCoreAdoAccess.ItemText(logical)))
+                return Result<bool>.Fail(ErrorCode.StorageUnavailable, "Original published endpoint/Verified UUID mapping attribution is missing.");
+        }
+        return Result<bool>.Ok(true);
+    }
+
     private static Result<bool> Refuse(string message) => Result<bool>.Fail(ErrorCode.Conflict, message);
 }

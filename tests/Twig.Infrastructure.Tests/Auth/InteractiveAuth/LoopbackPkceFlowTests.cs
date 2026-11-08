@@ -5,6 +5,11 @@ using System.Text;
 using Shouldly;
 using Twig.Infrastructure.Auth.InteractiveAuth;
 using Xunit;
+using Twig.Core;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Services;
+using NSubstitute;
+using System.Net.Sockets;
 
 namespace Twig.Infrastructure.Tests.Auth.InteractiveAuth;
 
@@ -19,6 +24,121 @@ public class LoopbackPkceFlowTests
     private const string TokenSuccess = """
         {"access_token":"at","refresh_token":"rt","id_token":"","expires_in":3600}
         """;
+
+    [Fact]
+    public async Task NativeSetupPkceCancelReleasesRealListenersWithoutResolvingBindings()
+    {
+        var port = LoopbackPkceFlow.PickFreePort();
+        var (handler, _) = NewExchangerStub(TokenSuccess);
+        var opened = false;
+        var bindingCalls = 0;
+        var flow = new LoopbackPkceFlow(new AuthCodeExchanger(handler), () => port,
+            _ => { opened = true; return true; }, TimeSpan.FromSeconds(10));
+        var setup = new NativeConnectionSetup(_ => { bindingCalls++; throw new InvalidOperationException("must not resolve"); },
+            () => flow);
+        using var cancellation = new CancellationTokenSource();
+        string? url = null;
+        var pending = setup.EnrollAadAsync(new("explicit"), value => url = value.AbsoluteUri, cancellation.Token);
+        await ExtractStateAsync(url, () => Volatile.Read(ref url));
+        cancellation.Cancel();
+        var result = await pending;
+
+        result.IsSuccess.ShouldBeFalse();
+        var report = NativeConnectionSetup.ReadFailure(result.Error).Value;
+        report.Cancelled.ShouldBeTrue();
+        report.Effects.ShouldBe([new NativeSetupEffect(NativeSetupEffectKind.InteractiveSignIn, NativeSetupEffectState.Possible)]);
+        bindingCalls.ShouldBe(0);
+        opened.ShouldBeFalse();
+        AssertPortReleased(port);
+    }
+
+    [Fact]
+    public async Task NativeSetupCallbackFailureIsARealFailureAndTearsDownListeners()
+    {
+        var port = LoopbackPkceFlow.PickFreePort();
+        var (handler, _) = NewExchangerStub(TokenSuccess);
+        var flow = new LoopbackPkceFlow(new AuthCodeExchanger(handler), () => port, _ => false, TimeSpan.FromSeconds(10));
+        var setup = new NativeConnectionSetup(_ => throw new InvalidOperationException("must not resolve"), () => flow);
+        var result = await setup.EnrollAadAsync(new("explicit"),
+            _ => throw new InvalidOperationException("callback-private-token https://private.test/"));
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        result.Error.Message.ShouldContain("callback failed");
+        result.Error.Message.ShouldNotContain("private");
+        var report = NativeConnectionSetup.ReadFailure(result.Error).Value;
+        report.Cancelled.ShouldBeFalse();
+        report.Phase.ShouldBe(NativeSetupPhase.Enrollment);
+        report.Effects.ShouldBe([new NativeSetupEffect(NativeSetupEffectKind.InteractiveSignIn, NativeSetupEffectState.Possible)]);
+        AssertPortReleased(port);
+    }
+
+    [Fact]
+    public async Task NativeSetupPkceEnrollmentUsesActualNativeClaimAndSameAliasGuards()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "twig-native-pkce-" + Guid.NewGuid().ToString("N"));
+        var refresher = Substitute.For<ITokenRefresher>();
+        var principal = "22222222-2222-2222-2222-222222222222";
+        refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ =>
+                (AadAccountClaimTests.Token("{}", principal), "synthetic-rotated", false));
+        try
+        {
+            var first = await Enroll();
+            first.IsSuccess.ShouldBeTrue(first.IsSuccess ? "" : first.Error.Message);
+            first.Value.Alias.ShouldBe("explicit");
+            using var registry = new ConnectionBindingService(home, refresher);
+            var binding = await registry.CreateBindingAsync("fixture", "Work", "explicit", true);
+            var renewed = await Enroll();
+            renewed.IsSuccess.ShouldBeTrue();
+            renewed.Value.IdentityId.ShouldBe(first.Value.IdentityId);
+            (await registry.CreateBindingAsync("fixture", "Work", "explicit", true)).ShouldBe(binding);
+            principal = "33333333-3333-3333-3333-333333333333";
+            var refused = await Enroll();
+            refused.IsSuccess.ShouldBeFalse();
+            refused.Error.Code.ShouldBe(ErrorCode.Conflict);
+            NativeConnectionSetup.ReadFailure(refused.Error).Value.Effects
+                .ShouldNotContain(effect => effect.Kind == NativeSetupEffectKind.CredentialWrite);
+            (await registry.ListIdentitiesAsync()).Single().ObjectId.ShouldBe(first.Value.ObjectId);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(home)) Directory.Delete(home, recursive: true);
+        }
+
+        async Task<Result<NativeAadEnrollment>> Enroll()
+        {
+            var port = LoopbackPkceFlow.PickFreePort();
+            var (handler, _) = NewExchangerStub(TokenSuccess);
+            var flow = new LoopbackPkceFlow(new AuthCodeExchanger(handler), () => port,
+                _ => throw new InvalidOperationException("public enrollment must not launch a browser"), TimeSpan.FromSeconds(10));
+            var setup = new NativeConnectionSetup(effects => new ConnectionBindingService(home, refresher, setupEffects: effects),
+                () => flow, ownsBindings: true);
+            string? url = null;
+            var pending = setup.EnrollAadAsync(new("explicit"), value => url = value.AbsoluteUri);
+            var state = await ExtractStateAsync(url, () => Volatile.Read(ref url));
+            url.ShouldNotBeNull().ShouldContain("code_challenge_method=S256");
+            await SendRedirectAsync(port, "?code=synthetic&state=" + Uri.EscapeDataString(state));
+            var result = await pending;
+            AssertPortReleased(port);
+            return result;
+        }
+    }
+
+    private static void AssertPortReleased(int port)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+        try { ((IPEndPoint)listener.LocalEndpoint).Port.ShouldBe(port); }
+        finally { listener.Stop(); }
+        if (!Socket.OSSupportsIPv6) return;
+        var v6 = new TcpListener(IPAddress.IPv6Loopback, port);
+        v6.Server.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, true);
+        v6.Start();
+        try { ((IPEndPoint)v6.LocalEndpoint).Port.ShouldBe(port); }
+        finally { v6.Stop(); }
+    }
 
     [Fact]
     public async Task RunAsync_HappyPath_RoundTripsThroughRealLoopbackListener()

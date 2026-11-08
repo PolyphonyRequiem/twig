@@ -6,6 +6,7 @@ using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Services;
 
 namespace Twig.Infrastructure.Auth;
 
@@ -40,11 +41,13 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
     private readonly HttpClient _patHttpClient;
     private readonly bool _ownsPatHttpClient;
     private readonly PatPrincipalAttestor _patAttestor;
+    private readonly NativeSetupEffects? _setupEffects;
     private bool _disposed;
 
     public string RegistryPath => Path.Combine(_userHome, SystemDbFileName);
 
-    public ConnectionBindingService(string userHome, ITokenRefresher? refresher = null, TimeProvider? clock = null, HttpClient? patHttpClient = null)
+    public ConnectionBindingService(string userHome, ITokenRefresher? refresher = null, TimeProvider? clock = null,
+        HttpClient? patHttpClient = null, NativeSetupEffects? setupEffects = null)
     {
         if (string.IsNullOrWhiteSpace(userHome) || !Path.IsPathFullyQualified(userHome))
             throw new ArgumentException("userHome must be a non-empty absolute path.", nameof(userHome));
@@ -53,7 +56,11 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         _credentialsDir = Path.Combine(_userHome, CredentialsDirName);
         _clock = clock ?? TimeProvider.System;
         _refresher = refresher ?? new MsalTokenRefresher();
+        _setupEffects = setupEffects;
+        _setupEffects?.Before(NativeSetupEffectKind.NativeHome);
         Directory.CreateDirectory(_userHome);
+        _setupEffects?.Confirm(NativeSetupEffectKind.NativeHome);
+        _setupEffects?.Before(NativeSetupEffectKind.CredentialsDirectory);
         if (OperatingSystem.IsWindows())
             Directory.CreateDirectory(_credentialsDir);
         else
@@ -62,6 +69,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             Directory.CreateDirectory(_credentialsDir, privateMode);
             File.SetUnixFileMode(_credentialsDir, privateMode);
         }
+        _setupEffects?.Confirm(NativeSetupEffectKind.CredentialsDirectory);
         _registry = new SqliteSystemWorktreeRegistry(Path.Combine(_userHome, SystemDbFileName), _clock);
         _ownsPatHttpClient = patHttpClient is null;
         _patHttpClient = patHttpClient ?? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false });
@@ -152,8 +160,11 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         //    newly-verified one — that is the "login does not switch
         //    identities" guarantee. Same alias + same principal is a benign
         //    credential refresh that updates the stored RT in place.
+        _setupEffects?.Before(NativeSetupEffectKind.Registry);
         var existingRes = await _registry.FindIdentityByNameAsync(normalizedName, ct).ConfigureAwait(false);
-        if ((!existingRes.IsSuccess && existingRes.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused identity lookup: {existingRes.Error.Message}");
+        if ((!existingRes.IsSuccess && existingRes.Error.Code != Twig.Core.ErrorCode.NotFound))
+            throw new NativeSetupException(existingRes.Error with { Message = $"Registry refused identity lookup: {existingRes.Error.Message}" });
+        _setupEffects?.Confirm(NativeSetupEffectKind.Registry);
         var existing = existingRes.Optional();
         var now = _clock.GetUtcNow();
 
@@ -179,8 +190,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
                 || !string.Equals(existing.Issuer, issuer, StringComparison.Ordinal)
                 || !string.Equals(existing.AuthorityHost, authorityHost, StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException(
-                    $"Identity '{normalizedName}' is already registered to a different principal (tenant={existing.TenantId}, oid={existing.ObjectId}). Register the new principal under a different alias; identity transitions are deliberate guarded management operations and must not silently overwrite stored credentials.");
+                throw new NativeSetupException(new(Twig.Core.ErrorCode.Conflict,
+                    $"Identity '{normalizedName}' is already registered to a different principal (tenant={existing.TenantId}, oid={existing.ObjectId}). Register the new principal under a different alias; identity transitions are deliberate guarded management operations and must not silently overwrite stored credentials."));
             }
 
             accountName ??= existing.AccountName;
@@ -189,8 +200,10 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             // under the existing credential_ref so cached token-cache sidecars
             // stay valid, and bump the identity row's refresh stamp.
             WriteCredentialAtomic(existing.CredentialRef, persisted);
+            _setupEffects?.Before(NativeSetupEffectKind.IdentityRegistration);
             var stamp = await _registry.UpdateIdentityRefreshStampAsync(existing.IdentityId, accountName, now, ct).ConfigureAwait(false);
-            if (!stamp.IsSuccess) throw new InvalidOperationException($"Registry refused identity refresh stamp: {stamp.Error.Message}");
+            if (!stamp.IsSuccess) throw new NativeSetupException(stamp.Error with { Message = $"Registry refused identity refresh stamp: {stamp.Error.Message}" });
+            _setupEffects?.Confirm(NativeSetupEffectKind.IdentityRegistration);
             return ToIdentity(existing with { AccountName = accountName, UpdatedAt = now });
         }
 
@@ -208,14 +221,16 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             AccountName: accountName,
             CreatedAt: now,
             UpdatedAt: now);
+        _setupEffects?.Before(NativeSetupEffectKind.IdentityRegistration);
         var insert = await _registry.InsertIdentityAsync(row, ct).ConfigureAwait(false);
         if (!insert.IsSuccess)
         {
             // Credential blob was written but the row failed — clean up so the
             // credentials directory does not accumulate orphan files.
             TryDeleteCredential(credentialRef);
-            throw new InvalidOperationException($"Registry refused new identity: {insert.Error.Message}");
+            throw new NativeSetupException(insert.Error with { Message = $"Registry refused new identity: {insert.Error.Message}" });
         }
+        _setupEffects?.Confirm(NativeSetupEffectKind.IdentityRegistration);
         return ToIdentity(row);
     }
 
@@ -303,11 +318,14 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (string.IsNullOrWhiteSpace(identityName))
             throw new ArgumentException("identityName must be non-empty.", nameof(identityName));
 
+        _setupEffects?.Before(NativeSetupEffectKind.Registry);
         var identityRes = await _registry.FindIdentityByNameAsync(identityName.Trim(), ct).ConfigureAwait(false);
-        if ((!identityRes.IsSuccess && identityRes.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused identity lookup: {identityRes.Error.Message}");
+        if ((!identityRes.IsSuccess && identityRes.Error.Code != Twig.Core.ErrorCode.NotFound))
+            throw new NativeSetupException(identityRes.Error with { Message = $"Registry refused identity lookup: {identityRes.Error.Message}" });
+        _setupEffects?.Confirm(NativeSetupEffectKind.Registry);
         var identity = identityRes.Optional()
-            ?? throw new InvalidOperationException(
-                $"No identity named '{identityName}' is registered. Run 'twig auth login --identity {identityName}' first.");
+            ?? throw new NativeSetupException(new(Twig.Core.ErrorCode.NotFound,
+                $"No identity named '{identityName}' is registered. Run 'twig auth login --identity {identityName}' first."));
         EnsurePatAuthority(ToIdentity(identity), organization);
 
         var connectionRef = ConnectionRefResolver.Compute(organization, project);
@@ -315,8 +333,10 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         // Keep the connections row in sync. Not FK-depended-on from the binding
         // tables, but downstream join/report code expects a row for every
         // referenced connection_ref.
+        _setupEffects?.Before(NativeSetupEffectKind.ConnectionRegistration);
         var upsertConn = await _registry.EnsureBindingConnectionAsync(connectionRef, organization, project, ct).ConfigureAwait(false);
-        if (!upsertConn.IsSuccess) throw new InvalidOperationException($"Registry refused connection upsert: {upsertConn.Error.Message}");
+        if (!upsertConn.IsSuccess) throw new NativeSetupException(upsertConn.Error with { Message = $"Registry refused connection upsert: {upsertConn.Error.Message}" });
+        _setupEffects?.Confirm(NativeSetupEffectKind.ConnectionRegistration);
 
         var now = _clock.GetUtcNow();
         var bindingId = ComputeBindingId(connectionRef, identity.IdentityId);
@@ -327,8 +347,10 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             Revision: 1,
             CreatedAt: now,
             UpdatedAt: now);
+        _setupEffects?.Before(NativeSetupEffectKind.ConnectionBinding);
         var upsert = await _registry.InsertOrGetBindingAsync(pending, ct).ConfigureAwait(false);
-        if (!upsert.IsSuccess) throw new InvalidOperationException($"Registry refused binding insert: {upsert.Error.Message}");
+        if (!upsert.IsSuccess) throw new NativeSetupException(upsert.Error with { Message = $"Registry refused binding insert: {upsert.Error.Message}" });
+        _setupEffects?.Confirm(NativeSetupEffectKind.ConnectionBinding);
         var row = upsert.Value;
 
         if (makeDefault)
@@ -547,12 +569,14 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
 
     private void WriteCredentialAtomic(string credentialRef, TwigRefreshTokenStoreEntry entry)
     {
+        _setupEffects?.Before(NativeSetupEffectKind.CredentialWrite);
         var path = ResolveCredentialPath(credentialRef);
         var store = new TwigRefreshTokenStore(path);
         store.TryWrite(entry);
         if (!string.Equals(store.TryRead()?.RefreshToken, entry.RefreshToken, StringComparison.Ordinal))
             throw new InvalidOperationException(
                 $"Credential file write failed at {path}. Verify {_credentialsDir} is writable and retry.");
+        _setupEffects?.Confirm(NativeSetupEffectKind.CredentialWrite);
     }
 
     private void TryDeleteCredential(string credentialRef)

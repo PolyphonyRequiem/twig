@@ -16,12 +16,19 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
 {
     internal async Task<Result<bool>> InitializeAsync(string databasePath, CancellationToken ct)
     {
+        var initialized = await InitializeWithEvidenceAsync(databasePath, ct).ConfigureAwait(false);
+        return initialized.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(initialized.Error);
+    }
+
+    internal async Task<Result<NativeCreationReceipt>> InitializeWithEvidenceAsync(string databasePath, CancellationToken ct,
+        NativeSetupEffects? effects = null)
+    {
         if (!Path.IsPathFullyQualified(databasePath) || File.Exists(databasePath)
             || File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName))
             || !Directory.Exists(Path.GetDirectoryName(databasePath)))
-            return Result<bool>.Fail(ErrorCode.InvalidInput, "GitHub Core initialization requires a new explicit absolute store file; existing files were preserved.");
+            return Result<NativeCreationReceipt>.Fail(ErrorCode.InvalidInput, "GitHub Core initialization requires a new explicit absolute store file; existing files were preserved.");
         if (!GitHubWorkspaceScope.TryCreate(configuration.GitHub, out var scope, out var problem))
-            return Result<bool>.Fail(ErrorCode.InvalidInput, problem);
+            return Result<NativeCreationReceipt>.Fail(ErrorCode.InvalidInput, problem);
         try
         {
             var source = selectedCredential ?? Credential(scope!);
@@ -33,39 +40,55 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
             using var actorReader = new GitHubAuthenticatedActorReader(GitHubReadOnlyAuthHandler.CreateClient(
                 new CapturedCredential(credential), scope.GraphQlEndpoint, transport?.CreateHandler()), scope);
             var actor = await actorReader.ObserveAsync(ct).ConfigureAwait(false);
+            effects?.Before(NativeSetupEffectKind.Registry);
             using var registry = new SqliteSystemWorktreeRegistry(nativeBindings.RegistryPath, TimeProvider.System);
+            effects?.Before(NativeSetupEffectKind.Attachment);
             using var attachment = new WorktreeLocalProviderTargetAttachmentStore(paths, registry, TimeProvider.System);
             var selected = await attachment.ReadWithRevisionAsync(ct).ConfigureAwait(false);
-            if (!selected.IsSuccess) return Result<bool>.Fail(ErrorCode.StorageUnavailable, selected.Error.Message);
+            if (!selected.IsSuccess) return Result<NativeCreationReceipt>.Fail(ErrorCode.StorageUnavailable, selected.Error.Message);
             if (selected.Value.Envelope is null)
             {
+                effects?.Before(NativeSetupEffectKind.ProviderTarget);
                 var attached = await new ProviderTargetAttachmentService(registry, attachment)
                     .AttachAsync(observed.Target.ToIdentity(scope.GraphQlEndpoint), observed.Locator, null, selected.Value.Revision, ct).ConfigureAwait(false);
-                if (!attached.IsSuccess) return Result<bool>.Fail(ErrorCode.Conflict, attached.Error.Message);
+                if (!attached.IsSuccess) return Result<NativeCreationReceipt>.Fail(ErrorCode.Conflict, attached.Error.Message);
+                effects?.Confirm(NativeSetupEffectKind.ProviderTarget);
             }
             var targets = new GitHubBoundTargetResolver(attachment, registry, scope);
             using var generation = new FileStream(Path.Combine(paths.TwigDir, ProviderTargetAttachmentDocument.LockFileName),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             var origin = await targets.ResolveAsync(ct).ConfigureAwait(false);
+            effects?.Confirm(NativeSetupEffectKind.Attachment);
+            effects?.Confirm(NativeSetupEffectKind.Registry);
             if (origin.Target != observed.Target)
-                return Result<bool>.Fail(ErrorCode.Conflict, "The selected immutable GitHub target differs from the native initialization observation.");
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.Conflict, "The selected immutable GitHub target differs from the native initialization observation.");
             var current = await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false);
             if (current.ResolveWorkItemProviderKind() != "github"
                 || !GitHubWorkspaceScope.TryCreate(current.GitHub, out var live, out _) || live != scope
                 || CleanCoreGitHubAccess.Identity(origin, current, actor.ActorId) != CleanCoreGitHubAccess.Identity(origin, configuration, actor.ActorId))
-                return Result<bool>.Fail(ErrorCode.Conflict, "The selected GitHub configuration changed during initialization.");
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.Conflict, "The selected GitHub configuration changed during initialization.");
+            effects?.Before(NativeSetupEffectKind.CoreStore);
             var created = await SqliteStore.CreateAsync(databasePath, ct).ConfigureAwait(false);
-            if (!created.IsSuccess) return Result<bool>.Fail(created.Error);
+            if (!created.IsSuccess) return Result<NativeCreationReceipt>.Fail(created.Error);
+            effects?.Confirm(NativeSetupEffectKind.CoreStore);
             var connection = new Connection(new("github"), observed.ResourceScope,
                 GitHubProvider.Destination(observed.Target.OwnerId, observed.Target.RepositoryId),
                 CleanCoreGitHubAccess.Identity(origin, configuration, actor.ActorId));
-            return await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, databasePath, connection, actor.ActorId, ct,
-                nativeBindings.RegistryPath).ConfigureAwait(false);
+            CoreWorkspaceDocument? recorded = null;
+            var recording = await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, databasePath, connection, actor.ActorId, ct,
+                nativeBindings.RegistryPath, effects, document => recorded = document).ConfigureAwait(false);
+            if (!recording.IsSuccess) return Result<NativeCreationReceipt>.Fail(recording.Error);
+            if (recorded is null)
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.Unavailable, "GitHub initialization did not retain its created document evidence.");
+            var stamp = NativeSourceReader.Stamp(recorded, paths.RepoRoot, origin.BindingId.ToString(),
+                NativeSourceReader.Number(origin.AttachmentRevision), origin.WorktreeFingerprint,
+                NativeSourceReader.Number(origin.BindingRevision), recorded.Connection.IdentityRef);
+            return Result<NativeCreationReceipt>.Ok(new(recorded, stamp));
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException or HttpRequestException
             or System.Text.Json.JsonException or GitHubCredentialUnavailableException)
         {
-            return Result<bool>.Fail(ErrorCode.Unavailable, "GitHub Core initialization could not establish native identity; existing data and any created files were preserved. " + ex.Message);
+            return Result<NativeCreationReceipt>.Fail(ErrorCode.Unavailable, "GitHub Core initialization could not establish native identity; existing data and any created files were preserved. " + ex.Message);
         }
     }
 

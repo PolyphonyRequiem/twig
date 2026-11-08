@@ -6,6 +6,10 @@ using Shouldly;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
 using Xunit;
+using Twig.Core;
+using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services;
 
 namespace Twig.Infrastructure.Tests.Auth;
 
@@ -122,7 +126,7 @@ public sealed class AadAccountClaimTests : IDisposable
         AuthorityHost = "login.microsoftonline.com",
     };
 
-    private static string Token(string claims, string principal = Principal)
+    internal static string Token(string claims, string principal = Principal)
     {
         var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(claims)!;
         payload["aud"] = JwtTestFactory.AdoResourceId;
@@ -140,5 +144,76 @@ public sealed class AadAccountClaimTests : IDisposable
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(_home))
             Directory.Delete(_home, recursive: true);
+    }
+
+    [Fact]
+    public async Task NativeSetupBindingEnsuresOriginalRowWithoutChangingDefaultOrRenewingCredential()
+    {
+        SetToken("{}");
+        using var bindings = new ConnectionBindingService(_home, _refresher);
+        await bindings.RegisterAadIdentityAsync("personal", Credential());
+        await bindings.RegisterAadIdentityAsync("second", Credential());
+        var originalDefault = await bindings.CreateBindingAsync("fixture", "Work", "personal", true);
+        var original = await bindings.CreateBindingAsync("fixture", "Work", "second", false);
+        _refresher.ClearReceivedCalls();
+        var setup = new NativeConnectionSetup(effects =>
+            new ConnectionBindingService(_home, _refresher, setupEffects: effects), ownsBindings: true);
+
+        var result = await setup.CreateAdoBindingAsync(new("fixture", "Work", "second"));
+
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        result.Value.ShouldBe(new NativeAdoBinding(original.BindingId, original.ConnectionRef, original.IdentityId, original.Revision));
+        using var registry = new SqliteSystemWorktreeRegistry(bindings.RegistryPath, TimeProvider.System);
+        (await registry.FindDefaultBindingAsync(original.ConnectionRef)).Value!.BindingId.ShouldBe(originalDefault.BindingId);
+        (await bindings.CreateBindingAsync("fixture", "Work", "second", false)).ShouldBe(original);
+        await _refresher.DidNotReceiveWithAnyArgs().TryRefreshAsync(default!, default!, default!, default!, default);
+    }
+
+    [Theory]
+    [InlineData(NativeSetupEffectKind.ConnectionRegistration, false)]
+    [InlineData(NativeSetupEffectKind.ConnectionBinding, true)]
+    public async Task NativeSetupBindingCancellationPreservesActualRowsAndPossibleNextEffect(
+        NativeSetupEffectKind cancelBefore, bool connectionExists)
+    {
+        SetToken("{}");
+        using var original = new ConnectionBindingService(_home, _refresher);
+        await original.RegisterAadIdentityAsync("personal", Credential());
+        const string project = "NewExplicitProject";
+        var connection = ConnectionRefResolver.Compute("fixture", project);
+        using var cancellation = new CancellationTokenSource();
+        var setup = new NativeConnectionSetup(effects =>
+        {
+            effects.Observed = (kind, state) =>
+            {
+                if (kind == cancelBefore && state == NativeSetupEffectState.Possible) cancellation.Cancel();
+            };
+            return new ConnectionBindingService(_home, _refresher, setupEffects: effects);
+        }, ownsBindings: true);
+        (await original.ListBindingsAsync("fixture", project)).ShouldBeEmpty();
+        ConnectionCount().ShouldBe(0);
+
+        var result = await setup.CreateAdoBindingAsync(new("fixture", project, "personal"), cancellation.Token);
+
+        result.IsSuccess.ShouldBeFalse();
+        var report = NativeConnectionSetup.ReadFailure(result.Error).Value;
+        report.Cancelled.ShouldBeTrue();
+        report.Effects.ShouldContain(new NativeSetupEffect(cancelBefore, NativeSetupEffectState.Possible));
+        if (connectionExists)
+            report.Effects.ShouldContain(new NativeSetupEffect(NativeSetupEffectKind.ConnectionRegistration, NativeSetupEffectState.Confirmed));
+        ConnectionCount().ShouldBe(connectionExists ? 1 : 0);
+        (await original.ListBindingsAsync("fixture", project)).ShouldBeEmpty();
+        using var registry = new SqliteSystemWorktreeRegistry(original.RegistryPath, TimeProvider.System);
+        (await registry.FindDefaultBindingAsync(connection)).IsSuccess.ShouldBeFalse();
+
+        int ConnectionCount()
+        {
+            using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = original.RegistryPath, Mode = SqliteOpenMode.ReadOnly }.ToString());
+            db.Open();
+            using var query = db.CreateCommand();
+            query.CommandText = "SELECT COUNT(*) FROM connections WHERE connection_ref=$ref;";
+            query.Parameters.AddWithValue("$ref", connection);
+            return Convert.ToInt32(query.ExecuteScalar());
+        }
     }
 }

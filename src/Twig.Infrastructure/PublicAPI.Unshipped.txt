@@ -1,4 +1,6 @@
 #nullable enable
+static Twig.Infrastructure.Services.NativeConnectionSetup.ResolveUserHome() -> string!
+Twig.Infrastructure.Services.NativeSetupEffectKind.InteractiveSignIn = 19 -> Twig.Infrastructure.Services.NativeSetupEffectKind
 Twig.Infrastructure.Services.NativeLocalRelationshipReview.Outcome.get -> Twig.Infrastructure.Services.NativeLocalRelationshipOutcome?
 Twig.Infrastructure.Services.NativeItemEditor.ReadLocalRelationshipReviewsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeLocalRelationshipReview!>>!>!
 Twig.Infrastructure.Services.NativeItemEditor.ReadLocalRelationshipReviewAsync(System.Guid captureId, string! exactDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeLocalRelationshipReview!>!>!
@@ -607,3 +609,207 @@ static Twig.Infrastructure.Policy.ParentTypeRule.operator ==(Twig.Infrastructure
 virtual Twig.Infrastructure.Policy.DeclaredPolicyRule.EqualityContract.get -> System.Type!
 virtual Twig.Infrastructure.Policy.DeclaredPolicyRule.Equals(Twig.Infrastructure.Policy.DeclaredPolicyRule? other) -> bool
 virtual Twig.Infrastructure.Policy.DeclaredPolicyRule.PrintMembers(System.Text.StringBuilder! builder) -> bool
+abstract Twig.Infrastructure.Services.NativeSetupTarget.<Clone>$() -> Twig.Infrastructure.Services.NativeSetupTarget!
+override sealed Twig.Infrastructure.Services.NativeAdoSetupTarget.Equals(Twig.Infrastructure.Services.NativeSetupTarget? other) -> bool
+override sealed Twig.Infrastructure.Services.NativeGitHubSetupTarget.Equals(Twig.Infrastructure.Services.NativeSetupTarget? other) -> bool
+override Twig.Infrastructure.Services.NativeAadEnrollment.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAadEnrollment.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAadEnrollment.ToString() -> string!
+override Twig.Infrastructure.Services.NativeAadEnrollmentRequest.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAadEnrollmentRequest.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAadEnrollmentRequest.ToString() -> string!
+override Twig.Infrastructure.Services.NativeAdoBinding.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAdoBinding.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAdoBinding.ToString() -> string!
+override Twig.Infrastructure.Services.NativeAdoBindingRequest.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAdoBindingRequest.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAdoBindingRequest.ToString() -> string!
+override Twig.Infrastructure.Services.NativeAdoSetupTarget.<Clone>$() -> Twig.Infrastructure.Services.NativeAdoSetupTarget!
+override Twig.Infrastructure.Services.NativeAdoSetupTarget.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAdoSetupTarget.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAdoSetupTarget.ToString() -> string!
+override Twig.Infrastructure.Services.NativeFreshSetupRequest.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeFreshSetupRequest.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeFreshSetupRequest.ToString() -> string!
+override Twig.Infrastructure.Services.NativeGitHubSetupTarget.<Clone>$() -> Twig.Infrastructure.Services.NativeGitHubSetupTarget!
+override Twig.Infrastructure.Services.NativeGitHubSetupTarget.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeGitHubSetupTarget.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeGitHubSetupTarget.ToString() -> string!
+override Twig.Infrastructure.Services.NativeSetupEffect.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeSetupEffect.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeSetupEffect.ToString() -> string!
+override Twig.Infrastructure.Services.NativeSetupFailureInfo.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeSetupFailureInfo.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeSetupFailureInfo.ToString() -> string!
+override Twig.Infrastructure.Services.NativeSetupTarget.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeSetupTarget.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeSetupTarget.ToString() -> string!
+static Twig.Infrastructure.Services.NativeAadEnrollment.operator !=(Twig.Infrastructure.Services.NativeAadEnrollment? left, Twig.Infrastructure.Services.NativeAadEnrollment? right) -> bool
+static Twig.Infrastructure.Services.NativeAadEnrollment.operator ==(Twig.Infrastructure.Services.NativeAadEnrollment? left, Twig.Infrastructure.Services.NativeAadEnrollment? right) -> bool
+static Twig.Infrastructure.Services.NativeAadEnrollmentRequest.operator !=(Twig.Infrastructure.Services.NativeAadEnrollmentRequest? left, Twig.Infrastructure.Services.NativeAadEnrollmentRequest? right) -> bool
+static Twig.Infrastructure.Services.NativeAadEnrollmentRequest.operator ==(Twig.Infrastructure.Services.NativeAadEnrollmentRequest? left, Twig.Infrastructure.Services.NativeAadEnrollmentRequest? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoBinding.operator !=(Twig.Infrastructure.Services.NativeAdoBinding? left, Twig.Infrastructure.Services.NativeAdoBinding? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoBinding.operator ==(Twig.Infrastructure.Services.NativeAdoBinding? left, Twig.Infrastructure.Services.NativeAdoBinding? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoBindingRequest.operator !=(Twig.Infrastructure.Services.NativeAdoBindingRequest? left, Twig.Infrastructure.Services.NativeAdoBindingRequest? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoBindingRequest.operator ==(Twig.Infrastructure.Services.NativeAdoBindingRequest? left, Twig.Infrastructure.Services.NativeAdoBindingRequest? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoSetupTarget.operator !=(Twig.Infrastructure.Services.NativeAdoSetupTarget? left, Twig.Infrastructure.Services.NativeAdoSetupTarget? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoSetupTarget.operator ==(Twig.Infrastructure.Services.NativeAdoSetupTarget? left, Twig.Infrastructure.Services.NativeAdoSetupTarget? right) -> bool
+static Twig.Infrastructure.Services.NativeConnectionSetup.ReadFailure(Twig.Core.Error! error) -> Twig.Core.Result<Twig.Infrastructure.Services.NativeSetupFailureInfo!>!
+static Twig.Infrastructure.Services.NativeFreshSetupRequest.operator !=(Twig.Infrastructure.Services.NativeFreshSetupRequest? left, Twig.Infrastructure.Services.NativeFreshSetupRequest? right) -> bool
+static Twig.Infrastructure.Services.NativeFreshSetupRequest.operator ==(Twig.Infrastructure.Services.NativeFreshSetupRequest? left, Twig.Infrastructure.Services.NativeFreshSetupRequest? right) -> bool
+static Twig.Infrastructure.Services.NativeGitHubSetupTarget.operator !=(Twig.Infrastructure.Services.NativeGitHubSetupTarget? left, Twig.Infrastructure.Services.NativeGitHubSetupTarget? right) -> bool
+static Twig.Infrastructure.Services.NativeGitHubSetupTarget.operator ==(Twig.Infrastructure.Services.NativeGitHubSetupTarget? left, Twig.Infrastructure.Services.NativeGitHubSetupTarget? right) -> bool
+static Twig.Infrastructure.Services.NativeSetupEffect.operator !=(Twig.Infrastructure.Services.NativeSetupEffect? left, Twig.Infrastructure.Services.NativeSetupEffect? right) -> bool
+static Twig.Infrastructure.Services.NativeSetupEffect.operator ==(Twig.Infrastructure.Services.NativeSetupEffect? left, Twig.Infrastructure.Services.NativeSetupEffect? right) -> bool
+static Twig.Infrastructure.Services.NativeSetupFailureInfo.operator !=(Twig.Infrastructure.Services.NativeSetupFailureInfo? left, Twig.Infrastructure.Services.NativeSetupFailureInfo? right) -> bool
+static Twig.Infrastructure.Services.NativeSetupFailureInfo.operator ==(Twig.Infrastructure.Services.NativeSetupFailureInfo? left, Twig.Infrastructure.Services.NativeSetupFailureInfo? right) -> bool
+static Twig.Infrastructure.Services.NativeSetupTarget.operator !=(Twig.Infrastructure.Services.NativeSetupTarget? left, Twig.Infrastructure.Services.NativeSetupTarget? right) -> bool
+static Twig.Infrastructure.Services.NativeSetupTarget.operator ==(Twig.Infrastructure.Services.NativeSetupTarget? left, Twig.Infrastructure.Services.NativeSetupTarget? right) -> bool
+Twig.Infrastructure.Services.NativeAadEnrollment
+Twig.Infrastructure.Services.NativeAadEnrollment.<Clone>$() -> Twig.Infrastructure.Services.NativeAadEnrollment!
+Twig.Infrastructure.Services.NativeAadEnrollment.AccountName.get -> string?
+Twig.Infrastructure.Services.NativeAadEnrollment.AccountName.init -> void
+Twig.Infrastructure.Services.NativeAadEnrollment.Alias.get -> string!
+Twig.Infrastructure.Services.NativeAadEnrollment.Alias.init -> void
+Twig.Infrastructure.Services.NativeAadEnrollment.AuthorityHost.get -> string!
+Twig.Infrastructure.Services.NativeAadEnrollment.AuthorityHost.init -> void
+Twig.Infrastructure.Services.NativeAadEnrollment.Deconstruct(out string! Alias, out string! IdentityId, out string! TenantId, out string! ObjectId, out string! Issuer, out string! AuthorityHost, out string? AccountName) -> void
+Twig.Infrastructure.Services.NativeAadEnrollment.Equals(Twig.Infrastructure.Services.NativeAadEnrollment? other) -> bool
+Twig.Infrastructure.Services.NativeAadEnrollment.IdentityId.get -> string!
+Twig.Infrastructure.Services.NativeAadEnrollment.IdentityId.init -> void
+Twig.Infrastructure.Services.NativeAadEnrollment.Issuer.get -> string!
+Twig.Infrastructure.Services.NativeAadEnrollment.Issuer.init -> void
+Twig.Infrastructure.Services.NativeAadEnrollment.NativeAadEnrollment(string! Alias, string! IdentityId, string! TenantId, string! ObjectId, string! Issuer, string! AuthorityHost, string? AccountName) -> void
+Twig.Infrastructure.Services.NativeAadEnrollment.ObjectId.get -> string!
+Twig.Infrastructure.Services.NativeAadEnrollment.ObjectId.init -> void
+Twig.Infrastructure.Services.NativeAadEnrollment.TenantId.get -> string!
+Twig.Infrastructure.Services.NativeAadEnrollment.TenantId.init -> void
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest.<Clone>$() -> Twig.Infrastructure.Services.NativeAadEnrollmentRequest!
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest.Alias.get -> string!
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest.Alias.init -> void
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest.Deconstruct(out string! Alias, out string? Tenant) -> void
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest.Equals(Twig.Infrastructure.Services.NativeAadEnrollmentRequest? other) -> bool
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest.NativeAadEnrollmentRequest(string! Alias, string? Tenant = null) -> void
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest.Tenant.get -> string?
+Twig.Infrastructure.Services.NativeAadEnrollmentRequest.Tenant.init -> void
+Twig.Infrastructure.Services.NativeAdoBinding
+Twig.Infrastructure.Services.NativeAdoBinding.<Clone>$() -> Twig.Infrastructure.Services.NativeAdoBinding!
+Twig.Infrastructure.Services.NativeAdoBinding.BindingId.get -> string!
+Twig.Infrastructure.Services.NativeAdoBinding.BindingId.init -> void
+Twig.Infrastructure.Services.NativeAdoBinding.ConnectionRef.get -> string!
+Twig.Infrastructure.Services.NativeAdoBinding.ConnectionRef.init -> void
+Twig.Infrastructure.Services.NativeAdoBinding.Deconstruct(out string! BindingId, out string! ConnectionRef, out string! IdentityId, out long Revision) -> void
+Twig.Infrastructure.Services.NativeAdoBinding.Equals(Twig.Infrastructure.Services.NativeAdoBinding? other) -> bool
+Twig.Infrastructure.Services.NativeAdoBinding.IdentityId.get -> string!
+Twig.Infrastructure.Services.NativeAdoBinding.IdentityId.init -> void
+Twig.Infrastructure.Services.NativeAdoBinding.NativeAdoBinding(string! BindingId, string! ConnectionRef, string! IdentityId, long Revision) -> void
+Twig.Infrastructure.Services.NativeAdoBinding.Revision.get -> long
+Twig.Infrastructure.Services.NativeAdoBinding.Revision.init -> void
+Twig.Infrastructure.Services.NativeAdoBindingRequest
+Twig.Infrastructure.Services.NativeAdoBindingRequest.<Clone>$() -> Twig.Infrastructure.Services.NativeAdoBindingRequest!
+Twig.Infrastructure.Services.NativeAdoBindingRequest.Deconstruct(out string! Organization, out string! Project, out string! IdentityAlias) -> void
+Twig.Infrastructure.Services.NativeAdoBindingRequest.Equals(Twig.Infrastructure.Services.NativeAdoBindingRequest? other) -> bool
+Twig.Infrastructure.Services.NativeAdoBindingRequest.IdentityAlias.get -> string!
+Twig.Infrastructure.Services.NativeAdoBindingRequest.IdentityAlias.init -> void
+Twig.Infrastructure.Services.NativeAdoBindingRequest.NativeAdoBindingRequest(string! Organization, string! Project, string! IdentityAlias) -> void
+Twig.Infrastructure.Services.NativeAdoBindingRequest.Organization.get -> string!
+Twig.Infrastructure.Services.NativeAdoBindingRequest.Organization.init -> void
+Twig.Infrastructure.Services.NativeAdoBindingRequest.Project.get -> string!
+Twig.Infrastructure.Services.NativeAdoBindingRequest.Project.init -> void
+Twig.Infrastructure.Services.NativeAdoSetupTarget
+Twig.Infrastructure.Services.NativeAdoSetupTarget.BindingId.get -> string!
+Twig.Infrastructure.Services.NativeAdoSetupTarget.BindingId.init -> void
+Twig.Infrastructure.Services.NativeAdoSetupTarget.Deconstruct(out string! Organization, out string! Project, out string! BindingId, out string? Team, out string? GitProject) -> void
+Twig.Infrastructure.Services.NativeAdoSetupTarget.Equals(Twig.Infrastructure.Services.NativeAdoSetupTarget? other) -> bool
+Twig.Infrastructure.Services.NativeAdoSetupTarget.GitProject.get -> string?
+Twig.Infrastructure.Services.NativeAdoSetupTarget.GitProject.init -> void
+Twig.Infrastructure.Services.NativeAdoSetupTarget.NativeAdoSetupTarget(string! Organization, string! Project, string! BindingId, string? Team = null, string? GitProject = null) -> void
+Twig.Infrastructure.Services.NativeAdoSetupTarget.Organization.get -> string!
+Twig.Infrastructure.Services.NativeAdoSetupTarget.Organization.init -> void
+Twig.Infrastructure.Services.NativeAdoSetupTarget.Project.get -> string!
+Twig.Infrastructure.Services.NativeAdoSetupTarget.Project.init -> void
+Twig.Infrastructure.Services.NativeAdoSetupTarget.Team.get -> string?
+Twig.Infrastructure.Services.NativeAdoSetupTarget.Team.init -> void
+Twig.Infrastructure.Services.NativeConnectionSetup
+Twig.Infrastructure.Services.NativeConnectionSetup.CreateAdoBindingAsync(Twig.Infrastructure.Services.NativeAdoBindingRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAdoBinding!>!>!
+Twig.Infrastructure.Services.NativeConnectionSetup.EnrollAadAsync(Twig.Infrastructure.Services.NativeAadEnrollmentRequest! request, System.Action<System.Uri!>! authorizationUrl, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAadEnrollment!>!>!
+Twig.Infrastructure.Services.NativeConnectionSetup.InitializeFreshAsync(Twig.Infrastructure.Services.NativeFreshSetupRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+Twig.Infrastructure.Services.NativeConnectionSetup.NativeConnectionSetup(string! metadataHome) -> void
+Twig.Infrastructure.Services.NativeFreshSetupRequest
+Twig.Infrastructure.Services.NativeFreshSetupRequest.<Clone>$() -> Twig.Infrastructure.Services.NativeFreshSetupRequest!
+Twig.Infrastructure.Services.NativeFreshSetupRequest.Deconstruct(out string! WorkspaceRoot, out Twig.Infrastructure.Services.NativeSetupTarget! Target, out string? StoreFile) -> void
+Twig.Infrastructure.Services.NativeFreshSetupRequest.Equals(Twig.Infrastructure.Services.NativeFreshSetupRequest? other) -> bool
+Twig.Infrastructure.Services.NativeFreshSetupRequest.NativeFreshSetupRequest(string! WorkspaceRoot, Twig.Infrastructure.Services.NativeSetupTarget! Target, string? StoreFile = null) -> void
+Twig.Infrastructure.Services.NativeFreshSetupRequest.StoreFile.get -> string?
+Twig.Infrastructure.Services.NativeFreshSetupRequest.StoreFile.init -> void
+Twig.Infrastructure.Services.NativeFreshSetupRequest.Target.get -> Twig.Infrastructure.Services.NativeSetupTarget!
+Twig.Infrastructure.Services.NativeFreshSetupRequest.Target.init -> void
+Twig.Infrastructure.Services.NativeFreshSetupRequest.WorkspaceRoot.get -> string!
+Twig.Infrastructure.Services.NativeFreshSetupRequest.WorkspaceRoot.init -> void
+Twig.Infrastructure.Services.NativeGitHubSetupTarget
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.Account.get -> string!
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.Account.init -> void
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.Deconstruct(out string! Host, out string! Repository, out string! Account) -> void
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.Equals(Twig.Infrastructure.Services.NativeGitHubSetupTarget? other) -> bool
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.Host.get -> string!
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.Host.init -> void
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.NativeGitHubSetupTarget(string! Host, string! Repository, string! Account) -> void
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.Repository.get -> string!
+Twig.Infrastructure.Services.NativeGitHubSetupTarget.Repository.init -> void
+Twig.Infrastructure.Services.NativeSetupEffect
+Twig.Infrastructure.Services.NativeSetupEffect.<Clone>$() -> Twig.Infrastructure.Services.NativeSetupEffect!
+Twig.Infrastructure.Services.NativeSetupEffect.Deconstruct(out Twig.Infrastructure.Services.NativeSetupEffectKind Kind, out Twig.Infrastructure.Services.NativeSetupEffectState State) -> void
+Twig.Infrastructure.Services.NativeSetupEffect.Equals(Twig.Infrastructure.Services.NativeSetupEffect? other) -> bool
+Twig.Infrastructure.Services.NativeSetupEffect.Kind.get -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffect.Kind.init -> void
+Twig.Infrastructure.Services.NativeSetupEffect.NativeSetupEffect(Twig.Infrastructure.Services.NativeSetupEffectKind Kind, Twig.Infrastructure.Services.NativeSetupEffectState State) -> void
+Twig.Infrastructure.Services.NativeSetupEffect.State.get -> Twig.Infrastructure.Services.NativeSetupEffectState
+Twig.Infrastructure.Services.NativeSetupEffect.State.init -> void
+Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.Attachment = 11 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.Configuration = 10 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.ConnectionBinding = 5 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.ConnectionRegistration = 6 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.CoreRegistration = 17 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.CoreStore = 14 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.CredentialsDirectory = 1 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.CredentialWrite = 3 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.IdentityRegistration = 4 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.IgnoreFile = 9 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.InitializationLock = 8 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.NativeHome = 0 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.ProviderTarget = 13 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.Registry = 2 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.SourceReadback = 18 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.WorkspaceDirectory = 7 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.WorkspaceMarker = 16 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.WorkspacePin = 15 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectKind.WorktreeRegistration = 12 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeSetupEffectState
+Twig.Infrastructure.Services.NativeSetupEffectState.Confirmed = 1 -> Twig.Infrastructure.Services.NativeSetupEffectState
+Twig.Infrastructure.Services.NativeSetupEffectState.Possible = 0 -> Twig.Infrastructure.Services.NativeSetupEffectState
+Twig.Infrastructure.Services.NativeSetupFailureInfo
+Twig.Infrastructure.Services.NativeSetupFailureInfo.<Clone>$() -> Twig.Infrastructure.Services.NativeSetupFailureInfo!
+Twig.Infrastructure.Services.NativeSetupFailureInfo.Cancelled.get -> bool
+Twig.Infrastructure.Services.NativeSetupFailureInfo.Cancelled.init -> void
+Twig.Infrastructure.Services.NativeSetupFailureInfo.Deconstruct(out Twig.Infrastructure.Services.NativeSetupPhase Phase, out bool Cancelled, out System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeSetupEffect!> Effects) -> void
+Twig.Infrastructure.Services.NativeSetupFailureInfo.Effects.get -> System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeSetupEffect!>
+Twig.Infrastructure.Services.NativeSetupFailureInfo.Effects.init -> void
+Twig.Infrastructure.Services.NativeSetupFailureInfo.Equals(Twig.Infrastructure.Services.NativeSetupFailureInfo? other) -> bool
+Twig.Infrastructure.Services.NativeSetupFailureInfo.NativeSetupFailureInfo(Twig.Infrastructure.Services.NativeSetupPhase Phase, bool Cancelled, System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeSetupEffect!> Effects) -> void
+Twig.Infrastructure.Services.NativeSetupFailureInfo.Phase.get -> Twig.Infrastructure.Services.NativeSetupPhase
+Twig.Infrastructure.Services.NativeSetupFailureInfo.Phase.init -> void
+Twig.Infrastructure.Services.NativeSetupPhase
+Twig.Infrastructure.Services.NativeSetupPhase.Binding = 2 -> Twig.Infrastructure.Services.NativeSetupPhase
+Twig.Infrastructure.Services.NativeSetupPhase.Cancelled = 5 -> Twig.Infrastructure.Services.NativeSetupPhase
+Twig.Infrastructure.Services.NativeSetupPhase.Enrollment = 1 -> Twig.Infrastructure.Services.NativeSetupPhase
+Twig.Infrastructure.Services.NativeSetupPhase.Initialization = 3 -> Twig.Infrastructure.Services.NativeSetupPhase
+Twig.Infrastructure.Services.NativeSetupPhase.Readback = 4 -> Twig.Infrastructure.Services.NativeSetupPhase
+Twig.Infrastructure.Services.NativeSetupPhase.Validation = 0 -> Twig.Infrastructure.Services.NativeSetupPhase
+Twig.Infrastructure.Services.NativeSetupTarget
+Twig.Infrastructure.Services.NativeSetupTarget.NativeSetupTarget() -> void
+Twig.Infrastructure.Services.NativeSetupTarget.NativeSetupTarget(Twig.Infrastructure.Services.NativeSetupTarget! original) -> void
+virtual Twig.Infrastructure.Services.NativeSetupTarget.EqualityContract.get -> System.Type!
+virtual Twig.Infrastructure.Services.NativeSetupTarget.Equals(Twig.Infrastructure.Services.NativeSetupTarget? other) -> bool
+virtual Twig.Infrastructure.Services.NativeSetupTarget.PrintMembers(System.Text.StringBuilder! builder) -> bool

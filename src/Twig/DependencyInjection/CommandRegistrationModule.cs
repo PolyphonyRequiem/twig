@@ -10,11 +10,15 @@ public static class CommandRegistrationModule
 {
     public static IServiceCollection AddTwigCommands(this IServiceCollection services)
     {
-        services.AddSingleton<AuthLoginCommand>();
+        services.AddSingleton(sp => new AuthLoginCommand(sp.GetRequiredService<Twig.Formatters.OutputFormatterFactory>(),
+            () => sp.GetRequiredService<IConnectionBindingService>(), sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>(),
+            sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(), sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
         services.AddSingleton<AuthPatCommand>();
         services.AddSingleton<AuthIdentitiesCommand>();
         services.AddSingleton<AuthGitHubCommand>();
-        services.AddSingleton<ConnectionBindCommand>();
+        services.AddSingleton(sp => new ConnectionBindCommand(() => sp.GetRequiredService<IConnectionBindingService>(),
+            sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>(),
+            sp.GetRequiredService<Twig.Formatters.OutputFormatterFactory>(), sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
         services.AddSingleton<ConnectionListCommand>();
         services.AddSingleton<ConnectionStatusCommand>();
         services.AddSingleton<IConnectionRemoteWriteReconciliationService>(sp =>

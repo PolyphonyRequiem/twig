@@ -4,6 +4,40 @@ Phases 1-4, phase-5 code closure and phase-6 source removal for **Epic #1220, Co
 
 ## Status and scope
 
+### Explicit human native connection setup
+
+`NativeConnectionSetup` is an inert public Infrastructure facade with three
+explicit human actions: native loopback PKCE enrollment of a named AAD identity,
+creation/reuse of a named ADO binding without a default change, and initialization
+of a genuinely fresh Git worktree. The CLI shares the internal enrollment,
+binding and complete initialization bodies. Infrastructure has no command/root
+dependency; Core provider/store ports, schema and outcome types are unchanged.
+
+Public initialization requires an explicit existing ADO binding or named `gh`
+account and disjoint provider coordinates. Full filesystem/input preflight runs
+before native home/credential/registry resolution. Constructors and host
+Open/layout/reload never enroll, bind, initialize, discover accounts or list
+sources. Existing CLI optional/default/config/device/browser behavior remains in
+its internal adapters. Missing enrollment aliases now refuse before construction
+of the native binding service, including native home/credential-directory effects.
+
+The internal creation receipt retains the actual recorded document/store,
+connection, principal and frozen native authority while creation leases are held.
+Only schema plus online-access readback against that exact creation stamp can
+produce a successful public observation. Replacement, denial, cancellation and
+failed readback cannot become cached or initialized-as-ready success.
+
+Failures preserve `Result<T>.Fail` and native `ErrorCode`; the pure Infrastructure
+`ReadFailure(Error)` projection decodes only bounded native phase/effect/cancel
+markers and relevant HTTP 401/403 evidence. Unknown or malformed diagnostics
+explicitly refuse. Possible effects are recorded before effectful calls and
+confirmed only from native evidence; duplicate bindings mean ensured original
+rows, not new inserts or revision changes. Partial state and native cleanup stay
+authoritative. There is no reset, repair, retry, alternate publisher, diagnostic
+journal or replay authority. No credential material, private paths or callback
+URLs enter this evidence. SDK events remain layout-acknowledgement only; private
+browser effects require owner/content/CSRF admission and named human gestures.
+
 ### User-wide Bench ownership
 
 Native Bench definitions now live in `benches.db` beside the native user registry

@@ -2455,6 +2455,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public int OmittedRelationResponses { get; private set; }
         public Func<Task>? BeforeReadback { get; set; }
         public Func<Task>? BeforeItemReadResponse { get; set; }
+        public Func<int, Task>? BeforeCurrentItemLookup { get; set; }
         public Func<Task>? AfterCommit { get; set; }
         public bool CoreMetadataEnabled { get; set; }
         public string? ObservedPrincipalOverride { get; set; }
@@ -2467,6 +2468,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public HttpStatusCode? SchemaFailureStatus { get; set; }
         public int SourceHandlesDisposed { get; private set; }
         public bool LoseNextPatchAcknowledgement { get; set; }
+        public bool DisableIncidentRelations { get; set; }
+        public int? IncompleteIncidentItem { get; set; }
         public List<(int Id, string Body)> RelationshipPatches { get; } = [];
         internal HttpMessageHandler NewHandle() => new Forward(this);
         private sealed class Forward(PrincipalTransport owner) : HttpMessageHandler
@@ -2480,6 +2483,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             }
         }
         public string TitleOf(int id) => _items[id].Title;
+        public void SetState(int id, string state)
+        {
+            _items[id] = _items[id] with { State = state };
+            _history[(id, _items[id].Revision)] = _items[id];
+        }
         public void ForgetAssociation(int source, int target)
         {
             _links[source].Remove(("Native.Association", target));
@@ -2503,6 +2511,16 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             parents.Add(("Native.ParentReverse", parent));
             _linkHistory[(parent, _items[parent].Revision)] = children.ToArray();
             _linkHistory[(child, _items[child].Revision)] = parents.ToArray();
+        }
+
+        public void SetNativeRelationship(int from, int to, string relation)
+        {
+            if (!_links.TryGetValue(from, out var source)) _links[from] = source = [];
+            if (!_links.TryGetValue(to, out var target)) _links[to] = target = [];
+            source.Add((relation, to));
+            target.Add((Inverse(relation), from));
+            _linkHistory[(from, _items[from].Revision)] = source.ToArray();
+            _linkHistory[(to, _items[to].Revision)] = target.ToArray();
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -2707,8 +2725,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     }).Concat(NativeLinks(createdId)).ToArray(),
                 });
             }
-            if (!int.TryParse(segments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
-                || !_items.TryGetValue(id, out var item) || item.Principal != principal)
+            if (!int.TryParse(segments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+                return Reply(HttpStatusCode.NotFound, new { message = "Not readable by the selected principal" });
+            if (request.Method == HttpMethod.Get && segments.Length == 1 && BeforeCurrentItemLookup is { } beforeLookup)
+                await beforeLookup(id);
+            if (!_items.TryGetValue(id, out var item) || item.Principal != principal)
                 return Reply(HttpStatusCode.NotFound, new { message = "Not readable by the selected principal" });
             if (request.Method == HttpMethod.Patch)
             {
@@ -2745,7 +2766,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     {
                         var value = operation.GetProperty("value");
                         var relation = value.GetProperty("rel").GetString()!;
-                        if (relation is "Native.ParentForward" or "Native.DependencyForward" or "Native.Association")
+                        if (relation is "Native.ParentForward" or "Native.ParentReverse"
+                            or "Native.DependencyForward" or "Native.DependencyReverse" or "Native.Association")
                         {
                             var endpoint = int.Parse(new Uri(value.GetProperty("url").GetString()!).Segments[^1], CultureInfo.InvariantCulture);
                             _items[endpoint].Principal.ShouldBe(principal);
@@ -2839,7 +2861,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 {
                     rel = resource.Relation, url = resource.Target,
                     attributes = new { name = resource.Name, comment = resource.Comment }
-                }).Cast<object>().Concat(NativeLinks(id, revision)).ToArray()
+                }).Cast<object>().Concat(NativeLinks(id, revision)).Concat(IncompleteIncidentItem == id
+                    ? [new { rel = "Unknown.Incident", url = "https://dev.azure.com/fixture/_apis/wit/workItems/999", attributes = new { } }]
+                    : Array.Empty<object>()).ToArray()
             };
             if (RichTextEnabled) data.fields["System.Description"] = item.Description ?? "";
             if (item.CloseEvidence is not null) data.fields["Fixture.CloseEvidence"] = item.CloseEvidence;
@@ -2896,6 +2920,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 }).ToArray() });
             }
             if (path.EndsWith("/workitemrelationtypes", StringComparison.Ordinal))
+            {
+                if (DisableIncidentRelations)
+                    return Reply(HttpStatusCode.OK, new { value = Array.Empty<object>() });
                 return Reply(HttpStatusCode.OK, new { value = new object[]
                 {
                     new { referenceName = "Hyperlink", attributes = new { usage = "resourceLink", enabled = true } },
@@ -2906,6 +2933,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     new { referenceName = "Native.DependencyReverse", attributes = new { usage = "workItemLink", enabled = true, directional = true, isForward = false, topology = "dependency", oppositeEndReferenceName = "Native.DependencyForward" } },
                     new { referenceName = "Native.Association", attributes = new { usage = "workItemLink", enabled = true, directional = false, isForward = true, topology = "network", oppositeEndReferenceName = "Native.Association" } },
                 } });
+            }
             if (CloseGateEnabled && path.EndsWith("/rules", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { value = new[] { new
                 {

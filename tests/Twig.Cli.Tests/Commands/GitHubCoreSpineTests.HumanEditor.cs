@@ -54,7 +54,8 @@ public sealed partial class GitHubCoreSpineTests
     public async Task NativeGitHubHumanEditorOnlyOffersCapturedScalarInputs()
     {
         using var fixture = new HumanEditorFixture();
-        await fixture.InitializeAsync();
+        var host = await fixture.InitializeAsync();
+        host.Stamp.Connection.Provider.Value.ShouldBe("github");
         fixture.Defect = "schema";
         using var editor = (await fixture.OpenAsync()).Value;
         var form = (await editor.SelectAsync(fixture.Key)).Value;
@@ -65,6 +66,10 @@ public sealed partial class GitHubCoreSpineTests
         title.IsSuccess.ShouldBeTrue();
         (await editor.EvaluateAsync(form.Ticket,
             FieldValues.Empty.Set(GitHubProvider.Body, FieldValue.RichText("Unavailable input", FieldKind.Markdown)))).IsSuccess.ShouldBeFalse();
+        var other = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "another-issue");
+        (await editor.SelectRelationshipsAsync(fixture.Key, other)).Error.Code.ShouldBe(ErrorCode.Unsupported);
+        (await editor.SaveRelationshipsAsync(form.Ticket, FieldValues.Empty,
+            [new(other, "unqualified-relation", true)])).Error.Code.ShouldBe(ErrorCode.Conflict);
         fixture.Writes.ShouldBe(0);
     }
 

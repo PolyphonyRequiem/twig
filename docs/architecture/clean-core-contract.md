@@ -75,6 +75,73 @@ Core port, alternate executor, Plan scope for normal writes, or UI/install work.
 GitHub seed creation and type/collection authoring remain unsupported; existing
 scalar editing and isolated Plan review retain their previous boundaries.
 
+### Normal native existing-item ADO relationships
+
+`NativeItemEditor.SelectRelationshipsAsync(target, endpoint)` opens one explicit
+pair of distinct, published items in the exact admitted ADO source and normal
+Bench/mode. Its `NativeRelationshipForm` carries the target and endpoint
+observations, canonical discovered `RelationKind` metadata, complete observed
+incident edges, mechanically available `CreationLink` choices and retained
+intent. Choices encode `Outgoing` and `Remove` explicitly: an incoming dependency
+uses the same canonical reference, not a guessed inverse reference. Resource
+relations, disabled or unavailable metadata, local UUIDs, cross-source endpoints
+and unsupported providers/modes are refused, never represented by an empty
+success or a simulated transport. Choices are guidance, not publication or
+policy authority; Core rechecks the exact effect before Save.
+
+`StageRelationshipsAsync(ticket, fields, intent)` retains one bounded pair's
+explicit add/remove intent without provider writes. Existing-item links live in
+the durable native capture's Batch operation; `Draft.Links` remains empty.
+`SelectAsync` can reopen that normal ADO capture as read-only, exposing
+`RelationshipIntent` and `RelationshipsReadOnly`; scalar Evaluate/Stage/Save
+cannot mutate or publish it. Reopening both explicit endpoints restores the
+qualified ticket without changing the original directed intent or observed
+presence. A stale endpoint or protected capture is not silently rebound.
+The qualified ticket also retains the displayed endpoint's original revision
+and local draft fingerprint independently of later reads. Low-level native
+staging compares that proof after acquiring endpoint evidence and again before
+capture reservation, including on the first Save with no existing capture.
+A late revision or local draft change refuses before replacing the original
+capture or target draft; explicit relationship intent cannot recapture newer
+endpoint evidence as if it had been displayed.
+The existing `EvaluateAsync(ticket, fields)` accepts a qualified pair ticket
+for read-only prospective field guidance. It reuses the captured native field
+evaluator to expose discovered requiredness, allowed values and errors,
+including missing close-gate fields, without staging the proposed values.
+Current pair observations and the original ticket/source/store evidence must
+still agree. Evaluation does not update the Core store, capture, proposal or
+journal. Ordinary scalar reopening of retained relationship debt still refuses
+evaluation; scalar Stage/Save also refuse even a qualified pair ticket.
+Empty intent cannot discard protected relationships. Broader multi-endpoint
+authoring and parent replacement are not part of this bounded surface.
+
+`SaveRelationshipsAsync(ticket, fields, intent)` stages and calls the existing
+native `PreviewEditorDraftAsync` / `SaveDraftAsync` / Core Apply path. Scalar
+fields and incident deltas share one qualified ADO atomic Batch, original
+digest, operation journal and verified target/inverse endpoint readback. The
+fresh schema, actor/source, root/store, Bench/mode, ticket, target/endpoint
+revisions, complete incidents, draft fingerprints and captured intent must
+still agree. Core owns direction/presence validation and dependency-cycle
+policy; hierarchy additions refuse an already-parented child rather than
+removing or replacing its parent. No host copies these rules or adds a
+publisher, port, executor or outcome type.
+
+The existing Core/provider batch surface still supports an explicitly authored
+atomic parent change that removes every observed old parent in the same operation
+as the addition. That is not implicit reparenting and is not offered by this
+single-pair editor.
+
+An uncertain original attempt retains its proposal, receipts, draft and capture;
+Save never replays or restages it. Unowned CLI debt and isolated whole-Plan
+work are not adopted or flushed. Normal seed ownership, empty parentless
+creation and original-proposal verified delivery remain unchanged. These new
+forms are in-process typed API values, not new serialized transport envelopes;
+the existing source-generated native capture registry is reused unchanged.
+There is no private host/UI, install or runtime work in this increment.
+GitHub standalone/local Relate-Unrelate is later work and must not be emulated
+with ADO atomic Batch; GitHub relationships, seeds, types and collections,
+seed parents/links/resources and local-local chains remain unsupported here.
+
 ### Explicit-team native planning
 
 A Bench can retain rules from several teams on one connection as well as rules

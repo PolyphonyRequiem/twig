@@ -179,6 +179,16 @@ public static partial class Core
                     || !kind.Directed && edge.Origin == RelationshipOrigin.Provider && !edge.Deleted
                         && edge.Kind == delta.Relation && edge.From == delta.Other && edge.To == op.Item);
                 if (exists != delta.Remove) Fail(ErrorCode.Conflict, "The exact relationship add/remove baseline changed.");
+                if (!delta.Remove && kind.Shape == RelationShape.Hierarchy)
+                {
+                    var child = delta.Outgoing ? delta.Other : op.Item;
+                    if (store.Relationships.Any(edge => edge.Origin == RelationshipOrigin.Provider && !edge.Deleted
+                        && edge.Kind == delta.Relation && edge.To == child
+                        && !op.Links.Any(removal => removal.Remove && removal.Relation == edge.Kind
+                            && (removal.Outgoing ? edge.From == op.Item && edge.To == removal.Other
+                                : edge.To == op.Item && edge.From == removal.Other))))
+                        Fail(ErrorCode.Unsupported, "A parent change requires explicit removal in the same atomic batch; no existing parent is removed or replaced implicitly.");
+                }
             }
         }
         if (local && op.ExpectedRevision is not null)

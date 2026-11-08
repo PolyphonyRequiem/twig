@@ -57,8 +57,11 @@ internal sealed partial class CoreWorkspace
         {
             var read = await ReadAsync(endpoint, ct, review?.Metadata).ConfigureAwait(false);
             if (!read.IsSuccess) return Result<CoreDraftPreview>.Fail(read.Error);
+            var state = await SnapshotAsync(ct).ConfigureAwait(false);
+            if (!state.IsSuccess) return Result<CoreDraftPreview>.Fail(state.Error);
             if (endpoints.IsDefault || !endpoints.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(endpoint)
-                && proof.Revision == read.Value.Revision?.Token))
+                && proof.Revision == read.Value.Revision?.Token
+                && proof.DraftFingerprint == DraftFingerprint(state.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint))))
                 return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The exact captured native endpoint revision changed; no relationship was published.");
         }
         var effect = preview.Value.Proposal?.Operations.Single(value => value.Item == key);

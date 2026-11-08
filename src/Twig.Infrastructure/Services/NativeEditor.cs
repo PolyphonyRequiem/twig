@@ -148,7 +148,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
     }
 
     internal async Task<Result<NativeEditorItem>> StageAsync(NativeEditorItem item, FieldValues fields, string? type,
-        ImmutableArray<CreationLink>? relationships, CancellationToken ct)
+        ImmutableArray<CreationLink>? relationships, CancellationToken ct, ImmutableArray<NativeEditorEndpoint>? expectedEndpoints = null)
     {
         using var benchLease = user.AcquireAuthoringLease(bench.Id);
         using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
@@ -218,13 +218,23 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             {
                 var read = await Workspace.ReadAsync(endpoint, ct, metadata).ConfigureAwait(false);
                 if (!read.IsSuccess) return Result<NativeEditorItem>.Fail(read.Error);
-                endpoints.Add(new(CleanCoreAdoAccess.ItemText(endpoint), read.Value.Revision?.Token, "none"));
+                var endpointSnapshot = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+                if (!endpointSnapshot.IsSuccess) return Result<NativeEditorItem>.Fail(endpointSnapshot.Error);
+                endpoints.Add(new(CleanCoreAdoAccess.ItemText(endpoint), read.Value.Revision?.Token,
+                    Workspace.DraftFingerprint(endpointSnapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint))));
             }
         }
         if (relationships is null && item.Capture is { } previous && !previous.Endpoints.SequenceEqual(endpoints))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "A captured relationship endpoint changed; intent was not silently rebound.");
+        if (expectedEndpoints is { } expected && (expected.IsDefault || !expected.SequenceEqual(endpoints)))
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The displayed relationship endpoint revision or draft changed; the original capture and draft were not replaced.");
         var beforeStage = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!beforeStage.IsSuccess) return Result<NativeEditorItem>.Fail(beforeStage.Error);
+        if (expectedEndpoints is { } witnessed && links.Select(link => link.Other).Distinct().Any(endpoint =>
+            !witnessed.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(endpoint)
+                && proof.Revision == beforeStage.Value.Items.SingleOrDefault(value => value.Key == endpoint)?.Revision?.Token
+                && proof.DraftFingerprint == Workspace.DraftFingerprint(beforeStage.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint)))))
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The displayed endpoint evidence changed before capture reservation; no intent was overwritten.");
         if (Workspace.DraftFingerprint(beforeStage.Value.Drafts.SingleOrDefault(value => value.Key == desired.Key))
             != Workspace.DraftFingerprint(item.Draft))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Draft intent changed while endpoint evidence was captured.");

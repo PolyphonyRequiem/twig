@@ -80,28 +80,26 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
 
     internal async Task<Result<NativeEditorItem>> SelectAsync(ItemKey key, CancellationToken ct)
     {
+        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
         var valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
         var available = await LocalEndpointAvailableAsync(key, ct).ConfigureAwait(false);
         if (!available.IsSuccess) return Result<NativeEditorItem>.Fail(available.Error);
-        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
-        WorkItem observed;
+        var observed = await ReadAdmittedSelectionAsync(key, ct).ConfigureAwait(false);
+        return observed.IsSuccess ? await Item(observed.Value, ct).ConfigureAwait(false)
+            : Result<NativeEditorItem>.Fail(observed.Error);
+    }
+
+    private async Task<Result<WorkItem>> ReadAdmittedSelectionAsync(ItemKey key, CancellationToken ct)
+    {
         if (!key.IsLocal)
-        {
-            var read = await Workspace.ReadAsync(key, ct, metadata).ConfigureAwait(false);
-            if (!read.IsSuccess) return Result<NativeEditorItem>.Fail(read.Error);
-            observed = read.Value;
-        }
-        else
-        {
-            var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
-            if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
-            var seed = stored.Value.Drafts.SingleOrDefault(draft => draft.Key == key);
-            if (seed is null) return Result<NativeEditorItem>.Fail(plan.PlanMode ? ErrorCode.NotFound : ErrorCode.Unsupported,
-                "The exact owned seed is unavailable in this native store/mode; other Plan or CLI debt was not adopted.");
-            observed = new(key, seed.Type, FieldValues.Empty, null, true);
-        }
-        return await Item(observed, ct).ConfigureAwait(false);
+            return await Workspace.ReadAsync(key, ct, metadata).ConfigureAwait(false);
+        var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!stored.IsSuccess) return Result<WorkItem>.Fail(stored.Error);
+        var seed = stored.Value.Drafts.SingleOrDefault(draft => draft.Key == key);
+        return seed is null ? Result<WorkItem>.Fail(plan.PlanMode ? ErrorCode.NotFound : ErrorCode.Unsupported,
+            "The exact owned seed is unavailable in this native store/mode; other Plan or CLI debt was not adopted.")
+            : Result<WorkItem>.Ok(new(key, seed.Type, FieldValues.Empty, null, true));
     }
 
     internal async Task<Result<NativeEditorItem>> CreateSeedAsync(string type, CancellationToken ct)
@@ -132,9 +130,14 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
         if (!captures.IsSuccess) return Result<NativeEditorItem>.Fail(captures.Error);
-        if (captures.Value.Any(value => LocalCaptureOwnsEndpoint(value, observed.Key)))
+        return Item(observed, stored.Value, captures.Value);
+    }
+
+    private Result<NativeEditorItem> Item(WorkItem observed, StoreSnapshot stored, ImmutableArray<NativeEditorCapture> captures)
+    {
+        if (captures.Any(value => LocalCaptureOwnsEndpoint(value, observed.Key)))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "An original local relationship capture protects this endpoint; observe or continue its exact digest, without scalar adoption.");
-        var matches = captures.Value.Where(value => !value.Settled && !value.Cancelled && value.StoreInstance == handle.Document.DatabaseInstance
+        var matches = captures.Where(value => !value.Settled && !value.Cancelled && value.StoreInstance == handle.Document.DatabaseInstance
             && value.PlanMode == plan.PlanMode && (!plan.PlanMode || value.PlanId == plan.Id)
             && UserBenchStore.ParseIntent(value.IntentJson).Operations[0].Item == observed.Key).ToArray();
         if (matches.Length > 1)
@@ -142,12 +145,12 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (matches.SingleOrDefault() is { } retained
             && (retained.Origin != origin || !NativePathComparer.Instance.Equals(retained.Root, factory.WorkspaceRoot)))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Retained intent belongs to another native authority/origin; it was not adopted.");
-        var draft = stored.Value.Drafts.SingleOrDefault(value => value.Key == observed.Key);
+        var draft = stored.Drafts.SingleOrDefault(value => value.Key == observed.Key);
         if (observed.Key.IsLocal && !plan.PlanMode && matches.SingleOrDefault() is { } owner && owner.BenchId != bench.Id)
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The normal seed is owned by another exact Bench; its capture was not adopted.");
         var evaluation = Model.EvaluateEditorFields(metadata.Schema, draft?.Baseline ?? observed, draft?.Changes ?? FieldValues.Empty,
             Workspace.Capabilities.AtomicFieldBatches, draft?.Type);
-        return evaluation.IsSuccess ? Result<NativeEditorItem>.Ok(new(observed, draft, stored.Value.Version, matches.SingleOrDefault(), evaluation.Value))
+        return evaluation.IsSuccess ? Result<NativeEditorItem>.Ok(new(observed, draft, stored.Version, matches.SingleOrDefault(), evaluation.Value))
             : Result<NativeEditorItem>.Fail(evaluation.Error);
     }
 

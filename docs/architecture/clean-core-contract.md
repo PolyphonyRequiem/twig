@@ -156,6 +156,13 @@ they never select a local fallback. `NativeRelationshipForm.LocalOnly` and
 are read-only, native `CreationLink` choices are empty, and generic scalar
 Evaluate/Stage/Save cannot adopt its ticket or retained intent.
 
+Pair selection shares one admitted root operation and one post-read store/capture
+snapshot across both endpoints, rather than reopening scalar editor sessions.
+Entry and post-provider source/Bench admission, coherent endpoint revisions,
+current schema, independent debt and original journal protections remain required.
+The store version is checked again after provider work. Provider capability/design
+assertions live in focused contract coverage, not every native pair fixture bootstrap.
+
 The separate human-host `ReviewLocalRelationshipAsync(ticket, adding)` reserves
 a durable native capture and retains one canonical Core `Relate` or `Unrelate`
 with `Origin.Local`, its exact digest and Planned journal row.

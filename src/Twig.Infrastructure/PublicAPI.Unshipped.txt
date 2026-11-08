@@ -1,4 +1,22 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeLocalRelationshipReview.Outcome.get -> Twig.Infrastructure.Services.NativeLocalRelationshipOutcome?
+Twig.Infrastructure.Services.NativeItemEditor.ReadLocalRelationshipReviewsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeLocalRelationshipReview!>>!>!
+Twig.Infrastructure.Services.NativeRelationshipForm.LocalOnly.get -> bool
+Twig.Infrastructure.Services.NativeRelationshipForm.LocalOnly.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Verification.get -> string!
+Twig.Infrastructure.Services.NativeLocalRelationshipReview
+Twig.Infrastructure.Services.NativeLocalRelationshipReview.CaptureId.get -> System.Guid
+Twig.Infrastructure.Services.NativeLocalRelationshipReview.Proposal.get -> Twig.Core.Proposal!
+Twig.Infrastructure.Services.NativeLocalRelationshipOutcome
+Twig.Infrastructure.Services.NativeLocalRelationshipOutcome.CaptureId.get -> System.Guid
+Twig.Infrastructure.Services.NativeLocalRelationshipOutcome.Digest.get -> string!
+Twig.Infrastructure.Services.NativeLocalRelationshipOutcome.Journal.get -> Twig.Core.JournalEntry?
+Twig.Infrastructure.Services.NativeLocalRelationshipOutcome.Settled.get -> bool
+Twig.Infrastructure.Services.NativeLocalRelationshipOutcome.Error.get -> Twig.Core.Error?
+Twig.Infrastructure.Services.NativeItemEditor.ReviewLocalRelationshipAsync(System.Guid ticket, bool adding, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeLocalRelationshipReview!>!>!
+Twig.Infrastructure.Services.NativeItemEditor.ApplyLocalRelationshipAsync(System.Guid captureId, string! exactDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeLocalRelationshipOutcome!>!>!
+Twig.Infrastructure.Services.NativeItemEditor.ObserveLocalRelationshipAsync(System.Guid captureId, string! exactDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeLocalRelationshipOutcome!>!>!
+Twig.Infrastructure.Services.NativeItemEditor.ContinueLocalRelationshipAsync(System.Guid captureId, string! exactDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeLocalRelationshipOutcome!>!>!
 Twig.Infrastructure.Services.NativeItemEditor.SelectRelationshipsAsync(Twig.Core.ItemKey! key, Twig.Core.ItemKey! other, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeRelationshipForm!>!>!
 Twig.Infrastructure.Services.NativeItemEditor.StageRelationshipsAsync(System.Guid ticket, Twig.Core.FieldValues! changes, System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!> intent, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeRelationshipForm!>!>!
 Twig.Infrastructure.Services.NativeItemEditor.SaveRelationshipsAsync(System.Guid ticket, Twig.Core.FieldValues! changes, System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!> intent, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeEditResult!>!>!

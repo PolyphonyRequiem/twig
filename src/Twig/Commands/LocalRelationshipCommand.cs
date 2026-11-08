@@ -49,28 +49,9 @@ internal sealed class LocalRelationshipCommand(
             var from = Logical(state, source.Value);
             var to = Logical(state, target.Value);
             if (from == to) return Error(output, "A work item cannot be related to itself.", 2);
-            var schema = await workspace.SchemaAsync(ct);
-            if (!schema.IsSuccess) return Error(output, schema.Error.Message);
-            var kinds = schema.Value.Relations.Where(kind => kind.Shape == RelationShape.Association && !kind.Directed
-                && workspace.Capabilities.LocalRelations.Contains(kind.Reference)
-                && !workspace.Capabilities.NativeRelations.Contains(kind.Reference)).ToArray();
-            if (kinds.Length != 1)
-                return Error(output, "Unsupported: the discovered schema must declare exactly one local-only symmetric Association; native or unavailable relations never fall back to local.");
-            var matches = state.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Local
-                && edge.Kind == kinds[0].Reference && Touches(state, edge, from, to)).ToArray();
-            if (matches.Length > 1) return Error(output, "Conflicting logical local edges; no row was selected or changed.");
-            var existing = matches.SingleOrDefault();
-            if (adding && existing is { Deleted: false }) return Error(output, "The LOCAL association already exists; no mutation was journaled.");
-            if (!adding && (existing is null || existing.Deleted)) return Error(output, "No active LOCAL association exists; no mutation was journaled.");
-            // A published seed's old edge remains keyed by its original UUID, including its tombstone CAS.
-            var op = new Op("local-related", adding ? OpKind.Relate : OpKind.Unrelate,
-                existing?.From ?? source.Value, other: existing?.To ?? target.Value,
-                relation: kinds[0].Reference, origin: RelationshipOrigin.Local,
-                expectedLocalVersion: existing?.LocalVersion);
-            var prepared = await workspace.PrepareAsync([op], ct);
+            var prepared = await workspace.PrepareLocalRelationshipAsync(source.Value, target.Value, adding, ct, state.Version);
             if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
-            if (prepared.Value.ExpectedStoreVersion != state.Version || prepared.Value.SchemaFingerprint != schema.Value.Fingerprint)
-                return Error(output, "Local identity/edge or discovered schema changed during capture; no stale selection was applied.");
+            var op = prepared.Value.Operations.Single();
             var applied = await workspace.ApplyAsync(prepared.Value, prepared.Value.Digest, ct);
             if (!applied.IsSuccess) return Error(output, applied.Error.Message);
             if (!applied.Value.EffectsVerified || applied.Value.Error is not null)
@@ -167,13 +148,10 @@ internal sealed class LocalRelationshipCommand(
     }
 
     private static ItemKey Logical(StoreSnapshot state, ItemKey key)
-        => state.Mappings.FirstOrDefault(mapping => mapping.Local == key && state.Journal.Any(row =>
-            row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation && row.Status == OpStatus.Verified
-            && row.Receipts.Any(receipt => receipt.Status == OpStatus.Verified && receipt.PublishedKey == mapping.Remote)))?.Remote ?? key;
+        => CoreWorkspace.LocalLogical(state, key);
 
     private static bool Touches(StoreSnapshot state, Relationship edge, ItemKey from, ItemKey to)
-        => Logical(state, edge.From) == from && Logical(state, edge.To) == to
-            || Logical(state, edge.From) == to && Logical(state, edge.To) == from;
+        => CoreWorkspace.LocalTouches(state, edge, from, to);
 
     private static bool SupportsOutput(string output, bool list)
         => OutputFormats.Normalize(output) is "human" or "minimal" or "json" or "json-full" or "json-compact"

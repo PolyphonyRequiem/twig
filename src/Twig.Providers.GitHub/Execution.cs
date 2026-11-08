@@ -62,6 +62,7 @@ public sealed partial class GitHubProvider
             };
             if (op.Origin == RelationshipOrigin.Local)
             {
+                await bound.Session.ValidateAsync(token);
                 var receipt = new Receipt(proposal.Digest, operation, attempt, OpStatus.Applied, evidence);
                 var edge = Edge(op, schema) with { LocalVersion = (op.ExpectedLocalVersion ?? 0) + 1, Deleted = op.Kind == OpKind.Unrelate };
                 return await PersistReceipt(proposal, receipt, null, edge);

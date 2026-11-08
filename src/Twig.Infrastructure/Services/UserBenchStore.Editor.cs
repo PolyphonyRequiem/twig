@@ -10,6 +10,7 @@ using Twig.Infrastructure.Auth;
 namespace Twig.Infrastructure.Services;
 
 internal sealed record NativeEditorEndpoint(string Key, string? Revision, string DraftFingerprint);
+internal sealed record NativeLocalRelationshipCapture(string EdgeFingerprint);
 internal sealed record NativeEditorCapture(Guid Id, long Revision, Guid UserInstance, Guid BenchId, long BenchRevision,
     Guid PlanId, long PlanRevision, bool PlanMode, Guid ScopeId, NativeSourceStamp Origin, string Root,
     Guid StoreInstance, long StoreVersion, string IntentJson, string DraftFingerprint, bool Ready, bool Settled = false)
@@ -19,6 +20,7 @@ internal sealed record NativeEditorCapture(Guid Id, long Revision, Guid UserInst
     public string BeforeFingerprint { get; init; } = "none";
     public bool Cancelled { get; init; }
     public string? SeedProposal { get; init; }
+    public NativeLocalRelationshipCapture? LocalRelationship { get; init; }
     internal bool SameAs(NativeEditorCapture other)
         => this with { Endpoints = other.Endpoints } == other && Endpoints.SequenceEqual(other.Endpoints);
 }
@@ -51,12 +53,23 @@ public sealed partial class UserBenchStore
                 return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "The captured Bench mode, scope, native source or revision changed; intent was preserved.");
             ValidatePlanOrigin(capture.Root, capture.Origin);
             var proposal = ParseIntent(capture.IntentJson);
+            var local = NativeLocalRelationshipEvidence.IsLocal(proposal);
             if (capture.Id == Guid.Empty || expectedRevision is < 0 or long.MaxValue || capture.Revision != expectedRevision + 1 || capture.StoreVersion < 0
                 || proposal.Connection != capture.Origin.Connection || proposal.Operations.Length != 1
-                || proposal.Operations[0].Kind is not (OpKind.Create or OpKind.Batch)
-                || capture.Endpoints.IsDefault || capture.Endpoints.Length > 128 || capture.DraftFingerprint.Length != 64
+                || !local && proposal.Operations[0].Kind is not (OpKind.Create or OpKind.Batch)
+                || local != (capture.LocalRelationship is not null)
+                || capture.Endpoints.IsDefault || capture.Endpoints.Length > 128
+                || (local ? capture.DraftFingerprint != "none" : capture.DraftFingerprint.Length != 64)
                 || Encoding.UTF8.GetByteCount(capture.IntentJson) > 1024 * 1024)
                 return Result<NativeEditorCapture>.Fail(ErrorCode.InvalidInput, "An exact bounded native editor capture is required.");
+            if (local)
+            {
+                var stored = await NativeCoreExecution.InspectAsync(new(capture.StoreInstance, capture.ExecutionPath,
+                    capture.Root, capture.Origin.Connection), ct).ConfigureAwait(false);
+                if (!stored.IsSuccess) return Result<NativeEditorCapture>.Fail(stored.Error);
+                var valid = NativeLocalRelationshipEvidence.Check(capture, stored.Value);
+                if (!valid.IsSuccess) return Result<NativeEditorCapture>.Fail(valid.Error);
+            }
             if (capture.SeedProposal is { } publication)
             {
                 var original = ParseIntent(publication);
@@ -91,6 +104,9 @@ public sealed partial class UserBenchStore
                     || !previous.PlanMode && proposal.Operations[0].Item.IsLocal && previous.BenchId != capture.BenchId
                     || previous.SeedProposal is not null && (previous.SeedProposal != capture.SeedProposal
                         || previous.IntentJson != capture.IntentJson || previous.DraftFingerprint != capture.DraftFingerprint
+                        || previous.BenchId != capture.BenchId || previous.PlanId != capture.PlanId || capture.Cancelled)
+                    || previous.LocalRelationship is not null && (previous.LocalRelationship != capture.LocalRelationship
+                        || previous.IntentJson != capture.IntentJson || !previous.Endpoints.SequenceEqual(capture.Endpoints)
                         || previous.BenchId != capture.BenchId || previous.PlanId != capture.PlanId || capture.Cancelled)
                     || ParseIntent(previous.IntentJson).Operations[0].Item != proposal.Operations[0].Item)
                     return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "A durable capture cannot be retargeted or resurrect settled intent.");
@@ -147,7 +163,9 @@ public sealed partial class UserBenchStore
                     ?? throw new JsonException("Missing native editor capture.");
                 if (capture.Id.ToString("D") != reader.GetString(0) || capture.Revision != reader.GetInt64(1))
                     throw new InvalidDataException("Native editor ownership row disagrees.");
-                _ = ParseIntent(capture.IntentJson);
+                var intent = ParseIntent(capture.IntentJson);
+                if (NativeLocalRelationshipEvidence.IsLocal(intent) != (capture.LocalRelationship is not null))
+                    throw new InvalidDataException("Native local relationship capture shape disagrees with its canonical intent.");
                 captures.Add(capture);
             }
             reader.Close();
@@ -241,4 +259,5 @@ public sealed partial class UserBenchStore
 [JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     RespectNullableAnnotations = true, RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(NativeEditorCapture))]
+[JsonSerializable(typeof(NativeLocalRelationshipCapture))]
 internal sealed partial class NativeEditorJson : JsonSerializerContext;

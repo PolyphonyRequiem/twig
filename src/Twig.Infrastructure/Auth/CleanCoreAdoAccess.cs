@@ -50,12 +50,14 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
         IDisposable? lease = null;
         try
         {
-            lease = await guard.AcquireOperationAsync(ct).ConfigureAwait(false);
+            lease = await guard.TryAcquireFreshOperationAsync(_bindings, _paths, ValidateCurrent, ct).ConfigureAwait(false);
+            var fresh = lease is not null;
+            lease ??= await guard.AcquireOperationAsync(ct).ConfigureAwait(false);
             if (lease is not IAdmittedConnectionOperation admitted
                 || admitted.GetAuthority(_bindings) is not { } observed
                 || !ConnectionRemoteWriteAdmission.SameAuthority(observed, _origin))
                 return Refuse("The native binding/generation lease does not belong to this runtime.");
-            await RevalidateAsync(ct).ConfigureAwait(false);
+            if (!fresh) await RevalidateAsync(ct).ConfigureAwait(false);
             var token = await _authentication.GetAccessTokenAsync(ct).ConfigureAwait(false);
             var authorization = token.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase)
                 || token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
@@ -82,6 +84,11 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     {
         var currentConfiguration = await TwigConfiguration.LoadSplitAsync(_paths, ct).ConfigureAwait(false);
         var current = await _bindings.ResolveAsync(currentConfiguration, _paths, ct).ConfigureAwait(false);
+        ValidateCurrent(current);
+    }
+
+    private void ValidateCurrent(ResolvedConnectionBinding current)
+    {
         if (!ConnectionRemoteWriteAdmission.SameAuthority(current, _origin)
             || current.Operation.Organization != _origin.Operation.Organization
             || current.Operation.Project != _origin.Operation.Project

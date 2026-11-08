@@ -58,6 +58,12 @@ internal interface IBoundAuthenticationMetadata
 internal interface IConnectionOperationGuard
 {
     Task<IDisposable> AcquireOperationAsync(CancellationToken ct = default);
+
+    /// <summary>Resolve this exact context afresh and compare its consumer before admitting it.
+    /// Null means unsupported context; validation failures must throw, never fall back.</summary>
+    Task<IDisposable?> TryAcquireFreshOperationAsync(IConnectionBindingService resolver, Config.TwigPaths paths,
+        Action<ResolvedConnectionBinding> validateCurrent, CancellationToken ct = default)
+        => Task.FromResult<IDisposable?>(null);
 }
 
 /// <summary>Fresh origin evidence usable only by the same source during this live operation.</summary>

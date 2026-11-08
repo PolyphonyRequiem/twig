@@ -56,13 +56,41 @@ internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvi
     public Task<IDisposable> AcquireOperationAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        var admitted = AdmittedProvider();
+        return admitted is null ? AcquireDeferredOperationAsync(ct) : AcquireAdmittedOperation(admitted, ct);
+    }
+
+    public Task<IDisposable?> TryAcquireFreshOperationAsync(IConnectionBindingService resolver, Config.TwigPaths paths,
+        Action<ResolvedConnectionBinding> validateCurrent, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var admitted = AdmittedProvider();
+        return admitted is null ? AcquireDeferredFreshOperationAsync(resolver, paths, validateCurrent, ct)
+            : AcquireAdmittedFreshOperation(admitted, resolver, paths, validateCurrent, ct);
+    }
+
+    private IAuthenticationProvider? AdmittedProvider()
+    {
         IAuthenticationProvider? admitted;
         lock (_sync)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             admitted = _resolution is { IsCompletedSuccessfully: true } ? _resolution.Result : null;
         }
-        return admitted is null ? AcquireDeferredOperationAsync(ct) : AcquireAdmittedOperation(admitted, ct);
+        return admitted;
+    }
+
+    private async Task<IDisposable?> AcquireDeferredFreshOperationAsync(IConnectionBindingService resolver, Config.TwigPaths paths,
+        Action<ResolvedConnectionBinding> validateCurrent, CancellationToken ct)
+        => await AcquireAdmittedFreshOperation(await GetProviderAsync(ct).ConfigureAwait(false), resolver, paths, validateCurrent, ct)
+            .ConfigureAwait(false);
+
+    private Task<IDisposable?> AcquireAdmittedFreshOperation(IAuthenticationProvider provider, IConnectionBindingService resolver,
+        Config.TwigPaths paths, Action<ResolvedConnectionBinding> validateCurrent, CancellationToken ct)
+    {
+        if (_initializationMetadataOnly) return Task.FromResult<IDisposable?>(null);
+        return provider is IConnectionOperationGuard guard ? guard.TryAcquireFreshOperationAsync(resolver, paths, validateCurrent, ct)
+            : Task.FromException<IDisposable?>(new InvalidOperationException("Attached runtime lacks native operation admission; reconnect through the connection binding module."));
     }
 
     private async Task<IDisposable> AcquireDeferredOperationAsync(CancellationToken ct)

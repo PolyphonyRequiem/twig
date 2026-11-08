@@ -513,7 +513,7 @@ public sealed partial class GitHubCoreSpineTests
 
     internal sealed class NativeHttp : HttpMessageHandler
     {
-        internal int Requests, WorkRequests, Writes, Creates, SchemaRequests, OnlineAccessRequests;
+        internal int Requests, WorkRequests, Writes, Creates, SchemaRequests, OnlineAccessRequests, HandleCreations;
         internal bool LoseAcknowledgement, MoreCandidates;
         internal HttpStatusCode? RejectNextMutation;
         internal string? Defect, Comment;
@@ -526,7 +526,11 @@ public sealed partial class GitHubCoreSpineTests
         };
         internal JsonObject? OtherIssue { get; set; }
         private JsonObject _assignees = Page([]);
-        internal HttpMessageHandler NewHandle() => new Forward(this);
+        internal HttpMessageHandler NewHandle()
+        {
+            HandleCreations++;
+            return new Forward(this);
+        }
         private sealed class Forward(NativeHttp owner) : HttpMessageHandler
         {
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => owner.SendAsync(request, ct);

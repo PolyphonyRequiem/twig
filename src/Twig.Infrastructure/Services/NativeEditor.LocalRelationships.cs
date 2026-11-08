@@ -81,7 +81,12 @@ internal sealed partial class NativeEditor
         if (origin.Connection.Provider.Value != "github") return Result<bool>.Ok(true);
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
         if (!captures.IsSuccess) return Result<bool>.Fail(captures.Error);
-        var owner = captures.Value.FirstOrDefault(capture => LocalCaptureOwnsEndpoint(capture, key));
+        return LocalEndpointAvailable(key, captures.Value);
+    }
+
+    private Result<bool> LocalEndpointAvailable(ItemKey key, ImmutableArray<NativeEditorCapture> captures)
+    {
+        var owner = captures.FirstOrDefault(capture => LocalCaptureOwnsEndpoint(capture, key));
         return owner is null ? Result<bool>.Ok(true) : Result<bool>.Fail(new(ErrorCode.Conflict,
             "The original LOCAL relationship capture protects this endpoint; use its exact observation/delivery reference.")
         {
@@ -103,15 +108,28 @@ internal sealed partial class NativeEditor
                 && item.RelationshipsComplete && item.Revision is not null)
             || !CoreWorkspace.DisplayId(origin.Connection, cached.Value, endpoint).IsSuccess))
             return Result<NativeLocalRelationshipSelection>.Fail(ErrorCode.Unsupported, "Both published GitHub endpoints need complete qualified native observations before local pair selection; refresh them explicitly.");
-        var target = await SelectAsync(key, ct).ConfigureAwait(false);
+        var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
+        if (!captures.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(captures.Error);
+        foreach (var selectedKey in new[] { key, other })
+        {
+            var available = LocalEndpointAvailable(selectedKey, captures.Value);
+            if (!available.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(available.Error);
+        }
+        var targetRead = await ReadAdmittedSelectionAsync(key, ct).ConfigureAwait(false);
+        if (!targetRead.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(targetRead.Error);
+        var endpointRead = await ReadAdmittedSelectionAsync(other, ct).ConfigureAwait(false);
+        if (!endpointRead.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(endpointRead.Error);
+        var state = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!state.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(state.Error);
+        captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
+        if (!captures.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(captures.Error);
+        var target = Item(targetRead.Value, state.Value, captures.Value);
         if (!target.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(target.Error);
-        var endpoint = await SelectAsync(other, ct).ConfigureAwait(false);
+        var endpoint = Item(endpointRead.Value, state.Value, captures.Value);
         if (!endpoint.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(endpoint.Error);
         if (target.Value.Draft is not null || endpoint.Value.Draft is not null
             || target.Value.Capture is not null || endpoint.Value.Capture is not null)
             return Result<NativeLocalRelationshipSelection>.Fail(ErrorCode.Conflict, "Independent scalar, Plan or captured debt is not adopted by a local pair.");
-        var state = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
-        if (!state.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(state.Error);
         var schema = await Workspace.SchemaAsync(ct).ConfigureAwait(false);
         if (!schema.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(schema.Error);
         if (schema.Value.Fingerprint != metadata.Schema.Fingerprint)
@@ -126,9 +144,8 @@ internal sealed partial class NativeEditor
         var endpoints = new[] { target.Value.Observation, endpoint.Value.Observation }.Select(item =>
             new NativeEditorEndpoint(CleanCoreAdoAccess.ItemText(item.Key), item.Revision?.Token,
                 Workspace.DraftFingerprint(state.Value.Drafts.SingleOrDefault(draft => draft.Key == item.Key)))).ToImmutableArray();
-        var selection = new NativeLocalRelationshipSelection(target.Value with { StoreVersion = state.Value.Version },
-            endpoint.Value with { StoreVersion = state.Value.Version }, state.Value.Version, pair.Value, endpoints);
-        var coherent = await ValidateLocalSelectionAsync(selection, ct).ConfigureAwait(false);
+        var selection = new NativeLocalRelationshipSelection(target.Value, endpoint.Value, state.Value.Version, pair.Value, endpoints);
+        var coherent = await CheckLocalEndpointEvidenceAsync(selection, state.Value, ct).ConfigureAwait(false);
         return coherent.IsSuccess ? Result<NativeLocalRelationshipSelection>.Ok(selection)
             : Result<NativeLocalRelationshipSelection>.Fail(coherent.Error);
     }
@@ -141,15 +158,26 @@ internal sealed partial class NativeEditor
         if (!state.IsSuccess) return Result<bool>.Fail(state.Error);
         if (state.Value.Version != selection.StoreVersion)
             return Result<bool>.Fail(ErrorCode.Conflict, "The displayed local pair/store evidence changed; no recapture.");
+        return await CheckLocalEndpointEvidenceAsync(selection, state.Value, ct).ConfigureAwait(false);
+    }
+
+    private async Task<Result<bool>> CheckLocalEndpointEvidenceAsync(NativeLocalRelationshipSelection selection,
+        StoreSnapshot state, CancellationToken ct)
+    {
         var read = await metadata.Read([selection.Target.Observation.Key, selection.Endpoint.Observation.Key], ct).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
         if (!read.Value.Complete || read.Value.Items.Length != 2
             || selection.Endpoints.Any(endpoint => !read.Value.Items.Any(item => item.RelationshipsComplete
                 && CleanCoreAdoAccess.ItemText(item.Key) == endpoint.Key && item.Revision?.Token == endpoint.Revision)
-                || Workspace.DraftFingerprint(state.Value.Drafts.SingleOrDefault(draft =>
+                || Workspace.DraftFingerprint(state.Drafts.SingleOrDefault(draft =>
                     CleanCoreAdoAccess.ItemText(draft.Key) == endpoint.Key)) != endpoint.DraftFingerprint))
             return Result<bool>.Fail(ErrorCode.Conflict, "The displayed local endpoint or scalar draft evidence changed; no recapture.");
-        return await ValidateAsync(ct).ConfigureAwait(false);
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return valid;
+        var current = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
+        return current.Value.Version == selection.StoreVersion ? Result<bool>.Ok(true)
+            : Result<bool>.Fail(ErrorCode.Conflict, "The displayed local pair/store evidence changed during provider acquisition; no recapture.");
     }
 
     internal async Task<Result<NativeLocalRelationshipReview>> ReviewLocalRelationshipAsync(

@@ -366,6 +366,8 @@ jobs:
               ("native-local-read-missing-proof", ["NativeGitHubLocalReaderMissingOriginalProofRefusesInsteadOfEmptySuccess"]),
               ("native-local-read-exact-target", ["NativeGitHubLocalExactReaderRefusesInvalidTargetsAndReleasesCancelledOrContendedLeases"]),
               ("native-local-read-exact-isolation", ["NativeGitHubLocalExactReaderEvaluatesOnlyNamedOriginalWhileAllRetainsOrderedRefusals"]),
+              ("native-local-read-admission", ["NativeGitHubLocalOriginalReadersShareEntryAdmission"]),
+              ("native-local-read-late-source", ["NativeGitHubLocalOriginalReadersStillRefuseSourceChangedAfterEntryAdmission"]),
           ]
           for label, methods in groups:
               selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.{method}" for method in methods)

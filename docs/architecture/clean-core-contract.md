@@ -235,7 +235,9 @@ reference is already known. It evaluates only that named original through the
 same fresh source/capture read, canonical original-reference proof and actual
 outcome path as discovery. It still validates the whole capture namespace's
 immutable provenance; this is not an O(1) storage lookup or cached outcome
-projection. Empty, foreign, stale, cancelled or unavailable originals and wrong
+projection. Both readers share their entry admission with private original lookup
+under the root/Bench leases, retaining fresh per-original proof and post-read
+source/Bench revalidation. Empty, foreign, stale, cancelled or unavailable originals and wrong
 digests explicitly refuse, without selecting another original. Neither reader
 changes authoring state, and an `Outcome.Error` is not delivery success. Use
 `ContinueLocalRelationshipAsync` for exact interrupted retention, separate

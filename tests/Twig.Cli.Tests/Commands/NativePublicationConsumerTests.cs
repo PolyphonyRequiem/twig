@@ -2483,6 +2483,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             }
         }
         public string TitleOf(int id) => _items[id].Title;
+        public void SetState(int id, string state)
+        {
+            _items[id] = _items[id] with { State = state };
+            _history[(id, _items[id].Revision)] = _items[id];
+        }
         public void ForgetAssociation(int source, int target)
         {
             _links[source].Remove(("Native.Association", target));

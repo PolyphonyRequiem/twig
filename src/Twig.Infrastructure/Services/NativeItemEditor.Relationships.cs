@@ -147,6 +147,10 @@ public sealed partial class NativeItemEditor
             return Result<NativeRelationshipForm>.Fail(ErrorCode.Conflict, "The coherent item or endpoint observation changed.");
         if (!item.Observation.RelationshipsComplete || !endpoint.RelationshipsComplete)
             return Result<NativeRelationshipForm>.Fail(ErrorCode.Unavailable, "Complete incident evidence for both explicit endpoints is required.");
+        if (relationshipEndpoints.TryGetValue(ticket, out var displayed)
+            && (displayed.Proof.Revision != endpoint.Revision.Token
+                || displayed.Proof.DraftFingerprint != editor.Workspace.DraftFingerprint(snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint.Key))))
+            return Result<NativeRelationshipForm>.Fail(ErrorCode.Conflict, "The qualified ticket's original endpoint draft evidence changed; no newer proof was adopted.");
         if (item.Capture is { } retained && !UserBenchStore.ParseIntent(retained.IntentJson).Operations.Single().Links.IsEmpty
             && !retained.Endpoints.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(endpoint.Key)
                 && proof.Revision == endpoint.Revision.Token

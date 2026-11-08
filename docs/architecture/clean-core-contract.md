@@ -104,6 +104,14 @@ capture reservation, including on the first Save with no existing capture.
 A late revision or local draft change refuses before replacing the original
 capture or target draft; explicit relationship intent cannot recapture newer
 endpoint evidence as if it had been displayed.
+The existing `EvaluateAsync(ticket, fields)` accepts a qualified pair ticket
+for read-only prospective field guidance. It reuses the captured native field
+evaluator to expose discovered requiredness, allowed values and errors,
+including missing close-gate fields, without staging the proposed values.
+Current pair observations and the original ticket/source/store evidence must
+still agree. Evaluation does not update the Core store, capture, proposal or
+journal. Ordinary scalar reopening of retained relationship debt still refuses
+evaluation; scalar Stage/Save also refuse even a qualified pair ticket.
 Empty intent cannot discard protected relationships. Broader multi-endpoint
 authoring and parent replacement are not part of this bounded surface.
 

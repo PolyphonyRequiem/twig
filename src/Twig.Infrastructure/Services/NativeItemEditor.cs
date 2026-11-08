@@ -123,7 +123,24 @@ public sealed partial class NativeItemEditor : IDisposable
             if (!valid.IsSuccess) return Result<NativeEditForm>.Fail(valid.Error);
             if (!items.TryGetValue(ticket, out var item))
                 return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "The editor handle expired. Reopen without discarding your edited values.");
-            if (HasRelationships(item) || relationshipEndpoints.ContainsKey(ticket))
+            if (relationshipEndpoints.TryGetValue(ticket, out var endpoint))
+            {
+                var current = await RelationshipFormAsync(ticket, item, endpoint.Item, ct).ConfigureAwait(false);
+                if (!current.IsSuccess) return Result<NativeEditForm>.Fail(current.Error);
+                var observed = await editor.Metadata.Read([item.Observation.Key, endpoint.Item.Key], ct).ConfigureAwait(false);
+                if (!observed.IsSuccess) return Result<NativeEditForm>.Fail(observed.Error);
+                if (!observed.Value.Complete || observed.Value.Items.Length != 2
+                    || new[] { item.Observation, endpoint.Item }.Any(expected => !observed.Value.Items.Any(value =>
+                        value.Key == expected.Key && value.Revision == expected.Revision && value.RelationshipsComplete))
+                    || !observed.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Provider && !edge.Deleted)
+                        .ToHashSet().SetEquals(current.Value.Incident))
+                    return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "The displayed native pair evidence changed; prospective fields were not staged.");
+                valid = await editor.ValidateAsync(ct).ConfigureAwait(false);
+                if (!valid.IsSuccess) return Result<NativeEditForm>.Fail(valid.Error);
+                var coherent = await RelationshipFormAsync(ticket, item, endpoint.Item, ct).ConfigureAwait(false);
+                if (!coherent.IsSuccess) return Result<NativeEditForm>.Fail(coherent.Error);
+            }
+            else if (HasRelationships(item))
                 return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Retained relationships are read-only here; select both explicit endpoints in the qualified editor.");
             return Form(ticket, item, changes);
         }

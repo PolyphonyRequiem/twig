@@ -179,6 +179,13 @@ public static partial class Core
                     || !kind.Directed && edge.Origin == RelationshipOrigin.Provider && !edge.Deleted
                         && edge.Kind == delta.Relation && edge.From == delta.Other && edge.To == op.Item);
                 if (exists != delta.Remove) Fail(ErrorCode.Conflict, "The exact relationship add/remove baseline changed.");
+                if (!delta.Remove && kind.Shape == RelationShape.Hierarchy)
+                {
+                    var child = delta.Outgoing ? delta.Other : op.Item;
+                    if (store.Relationships.Any(edge => edge.Origin == RelationshipOrigin.Provider && !edge.Deleted
+                        && edge.Kind == delta.Relation && edge.To == child))
+                        Fail(ErrorCode.Unsupported, "Parent replacement is unsupported; no existing parent is removed or replaced implicitly.");
+                }
             }
         }
         if (local && op.ExpectedRevision is not null)

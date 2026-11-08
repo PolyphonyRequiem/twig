@@ -218,7 +218,10 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             {
                 var read = await Workspace.ReadAsync(endpoint, ct, metadata).ConfigureAwait(false);
                 if (!read.IsSuccess) return Result<NativeEditorItem>.Fail(read.Error);
-                endpoints.Add(new(CleanCoreAdoAccess.ItemText(endpoint), read.Value.Revision?.Token, "none"));
+                var endpointSnapshot = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+                if (!endpointSnapshot.IsSuccess) return Result<NativeEditorItem>.Fail(endpointSnapshot.Error);
+                endpoints.Add(new(CleanCoreAdoAccess.ItemText(endpoint), read.Value.Revision?.Token,
+                    Workspace.DraftFingerprint(endpointSnapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint))));
             }
         }
         if (relationships is null && item.Capture is { } previous && !previous.Endpoints.SequenceEqual(endpoints))

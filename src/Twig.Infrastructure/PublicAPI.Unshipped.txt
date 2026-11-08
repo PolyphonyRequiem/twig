@@ -1,4 +1,33 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeItemEditor.SelectRelationshipsAsync(Twig.Core.ItemKey! key, Twig.Core.ItemKey! other, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeRelationshipForm!>!>!
+Twig.Infrastructure.Services.NativeItemEditor.StageRelationshipsAsync(System.Guid ticket, Twig.Core.FieldValues! changes, System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!> intent, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeRelationshipForm!>!>!
+Twig.Infrastructure.Services.NativeItemEditor.SaveRelationshipsAsync(System.Guid ticket, Twig.Core.FieldValues! changes, System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!> intent, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeEditResult!>!>!
+Twig.Infrastructure.Services.NativeEditForm.RelationshipIntent.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!>
+Twig.Infrastructure.Services.NativeEditForm.RelationshipIntent.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm
+Twig.Infrastructure.Services.NativeRelationshipForm.NativeRelationshipForm(Twig.Infrastructure.Services.NativeEditForm! Fields, Twig.Core.WorkItem! Target, Twig.Core.WorkItem! Endpoint, System.Collections.Immutable.ImmutableArray<Twig.Core.RelationKind!> Relations, System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!> Choices, System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!> Intent, System.Collections.Immutable.ImmutableArray<Twig.Core.Relationship!> Incident) -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Fields.get -> Twig.Infrastructure.Services.NativeEditForm!
+Twig.Infrastructure.Services.NativeRelationshipForm.Fields.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Target.get -> Twig.Core.WorkItem!
+Twig.Infrastructure.Services.NativeRelationshipForm.Target.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Endpoint.get -> Twig.Core.WorkItem!
+Twig.Infrastructure.Services.NativeRelationshipForm.Endpoint.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Relations.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.RelationKind!>
+Twig.Infrastructure.Services.NativeRelationshipForm.Relations.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Choices.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!>
+Twig.Infrastructure.Services.NativeRelationshipForm.Choices.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Intent.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!>
+Twig.Infrastructure.Services.NativeRelationshipForm.Intent.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Incident.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Relationship!>
+Twig.Infrastructure.Services.NativeRelationshipForm.Incident.init -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Deconstruct(out Twig.Infrastructure.Services.NativeEditForm! Fields, out Twig.Core.WorkItem! Target, out Twig.Core.WorkItem! Endpoint, out System.Collections.Immutable.ImmutableArray<Twig.Core.RelationKind!> Relations, out System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!> Choices, out System.Collections.Immutable.ImmutableArray<Twig.Core.CreationLink!> Intent, out System.Collections.Immutable.ImmutableArray<Twig.Core.Relationship!> Incident) -> void
+Twig.Infrastructure.Services.NativeRelationshipForm.Equals(Twig.Infrastructure.Services.NativeRelationshipForm? other) -> bool
+Twig.Infrastructure.Services.NativeRelationshipForm.<Clone>$() -> Twig.Infrastructure.Services.NativeRelationshipForm!
+override Twig.Infrastructure.Services.NativeRelationshipForm.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeRelationshipForm.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeRelationshipForm.ToString() -> string!
+static Twig.Infrastructure.Services.NativeRelationshipForm.operator !=(Twig.Infrastructure.Services.NativeRelationshipForm? left, Twig.Infrastructure.Services.NativeRelationshipForm? right) -> bool
+static Twig.Infrastructure.Services.NativeRelationshipForm.operator ==(Twig.Infrastructure.Services.NativeRelationshipForm? left, Twig.Infrastructure.Services.NativeRelationshipForm? right) -> bool
 Twig.Infrastructure.Services.NativeEditResult.SeedPublication.get -> Twig.Infrastructure.Services.NativeSeedPublication?
 Twig.Infrastructure.Services.NativeEditResult.SeedPublication.init -> void
 Twig.Infrastructure.Services.NativeItemEditor.ReadOwnedSeedsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeOwnedSeed!>>!>!
@@ -168,6 +197,8 @@ Twig.Infrastructure.Services.NativeEditForm.Values.get -> Twig.Core.FieldValues!
 Twig.Infrastructure.Services.NativeEditForm.Values.init -> void
 Twig.Infrastructure.Services.NativeEditForm.Evaluation.get -> Twig.Core.EditorEvaluation!
 Twig.Infrastructure.Services.NativeEditForm.Evaluation.init -> void
+Twig.Infrastructure.Services.NativeEditForm.RelationshipsReadOnly.get -> bool
+Twig.Infrastructure.Services.NativeEditForm.RelationshipsReadOnly.init -> void
 Twig.Infrastructure.Services.NativeEditForm.Deconstruct(out System.Guid Ticket, out Twig.Core.ItemKey! Item, out string! Type, out string! StateField, out Twig.Core.FieldValues! Values, out Twig.Core.EditorEvaluation! Evaluation) -> void
 Twig.Infrastructure.Services.NativeEditForm.Equals(Twig.Infrastructure.Services.NativeEditForm? other) -> bool
 override Twig.Infrastructure.Services.NativeEditForm.Equals(object? obj) -> bool

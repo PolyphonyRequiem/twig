@@ -9,14 +9,18 @@ using Model = Twig.Core.Core;
 namespace Twig.Infrastructure.Services;
 
 public sealed record NativeEditForm(Guid Ticket, ItemKey Item, string Type, string StateField,
-    FieldValues Values, EditorEvaluation Evaluation);
+    FieldValues Values, EditorEvaluation Evaluation)
+{
+    public bool RelationshipsReadOnly { get; init; }
+    public ImmutableArray<CreationLink> RelationshipIntent { get; init; } = [];
+}
 public sealed record NativeEditResult(bool Verified, bool DraftRetained, Error? Error)
 {
     public NativeSeedPublication? SeedPublication { get; init; }
 }
 
 /// <summary>Human-host editor session. No active-item selection or alternate publisher.</summary>
-public sealed class NativeItemEditor : IDisposable
+public sealed partial class NativeItemEditor : IDisposable
 {
     private readonly ServiceProvider runtime;
     private readonly NativeEditor editor;
@@ -76,24 +80,38 @@ public sealed class NativeItemEditor : IDisposable
                 return Result<NativeEditForm>.Fail(ErrorCode.Indeterminate, "The original seed publication is protected. Observe or continue its exact delivery reference; never edit or create it again.");
             if (item.Capture is { Ready: false })
                 return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Interrupted native intent requires explicit recovery before editing.");
-            if (item.Capture is { } capture && !UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Links.IsEmpty)
-                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Protected relationship intent must be reviewed in its native workflow; this field Save will not publish it.");
-            var intent = item.Capture is { } retained ? UserBenchStore.ParseIntent(retained.IntentJson).Operations.Single() : null;
-            if (item.Draft is { } draft && (draft.Type != item.Observation.Type || draft.Parent is not null
-                || draft.ParentRelation is not null || draft.Resource is not null || !draft.Links.IsEmpty)
-                || intent is not null && (intent.Type is not null && intent.Type != item.Observation.Type
-                    || intent.Other is not null || intent.Relation is not null || intent.Resource is not null || intent.Body is not null)
-                || GitHub && ((item.Draft?.Changes ?? FieldValues.Empty).Any(field => !GitHubScalar(field.Key))
-                    || intent is not null && intent.Fields.Any(field => !GitHubScalar(field.Key))))
-                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Protected type, collection, creation or relationship intent is unsupported in this scalar editor; nothing was adopted or dropped.");
-            if (item.Draft is not null && item.Capture is null)
-                return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Existing CLI draft debt must be reviewed in Twig before this editor can save; it was not adopted.");
-            if (items.Count >= 64) items.Clear();
+            var supported = SupportedItem(item);
+            if (!supported.IsSuccess) return Result<NativeEditForm>.Fail(supported.Error);
+            var relationshipIntent = item.Capture is { } capture && !UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Links.IsEmpty;
+            if (relationshipIntent && (GitHub || PlanMode || key.IsLocal))
+                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "This provider/mode has no qualified existing-item relationship editor.");
+            if (items.Count >= 64) { items.Clear(); relationshipEndpoints.Clear(); }
             var ticket = Guid.NewGuid();
             items[ticket] = item;
-            return Form(ticket, item, FieldValues.Empty);
+            var form = Form(ticket, item, FieldValues.Empty);
+            return form.IsSuccess && relationshipIntent ? Result<NativeEditForm>.Ok(form.Value with
+            {
+                RelationshipsReadOnly = true,
+                RelationshipIntent = UserBenchStore.ParseIntent(item.Capture!.IntentJson).Operations.Single().Links,
+                Evaluation = form.Value.Evaluation with { Fields = form.Value.Evaluation.Fields.Select(field => field with { ReadOnly = true }).ToImmutableArray() }
+            }) : form;
         }
         finally { gate.Release(); }
+    }
+
+    private Result<bool> SupportedItem(NativeEditorItem item)
+    {
+        var intent = item.Capture is { } retained ? UserBenchStore.ParseIntent(retained.IntentJson).Operations.Single() : null;
+        if (item.Draft is { } draft && (draft.Type != item.Observation.Type || draft.Parent is not null
+            || draft.ParentRelation is not null || draft.Resource is not null || !draft.Links.IsEmpty)
+            || intent is not null && (intent.Type is not null && intent.Type != item.Observation.Type
+                || intent.Other is not null || intent.Relation is not null || intent.Resource is not null || intent.Body is not null)
+            || GitHub && ((item.Draft?.Changes ?? FieldValues.Empty).Any(field => !GitHubScalar(field.Key))
+                || intent is not null && intent.Fields.Any(field => !GitHubScalar(field.Key))))
+            return Result<bool>.Fail(ErrorCode.Unsupported, "Protected type, collection, creation or resource intent is unsupported; nothing was adopted or dropped.");
+        if (item.Draft is not null && item.Capture is null)
+            return Result<bool>.Fail(ErrorCode.Conflict, "Existing CLI draft debt must be reviewed in Twig before this editor can save; it was not adopted.");
+        return Result<bool>.Ok(true);
     }
 
     public async Task<Result<NativeEditForm>> EvaluateAsync(Guid ticket, FieldValues changes, CancellationToken ct = default)
@@ -103,8 +121,11 @@ public sealed class NativeItemEditor : IDisposable
         {
             var valid = await editor.ValidateAsync(ct).ConfigureAwait(false);
             if (!valid.IsSuccess) return Result<NativeEditForm>.Fail(valid.Error);
-            return items.TryGetValue(ticket, out var item) ? Form(ticket, item, changes)
-                : Result<NativeEditForm>.Fail(ErrorCode.Conflict, "The editor handle expired. Reopen without discarding your edited values.");
+            if (!items.TryGetValue(ticket, out var item))
+                return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "The editor handle expired. Reopen without discarding your edited values.");
+            if (HasRelationships(item) || relationshipEndpoints.ContainsKey(ticket))
+                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Retained relationships are read-only here; select both explicit endpoints in the qualified editor.");
+            return Form(ticket, item, changes);
         }
         finally { gate.Release(); }
     }
@@ -118,6 +139,8 @@ public sealed class NativeItemEditor : IDisposable
                 return Result<NativeEditResult>.Fail(ErrorCode.Conflict, "Plan work stages locally. Review and apply the whole Plan explicitly.");
             if (!items.TryGetValue(ticket, out var item))
                 return Result<NativeEditResult>.Fail(ErrorCode.Conflict, "The exact item handle expired; reopen before saving.");
+            if (HasRelationships(item) || relationshipEndpoints.ContainsKey(ticket))
+                return Result<NativeEditResult>.Fail(ErrorCode.Unsupported, "Scalar Save cannot publish retained relationship intent; use its explicit qualified ticket.");
             var evaluated = Form(ticket, item, changes);
             if (!evaluated.IsSuccess) return Result<NativeEditResult>.Fail(evaluated.Error);
             if (!evaluated.Value.Evaluation.Errors.IsEmpty)
@@ -151,6 +174,8 @@ public sealed class NativeItemEditor : IDisposable
         {
             if (!items.TryGetValue(ticket, out var item))
                 return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Reopen the exact native item before staging.");
+            if (HasRelationships(item) || relationshipEndpoints.ContainsKey(ticket))
+                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Scalar staging cannot replace retained relationship intent.");
             if (!PlanMode && (!item.Observation.Key.IsLocal || GitHub))
                 return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Normal staging supports owned ADO seeds only; existing scalar edits use Save.");
             var evaluated = Form(ticket, item, changes);
@@ -158,6 +183,7 @@ public sealed class NativeItemEditor : IDisposable
             var staged = await editor.StageAsync(item, changes, null, null, ct).ConfigureAwait(false);
             if (!staged.IsSuccess) return Result<NativeEditForm>.Fail(staged.Error);
             items.Clear();
+            relationshipEndpoints.Clear();
             items[ticket] = staged.Value;
             return Form(ticket, staged.Value, FieldValues.Empty);
         }
@@ -174,6 +200,7 @@ public sealed class NativeItemEditor : IDisposable
             var created = await editor.CreateSeedAsync(type, ct).ConfigureAwait(false);
             if (!created.IsSuccess) return Result<NativeEditForm>.Fail(created.Error);
             items.Clear();
+            relationshipEndpoints.Clear();
             var ticket = Guid.NewGuid();
             items[ticket] = created.Value;
             return Form(ticket, created.Value, FieldValues.Empty);
@@ -249,4 +276,7 @@ public sealed class NativeItemEditor : IDisposable
 
     private static bool GitHubScalar(string reference)
         => reference is GitHubProvider.Title or GitHubProvider.Body or GitHubProvider.StateField;
+
+    private static bool HasRelationships(NativeEditorItem item)
+        => item.Capture is { } capture && !UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Links.IsEmpty;
 }

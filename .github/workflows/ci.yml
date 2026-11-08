@@ -32,6 +32,28 @@ jobs:
       - name: Supported solution build (120-second deadline)
         run: python tools/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:1"
 
+      - name: Explicit native setup and creation-bound readback
+        id: native_setup
+        shell: python
+        run: |
+          import subprocess, sys
+          groups = [
+              ("setup-infrastructure", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeConnectionSetupTests|FullyQualifiedName~NativeSetupBinding|FullyQualifiedName~NativeSetupPkce|FullyQualifiedName~NativeSetupCallback"),
+              ("setup-cli", "Twig.Cli.Tests", "FullyQualifiedName~NativeConnectionSetupCommandTests|FullyQualifiedName~NativeSetupFullInitPreflight|FullyQualifiedName~NativeSetupAdo|FullyQualifiedName~NativeSetupGitHub"),
+          ]
+          for label, project, selector in groups:
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              f"tests/{project}/{project}.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/native-setup"], check=True)
+      - name: Preserve native setup results
+        if: always() && steps.native_setup.outcome != 'skipped' && steps.native_setup.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-native-setup-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/native-setup/*.trx
+          if-no-files-found: error
+
       - name: Compiled v10/v11 registry fresh-open and cached-handle compatibility (offline)
         shell: python
         run: |

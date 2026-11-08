@@ -223,23 +223,34 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
     }
 
     internal static async Task<Result<bool>> RecordNewAsync(TwigPaths paths, SqliteStore store, string databasePath,
-        Connection connection, string principal, CancellationToken ct, string? executionRegistryPath = null)
+        Connection connection, string principal, CancellationToken ct, string? executionRegistryPath = null,
+        NativeSetupEffects? effects = null, Action<CoreWorkspaceDocument>? onRecorded = null)
     {
         if (!Path.IsPathFullyQualified(databasePath) || store.InstanceId == Guid.Empty)
             return Result<bool>.Fail(ErrorCode.InvalidInput, "A new explicitly located native store instance is required.");
+        effects?.Before(NativeSetupEffectKind.WorkspacePin);
         var pinned = await store.PinWorkspaceAsync(connection, ct).ConfigureAwait(false);
         if (!pinned.IsSuccess) return pinned;
+        effects?.Confirm(NativeSetupEffectKind.WorkspacePin);
         try
         {
+            effects?.Before(NativeSetupEffectKind.WorkspaceMarker);
             await using var file = new FileStream(Path.Combine(paths.TwigDir, FileName), FileMode.CreateNew,
                 FileAccess.Write, FileShare.None);
-            await JsonSerializer.SerializeAsync(file, new CoreWorkspaceDocument(1, databasePath, store.InstanceId,
-                connection, principal), CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument, ct).ConfigureAwait(false);
+            var document = new CoreWorkspaceDocument(1, databasePath, store.InstanceId, connection, principal);
+            await JsonSerializer.SerializeAsync(file, document, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument, ct).ConfigureAwait(false);
             await file.FlushAsync(ct).ConfigureAwait(false);
             file.Flush(flushToDisk: true);
+            effects?.Confirm(NativeSetupEffectKind.WorkspaceMarker);
             if (executionRegistryPath is not null)
-                return await NativeCoreExecution.RegisterAsync(executionRegistryPath,
+            {
+                effects?.Before(NativeSetupEffectKind.CoreRegistration);
+                var registered = await NativeCoreExecution.RegisterAsync(executionRegistryPath,
                     new(store.InstanceId, store.DatabasePath, paths.RepoRoot, connection), ct).ConfigureAwait(false);
+                if (!registered.IsSuccess) return registered;
+                effects?.Confirm(NativeSetupEffectKind.CoreRegistration);
+            }
+            onRecorded?.Invoke(document);
             return Result<bool>.Ok(true);
         }
 

@@ -16,24 +16,35 @@ internal static class CoreWorkspaceInitializer
         IConnectionBindingService bindings, string databasePath, CancellationToken ct, CoreTransportOverride? transport = null,
         Twig.Infrastructure.GitHub.IBoundedProcessRunner? githubProcesses = null)
     {
+        var initialized = await InitializeWithEvidenceAsync(configuration, paths, bindings, databasePath,
+            ct, transport, githubProcesses).ConfigureAwait(false);
+        return initialized.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(initialized.Error);
+    }
+
+    internal static async Task<Result<NativeCreationReceipt>> InitializeWithEvidenceAsync(TwigConfiguration configuration, TwigPaths paths,
+        IConnectionBindingService bindings, string databasePath, CancellationToken ct, CoreTransportOverride? transport = null,
+        Twig.Infrastructure.GitHub.IBoundedProcessRunner? githubProcesses = null, NativeSetupEffects? effects = null)
+    {
         if (!Path.IsPathFullyQualified(databasePath) || File.Exists(databasePath)
             || File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)))
-            return Result<bool>.Fail(ErrorCode.InvalidInput, "Core initialization requires a genuinely new explicit absolute database file; nothing existing was adopted.");
+            return Result<NativeCreationReceipt>.Fail(ErrorCode.InvalidInput, "Core initialization requires a genuinely new explicit absolute database file; nothing existing was adopted.");
         if (configuration.ResolveWorkItemProviderKind() != "ado")
             return configuration.ResolveWorkItemProviderKind() == "github"
                 ? await new Twig.Infrastructure.GitHub.CoreGitHubWorkspaceHost(configuration, paths, bindings, transport: transport, processes: githubProcesses)
-                    .InitializeAsync(databasePath, ct).ConfigureAwait(false)
-                : Result<bool>.Fail(ErrorCode.Unsupported, "The selected native Core initialization provider is unsupported.");
+                    .InitializeWithEvidenceAsync(databasePath, ct, effects).ConfigureAwait(false)
+                : Result<NativeCreationReceipt>.Fail(ErrorCode.Unsupported, "The selected native Core initialization provider is unsupported.");
+        effects?.Before(NativeSetupEffectKind.Registry);
         var origin = await bindings.ResolveAsync(configuration, paths, ct).ConfigureAwait(false);
         var authentication = bindings.CreateAuthenticationProvider(origin);
         try
         {
             if (authentication is not IConnectionOperationGuard guard)
-                return Result<bool>.Fail(ErrorCode.Unavailable, "Initialization requires the actual native binding operation lease.");
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.Unavailable, "Initialization requires the actual native binding operation lease.");
             using var lease = await guard.AcquireOperationAsync(ct).ConfigureAwait(false);
             if (lease is not IAdmittedConnectionOperation admitted || admitted.GetAuthority(bindings) is not { } bound
                 || !ConnectionRemoteWriteAdmission.SameAuthority(bound, origin))
-                return Result<bool>.Fail(ErrorCode.Conflict, "The selected native binding changed during Core initialization.");
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.Conflict, "The selected native binding changed during Core initialization.");
+            if (origin.Identity.Method == "aad") effects?.Before(NativeSetupEffectKind.CredentialWrite);
             var token = await authentication.GetAccessTokenAsync(ct).ConfigureAwait(false);
             var authorization = token.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase)
                 || token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
@@ -41,26 +52,33 @@ internal static class CoreWorkspaceInitializer
             var organization = new Uri(AdoEndpoint.NormalizeOrgUrl(origin.Operation.Organization).TrimEnd('/') + "/");
             if (organization.Scheme != "https" || organization.UserInfo.Length != 0
                 || organization.Query.Length != 0 || organization.Fragment.Length != 0)
-                return Result<bool>.Fail(ErrorCode.InvalidInput, "An explicit secure native organization locator is required.");
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.InvalidInput, "An explicit secure native organization locator is required.");
             using var http = new HttpClient(transport?.CreateHandler() ?? new SocketsHttpHandler { AllowAutoRedirect = false });
             var identity = await GetAsync("_apis/connectionData?api-version=7.1-preview");
             var collection = GuidText(identity.GetProperty("instanceId"));
             var principal = GuidText(identity.GetProperty("authenticatedUser").GetProperty("id"));
             if (origin.Identity.AdoPrincipalId is { } expected && expected != principal)
-                return Result<bool>.Fail(ErrorCode.Conflict, "Native initialization observed a different selected principal.");
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.Conflict, "Native initialization observed a different selected principal.");
             var project = await GetAsync("_apis/projects/" + Uri.EscapeDataString(origin.Operation.Project) + "?includeCapabilities=true&api-version=7.1");
             var destination = GuidText(project.GetProperty("id"));
             var current = await bindings.ResolveAsync(configuration, paths, ct).ConfigureAwait(false);
             if (!ConnectionRemoteWriteAdmission.SameAuthority(current, origin))
-                return Result<bool>.Fail(ErrorCode.Conflict, "The native binding changed before the new store was recorded.");
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.Conflict, "The native binding changed before the new store was recorded.");
             var connection = new Connection(new("ado"), collection, destination, CleanCoreAdoAccess.Identity(origin, principal));
             var parent = Path.GetDirectoryName(databasePath)!;
             if (!Directory.Exists(parent))
-                return Result<bool>.Fail(ErrorCode.InvalidInput, "The explicitly selected database directory must already exist.");
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.InvalidInput, "The explicitly selected database directory must already exist.");
+            effects?.Before(NativeSetupEffectKind.CoreStore);
             var created = await SqliteStore.CreateAsync(databasePath, ct).ConfigureAwait(false);
-            if (!created.IsSuccess) return Result<bool>.Fail(created.Error);
-            return await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, databasePath, connection, principal, ct,
-                bindings.RegistryPath).ConfigureAwait(false);
+            if (!created.IsSuccess) return Result<NativeCreationReceipt>.Fail(created.Error);
+            effects?.Confirm(NativeSetupEffectKind.CoreStore);
+            CoreWorkspaceDocument? recorded = null;
+            var recording = await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, databasePath, connection, principal, ct,
+                bindings.RegistryPath, effects, document => recorded = document).ConfigureAwait(false);
+            if (!recording.IsSuccess) return Result<NativeCreationReceipt>.Fail(recording.Error);
+            if (recorded is null)
+                return Result<NativeCreationReceipt>.Fail(ErrorCode.Unavailable, "Native initialization did not retain its created document evidence.");
+            return Result<NativeCreationReceipt>.Ok(new(recorded, NativeSourceReader.Stamp(recorded, paths.RepoRoot, origin)));
 
             async Task<JsonElement> GetAsync(string route)
             {
@@ -83,9 +101,13 @@ internal static class CoreWorkspaceInitializer
                 return json;
             }
         }
+        catch (NativeSetupException ex)
+        {
+            return Result<NativeCreationReceipt>.Fail(ex.Error);
+        }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException or InvalidOperationException)
         {
-            return Result<bool>.Fail(ErrorCode.Unavailable,
+            return Result<NativeCreationReceipt>.Fail(ErrorCode.Unavailable,
                 "Core initialization could not establish the selected native identity; created files are preserved for inspection. " + ex.Message);
         }
         finally

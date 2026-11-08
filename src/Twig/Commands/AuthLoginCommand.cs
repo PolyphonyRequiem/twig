@@ -3,6 +3,8 @@ using Twig.Formatters;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Services;
+using Twig.Core;
 
 namespace Twig.Commands;
 
@@ -10,14 +12,8 @@ namespace Twig.Commands;
 /// Implements <c>twig auth login</c>: launches an interactive AAD sign-in and routes the
 /// resulting refresh token through <see cref="IConnectionBindingService.RegisterAadIdentityAsync"/>.
 ///
-/// <para>
-/// <c>--identity &lt;alias&gt;</c> names the identity to register (or re-enroll). Without
-/// <c>--identity</c>, the command asks <see cref="IConnectionBindingService.ResolveAsync"/>
-/// which identity the current attached binding points at, and re-enrolls that one; if no
-/// attached binding resolves, the command refuses with setup guidance rather than silently
-/// writing an unbound credential. The pre-#1104 global <c>~/.twig/.refresh-token</c>
-/// side-effect is gone: a login never writes ambient credentials.
-/// </para>
+/// <para><c>--identity &lt;alias&gt;</c> is required before native service resolution or sign-in.
+/// No attached or ambient identity is inferred; same-principal renewal preserves bindings.</para>
 ///
 /// <para>
 /// Both PKCE (loopback, default) and device-code (<c>--device-code</c>) flows are preserved
@@ -32,15 +28,15 @@ internal sealed class AuthLoginCommand
     /// on it because it's already registered with <c>http://localhost</c> redirect URIs and
     /// the device-code grant. Future: replace with twig's own AAD app registration.
     /// </summary>
-    internal const string AzureCliClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
+    internal const string AzureCliClientId = NativeSetupEnrollment.ClientId;
 
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly Rendering.RendererFactory _rendererFactory;
-    private readonly IConnectionBindingService _bindingService;
+    private readonly Func<IConnectionBindingService> _bindingService;
 
     public AuthLoginCommand(
         OutputFormatterFactory formatterFactory,
-        IConnectionBindingService bindingService,
+        Func<IConnectionBindingService> bindingService,
         TwigConfiguration config,
         TwigPaths paths,
         Rendering.RendererFactory? rendererFactory = null)
@@ -59,52 +55,40 @@ internal sealed class AuthLoginCommand
         CancellationToken ct = default)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
-        if (string.IsNullOrWhiteSpace(identity))
+        InteractiveAuthResult? flowResult = null;
+        var effects = new NativeSetupEffects();
+        var registered = await NativeSetupEnrollment.EnrollAsync(identity, tenant, async (resolvedTenant, token) =>
         {
-            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
-                "Named enrollment requires --identity <alias>; no attached or ambient identity was inferred.");
-            return 2;
-        }
-        var resolvedTenant = string.IsNullOrWhiteSpace(tenant) ? AuthorizeRequestBuilder.DefaultTenant : tenant;
-
-        var alias = identity.Trim();
-
-        InteractiveAuthResult result;
-        if (useDeviceCode)
+            flowResult = useDeviceCode ? await RunDeviceCodeAsync(resolvedTenant, fmt, token)
+                : await RunPkceAsync(resolvedTenant, !noBrowser, fmt, token);
+            return flowResult;
+        }, _bindingService, ownsBindings: false, effects, ct);
+        if (!registered.IsSuccess)
         {
-            result = await RunDeviceCodeAsync(resolvedTenant, fmt, ct);
-        }
-        else
-        {
-            result = await RunPkceAsync(resolvedTenant, !noBrowser, fmt, ct);
-        }
-
-        if (!result.Succeeded || result.Entry is null)
-        {
+            if (NativeConnectionSetup.ReadFailure(registered.Error) is { IsSuccess: true, Value.Cancelled: true } && flowResult is null)
+                throw new OperationCanceledException(ct);
+            if (registered.Error.Code == ErrorCode.InvalidInput)
+            {
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat, registered.Error.Message);
+                return 2;
+            }
+            var alias = identity!.Trim();
             Console.Error.WriteLine();
-            CommandError.Write(_rendererFactory, Console.Error, outputFormat, $"Sign-in failed: {result.ErrorMessage}");
-            if (result.ErrorKind == InteractiveAuthErrorKind.PolicyBlocked && useDeviceCode)
+            CommandError.Write(_rendererFactory, Console.Error, outputFormat, flowResult?.Succeeded == true
+                ? $"Could not register identity '{alias}': {registered.Error.Message}" : registered.Error.Message);
+            if (flowResult?.ErrorKind == InteractiveAuthErrorKind.PolicyBlocked && useDeviceCode)
             {
                 Console.Error.WriteLine("Your tenant blocks the device code grant. Try 'twig auth login --identity " + alias + "' (loopback PKCE) instead.");
             }
-            else if (result.ErrorKind == InteractiveAuthErrorKind.LoopbackUnavailable)
+            else if (flowResult?.ErrorKind == InteractiveAuthErrorKind.LoopbackUnavailable)
             {
                 Console.Error.WriteLine("Could not bind a loopback listener. Try 'twig auth login --identity " + alias + " --device-code'.");
             }
             return 1;
         }
 
-        try
-        {
-            var stamped = await _bindingService.RegisterAadIdentityAsync(alias, result.Entry, ct);
-            RenderIdentityRegistered(stamped, outputFormat);
-            return 0;
-        }
-        catch (InvalidOperationException ex)
-        {
-            CommandError.Write(_rendererFactory, Console.Error, outputFormat, $"Could not register identity '{alias}': {ex.Message}");
-            return 1;
-        }
+        RenderIdentityRegistered(registered.Value, outputFormat);
+        return 0;
     }
 
     private void RenderIdentityRegistered(AuthenticationIdentity identity, string outputFormat)

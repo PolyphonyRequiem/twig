@@ -3,6 +3,7 @@ using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.RenderTree;
 using Twig.Rendering;
+using Twig.Infrastructure.Services;
 
 namespace Twig.Commands;
 
@@ -23,13 +24,13 @@ namespace Twig.Commands;
 /// </summary>
 internal sealed class ConnectionBindCommand
 {
-    private readonly IConnectionBindingService _bindingService;
+    private readonly Func<IConnectionBindingService> _bindingService;
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly RendererFactory _rendererFactory;
 
     public ConnectionBindCommand(
-        IConnectionBindingService bindingService,
+        Func<IConnectionBindingService> bindingService,
         TwigConfiguration config,
         OutputFormatterFactory formatterFactory,
         RendererFactory? rendererFactory = null)
@@ -82,19 +83,19 @@ internal sealed class ConnectionBindCommand
             return 1;
         }
 
-        IdentityBinding binding;
-        try
+        var effects = new NativeSetupEffects();
+        var result = await NativeSetupEnrollment.BindAsync(resolvedOrg, resolvedProject, identity.Trim(),
+            makeDefault, _bindingService, ownsBindings: false, effects, ct);
+        if (!result.IsSuccess)
         {
-            binding = await _bindingService.CreateBindingAsync(resolvedOrg, resolvedProject, identity.Trim(), makeDefault, ct);
-        }
-        catch (InvalidOperationException ex)
-        {
+            if (NativeConnectionSetup.ReadFailure(result.Error) is { IsSuccess: true, Value.Cancelled: true })
+                throw new OperationCanceledException(ct);
             CommandError.Write(_rendererFactory, Console.Error, outputFormat,
-                $"Could not bind '{resolvedOrg}/{resolvedProject}' to '{identity}': {ex.Message}");
+                $"Could not bind '{resolvedOrg}/{resolvedProject}' to '{identity}': {result.Error.Message}");
             return 1;
         }
 
-        RenderBound(binding, identity.Trim(), resolvedOrg, resolvedProject, makeDefault, outputFormat);
+        RenderBound(result.Value, identity.Trim(), resolvedOrg, resolvedProject, makeDefault, outputFormat);
         return 0;
     }
 

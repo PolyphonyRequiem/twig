@@ -98,6 +98,57 @@ Domain dependency; `tools/verify-domain-cut.py` separately checks source/project
 absence. The public, I/O-free rendering boundary and its external .NET 10 consumer
 belong to `Twig.RenderTree`, not this library.
 
+## Explicit native connection setup
+
+Human hosts can construct `NativeConnectionSetup(metadataHome)` with one explicit
+absolute native metadata home. Construction only validates the path; it does not
+create directories, open registries, inspect accounts or acquire credentials.
+Opening, laying out or reloading a host must never call the effect methods.
+
+The three separately named human actions share Infrastructure orchestration with
+the CLI, not a second initializer or OAuth implementation:
+
+- `EnrollAadAsync(new NativeAadEnrollmentRequest(alias, tenant), authorizationUrl, ct)`
+  uses the existing loopback PKCE/state/S256 flow without launching a browser.
+  Present its transient URL through the supplied callback. Cancel the operation's
+  token for the host's Cancel action; native listener teardown and credential
+  registration remain authoritative. Only safe stamped identity metadata returns.
+- `CreateAdoBindingAsync(new NativeAdoBindingRequest(org, project, alias), ct)`
+  ensures the native binding and returns its actual ID and revision. An existing
+  row is reused verbatim; no endpoint default is created or switched. Binding
+  creation alone is not fresh authentication or workspace readiness.
+- `InitializeFreshAsync(new NativeFreshSetupRequest(root, target, storeFile), ct)`
+  requires a canonical fresh Git root and either `NativeAdoSetupTarget` with an
+  explicit existing binding ID, or `NativeGitHubSetupTarget` with explicit host,
+  `owner/repository` and existing named `gh` account. Full filesystem/input
+  preflight precedes lazy native service resolution. GitHub App/PAT enrollment,
+  picker discovery, ambient accounts, default selection, reset and repair are not
+  exposed. Optional ADO/default/config and device/browser CLI behavior stays in
+  internal command adapters.
+
+Initialization returns `Result<NativeSourceObservation>.Ok` only after actual
+schema and online-access readback match the store, connection, principal and
+authority captured while creating the native workspace. It cannot adopt a
+replacement or return a created database as Ready. The observation is fresh
+evidence at that moment, not permanent authorization or an atomic remote snapshot.
+
+Failures remain `Result<T>.Fail` with the existing Core error code. Use
+`NativeConnectionSetup.ReadFailure(error)` to project native-owned diagnostics
+into typed phase, cancellation and possible/confirmed effect categories.
+Unsupported, foreign or malformed diagnostics explicitly fail; they do not imply
+no effects. Caller cancellation uses `Unavailable` plus typed cancellation
+diagnostics when there is no other native error. Evidence contains only native
+phase/effect markers and relevant HTTP 401/403 markers, never paths, credential
+references, tokens or callback URLs. Confirmed means the native step was observed,
+not that every artifact still exists after native cleanup. Possible means a call
+could have changed local state before its outcome was obtained.
+
+Partial filesystem, registry, credential renewal and store effects are preserved
+and reported; no facade rollback, repair or automatic retry occurs. Diagnostics
+are request-local reporting, not a journal, replay authority or restart-recovery
+protocol. Private browser callers must enforce owner/content/CSRF admission and
+named human actions. Agent SDK events remain layout-acknowledgement only.
+
 ## Read-only native source boundary
 
 External .NET hosts can call

@@ -126,6 +126,11 @@ policy; hierarchy additions refuse an already-parented child rather than
 removing or replacing its parent. No host copies these rules or adds a
 publisher, port, executor or outcome type.
 
+The existing Core/provider batch surface still supports an explicitly authored
+atomic parent change that removes every observed old parent in the same operation
+as the addition. That is not implicit reparenting and is not offered by this
+single-pair editor.
+
 An uncertain original attempt retains its proposal, receipts, draft and capture;
 Save never replays or restages it. Unowned CLI debt and isolated whole-Plan
 work are not adopted or flushed. Normal seed ownership, empty parentless

@@ -101,10 +101,12 @@ public sealed partial class GitHubCoreSpineTests
         published.Mappings.ShouldHaveSingleItem().Local.ShouldBe(seed.Key);
         published.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified);
         var mapping = published.Mappings.Single();
+        NativeLocalRelationshipReview earlier;
         using (var editor = (await fixture.OpenAsync()).Value)
         {
             var pair = (await editor.SelectRelationshipsAsync(LocalPairOther(fixture), fixture.Key)).Value;
             var review = (await editor.ReviewLocalRelationshipAsync(pair.Fields.Ticket, false)).Value;
+            earlier = review;
             review.Proposal.Operations.Single().ExpectedLocalVersion.ShouldBe(1);
             (await editor.ApplyLocalRelationshipAsync(review.CaptureId, review.Proposal.Digest)).Value.Journal!.Status.ShouldBe(OpStatus.Verified);
         }
@@ -119,6 +121,13 @@ public sealed partial class GitHubCoreSpineTests
         var final = await fixture.SnapshotAsync();
         final.Relationships.Single().ShouldBe(original with { LocalVersion = 3 });
         final.Mappings.Single().ShouldBe(mapping);
+        using var historicalEditor = (await fixture.OpenAsync()).Value;
+        var historicalReview = (await historicalEditor.ReadLocalRelationshipReviewsAsync()).Value
+            .Single(review => review.CaptureId == earlier.CaptureId);
+        Model.ProposalBytes(historicalReview.Proposal).ShouldBe(Model.ProposalBytes(earlier.Proposal));
+        historicalReview.Outcome!.Journal!.Status.ShouldBe(OpStatus.Verified);
+        historicalReview.Outcome.Settled.ShouldBeTrue();
+        await AssertExactLocalRead(fixture, historicalEditor, historicalReview);
         await fixture.Native.UseWorkspace(async workspace =>
         {
             var stale = await workspace.PrepareAsync([new("stale", OpKind.Unrelate, original.From, other: original.To,
@@ -266,6 +275,9 @@ public sealed partial class GitHubCoreSpineTests
         original.Journal.Single().Status.ShouldBe(OpStatus.Applied);
         var receipt = original.Journal.Single().Receipts.Single();
         var edge = original.Relationships.Single();
+        var appliedReview = (await editor.ReadLocalRelationshipReviewsAsync()).Value.ShouldHaveSingleItem();
+        appliedReview.Outcome!.Journal!.Status.ShouldBe(OpStatus.Applied);
+        await AssertExactLocalRead(fixture, editor, appliedReview);
         (await editor.ApplyLocalRelationshipAsync(review.CaptureId, review.Proposal.Digest)).IsSuccess.ShouldBeFalse();
         AssertSameLocalState(original, await fixture.SnapshotAsync());
         using var reopened = (await fixture.OpenAsync()).Value;
@@ -280,6 +292,9 @@ public sealed partial class GitHubCoreSpineTests
         final.Proposals.Length.ShouldBe(1);
         final.Journal.Single().Receipts.Length.ShouldBe(2);
         ReceiptBytes(final.Journal.Single().Receipts[0]).ShouldBe(ReceiptBytes(receipt));
+        var settledReview = (await reopened.ReadLocalRelationshipReviewsAsync()).Value.ShouldHaveSingleItem();
+        AssertLocalOutcome(continued.Value, settledReview.Outcome!);
+        await AssertExactLocalRead(fixture, reopened, settledReview);
         fixture.Writes.ShouldBe(0);
     }
 

@@ -223,6 +223,19 @@ editing or publication route is enabled here.
 
 ## Internal native capture and allocation primitives
 
+`NativeItemEditor.ReadLocalRelationshipReviewsAsync()` discovers every owned
+original LOCAL review in the exact normal GitHub source/Bench.
+`ReadLocalRelationshipReviewAsync(captureId, exactDigest)` instead evaluates
+one explicitly named original, with the same fresh source and persisted capture,
+immutable namespace provenance, current Core original-reference proof and actual
+outcome checks. It does not normalize digests, select a newer original or project
+a cached operation result. Invalid, missing, foreign, stale or unavailable proof
+refuses; an outcome error remains an error, not delivery certification. Both
+readers preserve original settled journal history after later local CAS, without
+replay, settlement or clearing independent debt. The exact reader avoids other
+originals' per-review evaluation, not namespace-wide integrity validation or
+storage reads; no O(1) lookup or measured timing improvement is claimed.
+
 The internal editor session retains one actor/resource/schema-bound metadata
 capture. Item and endpoint reads reuse its native mapping without another
 process/layout/icon crawl, while still admitting the actual native actor/project

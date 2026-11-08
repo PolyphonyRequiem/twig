@@ -34,6 +34,13 @@ public sealed partial class NativeItemEditor
         finally { gate.Release(); }
     }
 
+    public async Task<Result<NativeLocalRelationshipReview>> ReadLocalRelationshipReviewAsync(Guid captureId, string exactDigest, CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try { return await editor.ReadLocalRelationshipReviewAsync(captureId, exactDigest, ct).ConfigureAwait(false); }
+        finally { gate.Release(); }
+    }
+
     private async Task<Result<NativeRelationshipForm>> SelectLocalRelationshipAsync(ItemKey key, ItemKey other, CancellationToken ct)
     {
         var selected = await editor.SelectLocalRelationshipAsync(key, other, ct).ConfigureAwait(false);

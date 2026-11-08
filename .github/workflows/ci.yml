@@ -338,6 +338,8 @@ jobs:
               ("native-local-read-protected", ["NativeGitHubLocalReaderIncludesProtectedOriginalAttemptWithoutReplay"]),
               ("native-local-read-ownership", ["NativeGitHubLocalReaderDoesNotExposeAnotherBenchOrAdoptPlanMode"]),
               ("native-local-read-missing-proof", ["NativeGitHubLocalReaderMissingOriginalProofRefusesInsteadOfEmptySuccess"]),
+              ("native-local-read-exact-target", ["NativeGitHubLocalExactReaderRefusesInvalidTargetsAndReleasesCancelledOrContendedLeases"]),
+              ("native-local-read-exact-isolation", ["NativeGitHubLocalExactReaderEvaluatesOnlyNamedOriginalWhileAllRetainsOrderedRefusals"]),
           ]
           for label, methods in groups:
               selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.{method}" for method in methods)
@@ -353,6 +355,15 @@ jobs:
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
                               "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
                               "--filter", selector, "--logger", f"trx;LogFileName=native-local-proof-{damage}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/github-root"], check=True)
+          for damage in ["actor", "repository", "bench", "mode", "store", "execution-path",
+                         "cancelled-provenance", "endpoint-provenance", "revision-provenance", "history"]:
+              selector = ("FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests."
+                          "NativeGitHubLocalExactReaderRevalidatesPersistedOriginalAfterVerifiedOperation"
+                          f"&DisplayName~{damage}")
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", selector, "--logger", f"trx;LogFileName=native-local-read-exact-proof-{damage}.trx",
                               "--results-directory", "artifacts/test-logs/ci/github-root"], check=True)
       - name: Preserve retained GitHub root results
         if: always() && steps.github_root.outcome != 'skipped' && steps.github_root.outcome != ''

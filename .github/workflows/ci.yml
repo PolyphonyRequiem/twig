@@ -324,12 +324,28 @@ jobs:
               ("local-cas-aba", ["LocalRelatedUsesNativeNumbersAndVerifiedTombstoneCasWithoutNativeWrites"]),
               ("published-original-uuid", ["LocalRelatedKeepsOriginalEdgeKeysAcrossVerifiedSeedPublication"]),
               ("local-fences", ["LocalRelatedCannotBypassAnUnknownCreationWithANewDigest", "LocalRelatedRefusesUnknownTargetsAndAmbiguousCliWithoutEffects"]),
+              ("native-local-selection", ["NativeGitHubPublishedPairQualifiesLocalOnlyAssociationWithoutScalarAuthority"]),
+              ("native-local-digest", ["NativeGitHubLocalReviewUsesExactDigestAndVerifiedCasWithoutScalarPublication"]),
+              ("native-local-uuid-cas", ["NativeGitHubLocalReverseOrderRetainsOriginalUuidAndTombstoneAbaCas"]),
+              ("native-local-applied-recovery", ["NativeGitHubLocalAppliedReceiptReopensAndVerifiesWithoutReplay"]),
+              ("native-local-capture-witness", ["NativeGitHubLocalCaptureWitnessCannotBecomeAbsentIntent"]),
+              ("native-local-explicit-scope", ["NativeGitHubLocalQualificationRejectsImplicitScopeAndPreservesMissingRemove"]),
+              ("native-local-late-acquisition", ["NativeGitHubLocalLateAcquisitionCannotReplaceCapturedEndpointProof"]),
           ]
           for label, methods in groups:
               selector = "|".join(f"FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.{method}" for method in methods)
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
                               "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
                               "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/github-root"], check=True)
+          for damage in ["actor", "repository", "schema", "endpoint", "mode", "store",
+                         "draft", "policy", "denied", "bench", "edge"]:
+              selector = ("FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests."
+                          "NativeGitHubLocalOriginalReviewRefusesInvalidatedProofWithoutReplacement"
+                          f"&DisplayName~{damage}")
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", selector, "--logger", f"trx;LogFileName=native-local-proof-{damage}.trx",
                               "--results-directory", "artifacts/test-logs/ci/github-root"], check=True)
       - name: Preserve retained GitHub root results
         if: always() && steps.github_root.outcome != 'skipped' && steps.github_root.outcome != ''

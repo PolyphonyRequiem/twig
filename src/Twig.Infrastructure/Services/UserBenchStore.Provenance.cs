@@ -326,6 +326,12 @@ public sealed partial class UserBenchStore
                 if (source is null) return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The referenced execution store is missing.");
                 var stored = await NativeCoreExecution.InspectAsync(source, ct).ConfigureAwait(false);
                 if (!stored.IsSuccess) return Result<bool>.Fail(stored.Error);
+                if (capture.LocalRelationship is not null || NativeLocalRelationshipEvidence.IsLocal(ParseIntent(capture.IntentJson)))
+                {
+                    var local = NativeLocalRelationshipEvidence.Check(capture, stored.Value);
+                    if (!local.IsSuccess) return local;
+                    continue;
+                }
                 var key = ParseIntent(capture.IntentJson).Operations.Single().Item;
                 if (stored.Value.Version < capture.StoreVersion
                     || CoreWorkspace.Fingerprint(source.Connection, stored.Value.Drafts.SingleOrDefault(value => value.Key == key)) != capture.DraftFingerprint)

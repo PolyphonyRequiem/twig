@@ -85,7 +85,7 @@ public sealed partial class NativeItemEditor : IDisposable
             var relationshipIntent = item.Capture is { } capture && !UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Links.IsEmpty;
             if (relationshipIntent && (GitHub || PlanMode || key.IsLocal))
                 return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "This provider/mode has no qualified existing-item relationship editor.");
-            if (items.Count >= 64) { items.Clear(); relationshipEndpoints.Clear(); }
+            if (items.Count + localPairs.Count >= 64) { items.Clear(); relationshipEndpoints.Clear(); localPairs.Clear(); }
             var ticket = Guid.NewGuid();
             items[ticket] = item;
             var form = Form(ticket, item, FieldValues.Empty);
@@ -119,10 +119,14 @@ public sealed partial class NativeItemEditor : IDisposable
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (localPairs.ContainsKey(ticket))
+                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "LOCAL pair fields are read-only; scalar evaluation does not adopt local relationship tickets.");
             var valid = await editor.ValidateAsync(ct).ConfigureAwait(false);
             if (!valid.IsSuccess) return Result<NativeEditForm>.Fail(valid.Error);
             if (!items.TryGetValue(ticket, out var item))
                 return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "The editor handle expired. Reopen without discarding your edited values.");
+            var available = await editor.LocalEndpointAvailableAsync(item.Observation.Key, ct).ConfigureAwait(false);
+            if (!available.IsSuccess) return Result<NativeEditForm>.Fail(available.Error);
             if (relationshipEndpoints.TryGetValue(ticket, out var endpoint))
             {
                 var current = await RelationshipFormAsync(ticket, item, endpoint.Item, ct).ConfigureAwait(false);
@@ -152,10 +156,14 @@ public sealed partial class NativeItemEditor : IDisposable
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (localPairs.ContainsKey(ticket))
+                return Result<NativeEditResult>.Fail(ErrorCode.Unsupported, "Scalar Save cannot apply LOCAL relationship intent; use its separate exact digest.");
             if (PlanMode)
                 return Result<NativeEditResult>.Fail(ErrorCode.Conflict, "Plan work stages locally. Review and apply the whole Plan explicitly.");
             if (!items.TryGetValue(ticket, out var item))
                 return Result<NativeEditResult>.Fail(ErrorCode.Conflict, "The exact item handle expired; reopen before saving.");
+            var available = await editor.LocalEndpointAvailableAsync(item.Observation.Key, ct).ConfigureAwait(false);
+            if (!available.IsSuccess) return Result<NativeEditResult>.Fail(available.Error);
             if (HasRelationships(item) || relationshipEndpoints.ContainsKey(ticket))
                 return Result<NativeEditResult>.Fail(ErrorCode.Unsupported, "Scalar Save cannot publish retained relationship intent; use its explicit qualified ticket.");
             var evaluated = Form(ticket, item, changes);
@@ -189,8 +197,12 @@ public sealed partial class NativeItemEditor : IDisposable
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (localPairs.ContainsKey(ticket))
+                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Scalar staging cannot adopt LOCAL relationship tickets.");
             if (!items.TryGetValue(ticket, out var item))
                 return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Reopen the exact native item before staging.");
+            var available = await editor.LocalEndpointAvailableAsync(item.Observation.Key, ct).ConfigureAwait(false);
+            if (!available.IsSuccess) return Result<NativeEditForm>.Fail(available.Error);
             if (HasRelationships(item) || relationshipEndpoints.ContainsKey(ticket))
                 return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Scalar staging cannot replace retained relationship intent.");
             if (!PlanMode && (!item.Observation.Key.IsLocal || GitHub))

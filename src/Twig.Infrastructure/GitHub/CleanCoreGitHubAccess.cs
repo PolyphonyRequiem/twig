@@ -56,7 +56,10 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
             if (string.IsNullOrWhiteSpace(token))
                 return Result<GitHubSession>.Fail(ErrorCode.Unavailable, "The explicitly selected GitHub credential is unavailable.");
             await ValidateAsync(ct).ConfigureAwait(false);
-            var session = new Session(this, generation, token);
+            var state = await _store.ReadAsync(_connection, ct).ConfigureAwait(false);
+            if (!state.IsSuccess) return Result<GitHubSession>.Fail(state.Error);
+            var session = new Session(this, generation, token,
+                state.Value.Journal.Where(row => row.Status == OpStatus.Applying).Select(row => row.Attempt).ToHashSet());
             generation = null;
             return Result<GitHubSession>.Ok(session);
         }
@@ -80,7 +83,8 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         if (!pinned.IsSuccess) throw new InvalidOperationException(pinned.Error.Message);
     }
 
-    private sealed class Session(CleanCoreGitHubAccess access, FileStream generation, string token) : GitHubSession
+    private sealed class Session(CleanCoreGitHubAccess access, FileStream generation, string token,
+        HashSet<Guid> previousAttempts) : GitHubSession
     {
         private int _disposed;
         public override Connection Connection => access._connection;
@@ -98,6 +102,15 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         {
             if (Volatile.Read(ref _disposed) != 0) throw new InvalidOperationException("The GitHub target generation lease was released.");
             await access.ValidateAsync(ct).ConfigureAwait(false);
+            var state = await access._store.ReadAsync(Connection, ct).ConfigureAwait(false);
+            if (!state.IsSuccess) throw new InvalidOperationException(state.Error.Message);
+            if (state.Value.Journal.Any(row => row.Status == OpStatus.Applying && !previousAttempts.Contains(row.Attempt)
+                && state.Value.Proposals.Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Origin == RelationshipOrigin.Local))
+            {
+                // Recheck newly acquired durable inputs before local CAS; older attempts do not block reads.
+                var admitted = await NativeCoreExecution.PublishingAsync(access._registryPath, ct).ConfigureAwait(false);
+                if (!admitted.IsSuccess) throw new InvalidOperationException(admitted.Error.Message);
+            }
         }
         public override async Task<Result<GitHubRuleProjection>> ReadRuleProjectionAsync(ProcessSchema nativeProjection, CancellationToken ct)
         {

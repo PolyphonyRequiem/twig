@@ -138,9 +138,60 @@ creation and original-proposal verified delivery remain unchanged. These new
 forms are in-process typed API values, not new serialized transport envelopes;
 the existing source-generated native capture registry is reused unchanged.
 There is no private host/UI, install or runtime work in this increment.
-GitHub standalone/local Relate-Unrelate is later work and must not be emulated
-with ADO atomic Batch; GitHub relationships, seeds, types and collections,
+GitHub local relationships use the separate surface below, never ADO atomic
+Batch. Native GitHub relationship publication, seeds, types and collections,
 seed parents/links/resources and local-local chains remain unsupported here.
+
+### Normal native GitHub local-only Association
+
+`SelectRelationshipsAsync(target, endpoint)` also qualifies one explicit,
+distinct published GitHub pair in the same repository and normal Bench/source.
+Both endpoints must already have complete uniquely numbered native observations;
+refresh unobserved endpoints explicitly. Selection then fresh-reads both through
+the captured provider/session metadata. Exactly one discovered symmetric
+Association must be declared local-only, absent from native relationship
+capabilities. Provider errors, denied access or unavailable semantics refuse;
+they never select a local fallback. `NativeRelationshipForm.LocalOnly` and
+`Verification` distinguish this form from ADO atomic editing. All scalar fields
+are read-only, native `CreationLink` choices are empty, and generic scalar
+Evaluate/Stage/Save cannot adopt its ticket or retained intent.
+
+The separate human-host `ReviewLocalRelationshipAsync(ticket, adding)` reserves
+a durable native capture and retains one canonical Core `Relate` or `Unrelate`
+with `Origin.Local`, its exact digest and Planned journal row.
+`ApplyLocalRelationshipAsync(captureId, exactDigest)` performs the first attempt
+only through existing Core policy, native source/target admission and provider
+journal/verification. There are no scalar fields, Batch, synthetic Draft or
+seed publication references in this capture. The CLI and facade share the
+Infrastructure local identity/Association/CAS preparation, not a second
+publisher or new Core port.
+
+The local capture binds the original source, Bench/mode, store instance,
+generation/history/reference, canonical proposal, both native observations and
+independent draft fingerprints, original logical UUID mapping and physical
+edge/tombstone CAS. Unowned CLI or isolated Plan debt is not adopted. Original
+UUID-keyed edges remain unchanged across publication mappings and symmetric
+reverse-order edits; removals retain tombstones and re-addition advances the
+version, refusing stale ABA intent. Changed proof refuses without recapture,
+restaging or replacement intent. Fresh provider inputs are checked against the
+native capture again after the durable Applying fence, before local CAS.
+This does not grant GitHub revision CAS or an atomic field/link transaction.
+
+`ObserveLocalRelationshipAsync(captureId, exactDigest)` returns the original
+Core journal entry, settlement flag and any error; no new status or receipt is
+invented. Reopen the same normal source/Bench and use
+`ContinueLocalRelationshipAsync` for exact interrupted retention, separate
+verification of an original durable Applied receipt, or Verified capture
+settlement. It never prepares new intent or invokes Apply again.
+Incomplete review errors retain `capture:` and `digest:` recovery references.
+An unresolved original attempt remains protected; a new digest cannot bypass
+it. Settled observations retain historical original journal proof even after
+later scalar or relationship changes; they do not assert current item state.
+Local **Verified means durable local-store CAS, not tracker publication**;
+its receipts carry no published key or provider revision. Scalar GitHub
+title/Markdown-body/discovered-state Save remains a separately requested
+provider effect. Existing ADO StageRelationships/SaveRelationships continue to
+refuse GitHub and retain their atomic Batch semantics.
 
 ### Explicit-team native planning
 

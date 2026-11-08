@@ -82,6 +82,8 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
     {
         var valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
+        var available = await LocalEndpointAvailableAsync(key, ct).ConfigureAwait(false);
+        if (!available.IsSuccess) return Result<NativeEditorItem>.Fail(available.Error);
         using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
         WorkItem observed;
         if (!key.IsLocal)
@@ -130,6 +132,8 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
         if (!captures.IsSuccess) return Result<NativeEditorItem>.Fail(captures.Error);
+        if (captures.Value.Any(value => LocalCaptureOwnsEndpoint(value, observed.Key)))
+            return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "An original local relationship capture protects this endpoint; observe or continue its exact digest, without scalar adoption.");
         var matches = captures.Value.Where(value => !value.Settled && !value.Cancelled && value.StoreInstance == handle.Document.DatabaseInstance
             && value.PlanMode == plan.PlanMode && (!plan.PlanMode || value.PlanId == plan.Id)
             && UserBenchStore.ParseIntent(value.IntentJson).Operations[0].Item == observed.Key).ToArray();

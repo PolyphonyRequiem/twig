@@ -371,7 +371,7 @@ public sealed partial class GitHubCoreSpineTests
         internal string Output = "", Error = "";
         internal int CredentialCalls;
         internal ITelemetryClient? Telemetry;
-        private string Database => _document?.DatabasePath ?? Path.Combine(Root, "core.db");
+        internal string Database => _document?.DatabasePath ?? Path.Combine(Root, "core.db");
         internal Fixture(string? userHome = null)
         {
             InitCommandTestFixture.InitTempWorktree(Root).ShouldBeTrue();
@@ -517,11 +517,14 @@ public sealed partial class GitHubCoreSpineTests
         internal bool LoseAcknowledgement, MoreCandidates;
         internal HttpStatusCode? RejectNextMutation;
         internal string? Defect, Comment;
+        internal Func<Task>? BeforeSchema;
+        internal Func<string, Task>? BeforeIssueRead;
         internal JsonObject Issue { get; } = new()
         {
             ["__typename"] = "Issue", ["id"] = "I_opaque", ["number"] = 42, ["title"] = "original",
             ["body"] = "", ["state"] = "OPEN", ["updatedAt"] = "2026-10-31T12:00:00Z",
         };
+        internal JsonObject? OtherIssue { get; set; }
         private JsonObject _assignees = Page([]);
         internal HttpMessageHandler NewHandle() => new Forward(this);
         private sealed class Forward(NativeHttp owner) : HttpMessageHandler
@@ -547,7 +550,11 @@ public sealed partial class GitHubCoreSpineTests
             request.Headers.Authorization!.Parameter.ShouldBe("synthetic-secret");
             var root = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!;
             var query = root["query"]!.GetValue<string>();
-            if (query.Contains("__type(", StringComparison.Ordinal)) SchemaRequests++;
+            if (query.Contains("__type(", StringComparison.Ordinal))
+            {
+                SchemaRequests++;
+                if (BeforeSchema is { } beforeSchema) await beforeSchema();
+            }
             var variables = root["variables"]!;
             if (!query.Contains("viewer", StringComparison.Ordinal) && !query.Contains("__type(", StringComparison.Ordinal)
                 && !query.Contains("repository(owner:", StringComparison.Ordinal)
@@ -603,6 +610,7 @@ public sealed partial class GitHubCoreSpineTests
             }
             else if (query.Contains("__type(", StringComparison.Ordinal))
             {
+                if (Defect == "schema-denied") return new(HttpStatusCode.Forbidden);
                 var update = Names(Defect == "schema" ? ["id", "title", "state", "assigneeIds"] : ["id", "title", "body", "state", "assigneeIds"]);
                 update["inputFields"] = update["fields"]!.DeepClone(); update.Remove("fields");
                 var create = Names("repositoryId", "title", "body", "assigneeIds"); create["inputFields"] = create["fields"]!.DeepClone(); create.Remove("fields");
@@ -614,8 +622,11 @@ public sealed partial class GitHubCoreSpineTests
             else if (query.Contains("issue(number:", StringComparison.Ordinal))
             {
                 variables["id"]!.GetValue<string>().ShouldBe("R_repo");
-                variables["number"]!.GetValue<int>().ShouldBe(42);
-                var repo = Repository(); var issue = (JsonObject)Issue.DeepClone(); issue["repository"] = Repository();
+                var number = variables["number"]!.GetValue<int>();
+                var selected = number == 42 ? Issue : OtherIssue;
+                selected.ShouldNotBeNull();
+                selected["number"]!.GetValue<int>().ShouldBe(number);
+                var repo = Repository(); var issue = (JsonObject)selected.DeepClone(); issue["repository"] = Repository();
                 repo["__typename"] = "Repository";
                 if (Defect == "number-reassigned") issue["id"] = "I_rebound";
                 if (Defect == "number") issue["number"] = 43;
@@ -629,14 +640,18 @@ public sealed partial class GitHubCoreSpineTests
             else if (query.Contains("... on Label", StringComparison.Ordinal))
                 data = new JsonObject { ["node"] = new JsonObject { ["id"] = "U_actor", ["__typename"] = "User" } };
             else if (query.Contains("assignees(first:", StringComparison.Ordinal))
-                data = new JsonObject { ["node"] = new JsonObject { ["id"] = "I_opaque", ["__typename"] = "Issue", ["assignees"] = _assignees.DeepClone() } };
+                data = new JsonObject { ["node"] = new JsonObject { ["id"] = variables["id"]!.DeepClone(), ["__typename"] = "Issue", ["assignees"] = _assignees.DeepClone() } };
             else if (query.Contains("... on IssueComment", StringComparison.Ordinal))
                 data = new JsonObject { ["node"] = new JsonObject { ["__typename"] = "IssueComment", ["id"] = "C_native", ["body"] = Comment,
                     ["author"] = new JsonObject { ["id"] = "U_actor" }, ["issue"] = new JsonObject { ["id"] = "I_opaque", ["repository"] = Repository() } } };
             else
             {
-                variables["id"]!.GetValue<string>().ShouldBe("I_opaque");
-                var issue = (JsonObject)Issue.DeepClone(); issue["repository"] = Repository();
+                var id = variables["id"]!.GetValue<string>();
+                if (BeforeIssueRead is { } beforeIssueRead) await beforeIssueRead(id);
+                var selected = id == "I_opaque" ? Issue : OtherIssue;
+                selected.ShouldNotBeNull();
+                selected["id"]!.GetValue<string>().ShouldBe(id);
+                var issue = (JsonObject)selected.DeepClone(); issue["repository"] = Repository();
                 data = new JsonObject { ["node"] = issue };
             }
             return new(HttpStatusCode.OK) { Content = new StringContent(new JsonObject { ["data"] = data }.ToJsonString(), Encoding.UTF8, "application/json") };

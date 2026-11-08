@@ -7,7 +7,12 @@ namespace Twig.Infrastructure.Services;
 
 public sealed record NativeRelationshipForm(NativeEditForm Fields, WorkItem Target, WorkItem Endpoint,
     ImmutableArray<RelationKind> Relations, ImmutableArray<CreationLink> Choices,
-    ImmutableArray<CreationLink> Intent, ImmutableArray<Relationship> Incident);
+    ImmutableArray<CreationLink> Intent, ImmutableArray<Relationship> Incident)
+{
+    public bool LocalOnly { get; init; }
+    public string Verification => LocalOnly ? "LOCAL store CAS only; no native tracker mutation or tracker publication."
+        : "Native ADO atomic relationship batch; separate tracker verification required.";
+}
 
 public sealed partial class NativeItemEditor
 {
@@ -18,6 +23,8 @@ public sealed partial class NativeItemEditor
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (GitHub)
+                return await SelectLocalRelationshipAsync(key, other, ct).ConfigureAwait(false);
             if (GitHub || PlanMode || key.IsLocal || other.IsLocal || key == other
                 || !key.BelongsTo(editor.Origin.Connection) || !other.BelongsTo(editor.Origin.Connection))
                 return Result<NativeRelationshipForm>.Fail(ErrorCode.Unsupported, "Qualified relationships require two explicit distinct published ADO endpoints in this normal source.");
@@ -42,7 +49,7 @@ public sealed partial class NativeItemEditor
                         || !capture.Endpoints.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(other) && proof.Revision == endpoint.Value.Revision?.Token)))
                     return Result<NativeRelationshipForm>.Fail(ErrorCode.Conflict, "The exact retained relationship capture, Bench or endpoint changed; no intent was rebound.");
             }
-            if (items.Count >= 64) { items.Clear(); relationshipEndpoints.Clear(); }
+            if (items.Count + localPairs.Count >= 64) { items.Clear(); relationshipEndpoints.Clear(); localPairs.Clear(); }
             var ticket = Guid.NewGuid();
             var snapshot = await editor.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
             if (!snapshot.IsSuccess) return Result<NativeRelationshipForm>.Fail(snapshot.Error);

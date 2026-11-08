@@ -59,7 +59,7 @@ internal sealed partial class NativeEditor
 
     private async Task<Result<NativeLocalRelationshipReview>> ReadOriginalLocalRelationshipReviewAsync(Guid captureId, string exactDigest, CancellationToken ct)
     {
-        var reference = await LocalReferenceAsync(captureId, exactDigest, ct).ConfigureAwait(false);
+        var reference = await ReadAdmittedLocalReferenceAsync(captureId, exactDigest, ct).ConfigureAwait(false);
         if (!reference.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(reference.Error);
         var state = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!state.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(state.Error);
@@ -235,6 +235,11 @@ internal sealed partial class NativeEditor
     {
         var valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeEditorCapture>.Fail(valid.Error);
+        return await ReadAdmittedLocalReferenceAsync(captureId, digest, ct).ConfigureAwait(false);
+    }
+
+    private async Task<Result<NativeEditorCapture>> ReadAdmittedLocalReferenceAsync(Guid captureId, string digest, CancellationToken ct)
+    {
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
         if (!captures.IsSuccess) return Result<NativeEditorCapture>.Fail(captures.Error);
         var capture = captures.Value.SingleOrDefault(value => value.Id == captureId);

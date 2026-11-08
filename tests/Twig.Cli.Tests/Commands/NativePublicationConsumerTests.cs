@@ -2455,6 +2455,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public int OmittedRelationResponses { get; private set; }
         public Func<Task>? BeforeReadback { get; set; }
         public Func<Task>? BeforeItemReadResponse { get; set; }
+        public Func<int, Task>? BeforeCurrentItemLookup { get; set; }
         public Func<Task>? AfterCommit { get; set; }
         public bool CoreMetadataEnabled { get; set; }
         public string? ObservedPrincipalOverride { get; set; }
@@ -2719,8 +2720,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     }).Concat(NativeLinks(createdId)).ToArray(),
                 });
             }
-            if (!int.TryParse(segments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
-                || !_items.TryGetValue(id, out var item) || item.Principal != principal)
+            if (!int.TryParse(segments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+                return Reply(HttpStatusCode.NotFound, new { message = "Not readable by the selected principal" });
+            if (request.Method == HttpMethod.Get && segments.Length == 1 && BeforeCurrentItemLookup is { } beforeLookup)
+                await beforeLookup(id);
+            if (!_items.TryGetValue(id, out var item) || item.Principal != principal)
                 return Reply(HttpStatusCode.NotFound, new { message = "Not readable by the selected principal" });
             if (request.Method == HttpMethod.Patch)
             {

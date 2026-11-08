@@ -11,7 +11,7 @@ public sealed record NativeRelationshipForm(NativeEditForm Fields, WorkItem Targ
 
 public sealed partial class NativeItemEditor
 {
-    private readonly Dictionary<Guid, WorkItem> relationshipEndpoints = [];
+    private readonly Dictionary<Guid, (WorkItem Item, NativeEditorEndpoint Proof)> relationshipEndpoints = [];
 
     public async Task<Result<NativeRelationshipForm>> SelectRelationshipsAsync(ItemKey key, ItemKey other, CancellationToken ct = default)
     {
@@ -44,10 +44,16 @@ public sealed partial class NativeItemEditor
             }
             if (items.Count >= 64) { items.Clear(); relationshipEndpoints.Clear(); }
             var ticket = Guid.NewGuid();
+            var snapshot = await editor.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+            if (!snapshot.IsSuccess) return Result<NativeRelationshipForm>.Fail(snapshot.Error);
+            if (snapshot.Value.Version != item.StoreVersion)
+                return Result<NativeRelationshipForm>.Fail(ErrorCode.Conflict, "The endpoint draft evidence changed while opening the qualified ticket.");
+            var proof = new NativeEditorEndpoint(CleanCoreAdoAccess.ItemText(other), endpoint.Value.Revision?.Token,
+                editor.Workspace.DraftFingerprint(snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == other)));
             var form = await RelationshipFormAsync(ticket, item, endpoint.Value, ct).ConfigureAwait(false);
             if (!form.IsSuccess) return form;
             items[ticket] = item;
-            relationshipEndpoints[ticket] = endpoint.Value;
+            relationshipEndpoints[ticket] = (endpoint.Value, proof);
             return form;
         }
         finally { gate.Release(); }
@@ -60,7 +66,7 @@ public sealed partial class NativeItemEditor
         try
         {
             var staged = await StageRelationshipAsync(ticket, changes, intent, ct).ConfigureAwait(false);
-            return staged.IsSuccess ? await RelationshipFormAsync(ticket, staged.Value, relationshipEndpoints[ticket], ct).ConfigureAwait(false)
+            return staged.IsSuccess ? await RelationshipFormAsync(ticket, staged.Value, relationshipEndpoints[ticket].Item, ct).ConfigureAwait(false)
                 : Result<NativeRelationshipForm>.Fail(staged.Error);
         }
         finally { gate.Release(); }
@@ -89,8 +95,9 @@ public sealed partial class NativeItemEditor
     private async Task<Result<NativeEditorItem>> StageRelationshipAsync(Guid ticket, FieldValues changes,
         ImmutableArray<CreationLink> intent, CancellationToken ct)
     {
-        if (PlanMode || GitHub || !items.TryGetValue(ticket, out var item) || !relationshipEndpoints.TryGetValue(ticket, out var endpoint))
+        if (PlanMode || GitHub || !items.TryGetValue(ticket, out var item) || !relationshipEndpoints.TryGetValue(ticket, out var capturedEndpoint))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Reopen both explicit normal ADO endpoints with a qualified relationship ticket.");
+        var endpoint = capturedEndpoint.Item;
         if (intent.IsDefault || intent.IsEmpty || intent.Length > 128 || intent.Any(link => link.Other != endpoint.Key))
             return Result<NativeEditorItem>.Fail(ErrorCode.InvalidInput, "Supply bounded explicit add/remove intent for this exact endpoint; empty intent cannot discard protected links.");
         var valid = await editor.ValidateAsync(ct).ConfigureAwait(false);
@@ -124,7 +131,8 @@ public sealed partial class NativeItemEditor
         if (editor.Workspace.DraftFingerprint(snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == item.Observation.Key))
             != editor.Workspace.DraftFingerprint(item.Draft))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Independent draft debt changed during relationship review.");
-        var staged = await editor.StageAsync(item with { StoreVersion = snapshot.Value.Version }, changes, null, intent, ct).ConfigureAwait(false);
+        var staged = await editor.StageAsync(item with { StoreVersion = snapshot.Value.Version }, changes, null, intent, ct,
+            [capturedEndpoint.Proof]).ConfigureAwait(false);
         if (staged.IsSuccess) items[ticket] = staged.Value;
         return staged;
     }

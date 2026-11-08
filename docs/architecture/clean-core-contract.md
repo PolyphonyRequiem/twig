@@ -97,6 +97,13 @@ the durable native capture's Batch operation; `Draft.Links` remains empty.
 cannot mutate or publish it. Reopening both explicit endpoints restores the
 qualified ticket without changing the original directed intent or observed
 presence. A stale endpoint or protected capture is not silently rebound.
+The qualified ticket also retains the displayed endpoint's original revision
+and local draft fingerprint independently of later reads. Low-level native
+staging compares that proof after acquiring endpoint evidence and again before
+capture reservation, including on the first Save with no existing capture.
+A late revision or local draft change refuses before replacing the original
+capture or target draft; explicit relationship intent cannot recapture newer
+endpoint evidence as if it had been displayed.
 Empty intent cannot discard protected relationships. Broader multi-endpoint
 authoring and parent replacement are not part of this bounded surface.
 

@@ -78,6 +78,16 @@ two ports. Infrastructure connects that spine to native host requirements:
 - Native Markdown conversion, explicit self-update, and optional privacy-allowlisted
   telemetry. Automatic companion acquisition and retired UI hosts are absent.
 
+Each new native ADO provider session resolves current configuration, attachment/Git
+and registry authority, even with a live ancestor lease. For the same resolver and
+full source/path/provenance context, both frozen owners compare against one fresh
+result before credential or provider work; other supported contexts retain the
+original independent validation route. This is neither cached-origin nor whole-Save
+authority, and leases do not guarantee filesystem immutability. Later admission
+after the durable `Applying` attempt still revalidates independently; actual remote
+collection/actor/project/process binding, schema/policy checks and separate receipt
+verification remain fresh.
+
 `connection writes` is read-only correlated transport inspection, not settlement or
 execution success. A receipt does not replace the Core journal. No inspection path
 replays, adopts, rewrites a digest, clears a fence or deletes evidence.

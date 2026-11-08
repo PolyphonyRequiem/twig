@@ -31,19 +31,44 @@ internal sealed partial class NativeEditor
             && NativePathComparer.Instance.Equals(capture.ExecutionPath, handle.Document.DatabasePath)))
         {
             var proposal = UserBenchStore.ParseIntent(capture.IntentJson);
-            var reference = await LocalReferenceAsync(capture.Id, proposal.Digest, ct).ConfigureAwait(false);
-            if (!reference.IsSuccess) return Result<ImmutableArray<NativeLocalRelationshipReview>>.Fail(reference.Error);
-            var state = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
-            if (!state.IsSuccess) return Result<ImmutableArray<NativeLocalRelationshipReview>>.Fail(state.Error);
-            var retained = NativeLocalRelationshipEvidence.CheckOriginalReference(reference.Value, state.Value);
-            if (!retained.IsSuccess) return Result<ImmutableArray<NativeLocalRelationshipReview>>.Fail(retained.Error);
-            var outcome = await LocalOutcomeAsync(reference.Value, null, ct).ConfigureAwait(false);
-            if (!outcome.IsSuccess) return Result<ImmutableArray<NativeLocalRelationshipReview>>.Fail(outcome.Error);
-            reviews.Add(new(reference.Value.Id, proposal, outcome.Value));
+            var review = await ReadOriginalLocalRelationshipReviewAsync(capture.Id, proposal.Digest, ct).ConfigureAwait(false);
+            if (!review.IsSuccess) return Result<ImmutableArray<NativeLocalRelationshipReview>>.Fail(review.Error);
+            reviews.Add(review.Value);
         }
         valid = await ValidateAsync(ct).ConfigureAwait(false);
         return valid.IsSuccess ? Result<ImmutableArray<NativeLocalRelationshipReview>>.Ok(reviews.ToImmutable())
             : Result<ImmutableArray<NativeLocalRelationshipReview>>.Fail(valid.Error);
+    }
+
+    internal async Task<Result<NativeLocalRelationshipReview>> ReadLocalRelationshipReviewAsync(Guid captureId, string exactDigest, CancellationToken ct)
+    {
+        if (captureId == Guid.Empty || string.IsNullOrWhiteSpace(exactDigest))
+            return Result<NativeLocalRelationshipReview>.Fail(ErrorCode.InvalidInput, "Name the original LOCAL capture and its exact canonical digest.");
+        if (plan.PlanMode || origin.Connection.Provider.Value != "github")
+            return Result<NativeLocalRelationshipReview>.Fail(ErrorCode.Unsupported,
+                "Original LOCAL reviews require the exact opened normal GitHub source.");
+        using var benchLease = user.AcquireAuthoringLease(bench.Id);
+        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(valid.Error);
+        var review = await ReadOriginalLocalRelationshipReviewAsync(captureId, exactDigest, ct).ConfigureAwait(false);
+        if (!review.IsSuccess) return review;
+        valid = await ValidateAsync(ct).ConfigureAwait(false);
+        return valid.IsSuccess ? review : Result<NativeLocalRelationshipReview>.Fail(valid.Error);
+    }
+
+    private async Task<Result<NativeLocalRelationshipReview>> ReadOriginalLocalRelationshipReviewAsync(Guid captureId, string exactDigest, CancellationToken ct)
+    {
+        var reference = await LocalReferenceAsync(captureId, exactDigest, ct).ConfigureAwait(false);
+        if (!reference.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(reference.Error);
+        var state = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+        if (!state.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(state.Error);
+        var retained = NativeLocalRelationshipEvidence.CheckOriginalReference(reference.Value, state.Value);
+        if (!retained.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(retained.Error);
+        var outcome = await LocalOutcomeAsync(reference.Value, null, ct).ConfigureAwait(false);
+        return outcome.IsSuccess
+            ? Result<NativeLocalRelationshipReview>.Ok(new(reference.Value.Id, UserBenchStore.ParseIntent(reference.Value.IntentJson), outcome.Value))
+            : Result<NativeLocalRelationshipReview>.Fail(outcome.Error);
     }
 
     private bool LocalCaptureOwnsEndpoint(NativeEditorCapture capture, ItemKey key)

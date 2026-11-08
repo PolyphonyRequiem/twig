@@ -189,6 +189,14 @@ owned canonical capture/proposal/journal proof refuses instead of returning
 empty success. Discovery does not prepare, retain, apply, verify, settle or
 change any capture/store/draft/cache, and returned intent grants no Apply
 eligibility or replay authority. Reopen the same normal source/Bench and use
+`ReadLocalRelationshipReviewAsync(captureId, exactDigest)` when the original
+reference is already known. It evaluates only that named original through the
+same fresh source/capture read, canonical original-reference proof and actual
+outcome path as discovery. It still validates the whole capture namespace's
+immutable provenance; this is not an O(1) storage lookup or cached outcome
+projection. Empty, foreign, stale, cancelled or unavailable originals and wrong
+digests explicitly refuse, without selecting another original. Neither reader
+changes authoring state, and an `Outcome.Error` is not delivery success. Use
 `ContinueLocalRelationshipAsync` for exact interrupted retention, separate
 verification of an original durable Applied receipt, or Verified capture
 settlement. It never prepares new intent or invokes Apply again.

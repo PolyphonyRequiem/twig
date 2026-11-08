@@ -1,6 +1,7 @@
 #nullable enable
 Twig.Infrastructure.Services.NativeLocalRelationshipReview.Outcome.get -> Twig.Infrastructure.Services.NativeLocalRelationshipOutcome?
 Twig.Infrastructure.Services.NativeItemEditor.ReadLocalRelationshipReviewsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeLocalRelationshipReview!>>!>!
+Twig.Infrastructure.Services.NativeItemEditor.ReadLocalRelationshipReviewAsync(System.Guid captureId, string! exactDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeLocalRelationshipReview!>!>!
 Twig.Infrastructure.Services.NativeRelationshipForm.LocalOnly.get -> bool
 Twig.Infrastructure.Services.NativeRelationshipForm.LocalOnly.init -> void
 Twig.Infrastructure.Services.NativeRelationshipForm.Verification.get -> string!

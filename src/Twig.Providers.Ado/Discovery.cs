@@ -28,7 +28,6 @@ public sealed partial class AdoProvider
 
     private async Task<Discovery> Discover(Bound bound, CancellationToken ct, bool includePresentation = false)
     {
-        var gaps = new List<string>();
         var fields = Wire.Rows(await Get(bound, $"_apis/wit/fields?api-version={Api}", ct))
             .ToDictionary(f => Wire.Text(f, "referenceName"), StringComparer.OrdinalIgnoreCase);
         var (relations, nonItems, resources) = await DiscoverRelations(bound, ct);
@@ -46,6 +45,7 @@ public sealed partial class AdoProvider
         var processRoute = $"_apis/work/processes/{Wire.Escape(bound.ProcessId)}/workItemTypes";
         foreach (var row in Wire.Rows(await Get(bound, $"{processRoute}?api-version=7.1-preview.2", ct)))
         {
+            var gaps = new List<string>();
             var reference = Wire.Text(row, "referenceName");
             var name = Wire.Text(row, "name");
             names.Add(reference, name);
@@ -67,7 +67,14 @@ public sealed partial class AdoProvider
                 if (field.TryGetProperty("required", out var required) && required.GetBoolean())
                     rules.Add(new(canonical, RuleAction.Required, []));
                 if (field.TryGetProperty("defaultValue", out var initial) && initial.ValueKind != JsonValueKind.Null)
-                    gaps.Add($"{reference}: defaultValue on {canonical} cannot certify an effective supplied value.");
+                {
+                    if (kind == FieldKind.Raw || kind == FieldKind.Identity
+                        && (initial.ValueKind != JsonValueKind.String || !Guid.TryParse(initial.GetString(), out var identity)
+                            || identity == Guid.Empty))
+                        gaps.Add($"{reference}: defaultValue on {canonical} cannot certify an effective supplied value.");
+                    else rules.Add(new(canonical, RuleAction.Default, [],
+                        [initial.ValueKind == JsonValueKind.String ? Wire.RuleOperand(initial, kind) : Wire.Value(initial, kind)]));
+                }
                 if (Wire.Flag(global, "isPicklist"))
                 {
                     var listId = Wire.GuidText(Wire.Text(global, "picklistId"));
@@ -120,16 +127,27 @@ public sealed partial class AdoProvider
                 {
                     var field = CanonicalField(Wire.Text(action, "targetField"));
                     var actionType = Wire.Text(action, "actionType").TrimStart('$').ToLowerInvariant();
+                    var targetKind = typeFields.First(f => f.Reference == field).Kind;
                     var kind = actionType switch
                     {
                         "makerequired" => RuleAction.Required,
                         "makereadonly" => RuleAction.ReadOnly,
                         "copyvalue" => RuleAction.Supplied,
+                        "setvaluetoempty" => RuleAction.Supplied,
+                        "copyfromcurrentuser" or "copyfromservercurrentuser" when targetKind == FieldKind.Identity => RuleAction.Supplied,
+                        "copyfromserverclock" when targetKind == FieldKind.Instant => RuleAction.Supplied,
+                        "setdefaultvalue" => RuleAction.Default,
+                        "setdefaultfromcurrentuser" when targetKind == FieldKind.Identity => RuleAction.Default,
                         _ => RuleAction.Unknown,
                     };
-                    var values = kind == RuleAction.Supplied
-                        ? new[] { Wire.RuleOperand(action.GetProperty("value"),
-                            typeFields.First(f => f.Reference == field).Kind) } : [];
+                    FieldValue[] values = actionType switch
+                    {
+                        "setvaluetoempty" => [FieldValue.Null],
+                        "copyfromcurrentuser" or "copyfromservercurrentuser" or "setdefaultfromcurrentuser"
+                            when targetKind == FieldKind.Identity => [FieldValue.Identity(bound.PrincipalId)],
+                        "copyvalue" or "setdefaultvalue" => [Wire.RuleOperand(action.GetProperty("value"), targetKind)],
+                        _ => [],
+                    };
                     rules.Add(new(field, kind, conditions, values, disabled));
                     if (kind == RuleAction.Unknown || conditions.Any(c => c.Kind == ConditionKind.Unknown))
                         gaps.Add($"{reference}: enabled unsupported native rule {rule.GetRawText()}");
@@ -187,11 +205,11 @@ public sealed partial class AdoProvider
                 presentation = new(name, color, icon, layout, svg);
             }
             types.Add(new(reference, stateField, typeFields, states, edges, rules,
-                Wire.Flag(row, "isDisabled") || hidden.Contains(name), presentation));
+                Wire.Flag(row, "isDisabled") || hidden.Contains(name), presentation) { Gaps = gaps.ToImmutableArray() });
         }
         if (types.Count == 0) throw Wire.Invalid("The native process roster is empty.");
         var schema = new ProcessSchema(_connection, types, relations.Values.Where(r => r.Forward)
-            .Select(r => new RelationKind(r.Reference, r.Shape, r.Directed)).Concat(resources), gaps,
+            .Select(r => new RelationKind(r.Reference, r.Shape, r.Directed)).Concat(resources), [],
             includePresentation ? bound.Url(bound.Project + "/").AbsoluteUri : null);
         _capabilities = new(_capabilities.Operations.Where(o => o != OpKind.LinkResource)
             .Concat(resources.Count > 0 ? [OpKind.LinkResource] : Array.Empty<OpKind>()),

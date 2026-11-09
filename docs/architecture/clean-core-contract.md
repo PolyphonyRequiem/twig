@@ -4,6 +4,34 @@ Phases 1-4, phase-5 code closure and phase-6 source removal for **Epic #1220, Co
 
 ## Status and scope
 
+### Native editor schema evaluation
+
+ADO discovery retains type-local gaps on the exact `ItemType`, separately from
+global schema gaps. Native editor evaluation checks that exact type and all
+global gaps; unrelated incomplete types do not prevent opening a supported item.
+Proposal validation checks every effect's observed source, target type and
+relationship endpoint types; close-gate discovery checks its exact source type.
+Mechanical policy certification retains global gaps and checks all acquired
+before/after endpoint types plus the declaration's named types. It does not claim
+compliance outside its completely acquired, bounded relationship component.
+Relevant incomplete evidence still refuses. Both gap scopes are fingerprinted and reported by
+the process commands. Missing exact or initial transitions remain explicit gaps;
+there is no hidden-type, inherited-state or all-pairs transition fallback.
+
+Native literal defaults apply only to empty effective fields. Current-user copies
+and defaults retain the admitted immutable actor identity; server-clock copies
+certify a nonempty instant without inventing a timestamp. Clearing a field is an
+empty supplier, never satisfaction of a required field. Known supplier values
+participate in effective-value validation. Conflicting suppliers, unresolved
+identity defaults, unknown enabled rules, and predicates or allowed-value checks
+dependent on unobserved/chained supplier effects explicitly refuse. These rules
+do not change native capture, policy, CAS, digest, admission or journal authority.
+
+Automatic selection uses `NativeItemEditor.OpenExistingAsync`, which never
+reserves or completes a Plan scope. Missing/preparing scopes refuse before
+preparation; normal mode and already-covered exact-origin scopes use the usual
+admission and scoped-store checks. Explicit `OpenAsync` retains preparation.
+
 ### Explicit human native connection setup
 
 `NativeConnectionSetup` is an inert public Infrastructure facade with three

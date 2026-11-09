@@ -14,7 +14,7 @@ public static partial class Core
             errors.Add(new(ErrorCode.SchemaChanged, "The bound connection or discovered schema changed; preview a new proposal."));
         if (proposal.ExpectedStoreVersion != store.Version)
             errors.Add(new(ErrorCode.Conflict, "Local state changed after this proposal was constructed."));
-        errors.AddRange(SchemaErrors(schema));
+        errors.AddRange(ProposalSchemaErrors(proposal, schema, store));
         foreach (var op in proposal.Operations)
             ValidateOperation(op, proposal, schema, store, capabilities, errors);
         return errors.ToImmutable();
@@ -28,7 +28,7 @@ public static partial class Core
             return [new(ErrorCode.InvalidInput, "Operation ordinal is outside the retained proposal.")];
         if (proposal.Connection != schema.Connection || proposal.SchemaFingerprint != schema.Fingerprint)
             errors.Add(new(ErrorCode.SchemaChanged, "The apply-time schema differs from the confirmed intent."));
-        errors.AddRange(SchemaErrors(schema));
+        errors.AddRange(ProposalSchemaErrors(proposal, schema, store));
         if (!store.Proposals.Any(p => p.Digest == proposal.Digest)
             || !store.Journal.Any(j => j.Digest == proposal.Digest && j.Operation == operation && j.Status == OpStatus.Planned)
             || store.Journal.Any(j => j.Digest == proposal.Digest && j.Operation < operation && j.Status != OpStatus.Verified))
@@ -37,14 +37,45 @@ public static partial class Core
         return errors.ToImmutable();
     }
 
-    private static IEnumerable<Error> SchemaErrors(ProcessSchema schema)
+    private static IEnumerable<Error> ProposalSchemaErrors(Proposal proposal, ProcessSchema schema, StoreSnapshot store)
+    {
+        var references = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var op in proposal.Operations)
+        {
+            if (op.Type is not null) references.Add(op.Type);
+            foreach (var key in op.Links.Select(link => link.Other).Prepend(op.Item)
+                .Concat(op.Other is null ? [] : new[] { op.Other }).Distinct())
+            {
+                var resolved = store.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+                var observed = store.Items.FirstOrDefault(item => item.Key == resolved);
+                var draft = store.Drafts.FirstOrDefault(draft => draft.Key == key);
+                if (observed is not null) references.Add(observed.Type);
+                if (draft is not null)
+                {
+                    references.Add(draft.Type);
+                    if (draft.Baseline is not null) references.Add(draft.Baseline.Type);
+                }
+                if (observed is null && draft is null)
+                    yield return new(ErrorCode.Unavailable, "An effect endpoint's exact type was not observed.");
+            }
+        }
+        foreach (var reference in references)
+            if (!schema.Types.Any(type => type.Reference == reference))
+                yield return new(ErrorCode.Unavailable, $"Effect type '{reference}' is outside the discovered schema.");
+        foreach (var error in SchemaErrors(schema, schema.Types.Where(type => references.Contains(type.Reference))))
+            yield return error;
+    }
+
+    private static IEnumerable<Error> SchemaErrors(ProcessSchema schema, IEnumerable<ItemType>? relevantTypes = null)
     {
         if (!schema.Gaps.IsEmpty)
             yield return new(ErrorCode.Unavailable, "Schema discovery is incomplete.") { Evidence = schema.Gaps };
         if (schema.Types.IsEmpty || schema.Relations.Any(r => !Enum.IsDefined(r.Shape)))
             yield return new(ErrorCode.Unavailable, "Type or relation semantics are unavailable.");
-        foreach (var type in schema.Types)
+        foreach (var type in relevantTypes ?? schema.Types)
         {
+            if (!type.Gaps.IsEmpty)
+                yield return new(ErrorCode.Unavailable, $"Type '{type.Reference}' discovery is incomplete.") { Evidence = type.Gaps };
             if (!type.Fields.Any(f => f.Reference == type.StateField)
                 || type.States.IsEmpty || type.Fields.Any(f => !Enum.IsDefined(f.Kind) || f.Kind == FieldKind.Null)
                 || type.States.Any(s => !Enum.IsDefined(s.Category) || s.Category == StateCategory.Unknown)
@@ -55,7 +86,8 @@ public static partial class Core
             {
                 var target = type.Fields.FirstOrDefault(f => f.Reference == rule.Field);
                 if (target is null || !Enum.IsDefined(rule.Action) || rule.Action == RuleAction.Unknown
-                    || rule.Action == RuleAction.Supplied && rule.Values.Length > 1
+                    || rule.Action is RuleAction.Supplied or RuleAction.Default && rule.Values.Length > 1
+                    || rule.Action == RuleAction.Default && rule.Values.IsEmpty
                     || rule.Action == RuleAction.Allowed && rule.Values.IsEmpty
                     || rule.Values.Any(v => v.Kind != FieldKind.Null && v.Kind != target?.Kind)
                     || rule.Conditions.Any(c => !type.Fields.Any(f => f.Reference == c.Field)
@@ -273,6 +305,9 @@ public static partial class Core
         var old = source?.Fields ?? new FieldValues(type.Fields.Select(f =>
             KeyValuePair.Create(f.Reference, FieldValue.Null)));
         var effective = old.Overlay(op.Fields);
+        var evaluated = EvaluateRules(type, old, effective);
+        if (!evaluated.IsSuccess) { fail(evaluated.Error.Code, evaluated.Error.Message); return; }
+        effective = evaluated.Value.Effective;
         if (type.Hidden) fail(ErrorCode.Unsupported, "The discovered type is disabled/hidden for authoring.");
         if (!type.Fields.Any(f => f.Reference == type.StateField)
             || type.States.IsEmpty || type.States.Any(s => !Enum.IsDefined(s.Category) || s.Category == StateCategory.Unknown)
@@ -294,27 +329,11 @@ public static partial class Core
         if (target is null) fail(ErrorCode.InvalidInput, "Effective state must be explicitly present and discovered.");
         if (source is not null && changedState && !type.Transitions.Any(t => t.From == previous?.Text && t.To == state?.Text))
             fail(ErrorCode.InvalidInput, "The requested state transition is not discovered as allowed.");
-        var active = new List<FieldRule>();
-        foreach (var rule in type.Rules.Where(r => !r.Disabled))
-        {
-            if (!Enum.IsDefined(rule.Action) || rule.Action == RuleAction.Unknown
-                || !type.Fields.Any(f => f.Reference == rule.Field)
-                || rule.Conditions.Any(c => !type.Fields.Any(f => f.Reference == c.Field)
-                    || !Enum.IsDefined(c.Kind) || c.Kind == ConditionKind.Unknown
-                    || c.Kind is ConditionKind.Equal or ConditionKind.NotEqual or ConditionKind.Was && c.Value is null))
-            {
-                fail(ErrorCode.Unavailable, "An enabled schema rule cannot be understood.");
-                continue;
-            }
-            var applies = MatchesConditions(rule.Conditions, old, effective);
-            if (!applies.IsSuccess) fail(applies.Error.Code, applies.Error.Message);
-            else if (applies.Value) active.Add(rule);
-        }
+        var active = evaluated.Value.Active;
         foreach (var rule in active)
         {
             effective.TryGetValue(rule.Field, out var value);
-            var supplied = active.Any(r => r.Field == rule.Field && r.Action == RuleAction.Supplied
-                && (r.Values.IsEmpty || r.Values.Any(v => !v.IsEmpty)));
+            var supplied = active.Any(r => r.Field == rule.Field && Supplies(r));
             switch (rule.Action)
             {
                 case RuleAction.Required:
@@ -340,13 +359,11 @@ public static partial class Core
                     else if (!rule.Values.Contains(value)) fail(ErrorCode.InvalidInput, $"Field '{rule.Field}' is outside its allowed values.");
                     break;
                 case RuleAction.Supplied:
+                case RuleAction.Default:
                     if (rule.Values.Length > 1) fail(ErrorCode.Unavailable, $"Supplier for '{rule.Field}' is ambiguous.");
                     break;
             }
         }
-        if (active.Where(r => r.Action == RuleAction.Supplied && !r.Values.IsEmpty)
-            .GroupBy(r => r.Field, StringComparer.Ordinal).Any(g => g.SelectMany(r => r.Values).Distinct().Count() > 1))
-            fail(ErrorCode.Unavailable, "Enabled suppliers disagree about the effective field value.");
     }
 
     public static Result<EditorEvaluation> EvaluateEditorFields(ProcessSchema schema, WorkItem source, FieldValues changes,
@@ -354,20 +371,16 @@ public static partial class Core
     {
         if (!source.Key.IsLocal && !source.Key.BelongsTo(schema.Connection))
             return Result<EditorEvaluation>.Fail(ErrorCode.Conflict, "Editor observations belong to another provider resource scope.");
-        var unavailable = SchemaErrors(schema).FirstOrDefault();
-        if (unavailable is not null) return Result<EditorEvaluation>.Fail(unavailable);
         var type = schema.Types.FirstOrDefault(value => value.Reference == (typeOverride ?? source.Type));
         if (type is null) return Result<EditorEvaluation>.Fail(ErrorCode.Unavailable, "The exact editor type is unavailable.");
+        var unavailable = SchemaErrors(schema, [type]).FirstOrDefault();
+        if (unavailable is not null) return Result<EditorEvaluation>.Fail(unavailable);
         var baseline = source.Key.IsLocal ? null : source;
         var before = baseline?.Fields ?? new FieldValues(type.Fields.Select(field => KeyValuePair.Create(field.Reference, FieldValue.Null)));
         var effective = before.Overlay(changes);
-        var active = new List<FieldRule>();
-        foreach (var rule in type.Rules.Where(value => !value.Disabled))
-        {
-            var matches = MatchesConditions(rule.Conditions, before, effective);
-            if (!matches.IsSuccess) return Result<EditorEvaluation>.Fail(matches.Error);
-            if (matches.Value) active.Add(rule);
-        }
+        var evaluated = EvaluateRules(type, before, effective);
+        if (!evaluated.IsSuccess) return Result<EditorEvaluation>.Fail(evaluated.Error);
+        var active = evaluated.Value.Active;
         var errors = ImmutableArray.CreateBuilder<Error>();
         ValidateFields(new("editor", source.Key.IsLocal ? OpKind.Create : OpKind.Batch, source.Key, source.Revision,
             changes, source.Key.IsLocal ? type.Reference : typeOverride), baseline, type,
@@ -376,8 +389,7 @@ public static partial class Core
         {
             var rules = active.Where(rule => rule.Field == field.Reference).ToArray();
             var allowed = rules.Where(rule => rule.Action == RuleAction.Allowed).Select(rule => rule.Values).ToArray();
-            var supplied = rules.Any(rule => rule.Action == RuleAction.Supplied
-                && (rule.Values.IsEmpty || rule.Values.Any(value => !value.IsEmpty)));
+            var supplied = rules.Any(Supplies);
             return new EvaluatedField(field, type.Hidden || field.ReadOnly || rules.Any(rule => rule.Action == RuleAction.ReadOnly),
                 rules.Any(rule => rule.Action == RuleAction.Required) && !supplied,
                 allowed.Length == 0 ? [] : allowed.Skip(1).Aggregate(allowed[0], (values, next) => values.Intersect(next).ToImmutableArray()),
@@ -397,14 +409,12 @@ public static partial class Core
     {
         var required = false;
         var supplied = false;
-        foreach (var rule in type.Rules.Where(rule => !rule.Disabled && rule.Field == field
-            && rule.Action is RuleAction.Required or RuleAction.Supplied))
+        var evaluated = EvaluateRules(type, before, before);
+        if (!evaluated.IsSuccess) return Result<bool>.Fail(evaluated.Error);
+        foreach (var rule in evaluated.Value.Active.Where(rule => rule.Field == field))
         {
-            var matches = MatchesConditions(rule.Conditions, before, before);
-            if (!matches.IsSuccess) return Result<bool>.Fail(matches.Error);
-            if (!matches.Value) continue;
             required |= rule.Action == RuleAction.Required;
-            supplied |= rule.Action == RuleAction.Supplied && (rule.Values.IsEmpty || rule.Values.Any(value => !value.IsEmpty));
+            supplied |= Supplies(rule);
         }
         return Result<bool>.Ok(required && !supplied);
     }
@@ -432,33 +442,70 @@ public static partial class Core
             : Result<bool>.Ok(true);
     }
 
+    private static bool Supplies(FieldRule rule) => rule.Action is RuleAction.Supplied or RuleAction.Default
+        && (rule.Values.IsEmpty || rule.Values.Any(value => !value.IsEmpty));
+
+    private static Result<(FieldValues Effective, ImmutableArray<FieldRule> Active)> EvaluateRules(
+        ItemType type, FieldValues before, FieldValues authored)
+    {
+        var active = ImmutableArray.CreateBuilder<FieldRule>();
+        foreach (var rule in type.Rules.Where(rule => !rule.Disabled))
+        {
+            if (!Enum.IsDefined(rule.Action) || rule.Action == RuleAction.Unknown)
+                return Result<(FieldValues, ImmutableArray<FieldRule>)>.Fail(ErrorCode.Unavailable, "An enabled schema rule cannot be understood.");
+            var matches = MatchesConditions(rule.Conditions, before, authored);
+            if (!matches.IsSuccess) return Result<(FieldValues, ImmutableArray<FieldRule>)>.Fail(matches.Error);
+            if (!matches.Value) continue;
+            if (rule.Action == RuleAction.Default && authored.TryGetValue(rule.Field, out var existing)
+                && (!existing.IsEmpty || existing.Text is { Length: > 0 }))
+                continue;
+            active.Add(rule);
+        }
+        var effective = authored;
+        foreach (var group in active.Where(rule => rule.Action is RuleAction.Supplied or RuleAction.Default)
+            .GroupBy(rule => rule.Field, StringComparer.Ordinal))
+        {
+            var values = group.SelectMany(rule => rule.Values).Distinct().ToArray();
+            if (values.Length > 1 || group.Any(rule => rule.Values.IsEmpty) && group.Count() > 1)
+                return Result<(FieldValues, ImmutableArray<FieldRule>)>.Fail(ErrorCode.Unavailable,
+                    "Enabled suppliers disagree or their combined effective value is unknown.");
+            var known = values.Length == 1;
+            authored.TryGetValue(group.Key, out var original);
+            if (type.Rules.Where(rule => !rule.Disabled).SelectMany(rule => rule.Conditions)
+                .Any(condition => condition.Field == group.Key && condition.Kind != ConditionKind.Was)
+                && (!known || !Equals(original, values[0])))
+                return Result<(FieldValues, ImmutableArray<FieldRule>)>.Fail(ErrorCode.Unavailable,
+                    "Rule predicates depend on a provider-supplied value; chained rule evaluation is unavailable.");
+            if (known) effective = effective.Set(group.Key, values[0]);
+            else if (active.Any(rule => rule.Field == group.Key && rule.Action == RuleAction.Allowed))
+                return Result<(FieldValues, ImmutableArray<FieldRule>)>.Fail(ErrorCode.Unavailable,
+                    "An allowed-value constraint depends on an unobserved provider-supplied value.");
+        }
+        return Result<(FieldValues, ImmutableArray<FieldRule>)>.Ok((effective, active.ToImmutable()));
+    }
+
     public static Result<ImmutableArray<string>> CloseGates(ProcessSchema schema, WorkItem source,
         FieldValues changes, string? typeOverride = null)
     {
-        var unavailable = SchemaErrors(schema).FirstOrDefault();
-        if (unavailable is not null) return Result<ImmutableArray<string>>.Fail(unavailable);
         if (typeOverride is not null && typeOverride != source.Type)
             return Result<ImmutableArray<string>>.Fail(ErrorCode.Unsupported, "Close-gate pre-requiredness cannot be inferred across a type change.");
         var type = schema.Types.FirstOrDefault(t => t.Reference == (typeOverride ?? source.Type));
         if (type is null || !source.Fields.TryGetValue(type.StateField, out var previous))
             return Result<ImmutableArray<string>>.Fail(ErrorCode.Unavailable, "The type or pre-state needed to discover close gates is unobserved.");
+        var unavailable = SchemaErrors(schema, [type]).FirstOrDefault();
+        if (unavailable is not null) return Result<ImmutableArray<string>>.Fail(unavailable);
         var effective = source.Fields.Overlay(changes);
         if (!effective.TryGetValue(type.StateField, out var state)
             || !type.States.Any(s => s.Name == state.Text))
             return Result<ImmutableArray<string>>.Fail(ErrorCode.InvalidInput, "The proposed state was not discovered for this type.");
         if (Equals(previous, state) || !type.States.Any(s => s.Name == state.Text && s.Category == StateCategory.Completed))
             return Result<ImmutableArray<string>>.Ok([]);
-        var active = new List<FieldRule>();
-        foreach (var rule in type.Rules.Where(r => !r.Disabled))
-        {
-            var matches = MatchesConditions(rule.Conditions, source.Fields, effective);
-            if (!matches.IsSuccess) return Result<ImmutableArray<string>>.Fail(matches.Error);
-            if (matches.Value) active.Add(rule);
-        }
+        var evaluated = EvaluateRules(type, source.Fields, effective);
+        if (!evaluated.IsSuccess) return Result<ImmutableArray<string>>.Fail(evaluated.Error);
+        var active = evaluated.Value.Active;
         var gates = new List<string>();
         foreach (var field in active.Where(r => r.Action == RuleAction.Required && r.Field != type.StateField
-            && !active.Any(s => s.Field == r.Field && s.Action == RuleAction.Supplied
-                && (s.Values.IsEmpty || s.Values.Any(v => !v.IsEmpty))))
+            && !active.Any(s => s.Field == r.Field && Supplies(s)))
             .Select(r => r.Field).Distinct(StringComparer.Ordinal))
         {
             var before = RequiredBefore(type, field, source.Fields);

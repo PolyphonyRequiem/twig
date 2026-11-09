@@ -586,7 +586,7 @@ public sealed partial class AdoProviderTests
     [InlineData("missing-transitions")]
     [InlineData("unknown-category")]
     [InlineData("unknown-field-kind")]
-    [InlineData("default-value")]
+    [InlineData("opaque-default-value")]
     [InlineData("duplicate-json")]
     [InlineData("metadata-page")]
     public async Task IncompleteSchemaNeverBecomesPermission(string defect)
@@ -1339,6 +1339,9 @@ public sealed partial class AdoProviderTests
         internal List<int> PlanningBatchSizes = [];
         internal string Type;
         internal string? AdditionalType;
+        internal string? MissingTransitionsType;
+        internal string? NativeRulesJson;
+        internal bool IncludeDateField;
         internal string Initial;
         internal string Completed;
         internal string NativeActor = Fixture.Actor;
@@ -1624,7 +1627,8 @@ public sealed partial class AdoProviderTests
             else if (path.EndsWith("/workitemtypecategories")) response = Rows("");
             else if (path.EndsWith("/workitemtypes", StringComparison.OrdinalIgnoreCase) && query.Contains("$expand=all"))
                 response = Defect == "missing-transitions" ? Rows("") : Rows(string.Join(",",
-                    NativeTypes().Concat(DivergentProjectType ? ["System.Parent"] : []).Select(reference => $$"""
+                    NativeTypes().Where(reference => reference != MissingTransitionsType)
+                    .Concat(DivergentProjectType ? ["System.Parent"] : []).Select(reference => $$"""
                     {"referenceName":"{{reference}}","transitions":{"":[{"to":"{{Initial}}"}],"{{Initial}}":[{"to":"{{Completed}}"}],"{{Completed}}":[{"to":"{{Initial}}"}]} }
                     """)));
             else if (path.EndsWith("/workItemTypes"))
@@ -1651,7 +1655,7 @@ public sealed partial class AdoProviderTests
                         ,{"isDisabled":false,"conditions":[{"conditionType":"$when","field":"System.State","value":"{{Completed}}"}],"actions":[{"actionType":"$copyValue","targetField":"Custom.Closure","value":"from native supplier"}]},
                         {"isDisabled":true,"conditions":[{"unknown":"retained"}],"actions":[{"unknown":"{{Defect}}"}]}
                         """;
-                response = Rows(required);
+                response = Rows(NativeRulesJson ?? required);
             }
             else if (path.Contains("/processes/lists/"))
                 response = Json($$"""{"id":"{{Fixture.Process}}","isSuggested":false,"items":["1.5","2.5","3.5"]}""");
@@ -1659,6 +1663,7 @@ public sealed partial class AdoProviderTests
             {
                 var names = new[] { "System.State", "System.History", "Custom.Closure", "Custom.Points", "Custom.Owner", "Custom.Empty", "Custom.Unset" }
                     .Concat(Defect == "empty-typed-rule" ? ["Custom.Quantity", "Custom.Toggle", "Custom.Date"] : [])
+                    .Concat(IncludeDateField ? ["Custom.Date"] : [])
                     .Concat(Defect == "description-html" ? ["System.Description"] : []);
                 var global = !path.Contains("/work/processes/");
                 response = Rows(string.Join(",", names.Select(name =>
@@ -1688,6 +1693,7 @@ public sealed partial class AdoProviderTests
                         else if (Defect == "malformed-required") field["required"] = "not-a-boolean";
                         else field["required"] = false;
                         if (Defect == "default-value" && name == "Custom.Empty") field["defaultValue"] = "server default";
+                        if (Defect == "opaque-default-value" && name == "Custom.Owner") field["defaultValue"] = "@unresolved";
                     }
                     return field.ToJsonString();
                 })));

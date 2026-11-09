@@ -143,13 +143,17 @@ public static partial class Core
                 "Relationship observations exceed the bounded policy evidence budget.", true, [])];
         var edges = LogicalRelationships(after, schema).ToArray();
         var oldEdges = LogicalRelationships(before, schema).ToArray();
+        var observedTypes = before.Items.Concat(after.Items).Select(item => item.Type).ToHashSet(StringComparer.Ordinal);
         foreach (var rule in policy.Rules)
         {
             void Unavailable(ItemKey? item, string reason) =>
                 findings.Add(new(rule.Id, FindingKind.EvidenceUnavailable, item, reason, true, []));
             void Violation(ItemKey key, string reason, ImmutableArray<Relationship> evidence, bool historical) =>
                 findings.Add(new(rule.Id, FindingKind.Violation, key, reason, !rule.WarnOnly && !historical, evidence));
-            if (!schema.Gaps.IsEmpty)
+            var requiredTypes = observedTypes.Concat(rule.AllowedParentTypes)
+                .Concat(rule.ChildType is null ? [] : new[] { rule.ChildType }).ToHashSet(StringComparer.Ordinal);
+            if (!schema.Gaps.IsEmpty || schema.Types.Any(type => requiredTypes.Contains(type.Reference) && !type.Gaps.IsEmpty)
+                || requiredTypes.Any(reference => !schema.Types.Any(type => type.Reference == reference)))
             {
                 Unavailable(null, "Schema discovery is incomplete; policy cannot certify compliance.");
                 continue;

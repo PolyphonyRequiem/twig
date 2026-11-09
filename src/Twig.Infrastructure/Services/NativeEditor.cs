@@ -25,7 +25,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
     public void Dispose() => handle.Dispose();
 
     internal static async Task<Result<NativeEditor>> OpenAsync(CoreWorkspaceFactory factory, UserBenchStore user,
-        Guid benchId, NativeSourceStamp expectedSource, CancellationToken ct)
+        Guid benchId, NativeSourceStamp expectedSource, CancellationToken ct, bool prepareScope = true)
     {
         var opened = await factory.OpenAsync(ct).ConfigureAwait(false);
         if (!opened.IsSuccess) return Result<NativeEditor>.Fail(opened.Error);
@@ -36,6 +36,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
                 return Result<NativeEditor>.Fail(ErrorCode.Conflict, "The selected native editor source changed.");
             var admitted = await factory.AdmitSourceAsync(handle, ct).ConfigureAwait(false);
             if (!admitted.IsSuccess) return Result<NativeEditor>.Fail(admitted.Error);
+            using var authoring = prepareScope ? null : user.AcquireAuthoringLease(benchId);
             var library = await user.ReadAsync(ct).ConfigureAwait(false);
             if (!library.IsSuccess) return Result<NativeEditor>.Fail(library.Error);
             var bench = library.Value.Benches.SingleOrDefault(value => value.Id == benchId);
@@ -49,6 +50,8 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
                     && value.Source.Connection == expectedSource.Connection);
                 if (scope is null)
                 {
+                    if (!prepareScope)
+                        return Result<NativeEditor>.Fail(ErrorCode.Conflict, "This Plan has no usable scope; preparation requires an explicit editor opening.");
                     mode = await user.ReservePlanScopeAsync(library.Value.InstanceId, benchId, mode.Value.Revision,
                         factory.WorkspaceRoot, expectedSource, ct).ConfigureAwait(false);
                     if (!mode.IsSuccess) return Result<NativeEditor>.Fail(mode.Error);
@@ -58,6 +61,8 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
                     return Result<NativeEditor>.Fail(ErrorCode.Conflict, "This Plan belongs to another exact origin; reassociation is explicit.");
                 if (scope.State == NativePlanScopeState.Preparing)
                 {
+                    if (!prepareScope)
+                        return Result<NativeEditor>.Fail(ErrorCode.Conflict, "This Plan scope is preparing; completion requires an explicit editor opening.");
                     mode = await user.CompleteCoveredPlanScopeAsync(library.Value.InstanceId, benchId, mode.Value.Revision,
                         scope.Id, factory.ExecutionRegistryPath, new(expectedSource.StoreInstance, handle.Document.DatabasePath,
                             factory.WorkspaceRoot, expectedSource.Connection), ct).ConfigureAwait(false);
@@ -74,6 +79,10 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             var editor = new NativeEditor(factory, user, handle, expectedSource, library.Value, bench, mode.Value, scope, captured.Value);
             handle = null!;
             return Result<NativeEditor>.Ok(editor);
+        }
+        catch (ConnectionBindingResolutionException ex) when (ex.FailureCode == ConnectionOperationGate.ActiveFailureCode)
+        {
+            return Result<NativeEditor>.Fail(ErrorCode.Conflict, "The Bench has an active native authoring operation.");
         }
         finally { handle?.Dispose(); }
     }

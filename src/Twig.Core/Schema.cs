@@ -5,7 +5,7 @@ namespace Twig.Core;
 public enum StateCategory { Unknown, Proposed, InProgress, Resolved, Completed, Removed }
 public enum RelationShape { Hierarchy, Dependency, Association, Resource }
 public enum ConditionKind { Unknown, Equal, NotEqual, Was, Changed, NotChanged }
-public enum RuleAction { Unknown, Required, ReadOnly, Allowed, Supplied }
+public enum RuleAction { Unknown, Required, ReadOnly, Allowed, Supplied, Default }
 
 public sealed record State(string Name, StateCategory Category, string? Color = null);
 public sealed record Transition(string From, string To);
@@ -73,6 +73,7 @@ public sealed record ItemType
     public ImmutableArray<Transition> Transitions { get; }
     public ImmutableArray<FieldRule> Rules { get; }
     public bool Hidden { get; }
+    public ImmutableArray<string> Gaps { get; init; } = [];
     // Display metadata is deliberately excluded from the mutation/schema digest.
     public TypePresentation? Presentation { get; }
 }

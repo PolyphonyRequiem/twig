@@ -2458,6 +2458,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public Func<int, Task>? BeforeCurrentItemLookup { get; set; }
         public Func<Task>? AfterCommit { get; set; }
         public bool CoreMetadataEnabled { get; set; }
+        public bool IncludeIncompleteOtherType { get; set; }
+        public int? OtherTypeItem { get; set; }
         public string? ObservedPrincipalOverride { get; set; }
         public Func<Task>? BeforeProjectMetadata { get; set; }
         public bool CloseGateEnabled { get; set; }
@@ -2851,7 +2853,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 id, rev = item.Revision,
                 fields = new Dictionary<string, object>
                 {
-                    ["System.Title"] = item.Title, ["System.WorkItemType"] = "Task", ["System.State"] = item.State,
+                    ["System.Title"] = item.Title, ["System.WorkItemType"] = OtherTypeItem == id ? "Other" : "Task", ["System.State"] = item.State,
                     ["System.TeamProject"] = "Project",
                     ["System.History"] = item.History,
                     ["System.AreaPath"] = "fixture", ["System.IterationPath"] = ExplicitPlanningTeams ? id == 42 ? "Project\\A" : "Project\\B" : "fixture",
@@ -2960,7 +2962,10 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     }
                 } } });
             if (path.EndsWith("/workItemTypes", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.OK, new { value = new[] { new { referenceName = "Fixture.Task", name = "Task", isDisabled = false } } });
+                return Reply(HttpStatusCode.OK, new { value = new[] { new { referenceName = "Fixture.Task", name = "Task", isDisabled = false } }
+                    .Concat(IncludeIncompleteOtherType
+                        ? [new { referenceName = "Fixture.Other", name = "Other", isDisabled = false }]
+                        : []).ToArray() });
             if (path.EndsWith("/states", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { value = new[]
                 {

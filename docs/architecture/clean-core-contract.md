@@ -9,8 +9,12 @@ Phases 1-4, phase-5 code closure and phase-6 source removal for **Epic #1220, Co
 ADO discovery retains type-local gaps on the exact `ItemType`, separately from
 global schema gaps. Native editor evaluation checks that exact type and all
 global gaps; unrelated incomplete types do not prevent opening a supported item.
-Proposal validation, close-gate discovery and policy certification still refuse
-incomplete process evidence. Both gap scopes are fingerprinted and reported by
+Proposal validation checks every effect's observed source, target type and
+relationship endpoint types; close-gate discovery checks its exact source type.
+Mechanical policy certification retains global gaps and checks all acquired
+before/after endpoint types plus the declaration's named types. It does not claim
+compliance outside its completely acquired, bounded relationship component.
+Relevant incomplete evidence still refuses. Both gap scopes are fingerprinted and reported by
 the process commands. Missing exact or initial transitions remain explicit gaps;
 there is no hidden-type, inherited-state or all-pairs transition fallback.
 

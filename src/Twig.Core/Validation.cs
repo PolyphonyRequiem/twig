@@ -14,7 +14,7 @@ public static partial class Core
             errors.Add(new(ErrorCode.SchemaChanged, "The bound connection or discovered schema changed; preview a new proposal."));
         if (proposal.ExpectedStoreVersion != store.Version)
             errors.Add(new(ErrorCode.Conflict, "Local state changed after this proposal was constructed."));
-        errors.AddRange(SchemaErrors(schema));
+        errors.AddRange(ProposalSchemaErrors(proposal, schema, store));
         foreach (var op in proposal.Operations)
             ValidateOperation(op, proposal, schema, store, capabilities, errors);
         return errors.ToImmutable();
@@ -28,7 +28,7 @@ public static partial class Core
             return [new(ErrorCode.InvalidInput, "Operation ordinal is outside the retained proposal.")];
         if (proposal.Connection != schema.Connection || proposal.SchemaFingerprint != schema.Fingerprint)
             errors.Add(new(ErrorCode.SchemaChanged, "The apply-time schema differs from the confirmed intent."));
-        errors.AddRange(SchemaErrors(schema));
+        errors.AddRange(ProposalSchemaErrors(proposal, schema, store));
         if (!store.Proposals.Any(p => p.Digest == proposal.Digest)
             || !store.Journal.Any(j => j.Digest == proposal.Digest && j.Operation == operation && j.Status == OpStatus.Planned)
             || store.Journal.Any(j => j.Digest == proposal.Digest && j.Operation < operation && j.Status != OpStatus.Verified))
@@ -37,13 +37,42 @@ public static partial class Core
         return errors.ToImmutable();
     }
 
-    private static IEnumerable<Error> SchemaErrors(ProcessSchema schema, ItemType? exactType = null)
+    private static IEnumerable<Error> ProposalSchemaErrors(Proposal proposal, ProcessSchema schema, StoreSnapshot store)
+    {
+        var references = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var op in proposal.Operations)
+        {
+            if (op.Type is not null) references.Add(op.Type);
+            foreach (var key in op.Links.Select(link => link.Other).Prepend(op.Item)
+                .Concat(op.Other is null ? [] : new[] { op.Other }).Distinct())
+            {
+                var resolved = store.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+                var observed = store.Items.FirstOrDefault(item => item.Key == resolved);
+                var draft = store.Drafts.FirstOrDefault(draft => draft.Key == key);
+                if (observed is not null) references.Add(observed.Type);
+                if (draft is not null)
+                {
+                    references.Add(draft.Type);
+                    if (draft.Baseline is not null) references.Add(draft.Baseline.Type);
+                }
+                if (observed is null && draft is null)
+                    yield return new(ErrorCode.Unavailable, "An effect endpoint's exact type was not observed.");
+            }
+        }
+        foreach (var reference in references)
+            if (!schema.Types.Any(type => type.Reference == reference))
+                yield return new(ErrorCode.Unavailable, $"Effect type '{reference}' is outside the discovered schema.");
+        foreach (var error in SchemaErrors(schema, schema.Types.Where(type => references.Contains(type.Reference))))
+            yield return error;
+    }
+
+    private static IEnumerable<Error> SchemaErrors(ProcessSchema schema, IEnumerable<ItemType>? relevantTypes = null)
     {
         if (!schema.Gaps.IsEmpty)
             yield return new(ErrorCode.Unavailable, "Schema discovery is incomplete.") { Evidence = schema.Gaps };
         if (schema.Types.IsEmpty || schema.Relations.Any(r => !Enum.IsDefined(r.Shape)))
             yield return new(ErrorCode.Unavailable, "Type or relation semantics are unavailable.");
-        foreach (var type in exactType is null ? schema.Types : [exactType])
+        foreach (var type in relevantTypes ?? schema.Types)
         {
             if (!type.Gaps.IsEmpty)
                 yield return new(ErrorCode.Unavailable, $"Type '{type.Reference}' discovery is incomplete.") { Evidence = type.Gaps };
@@ -344,7 +373,7 @@ public static partial class Core
             return Result<EditorEvaluation>.Fail(ErrorCode.Conflict, "Editor observations belong to another provider resource scope.");
         var type = schema.Types.FirstOrDefault(value => value.Reference == (typeOverride ?? source.Type));
         if (type is null) return Result<EditorEvaluation>.Fail(ErrorCode.Unavailable, "The exact editor type is unavailable.");
-        var unavailable = SchemaErrors(schema, type).FirstOrDefault();
+        var unavailable = SchemaErrors(schema, [type]).FirstOrDefault();
         if (unavailable is not null) return Result<EditorEvaluation>.Fail(unavailable);
         var baseline = source.Key.IsLocal ? null : source;
         var before = baseline?.Fields ?? new FieldValues(type.Fields.Select(field => KeyValuePair.Create(field.Reference, FieldValue.Null)));
@@ -458,13 +487,13 @@ public static partial class Core
     public static Result<ImmutableArray<string>> CloseGates(ProcessSchema schema, WorkItem source,
         FieldValues changes, string? typeOverride = null)
     {
-        var unavailable = SchemaErrors(schema).FirstOrDefault();
-        if (unavailable is not null) return Result<ImmutableArray<string>>.Fail(unavailable);
         if (typeOverride is not null && typeOverride != source.Type)
             return Result<ImmutableArray<string>>.Fail(ErrorCode.Unsupported, "Close-gate pre-requiredness cannot be inferred across a type change.");
         var type = schema.Types.FirstOrDefault(t => t.Reference == (typeOverride ?? source.Type));
         if (type is null || !source.Fields.TryGetValue(type.StateField, out var previous))
             return Result<ImmutableArray<string>>.Fail(ErrorCode.Unavailable, "The type or pre-state needed to discover close gates is unobserved.");
+        var unavailable = SchemaErrors(schema, [type]).FirstOrDefault();
+        if (unavailable is not null) return Result<ImmutableArray<string>>.Fail(unavailable);
         var effective = source.Fields.Overlay(changes);
         if (!effective.TryGetValue(type.StateField, out var state)
             || !type.States.Any(s => s.Name == state.Text))

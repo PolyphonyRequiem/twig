@@ -100,4 +100,54 @@ public sealed partial class NativePublicationConsumerTests
             : [root, bench, stamp, (Action<IServiceCollection>)ConfigureHumanEditor, CancellationToken.None];
         return await (Task<Result<NativeItemEditor>>)method.Invoke(null, arguments)!;
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExistingNativeEditorSaveScopesCompletenessToActualEffectAndPolicyEndpoints(bool incompletePolicyEndpoint)
+    {
+        var host = await CreateHumanHostAsync();
+        _transport.IncludeIncompleteOtherType = true;
+        if (incompletePolicyEndpoint)
+        {
+            _transport.OtherTypeItem = 43;
+            _transport.SetNativeRelationship(42, 43, "Native.DependencyForward");
+        }
+        await File.WriteAllTextAsync(Path.Combine(host.Root, "twig.policy.json"),
+            """{"version":1,"rules":[{"id":"acyclic","kind":"dependency-integrity","enforcement":"refuse","maxNodes":20}]}""");
+        using var services = EditorServices(host.Root);
+        using var origin = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        var schema = (await origin.Workspace.SchemaAsync(default)).Value;
+        schema.Gaps.ShouldBeEmpty();
+        schema.Types.Length.ShouldBe(2);
+        var unrelated = schema.Types.Single(type => type.Reference == "Fixture.Other");
+        unrelated.Hidden.ShouldBeFalse("the regression must not rely on hiding or disabling the incomplete type");
+        unrelated.Transitions.ShouldBeEmpty();
+        unrelated.Gaps.ShouldContain(gap => gap.Contains("exact type transitions unavailable"));
+        var opened = await OpenExistingHumanHostAsync(host.Root, host.Bench, host.Stamp);
+        opened.IsSuccess.ShouldBeTrue(opened.IsSuccess ? "" : opened.Error.Message);
+        using var editor = opened.Value;
+        var key = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "42");
+        var selected = await editor.SelectAsync(key);
+        selected.IsSuccess.ShouldBeTrue(selected.IsSuccess ? "" : selected.Error.Message);
+        selected.Value.Type.ShouldBe("Fixture.Task");
+        var save = await editor.SaveAsync(selected.Value.Ticket,
+            FieldValues.Empty.Set("System.Title", FieldValue.String("Scoped native edit")));
+        save.IsSuccess.ShouldBe(!incompletePolicyEndpoint, save.IsSuccess ? "" : save.Error.Message);
+        if (incompletePolicyEndpoint)
+        {
+            HumanPatchAttempts.ShouldBe(0);
+            save.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        }
+        else
+        {
+            save.Value.Verified.ShouldBeTrue(save.Value.Error?.Message);
+            HumanPatchAttempts.ShouldBe(1);
+            _transport.TitleOf(42).ShouldBe("Scoped native edit");
+            var snapshot = (await origin.Workspace.SnapshotAsync(default)).Value;
+            snapshot.Journal.Single().Status.ShouldBe(OpStatus.Verified);
+            snapshot.Proposals.Single().SchemaFingerprint.ShouldBe(schema.Fingerprint);
+            snapshot.Proposals.Single().PolicyRevision.ShouldNotBeNullOrWhiteSpace();
+        }
+    }
 }

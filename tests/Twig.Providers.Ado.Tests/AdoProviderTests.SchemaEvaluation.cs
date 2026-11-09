@@ -38,7 +38,7 @@ public sealed partial class AdoProviderTests
     }
 
     [Fact]
-    public async Task NativeEditorExactTypeIsNotBlockedByAnotherTypesMissingTransitionsButMutationRemainsBlocked()
+    public async Task NativeEditorExactTypeCanPublishDespiteAnotherTypesMissingTransitions()
     {
         using var f = await Fixture.Create();
         f.Http.AdditionalType = "Contoso.Other";
@@ -56,12 +56,23 @@ public sealed partial class AdoProviderTests
             FieldValues.Empty, true);
         incomplete.IsSuccess.ShouldBeFalse();
         incomplete.Error.Evidence.ShouldContain(value => value.Contains("exact type transitions unavailable"));
-        var proposal = new Proposal(f.Connection, metadata.Schema.Fingerprint, 0,
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, [source]), default)).IsSuccess.ShouldBeTrue();
+        var proposal = new Proposal(f.Connection, metadata.Schema.Fingerprint, 1,
             [new("edit", OpKind.Batch, source.Key, source.Revision,
                 FieldValues.Empty.Set("Custom.Empty", FieldValue.String("edit")))]);
         Core.Core.Validate(proposal, proposal.Digest, metadata.Schema, await f.Stored(), f.Provider.Capabilities)
-            .ShouldContain(error => error.Code == ErrorCode.Unavailable);
-        f.Http.Writes.ShouldBe(0);
+            .ShouldBeEmpty();
+        var changedSchema = new ProcessSchema(metadata.Schema.Connection,
+            metadata.Schema.Types.Select(type => type.Reference == f.Http.AdditionalType
+                ? type with { Gaps = type.Gaps.Add("new native uncertainty") } : type), metadata.Schema.Relations);
+        Core.Core.Validate(proposal, proposal.Digest, changedSchema, await f.Stored(), f.Provider.Capabilities)
+            .ShouldContain(error => error.Code == ErrorCode.SchemaChanged);
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var applied = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        applied.Status.ShouldBe(OpStatus.Applied);
+        (await f.Provider.VerifyAsync(proposal, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        f.Http.Items[1]["fields"]!["Custom.Empty"]!.GetValue<string>().ShouldBe("edit");
+        f.Http.Writes.ShouldBe(1);
     }
 
     [Fact]
@@ -163,5 +174,34 @@ public sealed partial class AdoProviderTests
         var findings = Core.Core.Evaluate(new([new("parent", RuleKind.ParentType, type.Reference, [type.Reference])]),
             new(0), new(0), incomplete);
         findings.ShouldContain(finding => finding.Kind == FindingKind.EvidenceUnavailable && finding.Blocks);
+    }
+
+    [Theory]
+    [InlineData("type-change")]
+    [InlineData("relationship-endpoint")]
+    [InlineData("global-gap")]
+    public async Task ScopedMutationStillRefusesIncompleteRelevantTypesAndGlobalEvidence(string effect)
+    {
+        using var f = await Fixture.Create();
+        f.Http.AdditionalType = "Contoso.Other";
+        f.Http.MissingTransitionsType = f.Http.AdditionalType;
+        if (effect == "relationship-endpoint")
+            f.Http.Items[2]["fields"]!["System.WorkItemType"] = f.Http.AdditionalType;
+        var metadata = (await f.Provider.CaptureEditorMetadataAsync(f.Connection, default)).Value;
+        var observed = (await f.Provider.ReadEditorAsync(metadata, [f.Key(1), f.Key(2)], default)).Value;
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, observed.Items, observed.Relationships), default))
+            .IsSuccess.ShouldBeTrue();
+        var source = observed.Items.Single(item => item.Key == f.Key(1));
+        var schema = effect == "global-gap"
+            ? new ProcessSchema(metadata.Schema.Connection, metadata.Schema.Types, metadata.Schema.Relations, ["global uncertainty"])
+            : metadata.Schema;
+        var op = new Op("edit", OpKind.Batch, source.Key, source.Revision,
+            FieldValues.Empty.Set("Custom.Empty", FieldValue.String("edit")),
+            type: effect == "type-change" ? f.Http.AdditionalType : null,
+            links: effect == "relationship-endpoint" ? [new(f.Key(2), "Native.ParentForward", true)] : []);
+        var proposal = new Proposal(f.Connection, schema.Fingerprint, 1, [op]);
+        var errors = Core.Core.Validate(proposal, proposal.Digest, schema, await f.Stored(), f.Provider.Capabilities);
+        errors.ShouldContain(error => error.Code == ErrorCode.Unavailable && !error.Evidence.IsEmpty);
+        f.Http.Writes.ShouldBe(0);
     }
 }

@@ -130,7 +130,14 @@ public static partial class Core
                 foreach (var value in rule.Values) WriteValue(w, value);
                 w.WriteEndArray(); w.WriteEndObject();
             }
-            w.WriteEndArray(); w.WriteEndObject();
+            w.WriteEndArray();
+            if (!type.Gaps.IsEmpty)
+            {
+                w.WriteStartArray("gaps");
+                foreach (var gap in type.Gaps.Order(StringComparer.Ordinal)) w.WriteStringValue(gap);
+                w.WriteEndArray();
+            }
+            w.WriteEndObject();
         }
         w.WriteEndArray(); w.WriteStartArray("relations");
         foreach (var relation in schema.Relations.OrderBy(r => r.Reference, StringComparer.Ordinal))

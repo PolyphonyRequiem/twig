@@ -40,8 +40,12 @@ public sealed partial class NativeItemEditor : IDisposable
         NativeSourceStamp expected, CancellationToken ct = default)
         => OpenAsync(root, benchId, expected, null, ct);
 
+    public static Task<Result<NativeItemEditor>> OpenExistingAsync(string root, Guid benchId,
+        NativeSourceStamp expected, CancellationToken ct = default)
+        => OpenAsync(root, benchId, expected, null, ct, prepareScope: false);
+
     internal static async Task<Result<NativeItemEditor>> OpenAsync(string root, Guid benchId,
-        NativeSourceStamp expected, Action<IServiceCollection>? configure, CancellationToken ct)
+        NativeSourceStamp expected, Action<IServiceCollection>? configure, CancellationToken ct, bool prepareScope = true)
     {
         if (expected.Connection.Provider.Value is not ("ado" or "github"))
             return Result<NativeItemEditor>.Fail(ErrorCode.Unsupported, "This provider has no qualified native item editor.");
@@ -57,7 +61,7 @@ public sealed partial class NativeItemEditor : IDisposable
         {
             var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
             var user = UserBenchStore.ForRegistry(factory.ExecutionRegistryPath);
-            var opened = await NativeEditor.OpenAsync(factory, user, benchId, expected, ct).ConfigureAwait(false);
+            var opened = await NativeEditor.OpenAsync(factory, user, benchId, expected, ct, prepareScope).ConfigureAwait(false);
             if (!opened.IsSuccess) return Result<NativeItemEditor>.Fail(opened.Error);
             var result = new NativeItemEditor(runtime, opened.Value);
             runtime = null!;

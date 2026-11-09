@@ -52,7 +52,7 @@ internal sealed class ProcessDescriptionCommand(
         if (types.Length == 0) return Error($"Unknown work-item type '{typeName}'. Run 'twig process' to list discovered references.");
         if (filter is not null && filter.Any(reference => !types.Single().Fields.Any(field => field.Reference == reference)))
             return Error("Unknown field reference in --fields; no filtered description was written.", 2);
-        var gaps = schema.Gaps.Concat([
+        var gaps = schema.Gaps.Concat(types.SelectMany(type => type.Gaps)).Concat([
             "Native form layout is presentation metadata and is not included in the Core schema.",
             "Display names, colors, category membership and behavior metadata are outside this projection; type and field identities are references.",
             "This is provider-discovered Core schema evidence, not the legacy complete process descriptor or a guarantee about external automation.",

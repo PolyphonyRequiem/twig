@@ -111,7 +111,8 @@ internal sealed class ProcessCommand(
                 })).ToArray())),
             new("totalTypes", new RenderNode.KeyValue("totalTypes", RenderCell.Integer(types.Length))),
             new("schemaFingerprint", new RenderNode.KeyValue("schemaFingerprint", RenderCell.String(schema.Fingerprint))),
-            new("knownGaps", new RenderNode.KeyValue("knownGaps", Array(schema.Gaps.Select(value => RenderCell.String(value))))),
+            new("knownGaps", new RenderNode.KeyValue("knownGaps",
+                Array(schema.Gaps.Concat(types.SelectMany(type => type.Gaps)).Select(value => RenderCell.String(value))))),
         ])]);
     }
 
@@ -122,6 +123,7 @@ internal sealed class ProcessCommand(
         {
             new("type", new RenderNode.KeyValue("type", RenderCell.String(type.Reference))),
             new("isHidden", new RenderNode.KeyValue("isHidden", RenderCell.Boolean(type.Hidden))),
+            new("knownGaps", new RenderNode.KeyValue("knownGaps", Array(type.Gaps.Select(value => RenderCell.String(value))))),
             new("stateField", new RenderNode.KeyValue("stateField", RenderCell.String(type.StateField))),
             new("states", new RenderNode.Table(null, [new("name", "Name"), new("category", "Category")],
                 type.States.OrderBy(state => state.Name, StringComparer.Ordinal).Select(state =>

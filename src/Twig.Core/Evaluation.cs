@@ -149,7 +149,7 @@ public static partial class Core
                 findings.Add(new(rule.Id, FindingKind.EvidenceUnavailable, item, reason, true, []));
             void Violation(ItemKey key, string reason, ImmutableArray<Relationship> evidence, bool historical) =>
                 findings.Add(new(rule.Id, FindingKind.Violation, key, reason, !rule.WarnOnly && !historical, evidence));
-            if (!schema.Gaps.IsEmpty)
+            if (!schema.Gaps.IsEmpty || schema.Types.Any(type => !type.Gaps.IsEmpty))
             {
                 Unavailable(null, "Schema discovery is incomplete; policy cannot certify compliance.");
                 continue;

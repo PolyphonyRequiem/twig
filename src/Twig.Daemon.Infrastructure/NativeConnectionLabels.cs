@@ -13,6 +13,7 @@ public static partial class NativeConnectionLabels
     {
         "ado" => "Azure DevOps connection",
         "github" => "GitHub connection",
+        "twig" => "Twig-native items",
         _ => "Native connection",
     }, false);
 
@@ -29,6 +30,7 @@ public static partial class NativeConnectionLabels
                 if (File.Exists(file) && new FileInfo(file).Length > 256 * 1024) return fallback;
             var configuration = await TwigConfiguration.LoadSplitAsync(paths, deadline.Token).ConfigureAwait(false);
             if (configuration.ResolveWorkItemProviderKind() != connection.Provider.Value) return fallback;
+            if (connection.Provider.Value == "twig") return new("Twig-native items", true);
             if (connection.Provider.Value == "ado" && Human(configuration.Organization) && Human(configuration.Project))
                 return new($"Azure DevOps / {configuration.Organization.Trim()} / {configuration.Project.Trim()}", true);
             if (connection.Provider.Value == "github" && configuration.GitHub?.Repository is { } repository

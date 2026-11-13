@@ -229,7 +229,7 @@ public static partial class NativeBenchHost
                 var epoch = state.Epoch;
                 var profile = session.ProfileGeneration;
                 if (editor.PlanMode || state.NormalSeed || source != Context(session)
-                    || source.Stamp.Connection.Provider.Value is not ("ado" or "github") || state.Item is not { IsLocal: false } target)
+                    || source.Stamp.Connection.Provider.Value is not ("ado" or "github" or "twig") || state.Item is not { IsLocal: false } target)
                     throw new HttpFailure(422, "Unsupported", "Select two distinct published items in the normal viewing connection.");
                 var endpoint = state.EndpointCandidates.SingleOrDefault(key =>
                     !key.IsLocal && key != target && ViewMapping.Key(new(source.Source.Id, key)) == body.EndpointId)

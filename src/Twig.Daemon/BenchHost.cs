@@ -15,7 +15,7 @@ namespace Bench.Server;
 
 public sealed record ServerOptions(int Port, string DataDirectory, string? WebRoot = null,
     string DataMode = "Local browser; canvas defaults to exact-source denial", X509Certificate2? Certificate = null,
-    bool WindowsSignIn = false);
+    bool WindowsSignIn = false, string? CanvasInstallRoot = null, Guid DaemonId = default);
 
 public static class BenchHost
 {
@@ -99,7 +99,8 @@ public static class BenchHost
             app.UseAuthorization();
         }
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
-            new ServiceStatus("twig-bench-service-v1", options.DataMode, true)));
+            new ServiceStatus("twig-bench-service-v1", options.DataMode, true, options.DaemonId,
+                CanvasAssets.DaemonVersion, ["legacy-read-only"])));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
             _ = await Body<EmptyBody>(context);
@@ -334,8 +335,7 @@ public static class BenchHost
             app.MapMethods(route, ["GET", "HEAD"], async (HttpContext context) =>
             {
                 var name = route is "/" or "/canvas" ? "index.html" : route.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                var path = Path.Combine(route.StartsWith("/vendor/", StringComparison.Ordinal)
-                    ? Path.Combine(AppContext.BaseDirectory, "wwwroot") : root, name);
+                var path = Path.Combine(root, name);
                 context.Response.ContentType = route.EndsWith(".js", StringComparison.Ordinal) || route.EndsWith(".mjs", StringComparison.Ordinal) ? "text/javascript"
                     : route.EndsWith(".css", StringComparison.Ordinal) ? "text/css" : route.EndsWith(".woff2", StringComparison.Ordinal) ? "font/woff2" : "text/html";
                 if (HttpMethods.IsHead(context.Request.Method)) context.Response.ContentLength = new FileInfo(path).Length;

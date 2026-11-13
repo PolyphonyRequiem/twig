@@ -3,6 +3,7 @@ using Twig.Core;
 using Twig.Infrastructure.Auth;
 using Twig.Providers.Ado;
 using Twig.Providers.GitHub;
+using Twig.Providers.Native;
 
 namespace Twig.Infrastructure.Services;
 
@@ -15,6 +16,15 @@ internal sealed partial class CoreWorkspace
 {
     internal async Task<Result<NativeEditorMetadata>> CaptureEditorMetadataAsync(CancellationToken ct)
     {
+        if (provider is NativeProvider native)
+        {
+            var schema = await native.DiscoverSchemaAsync(connection, ct).ConfigureAwait(false);
+            return schema.IsSuccess ? Result<NativeEditorMetadata>.Ok(new(schema.Value,
+                (_, _, _, _, _) => Task.FromResult(Result<EditorChoices>.Fail(ErrorCode.Unsupported, "Native scalar fields have no remote choice source.")),
+                (keys, token) => native.ReadAsync(connection, keys, token),
+                [NativeProvider.Title, NativeProvider.Description, NativeProvider.StateField]))
+                : Result<NativeEditorMetadata>.Fail(schema.Error);
+        }
         if (provider is AdoProvider ado)
         {
             var capture = await ado.CaptureEditorMetadataAsync(connection, ct).ConfigureAwait(false);

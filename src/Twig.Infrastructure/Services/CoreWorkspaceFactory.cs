@@ -35,6 +35,7 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
     internal const string FileName = "core-workspace.json";
     internal string WorkspaceRoot => paths.RepoRoot;
     internal bool IsGitHub => configuration.ResolveWorkItemProviderKind() == "github";
+    internal bool IsTwig => configuration.ResolveWorkItemProviderKind() == "twig";
     internal (int Up, int Down, int Sideways) TreeContextDepths
         => (configuration.Display.TreeDepthUp, configuration.Display.TreeDepthDown, configuration.Display.TreeDepthSideways);
     internal IReadOnlyList<(string Path, bool IncludeChildren)> QueryAreaDefaults
@@ -64,6 +65,8 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var store = opened.Value;
         var admitted = await store.CheckWorkspaceAsync(document.Connection, ct).ConfigureAwait(false);
         if (!admitted.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(admitted.Error);
+        if (document.Connection.Provider.Value == "twig")
+            return await new CoreNativeWorkspaceHost(paths, bindings).OpenAsync(document, store, ct).ConfigureAwait(false);
         if (document.Connection.Provider.Value != "ado")
             return document.Connection.Provider.Value == "github" && github is not null
                 ? await github.OpenAsync(document, store, ct).ConfigureAwait(false)
@@ -109,6 +112,8 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var pinned = await opened.Value.CheckWorkspaceAsync(scope.Source.Connection, ct).ConfigureAwait(false);
         if (!pinned.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(pinned.Error);
         var document = originHandle.Document with { DatabasePath = scope.DatabasePath, DatabaseInstance = scope.StoreInstance };
+        if (document.Connection.Provider.Value == "twig")
+            return await new CoreNativeWorkspaceHost(paths, bindings).OpenAsync(document, opened.Value, ct, scoped: true).ConfigureAwait(false);
         if (document.Connection.Provider.Value == "github" && github is not null)
             return await github.OpenAsync(document, opened.Value, ct, scoped: true).ConfigureAwait(false);
         if (document.Connection.Provider.Value != "ado")

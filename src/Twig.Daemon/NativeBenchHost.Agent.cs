@@ -370,7 +370,7 @@ public static partial class NativeBenchHost
             var body = await Body<AgentPinBody>(http);
             if (!long.TryParse(body.Locator, NumberStyles.None, CultureInfo.InvariantCulture, out var locator) || locator <= 0
                 || body.Locator != locator.ToString(CultureInfo.InvariantCulture))
-                throw new HttpFailure(400, "InvalidInput", "Use the positive ADO ID or GitHub issue number, not a URL or guessed native ID.");
+                throw new HttpFailure(400, "InvalidInput", "Use the positive Twig/ADO ID or GitHub issue number, not a URL or guessed native ID.");
             await session.Agent.Gate.WaitAsync(http.RequestAborted);
             using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, grant.Lifetime.Token);
             try
@@ -379,7 +379,7 @@ public static partial class NativeBenchHost
                 var source = Source(grant, body.SourceId);
                 var cache = ConnectionObservation(await panel.CaptureAsync(source, lifetime.Token, cachedGuidance: true), app.Logger);
                 var key = cache.Observation.Snapshot.Items.SingleOrDefault(item => !item.Key.IsLocal
-                    && (source.Stamp.Connection.Provider.Value == "ado" ? item.Key.NativeId == body.Locator
+                    && (source.Stamp.Connection.Provider.Value is "ado" or "twig" ? item.Key.NativeId == body.Locator
                         : source.Stamp.Connection.Provider.Value == "github" && item.Fields.TryGetValue(Twig.Providers.GitHub.GitHubProvider.Number, out var number)
                             && number.Kind == FieldKind.Integer && number.Number == locator))?.Key
                     ?? throw new HttpFailure(404, "ItemNotObserved", "This item is not in the admitted source's native cache. Refresh it in Add items first; no tracker lookup or substitute source was used.");

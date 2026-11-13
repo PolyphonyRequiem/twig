@@ -1,0 +1,50 @@
+name: Daemon package
+on:
+  pull_request:
+    paths: ['src/Twig.Daemon*/**', 'src/Twig.Providers.Native/**', 'tools/daemon-*', '.github/workflows/daemon-release.yml']
+  push:
+    tags: ['daemon-v*']
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Standalone daemon package (no canvas or installation)
+        shell: pwsh
+        run: ./tools/daemon-package.ps1 -Output "$PWD\artifacts\daemon-win-x64" -PythonExecutable python
+      - name: Include independent operator tooling
+        shell: pwsh
+        run: |
+          Copy-Item tools\daemon-launch.ps1 artifacts\
+          Compress-Archive -LiteralPath artifacts\daemon-win-x64,artifacts\daemon-launch.ps1 -DestinationPath artifacts\twig-daemon-win-x64.zip
+          (Get-FileHash artifacts\twig-daemon-win-x64.zip).Hash | Set-Content artifacts\twig-daemon-win-x64.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twig-daemon-win-x64
+          path: |
+            artifacts/twig-daemon-win-x64.zip
+            artifacts/twig-daemon-win-x64.zip.sha256
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/daemon-v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: twig-daemon-win-x64
+          path: package
+      - name: Publish independently versioned daemon
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --title "Twig daemon ${{ github.ref_name }}" --generate-notes package/*

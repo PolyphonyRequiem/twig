@@ -21,11 +21,11 @@ if (args is ["--check-certificate", var selectedCertificate])
     return;
 }
 
-var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TwigBench");
+var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "DaemonData");
 var port = 0;
 var migrateLegacy = false;
 string? certificateThumbprint = null;
-string? webRoot = null;
+var canvasRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "Canvas");
 for (var index = 0; index < args.Length; index++)
 {
     switch (args[index])
@@ -33,9 +33,9 @@ for (var index = 0; index < args.Length; index++)
         case "--data-dir" when ++index < args.Length: data = args[index]; break;
         case "--port" when ++index < args.Length && int.TryParse(args[index], out var value) && value is >= 0 and <= 65535: port = value; break;
         case "--https-certificate" when ++index < args.Length: certificateThumbprint = args[index]; break;
-        case "--web-root" when ++index < args.Length: webRoot = args[index]; break;
+        case "--canvas-root" when ++index < args.Length: canvasRoot = args[index]; break;
         case "--migrate-legacy": migrateLegacy = true; break;
-        default: throw new ArgumentException("Options: --data-dir <private absolute directory> --port <stable localhost port> --https-certificate <existing trusted localhost certificate thumbprint> [--web-root <independently installed canvas directory>]. Benches use the native per-user store.");
+        default: throw new ArgumentException("Options: --data-dir <private absolute directory> --port <stable localhost port> --https-certificate <existing trusted localhost certificate thumbprint> [--canvas-root <verified canvas installation root>]. Benches use the native per-user store.");
     }
 }
 if (certificateThumbprint is null || port is 0 or 443 || !OperatingSystem.IsWindows())
@@ -45,8 +45,8 @@ if (certificateThumbprint is null || port is 0 or 443 || !OperatingSystem.IsWind
     return;
 }
 if (!Path.IsPathFullyQualified(data)) throw new ArgumentException("An absolute private per-user data directory is required.");
-if (webRoot is not null && (!Path.IsPathFullyQualified(webRoot) || !Directory.Exists(webRoot)))
-    throw new ArgumentException("The selected canvas directory must be an existing absolute path.");
+if (!Path.IsPathFullyQualified(canvasRoot))
+    throw new ArgumentException("The canvas installation root must be an absolute same-machine path; it need not be installed.");
 X509Certificate2 certificate;
 try { certificate = LocalCertificate(certificateThumbprint); }
 catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.Security.Cryptography.CryptographicException)
@@ -66,6 +66,20 @@ catch (Exception error) when (error is ArgumentException or InvalidOperationExce
 }
 Directory.CreateDirectory(data);
 using var instance = new FileStream(Path.Combine(data, "daemon.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+var identityPath = Path.Combine(data, "daemon.id");
+Guid daemonId;
+if (File.Exists(identityPath))
+{
+    if (!Guid.TryParseExact(await File.ReadAllTextAsync(identityPath), "D", out daemonId) || daemonId == Guid.Empty)
+        throw new InvalidDataException("Invalid daemon identity; no replacement was generated.");
+}
+else
+{
+    daemonId = Guid.NewGuid();
+    await using var identity = new FileStream(identityPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+    await identity.WriteAsync(System.Text.Encoding.ASCII.GetBytes(daemonId.ToString("D")));
+    identity.Flush(true);
+}
 var definitions = UserBenchStore.ForCurrentUser();
 var migration = await LegacyBenchMigration.CheckAsync(data, definitions, migrateLegacy, default);
 if (!migration.IsSuccess) throw new InvalidOperationException(migration.Error.Message);
@@ -73,14 +87,16 @@ var changes = new CatalogChanges();
 var native = new NativeSourceAdapter(Path.Combine(data, "native-evidence"), new NativeSourceGateway(), changes);
 var panel = new NativePanel(definitions, new NativeSourceGateway(), native);
 var sessions = new ViewSessions(Path.Combine(data, "presentation"));
-await using var app = NativeBenchHost.Build(new(port, data, WebRoot: webRoot, Certificate: certificate, WindowsSignIn: true), panel, sessions, changes, setup);
+await using var app = NativeBenchHost.Build(new(port, data, Certificate: certificate, WindowsSignIn: true,
+    CanvasInstallRoot: canvasRoot, DaemonId: daemonId), panel, sessions, changes, setup);
 await app.StartAsync();
 var endpoint = $"https://localhost:{port}";
 await File.WriteAllTextAsync(Path.Combine(data, "endpoint.json"),
-    JsonSerializer.Serialize(new EndpointInfo(endpoint, "twig-bench-service-v1"), EndpointJson.Default.EndpointInfo));
+    JsonSerializer.Serialize(new EndpointInfo(endpoint, CanvasAssets.Protocol, daemonId,
+        CanvasAssets.DaemonVersion), EndpointJson.Default.EndpointInfo));
 Console.WriteLine($"Twig Bench local browser: {endpoint}");
 Console.WriteLine("Native user-wide Benches shared with the CLI. Each existing Twig context keeps its own Bench selection.");
-Console.WriteLine("No item publishing, synchronization or agent content-return capability is exposed.");
+Console.WriteLine("Save/Apply are human-only. Agent reads and drafts require exact view-scoped admission; membership requires separate opt-in.");
 Console.WriteLine("The panel uses same-owner Windows sign-in; SDK controls remain acknowledgement-only. Command: stop.");
 _ = Task.Run(() =>
 {
@@ -115,7 +131,7 @@ static X509Certificate2 LocalCertificate(string thumbprint)
     return certificate;
 }
 
-internal sealed record EndpointInfo(string Url, string Protocol);
+internal sealed record EndpointInfo(string Url, string Protocol, Guid DaemonId, string Version);
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(EndpointInfo))]
 internal sealed partial class EndpointJson : JsonSerializerContext;

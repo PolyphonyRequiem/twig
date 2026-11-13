@@ -49,7 +49,7 @@ internal static class NativeWorkspaceSetup
             var hasManifest = File.Exists(paths.RepoConfigPath);
             var config = hasManifest ? await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false) : new TwigConfiguration();
             var kind = args.Provider is null ? config.ResolveWorkItemProviderKind() : WorkItemProviderSetting.Normalize(args.Provider);
-            if (kind is not ("ado" or "github")) return Fail("provider-unknown: use --provider ado or --provider github.", 2);
+            if (kind is not ("ado" or "github" or "twig")) return Fail("provider-unknown: use --provider ado, github or twig.", 2);
             if (hasManifest && kind != config.ResolveWorkItemProviderKind())
                 return Fail("Provider conflicts with the existing twig.json declaration; no configuration was changed.", 2);
             config.Provider = kind;
@@ -68,6 +68,13 @@ internal static class NativeWorkspaceSetup
                 if (!GitHubWorkspaceScope.TryCreate(config.GitHub, out _, out var scopeProblem)) return Fail(scopeProblem, 2);
                 config.GitHubAccount = args.Account;
                 config.GitHubCredentialSource = "gh";
+            }
+            else if (kind == "twig")
+            {
+                if (args.Organization.Length != 0 || args.Project.Length != 0 || args.Team is not null
+                    || args.GitProject is not null || args.Binding is not null || args.Host is not null
+                    || args.Repository is not null || args.Account is not null)
+                    return Fail("Twig-native init uses this owner's durable native source, not ADO/GitHub coordinates or credentials.", 2);
             }
             else
             {

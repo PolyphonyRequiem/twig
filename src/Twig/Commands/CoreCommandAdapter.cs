@@ -16,10 +16,10 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     Twig.Commands.IConsoleInput consoleInput, Twig.Commands.IEditorLauncher editorLauncher,
     Twig.Infrastructure.Telemetry.ITelemetryClient? telemetry = null)
 {
-    private string TitleField => factory.IsGitHub ? GitHubProvider.Title : "System.Title";
-    private string BodyField => factory.IsGitHub ? GitHubProvider.Body : "System.Description";
+    private string TitleField => factory.IsTwig ? Twig.Providers.Native.NativeProvider.Title : factory.IsGitHub ? GitHubProvider.Title : "System.Title";
+    private string BodyField => factory.IsTwig ? Twig.Providers.Native.NativeProvider.Description : factory.IsGitHub ? GitHubProvider.Body : "System.Description";
     private string AssigneeField => factory.IsGitHub ? GitHubProvider.Assignees : "System.AssignedTo";
-    private string StateField => factory.IsGitHub ? GitHubProvider.StateField : "System.State";
+    private string StateField => factory.IsTwig ? Twig.Providers.Native.NativeProvider.StateField : factory.IsGitHub ? GitHubProvider.StateField : "System.State";
 
     private async Task<Result<ItemKey>> ResolveKeyAsync(int? id, string output, CancellationToken ct, bool allowNativeLookup = false)
     {
@@ -81,7 +81,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         {
             var candidates = snapshot.Value.Items.Concat(snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal)
                 .Select(draft => new WorkItem(draft.Key, draft.Type, draft.Changes, null))).Where(item =>
-                    item.Fields.TryGetValue("System.Title", out var title) && title.Text is { } text
+                    item.Fields.TryGetValue(TitleField, out var title) && title.Text is { } text
                     && (target.Contains('*') || target.Contains('?')
                         ? System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(target, text, ignoreCase: true)
                         : text.Contains(target, StringComparison.OrdinalIgnoreCase))).ToArray();
@@ -89,7 +89,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             else if (candidates.Length > 1)
             {
                 foreach (var item in candidates)
-                    Console.Error.WriteLine($"#{(item.Key.IsLocal ? LocalAlias(item.Key).ToString(CultureInfo.InvariantCulture) : item.Key.NativeId)} {item.Fields["System.Title"].Text}");
+                    Console.Error.WriteLine($"#{(item.Key.IsLocal ? LocalAlias(item.Key).ToString(CultureInfo.InvariantCulture) : item.Key.NativeId)} {item.Fields[TitleField].Text}");
                 if (!consoleInput.IsOutputRedirected)
                 {
                     Console.Write("Choose item ID: ");
@@ -118,7 +118,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var saved = await workspace.Context.WriteAsync(context.Value, context.Value with { History = history, Position = history.Length - 1 }, ct);
         if (!saved.IsSuccess) return Error(output, saved.Error.Message);
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text(
-            $"#{(key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId)} {shownItem.Fields.GetValueOrDefault("System.Title")?.Text}", Severity.Success)]));
+            $"#{(key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId)} {shownItem.Fields.GetValueOrDefault(TitleField)?.Text}", Severity.Success)]));
         return 0;
     }
 
@@ -170,8 +170,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         if (pattern is not null)
             candidates = candidates.Where(key => (key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId) == pattern
-                || snapshot.Value.Items.Where(item => item.Key == key).Select(item => item.Fields.GetValueOrDefault("System.Title")?.Text)
-                    .Concat(snapshot.Value.Drafts.Where(draft => draft.Key == key).Select(draft => draft.Changes.GetValueOrDefault("System.Title")?.Text))
+                || snapshot.Value.Items.Where(item => item.Key == key).Select(item => item.Fields.GetValueOrDefault(TitleField)?.Text)
+                    .Concat(snapshot.Value.Drafts.Where(draft => draft.Key == key).Select(draft => draft.Changes.GetValueOrDefault(TitleField)?.Text))
                     .Any(title => title is not null && System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(
                         pattern.Contains('*') || pattern.Contains('?') ? pattern : "*" + pattern + "*", title, ignoreCase: true))).ToArray();
         if (candidates.Length != 1)
@@ -324,7 +324,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             var cells = new Dictionary<string, RenderCell>
             {
                 ["id"] = key.IsLocal ? RenderCell.Integer(LocalAlias(key)) : RenderCell.Integer(int.Parse(key.NativeId!, CultureInfo.InvariantCulture)),
-                ["title"] = item is null ? RenderCell.String("(not cached)") : Cell(item.Fields.GetValueOrDefault("System.Title") ?? FieldValue.Null),
+                ["title"] = item is null ? RenderCell.String("(not cached)") : Cell(item.Fields.GetValueOrDefault(TitleField) ?? FieldValue.Null),
                 ["type"] = item is null ? new("", new RenderValue.Null()) : RenderCell.String(item.Type),
                 ["cached"] = RenderCell.Boolean(item is not null), ["isSeed"] = RenderCell.Boolean(key.IsLocal),
                 ["relationshipsComplete"] = RenderCell.Boolean(!key.IsLocal && item?.RelationshipsComplete == true),
@@ -351,8 +351,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         int top, string output, CancellationToken ct)
     {
         if (top < 1) return Error(output, "Query --top must be positive.", 2);
-        if (factory.IsGitHub && new[] { requestedType, assignedTo, area, iteration, createdSince, changedSince }.Any(value => value is not null))
-            return Error(output, "GitHub type, assignee, path and date query spellings are not qualified; use title, description or state.", 2);
+        if ((factory.IsGitHub || factory.IsTwig) && new[] { requestedType, assignedTo, area, iteration, createdSince, changedSince }.Any(value => value is not null))
+            return Error(output, "This provider has no qualified tracker type, assignee, path or date query spellings; use title, description or state.", 2);
         if (new[] { search, title, description, requestedType, state, assignedTo, area, iteration, createdSince, changedSince }
             .All(string.IsNullOrWhiteSpace))
         {
@@ -397,7 +397,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         Add(QueryKind.Equal, AssigneeField, assignedTo);
         Add(QueryKind.Under, "System.AreaPath", area);
         Add(QueryKind.Under, "System.IterationPath", iteration);
-        if (!factory.IsGitHub && area is null && factory.QueryAreaDefaults.Count != 0)
+        if (!factory.IsGitHub && !factory.IsTwig && area is null && factory.QueryAreaDefaults.Count != 0)
         {
             var scopes = factory.QueryAreaDefaults.Select(scope => Operand(scope.IncludeChildren ? QueryKind.Under : QueryKind.Equal,
                 "System.AreaPath", scope.Path)).Where(scope => scope is not null).Cast<Query>().ToArray();
@@ -812,6 +812,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         Action<Draft>? capture = null, ItemKey? predecessor = null)
     {
         if (noParent && parent is not null) return Error(output, "--parent and --no-parent are mutually exclusive.", 2);
+        if (factory.IsTwig && (!noParent || predecessor is not null))
+            return Error(output, "Twig-native items require --no-parent; this source has no relationship schema.", 2);
         if (factory.IsGitHub && (!noParent || editor || predecessor is not null))
             return Error(output, "GitHub seed creation requires --no-parent and explicit native type/fields; editor and creation links are not qualified.", 2);
         if (!noParent && parent is null)
@@ -882,6 +884,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             .SelectMany(rule => rule.Values).Where(value => value.Kind == FieldKind.Text)
             .Select(value => value.Text!).Distinct(StringComparer.Ordinal).ToArray();
         if (initial.Length == 1) changes[type.StateField] = FieldValue.String(initial[0]);
+        var defaults = type.Rules.Where(rule => !rule.Disabled && rule.Action == RuleAction.Default
+            && rule.Field == type.StateField && rule.Conditions.IsEmpty).SelectMany(rule => rule.Values).Distinct().ToArray();
+        if (initial.Length == 0 && defaults.Length == 1) changes[type.StateField] = defaults[0];
         var descriptionField = type.Fields.FirstOrDefault(field => field.Reference == BodyField);
         if (description is not null)
         {
@@ -949,7 +954,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     {
         selectedField = selectedField?.ToLowerInvariant() switch
         {
-            "title" => "System.Title", "description" => "System.Description", "state" => type.StateField,
+            "title" => TitleField, "description" => BodyField, "state" => type.StateField,
             "assignedto" => "System.AssignedTo", _ => selectedField,
         };
         static string Display(string reference) => reference switch
@@ -980,7 +985,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         {
             var before = values.GetValueOrDefault(field.Key);
             if (string.Equals(before ?? "", field.Value ?? "", StringComparison.Ordinal)) continue;
-            if (field.Key == "System.Title" && string.IsNullOrWhiteSpace(field.Value))
+            if (field.Key == TitleField && string.IsNullOrWhiteSpace(field.Value))
                 return Result<(bool, FieldValues)>.Fail(ErrorCode.InvalidInput, "A seed title cannot be cleared.");
             var definition = type.Fields.Single(value => value.Reference == field.Key);
             if (field.Value is null) changes = changes.Set(field.Key, FieldValue.Null);
@@ -1048,14 +1053,14 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (type is null) return Error(output, "The exact native editor type is unavailable.");
         field = field?.ToLowerInvariant() switch
         {
-            "title" => "System.Title", "description" => "System.Description", "state" => type.StateField,
+            "title" => TitleField, "description" => BodyField, "state" => type.StateField,
             "assignedto" => "System.AssignedTo", _ => field,
         };
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var prior = snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == key);
         var shown = prior is null ? observed.Value.Fields : observed.Value.Fields.Overlay(prior.Changes);
-        var names = field is null ? new[] { "System.Title", type.StateField, "System.AssignedTo" }
+        var names = field is null ? new[] { TitleField, type.StateField, AssigneeField }
             : new[] { field };
         var definitions = type.Fields.Where(definition => names.Any(name => definition.Reference.Equals(name, StringComparison.OrdinalIgnoreCase)))
             .Where(definition => !definition.ReadOnly).ToArray();
@@ -1079,7 +1084,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (colon <= 0) return Error(output, "Malformed editor field line; no edit was staged.", 2);
             var name = line[..colon].Trim() switch
             {
-                "Title" => "System.Title", "State" => type.StateField, "AssignedTo" => "System.AssignedTo", var exact => exact,
+                "Title" => TitleField, "State" => type.StateField, "AssignedTo" => AssigneeField, var exact => exact,
             };
             var definition = type.Fields.SingleOrDefault(definition => definition.Reference.Equals(name, StringComparison.OrdinalIgnoreCase));
             if (definition is null || definition.ReadOnly || !seen.Add(definition.Reference))
@@ -1143,7 +1148,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         {
             ["id"] = RenderCell.Integer(LocalAlias(draft.Key)),
             ["localId"] = RenderCell.String(draft.Key.LocalId.ToString("D")),
-            ["title"] = Cell(draft.Changes["System.Title"]),
+            ["title"] = Cell(draft.Changes[TitleField]),
         })).ToArray();
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Document(created.Count == 0 ? "seedChainEmpty" : "seedChainCreated",
             [new("count", new RenderNode.KeyValue("count", RenderCell.Integer(created.Count))),

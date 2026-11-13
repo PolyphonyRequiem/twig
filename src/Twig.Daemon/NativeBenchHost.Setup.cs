@@ -106,6 +106,13 @@ public static partial class NativeBenchHost
             await Initialize(http, session, body.Epoch, new(body.WorkspaceRoot,
                 new NativeGitHubSetupTarget(body.Host, body.Repository, body.Account)));
         });
+        app.MapPost("/api/v1/views/{id:guid}/setup/initialize-twig", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<SetupTwigBody>(http);
+            RequiredRoot(body.WorkspaceRoot);
+            await Initialize(http, session, body.Epoch, new(body.WorkspaceRoot, new NativeTwigSetupTarget()));
+        });
         app.MapGet("/api/v1/views/{id:guid}/setup/operation", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);

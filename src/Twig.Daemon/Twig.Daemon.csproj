@@ -9,9 +9,16 @@
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
   <ItemGroup>
-    <AssemblyMetadata Include="SourceRevision" Value="$(PanelSourceRevisionId)" />
     <InternalsVisibleTo Include="Bench.Service.Tests" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
     <ProjectReference Include="..\Twig.Daemon.Infrastructure\Twig.Daemon.Infrastructure.csproj" />
   </ItemGroup>
+  <Target Name="DaemonSourceMetadata" BeforeTargets="GetAssemblyAttributes" DependsOnTargets="InitializeSourceControlInformation">
+    <PropertyGroup>
+      <DaemonSourceRevisionId Condition="'$(DaemonSourceRevisionId)' == ''">$(SourceRevisionId)</DaemonSourceRevisionId>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyMetadata Include="SourceRevision" Value="$(DaemonSourceRevisionId)" />
+    </ItemGroup>
+  </Target>
 </Project>

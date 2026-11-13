@@ -31,6 +31,7 @@ internal static class ViewMapping
                     {
                         "ado" => "System.Title",
                         "github" => Twig.Providers.GitHub.GitHubProvider.Title,
+                        "twig" => Twig.Providers.Native.NativeProvider.Title,
                         _ => null,
                     };
                     if (titleField is not null && fields.TryGetValue(titleField, out var observedTitle)) title = observedTitle.Text;

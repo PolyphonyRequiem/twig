@@ -1,4 +1,15 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeSetupEffectKind.NativeAuthority = 20 -> Twig.Infrastructure.Services.NativeSetupEffectKind
+Twig.Infrastructure.Services.NativeTwigSetupTarget
+Twig.Infrastructure.Services.NativeTwigSetupTarget.NativeTwigSetupTarget() -> void
+Twig.Infrastructure.Services.NativeTwigSetupTarget.Equals(Twig.Infrastructure.Services.NativeTwigSetupTarget? other) -> bool
+override Twig.Infrastructure.Services.NativeTwigSetupTarget.<Clone>$() -> Twig.Infrastructure.Services.NativeTwigSetupTarget!
+override Twig.Infrastructure.Services.NativeTwigSetupTarget.Equals(object? obj) -> bool
+override sealed Twig.Infrastructure.Services.NativeTwigSetupTarget.Equals(Twig.Infrastructure.Services.NativeSetupTarget? other) -> bool
+override Twig.Infrastructure.Services.NativeTwigSetupTarget.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeTwigSetupTarget.ToString() -> string!
+static Twig.Infrastructure.Services.NativeTwigSetupTarget.operator !=(Twig.Infrastructure.Services.NativeTwigSetupTarget? left, Twig.Infrastructure.Services.NativeTwigSetupTarget? right) -> bool
+static Twig.Infrastructure.Services.NativeTwigSetupTarget.operator ==(Twig.Infrastructure.Services.NativeTwigSetupTarget? left, Twig.Infrastructure.Services.NativeTwigSetupTarget? right) -> bool
 Twig.Infrastructure.Services.NativeSourceObservation.IdentityProfiles.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.IdentityProfile!>
 Twig.Infrastructure.Services.NativeSourceObservation.IdentityProfiles.init -> void
 static Twig.Infrastructure.Services.NativeSourceReader.ReadIdentityProfilesAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Collections.Immutable.ImmutableArray<string!> identities, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!

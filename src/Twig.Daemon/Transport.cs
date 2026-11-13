@@ -14,7 +14,8 @@ public sealed record Ack(bool Acknowledged = true);
 public sealed record EnrollmentAvailability(bool Acknowledged, bool WindowsSignIn);
 public sealed record WindowsEnrollment(Guid DeviceId, Guid ViewId, Guid ProfileId, string PublicKey);
 public sealed record Failure(string Code, string Message);
-public sealed record ServiceStatus(string Protocol, string DataMode, bool CanvasDefaultDeny);
+public sealed record ServiceStatus(string Protocol, string DataMode, bool CanvasDefaultDeny,
+    Guid DaemonId = default, string? DaemonVersion = null, string[]? Capabilities = null);
 public sealed record SourceBody(Guid Id, string Label, string WorkspaceRoot, bool AllowOffline, Guid CatalogId, long ExpectedRevision);
 public sealed record SeedBody(Guid SourceId, Guid NativeBenchId);
 public sealed record PrepareBody(Guid Id, string Name, long ExpectedRevision, SeedBody[] Seeds);
@@ -189,6 +190,7 @@ public sealed record SetupBindingBody(string Organization, string Project, strin
 public sealed record SetupAdoBody(string WorkspaceRoot, string Organization, string Project, string BindingId,
     string? Team = null, string? GitProject = null, long Epoch = 0);
 public sealed record SetupGitHubBody(string WorkspaceRoot, string Host, string Repository, string Account, long Epoch = 0);
+public sealed record SetupTwigBody(string WorkspaceRoot, long Epoch = 0);
 public sealed record SetupCancelBody(long Epoch);
 public sealed record SetupEffectDto(string Kind, string State);
 public sealed record SetupFailureDto(string Phase, bool Cancelled, SetupEffectDto[] Effects);
@@ -223,6 +225,7 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(SetupBindingBody))]
 [JsonSerializable(typeof(SetupAdoBody))]
 [JsonSerializable(typeof(SetupGitHubBody))]
+[JsonSerializable(typeof(SetupTwigBody))]
 [JsonSerializable(typeof(SetupCancelBody))]
 [JsonSerializable(typeof(SetupOperationDto))]
 [JsonSerializable(typeof(EditorOpenBody))]

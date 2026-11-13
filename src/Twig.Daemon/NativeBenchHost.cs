@@ -90,7 +90,8 @@ public static partial class NativeBenchHost
         });
         if (options.WindowsSignIn) { app.UseAuthentication(); app.UseAuthorization(); }
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
-            new ServiceStatus("twig-bench-service-v1", "Native user-wide Benches", true)));
+            new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
+                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1"])));
         app.MapGet("/api/v1/device-enrollment", (HttpContext context) =>
             Write(context, new EnrollmentAvailability(options.WindowsSignIn, options.WindowsSignIn)));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
@@ -481,17 +482,46 @@ public static partial class NativeBenchHost
             {
                 var name = route is "/" or "/canvas" ? "native-index.html"
                     : route == "/app.js" ? "native-app.js" : route.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                if (options.CanvasInstallRoot is { } installation)
+                {
+                    try
+                    {
+                        var asset = CanvasAssets.Read(installation, name);
+                        context.Response.Headers["X-Twig-Canvas-Version"] = asset.Version;
+                        context.Response.Headers.CacheControl = "no-store";
+                        context.Response.ContentType = ContentType();
+                        context.Response.ContentLength = asset.Bytes.Length;
+                        if (!HttpMethods.IsHead(context.Request.Method))
+                            await context.Response.Body.WriteAsync(asset.Bytes, context.RequestAborted);
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        await Write(context, new Failure("CanvasNotInstalled", "Install a compatible Twig canvas separately; the daemon API remains available."), 404);
+                    }
+                    catch (DirectoryNotFoundException)
+                    {
+                        await Write(context, new Failure("CanvasNotInstalled", "Install a compatible Twig canvas separately; the daemon API remains available."), 404);
+                    }
+                    catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException
+                        or InvalidOperationException or ArgumentException or FormatException or OverflowException)
+                    {
+                        app.Logger.LogError(error, "Canvas package verification failed");
+                        await Write(context, new Failure("CanvasPackageInvalid", "Canvas compatibility or integrity verification failed; no unverified content was served."), 503);
+                    }
+                    return;
+                }
                 var file = Path.Combine(root, name);
                 if (!File.Exists(file))
                 {
                     await Write(context, new Failure("CanvasNotInstalled", "Install a compatible Twig canvas separately, or use the daemon API."), 404);
                     return;
                 }
-                context.Response.ContentType = route.EndsWith(".js", StringComparison.Ordinal) || route.EndsWith(".mjs", StringComparison.Ordinal)
-                    ? "text/javascript" : route.EndsWith(".css", StringComparison.Ordinal) ? "text/css"
-                    : route.EndsWith(".woff2", StringComparison.Ordinal) ? "font/woff2" : "text/html";
+                context.Response.ContentType = ContentType();
                 if (HttpMethods.IsHead(context.Request.Method)) context.Response.ContentLength = new FileInfo(file).Length;
                 else await context.Response.SendFileAsync(file, context.RequestAborted);
+                string ContentType() => route.EndsWith(".js", StringComparison.Ordinal) || route.EndsWith(".mjs", StringComparison.Ordinal)
+                    ? "text/javascript" : route.EndsWith(".css", StringComparison.Ordinal) ? "text/css"
+                    : route.EndsWith(".woff2", StringComparison.Ordinal) ? "font/woff2" : "text/html";
             });
         return app;
 

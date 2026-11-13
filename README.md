@@ -39,6 +39,59 @@ pending store/flusher, seed publisher, plan executor or asynchronous workspace/U
 workflow. Without a marker, data commands give an initialization-required refusal.
 There is no legacy cache fallback, migration or compatibility mode.
 
+### Twig-native work items and daemon
+
+`twig init --provider twig` initializes a fresh workspace against this user's
+durable native authority, without ADO/GitHub credentials. The authority is
+`native-authority.db` beside the user registry (`TWIG_USER_HOME` applies), separate
+from each workspace's client mirror, drafts and journal. It retains a stable
+source UUID and exact owner identity; replacing either refuses old bindings.
+Published keys use provider `twig` and that source's scope, never a seed UUID.
+The explicit `Twig.Item` schema contains `Twig.Title`, Markdown
+`Twig.Description` and `Twig.State` (Open, Active, Closed). Scalar edits use exact
+revision CAS. Creation remains observed-non-atomic in Core's receipt model.
+
+For example, `twig seed new --no-parent --type Twig.Item --title "First item"`
+stages a local seed. Normal native preview/confirmation/publish or Bench Plan
+Review/Apply then creates an authoritative item. No assignee, tracker path,
+comment or relationship capability is invented. Original digests and durable
+attempt UUIDs fence uncertain writes; recovery observes the original authority
+ledger and separately verifies readback, never redispatches a creation.
+Existing inventory/activation and policy gates still apply.
+
+The Windows daemon is built from `src\Twig.Daemon` and owns its source, build,
+installation and release lifecycle. Its `Bench.*` assembly names are retained;
+the executable is currently `Bench.Server.exe`. Presentation assets and their
+licenses live in the separate
+[twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas) package.
+The daemon can run without that package and serves it, when installed and fully
+hash/protocol verified, from the same authenticated localhost origin as its API.
+There is no second UI HTTP service or remote listener.
+
+On Windows, `tools\daemon-install.ps1` requires an existing private data directory,
+explicit non-default port and existing trusted CurrentUser localhost certificate
+thumbprint. It publishes only the daemon and selects an immutable version under
+`%LOCALAPPDATA%\Twig\Daemon`; `-RegisterStartup` is explicit opt-in.
+`tools\daemon-launch.ps1` starts that selected verified runtime.
+`-CanvasInstallRoot` selects the independent asset root, defaulting to
+`%LOCALAPPDATA%\Twig\Canvas`. UI-only installs never invoke the daemon installer,
+restart it or invalidate compatible sessions. Old developer-local data is not
+migrated or silently adopted. No installation should replace a running instance
+without explicit operator authorization.
+
+`tools\daemon-package.ps1 -Output <checkout>\artifacts\daemon-win-x64`
+builds and verifies a standalone self-contained package from an exact clean
+checkout, without installation, certificate or Startup changes.
+The **Daemon package** workflow builds that artifact independently; `daemon-v*`
+tags publish its archive and SHA-256 digest. The archive's runtime can be
+started directly with `Bench.Server.exe --data-dir <private-directory>
+--port <stable-port> --https-certificate <existing-thumbprint>
+--canvas-root <independent-assets-root>` after verifying the archive digest and
+its complete `runtime.json` inventory with the included launcher's
+`Get-BenchRuntime` helper. Source installation creates the separate operator
+selection record; a release archive does not invent local paths or certificate
+configuration.
+
 The finite retained data surface is process/schema description, cached
 `show`/`show-batch` and explicit refresh, bounded `query`, typed
 `update`/`patch`/`state`/`note`/`batch`, `pending`/`save`/`discard`,

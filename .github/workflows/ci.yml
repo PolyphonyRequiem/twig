@@ -32,6 +32,24 @@ jobs:
       - name: Supported solution build (120-second deadline)
         run: python tools/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:1"
 
+      - name: Native authority, lost acknowledgement recovery and independent canvas packages
+        shell: python
+        run: |
+          import subprocess, sys
+          for project, selector in [
+              ("Twig.Providers.Native.Tests", "FullyQualifiedName~NativeProviderTests"),
+              ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests"),
+              ("Twig.Cli.Tests", "FullyQualifiedName~NativeTwigSpineTests"),
+          ]:
+              subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
+                              f"tests/{project}/{project}.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                              "--filter", selector, "--logger", f"trx;LogFileName={project}.trx",
+                              "--results-directory", "artifacts/test-logs/ci/native-authority"], check=True)
+      - name: Standalone daemon installer orchestration (synthetic only)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./tools/test-daemon-install.ps1
+
       - name: Explicit native setup and creation-bound readback
         id: native_setup
         shell: python

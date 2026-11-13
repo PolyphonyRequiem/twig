@@ -1,4 +1,7 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeSourceObservation.IdentityProfiles.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.IdentityProfile!>
+Twig.Infrastructure.Services.NativeSourceObservation.IdentityProfiles.init -> void
+static Twig.Infrastructure.Services.NativeSourceReader.ReadIdentityProfilesAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Collections.Immutable.ImmutableArray<string!> identities, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 static Twig.Infrastructure.Services.NativeConnectionSetup.ResolveUserHome() -> string!
 Twig.Infrastructure.Services.NativeSetupEffectKind.InteractiveSignIn = 19 -> Twig.Infrastructure.Services.NativeSetupEffectKind
 Twig.Infrastructure.Services.NativeLocalRelationshipReview.Outcome.get -> Twig.Infrastructure.Services.NativeLocalRelationshipOutcome?

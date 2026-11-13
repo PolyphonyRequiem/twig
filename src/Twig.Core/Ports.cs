@@ -28,6 +28,8 @@ public sealed record QueryPage(ImmutableArray<WorkItem> Items, ImmutableArray<Re
 public interface IProvider
 {
     ProviderCapabilities Capabilities { get; }
+    Task<Result<ImmutableArray<IdentityProfile>>> ReadIdentityProfilesAsync(Connection connection, ImmutableArray<string> identities, CancellationToken ct)
+        => Task.FromResult(Result<ImmutableArray<IdentityProfile>>.Fail(ErrorCode.Unsupported, "This provider does not expose identity profiles."));
     Task<Result<bool>> ValidateReadAccessAsync(Connection connection, CancellationToken ct)
         => Task.FromResult(Result<bool>.Fail(ErrorCode.Unsupported, "This provider does not expose fresh native read-access validation."));
     Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct);

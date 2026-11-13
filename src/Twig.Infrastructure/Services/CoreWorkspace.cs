@@ -39,6 +39,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             : SnapshotAsync(ct);
     internal Task<Result<bool>> ValidateReadAccessAsync(CancellationToken ct)
         => provider.ValidateReadAccessAsync(connection, ct);
+    internal Task<Result<ImmutableArray<IdentityProfile>>> ReadIdentityProfilesAsync(ImmutableArray<string> identities, CancellationToken ct)
+        => provider.ReadIdentityProfilesAsync(connection, identities, ct);
 
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct, bool includePresentation = false)
         => includePresentation ? provider.DiscoverSchemaAsync(connection, ct, true) : provider.DiscoverSchemaAsync(connection, ct);

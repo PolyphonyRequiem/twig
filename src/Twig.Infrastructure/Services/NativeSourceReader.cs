@@ -26,11 +26,19 @@ public sealed record NativeSourceObservation(NativeSourceStamp Source, StoreSnap
     public NativePlanningSourcesCache PlanningSourcesCache { get; init; } = new(null, null);
     public PlanningBrowse? PlanningBrowse { get; init; }
     public ImmutableArray<PlanningMembership> Memberships { get; init; } = [];
+    public ImmutableArray<IdentityProfile> IdentityProfiles { get; init; } = [];
 }
 
 /// <summary>Request-scoped native reads and explicit local selection/cache updates. No upstream mutations are exposed.</summary>
 public static class NativeSourceReader
 {
+    public static Task<Result<NativeSourceObservation>> ReadIdentityProfilesAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, ImmutableArray<string> identities, CancellationToken ct = default)
+        => expectedSource is null || identities.IsDefaultOrEmpty || identities.Length > 16
+            || identities.Distinct().Count() != identities.Length
+            || identities.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 256 || id.Any(char.IsControl))
+            ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured authority and 1-16 distinct identity IDs are required."))
+            : ReadCoreAsync(workspaceRoot, expectedSource, false, null, null, ct, validateReadAccess: true, profileIds: identities);
     /// <summary>
     /// Reads recorded native data without token acquisition or HTTP unless schema observation is requested.
     /// An expected source refuses identity/store replacement, not ordinary snapshot version changes.
@@ -194,7 +202,8 @@ public static class NativeSourceReader
     private static async Task<Result<NativeSourceObservation>> ReadCoreAsync(string workspaceRoot,
         NativeSourceStamp? expectedSource, bool observeSchema, Action<IServiceCollection>? configure, Selection? selection, CancellationToken ct,
         bool refreshPlanning = false, bool discoverSources = false, BrowseRequest? browse = null, bool validateReadAccess = false,
-        TeamSelection? explicitTeam = null, bool readPlanning = false, bool discoverTeams = false)
+        TeamSelection? explicitTeam = null, bool readPlanning = false, bool discoverTeams = false,
+        ImmutableArray<string> profileIds = default)
     {
         ct.ThrowIfCancellationRequested();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -228,6 +237,13 @@ public static class NativeSourceReader
                 if (!access.IsSuccess) return Refuse(access.Error, "Native online read access could not be validated; no content was released.");
                 if (!access.Value)
                     return Result<NativeSourceObservation>.Fail(ErrorCode.Unavailable, "Native online read access was not established; no content was released.");
+            }
+            ImmutableArray<IdentityProfile> profiles = [];
+            if (!profileIds.IsDefaultOrEmpty)
+            {
+                var result = await handle.Workspace.ReadIdentityProfilesAsync(profileIds, token).ConfigureAwait(false);
+                if (!result.IsSuccess) return Refuse(result.Error, "Native identity profiles could not be read.");
+                profiles = result.Value;
             }
             var snapshot = await handle.Workspace.BenchSnapshotAsync(token).ConfigureAwait(false);
             if (!snapshot.IsSuccess) return Refuse(snapshot.Error, "Native snapshot acquisition failed.");
@@ -361,7 +377,8 @@ public static class NativeSourceReader
             { WorkspaceExclusions = viewRules.Value.Exclusions, SelectedBenchId = selection is null ? context.Value.BenchId : selection.Next,
                 Planning = planning.Value.Metadata, PlanningSources = sourceChoices ?? catalogue.Value.Sources,
                 PlanningSourcesCache = catalogue.Value, PlanningBrowse = browsed,
-                PlanningCalendars = calendars.Value, PlanningTeams = teams, Memberships = memberships.Value });
+                PlanningCalendars = calendars.Value, PlanningTeams = teams, Memberships = memberships.Value,
+                IdentityProfiles = profiles });
 
             async Task<ServiceProvider> ComposeAsync()
             {

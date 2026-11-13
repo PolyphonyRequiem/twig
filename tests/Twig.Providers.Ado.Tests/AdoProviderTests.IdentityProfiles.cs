@@ -29,6 +29,8 @@ public sealed partial class AdoProviderTests
     [InlineData("wrong-id", false)]
     [InlineData("denied", true)]
     [InlineData("invalid-image", true)]
+    [InlineData("wrong-media", true)]
+    [InlineData("oversized-image", true)]
     public async Task IdentityProfilesNeverInventNamesOrAcceptUnverifiedImages(string defect, bool retainName)
     {
         using var f = await Fixture.Create();
@@ -39,6 +41,8 @@ public sealed partial class AdoProviderTests
         profile.DisplayName.ShouldBe(retainName ? "Native Full Name" : null);
         profile.ImageDataUrl.ShouldBeNull();
         profile.Error.ShouldNotBeNullOrWhiteSpace();
+        if (defect == "oversized-image") profile.Error.ShouldContain("bounded payload limit");
+        if (defect == "wrong-media") profile.Error.ShouldBe("Profile photo is not a PNG image.");
         f.Http.ProfileRequests.Count.ShouldBe(retainName ? 2 : 1);
         f.Http.Writes.ShouldBe(0);
     }

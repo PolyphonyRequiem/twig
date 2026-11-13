@@ -118,9 +118,8 @@ public sealed partial class AdoProvider : IProvider, IDisposable
         }, $"ADO returned HTTP {(int)status}; no fallback schema, account, target or retry was used.")
         { Evidence = [$"http:{(int)status}"] });
 
-    private static async Task<byte[]> ResponseBytes(HttpResponseMessage response, CancellationToken ct)
+    private static async Task<byte[]> ResponseBytes(HttpResponseMessage response, CancellationToken ct, int limit = 8 * 1024 * 1024)
     {
-        const int limit = 8 * 1024 * 1024;
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var buffer = new MemoryStream();
         var bytes = new byte[8192];

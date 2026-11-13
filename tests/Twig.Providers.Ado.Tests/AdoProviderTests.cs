@@ -1414,8 +1414,17 @@ public sealed partial class AdoProviderTests
             if (path.Contains("/_apis/graph/Subjects/", StringComparison.Ordinal))
             {
                 ProfileRequests.Add(request.RequestUri);
-                return ProfileDefect == "denied" ? Status(403)
-                    : Json($$"""{"value":"{{(ProfileDefect == "invalid-image" ? Convert.ToBase64String("<svg/>"u8.ToArray()) : ProfilePng)}}"}""");
+                request.RequestUri.Query.ShouldContain("format=png");
+                if (ProfileDefect == "denied") return Status(403);
+                var bytes = ProfileDefect switch
+                {
+                    "invalid-image" => "<svg/>"u8.ToArray(),
+                    "oversized-image" => new byte[Twig.Core.ProfileImage.MaximumBytes + 1],
+                    _ => Convert.FromBase64String(ProfilePng),
+                };
+                var avatarResponse = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
+                avatarResponse.Content.Headers.ContentType = new(ProfileDefect == "wrong-media" ? "text/html" : "image/png");
+                return avatarResponse;
             }
             if (path.EndsWith("/_apis/identities"))
             {

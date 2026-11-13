@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text.Json;
 using Twig.Core;
 
 namespace Twig.Providers.Ado;
@@ -30,8 +29,8 @@ public sealed partial class AdoProvider
                 {
                     if (!Guid.TryParseExact(id, "D", out var value) || value == Guid.Empty || value.ToString("D") != id)
                         throw Wire.Invalid("Profile unavailable: the assignee is not a canonical native identity ID.");
-                    var response = await Get(identityBound, $"_apis/identities?identityIds={Wire.Escape(id)}&queryMembership=None&api-version=7.1", token);
-                    var values = Wire.Rows(response);
+                    var identity = await Get(identityBound, $"_apis/identities?identityIds={Wire.Escape(id)}&queryMembership=None&api-version=7.1", token);
+                    var values = Wire.Rows(identity);
                     if (values.Length != 1 || Wire.Text(values[0], "id") != id)
                         throw Wire.Invalid("The identity service did not return the exact requested identity.");
                     var observedName = Wire.Text(values[0], "providerDisplayName");
@@ -40,14 +39,20 @@ public sealed partial class AdoProvider
                     name = observedName;
                     var descriptor = Wire.Text(values[0], "subjectDescriptor");
                     if (descriptor.Length > 1024) throw Wire.Invalid("Identity descriptor exceeds its bound.");
-                    var avatar = await Get(identityBound,
-                        $"_apis/graph/Subjects/{Wire.Escape(descriptor)}/avatars?size=small&format=png&api-version=7.1", token);
-                    var bytes = avatar.GetProperty("value").GetBytesFromBase64();
+                    using var request = new HttpRequestMessage(HttpMethod.Get, identityBound.Url(
+                        $"_apis/graph/Subjects/{Wire.Escape(descriptor)}/avatars?size=small&format=png&api-version=7.1"));
+                    request.Headers.Authorization = identityBound.Authorization;
+                    request.Headers.Accept.ParseAdd("image/png");
+                    using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+                    if (!response.IsSuccessStatusCode) throw HttpFailure(response.StatusCode);
+                    if (response.Content.Headers.ContentType?.MediaType != "image/png")
+                        throw Wire.Invalid("Profile photo is not a PNG image.");
+                    var bytes = await ResponseBytes(response, token, ProfileImage.MaximumBytes);
                     var image = ProfileImage.Encode(bytes);
                     profiles.Add(image.IsSuccess ? new(id, name, image.Value, null) : new(id, name, null, image.Error.Message));
                 }
                 catch (AdoFailure ex) { profiles.Add(new(id, name, null, ex.Error.Message)); }
-                catch (Exception ex) when (ex is HttpRequestException || Malformed(ex))
+                catch (Exception ex) when (ex is HttpRequestException or IOException || Malformed(ex))
                 { profiles.Add(new(id, name, null, "Identity profile unavailable; no alternate account or target was used.")); }
             }
             return profiles.ToImmutable();

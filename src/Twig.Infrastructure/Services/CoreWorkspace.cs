@@ -39,6 +39,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             : SnapshotAsync(ct);
     internal Task<Result<bool>> ValidateReadAccessAsync(CancellationToken ct)
         => provider.ValidateReadAccessAsync(connection, ct);
+    internal Task<Result<ImmutableArray<IdentityProfile>>> ReadIdentityProfilesAsync(ImmutableArray<string> identities, CancellationToken ct)
+        => provider.ReadIdentityProfilesAsync(connection, identities, ct);
 
     internal Task<Result<ProcessSchema>> SchemaAsync(CancellationToken ct, bool includePresentation = false)
         => includePresentation ? provider.DiscoverSchemaAsync(connection, ct, true) : provider.DiscoverSchemaAsync(connection, ct);
@@ -90,7 +92,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             return matches.Length == 1 ? Result<ItemKey>.Ok(Resolve(stored.Value, matches[0]))
                 : Result<ItemKey>.Fail(ErrorCode.Conflict, "The local UUID alias is absent or ambiguous.");
         }
-        if (connection.Provider.Value == "ado")
+        if (connection.Provider.Value is "ado" or "twig")
             return Result<ItemKey>.Ok(ItemKey.Remote(connection.Provider, connection.ResourceScope,
                 locator.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         if (provider is not GitHubProvider github)
@@ -112,7 +114,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (key.IsLocal) return Result<int>.Ok(CoreHostContext.LocalAlias(key));
         if (!key.BelongsTo(connection))
             return Result<int>.Fail(ErrorCode.Conflict, "Native identity belongs to another connection.");
-        if (connection.Provider.Value == "ado")
+        if (connection.Provider.Value is "ado" or "twig")
             return int.TryParse(key.NativeId, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0
                 ? Result<int>.Ok(id) : Result<int>.Fail(ErrorCode.InvalidInput, "Invalid native ADO ID.");
         var items = snapshot.Items.Where(item => item.Key == key).ToArray();

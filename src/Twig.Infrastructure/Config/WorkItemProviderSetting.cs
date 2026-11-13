@@ -28,6 +28,7 @@ public static class WorkItemProviderSetting
     [
         "ado",
         "github",
+        "twig",
     ];
 
     /// <summary>Returns the canonical token for user input (trimmed, case-insensitive), or null.</summary>

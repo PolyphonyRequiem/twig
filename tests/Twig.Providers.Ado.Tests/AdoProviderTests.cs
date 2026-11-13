@@ -1290,6 +1290,7 @@ public sealed partial class AdoProviderTests
 
     private sealed class TestAccess(Connection connection, IStore store) : AdoAccess
     {
+        internal Uri Organization = new("https://example.test/organization");
         internal bool SawDurableFence;
         internal bool DenyWrite;
         internal string Principal = Fixture.Actor;
@@ -1303,7 +1304,7 @@ public sealed partial class AdoProviderTests
         private sealed class Session(TestAccess owner, Connection connection, IStore store) : AdoSession
         {
             public override Connection Connection => connection;
-            public override Uri OrganizationUrl => new("https://example.test/organization");
+            public override Uri OrganizationUrl => owner.Organization;
             public override string PrincipalId => owner.Principal;
             public override AuthenticationHeaderValue Authorization => new("Bearer", "synthetic");
             public override async Task<Result<AdoWriteAdmission>> AdmitAsync(AdoWriteIntent intent, CancellationToken ct)
@@ -1329,6 +1330,8 @@ public sealed partial class AdoProviderTests
 
     private sealed class NativeHttp : HttpMessageHandler
     {
+        internal string? ProfileDefect;
+        internal List<Uri> ProfileRequests = [];
         internal const string QueryFolder = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
         internal const string FlatQuery = "ffffffff-ffff-ffff-ffff-ffffffffffff";
         internal const string TreeQuery = "11111111-1111-1111-1111-111111111111";
@@ -1408,8 +1411,28 @@ public sealed partial class AdoProviderTests
             var path = Uri.UnescapeDataString(request.RequestUri!.AbsolutePath);
             var query = request.RequestUri.Query;
             ReadAccessPaths.Add(path);
+            if (path.Contains("/_apis/graph/Subjects/", StringComparison.Ordinal))
+            {
+                ProfileRequests.Add(request.RequestUri);
+                request.RequestUri.Query.ShouldContain("format=png");
+                if (ProfileDefect == "denied") return Status(403);
+                var bytes = ProfileDefect switch
+                {
+                    "invalid-image" => "<svg/>"u8.ToArray(),
+                    "oversized-image" => new byte[Twig.Core.ProfileImage.MaximumBytes + 1],
+                    _ => Convert.FromBase64String(ProfilePng),
+                };
+                var avatarResponse = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
+                avatarResponse.Content.Headers.ContentType = new(ProfileDefect == "wrong-media" ? "text/html" : "image/png");
+                return avatarResponse;
+            }
             if (path.EndsWith("/_apis/identities"))
             {
+                if (query.Contains("identityIds=", StringComparison.Ordinal))
+                {
+                    ProfileRequests.Add(request.RequestUri);
+                    return Rows($$"""{"id":"{{(ProfileDefect == "wrong-id" ? Fixture.Process : Fixture.Actor)}}","providerDisplayName":"Native Full Name","subjectDescriptor":"aad.synthetic"}""");
+                }
                 if (ChoiceDefect == "denied") return Status(403);
                 var identity = ChoiceDefect == "invalid" ? "display-name-is-not-an-id" : Fixture.Actor;
                 return Rows($$"""{"id":"{{identity}}","providerDisplayName":"Same display","isActive":true}""");

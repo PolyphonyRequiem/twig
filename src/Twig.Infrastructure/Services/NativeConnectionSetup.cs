@@ -17,6 +17,7 @@ public abstract record NativeSetupTarget;
 public sealed record NativeAdoSetupTarget(string Organization, string Project, string BindingId,
     string? Team = null, string? GitProject = null) : NativeSetupTarget;
 public sealed record NativeGitHubSetupTarget(string Host, string Repository, string Account) : NativeSetupTarget;
+public sealed record NativeTwigSetupTarget : NativeSetupTarget;
 public sealed record NativeFreshSetupRequest(string WorkspaceRoot, NativeSetupTarget Target, string? StoreFile = null);
 
 public enum NativeSetupPhase { Validation, Enrollment, Binding, Initialization, Readback, Cancelled }
@@ -28,6 +29,7 @@ public enum NativeSetupEffectKind
     Attachment, WorktreeRegistration, ProviderTarget, CoreStore, WorkspacePin, WorkspaceMarker,
     CoreRegistration, SourceReadback,
     InteractiveSignIn,
+    NativeAuthority,
 }
 public sealed record NativeSetupEffect(NativeSetupEffectKind Kind, NativeSetupEffectState State);
 public sealed record NativeSetupFailureInfo(NativeSetupPhase Phase, bool Cancelled, ImmutableArray<NativeSetupEffect> Effects);
@@ -132,6 +134,10 @@ public sealed class NativeConnectionSetup
                 case NativeGitHubSetupTarget github:
                     arguments = new(request.WorkspaceRoot, "", "", null, null, "github",
                         github.Host, github.Repository, null, request.StoreFile, github.Account);
+                    break;
+                case NativeTwigSetupTarget:
+                    arguments = new(request.WorkspaceRoot, "", "", null, null, "twig",
+                        null, null, null, request.StoreFile, null);
                     break;
                 default:
                     return effects.Fail<NativeSourceObservation>(new(ErrorCode.InvalidInput, "Choose an explicit ADO binding or named GitHub account; no default was inferred."));

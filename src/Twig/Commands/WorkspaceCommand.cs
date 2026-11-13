@@ -155,7 +155,9 @@ internal sealed class WorkspaceCommand(
                 {
                     ["id"] = RenderCell.Integer(CoreWorkspace.DisplayId(workspace.Connection, snapshot, key).Value),
                     ["localId"] = localKey is not null ? RenderCell.String(localKey.LocalId.ToString("D")) : new("", new RenderValue.Null()),
-                    ["title"] = RenderCell.String(Text(github ? Twig.Providers.GitHub.GitHubProvider.Title : "System.Title")),
+                    ["title"] = RenderCell.String(Text(workspace.Connection.Provider.Value switch {
+                        "github" => Twig.Providers.GitHub.GitHubProvider.Title,
+                        "twig" => Twig.Providers.Native.NativeProvider.Title, _ => "System.Title" })),
                     ["state"] = RenderCell.String(Text(type.StateField)),
                     ["type"] = RenderCell.String(draft?.Type ?? baseline!.Type),
                     ["source"] = RenderCell.String(draft is null ? "cached" : key.IsLocal ? "local-draft"

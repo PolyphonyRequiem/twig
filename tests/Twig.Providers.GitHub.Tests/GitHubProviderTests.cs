@@ -793,6 +793,8 @@ public sealed partial class GitHubProviderTests
 
     private sealed class NativeHttp : HttpMessageHandler
     {
+        internal string? ProfileDefect;
+        internal int AvatarReads;
         internal string Owner = "O1", RepositoryId = "R1", Actor = "A1";
         internal bool Native = true, ForeignResource;
         internal string? Defect, WriteFailure, LastPayload, MutationOnlyRelation;
@@ -839,6 +841,17 @@ public sealed partial class GitHubProviderTests
         private JsonObject Peer(string id) => new() { ["id"] = id, ["repository"] = Repo() };
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.Method == HttpMethod.Get)
+            {
+                request.RequestUri!.Host.ShouldBe("avatars.githubusercontent.com");
+                request.Headers.Authorization.ShouldBeNull("Public avatar requests must never receive the provider credential.");
+                AvatarReads++;
+                if (ProfileDefect == "redirect")
+                    return new(HttpStatusCode.Redirect) { Headers = { Location = new("https://untrusted.test/photo") } };
+                return new(HttpStatusCode.OK) { Content = new ByteArrayContent(ProfileDefect == "oversized"
+                    ? new byte[Twig.Core.ProfileImage.MaximumBytes + 1]
+                    : ProfileDefect == "svg" ? "<svg/>"u8.ToArray() : Convert.FromBase64String(ProfilePng)) };
+            }
             request.RequestUri!.AbsoluteUri.ShouldBe("https://api.github.com/graphql");
             request.Headers.Authorization!.Parameter.ShouldBe("synthetic-token");
             var raw = await request.Content!.ReadAsStringAsync(cancellationToken);
@@ -851,7 +864,11 @@ public sealed partial class GitHubProviderTests
                 return Write(root, raw);
             if (Defect == "partial-graphql") return Json(new JsonObject { ["data"] = new JsonObject(), ["errors"] = new JsonArray(new JsonObject { ["message"] = "denied" }) });
             JsonObject data;
-            if (query.StartsWith("query($id: ID!, $count: Int!, $query: String!)", StringComparison.Ordinal))
+            if (query.Contains("avatarUrl(size: 40)", StringComparison.Ordinal))
+                data = new() { ["node"] = new JsonObject { ["__typename"] = "User",
+                    ["id"] = ProfileDefect == "wrong-id" ? "another-user" : id, ["name"] = "Native Full Name", ["login"] = "native-login",
+                    ["avatarUrl"] = ProfileDefect == "untrusted" ? "https://untrusted.test/photo" : "https://avatars.githubusercontent.com/u/42?s=40" } };
+            else if (query.StartsWith("query($id: ID!, $count: Int!, $query: String!)", StringComparison.Ordinal))
             {
                 if (ChoiceDefect == "denied") return new(HttpStatusCode.Forbidden);
                 var member = query.Contains("assignableUsers(first:", StringComparison.Ordinal) ? "assignableUsers"

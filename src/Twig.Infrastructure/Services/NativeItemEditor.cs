@@ -47,7 +47,7 @@ public sealed partial class NativeItemEditor : IDisposable
     internal static async Task<Result<NativeItemEditor>> OpenAsync(string root, Guid benchId,
         NativeSourceStamp expected, Action<IServiceCollection>? configure, CancellationToken ct, bool prepareScope = true)
     {
-        if (expected.Connection.Provider.Value is not ("ado" or "github"))
+        if (expected.Connection.Provider.Value is not ("ado" or "github" or "twig"))
             return Result<NativeItemEditor>.Fail(ErrorCode.Unsupported, "This provider has no qualified native item editor.");
         if (!Path.IsPathFullyQualified(root) || Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) != root)
             return Result<NativeItemEditor>.Fail(ErrorCode.InvalidInput, "An exact native workspace is required.");

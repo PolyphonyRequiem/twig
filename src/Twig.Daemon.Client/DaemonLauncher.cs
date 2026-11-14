@@ -22,8 +22,19 @@ public static class DaemonLauncher
                 errors == SslPolicyErrors.None && peer?.Thumbprint == certificate.Thumbprint
         };
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(3), MaxResponseContentBufferSize = 4096 };
+        async Task<bool> Refused(IPAddress address)
+        {
+            using var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try { await socket.ConnectAsync(address, port, token); return false; }
+            catch (SocketException error) when (error.SocketErrorCode == SocketError.ConnectionRefused)
+            { return true; }
+        }
         async Task<bool> Ready()
         {
+            // Windows can take two seconds per refused address. Check both families concurrently,
+            // and never turn a timeout, filtered socket or reachable foreign listener into absence.
+            if ((await Task.WhenAll(Refused(IPAddress.Loopback), Refused(IPAddress.IPv6Loopback))).All(refused => refused))
+                return false;
             HttpResponseMessage response;
             try { response = await client.GetAsync($"https://localhost:{port}/api/v1/owner-status", token); }
             catch (HttpRequestException error) when (error.HttpRequestError == HttpRequestError.ConnectionError

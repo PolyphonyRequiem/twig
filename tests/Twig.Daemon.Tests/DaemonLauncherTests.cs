@@ -1,4 +1,8 @@
 using Bench.Server;
+using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Shouldly;
 using Xunit;
 
@@ -15,6 +19,23 @@ public sealed class DaemonLauncherTests : IDisposable
         await DaemonLauncher.EnsureWithProbeAsync(root, () => Task.FromResult(true),
             () => throw new InvalidOperationException("Must not start"), default);
         Directory.GetFiles(root).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Closed_loopback_listener_reaches_the_start_boundary()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        using var key = RSA.Create(2048);
+        using var certificate = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1).CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(1));
+        var starts = 0;
+        var failure = await Should.ThrowAsync<InvalidOperationException>(() => DaemonLauncher.EnsureRunningAsync(
+            root, port, certificate, () => { starts++; throw new InvalidOperationException("Owned start boundary"); }, default));
+        failure.Message.ShouldBe("Owned start boundary");
+        starts.ShouldBe(1);
     }
 
     [Fact]

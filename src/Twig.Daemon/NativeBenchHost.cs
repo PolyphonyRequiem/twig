@@ -89,6 +89,11 @@ public static partial class NativeBenchHost
             }
         });
         if (options.WindowsSignIn) { app.UseAuthentication(); app.UseAuthorization(); }
+        if (options.WindowsSignIn)
+            app.MapGet("/api/v1/owner-status", (HttpContext context) => Write(context,
+                new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1"])))
+                .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
                 CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1"])));

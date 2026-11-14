@@ -11,6 +11,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Bench.Service.Tests" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
+    <ProjectReference Include="..\Twig.Daemon.Client\Twig.Daemon.Client.csproj" />
     <ProjectReference Include="..\Twig.Daemon.Infrastructure\Twig.Daemon.Infrastructure.csproj" />
   </ItemGroup>
   <Target Name="DaemonSourceMetadata" BeforeTargets="GetAssemblyAttributes" DependsOnTargets="InitializeSourceControlInformation">

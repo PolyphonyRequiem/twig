@@ -64,15 +64,24 @@ installation and release lifecycle. Its `Bench.*` assembly names are retained;
 the executable is currently `Bench.Server.exe`. Presentation assets and their
 licenses live in the separate
 [twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas) package.
-The daemon can run without that package and serves it, when installed and fully
-hash/protocol verified, from the same authenticated localhost origin as its API.
-There is no second UI HTTP service or remote listener.
+The daemon can run without that package. Its optional direct static routes serve
+fully hash/protocol-verified assets for diagnostics. Normal canvas opens use a
+separately packaged presentation host, which renders before daemon readiness and
+forwards tightly bounded requests from one browser origin. The daemon remains
+the durable authority; no remote listener or remote authentication is introduced.
+The pure `Twig.Daemon.Client` library shares package verification and the
+same-machine startup protocol without importing daemon/provider composition.
 
 On Windows, `tools\daemon-install.ps1` requires an existing private data directory,
 explicit non-default port and existing trusted CurrentUser localhost certificate
 thumbprint. It publishes only the daemon and selects an immutable version under
 `%LOCALAPPDATA%\Twig\Daemon`; `-RegisterStartup` is explicit opt-in.
-`tools\daemon-launch.ps1` starts that selected verified runtime.
+`tools\daemon-launch.ps1` starts that selected verified runtime. `-EnsureRunning`
+is the canvas startup boundary: authenticate the exact Windows owner, verify
+trusted pinned TLS, durable daemon identity and protocol, then reuse the existing
+process. Only actual connection refusal permits serialized startup with the
+exclusive instance guard. An existing unavailable process or uncertain startup
+is never restarted/replayed. Canvas close never stops the shared daemon.
 `-CanvasInstallRoot` selects the independent asset root, defaulting to
 `%LOCALAPPDATA%\Twig\Canvas`. UI-only installs never invoke the daemon installer,
 restart it or invalidate compatible sessions. Old developer-local data is not

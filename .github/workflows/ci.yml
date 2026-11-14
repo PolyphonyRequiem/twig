@@ -38,7 +38,7 @@ jobs:
           import subprocess, sys
           for project, selector in [
               ("Twig.Providers.Native.Tests", "FullyQualifiedName~NativeProviderTests"),
-              ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests"),
+              ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests|FullyQualifiedName~DaemonLauncherTests"),
               ("Twig.Cli.Tests", "FullyQualifiedName~NativeTwigSpineTests"),
           ]:
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",

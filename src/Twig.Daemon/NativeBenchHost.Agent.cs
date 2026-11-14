@@ -4,13 +4,14 @@ using Bench.Application;
 using Bench.Infrastructure;
 using Twig.Core;
 using Twig.Infrastructure.Services;
+using Twig.Store.Sqlite;
 using static Bench.Server.BenchHost;
 using NativeBench = Twig.Core.Bench;
 
 namespace Bench.Server;
 
 internal sealed record NativeAgentGrant(Guid Bench, Guid Profile, NativePanelContext Anchor,
-    NativePanelContext? Population, NativePanelContext[] Sources, bool Draft, bool Membership, DateTimeOffset Expires)
+    NativePanelContext? Population, NativePanelContext[] Sources, bool Draft, bool Membership, DateTimeOffset Expires, bool Rules = false)
 {
     internal CancellationTokenSource Lifetime { get; } = new();
 }
@@ -47,7 +48,7 @@ public static partial class NativeBenchHost
         Func<HttpContext, Guid, Task<ViewSession>> human)
     {
         static AgentPermissionsDto Permissions(NativeAgentGrant? grant) => grant is null
-            ? new(false, false, false, null, null) : new(true, grant.Draft, grant.Membership, grant.Bench, grant.Expires);
+            ? new(false, false, false, null, null) : new(true, grant.Draft, grant.Membership, grant.Bench, grant.Expires, grant.Rules);
         NativeAgentGrant Access(ViewSession session, string permission = "read")
         {
             if (!session.Canvas || !session.OwnerAuthenticated || session.Revoked || session.NativeContentBlocked)
@@ -65,6 +66,8 @@ public static partial class NativeBenchHost
                         || grant.Sources.Any(source => !session.DisplayContexts.TryGetValue(source.Stamp.Connection, out var current)
                             || !ReferenceEquals(source, current)))
                         throw new HttpFailure(403, "AgentScopeChanged", "The view's connections or profile changed. Review and grant access again.");
+                if (permission == "rules" && !grant.Rules)
+                    throw new HttpFailure(403, "AgentPermissionRequired", "Allow saved Bench query-rule changes in Connections first. Pin/unpin consent is not rule-edit consent.");
                 if (permission == "draft" && !grant.Draft || permission == "membership" && !grant.Membership)
                     throw new HttpFailure(403, "AgentPermissionRequired", permission == "draft"
                         ? "Allow local Plan drafting in Connections first." : "Allow Bench pin/unpin changes in Connections first.");
@@ -176,7 +179,7 @@ public static partial class NativeBenchHost
         }
 
         async Task<NativeAgentGrant> GrantAccess(ViewSession session, Guid benchId, bool draft, bool membership,
-            long generation, CancellationToken ct, bool automatic = false)
+            long generation, CancellationToken ct, bool automatic = false, bool rules = false)
         {
             if (!session.Canvas) throw new HttpFailure(403, "CanvasRequired", "Agent permission belongs to this canvas view only.");
             var anchor = Context(session);
@@ -187,7 +190,7 @@ public static partial class NativeBenchHost
             if (sources.Length > 32) throw new HttpFailure(422, "Unsupported", "Agent access is limited to 32 admitted sources.");
             var granted = new NativeAgentGrant(benchId, session.ProfileGeneration, anchor, session.PopulationContext, sources,
                 draft, membership, new[] { session.Expires, session.PresentationExpires,
-                    DateTimeOffset.UtcNow.AddMinutes(30) }.Min());
+                    DateTimeOffset.UtcNow.AddMinutes(30) }.Min(), rules);
             lock (session.Agent)
             {
                 if (generation != session.Agent.Generation || automatic && !session.Agent.AutomaticAccess)
@@ -276,8 +279,8 @@ public static partial class NativeBenchHost
         {
             var session = await human(http, id);
             var body = await Body<AgentPermissionsBody>(http);
-            if (!body.Read && (body.Draft || body.Membership))
-                throw new HttpFailure(400, "InvalidInput", "Drafting and pin/unpin permissions require read permission.");
+            if (!body.Read && (body.Draft || body.Membership || body.Rules))
+                throw new HttpFailure(400, "InvalidInput", "Drafting, pin/unpin and saved rule permissions require read permission.");
             long generation;
             lock (session.Agent)
             {
@@ -285,7 +288,7 @@ public static partial class NativeBenchHost
                 generation = session.Agent.Invalidate();
             }
             if (body.Read)
-                _ = await GrantAccess(session, body.BenchId, body.Draft, body.Membership, generation, http.RequestAborted);
+                _ = await GrantAccess(session, body.BenchId, body.Draft, body.Membership, generation, http.RequestAborted, rules: body.Rules);
             await Write(http, new AgentUiDto(Permissions(session.Agent.Grant), null));
         });
         app.MapPut("/api/v1/views/{id:guid}/agent/selection", async (HttpContext http, Guid id) =>
@@ -363,6 +366,72 @@ public static partial class NativeBenchHost
             var item = source.Items.Single(value => value.Id == body.ItemId);
             await Write(http, new AgentItemDto(captured.Id, body.SourceId, item with { Pin = null },
                 source.Types?.SingleOrDefault(type => type.Reference == item.Type)));
+        });
+        app.MapPost("/api/v1/views/{id:guid}/agent/rules", async (HttpContext http, Guid id) =>
+        {
+            var (session, grant) = await Agent(http, id);
+            var body = await Body<AgentPageBody>(http);
+            if (body.Offset < 0 || body.Limit is < 1 or > 100)
+                throw new HttpFailure(400, "InvalidInput", "Use a nonnegative offset and a page size from 1 to 100.");
+            var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted);
+            var admitted = captured.Definition.Selectors.Select((selector, index) => (Selector: selector, Index: index,
+                Source: grant.Sources.SingleOrDefault(source => source.Stamp.Connection == selector.Connection)))
+                .Where(rule => rule.Source is not null).ToArray();
+            var page = admitted.Skip(body.Offset).Take(body.Limit).Select(rule => new AgentRuleDto(rule.Index,
+                rule.Source!.Source.Id, rule.Selector.Kind.ToString(), BenchCodec.SerializeSelectors([rule.Selector]))).ToArray();
+            if (page.Sum(rule => (long)System.Text.Encoding.UTF8.GetByteCount(rule.Selector)) > 262144)
+                throw new HttpFailure(413, "RulePageTooLarge", "Read a smaller rule page. No selectors were truncated or omitted from the saved Bench.");
+            await Write(http, new AgentRulesDto(captured.Id, page, admitted.Length,
+                body.Offset + page.Length < admitted.Length ? body.Offset + page.Length : null,
+                captured.Definition.Selectors.Length - admitted.Length));
+        });
+        app.MapPost("/api/v1/views/{id:guid}/agent/query-rule", async (HttpContext http, Guid id) =>
+        {
+            var (session, grant) = await Agent(http, id, "rules");
+            var body = await Body<AgentQueryRuleBody>(http, 524288);
+            if (body.RuleIndex < 0 || System.Text.Encoding.UTF8.GetByteCount(body.Selector) > 262144)
+                throw new HttpFailure(400, "InvalidInput", "Use an observed rule index and a bounded single query selector.");
+            var replacements = BenchCodec.DeserializeSelectors(body.Selector);
+            if (replacements.Count != 1 || replacements[0].Kind != SelectorKind.Query)
+                throw new HttpFailure(400, "InvalidInput", "Supply exactly one native query selector; pins and subtrees are not query edits.");
+            await session.Agent.Gate.WaitAsync(http.RequestAborted);
+            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, grant.Lifetime.Token);
+            var attempted = false;
+            try
+            {
+                var captured = await Snapshot(session, grant, body.SnapshotId, lifetime.Token);
+                var source = Source(grant, body.SourceId);
+                if (body.RuleIndex >= captured.Definition.Selectors.Length
+                    || captured.Definition.Selectors[body.RuleIndex] is not { Kind: SelectorKind.Query } original
+                    || original.Connection != source.Stamp.Connection
+                    || replacements[0].Connection != source.Stamp.Connection)
+                    throw new HttpFailure(400, "InvalidInput", "Replace only an observed query in its exact admitted connection. No pins, subtrees or other connections were changed.");
+                if (BenchCodec.SerializeSelectors([original]) == BenchCodec.SerializeSelectors(replacements))
+                {
+                    await Write(http, new AgentChangedDto(false, false, false, "The saved query is already identical."));
+                    return;
+                }
+                _ = await Snapshot(session, grant, captured.Id, lifetime.Token);
+                attempted = true;
+                _ = Require(await panel.SaveAsync(new NativeBench(grant.Bench, captured.Definition.Name,
+                    captured.Definition.Selectors.SetItem(body.RuleIndex, replacements[0])), captured.Definition.Revision, lifetime.Token));
+                await Write(http, new AgentChangedDto(true, false, true,
+                    "Saved one shared Bench query rule. Membership is recomputed from the saved query, not a display filter. Other rules, pins, subtrees and drafts were retained; no tracker item was changed. Read fresh context."));
+            }
+            catch (OperationCanceledException) when (attempted)
+            {
+                throw new HttpFailure(504, "Indeterminate", "The local rule save was interrupted. Read fresh saved rules before another edit; do not replay blindly. No tracker mutation was requested.");
+            }
+            finally
+            {
+                if (attempted)
+                {
+                    session.Agent.Snapshot = null;
+                    session.Plan.Invalidate();
+                    updates.Publish(0);
+                }
+                session.Agent.Gate.Release();
+            }
         });
         app.MapPost("/api/v1/views/{id:guid}/agent/pin", async (HttpContext http, Guid id) =>
         {

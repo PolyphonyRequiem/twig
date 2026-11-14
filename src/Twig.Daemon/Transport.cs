@@ -72,13 +72,16 @@ public sealed record ContextBody(string Root);
 public sealed record IdentityProfilesBody(Guid SourceId, string[] Identities);
 public sealed record PopulationContextBody(string? Root);
 public sealed record SelectionBody(Guid? ExpectedBenchId, Guid? BenchId);
-public sealed record AgentPermissionsBody(Guid BenchId, bool Read, bool Draft, bool Membership);
-public sealed record AgentPermissionsDto(bool Read, bool Draft, bool Membership, Guid? BenchId, DateTimeOffset? ExpiresAt);
+public sealed record AgentPermissionsBody(Guid BenchId, bool Read, bool Draft, bool Membership, bool Rules = false);
+public sealed record AgentPermissionsDto(bool Read, bool Draft, bool Membership, Guid? BenchId, DateTimeOffset? ExpiresAt, bool Rules = false);
 public sealed record AgentSelectionBody(Guid BenchId, Guid? SourceId, string? ItemId);
 public sealed record AgentSnapshotBody(Guid SnapshotId);
 public sealed record AgentPageBody(Guid SnapshotId, int Offset = 0, int Limit = 50);
 public sealed record AgentItemBody(Guid SnapshotId, Guid SourceId, string ItemId);
 public sealed record AgentPinBody(Guid SnapshotId, Guid SourceId, string Locator);
+public sealed record AgentQueryRuleBody(Guid SnapshotId, Guid SourceId, int RuleIndex, string Selector);
+public sealed record AgentRuleDto(int RuleIndex, Guid SourceId, string Kind, string Selector);
+public sealed record AgentRulesDto(Guid SnapshotId, AgentRuleDto[] Rules, int Total, int? NextOffset, int UnadmittedRuleCount);
 public sealed record AgentStageBody(Guid SnapshotId, Guid SourceId, string ItemId, FieldDto[] Fields);
 public sealed record AgentConnectionDto(Guid SourceId, string Provider, string Label, bool LabelAvailable,
     string WorkspaceRoot, string PrincipalId, bool Viewing, bool Population, string State,
@@ -210,6 +213,8 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(AgentPageBody))]
 [JsonSerializable(typeof(AgentItemBody))]
 [JsonSerializable(typeof(AgentPinBody))]
+[JsonSerializable(typeof(AgentQueryRuleBody))]
+[JsonSerializable(typeof(AgentRulesDto))]
 [JsonSerializable(typeof(AgentStageBody))]
 [JsonSerializable(typeof(AgentContextDto))]
 [JsonSerializable(typeof(AgentConnectionsDto))]

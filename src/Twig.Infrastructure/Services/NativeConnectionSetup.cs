@@ -19,6 +19,7 @@ public sealed record NativeAdoSetupTarget(string Organization, string Project, s
 public sealed record NativeGitHubSetupTarget(string Host, string Repository, string Account) : NativeSetupTarget;
 public sealed record NativeTwigSetupTarget : NativeSetupTarget;
 public sealed record NativeFreshSetupRequest(string WorkspaceRoot, NativeSetupTarget Target, string? StoreFile = null);
+public sealed record NativeManagedSetupResult(string WorkspaceRoot, NativeSourceObservation Observation);
 
 public enum NativeSetupPhase { Validation, Enrollment, Binding, Initialization, Readback, Cancelled }
 public enum NativeSetupEffectState { Possible, Confirmed }
@@ -30,6 +31,7 @@ public enum NativeSetupEffectKind
     CoreRegistration, SourceReadback,
     InteractiveSignIn,
     NativeAuthority,
+    ManagedWorkspace,
 }
 public sealed record NativeSetupEffect(NativeSetupEffectKind Kind, NativeSetupEffectState State);
 public sealed record NativeSetupFailureInfo(NativeSetupPhase Phase, bool Cancelled, ImmutableArray<NativeSetupEffect> Effects);
@@ -48,12 +50,14 @@ public sealed class NativeConnectionSetup
     private readonly Func<LoopbackPkceFlow> pkce;
     private readonly CoreTransportOverride? transport;
     private readonly IBoundedProcessRunner? processes;
+    private readonly string? managedRoot;
 
     public NativeConnectionSetup(string metadataHome)
     {
         if (string.IsNullOrWhiteSpace(metadataHome) || !Path.IsPathFullyQualified(metadataHome))
             throw new ArgumentException("An explicit absolute native metadata home is required.", nameof(metadataHome));
         var home = Path.GetFullPath(metadataHome);
+        managedRoot = Path.Combine(home, "sources");
         bindings = effects => new ConnectionBindingService(home, setupEffects: effects);
         ownsBindings = true;
         pkce = () => new LoopbackPkceFlow();
@@ -112,8 +116,52 @@ public sealed class NativeConnectionSetup
     /// </summary>
     public async Task<Result<NativeSourceObservation>> InitializeFreshAsync(NativeFreshSetupRequest request,
         CancellationToken ct = default)
+        => await InitializeFreshAsync(request, new NativeSetupEffects(), ct).ConfigureAwait(false);
+
+    /// <summary>Creates a private client context without modifying a source checkout. Native authority remains owner-wide.</summary>
+    public async Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target,
+        CancellationToken ct = default)
     {
         var effects = new NativeSetupEffects();
+        try
+        {
+            if (managedRoot is null || target is not (NativeTwigSetupTarget or NativeGitHubSetupTarget))
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unsupported, "Managed setup supports explicit Twig and GitHub connections only."));
+            if (target is NativeGitHubSetupTarget github
+                && (!GitHubWorkspaceScope.TryCreate(new GitHubConfig { Host = github.Host, Repository = github.Repository }, out _, out _)
+                    || string.IsNullOrWhiteSpace(github.Account) || github.Account.StartsWith('-')
+                    || github.Account.Any(char.IsWhiteSpace) || github.Account.Any(char.IsControl)))
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose explicit GitHub coordinates and a named account."));
+            ct.ThrowIfCancellationRequested();
+            for (var path = managedRoot; path is not null; path = Path.GetDirectoryName(path))
+                if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.PolicyViolation, "Managed connection storage cannot traverse a linked directory."));
+            var root = Path.Combine(managedRoot, Guid.NewGuid().ToString("N"));
+            effects.Phase = NativeSetupPhase.Initialization;
+            effects.Before(NativeSetupEffectKind.ManagedWorkspace);
+            Directory.CreateDirectory(managedRoot);
+            using var reservation = new FileStream(root + ".lock", FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            if (Path.Exists(root)) throw new IOException("The new managed context already exists.");
+            // A private Git anchor is a client-cache implementation detail, never a native source or Bench identity.
+            var initialized = await new BoundedProcessRunner().RunAsync("git", ["init", "--quiet", "--template=", root],
+                TimeSpan.FromSeconds(10), 4096, ct,
+                ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_TEMPLATE_DIR"]).ConfigureAwait(false);
+            if (initialized.Outcome != BoundedProcessOutcome.Exited || initialized.ExitCode != 0)
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unavailable,
+                    "The private connection context could not be initialized. Possible local effects remain; setup was not retried."));
+            effects.Confirm(NativeSetupEffectKind.ManagedWorkspace);
+            var observed = await InitializeFreshAsync(new(root, target), effects, ct).ConfigureAwait(false);
+            return observed.IsSuccess ? Result<NativeManagedSetupResult>.Ok(new(root, observed.Value))
+                : Result<NativeManagedSetupResult>.Fail(observed.Error);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return effects.Cancel<NativeManagedSetupResult>(); }
+        catch (Exception ex) when (NativeSetupEffects.IsExpected(ex)) { return effects.Exception<NativeManagedSetupResult>(ex); }
+    }
+
+    private async Task<Result<NativeSourceObservation>> InitializeFreshAsync(NativeFreshSetupRequest request,
+        NativeSetupEffects effects, CancellationToken ct)
+    {
         IConnectionBindingService? resolved = null;
         try
         {

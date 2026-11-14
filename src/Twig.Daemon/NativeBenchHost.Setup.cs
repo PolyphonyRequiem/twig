@@ -3,6 +3,7 @@ using Bench.Infrastructure;
 using Twig.Core;
 using Twig.Infrastructure.Services;
 using static Bench.Server.BenchHost;
+using NativeBench = Twig.Core.Bench;
 
 namespace Bench.Server;
 
@@ -41,9 +42,159 @@ public static partial class NativeBenchHost
             "Setup was cancelled or its view changed. Possible native effects remain; nothing was replayed.")
     };
 
-    private static void MapSetup(WebApplication app, INativeConnectionSetupGateway? gateway, ViewSessions sessions,
+    private static void MapSetup(WebApplication app, INativeConnectionSetupGateway? gateway, NativePanel panel, ViewSessions sessions,
         CatalogChanges updates, Func<HttpContext, Guid, Task<ViewSession>> authorize)
     {
+        app.MapGet("/api/v1/views/{id:guid}/connections", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            if (session.Setup.Operation?.Work is { IsCompleted: true } work) await work;
+            BenchConnectionsDto value;
+            lock (session.Agent)
+            {
+                var request = session.Agent.ConnectionRequest;
+                var operation = request is not null && session.Setup.Operation?.Current.ConnectionRequestId == request.Value.RequestId
+                    ? session.Setup.Operation.Current : null;
+                value = new(request?.Value, operation);
+            }
+            await Write(http, value);
+        });
+        app.MapPost("/api/v1/views/{id:guid}/connections/request", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<ConnectionTargetBody>(http);
+            var library = Require(await panel.ListAsync(http.RequestAborted));
+            var bench = library.Benches.SingleOrDefault(value => value.Id == body.BenchId);
+            if (bench is null || bench.Revision != body.BenchRevision
+                || Require(await panel.ReadSelectionAsync(Context(session), http.RequestAborted)).SelectedBenchId != body.BenchId)
+                throw new HttpFailure(409, "BenchChanged", "Choose the current Bench and review its saved revision before adding a connection.");
+            await Write(http, PrepareConnectionRequest(session, bench, body.Provider, body.Repository).Value);
+        });
+        app.MapPost("/api/v1/views/{id:guid}/connections/cancel", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<ConnectionRequestBody>(http);
+            bool cancelSetup;
+            lock (session.Agent)
+            {
+                if (session.Agent.ConnectionRequest is not { } request || request.Value.RequestId != body.RequestId)
+                    throw new HttpFailure(409, "ConnectionRequestChanged", "The connection request was replaced or is unavailable.");
+                request.Lifetime.Cancel();
+                request.Value = request.Value with { State = "Cancelled" };
+                cancelSetup = session.Setup.Operation?.Current.ConnectionRequestId == body.RequestId;
+            }
+            if (cancelSetup) session.Setup.Invalidate();
+            updates.PublishAgent(session.Id);
+            await Write(http, new Ack());
+        });
+        app.MapPost("/api/v1/views/{id:guid}/connections/approve", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<ConnectionApprovalBody>(http);
+            var request = PendingConnectionRequest(session, body.RequestId);
+            if (request.Value.State != "Requested")
+                throw new HttpFailure(409, "ConnectionSetupAlreadyStarted", "Observe the original setup. It cannot be approved or dispatched twice.");
+            _ = await CheckConnectionRequestAsync(panel, session, request, http.RequestAborted);
+            NativeSetupTarget target;
+            if (request.Value.Provider == "github")
+            {
+                RequiredText(body.Account ?? "", "Choose the named GitHub account. The active account is never inferred.", 128);
+                target = new NativeGitHubSetupTarget("github.com", request.Value.Repository!, body.Account!);
+            }
+            else
+            {
+                if (body.Account is not null) throw new HttpFailure(400, "InvalidInput", "A native Twig connection does not use a GitHub account.");
+                target = new NativeTwigSetupTarget();
+            }
+            await Start(http, session, session.Setup.Epoch, "Connection setup", async (operation, ct) =>
+            {
+                _ = await CheckConnectionRequestAsync(panel, session, request, ct);
+                var result = await Gateway().InitializeManagedAsync(target, ct);
+                if (!result.IsSuccess) return Failed(operation.Current, result.Error);
+                _ = await CheckConnectionRequestAsync(panel, session, request, ct);
+                var observed = result.Value.Observation;
+                if (observed.Source.Connection.Provider.Value != request.Value.Provider
+                    || observed.Schema is not { IsSuccess: true } schema || schema.Value.Connection != observed.Source.Connection)
+                    return operation.Current with { Status = "Failed", Error = new("SetupReadbackUnavailable",
+                        "Setup did not return the exact requested provider and creation-bound schema. No source was admitted.") };
+                return operation.Current with { Status = "Ready", Source = new(result.Value.WorkspaceRoot,
+                    observed.Source, schema.Value.Connection, observed.SchemaObservedAt) };
+            }, request);
+        });
+        app.MapPost("/api/v1/views/{id:guid}/connections/add", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<ConnectionAdmissionBody>(http);
+            if (!body.IncludeAll)
+                throw new HttpFailure(400, "ConnectionRuleConsentRequired", "Explicitly approve adding this connection's all-items rule to the saved Bench. It is not a display filter.");
+            await session.Agent.Gate.WaitAsync(http.RequestAborted);
+            var attempted = false;
+            NativeConnectionRequest? admitting = null;
+            var completed = false;
+            try
+            {
+                var request = PendingConnectionRequest(session, body.RequestId);
+                admitting = request;
+                if (request.Value.State != "Ready")
+                    throw new HttpFailure(409, "ConnectionNotReady", "Only an unattempted, verified connection admission can proceed. Observe the saved Bench; no admission was replayed.");
+                using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, request.Lifetime.Token);
+                var ct = lifetime.Token;
+                var definition = await CheckConnectionRequestAsync(panel, session, request, ct);
+                var operation = Original(session, body.OperationId);
+                if (operation.Current.ConnectionRequestId != body.RequestId || operation.Work is not { IsCompletedSuccessfully: true }
+                    || operation.Current is not { Status: "Ready", Pending: false, Source: { } source })
+                    throw new HttpFailure(409, "ConnectionNotReady", "Observe the exact original setup until verified readback is Ready.");
+                if (session.Editor.Ticket != Guid.Empty || session.Plan.Operation?.Work is { IsCompleted: false })
+                    throw new HttpFailure(409, "EditorBusy", "Finish the current editor or Plan operation before changing Bench membership.");
+                var opened = ConnectionObservation(await panel.OpenAsync(source.WorkspaceRoot, ct), app.Logger);
+                if (opened.Stamp != source.Source || opened.Stamp.Connection != source.SchemaConnection)
+                    throw new HttpFailure(409, "SourceChanged", "The prepared source or principal changed. No admission or Bench rule was saved.");
+                _ = ConnectionObservation(await panel.ValidateDisplayAccessAsync(opened, ct), app.Logger);
+                _ = await CheckConnectionRequestAsync(panel, session, request, ct);
+                var changed = !definition.Selectors.Any(selector => selector.Connection == opened.Stamp.Connection);
+                var retained = sessions.ReadState(session);
+                attempted = true;
+                request.Value = request.Value with { State = "Adding" };
+                if (changed)
+                {
+                    _ = BenchDefinitionResult(await panel.SaveAsync(new NativeBench(definition.Id, definition.Name,
+                        definition.Selectors.Add(new(SelectorKind.Query, query: new(QueryKind.All),
+                            connection: opened.Stamp.Connection))), definition.Revision, ct));
+                }
+                ct.ThrowIfCancellationRequested();
+                _ = PendingConnectionRequest(session, request.Value.RequestId);
+                lock (session)
+                    session.DisplayContexts[opened.Stamp.Connection] = opened;
+                _ = sessions.SaveState(session, new(retained.Revision, retained.Choices with
+                {
+                    ViewingRoot = request.Anchor.Root, AddRoot = request.Population?.Root,
+                    BenchId = definition.Id,
+                    DisplayRoots = retained.Choices.DisplayRoots.Append(opened.Root).Distinct(ViewSession.PathComparer).ToArray(),
+                }));
+                session.Agent.Invalidate();
+                session.Plan.Invalidate();
+                request.Value = request.Value with { State = "Added" };
+                session.Agent.ConnectionRequest = request;
+                completed = true;
+                updates.Publish(0);
+                await Write(http, new ConnectionAddedDto(request.Value, opened.Root, changed));
+            }
+            catch (OperationCanceledException) when (attempted)
+            {
+                throw new HttpFailure(504, "Indeterminate", "The local Bench save may have completed. Read its saved rules before another action; do not replay admission.");
+            }
+            finally
+            {
+                if (attempted && !completed && admitting is not null)
+                {
+                    admitting.Value = admitting.Value with { State = "Indeterminate" };
+                    session.Agent.Snapshot = null;
+                    session.Plan.Invalidate();
+                    updates.Publish(0);
+                }
+                session.Agent.Gate.Release();
+            }
+        });
         app.MapPost("/api/v1/views/{id:guid}/setup/enroll-aad", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);
@@ -175,7 +326,7 @@ public static partial class NativeBenchHost
                     Source = new(request.WorkspaceRoot, observation.Source, schema.Value.Connection, observation.SchemaObservedAt) };
             });
         async Task Start(HttpContext http, ViewSession session, long expectedEpoch, string phase,
-            Func<NativeSetupOperation, CancellationToken, Task<SetupOperationDto>> work)
+            Func<NativeSetupOperation, CancellationToken, Task<SetupOperationDto>> work, NativeConnectionRequest? request = null)
         {
             _ = Gateway();
             NativeSetupOperation operation;
@@ -186,15 +337,25 @@ public static partial class NativeBenchHost
                 if (session.Setup.Operation?.Work is { IsCompleted: false })
                     throw new HttpFailure(409, "SetupBusy", "Observe or cancel the original setup operation. It will not be dispatched twice.");
                 session.Setup.Operation?.Lifetime.Dispose();
-                var lifetime = CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping);
+                if (request is not null)
+                {
+                    _ = PendingConnectionRequest(session, request.Value.RequestId);
+                    if (request.Value.State != "Requested")
+                        throw new HttpFailure(409, "ConnectionSetupAlreadyStarted", "Observe the original connection setup; it will not be dispatched twice.");
+                    request.Value = request.Value with { State = "SettingUp" };
+                }
+                var lifetime = request is null ? CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping)
+                    : CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping, request.Lifetime.Token);
                 lifetime.CancelAfter(TimeSpan.FromMinutes(5));
                 operation = new(session.ProfileGeneration, lifetime,
-                    new(Guid.NewGuid(), "Running", phase) { Pending = true, Epoch = expectedEpoch });
+                    new(Guid.NewGuid(), "Running", phase) { Pending = true, Epoch = expectedEpoch,
+                        ConnectionRequestId = request?.Value.RequestId });
                 session.Setup.Operation = operation;
                 epoch = session.Setup.Epoch;
                 operation.Work = Run();
             }
-            await Write(http, new SetupOperationDto(operation.Current.OperationId, "Running", phase) { Pending = true, Epoch = epoch }, 202);
+            await Write(http, new SetupOperationDto(operation.Current.OperationId, "Running", phase) { Pending = true, Epoch = epoch,
+                ConnectionRequestId = request?.Value.RequestId }, 202);
 
             async Task Run()
             {
@@ -223,9 +384,12 @@ public static partial class NativeBenchHost
                         Error = result.Error ?? new("SetupUnavailable", "Native setup did not complete. Possible effects remain; no alternate path or replay was used.") };
                 }
                 lock (session.Setup)
+                {
                     operation.Current = (session.Setup.Epoch != epoch || operation.Lifetime.IsCancellationRequested
                         || session.Revoked || session.ProfileGeneration != operation.Generation
                         ? WithholdSetup(result) : result) with { Pending = false, Epoch = session.Setup.Epoch };
+                    if (request is not null) request.Value = request.Value with { State = operation.Current.Status };
+                }
                 updates.Publish(0);
             }
         }

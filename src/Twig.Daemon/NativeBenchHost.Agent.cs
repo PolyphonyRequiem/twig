@@ -26,6 +26,7 @@ internal sealed class NativeAgentView
     internal NativeAgentSnapshot? Snapshot { get; set; }
     internal AgentReviewDto? Review { get; set; }
     internal AgentDisplayDto? Display { get; set; }
+    internal NativeConnectionRequest? ConnectionRequest { get; set; }
     internal Guid? SelectedSource { get; set; }
     internal string? SelectedItem { get; set; }
     internal long Generation { get; private set; }
@@ -35,6 +36,8 @@ internal sealed class NativeAgentView
         lock (this)
         {
             Grant?.Lifetime.Cancel();
+            ConnectionRequest?.Lifetime.Cancel();
+            ConnectionRequest = null;
             Grant = null; Snapshot = null; Review = null; Display = null;
             SelectedSource = null; SelectedItem = null;
             return ++Generation;
@@ -327,6 +330,33 @@ public static partial class NativeBenchHost
             var body = await Body<AgentSnapshotBody>(http);
             var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted);
             await Write(http, new AgentConnectionsDto(captured.Id, captured.Connections));
+        });
+        app.MapPost("/api/v1/views/{id:guid}/agent/connection-request", async (HttpContext http, Guid id) =>
+        {
+            var (session, grant) = await Agent(http, id);
+            var body = await Body<AgentConnectionRequestBody>(http);
+            await session.Agent.Gate.WaitAsync(http.RequestAborted);
+            try
+            {
+                var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted);
+                var request = PrepareConnectionRequest(session, captured.Definition, body.Provider, body.Repository);
+                updates.PublishAgent(session.Id);
+                await Write(http, request.Value);
+            }
+            finally { session.Agent.Gate.Release(); }
+        });
+        app.MapPost("/api/v1/views/{id:guid}/agent/connection-request-status", async (HttpContext http, Guid id) =>
+        {
+            var (session, _) = await Agent(http, id);
+            var body = await Body<ConnectionRequestBody>(http);
+            ConnectionRequestDto value;
+            lock (session.Agent)
+            {
+                if (session.Agent.ConnectionRequest is not { } request || request.Value.RequestId != body.RequestId)
+                    throw new HttpFailure(404, "ConnectionRequestUnavailable", "The requested connection review is no longer available.");
+                value = request.Value;
+            }
+            await Write(http, value);
         });
         app.MapPost("/api/v1/views/{id:guid}/agent/bench", async (HttpContext http, Guid id) =>
         {

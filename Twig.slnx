@@ -5,6 +5,7 @@
     <Project Path="src/Twig.Daemon.Application/Twig.Daemon.Application.csproj" />
     <Project Path="src/Twig.Daemon.Infrastructure/Twig.Daemon.Infrastructure.csproj" />
     <Project Path="src/Twig.Daemon/Twig.Daemon.csproj" />
+    <Project Path="src/Twig.Daemon.Client/Twig.Daemon.Client.csproj" />
     <Project Path="src/Twig.Providers.Ado/Twig.Providers.Ado.csproj" />
     <Project Path="src/Twig.Providers.GitHub/Twig.Providers.GitHub.csproj" />
     <Project Path="src/Twig.Providers.Native/Twig.Providers.Native.csproj" />

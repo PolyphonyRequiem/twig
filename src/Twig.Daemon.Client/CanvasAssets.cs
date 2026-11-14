@@ -7,7 +7,7 @@ namespace Bench.Server;
 
 public sealed record CanvasAsset(byte[] Bytes, string Version);
 
-/// <summary>Verified immutable presentation package selection, independent of daemon/session lifetime.</summary>
+/// <summary>Shared verification contract for independently hosted immutable presentation packages.</summary>
 public static partial class CanvasAssets
 {
     public const string Protocol = "twig-bench-service-v1";
@@ -29,9 +29,16 @@ public static partial class CanvasAssets
         LocalPath(installRoot);
         var selection = Path.Combine(installRoot, "current.json");
         using var pointer = Document(selection, 4096);
-        Fields(pointer.RootElement, "application", "schema", "version", "manifestHash");
         var record = pointer.RootElement;
-        if (record.GetProperty("application").GetString() != Application || record.GetProperty("schema").GetInt32() != 1)
+        var schema = record.GetProperty("schema").GetInt32();
+        if (schema == 2)
+        {
+            Fields(record, "application", "schema", "version", "manifestHash", "hostManifestHash");
+            if (!HashPattern().IsMatch(record.GetProperty("hostManifestHash").GetString()!))
+                throw new InvalidDataException("Invalid presentation host digest.");
+        }
+        else Fields(record, "application", "schema", "version", "manifestHash");
+        if (record.GetProperty("application").GetString() != Application || schema is not (1 or 2))
             throw new InvalidDataException("Foreign canvas selection.");
         var version = record.GetProperty("version").GetString()!;
         var manifestHash = record.GetProperty("manifestHash").GetString()!;

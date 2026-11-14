@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string] $InstallRoot)
+param([string] $InstallRoot, [switch] $EnsureRunning)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -137,12 +137,13 @@ try {
     if ($null -ne $installation.Certificate) { $arguments += @('--https-certificate', $installation.Certificate) }
     $arguments += @('--canvas-root', $installation.Canvas)
     if ($installation.MigrateLegacy) { $arguments += '--migrate-legacy' }
+    if ($EnsureRunning) { $arguments += '--ensure-running' }
     # Keep the operator console available for explicit stop; native sign-in never uses pairing codes.
     & $installation.Executable @arguments
     if ($LASTEXITCODE -ne 0) { throw "Twig Bench exited with code $LASTEXITCODE; no existing daemon was stopped." }
 } catch {
-    Write-Host ('Twig Bench could not start: ' + $_.Exception.Message) -ForegroundColor Red
-    if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+    [Console]::Error.WriteLine('Twig Bench could not start: ' + $_.Exception.Message)
+    if (-not $EnsureRunning -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
         [void](Read-Host 'Press Enter to close this console')
     }
     exit 1

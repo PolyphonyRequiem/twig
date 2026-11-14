@@ -24,6 +24,7 @@ if (args is ["--check-certificate", var selectedCertificate])
 var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "DaemonData");
 var port = 0;
 var migrateLegacy = false;
+var ensureRunning = false;
 string? certificateThumbprint = null;
 var canvasRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "Canvas");
 for (var index = 0; index < args.Length; index++)
@@ -35,6 +36,7 @@ for (var index = 0; index < args.Length; index++)
         case "--https-certificate" when ++index < args.Length: certificateThumbprint = args[index]; break;
         case "--canvas-root" when ++index < args.Length: canvasRoot = args[index]; break;
         case "--migrate-legacy": migrateLegacy = true; break;
+        case "--ensure-running": ensureRunning = true; break;
         default: throw new ArgumentException("Options: --data-dir <private absolute directory> --port <stable localhost port> --https-certificate <existing trusted localhost certificate thumbprint> [--canvas-root <verified canvas installation root>]. Benches use the native per-user store.");
     }
 }
@@ -56,6 +58,23 @@ catch (Exception error) when (error is ArgumentException or InvalidOperationExce
     return;
 }
 using var certificateLease = certificate;
+if (ensureRunning)
+{
+    try
+    {
+        await DaemonLauncher.EnsureRunningAsync(data, port, certificate, () =>
+            DaemonLauncher.StartInstalled(Environment.ProcessPath ?? throw new InvalidOperationException("Missing installed executable."),
+                args.Where(argument => argument != "--ensure-running")), default);
+        Console.WriteLine("{\"running\":true}");
+    }
+    catch (Exception error) when (error is IOException or InvalidOperationException or HttpRequestException
+        or OperationCanceledException or JsonException or KeyNotFoundException)
+    {
+        Console.Error.WriteLine("The selected daemon could not be verified or started. No install, upgrade or restart occurred. " + error.Message);
+        Environment.ExitCode = 1;
+    }
+    return;
+}
 NativeConnectionSetupGateway setup;
 try { setup = new(new NativeConnectionSetup(NativeConnectionSetup.ResolveUserHome())); }
 catch (Exception error) when (error is ArgumentException or InvalidOperationException)

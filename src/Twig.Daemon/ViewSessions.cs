@@ -64,6 +64,46 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
         }
     }
 
+    public OwnerProfileInfo ResolveOwnerProfile(Guid instance, OwnerProfileBody body)
+    {
+        lock (gate)
+        {
+            if (body.StoreId is { } known && known != instance)
+                throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed. Connect explicitly.");
+            if (body.ProfileId == Guid.Empty || body.StoreId == Guid.Empty)
+                throw new HttpFailure(400, "InvalidInput", "Use an exact remembered store/profile or no remembered identity.");
+            var path = DefaultProfilePath(instance);
+            Guid? selected = null;
+            if (body.StoreId == instance && body.ProfileId is { } prior)
+            {
+                var previous = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = prior };
+                using var lease = ProfileLease(previous);
+                if (File.Exists(NativePath(previous)) && ReadDocument(previous).SignedOut)
+                    return new(instance, prior);
+                if (!File.Exists(path) && File.Exists(NativePath(previous))) selected = prior;
+            }
+            if (selected is null && File.Exists(path))
+            {
+                if (new FileInfo(path).Length != 36 || !Guid.TryParseExact(File.ReadAllText(path), "D", out var retained)
+                    || retained == Guid.Empty)
+                    throw new InvalidDataException("The retained owner profile identity is invalid.");
+                selected = retained;
+                var retainedSession = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = retained };
+                if (!File.Exists(NativePath(retainedSession)))
+                    throw new InvalidDataException("The retained owner profile is unavailable.");
+            }
+            var profile = selected ?? Guid.NewGuid();
+            var probe = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = profile };
+            using (var lease = ProfileLease(probe))
+            {
+                var document = ReadDocument(probe);
+                if (!File.Exists(NativePath(probe))) WriteDocument(probe, document);
+            }
+            if (!File.Exists(path)) WriteAtomic(path, profile.ToString("D"));
+            return new(instance, profile);
+        }
+    }
+
     // Called only by the same-Windows-owner authenticated HTTP endpoint, never by the SDK adapter.
     public PairResult ConnectOwner(Guid instance, Guid? viewId, Guid profileId)
         => ConnectOwnerCore(instance, viewId, profileId, explicitConnect: true);
@@ -415,6 +455,7 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
             }).ToArray();
             document = document with { Revision = checked(document.Revision + 1), Choices = body.Choices, Sources = references };
             WriteDocument(session, document);
+            WriteAtomic(DefaultProfilePath(session.CatalogId), session.ProfileId.ToString("D"));
             lock (session)
                 foreach (var reference in references)
                     if (contexts.Any(context => ViewSession.PathComparer.Equals(context.Root, reference.Root)))
@@ -498,6 +539,8 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
         => new(409, "ViewStateConflict", "The saved profile changed in another view. Read its current revision and reconcile before saving.");
     private string NativePath(ViewSession session)
         => Path.Combine(preferencesDirectory, $"native-{session.CatalogId:D}-{session.ProfileId:D}.json");
+    private string DefaultProfilePath(Guid instance)
+        => Path.Combine(preferencesDirectory, $"default-profile-{instance:D}");
     private FileStream ProfileLease(ViewSession session)
     {
         Directory.CreateDirectory(preferencesDirectory);
@@ -524,16 +567,19 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
     }
     private void WriteDocument(ViewSession session, NativeViewDocument document)
     {
-        var path = NativePath(session);
+        var json = JsonSerializer.Serialize(document, TransportJson.Default.NativeViewDocument);
+        if (Encoding.UTF8.GetByteCount(json) > 65536)
+            throw new HttpFailure(400, "InvalidInput", "The selected view references exceed their storage bound.");
+        WriteAtomic(NativePath(session), json);
+    }
+    private static void WriteAtomic(string path, string text)
+    {
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            var json = JsonSerializer.Serialize(document, TransportJson.Default.NativeViewDocument);
-            if (Encoding.UTF8.GetByteCount(json) > 65536)
-                throw new HttpFailure(400, "InvalidInput", "The selected view references exceed their storage bound.");
             using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                var bytes = Encoding.UTF8.GetBytes(json);
+                var bytes = Encoding.UTF8.GetBytes(text);
                 file.Write(bytes);
                 file.Flush(true);
             }

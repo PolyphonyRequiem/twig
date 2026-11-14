@@ -426,6 +426,14 @@ deleted it, then consumers can refresh native truth.
 - Error output is format-aware; JSON errors are emitted as an object on stderr.
 
 
+The daemon retains the owner's default presentation profile per native Bench
+store. Its Windows-owner-authenticated `windows-profile` endpoint returns only
+the store/profile identities (`owner-profile-v1`), independently of browser
+origin. Restoring connection and Bench references still revalidates exact native
+source bindings; it does not restore per-view attachment or agent editing grants.
+Signed-out profiles require explicit sign-in, and remembered foreign stores are
+refused rather than silently replaced.
+
 ## See also
 
 - [`workspace`](../workspace/README.md) — the view that a Bench shapes.

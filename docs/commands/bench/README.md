@@ -13,6 +13,17 @@ trees, queries, areas and iterations remain distinct choices; a rule is not
 replaced by the items it happened to match today. Exclusions affect workspace
 views, not the saved Bench's membership.
 
+The daemon's scoped canvas actions can read saved selectors with
+`read_bench_rules` and replace one existing query using
+`update_bench_query_rule`. Editing requires its own human-enabled saved-rule
+grant, separate from read/drafting and pin/unpin. A query edit retains the exact
+connection/principal and uses the captured Bench revision; all other selectors
+and local drafts survive. This is a persistent, shared membership change, not a
+workspace exclusion or display filter. Independent pins, subtrees or other
+queries still contribute their members. Completion restrictions must use the
+connected schema's discovered fields/states, never assumed names. The actions
+cannot grant their own access or publish tracker changes.
+
 The `bench` command group is the shared surface for managing that store — create
 a Bench, list what exists, switch which one is current, or delete one you no
 longer need. Rename preserves the Bench's ID, pins and context selections.

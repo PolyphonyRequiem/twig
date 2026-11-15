@@ -75,12 +75,16 @@ public sealed record Selector
 
 public sealed record Bench
 {
-    public Bench(Guid id, string name, IEnumerable<Selector> selectors, long revision = 0)
+    public Bench(Guid id, string name, IEnumerable<Selector> selectors, long revision = 0,
+        IEnumerable<Connection>? connections = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("A Bench needs a durable identity.", nameof(id));
         Id = id;
         Name = Contract.Text(name, nameof(name));
         Selectors = Contract.Copy(selectors);
+        Connections = Contract.Copy((connections ?? Selectors.Select(selector => selector.Connection).OfType<Connection>()).Distinct());
+        if (Selectors.Any(selector => selector.Connection is { } connection && !Connections.Contains(connection)))
+            throw new ArgumentException("Every qualified selector needs an explicitly declared Bench connection.", nameof(connections));
         if (revision < 0) throw new ArgumentOutOfRangeException(nameof(revision));
         Revision = revision;
     }
@@ -88,6 +92,7 @@ public sealed record Bench
     public Guid Id { get; }
     public string Name { get; }
     public ImmutableArray<Selector> Selectors { get; }
+    public ImmutableArray<Connection> Connections { get; }
     public long Revision { get; }
 }
 

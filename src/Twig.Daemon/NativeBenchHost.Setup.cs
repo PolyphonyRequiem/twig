@@ -136,10 +136,10 @@ public static partial class NativeBenchHost
             var session = automatic ? AutomaticSession(http, id) : await authorize(http, id);
             var body = automatic
                 ? new ConnectionAdmissionBody((await Body<ConnectionRequestBody>(http)).RequestId,
-                    session.Setup.Operation?.Current.OperationId ?? Guid.Empty, true)
+                    session.Setup.Operation?.Current.OperationId ?? Guid.Empty, false)
                 : await Body<ConnectionAdmissionBody>(http);
-            if (!body.IncludeAll)
-                throw new HttpFailure(400, "ConnectionRuleConsentRequired", "Explicitly approve adding this connection's all-items rule to the saved Bench. It is not a display filter.");
+            if (body.IncludeAll)
+                throw new HttpFailure(400, "MembershipIsSeparate", "Adding a connection does not select work. Add items or save a membership rule separately.");
             await session.Agent.Gate.WaitAsync(http.RequestAborted);
             var attempted = false;
             NativeConnectionRequest? admitting = null;
@@ -160,19 +160,20 @@ public static partial class NativeBenchHost
                 if (session.Editor.Ticket != Guid.Empty || session.Plan.Operation?.Work is { IsCompleted: false })
                     throw new HttpFailure(409, "EditorBusy", "Finish the current editor or Plan operation before changing Bench membership.");
                 var opened = ConnectionObservation(await panel.OpenAsync(source.WorkspaceRoot, ct), app.Logger);
+                RequireAvailable(session, opened.Stamp.Connection);
                 if (opened.Stamp != source.Source || opened.Stamp.Connection != source.SchemaConnection)
                     throw new HttpFailure(409, "SourceChanged", "The prepared source or principal changed. No admission or Bench rule was saved.");
                 _ = ConnectionObservation(await panel.ValidateDisplayAccessAsync(opened, ct), app.Logger);
                 _ = await CheckConnectionRequestAsync(panel, session, request, ct);
-                var changed = !definition.Selectors.Any(selector => selector.Connection == opened.Stamp.Connection);
+                var changed = !definition.Connections.Contains(opened.Stamp.Connection);
                 var retained = sessions.ReadState(session);
                 attempted = true;
                 request.Value = request.Value with { State = "Adding" };
                 if (changed)
                 {
                     _ = BenchDefinitionResult(await panel.SaveAsync(new NativeBench(definition.Id, definition.Name,
-                        definition.Selectors.Add(new(SelectorKind.Query, query: new(QueryKind.All),
-                            connection: opened.Stamp.Connection))), definition.Revision, ct));
+                        definition.Selectors, connections: definition.Connections.Append(opened.Stamp.Connection)),
+                        definition.Revision, ct));
                 }
                 ct.ThrowIfCancellationRequested();
                 _ = PendingConnectionRequest(session, request.Value.RequestId);

@@ -80,8 +80,13 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         return Result<bool>.Ok(true);
     }
     public Task<Result<ImmutableArray<UserBenchWorkspace>>> WorkspacesAsync(CancellationToken ct) => definitions.WorkspacesAsync(ct);
+    public Task<Result<UserRepositoryBindings>> ReadRepositoryAsync(string root, CancellationToken ct)
+        => definitions.ReadRepositoryAsync(root, ct);
+    public Task<Result<UserRepositoryBindings>> SaveRepositoryAsync(string root, long revision,
+        IEnumerable<Connection> connections, Guid? defaultBench, CancellationToken ct)
+        => definitions.SaveRepositoryAsync(root, revision, connections, defaultBench, ct);
     public async Task<Result<ImmutableArray<NativePanelContext>>> ResolveConnectionsAsync(Guid benchId,
-        IEnumerable<NativePanelContext> retained, CancellationToken ct)
+        IEnumerable<NativePanelContext> retained, CancellationToken ct, IReadOnlySet<Connection>? available = null)
     {
         var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
         if (!shared.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(shared.Error);
@@ -90,27 +95,35 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         var registry = await definitions.WorkspacesAsync(ct).ConfigureAwait(false);
         if (!registry.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(registry.Error);
         var previous = retained.ToArray();
-        var resolved = ImmutableArray.CreateBuilder<NativePanelContext>();
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(TimeSpan.FromSeconds(30));
-        foreach (var connection in bench.Selectors.Select(value => value.Connection!).Distinct())
+        using var concurrency = new SemaphoreSlim(8);
+        var resolved = await Task.WhenAll(bench.Connections.Select(async connection =>
         {
-            ct.ThrowIfCancellationRequested();
+            if (available is not null && !available.Contains(connection)) return null;
             var admitted = previous.Where(value => value.Stamp.Connection == connection).ToArray();
-            if (admitted.Length == 1) { resolved.Add(admitted[0]); continue; }
+            if (admitted.Length == 1) return admitted[0];
             var registered = registry.Value.Where(value => value.Connection == connection).ToArray();
             // Several workspace mirrors do not establish which one owns unpublished local drafts.
-            if (registered.Length != 1 || budget.IsCancellationRequested) continue;
+            if (registered.Length != 1) return null;
+            await concurrency.WaitAsync(ct).ConfigureAwait(false);
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(TimeSpan.FromSeconds(5));
             try
             {
                 var opened = await OpenAsync(registered[0].Root, budget.Token).ConfigureAwait(false);
                 if (opened.IsSuccess && opened.Value.Stamp.Connection == connection
                     && opened.Value.Stamp.StoreInstance == registered[0].StoreInstance)
-                    resolved.Add(opened.Value);
+                    return opened.Value;
+                return null;
             }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { break; }
-        }
-        return Result<ImmutableArray<NativePanelContext>>.Ok(resolved.ToImmutable());
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return null; }
+            finally { concurrency.Release(); }
+        })).ConfigureAwait(false);
+        var current = await definitions.ReadAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(current.Error);
+        if (current.Value.InstanceId != shared.Value.InstanceId
+            || current.Value.Benches.SingleOrDefault(value => value.Id == benchId)?.Revision != bench.Revision)
+            return Result<ImmutableArray<NativePanelContext>>.Fail(ErrorCode.Conflict, "The Bench changed during connection resolution. Read the current definition.");
+        return Result<ImmutableArray<NativePanelContext>>.Ok(resolved.OfType<NativePanelContext>().ToImmutableArray());
     }
     public Task<Result<NativePlanStatus>> ReadPlanAsync(Guid benchId, CancellationToken ct) => definitions.ReadPlanStatusAsync(benchId, ct);
     public Task<Result<ImmutableArray<Draft>>> ReadPlanDraftsAsync(NativePlanStatus plan, NativePanelContext context, Guid scope, CancellationToken ct)
@@ -201,7 +214,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
 
     public async Task<Result<NativePanelView>> ReadViewAsync(Guid benchId, NativePanelContext? anchor,
         IEnumerable<NativePanelContext> chosenContexts, CancellationToken ct,
-        IReadOnlyDictionary<NativePanelContext, SourceObservation>? initialObservations = null)
+        IReadOnlyDictionary<NativePanelContext, SourceObservation>? initialObservations = null,
+        IReadOnlySet<Connection>? available = null)
     {
         var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
         if (!shared.IsSuccess) return Result<NativePanelView>.Fail(shared.Error);
@@ -212,98 +226,87 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         var contexts = chosenContexts.Where(context => context.Stamp.Connection != anchor?.Stamp.Connection)
             .GroupBy(context => context.Stamp.Connection).ToDictionary(group => group.Key, group => group.Last());
         if (anchor is not null) contexts[anchor.Stamp.Connection] = anchor;
-        var connections = bench.Selectors.Select(selector => selector.Connection!).Distinct().ToArray();
         var selections = ImmutableArray.CreateBuilder<SourceSelection>();
         var views = ImmutableArray.CreateBuilder<SourceView>();
         var labels = ImmutableDictionary.CreateBuilder<Guid, string>();
         var normalDraftCounts = ImmutableDictionary.CreateBuilder<Guid, int>();
-        using var overall = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        overall.CancelAfter(TimeSpan.FromSeconds(30));
-        foreach (var connection in connections)
+        using var concurrency = new SemaphoreSlim(8);
+        var results = await Task.WhenAll(bench.Connections.Select(ReadConnection)).ConfigureAwait(false);
+        foreach (var acquired in results)
         {
-            ct.ThrowIfCancellationRequested();
-            if (!contexts.TryGetValue(connection, out var context))
+            labels[acquired.View.SourceId] = acquired.Label;
+            views.Add(acquired.View);
+            if (acquired.Selection is { } selection) selections.Add(selection);
+            if (acquired.Drafts != 0) normalDraftCounts[acquired.View.SourceId] = acquired.Drafts;
+        }
+
+        async Task<(SourceSelection? Selection, SourceView View, string Label, int Drafts)> ReadConnection(Connection connection)
+        {
+            contexts.TryGetValue(connection, out var context);
+            var sourceId = context?.Source.Id ?? new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(
+                string.Join("\n", connection.Provider.Value, connection.ResourceScope, connection.Destination, connection.IdentityRef))).AsSpan(0, 16));
+            var label = context?.Source.Label ?? NativeConnectionLabels.Unavailable(connection).Name;
+            (SourceSelection?, SourceView, string, int) Failed(Error error)
+                => (null, SourceView.Failed(sourceId, error) with { RequiredConnection = connection }, label, 0);
+            if (available is not null && !available.Contains(connection))
+                return Failed(new(ErrorCode.PolicyViolation,
+                    "This saved Bench dependency is not available in the selected repository. Its rules and drafts were retained; assign the connection in this user's repository bindings to use it here."));
+            if (context is null)
+                return Failed(new(ErrorCode.Unavailable,
+                    "This Bench's connection could not be resolved to one available registered source. Membership is unknown; operations requiring it are unavailable."));
+            await concurrency.WaitAsync(ct).ConfigureAwait(false);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            try
             {
-                var identity = new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(
-                    string.Join("\n", connection.Provider.Value, connection.ResourceScope, connection.Destination, connection.IdentityRef))).AsSpan(0, 16));
-                labels[identity] = NativeConnectionLabels.Unavailable(connection).Name;
-                views.Add(SourceView.Failed(identity, new(ErrorCode.Unavailable,
-                    "This Bench's connection could not be resolved to one available registered source. Membership is unknown; operations requiring it are unavailable."))
-                    with { RequiredConnection = connection });
-                continue;
-            }
-            labels[context.Source.Id] = context.Source.Label;
-            if (overall.IsCancellationRequested)
-            {
-                views.Add(SourceView.Failed(context.Source.Id, new(ErrorCode.Unavailable, "The view budget expired before this context could be read.")));
-                continue;
-            }
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(overall.Token);
-            Result<SourceObservation> observed;
-            try { observed = initialObservations is not null && initialObservations.TryGetValue(context, out var initial)
+                var observed = initialObservations is not null && initialObservations.TryGetValue(context, out var initial)
                     ? await sources.CheckInitialAsync(context, initial, timeout.Token).ConfigureAwait(false)
-                    : await sources.ReadAsync(context.Source, timeout.Token).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                views.Add(SourceView.Failed(context.Source.Id, new(ErrorCode.Unavailable, "Native context read exceeded the view budget; membership is unknown.")));
-                continue;
-            }
-            if (!observed.IsSuccess)
-            {
-                views.Add(SourceView.Failed(context.Source.Id, observed.Error) with { RequiredConnection = connection });
-                continue;
-            }
-            var intent = bench.Selectors.Where(selector => selector.Connection == connection).ToImmutableArray();
-            var observation = observed.Value;
-            var normalDebt = 0;
-            if (plan.Value.Enabled)
-            {
-                normalDebt = observation.Snapshot.Drafts.Length;
-                normalDraftCounts[context.Source.Id] = normalDebt;
-                var scope = plan.Value.Sources.SingleOrDefault(value => value.Source.Connection == connection);
-                var drafts = scope is null ? Result<ImmutableArray<Draft>>.Ok([])
-                    : await definitions.ReadPlanDraftsAsync(plan.Value.UserInstance, benchId, plan.Value.Revision,
-                        scope.Id, context.Root, context.Stamp, timeout.Token).ConfigureAwait(false);
-                if (!drafts.IsSuccess)
+                    : await sources.ReadAsync(context.Source, timeout.Token).ConfigureAwait(false);
+                if (!observed.IsSuccess) return Failed(observed.Error);
+                var intent = bench.Selectors.Where(selector => selector.Connection == connection).ToImmutableArray();
+                var observation = observed.Value;
+                var normalDebt = 0;
+                if (plan.Value.Enabled)
                 {
-                    views.Add(SourceView.Failed(context.Source.Id, drafts.Error)); continue;
+                    normalDebt = observation.Snapshot.Drafts.Length;
+                    var scope = plan.Value.Sources.SingleOrDefault(value => value.Source.Connection == connection);
+                    var drafts = scope is null ? Result<ImmutableArray<Draft>>.Ok([])
+                        : await definitions.ReadPlanDraftsAsync(plan.Value.UserInstance, benchId, plan.Value.Revision,
+                            scope.Id, context.Root, context.Stamp, timeout.Token).ConfigureAwait(false);
+                    if (!drafts.IsSuccess) return Failed(drafts.Error);
+                    var baselines = drafts.Value.Where(draft => draft.Baseline is not null).Select(draft => draft.Baseline!).ToArray();
+                    observation = observation with { Snapshot = new(observation.Snapshot.Version,
+                        observation.Snapshot.Items.Concat(baselines.Where(baseline =>
+                            !observation.Snapshot.Items.Any(item => item.Key == baseline.Key))),
+                        observation.Snapshot.Relationships, drafts.Value, observation.Snapshot.Proposals,
+                        observation.Snapshot.Journal, observation.Snapshot.Mappings, observation.Snapshot.Benches) };
+                    intent = intent.AddRange(drafts.Value.Where(draft => draft.Key.IsLocal)
+                        .Select(draft => new Selector(SelectorKind.Pin, draft.Key, connection: connection)));
                 }
-                var baselines = drafts.Value.Where(draft => draft.Baseline is not null).Select(draft => draft.Baseline!).ToArray();
-                observation = observation with { Snapshot = new(observation.Snapshot.Version,
-                    observation.Snapshot.Items.Concat(baselines.Where(baseline =>
-                        !observation.Snapshot.Items.Any(item => item.Key == baseline.Key))),
-                    observation.Snapshot.Relationships, drafts.Value, observation.Snapshot.Proposals,
-                    observation.Snapshot.Journal, observation.Snapshot.Mappings, observation.Snapshot.Benches) };
-                intent = intent.AddRange(drafts.Value.Where(draft => draft.Key.IsLocal)
-                    .Select(draft => new Selector(SelectorKind.Pin, draft.Key, connection: connection)));
+                var selection = new SourceSelection(context.Source.Id, context.Source.Binding, intent);
+                var definition = new BenchDefinition(bench.Id, bench.Name, bench.Revision, [selection]);
+                var projected = SourceProjection.Create(definition, selection, observation, timeout.Token);
+                if (projected.IsSuccess)
+                    return (selection, normalDebt == 0 ? projected.Value : projected.Value with
+                    {
+                        Limitations = projected.Value.Limitations.Add(
+                            $"{normalDebt} normal-mode draft(s) remain separate from this Plan. They are retained in protected draft browse and cannot be published by Plan Apply.")
+                    }, label, normalDebt);
+                // Membership failure must not discard this admitted context's protected draft evidence.
+                var empty = new SourceSelection(context.Source.Id, context.Source.Binding, []);
+                var protectedView = SourceProjection.Create(new(bench.Id, bench.Name, bench.Revision, [empty]), empty,
+                    observation with { WorkspaceExclusions = [] }, timeout.Token);
+                return (selection, protectedView.IsSuccess ? protectedView.Value with
+                {
+                    Error = projected.Error,
+                    Limitations = protectedView.Value.Limitations.Add("Bench membership is unavailable. These admitted local drafts remain outside the view; exclusion status is not inferred.")
+                } : SourceView.Failed(context.Source.Id, projected.Error), label, normalDebt);
             }
-            var selection = new SourceSelection(context.Source.Id, context.Source.Binding, intent);
-            selections.Add(selection);
-            if (selections.Count > 64)
-                return Result<NativePanelView>.Fail(ErrorCode.Partial, "The view exceeds its context projection budget. All native Bench rules were retained.");
-            var definition = new BenchDefinition(bench.Id, bench.Name, bench.Revision, [selection]);
-            Result<SourceView> projected;
-            try { projected = SourceProjection.Create(definition, selection, observation, timeout.Token); }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                views.Add(SourceView.Failed(context.Source.Id, new(ErrorCode.Unavailable, "Context projection exceeded its budget; no empty membership was inferred.")));
-                continue;
+                return Failed(new(ErrorCode.Unavailable, "This connection exceeded its independent read budget; membership is unknown. Other connections were read separately."));
             }
-            if (projected.IsSuccess)
-            {
-                views.Add(normalDebt == 0 ? projected.Value : projected.Value with { Limitations = projected.Value.Limitations.Add(
-                    $"{normalDebt} normal-mode draft(s) remain separate from this Plan. They are retained in protected draft browse and cannot be published by Plan Apply.") });
-                continue;
-            }
-            // Membership failure must not discard this admitted context's protected draft evidence.
-            var empty = new SourceSelection(context.Source.Id, context.Source.Binding, []);
-            var protectedView = SourceProjection.Create(new(bench.Id, bench.Name, bench.Revision, [empty]), empty,
-                observation with { WorkspaceExclusions = [] }, ct);
-            views.Add(protectedView.IsSuccess ? protectedView.Value with
-            {
-                Error = projected.Error,
-                Limitations = protectedView.Value.Limitations.Add("Bench membership is unavailable. These admitted local drafts remain outside the view; exclusion status is not inferred.")
-            } : SourceView.Failed(context.Source.Id, projected.Error));
+            finally { concurrency.Release(); }
         }
         var current = await definitions.ReadAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<NativePanelView>.Fail(current.Error);
@@ -348,7 +351,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             foreach (var selector in selectors)
                 if (known.Add(BenchCodec.SerializeSelectors([selector]))) existing.Add(selector);
             if (existing.Count == current.Selectors.Length) return Result<NativeBench>.Ok(current);
-            return await definitions.SaveAsync(new(id, current.Name, existing), current.Revision, ct).ConfigureAwait(false);
+            return await definitions.SaveAsync(new(id, current.Name, existing, connections:
+                current.Connections.Union(selectors.Select(selector => selector.Connection!))), current.Revision, ct).ConfigureAwait(false);
         }
         finally { gate.Release(); }
     }

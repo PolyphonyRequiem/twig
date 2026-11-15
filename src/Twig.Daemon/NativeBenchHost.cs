@@ -92,17 +92,17 @@ public static partial class NativeBenchHost
         if (options.WindowsSignIn)
             app.MapGet("/api/v1/owner-status", (HttpContext context) => Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1"])))
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1"])))
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1"])));
+                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1"])));
         app.MapGet("/api/v1/device-enrollment", (HttpContext context) =>
             Write(context, new EnrollmentAvailability(options.WindowsSignIn, options.WindowsSignIn)));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
-            _ = await Body<EmptyBody>(context);
-            await Write(context, sessions.RegisterNativeCanvas(Require(await panel.ListAsync(context.RequestAborted)).InstanceId));
+            var body = await Body<RegisterCanvasBody>(context);
+            await Write(context, sessions.RegisterNativeCanvas(Require(await panel.ListAsync(context.RequestAborted)).InstanceId, body.Context));
         });
         if (options.WindowsSignIn)
             app.MapPost("/api/v1/windows-enroll", async (HttpContext context) =>
@@ -173,12 +173,16 @@ public static partial class NativeBenchHost
                 var display = labelBudget.Elapsed < TimeSpan.FromSeconds(2)
                     ? await NativeConnectionLabels.ReadAsync(workspace.Root, workspace.Connection, context.RequestAborted)
                     : NativeConnectionLabels.Unavailable(workspace.Connection);
-                labels.Add(new(workspace.Root, workspace.Connection.Provider.Value, display.Name, display.Available));
+                labels.Add(new(workspace.Root, workspace.Connection.Provider.Value, display.Name, display.Available)
+                    { Connection = workspace.Connection, Available = session.RepositoryBindings is null
+                        || session.RepositoryBindings.Connections.Contains(workspace.Connection) });
             }
             await Write(context, new NativePanelSummary(shared.InstanceId, shared.Revision,
                 shared.Benches.Select(Definition).ToArray(),
                 labels.ToArray(), session.NativeContext?.Root, session.PopulationContext?.Root,
-                ConnectionSummary(session.NativeContext), ConnectionSummary(session.PopulationContext)));
+                ConnectionSummary(session.NativeContext), ConnectionSummary(session.PopulationContext))
+                { RepositoryRoot = session.RepositoryRoot, RepositoryBindings = session.RepositoryBindings,
+                    RuntimeContext = session.RuntimeContext });
         });
         app.MapPut("/api/v1/views/{id:guid}/context", async (HttpContext context, Guid id) =>
         {
@@ -187,7 +191,9 @@ public static partial class NativeBenchHost
             session.Agent.Invalidate();
             CancelEditor(session);
             session.Setup.Invalidate();
+            await RequireAvailableRoot(panel, session, body.Root, context.RequestAborted);
             var opened = ConnectionObservation(await panel.OpenAsync(body.Root, context.RequestAborted), app.Logger);
+            RequireAvailable(session, opened.Stamp.Connection);
             var selection = Require(await panel.ReadSelectionAsync(opened, context.RequestAborted));
             lock (session)
             {
@@ -243,8 +249,10 @@ public static partial class NativeBenchHost
             session.Agent.Invalidate();
             if (body.Root is null && session.NativeContext is null)
                 throw new HttpFailure(409, "ConnectionRequired", "Choose a Bench connection first, or select an existing connection for Add items.");
+            if (body.Root is not null) await RequireAvailableRoot(panel, session, body.Root, context.RequestAborted);
             var opened = body.Root is null ? null
                 : ConnectionObservation(await panel.OpenAsync(body.Root, context.RequestAborted), app.Logger);
+            if (opened is not null) RequireAvailable(session, opened.Stamp.Connection);
             lock (session)
             {
                 session.PopulationContext = opened;
@@ -255,10 +263,17 @@ public static partial class NativeBenchHost
         });
         app.MapPut("/api/v1/views/{id:guid}/benches/{benchId:guid}", async (HttpContext context, Guid id, Guid benchId) =>
         {
-            _ = await Authorize(context, id, true);
+            var session = await Authorize(context, id, true);
             var body = await Body<SaveNativeBenchBody>(context, DefinitionBodyLimit);
             var selectors = BenchCodec.DeserializeSelectors(body.Selectors);
-            var saved = BenchDefinitionResult(await panel.SaveAsync(new NativeBench(benchId, body.Name, selectors), body.ExpectedRevision, context.RequestAborted));
+            var library = Require(await panel.ListAsync(context.RequestAborted));
+            var previous = library.Benches.SingleOrDefault(bench => bench.Id == benchId);
+            var known = (previous?.Selectors ?? []).Select(selector => BenchCodec.SerializeSelectors([selector])).ToHashSet(StringComparer.Ordinal);
+            foreach (var selector in selectors.Where(selector => !known.Contains(BenchCodec.SerializeSelectors([selector]))))
+                if (selector.Connection is { } connection) RequireAvailable(session, connection);
+            var connections = (previous?.Connections ?? []).Union(selectors.Select(selector => selector.Connection).OfType<Connection>());
+            var saved = BenchDefinitionResult(await panel.SaveAsync(new NativeBench(benchId, body.Name, selectors,
+                connections: connections), body.ExpectedRevision, context.RequestAborted));
             updates.Publish(0);
             await Write(context, Definition(saved));
         });
@@ -304,7 +319,8 @@ public static partial class NativeBenchHost
             await ResolveBenchConnections(panel, session, context.RequestAborted);
             NativePanelContext[] chosen;
             lock (session) chosen = session.DisplayContexts.Values.ToArray();
-            var observed = await panel.ReadViewAsync(benchId, session.NativeContext, chosen, context.RequestAborted);
+            var observed = await panel.ReadViewAsync(benchId, session.NativeContext, chosen, context.RequestAborted,
+                available: AvailableConnections(session));
             if (!observed.IsSuccess && observed.Error.Evidence.Contains("bench-definition-changed"))
                 throw new HttpFailure(409, "BenchViewChanged", "The Bench changed while loading. Read its current definition again.");
             var captured = ConnectionObservation(observed, app.Logger);
@@ -324,7 +340,7 @@ public static partial class NativeBenchHost
                 ?? throw new HttpFailure(404, "NotFound", "The selected Bench is unavailable.");
             NativePanelContext[] chosen;
             lock (session) chosen = session.DisplayContexts.Values.Where(value => value == anchor
-                || bench.Selectors.Any(selector => selector.Connection == value.Stamp.Connection)).ToArray();
+                || bench.Connections.Contains(value.Stamp.Connection)).ToArray();
             if (chosen.Length > 32) throw new HttpFailure(422, "Unsupported", "The Bench exceeds the bounded access-check source count.");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -342,14 +358,15 @@ public static partial class NativeBenchHost
         app.MapGet("/api/v1/views/{id:guid}/picker", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id, true);
-            var capture = ConnectionObservation(await panel.CaptureAsync(Population(session), context.RequestAborted), app.Logger);
+            var source = await Population(panel, session, context.RequestAborted);
+            var capture = ConnectionObservation(await panel.CaptureAsync(source, context.RequestAborted), app.Logger);
             await Write(context, PresentPicker(Picker(capture)));
         });
         app.MapPost("/api/v1/views/{id:guid}/planning/catalogue", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id, true);
             var body = await Body<PlanningContextBody>(context);
-            var source = PlanningPopulation(session);
+            var source = await PlanningPopulation(panel, session, context.RequestAborted);
             var observed = ConnectionObservation(await panel.ReadPlanningSourcesAsync(source, body.Team, context.RequestAborted), app.Logger);
             EnsurePopulation(session, source);
             diagnostics.Report(source.Source.Id, NativeDiagnosticArea.Sources, observed.PlanningSources?.Gaps ?? []);
@@ -360,7 +377,7 @@ public static partial class NativeBenchHost
         {
             var session = await Authorize(context, id, true);
             var body = await Body<PlanningContextBody>(context);
-            var source = PlanningPopulation(session);
+            var source = await PlanningPopulation(panel, session, context.RequestAborted);
             var observed = ConnectionObservation(await panel.DiscoverPlanningSourcesAsync(source, body.Team, context.RequestAborted), app.Logger);
             EnsurePopulation(session, source);
             var choices = observed.PlanningSources
@@ -372,7 +389,7 @@ public static partial class NativeBenchHost
         {
             var session = await Authorize(context, id, true);
             var body = await Body<PlanningBrowseBody>(context);
-            var source = PlanningPopulation(session);
+            var source = await PlanningPopulation(panel, session, context.RequestAborted);
             var capture = ConnectionObservation(await panel.BrowsePlanningAsync(source, body.Kind, body.Id, body.Team, context.RequestAborted), app.Logger);
             EnsurePopulation(session, source);
             var browsed = capture.Observation.PlanningBrowse
@@ -392,13 +409,14 @@ public static partial class NativeBenchHost
         app.MapGet("/api/v1/views/{id:guid}/planning", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id, true);
-            var capture = ConnectionObservation(await panel.CaptureAsync(Population(session), context.RequestAborted), app.Logger);
+            var source = await Population(panel, session, context.RequestAborted);
+            var capture = ConnectionObservation(await panel.CaptureAsync(source, context.RequestAborted), app.Logger);
             await Write(context, PresentPlanning(capture.Context.Source.Id, capture.Observation));
         });
         app.MapGet("/api/v1/views/{id:guid}/planning/teams", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id, true);
-            var source = PlanningPopulation(session);
+            var source = await PlanningPopulation(panel, session, context.RequestAborted);
             var teams = ConnectionObservation(await panel.DiscoverPlanningTeamsAsync(source, context.RequestAborted), app.Logger);
             EnsurePopulation(session, source);
             await Write(context, teams.ToArray());
@@ -407,7 +425,7 @@ public static partial class NativeBenchHost
         {
             var session = await Authorize(context, id, true);
             var body = await Body<PlanningContextBody>(context);
-            var source = PlanningPopulation(session);
+            var source = await PlanningPopulation(panel, session, context.RequestAborted);
             var capture = ConnectionObservation(await panel.CapturePlanningChoicesAsync(source, body.Team, context.RequestAborted), app.Logger);
             EnsurePopulation(session, source);
             await Write(context, PresentPlanning(source.Source.Id, capture.Observation));
@@ -440,7 +458,7 @@ public static partial class NativeBenchHost
         {
             var session = await Authorize(context, id, true);
             var body = await Body<PlanningContextBody>(context);
-            var source = PlanningPopulation(session);
+            var source = await PlanningPopulation(panel, session, context.RequestAborted);
             var observed = ConnectionObservation(await panel.RefreshPlanningAsync(source, body.Team, context.RequestAborted), app.Logger);
             EnsurePopulation(session, source);
             await Write(context, PresentPlanning(source.Source.Id, observed));
@@ -449,7 +467,7 @@ public static partial class NativeBenchHost
         {
             var session = await Authorize(context, id, true);
             var body = await Body<PlanningRuleBody>(context);
-            var source = PlanningPopulation(session);
+            var source = await PlanningPopulation(panel, session, context.RequestAborted);
             var expression = body.Iteration is { } text ? new IterationExpression(text) : null;
             var capture = ConnectionObservation(await panel.CapturePlanningChoicesAsync(source, body.Team, context.RequestAborted), app.Logger);
             if (expression?.IsRelative == true)
@@ -496,6 +514,7 @@ public static partial class NativeBenchHost
         MapPlan(app, panel, updates, (context, id) => Authorize(context, id, true));
         MapAgent(app, panel, sessions, updates, (context, id) => Authorize(context, id, true), options);
         MapSetup(app, connectionSetup, panel, sessions, updates, (context, id) => Authorize(context, id, true));
+        MapRepositories(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         var root = options.WebRoot ?? Path.Combine(AppContext.BaseDirectory, "wwwroot");
         foreach (var route in new[] { "/", "/canvas", "/app.js", "/device.js", "/style.css", "/view-model.js", "/item-detail.js", "/assignee-profiles.js", "/item-editor.js", "/editor-drafts.js", "/connection-setup.js",
             "/vendor/purify.es.mjs", "/vendor/marked.esm.js", "/icons.css", "/fonts/fluent-regular-v1.1.293.woff2" })
@@ -568,12 +587,16 @@ public static partial class NativeBenchHost
             if (!session.OwnerAuthenticated)
                 throw new HttpFailure(403, "OwnerRequired", "Connect with the same Windows owner. SDK layout attachment grants no content authority.");
             context.Items[typeof(ViewSession)] = session;
+            if (!context.Request.Path.Value!.EndsWith("/repository-bindings", StringComparison.Ordinal)
+                && !context.Request.Path.Value.EndsWith("/repository-context", StringComparison.Ordinal))
+                await SynchronizeRepository(panel, sessions, session, context.RequestAborted);
             return session;
         }
     }
 
     private static WorkspaceDto? ConnectionSummary(NativePanelContext? context) => context is null ? null
-        : new(context.Root, context.Stamp.Connection.Provider.Value, context.Source.Label, context.LabelAvailable);
+        : new(context.Root, context.Stamp.Connection.Provider.Value, context.Source.Label, context.LabelAvailable)
+            { Connection = context.Stamp.Connection };
 
     private static T BenchDefinitionResult<T>(Result<T> result)
     {
@@ -639,16 +662,24 @@ public static partial class NativeBenchHost
 
     private static NativePanelContext Context(ViewSession session) => session.NativeContext
         ?? throw new HttpFailure(409, "ContextRequired", "Choose an existing Twig context first.");
-    private static NativePanelContext Population(ViewSession session) => session.PopulationContext ?? Context(session);
-    private static NativePanelContext PlanningPopulation(ViewSession session)
+    private static async Task<NativePanelContext> Population(NativePanel panel, ViewSession session, CancellationToken ct)
     {
-        var source = Population(session);
+        if (session.PopulationContext is { } selected) return selected;
+        var library = Require(await panel.ListAsync(ct));
+        var bench = library.Benches.SingleOrDefault(value => value.Id == session.CurrentBenchId);
+        if (bench?.Connections.Length == 1 && session.NativeContext is { } context
+            && context.Stamp.Connection == bench.Connections[0]) return context;
+        throw new HttpFailure(409, "DestinationRequired", "Choose an explicit Add items connection. No default destination was inferred from the healthy sources.");
+    }
+    private static async Task<NativePanelContext> PlanningPopulation(NativePanel panel, ViewSession session, CancellationToken ct)
+    {
+        var source = await Population(panel, session, ct);
         return source.Stamp.Connection.Provider.Value == "ado" ? source
             : throw new HttpFailure(422, "Unsupported", "Teams, queries, backlogs and planning rules require an Azure DevOps source.");
     }
     private static void EnsurePopulation(ViewSession session, NativePanelContext captured)
     {
-        if (!ReferenceEquals(Population(session), captured))
+        if (!ReferenceEquals(session.PopulationContext ?? session.NativeContext, captured))
             throw new HttpFailure(409, "Conflict", "The Add items source changed. Load choices for the currently selected source.");
     }
     private static NativeBenchDto Definition(NativeBench bench)

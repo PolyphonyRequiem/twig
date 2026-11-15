@@ -248,7 +248,8 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                         var admitted = await factory!.RevalidateSourceAsync(handle, ct);
                         if (!admitted.IsSuccess) return Error(admitted.Error.Message);
                     }
-                    var saved = await store.SaveAsync(new(target.Id, target.Name, target.Selectors.RemoveAt(index - 1)), target.Revision, ct);
+                    var saved = await store.SaveAsync(new(target.Id, target.Name, target.Selectors.RemoveAt(index - 1),
+                        connections: target.Connections), target.Revision, ct);
                     if (!saved.IsSuccess) return Error(saved.Error.Message);
                     Render("Bench rule removed", [], [], BenchScope(saved.Value));
                     return 0;

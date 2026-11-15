@@ -48,7 +48,8 @@ internal static class NativeVerifiedDelivery
         var known = bench.Selectors.Select(selector => BenchCodec.SerializeSelectors([selector])).ToHashSet(StringComparer.Ordinal);
         var additions = pins.Where(pin => known.Add(BenchCodec.SerializeSelectors([pin]))).ToArray();
         return additions.Length == 0 ? Result<Bench>.Ok(bench)
-            : await user.SaveAsync(new(bench.Id, bench.Name, bench.Selectors.Concat(additions)), bench.Revision, ct).ConfigureAwait(false);
+            : await user.SaveAsync(new(bench.Id, bench.Name, bench.Selectors.Concat(additions), connections:
+                bench.Connections.Union(additions.Select(selector => selector.Connection!))), bench.Revision, ct).ConfigureAwait(false);
     }
 
     internal static async Task<Result<bool>> SettleCapturesAsync(UserBenchStore user, Guid benchId,

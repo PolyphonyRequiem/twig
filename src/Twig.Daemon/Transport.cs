@@ -66,9 +66,18 @@ public sealed record BenchViewDto(Guid CatalogId, long CatalogRevision, Guid Id,
 public sealed record OwnerConnectBody(Guid? ViewId, Guid ProfileId);
 public sealed record OwnerAgentBody(Guid ViewId);
 public sealed record NativeBenchDto(Guid Id, string Name, long Revision, string Selectors);
-public sealed record WorkspaceDto(string Root, string Provider, string DisplayName, bool LabelAvailable);
+public sealed record WorkspaceDto(string Root, string Provider, string DisplayName, bool LabelAvailable)
+{
+    public Connection? Connection { get; init; }
+    public bool Available { get; init; } = true;
+}
 public sealed record NativePanelSummary(Guid StoreId, long Revision, NativeBenchDto[] Benches, WorkspaceDto[] Workspaces,
-    string? ContextRoot, string? PopulationRoot, WorkspaceDto? ContextConnection = null, WorkspaceDto? PopulationConnection = null);
+    string? ContextRoot, string? PopulationRoot, WorkspaceDto? ContextConnection = null, WorkspaceDto? PopulationConnection = null)
+{
+    public string? RepositoryRoot { get; init; }
+    public UserRepositoryBindings? RepositoryBindings { get; init; }
+    public CanvasRuntimeContext? RuntimeContext { get; init; }
+}
 public sealed record NativeSessionInfo(Guid StoreId, bool NativeContentBlocked, ViewPreferences Preferences);
 public sealed record NativeBenchViewDto(Guid StoreId, long Revision, Guid Id, string Name, SourceViewDto[] Sources)
 {
@@ -117,7 +126,15 @@ public sealed record AgentConnectionDto(Guid SourceId, string Provider, string L
     DateTimeOffset? CacheReadAt, DateTimeOffset? SchemaObservedAt, string? ErrorCode, string[] Limitations);
 public sealed record AgentContextDto(Guid SnapshotId, DateTimeOffset ExpiresAt, Guid BenchId, string Name,
     long BenchRevision, long CatalogueRevision, Guid? SelectedSourceId, string? SelectedItemId,
-    AgentPermissionsDto Permissions, PlanStatusDto Plan, AgentConnectionDto[] Connections, string Notice);
+    AgentPermissionsDto Permissions, PlanStatusDto Plan, AgentConnectionDto[] Connections, string Notice)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CanvasRuntimeContext? RuntimeContext { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RepositoryRoot { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? RepositoryRevision { get; init; }
+}
 public sealed record AgentConnectionsDto(Guid SnapshotId, AgentConnectionDto[] Connections);
 public sealed record AgentItemSummaryDto(Guid SourceId, string ItemId, string Provider, string Locator,
     string Type, string? Title, FieldValueDto? State, FieldValueDto? AssignedTo, bool HasDraft, bool DirectPin);

@@ -16,6 +16,80 @@ public sealed class UserBenchStoreTests : IDisposable
     private UserBenchStore Store => new(Path.Combine(directory, "user", "benches.db"));
 
     [Fact]
+    public async Task ConnectionDependenciesSurviveEmptyMembershipAndScopedRemoval()
+    {
+        Directory.CreateDirectory(directory);
+        var source = await Native("source");
+        var saved = Required(await Store.SaveAsync(new(Guid.NewGuid(), "Empty membership", [],
+            connections: [ado, github]), 0));
+        var reopened = Required(await Store.ReadAsync()).Benches.Single();
+        reopened.Connections.ShouldBe([ado, github]);
+        reopened.Selectors.ShouldBeEmpty();
+        BenchCodec.Deserialize(BenchCodec.Serialize(reopened)).Connections.ShouldBe([ado, github]);
+        var view = Store.View(source.Store, source.Root, source.Store.InstanceId);
+        var captured = Required(await view.ReadAsync(ado, default));
+        var selected = captured.Benches.Single();
+        selected.Connections.ShouldBe([ado]);
+        Required(await Store.CaptureAsync(ado, captured.Benches,
+            [new(saved.Id, "Renamed without selecting work", [])], default));
+        var after = Required(await Store.ReadAsync()).Benches.Single();
+        after.Connections.ShouldBe([ado, github]);
+        after.Selectors.ShouldBeEmpty();
+        Required(await Store.ImportAsync([after], default));
+        (await Store.ImportAsync([new(after.Id, after.Name, [], connections: [ado])], default)).IsSuccess.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RepositoryBindingsAreUserLocalReusableAndIndependentOfSavedBenchIntent()
+    {
+        Directory.CreateDirectory(directory);
+        var repo = Path.Combine(directory, "code");
+        var sibling = Path.Combine(directory, "sibling");
+        var another = Path.Combine(directory, "other-code");
+        Directory.CreateDirectory(repo); Directory.CreateDirectory(another);
+        await Git(repo, "init", "--quiet");
+        await Git(repo, "-c", "user.name=Twig fixture", "-c", "user.email=fixture@example.invalid",
+            "commit", "--allow-empty", "--quiet", "-m", "fixture");
+        await Git(repo, "worktree", "add", "--quiet", "-b", "fixture-sibling", sibling);
+        await Git(another, "init", "--quiet");
+        var source = await Native("registered-source");
+        Required(await Store.View(source.Store, source.Root, source.Store.InstanceId).ReadAsync(ado, default));
+        var bench = Required(await Store.SaveAsync(new(Guid.NewGuid(), "Shared", [], connections: [ado, github]), 0));
+        var original = BenchCodec.Serialize(bench);
+        Required(await Store.ReadRepositoryAsync(repo)).Revision.ShouldBe(0);
+        var bindings = Required(await Store.SaveRepositoryAsync(repo, 0, [ado], bench.Id));
+        var linked = Required(await Store.ReadRepositoryAsync(sibling));
+        linked.RepositoryId.ShouldBe(bindings.RepositoryId);
+        linked.Revision.ShouldBe(bindings.Revision);
+        linked.Connections.ShouldBe(bindings.Connections);
+        linked.DefaultBench.ShouldBe(bench.Id);
+        var reused = Required(await Store.SaveRepositoryAsync(another, 0, [ado], bench.Id));
+        reused.RepositoryId.ShouldNotBe(bindings.RepositoryId);
+        (await Store.SaveRepositoryAsync(repo, 0, [], null)).Error.Code.ShouldBe(ErrorCode.Conflict);
+        (await Store.SaveRepositoryAsync(repo, bindings.Revision, [github], bench.Id)).Error.Code.ShouldBe(ErrorCode.NotFound);
+        var cleared = Required(await Store.SaveRepositoryAsync(sibling, bindings.Revision, [], null));
+        cleared.Revision.ShouldBe(bindings.Revision + 1);
+        cleared.DefaultBench.ShouldBeNull();
+        Required(await Store.ReadRepositoryAsync(another)).Connections.ShouldBe([ado]);
+        BenchCodec.Serialize(Required(await Store.ReadAsync()).Benches.Single()).ShouldBe(original);
+        Required(await Store.WorkspacesAsync()).ShouldHaveSingleItem();
+        Directory.GetFiles(repo).ShouldBeEmpty("all association data belongs in the user store, never in the code repository");
+    }
+
+    private static async Task Git(string root, params string[] arguments)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("git")
+        { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        _ = await output;
+        process.ExitCode.ShouldBe(0, await error);
+    }
+
+    [Fact]
     public async Task OneUserWideDefinitionRetainsAllPinKindsWhileContextSelectionsAreIndependent()
     {
         Directory.CreateDirectory(directory);
@@ -280,6 +354,9 @@ public sealed class UserBenchStoreTests : IDisposable
     }
     public void Dispose()
     {
-        if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        if (!Directory.Exists(directory)) return;
+        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+        Directory.Delete(directory, recursive: true);
     }
 }

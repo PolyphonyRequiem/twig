@@ -7,20 +7,23 @@ namespace Bench.Server;
 
 public sealed record NativeViewChoices(string? ViewingRoot, string? AddRoot, string[] DisplayRoots,
     string? TeamId, string Mode, string? QueryId, string? BacklogId, Guid? BenchId, string Layout,
-    Guid? GroupSource, string? GroupField)
+    Guid? GroupSource, string? GroupField, string? RepositoryRoot = null)
 {
     public static NativeViewChoices Empty => new(null, null, [], null, "items", null, null, null, "list", null, null);
 }
 
 public sealed record NativeViewStateBody(long ExpectedRevision, NativeViewChoices Choices);
-public sealed record OwnerProfileBody(Guid? StoreId, Guid? ProfileId);
+public sealed record OwnerProfileBody(Guid? StoreId, Guid? ProfileId, Guid? ViewId = null);
 public sealed record OwnerProfileInfo(Guid StoreId, Guid ProfileId);
 public sealed record OwnerRenewBody(Guid? ViewId, Guid ProfileId, Guid? StoreId = null, bool InitialView = false);
 // Restoration metadata is not cached content authority; every native read still requires its own admission.
 public sealed record NativeSourceRecovery(string Root, string Status, string? ErrorCode);
 // CurrentBenchId is observed on restoration only. The normal session endpoint reads the current CLI selection.
 public sealed record NativeViewStateInfo(Guid StoreId, Guid ProfileId, long Revision, NativeViewChoices Choices,
-    NativeSourceRecovery[] Sources, Guid? CurrentBenchId, DateTimeOffset ExpiresAt, DateTimeOffset RenewAfter);
+    NativeSourceRecovery[] Sources, Guid? CurrentBenchId, DateTimeOffset ExpiresAt, DateTimeOffset RenewAfter)
+{
+    public CanvasRuntimeContext? RuntimeContext { get; init; }
+}
 public sealed record NativeOwnerSession(Guid ViewId, string ContentCapability, bool Recovered, NativeViewStateInfo ViewState)
 {
     public NativeInitialView? InitialView { get; init; }

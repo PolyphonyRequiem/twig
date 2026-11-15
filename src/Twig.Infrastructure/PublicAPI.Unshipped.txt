@@ -1,4 +1,24 @@
 #nullable enable
+Twig.Infrastructure.Services.UserRepositoryBindings
+Twig.Infrastructure.Services.UserRepositoryBindings.UserRepositoryBindings(string! RepositoryId, long Revision, System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!> Connections, System.Guid? DefaultBench) -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.RepositoryId.get -> string!
+Twig.Infrastructure.Services.UserRepositoryBindings.RepositoryId.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.Revision.get -> long
+Twig.Infrastructure.Services.UserRepositoryBindings.Revision.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.Connections.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!>
+Twig.Infrastructure.Services.UserRepositoryBindings.Connections.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.DefaultBench.get -> System.Guid?
+Twig.Infrastructure.Services.UserRepositoryBindings.DefaultBench.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.Deconstruct(out string! RepositoryId, out long Revision, out System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!> Connections, out System.Guid? DefaultBench) -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.Equals(Twig.Infrastructure.Services.UserRepositoryBindings? other) -> bool
+Twig.Infrastructure.Services.UserRepositoryBindings.<Clone>$() -> Twig.Infrastructure.Services.UserRepositoryBindings!
+override Twig.Infrastructure.Services.UserRepositoryBindings.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.UserRepositoryBindings.GetHashCode() -> int
+override Twig.Infrastructure.Services.UserRepositoryBindings.ToString() -> string!
+static Twig.Infrastructure.Services.UserRepositoryBindings.operator !=(Twig.Infrastructure.Services.UserRepositoryBindings? left, Twig.Infrastructure.Services.UserRepositoryBindings? right) -> bool
+static Twig.Infrastructure.Services.UserRepositoryBindings.operator ==(Twig.Infrastructure.Services.UserRepositoryBindings? left, Twig.Infrastructure.Services.UserRepositoryBindings? right) -> bool
+Twig.Infrastructure.Services.UserBenchStore.ReadRepositoryAsync(string! root, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.UserRepositoryBindings!>!>!
+Twig.Infrastructure.Services.UserBenchStore.SaveRepositoryAsync(string! root, long expectedRevision, System.Collections.Generic.IEnumerable<Twig.Core.Connection!>! connections, System.Guid? defaultBench, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.UserRepositoryBindings!>!>!
 Twig.Infrastructure.Services.NativeSetupEffectKind.ManagedWorkspace = 21 -> Twig.Infrastructure.Services.NativeSetupEffectKind
 Twig.Infrastructure.Services.NativeConnectionSetup.InitializeManagedAsync(Twig.Infrastructure.Services.NativeSetupTarget! target, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeManagedSetupResult!>!>!
 Twig.Infrastructure.Services.NativeManagedSetupResult

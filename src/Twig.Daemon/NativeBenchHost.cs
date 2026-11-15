@@ -92,11 +92,11 @@ public static partial class NativeBenchHost
         if (options.WindowsSignIn)
             app.MapGet("/api/v1/owner-status", (HttpContext context) => Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1"])))
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1"])))
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1"])));
+                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1"])));
         app.MapGet("/api/v1/device-enrollment", (HttpContext context) =>
             Write(context, new EnrollmentAvailability(options.WindowsSignIn, options.WindowsSignIn)));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
@@ -479,7 +479,7 @@ public static partial class NativeBenchHost
         MapSeeds(app, panel, updates, (context, id) => Authorize(context, id, true));
         MapPlan(app, panel, updates, (context, id) => Authorize(context, id, true));
         MapAgent(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
-        MapSetup(app, connectionSetup, sessions, updates, (context, id) => Authorize(context, id, true));
+        MapSetup(app, connectionSetup, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         var root = options.WebRoot ?? Path.Combine(AppContext.BaseDirectory, "wwwroot");
         foreach (var route in new[] { "/", "/canvas", "/app.js", "/device.js", "/style.css", "/view-model.js", "/item-detail.js", "/assignee-profiles.js", "/item-editor.js", "/editor-drafts.js", "/connection-setup.js",
             "/vendor/purify.es.mjs", "/vendor/marked.esm.js", "/icons.css", "/fonts/fluent-regular-v1.1.293.woff2" })

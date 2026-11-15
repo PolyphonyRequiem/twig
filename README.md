@@ -72,6 +72,20 @@ the durable authority; no remote listener or remote authentication is introduced
 The pure `Twig.Daemon.Client` library shares package verification and the
 same-machine startup protocol without importing daemon/provider composition.
 
+`owner-approved-connections-v1` lets a scoped agent request native Twig or an
+explicit public GitHub repository without choosing an account, credentials or
+filesystem path. Only the authenticated owner approves setup, with an explicit
+named GitHub account. `NativeConnectionSetup.InitializeManagedAsync` creates a
+private Git-backed client context under the native metadata home's `sources`
+directory, then uses ordinary fresh initialization and exact creation-bound
+schema/online readback. It neither edits source checkouts nor treats that client
+anchor as authoritative Twig identity. Separate owner consent admits the source
+and saves its all-items Bench rule through revision CAS, preserving other rules
+and the viewing context. The daemon persists exact source references before
+success. Revocation, expiry and scope changes retire requests; uncertain
+admissions cannot be redispatched. Save/Apply and provider publication guards are
+unchanged.
+
 On Windows, `tools\daemon-install.ps1` requires an existing private data directory,
 explicit non-default port and existing trusted CurrentUser localhost certificate
 thumbprint. It publishes only the daemon and selects an immutable version under

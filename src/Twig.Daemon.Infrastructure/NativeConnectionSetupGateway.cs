@@ -9,6 +9,8 @@ public interface INativeConnectionSetupGateway
         Action<Uri> authorizationUrl, CancellationToken ct);
     Task<Result<NativeAdoBinding>> CreateAdoBindingAsync(NativeAdoBindingRequest request, CancellationToken ct);
     Task<Result<NativeSourceObservation>> InitializeFreshAsync(NativeFreshSetupRequest request, CancellationToken ct);
+    Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target, CancellationToken ct)
+        => Task.FromResult(Result<NativeManagedSetupResult>.Fail(ErrorCode.Unsupported, "Managed connection setup is unavailable."));
 }
 
 public sealed class NativeConnectionSetupGateway(NativeConnectionSetup setup) : INativeConnectionSetupGateway
@@ -19,4 +21,6 @@ public sealed class NativeConnectionSetupGateway(NativeConnectionSetup setup) : 
         => setup.CreateAdoBindingAsync(request, ct);
     public Task<Result<NativeSourceObservation>> InitializeFreshAsync(NativeFreshSetupRequest request, CancellationToken ct)
         => setup.InitializeFreshAsync(request, ct);
+    public Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target, CancellationToken ct)
+        => setup.InitializeManagedAsync(target, ct);
 }

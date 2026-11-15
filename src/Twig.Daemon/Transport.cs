@@ -76,6 +76,15 @@ public sealed record AgentPermissionsBody(Guid BenchId, bool Read, bool Draft, b
 public sealed record AgentPermissionsDto(bool Read, bool Draft, bool Membership, Guid? BenchId, DateTimeOffset? ExpiresAt, bool Rules = false);
 public sealed record AgentSelectionBody(Guid BenchId, Guid? SourceId, string? ItemId);
 public sealed record AgentSnapshotBody(Guid SnapshotId);
+public sealed record AgentConnectionRequestBody(Guid SnapshotId, string Provider, string? Repository = null);
+public sealed record ConnectionTargetBody(Guid BenchId, long BenchRevision, string Provider, string? Repository = null);
+public sealed record ConnectionRequestBody(Guid RequestId);
+public sealed record ConnectionApprovalBody(Guid RequestId, string? Account = null);
+public sealed record ConnectionAdmissionBody(Guid RequestId, Guid OperationId, bool IncludeAll);
+public sealed record ConnectionRequestDto(Guid RequestId, Guid BenchId, long BenchRevision, string BenchName,
+    string Provider, string? Repository, string State, DateTimeOffset ExpiresAt);
+public sealed record BenchConnectionsDto(ConnectionRequestDto? Request, SetupOperationDto? Operation);
+public sealed record ConnectionAddedDto(ConnectionRequestDto Request, string Root, bool Changed, bool RemoteWrites = false);
 public sealed record AgentPageBody(Guid SnapshotId, int Offset = 0, int Limit = 50);
 public sealed record AgentItemBody(Guid SnapshotId, Guid SourceId, string ItemId);
 public sealed record AgentPinBody(Guid SnapshotId, Guid SourceId, string Locator);
@@ -200,7 +209,8 @@ public sealed record SetupFailureDto(string Phase, bool Cancelled, SetupEffectDt
 public sealed record SetupSourceDto(string WorkspaceRoot, NativeSourceStamp Source, Connection SchemaConnection, DateTimeOffset? SchemaObservedAt);
 public sealed record SetupOperationDto(Guid OperationId, string Status, string Phase, string? AuthorizationUrl = null,
     NativeAadEnrollment? Enrollment = null, NativeAdoBinding? Binding = null, SetupSourceDto? Source = null,
-    Failure? Error = null, SetupFailureDto? NativeFailure = null, Failure? DiagnosticsError = null, bool Pending = false, long Epoch = 0);
+    Failure? Error = null, SetupFailureDto? NativeFailure = null, Failure? DiagnosticsError = null, bool Pending = false, long Epoch = 0,
+    Guid? ConnectionRequestId = null);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, MaxDepth = 32,
     GenerationMode = JsonSourceGenerationMode.Metadata, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -210,6 +220,14 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(AgentPermissionsDto))]
 [JsonSerializable(typeof(AgentSelectionBody))]
 [JsonSerializable(typeof(AgentSnapshotBody))]
+[JsonSerializable(typeof(AgentConnectionRequestBody))]
+[JsonSerializable(typeof(ConnectionTargetBody))]
+[JsonSerializable(typeof(ConnectionRequestBody))]
+[JsonSerializable(typeof(ConnectionApprovalBody))]
+[JsonSerializable(typeof(ConnectionAdmissionBody))]
+[JsonSerializable(typeof(ConnectionRequestDto))]
+[JsonSerializable(typeof(BenchConnectionsDto))]
+[JsonSerializable(typeof(ConnectionAddedDto))]
 [JsonSerializable(typeof(AgentPageBody))]
 [JsonSerializable(typeof(AgentItemBody))]
 [JsonSerializable(typeof(AgentPinBody))]

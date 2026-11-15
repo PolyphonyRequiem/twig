@@ -127,11 +127,12 @@ public sealed class NativeConnectionSetup
         {
             if (managedRoot is null || target is not (NativeTwigSetupTarget or NativeGitHubSetupTarget))
                 return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unsupported, "Managed setup supports explicit Twig and GitHub connections only."));
-            if (target is NativeGitHubSetupTarget github
-                && (!GitHubWorkspaceScope.TryCreate(new GitHubConfig { Host = github.Host, Repository = github.Repository }, out _, out _)
-                    || string.IsNullOrWhiteSpace(github.Account) || github.Account.StartsWith('-')
-                    || github.Account.Any(char.IsWhiteSpace) || github.Account.Any(char.IsControl)))
-                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose explicit GitHub coordinates and a named account."));
+            if (target is NativeGitHubSetupTarget github)
+            {
+                var resolved = await ResolveManagedGitHubAccountAsync(github, processes ?? new BoundedProcessRunner(), ct).ConfigureAwait(false);
+                if (!resolved.IsSuccess) return effects.Fail<NativeManagedSetupResult>(resolved.Error);
+                target = resolved.Value;
+            }
             ct.ThrowIfCancellationRequested();
             for (var path = managedRoot; path is not null; path = Path.GetDirectoryName(path))
                 if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
@@ -157,6 +158,25 @@ public sealed class NativeConnectionSetup
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return effects.Cancel<NativeManagedSetupResult>(); }
         catch (Exception ex) when (NativeSetupEffects.IsExpected(ex)) { return effects.Exception<NativeManagedSetupResult>(ex); }
+    }
+
+    internal static async Task<Result<NativeGitHubSetupTarget>> ResolveManagedGitHubAccountAsync(
+        NativeGitHubSetupTarget target, IBoundedProcessRunner runner, CancellationToken ct)
+    {
+        if (!GitHubWorkspaceScope.TryCreate(new GitHubConfig { Host = target.Host, Repository = target.Repository }, out _, out _)
+            || target.Account is null || target.Account.StartsWith('-')
+            || target.Account.Any(char.IsWhiteSpace) || target.Account.Any(char.IsControl))
+            return Result<NativeGitHubSetupTarget>.Fail(ErrorCode.InvalidInput, "Choose valid GitHub coordinates and an optional named account.");
+        if (target.Account.Length != 0) return Result<NativeGitHubSetupTarget>.Ok(target);
+        var account = await runner.RunAsync("gh", ["api", "--hostname", target.Host, "user", "--jq", ".login"],
+            TimeSpan.FromSeconds(10), 256, ct,
+            ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]).ConfigureAwait(false);
+        if (account.Outcome != BoundedProcessOutcome.Exited || account.ExitCode != 0
+            || !System.Text.RegularExpressions.Regex.IsMatch(account.StandardOutput.Trim(),
+                @"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+            return Result<NativeGitHubSetupTarget>.Fail(ErrorCode.Unavailable,
+                "The signed-in GitHub CLI account could not be verified. Sign in through gh and add the connection again; no account was switched.");
+        return Result<NativeGitHubSetupTarget>.Ok(target with { Account = account.StandardOutput.Trim() });
     }
 
     private async Task<Result<NativeSourceObservation>> InitializeFreshAsync(NativeFreshSetupRequest request,

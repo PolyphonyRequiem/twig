@@ -90,6 +90,15 @@ On Windows, `tools\daemon-install.ps1` requires an existing private data directo
 explicit non-default port and existing trusted CurrentUser localhost certificate
 thumbprint. It publishes only the daemon and selects an immutable version under
 `%LOCALAPPDATA%\Twig\Daemon`; `-RegisterStartup` is explicit opt-in.
+
+The signed-in Bench canvas initializes agent reads, local Plan drafting, pin/unpin
+and saved-rule editing automatically for admitted connections. Access follows the
+renewable owner session, not a separate 30-minute agent grant. Source/principal,
+profile and policy checks still apply and sign-out revokes access immediately.
+Connection Add completes managed setup and source-qualified all-items admission
+without repeated approvals; GitHub resolves the verified active CLI account and
+pins that name without switching accounts. Existing rules remain unchanged.
+Save/Apply, digest review and tracker publication remain human-only.
 `tools\daemon-launch.ps1` starts that selected verified runtime. `-EnsureRunning`
 is the canvas startup boundary: authenticate the exact Windows owner, verify
 trusted pinned TLS, durable daemon identity and protocol, then reuse the existing

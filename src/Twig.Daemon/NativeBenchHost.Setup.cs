@@ -98,8 +98,8 @@ public static partial class NativeBenchHost
             NativeSetupTarget target;
             if (request.Value.Provider == "github")
             {
-                RequiredText(body.Account ?? "", "Choose the named GitHub account. The active account is never inferred.", 128);
-                target = new NativeGitHubSetupTarget("github.com", request.Value.Repository!, body.Account!);
+                if (body.Account is not null) RequiredText(body.Account, "Use a named GitHub account.", 128);
+                target = new NativeGitHubSetupTarget("github.com", request.Value.Repository!, body.Account ?? "");
             }
             else
             {

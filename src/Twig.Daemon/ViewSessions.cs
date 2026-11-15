@@ -359,7 +359,7 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
             throw new HttpFailure(403, "CapabilityRejected", "Expired, revoked, replaced or wrong-scope capability. Reconnect this view.");
         if (value.Revoked)
             throw new HttpFailure(403, "SessionRevoked", "This view was signed out. Connect explicitly to use it again.");
-        if ((presentation ? value.PresentationExpires : value.Expires) <= time.GetUtcNow())
+        if ((presentation && !value.OwnerAuthenticated ? value.PresentationExpires : value.Expires) <= time.GetUtcNow())
             throw new HttpFailure(403, "SessionExpired", "Renew this view with the same Windows owner before continuing.");
         if (!presentation && value.OwnerAuthenticated)
         {

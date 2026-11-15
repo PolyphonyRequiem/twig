@@ -30,7 +30,7 @@ public static partial class NativeBenchHost
             || provider == "github" && (repository is null || !System.Text.RegularExpressions.Regex.IsMatch(repository,
                 @"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}\z",
                 System.Text.RegularExpressions.RegexOptions.CultureInvariant) || repository.Split('/')[1] is "." or ".."))
-            throw new HttpFailure(400, "InvalidInput", "Choose Twig, or GitHub with an explicit owner/repository on github.com. Accounts and storage paths are chosen by the owner, not the agent.");
+            throw new HttpFailure(400, "InvalidInput", "Choose Twig, or GitHub with an explicit owner/repository on github.com. Storage is managed privately and GitHub uses the signed-in CLI account.");
         repository = repository?.ToLowerInvariant();
         lock (session.Agent)
         lock (session)
@@ -47,7 +47,7 @@ public static partial class NativeBenchHost
             if (session.DisplayContexts.Count >= 32)
                 throw new HttpFailure(422, "Unsupported", "This view has reached its 32-source agent admission limit.");
             var request = new NativeConnectionRequest(new(Guid.NewGuid(), bench.Id, bench.Revision, bench.Name,
-                provider, repository, "Requested", new[] { session.Expires, session.PresentationExpires,
+                provider, repository, "Requested", new[] { session.Expires,
                     DateTimeOffset.UtcNow.AddMinutes(15) }.Min()), session);
             session.Agent.ConnectionRequest = request;
             return request;

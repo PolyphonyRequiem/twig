@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Core;
+using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Services;
 using Xunit;
 
@@ -7,6 +8,36 @@ namespace Twig.Infrastructure.Tests.Services;
 
 public sealed class NativeConnectionSetupTests
 {
+    [Fact]
+    public async Task ManagedGitHubSetupPinsTheVerifiedActiveAccountWithoutSwitchingIt()
+    {
+        var runner = new GitHub.GhCliTokenSourceTests.FakeRunner(new(BoundedProcessOutcome.Exited, 0, "verified-account\n"));
+        var result = await NativeConnectionSetup.ResolveManagedGitHubAccountAsync(new("github.com", "fixture/repo", ""), runner, default);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Account.ShouldBe("verified-account");
+        runner.Calls.Single().Arguments.ShouldBe(["api", "--hostname", "github.com", "user", "--jq", ".login"]);
+        runner.ExcludedEnvironment.ShouldBe(["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]);
+        runner.Calls.Single().MaxOutputChars.ShouldBe(256);
+        var explicitAccount = await NativeConnectionSetup.ResolveManagedGitHubAccountAsync(
+            result.Value, runner, default);
+        explicitAccount.Value.ShouldBe(result.Value);
+        runner.Calls.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("", 0)]
+    [InlineData("two\naccounts", 0)]
+    [InlineData("private-output must not escape", 1)]
+    public async Task ManagedGitHubAccountDiscoveryFailsClosedWithoutDisclosingOutput(string output, int exitCode)
+    {
+        var runner = new GitHub.GhCliTokenSourceTests.FakeRunner(new(BoundedProcessOutcome.Exited, exitCode, output));
+        var result = await NativeConnectionSetup.ResolveManagedGitHubAccountAsync(new("github.com", "fixture/repo", ""), runner, default);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        result.Error.Message.ShouldNotContain("private-output");
+        runner.Calls.Count.ShouldBe(1);
+    }
+
     [Fact]
     public async Task MalformedAbsoluteRootReturnsTypedFailureBeforeNativeEffects()
     {

@@ -128,7 +128,7 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
             if (action == "rename")
             {
                 if (string.IsNullOrWhiteSpace(newName)) return Error("An explicit new Bench name is required.", 2);
-                var renamed = await store.SaveAsync(new(target.Id, newName, target.Selectors), target.Revision, ct);
+                var renamed = await store.SaveAsync(new(target.Id, newName, target.Selectors, connections: target.Connections), target.Revision, ct);
                 if (!renamed.IsSuccess) return Error(renamed.Error.Message, renamed.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
                 Result("benchRenamed", renamed.Value, $"Renamed the shared Bench to '{renamed.Value.Name}'; selections and pins were preserved.");
                 return 0;
@@ -141,7 +141,7 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
                     + "Re-type its exact name with --confirm; no work items or drafts will be deleted.");
             var deleted = await store.DeleteAsync(target.Id, target.Revision, ct);
             if (!deleted.IsSuccess) return Error(deleted.Error.Message);
-            Result("benchDeleted", new(target.Id, target.Name, target.Selectors, target.Revision + 1),
+            Result("benchDeleted", new(target.Id, target.Name, target.Selectors, target.Revision + 1, target.Connections),
                 $"Deleted Bench '{target.Name}'; work items, drafts and other Benches were untouched.");
             return 0;
         }

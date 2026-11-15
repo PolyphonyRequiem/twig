@@ -584,7 +584,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         var selectors = remove ? bench.Selectors.Where(selector => !Matches(selector)).ToArray()
             : existing.Length == 0 ? bench.Selectors.Add(new(kind, key, hierarchyRelation: hierarchy)).ToArray() : bench.Selectors.ToArray();
-        var changed = new Bench(bench.Id, bench.Name, selectors);
+        var changed = new Bench(bench.Id, bench.Name, selectors, connections: bench.Connections);
         var saved = await workspace.CaptureBenchesAsync(snapshot.Value,
             snapshot.Value.Benches.Select(value => value.Id == changed.Id ? changed : value), ct);
         if (!saved.IsSuccess) return Error(output, saved.Error.Message);

@@ -25,6 +25,11 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal SemaphoreSlim RecoveryGate { get; } = new(1, 1);
     internal Dictionary<string, NativeSourceRecovery> SourceRecovery { get; } = new(PathComparer);
     internal Guid? CurrentBenchId { get; set; }
+    internal string? RepositoryRoot { get; set; }
+    internal Twig.Infrastructure.Services.UserRepositoryBindings? RepositoryBindings { get; set; }
+    internal CanvasRuntimeContext? RuntimeContext { get; set; }
+    internal bool RuntimeRepositoryApplied { get; set; }
+    internal SemaphoreSlim RepositoryGate { get; } = new(1, 1);
     internal static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
     internal Bench.Infrastructure.NativePanelContext? NativeContext { get; set; }
     internal Bench.Infrastructure.NativePanelContext? PopulationContext { get; set; }
@@ -55,11 +60,18 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
     private readonly Dictionary<Guid, ViewSession> sessions = [];
     private readonly Dictionary<string, (DateTimeOffset Expires, bool Canvas)> codes = [];
     private readonly Queue<DateTimeOffset> attempts = [];
-    public CanvasRegistration RegisterNativeCanvas(Guid instance)
+    public CanvasRegistration RegisterNativeCanvas(Guid instance, CanvasRuntimeContext? context = null)
     {
         lock (gate)
         {
+            if (context is not null && (!ValidText(context.SessionId, 256)
+                || new[] { context.WorkingDirectory, context.GitRoot }.Any(value => value is not null && !ValidText(value, 4096))
+                || new[] { context.Repository, context.Branch }.Any(value => value is not null && !ValidText(value, 512))))
+                throw new HttpFailure(400, "InvalidInput", "Use bounded SDK session context without credentials or conversation content.");
+            if (context?.IsRemote == true)
+                throw new HttpFailure(422, "RemoteContextUnsupported", "This daemon supports same-machine session contexts only. No remote directory was mapped to local data.");
             var registered = Register(instance, true);
+            registered.Session.RuntimeContext = context;
             return new(registered.Session.Id, registered.Secret);
         }
     }
@@ -72,6 +84,20 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
                 throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed. Connect explicitly.");
             if (body.ProfileId == Guid.Empty || body.StoreId == Guid.Empty)
                 throw new HttpFailure(400, "InvalidInput", "Use an exact remembered store/profile or no remembered identity.");
+            if (body.ViewId is { } viewId)
+            {
+                if (!sessions.TryGetValue(viewId, out var view) || view.CatalogId != instance || view.Revoked
+                    || view.Expires <= time.GetUtcNow() || !view.Canvas)
+                    throw new HttpFailure(409, "ViewUnavailable", "Open the current Canvas view before resolving its session profile.");
+                if (view.RuntimeContext is { } runtime)
+                {
+                    var contextual = ContextualProfile(instance, runtime);
+                    var contextualProbe = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = contextual };
+                    using var contextualLease = ProfileLease(contextualProbe);
+                    if (!File.Exists(NativePath(contextualProbe))) WriteDocument(contextualProbe, ReadDocument(contextualProbe));
+                    return new(instance, contextual);
+                }
+            }
             var path = DefaultProfilePath(instance);
             Guid? selected = null;
             if (body.StoreId == instance && body.ProfileId is { } prior)
@@ -120,7 +146,7 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
             if (!restore) _ = ReadState(session);
             else
             {
-                var profile = ResolveOwnerProfile(instance, new(null, null));
+                var profile = ResolveOwnerProfile(instance, new(null, null, viewId));
                 _ = RenewOwner(instance, new(viewId, profile.ProfileId, instance));
             }
             session.Agent.OwnerHostAuthenticated = true;
@@ -141,6 +167,8 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
                     throw new HttpFailure(403, "CapabilityRejected", "Open a fresh panel view.");
             }
             else session = Register(instance, false).Session;
+            if (session.RuntimeContext is { } runtime && profileId != ContextualProfile(instance, runtime))
+                throw new HttpFailure(409, "SessionProfileChanged", "Use the profile belonging to this SDK session; no other session's selections were adopted.");
             if (session.OwnerAuthenticated && session.ProfileId != profileId)
                 throw new HttpFailure(409, "ProfileChanged", "Open a fresh view for the selected presentation profile.");
             session.OwnerAuthenticated = true;
@@ -475,7 +503,8 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
             }).ToArray();
             document = document with { Revision = checked(document.Revision + 1), Choices = body.Choices, Sources = references };
             WriteDocument(session, document);
-            WriteAtomic(DefaultProfilePath(session.CatalogId), session.ProfileId.ToString("D"));
+            if (session.RuntimeContext is null)
+                WriteAtomic(DefaultProfilePath(session.CatalogId), session.ProfileId.ToString("D"));
             lock (session)
                 foreach (var reference in references)
                     if (contexts.Any(context => ViewSession.PathComparer.Equals(context.Root, reference.Root)))
@@ -524,7 +553,7 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
                 ?? new(reference.Root, retained.Contains(reference.Root) ? "retained" : "not-opened", null)).ToArray();
         }
         return new(session.CatalogId, session.ProfileId, document.Revision, document.Choices, recovery,
-            session.CurrentBenchId, session.Expires, session.Expires - OwnerRenewalLead);
+            session.CurrentBenchId, session.Expires, session.Expires - OwnerRenewalLead) { RuntimeContext = session.RuntimeContext };
     }
     internal static string[] Roots(NativeViewChoices choices) => new[] { choices.ViewingRoot, choices.AddRoot }
         .OfType<string>().Concat(choices.DisplayRoots).Distinct(ViewSession.PathComparer).ToArray();
@@ -630,8 +659,12 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
             || choices.QueryId is { } query && !ValidText(query, 512)
             || choices.BacklogId is { } backlog && !ValidText(backlog, 512))
             throw new HttpFailure(400, "InvalidInput", "Invalid native view references or presentation choices.");
+        if (choices.RepositoryRoot is { } repository && (!ValidText(repository, 4096) || !Path.IsPathFullyQualified(repository)))
+            throw new HttpFailure(400, "InvalidInput", "Choose an absolute repository path.");
     }
     private static string Secret() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+    private static Guid ContextualProfile(Guid instance, CanvasRuntimeContext runtime)
+        => new(SHA256.HashData(Encoding.UTF8.GetBytes($"twig-canvas-session-v1\n{instance:D}\n{runtime.SessionId}")).AsSpan(0, 16));
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static bool ValidSecret(string? value) => value is { Length: 64 } && value.All(c => c is >= 'a' and <= 'f' or >= '0' and <= '9');
     private static bool Equal(string actual, string? expected) => expected is not null

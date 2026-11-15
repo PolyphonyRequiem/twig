@@ -77,11 +77,13 @@ public static partial class NativeBenchHost
         var summary = new NativePanelSummary(shared.InstanceId, shared.Revision, shared.Benches.Select(Definition).ToArray(),
             chosen.Concat(new[] { population }.OfType<NativePanelContext>()).DistinctBy(value => value.Root, ViewSession.PathComparer)
                 .Select(value => ConnectionSummary(value)!).ToArray(),
-            anchor?.Root, population?.Root, ConnectionSummary(anchor), ConnectionSummary(population));
+            anchor?.Root, population?.Root, ConnectionSummary(anchor), ConnectionSummary(population))
+            { RepositoryRoot = session.RepositoryRoot, RepositoryBindings = session.RepositoryBindings,
+                RuntimeContext = session.RuntimeContext };
         NativeBenchViewDto? view = null;
         if (state.CurrentBenchId is { } bench && shared.Benches.Any(value => value.Id == bench))
         {
-            var captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations));
+            var captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations, AvailableConnections(session)));
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
             if (mapped.CatalogId != shared.InstanceId || mapped.CatalogRevision != shared.Revision)
                 throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed during initial loading.");
@@ -114,7 +116,10 @@ public static partial class NativeBenchHost
         await session.RecoveryGate.WaitAsync(ct);
         try
         {
+            await SynchronizeRepository(panel, sessions, session, ct);
             var before = sessions.ReadState(session);
+            var available = AvailableConnections(session);
+            var registry = Require(await panel.WorkspacesAsync(ct));
             var references = sessions.StateReferences(session);
             NativePanelContext? initialViewing;
             NativePanelContext? initialPopulation;
@@ -127,43 +132,57 @@ public static partial class NativeBenchHost
             }
             var opened = new Dictionary<string, NativePanelContext>(ViewSession.PathComparer);
             var recovery = new Dictionary<string, NativeSourceRecovery>(ViewSession.PathComparer);
-            using var overall = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            overall.CancelAfter(TimeSpan.FromSeconds(30));
-            foreach (var reference in references)
+            using var concurrency = new SemaphoreSlim(8);
+            var restored = await Task.WhenAll(references.Select(async reference =>
             {
-                ct.ThrowIfCancellationRequested();
-                if (overall.IsCancellationRequested)
-                {
-                    recovery[reference.Root] = new(reference.Root, "unavailable", "Unavailable");
-                    continue;
-                }
+                await concurrency.WaitAsync(ct);
                 try
                 {
-                    var result = await panel.OpenAsync(reference.Root, overall.Token, reference.Binding, initialObservations);
-                    if (!result.IsSuccess)
+                    NativePanelContext? context = null;
+                    var state = new NativeSourceRecovery(reference.Root, "unavailable", "Unavailable");
+                    var observations = initialObservations is null ? null : new Dictionary<NativePanelContext, SourceObservation>();
+                    if (available is not null && !registry.Any(workspace => ViewSession.PathComparer.Equals(workspace.Root, reference.Root)
+                        && available.Contains(workspace.Connection)))
                     {
-                        recovery[reference.Root] = new(reference.Root, "unavailable", result.Error.Code.ToString());
-                        continue;
+                        state = new(reference.Root, "unavailable", "RepositoryConnectionUnavailable");
                     }
-                    var context = result.Value;
-                    if (CatalogFingerprint.Binding(context.Source.Binding) != reference.Binding)
+                    else
                     {
-                        recovery[reference.Root] = new(reference.Root, "changed", "SourceChanged");
-                        continue;
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                        try
+                        {
+                            var result = await panel.OpenAsync(reference.Root, timeout.Token, reference.Binding, observations);
+                            if (!result.IsSuccess) state = new(reference.Root, "unavailable", result.Error.Code.ToString());
+                            else if (CatalogFingerprint.Binding(result.Value.Source.Binding) != reference.Binding)
+                                state = new(reference.Root, "changed", "SourceChanged");
+                            else { context = result.Value; state = new(reference.Root, "restored", null); }
+                        }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            state = new(reference.Root, "unavailable", "Unavailable");
+                        }
                     }
-                    opened.Add(reference.Root, context);
-                    recovery[reference.Root] = new(reference.Root, "restored", null);
+                    return (reference.Root, Context: context, Recovery: state, Observations: observations);
                 }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                finally { concurrency.Release(); }
+            }));
+            foreach (var result in restored)
+            {
+                recovery[result.Root] = result.Recovery;
+                if (result.Context is { } context)
                 {
-                    recovery[reference.Root] = new(reference.Root, "unavailable", "Unavailable");
+                    opened.Add(result.Root, context);
+                    if (initialObservations is not null && result.Observations is not null)
+                        foreach (var observation in result.Observations) initialObservations[observation.Key] = observation.Value;
                 }
             }
             var shared = Require(await panel.ListAsync(ct));
-            var currentBench = before.Choices.BenchId
-                ?? (shared.Benches.Length == 1 ? shared.Benches[0].Id : (Guid?)null);
+            var currentBench = before.Choices.BenchId ?? session.RepositoryBindings?.DefaultBench
+                ?? (session.RuntimeContext is null && session.RepositoryBindings is null && shared.Benches.Length == 1
+                    ? shared.Benches[0].Id : (Guid?)null);
             var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)
-                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct)).ToArray()
+                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available)).ToArray()
                 : [];
             var instance = shared.InstanceId;
             if (instance != session.CatalogId)
@@ -200,7 +219,7 @@ public static partial class NativeBenchHost
         NativePanelContext[] previous;
         lock (session) { bench = session.CurrentBenchId; previous = session.DisplayContexts.Values.ToArray(); }
         if (bench is null) return;
-        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct));
+        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct, AvailableConnections(session)));
         lock (session.Agent)
         lock (session)
         {

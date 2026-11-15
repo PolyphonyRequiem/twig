@@ -80,8 +80,8 @@ private Git-backed client context under the native metadata home's `sources`
 directory, then uses ordinary fresh initialization and exact creation-bound
 schema/online readback. It neither edits source checkouts nor treats that client
 anchor as authoritative Twig identity. Separate owner consent admits the source
-and saves its all-items Bench rule through revision CAS, preserving other rules
-and the viewing context. The daemon persists exact source references before
+and attaches its explicit Bench dependency through revision CAS without adding a
+membership rule, preserving other rules and the viewing context. The daemon persists exact source references before
 success. Revocation, expiry and scope changes retire requests; uncertain
 admissions cannot be redispatched. Save/Apply and provider publication guards are
 unchanged.
@@ -100,6 +100,30 @@ The selected Bench owns its declared connections and automatically resolves exac
 registered sources. Selection does not depend on a viewing connection or change
 CLI worktree selection. Missing or ambiguous sources produce a degraded Bench,
 not empty membership; healthy sources and local Bench management remain usable.
+Dependencies persist independently of pins and queries, including an attached
+connection with zero members. Each source has its own bounded resolution/read
+budget and acquisition is parallel, so an unavailable first source cannot consume
+another source's budget.
+
+User-local repository bindings reference these registered connections and an
+optional default Bench. They live in `benches.db`, never checked-in repo config;
+linked worktrees share a Git-common-directory identity. Connections can be reused
+across repositories. Repo availability constrains effective reads without changing
+shared Bench intent, draft ownership or pending delivery destinations. A
+multi-source Bench requires an explicit Add items destination.
+
+Documented Canvas SDK session ID and working-directory metadata select an isolated
+session view profile and the actual local repository's defaults. Repository/branch
+metadata are hints, not authority. App chat/project classification and persistent
+Project IDs remain unknown; no conversation access or remote-directory mapping is
+used. Agent context metadata is opt-in through `X-Twig-Bench-Context: 1`; older
+exact-shaped clients retain their original response envelope. Repo binding
+changes invalidate scoped grants, editor and Plan captures.
+The user Bench store is now format version 2: choose a fresh `TWIG_USER_HOME` for
+old developer-local state rather than migrating it. Changing only daemon private
+storage does not replace this user-wide store; nothing resets installed state or
+upstream items automatically.
+
 Observed relationships to unavailable or uncached targets retain metadata-only
 unresolved references, never fabricated item fields or inferred deletion.
 Access follows the

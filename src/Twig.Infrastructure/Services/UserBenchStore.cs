@@ -68,7 +68,7 @@ public sealed partial class UserBenchStore
             var current = await Find(db, transaction, definition.Id, ct).ConfigureAwait(false);
             if (current is null ? expectedRevision != 0 : current.Value.Deleted || current.Value.Bench.Revision != expectedRevision)
                 return Result<Bench>.Fail(ErrorCode.Conflict, "The Bench changed or was deleted. Refresh before changing it.");
-            var next = new Bench(definition.Id, definition.Name, definition.Selectors, expectedRevision + 1);
+            var next = new Bench(definition.Id, definition.Name, definition.Selectors, expectedRevision + 1, definition.Connections);
             await Put(db, transaction, next, false, ct).ConfigureAwait(false);
             await Advance(db, transaction, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -101,13 +101,14 @@ public sealed partial class UserBenchStore
                 if (existing is { } retained)
                 {
                     if (retained.Deleted || retained.Bench.Name != bench.Name
-                        || BenchCodec.SerializeSelectors(retained.Bench.Selectors) != BenchCodec.SerializeSelectors(bench.Selectors))
+                        || BenchCodec.SerializeSelectors(retained.Bench.Selectors) != BenchCodec.SerializeSelectors(bench.Selectors)
+                        || !retained.Bench.Connections.ToHashSet().SetEquals(bench.Connections))
                         return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "A legacy Bench identity has different saved intent or was deleted. Reconcile explicitly; nothing was imported.");
                     continue;
                 }
                 if (before.Benches.Any(value => CanonicalName(value.Name) == CanonicalName(bench.Name)))
                     return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "A legacy Bench name belongs to another identity. Reconcile explicitly; nothing was imported.");
-                await Put(db, transaction, new(bench.Id, bench.Name, bench.Selectors, 1), false, ct).ConfigureAwait(false);
+                await Put(db, transaction, new(bench.Id, bench.Name, bench.Selectors, 1, bench.Connections), false, ct).ConfigureAwait(false);
                 changed = true;
             }
             if (changed) await Advance(db, transaction, ct).ConfigureAwait(false);
@@ -133,7 +134,7 @@ public sealed partial class UserBenchStore
             if (current.Value.Deleted || current.Value.Bench.Revision != expectedRevision || expectedRevision == long.MaxValue)
                 return Result<bool>.Fail(ErrorCode.Conflict, "The Bench changed or was deleted; nothing else was removed.");
             var previous = current.Value.Bench;
-            await Put(db, transaction, new(previous.Id, previous.Name, previous.Selectors, expectedRevision + 1), true, ct).ConfigureAwait(false);
+            await Put(db, transaction, new(previous.Id, previous.Name, previous.Selectors, expectedRevision + 1, previous.Connections), true, ct).ConfigureAwait(false);
             await Advance(db, transaction, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             transaction.Commit();
@@ -499,7 +500,8 @@ public sealed partial class UserBenchStore
                         if (same.Length != 0) continue;
                         scoped = retained.Bench.Selectors.AddRange(scoped);
                     }
-                    var next = new Bench(old.Id, old.Name, scoped, (existing?.Bench.Revision ?? 0) + 1);
+                    var connections = (existing?.Bench.Connections ?? []).Union(old.Connections).Append(connection);
+                    var next = new Bench(old.Id, old.Name, scoped, (existing?.Bench.Revision ?? 0) + 1, connections);
                     Validate(next);
                     await Put(db, transaction, next, false, ct).ConfigureAwait(false);
                 }
@@ -545,8 +547,10 @@ public sealed partial class UserBenchStore
                 after.TryGetValue(id, out var requested);
                 if (requested is null)
                     return Result<bool>.Fail(ErrorCode.InvalidInput, "Use explicit Bench deletion; selector capture cannot delete shared definitions.");
-                var normalized = new Bench(requested.Id, requested.Name,
-                    requested.Selectors.Select(selector => Scope(selector, connection)), expected?.Revision ?? 0);
+                var scoped = requested.Selectors.Select(selector => Scope(selector, connection)).ToImmutableArray();
+                var normalized = new Bench(requested.Id, requested.Name, scoped, expected?.Revision ?? 0,
+                    (expected?.Connections ?? []).Union(requested.Connections)
+                        .Union(scoped.Select(selector => selector.Connection!)));
                 if (expected is not null && BenchCodec.Serialize(normalized) == BenchCodec.Serialize(expected)) continue;
                 var current = await Find(db, transaction, id, ct).ConfigureAwait(false);
                 if (current is null ? expected is not null : current.Value.Deleted || expected is null
@@ -554,7 +558,8 @@ public sealed partial class UserBenchStore
                     return Result<bool>.Fail(ErrorCode.Conflict, "The shared Bench changed during this operation; newer selectors were preserved.");
                 var selectors = (current?.Bench.Selectors ?? []).Where(s => s.Connection != connection)
                     .Concat(normalized.Selectors);
-                var next = new Bench(id, normalized.Name, selectors, (expected?.Revision ?? 0) + 1);
+                var next = new Bench(id, normalized.Name, selectors, (expected?.Revision ?? 0) + 1,
+                    (current?.Bench.Connections ?? []).Union(normalized.Connections));
                 Validate(next);
                 await Put(db, transaction, next, false, ct).ConfigureAwait(false);
                 changed = true;
@@ -585,7 +590,8 @@ public sealed partial class UserBenchStore
             var snapshot = read.Value;
             return Result<StoreSnapshot>.Ok(new(snapshot.Version, snapshot.Items, snapshot.Relationships, snapshot.Drafts,
                 snapshot.Proposals, snapshot.Journal, snapshot.Mappings, shared.Value.Benches.Select(bench =>
-                    new Bench(bench.Id, bench.Name, bench.Selectors.Where(s => s.Connection == connection), bench.Revision))));
+                    new Bench(bench.Id, bench.Name, bench.Selectors.Where(s => s.Connection == connection), bench.Revision,
+                        bench.Connections.Where(value => value == connection)))));
         }
 
         public async Task<Result<long>> CommitAsync(Connection connection, long expectedVersion, StoreSnapshot next, CancellationToken ct)
@@ -612,6 +618,8 @@ public sealed partial class UserBenchStore
             || string.IsNullOrWhiteSpace(bench.Name))
             throw new ArgumentException("Use a trimmed Bench name (1-120 characters).");
         ValidateSelectors(bench.Selectors);
+        if (bench.Connections.Length > 64)
+            throw new ArgumentException("A Bench may declare at most 64 exact connection dependencies.");
     }
 
     private static void ValidateSelectors(ImmutableArray<Selector> selectors)
@@ -646,8 +654,8 @@ public sealed partial class UserBenchStore
             if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != ApplicationId)
                 throw new InvalidDataException("This is not the native user Bench store.");
             command.CommandText = "PRAGMA user_version;";
-            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 1)
-                throw new InvalidDataException("Unsupported native Bench store version; the existing file was preserved.");
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 2)
+                throw new InvalidDataException("Unsupported native Bench store version. Reset developer-local Twig data and initialize a fresh store; the existing file was preserved.");
             command.CommandText = "SELECT instance FROM meta WHERE id=1;";
             if (!Guid.TryParseExact(await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string, "D", out var current)
                 || current == Guid.Empty)
@@ -691,7 +699,7 @@ public sealed partial class UserBenchStore
                     PRAGMA journal_mode=WAL;
                     PRAGMA synchronous=FULL;
                     PRAGMA application_id={ApplicationId};
-                    PRAGMA user_version=1;
+                    PRAGMA user_version=2;
                     CREATE TABLE meta(id INTEGER PRIMARY KEY CHECK(id=1),instance TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>=0),
                         editor_registry TEXT,editor_generation INTEGER NOT NULL DEFAULT 0,editor_head TEXT NOT NULL DEFAULT '') STRICT;
                     INSERT INTO meta(id,instance,revision,editor_registry) VALUES(1,'{user:D}',0,{(registryIdentity is null ? "NULL" : "'" + registryIdentity.Value.ToString("N") + "'")});
@@ -699,6 +707,7 @@ public sealed partial class UserBenchStore
                     CREATE UNIQUE INDEX bench_names ON benches(canonical_name) WHERE deleted=0;
                     CREATE TABLE imports(store_instance TEXT PRIMARY KEY,connection TEXT NOT NULL) STRICT;
                     CREATE TABLE workspaces(context_key TEXT PRIMARY KEY,root TEXT NOT NULL,connection TEXT NOT NULL,store_instance TEXT NOT NULL) STRICT;
+                    CREATE TABLE repository_bindings(repository_key TEXT PRIMARY KEY,revision INTEGER NOT NULL CHECK(revision>0),document TEXT NOT NULL) STRICT;
                     CREATE TABLE view_rules(context_key TEXT NOT NULL,connection TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),exclusions TEXT NOT NULL,PRIMARY KEY(context_key,connection)) STRICT;
                     """;
                 await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
@@ -815,4 +824,5 @@ internal sealed record UserMembershipDocument(PlanningSourceKind Kind, string Id
 [JsonSerializable(typeof(PlanningMetadata))]
 [JsonSerializable(typeof(NativePlanningSourcesCache))]
 [JsonSerializable(typeof(UserMembershipDocument))]
+[JsonSerializable(typeof(UserRepositoryBindings))]
 internal sealed partial class UserBenchJson : JsonSerializerContext;

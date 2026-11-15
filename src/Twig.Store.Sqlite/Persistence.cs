@@ -241,11 +241,11 @@ internal sealed record SelectorData(SelectorKind Kind, KeyData? Item, QueryData?
     internal Selector ToCore() => new(Persistence.Defined(Kind), Item?.ToCore(), Query?.ToCore(), HierarchyRelation, Connection);
 }
 
-internal sealed record BenchData(Guid Id, string Name, SelectorData[] Selectors,
+internal sealed record BenchData(Guid Id, string Name, SelectorData[] Selectors, Connection[] Connections,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] long Revision = 0)
 {
-    internal static BenchData From(Bench b) => new(b.Id, b.Name, b.Selectors.Select(SelectorData.From).ToArray(), b.Revision);
-    internal Bench ToCore() => new(Id, Name, Selectors.Select(s => s.ToCore()), Revision);
+    internal static BenchData From(Bench b) => new(b.Id, b.Name, b.Selectors.Select(SelectorData.From).ToArray(), b.Connections.ToArray(), b.Revision);
+    internal Bench ToCore() => new(Id, Name, Selectors.Select(s => s.ToCore()), Revision, Connections);
 }
 
 [JsonSourceGenerationOptions(

@@ -109,7 +109,7 @@ internal static class McpReadServer
           {"name":"read_bench","description":"Read the selected Twig Bench and its exact observed item identities. Returns a snapshot, available field definitions and unavailable-source metadata. Does not select a connection, refresh a provider or modify anything.",
            "annotations":{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false},
            "inputSchema":{"type":"object","properties":{"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}},
-          {"name":"show_work_item_details","description":"Show actual observed work-item details in chat, with selected exact field references and one optional emphasis. Read read_bench first. All item values come from the daemon, never from tool input. HTML/markdown field content is displayed as inert text. No Save or Apply.",
+          {"name":"show_work_item_details","description":"Show actual observed work-item details in chat, with selected exact field references and one optional emphasis. Read read_bench first. All item values, profiles, type/state presentation and web links come from the daemon, never from tool input. HTML/Markdown is safely formatted with active content removed. No Save or Apply.",
            "annotations":{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false},
            "_meta":{"ui":{"resourceUri":"ui://twig/work-item-details","visibility":["model","app"]}},
            "inputSchema":{"type":"object","properties":{

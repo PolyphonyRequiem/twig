@@ -66,7 +66,7 @@ public static partial class NativeBenchHost
             var library = Require(await panel.ListAsync(http.RequestAborted));
             var bench = library.Benches.SingleOrDefault(value => value.Id == body.BenchId);
             if (bench is null || bench.Revision != body.BenchRevision
-                || Require(await panel.ReadSelectionAsync(Context(session), http.RequestAborted)).SelectedBenchId != body.BenchId)
+                || session.CurrentBenchId != body.BenchId)
                 throw new HttpFailure(409, "BenchChanged", "Choose the current Bench and review its saved revision before adding a connection.");
             await Write(http, PrepareConnectionRequest(session, bench, body.Provider, body.Repository).Value);
         });
@@ -87,10 +87,16 @@ public static partial class NativeBenchHost
             updates.PublishAgent(session.Id);
             await Write(http, new Ack());
         });
-        app.MapPost("/api/v1/views/{id:guid}/connections/approve", async (HttpContext http, Guid id) =>
+        app.MapPost("/api/v1/views/{id:guid}/connections/approve",
+            (HttpContext http, Guid id) => ApproveConnection(http, id, false));
+        app.MapPost("/api/v1/views/{id:guid}/agent/connection-request-start",
+            (HttpContext http, Guid id) => ApproveConnection(http, id, true));
+        async Task ApproveConnection(HttpContext http, Guid id, bool automatic)
         {
-            var session = await authorize(http, id);
-            var body = await Body<ConnectionApprovalBody>(http);
+            var session = automatic ? AutomaticSession(http, id) : await authorize(http, id);
+            var body = automatic
+                ? new ConnectionApprovalBody((await Body<ConnectionRequestBody>(http)).RequestId)
+                : await Body<ConnectionApprovalBody>(http);
             var request = PendingConnectionRequest(session, body.RequestId);
             if (request.Value.State != "Requested")
                 throw new HttpFailure(409, "ConnectionSetupAlreadyStarted", "Observe the original setup. It cannot be approved or dispatched twice.");
@@ -119,12 +125,19 @@ public static partial class NativeBenchHost
                         "Setup did not return the exact requested provider and creation-bound schema. No source was admitted.") };
                 return operation.Current with { Status = "Ready", Source = new(result.Value.WorkspaceRoot,
                     observed.Source, schema.Value.Connection, observed.SchemaObservedAt) };
-            }, request);
-        });
-        app.MapPost("/api/v1/views/{id:guid}/connections/add", async (HttpContext http, Guid id) =>
+            }, request, automatic);
+        }
+        app.MapPost("/api/v1/views/{id:guid}/connections/add",
+            (HttpContext http, Guid id) => AddConnection(http, id, false));
+        app.MapPost("/api/v1/views/{id:guid}/agent/connection-request-add",
+            (HttpContext http, Guid id) => AddConnection(http, id, true));
+        async Task AddConnection(HttpContext http, Guid id, bool automatic)
         {
-            var session = await authorize(http, id);
-            var body = await Body<ConnectionAdmissionBody>(http);
+            var session = automatic ? AutomaticSession(http, id) : await authorize(http, id);
+            var body = automatic
+                ? new ConnectionAdmissionBody((await Body<ConnectionRequestBody>(http)).RequestId,
+                    session.Setup.Operation?.Current.OperationId ?? Guid.Empty, true)
+                : await Body<ConnectionAdmissionBody>(http);
             if (!body.IncludeAll)
                 throw new HttpFailure(400, "ConnectionRuleConsentRequired", "Explicitly approve adding this connection's all-items rule to the saved Bench. It is not a display filter.");
             await session.Agent.Gate.WaitAsync(http.RequestAborted);
@@ -167,7 +180,7 @@ public static partial class NativeBenchHost
                     session.DisplayContexts[opened.Stamp.Connection] = opened;
                 _ = sessions.SaveState(session, new(retained.Revision, retained.Choices with
                 {
-                    ViewingRoot = request.Anchor.Root, AddRoot = request.Population?.Root,
+                    ViewingRoot = request.Anchor?.Root, AddRoot = request.Population?.Root,
                     BenchId = definition.Id,
                     DisplayRoots = retained.Choices.DisplayRoots.Append(opened.Root).Distinct(ViewSession.PathComparer).ToArray(),
                 }));
@@ -177,7 +190,8 @@ public static partial class NativeBenchHost
                 session.Agent.ConnectionRequest = request;
                 completed = true;
                 updates.Publish(0);
-                await Write(http, new ConnectionAddedDto(request.Value, opened.Root, changed));
+                if (automatic) await Write(http, request.Value);
+                else await Write(http, new ConnectionAddedDto(request.Value, opened.Root, changed));
             }
             catch (OperationCanceledException) when (attempted)
             {
@@ -194,7 +208,7 @@ public static partial class NativeBenchHost
                 }
                 session.Agent.Gate.Release();
             }
-        });
+        }
         app.MapPost("/api/v1/views/{id:guid}/setup/enroll-aad", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);
@@ -312,6 +326,14 @@ public static partial class NativeBenchHost
 
         INativeConnectionSetupGateway Gateway() => gateway
             ?? throw new HttpFailure(503, "SetupUnavailable", "Native connection setup is not configured. No alternate setup path was used.");
+        ViewSession AutomaticSession(HttpContext http, Guid id)
+        {
+            var session = sessions.Presentation(id, Bearer(http));
+            if (!session.Agent.OwnerHostAuthenticated || !session.Agent.AutomaticAccess || session.Revoked)
+                throw new HttpFailure(403, "AgentPermissionRequired", "Automatic setup requires an authenticated local owner host and unrestricted local access.");
+            _ = sessions.ReadState(session);
+            return session;
+        }
         Task Initialize(HttpContext http, ViewSession session, long epoch, NativeFreshSetupRequest request)
             => Start(http, session, epoch, "Initialization", async (operation, ct) =>
             {
@@ -326,7 +348,8 @@ public static partial class NativeBenchHost
                     Source = new(request.WorkspaceRoot, observation.Source, schema.Value.Connection, observation.SchemaObservedAt) };
             });
         async Task Start(HttpContext http, ViewSession session, long expectedEpoch, string phase,
-            Func<NativeSetupOperation, CancellationToken, Task<SetupOperationDto>> work, NativeConnectionRequest? request = null)
+            Func<NativeSetupOperation, CancellationToken, Task<SetupOperationDto>> work,
+            NativeConnectionRequest? request = null, bool requestOnly = false)
         {
             _ = Gateway();
             NativeSetupOperation operation;
@@ -354,7 +377,8 @@ public static partial class NativeBenchHost
                 epoch = session.Setup.Epoch;
                 operation.Work = Run();
             }
-            await Write(http, new SetupOperationDto(operation.Current.OperationId, "Running", phase) { Pending = true, Epoch = epoch,
+            if (requestOnly) await Write(http, request!.Value, 202);
+            else await Write(http, new SetupOperationDto(operation.Current.OperationId, "Running", phase) { Pending = true, Epoch = epoch,
                 ConnectionRequestId = request?.Value.RequestId }, 202);
 
             async Task Run()

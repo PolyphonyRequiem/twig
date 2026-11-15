@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using Bench.Application;
 using Bench.Infrastructure;
@@ -25,6 +26,7 @@ var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Loca
 var port = 0;
 var migrateLegacy = false;
 var ensureRunning = false;
+var mcp = false;
 string? certificateThumbprint = null;
 var canvasRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "Canvas");
 for (var index = 0; index < args.Length; index++)
@@ -37,7 +39,8 @@ for (var index = 0; index < args.Length; index++)
         case "--canvas-root" when ++index < args.Length: canvasRoot = args[index]; break;
         case "--migrate-legacy": migrateLegacy = true; break;
         case "--ensure-running": ensureRunning = true; break;
-        default: throw new ArgumentException("Options: --data-dir <private absolute directory> --port <stable localhost port> --https-certificate <existing trusted localhost certificate thumbprint> [--canvas-root <verified canvas installation root>]. Benches use the native per-user store.");
+        case "--mcp": mcp = true; break;
+        default: throw new ArgumentException("Options: --data-dir <private absolute directory> --port <stable localhost port> --https-certificate <existing trusted localhost certificate thumbprint> [--canvas-root <verified canvas installation root>] [--mcp]. --mcp is a read-only stdio bridge to the already-running selected daemon. Benches use the native per-user store.");
     }
 }
 if (certificateThumbprint is null || port is 0 or 443 || !OperatingSystem.IsWindows())
@@ -58,6 +61,32 @@ catch (Exception error) when (error is ArgumentException or InvalidOperationExce
     return;
 }
 using var certificateLease = certificate;
+if (mcp)
+{
+    if (ensureRunning) throw new ArgumentException("Run --ensure-running separately from the stdio MCP transport.");
+    try
+    {
+        await DaemonLauncher.EnsureRunningAsync(data, port, certificate,
+            () => throw new InvalidOperationException("Start the selected daemon with its supported launcher before connecting MCP."), default);
+        HttpClient Client(bool credentials) => new(new HttpClientHandler
+        {
+            UseDefaultCredentials = credentials, UseCookies = false, UseProxy = false, AllowAutoRedirect = false,
+            ServerCertificateCustomValidationCallback = (_, peer, _, errors) =>
+                errors == SslPolicyErrors.None && peer?.Thumbprint == certificate.Thumbprint
+        }) { Timeout = TimeSpan.FromSeconds(35), MaxResponseContentBufferSize = 524288 };
+        using var owner = Client(true);
+        using var plain = Client(false);
+        await DaemonMcpBridge.RunAsync(new Uri($"https://localhost:{port}"), owner, plain,
+            Console.In, Console.Out, default);
+    }
+    catch (Exception error) when (error is IOException or InvalidOperationException or HttpRequestException
+        or OperationCanceledException or JsonException or KeyNotFoundException)
+    {
+        Console.Error.WriteLine("Twig MCP stopped without replaying a request: " + error.Message);
+        Environment.ExitCode = 1;
+    }
+    return;
+}
 if (ensureRunning)
 {
     try

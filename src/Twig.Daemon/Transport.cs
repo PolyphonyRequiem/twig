@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 using Bench.Application;
 using Twig.Core;
 using Twig.Infrastructure.Services;
@@ -49,6 +50,8 @@ public sealed record EdgeDto(string From, string To, string Relation, bool Delet
 {
     public long? LocalVersion { get; init; }
 }
+public sealed record UnresolvedReferenceDto(string Id, string? Provider, string? ResourceScope, string? NativeId,
+    Guid? LocalId, Connection[] Connections, string Reason);
 public sealed record SourceViewDto(Guid SourceId, string Label, string? ErrorCode, string[] Limitations,
     string? Mode, DateTimeOffset? CacheReadAt, DateTimeOffset? SchemaObservedAt, long? CacheVersion,
     ItemDto[] Items, GroupFieldDto[] Fields, bool TreeAvailable, string? Hierarchy, EdgeDto[] Edges, string[] TreeLimitations,
@@ -56,9 +59,12 @@ public sealed record SourceViewDto(Guid SourceId, string Label, string? ErrorCod
 {
     public int NormalDraftCount { get; init; }
     public string? SchemaFingerprint { get; init; }
+    public Connection? Connection { get; init; }
+    public UnresolvedReferenceDto[] UnresolvedReferences { get; init; } = [];
 }
 public sealed record BenchViewDto(Guid CatalogId, long CatalogRevision, Guid Id, string Name, SourceViewDto[] Sources);
 public sealed record OwnerConnectBody(Guid? ViewId, Guid ProfileId);
+public sealed record OwnerAgentBody(Guid ViewId);
 public sealed record NativeBenchDto(Guid Id, string Name, long Revision, string Selectors);
 public sealed record WorkspaceDto(string Root, string Provider, string DisplayName, bool LabelAvailable);
 public sealed record NativePanelSummary(Guid StoreId, long Revision, NativeBenchDto[] Benches, WorkspaceDto[] Workspaces,
@@ -87,6 +93,13 @@ public sealed record BenchConnectionsDto(ConnectionRequestDto? Request, SetupOpe
 public sealed record ConnectionAddedDto(ConnectionRequestDto Request, string Root, bool Changed, bool RemoteWrites = false);
 public sealed record AgentPageBody(Guid SnapshotId, int Offset = 0, int Limit = 50);
 public sealed record AgentItemBody(Guid SnapshotId, Guid SourceId, string ItemId);
+public sealed record McpRequestBody(string Jsonrpc, string Method, JsonElement? Id = null, JsonObject? Params = null);
+public sealed record McpFieldDto(string Reference, string Name, bool Observed, FieldValueDto? Value, FieldValueDto? ProposedValue);
+public sealed record McpDetailsDto(Guid SnapshotId, Guid SourceId, string ItemId, string Locator, string Type,
+    string? Title, McpFieldDto? State, McpFieldDto? AssignedTo, string? Revision, bool IsLocal,
+    bool HasDraft, Connection? Connection, string SourceLabel, string? Mode, DateTimeOffset? CacheReadAt,
+    string[] Limitations, McpFieldDto[] Fields, UnresolvedReferenceDto[] UnresolvedReferences,
+    string? FocusField, string? Note, bool ReadOnly = true);
 public sealed record AgentPinBody(Guid SnapshotId, Guid SourceId, string Locator);
 public sealed record AgentQueryRuleBody(Guid SnapshotId, Guid SourceId, int RuleIndex, string Selector);
 public sealed record AgentRuleDto(int RuleIndex, Guid SourceId, string Kind, string Selector);
@@ -230,6 +243,8 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(ConnectionAddedDto))]
 [JsonSerializable(typeof(AgentPageBody))]
 [JsonSerializable(typeof(AgentItemBody))]
+[JsonSerializable(typeof(McpRequestBody))]
+[JsonSerializable(typeof(McpDetailsDto))]
 [JsonSerializable(typeof(AgentPinBody))]
 [JsonSerializable(typeof(AgentQueryRuleBody))]
 [JsonSerializable(typeof(AgentRulesDto))]
@@ -313,6 +328,7 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(EnrollmentAvailability))]
 [JsonSerializable(typeof(WindowsEnrollment))]
 [JsonSerializable(typeof(OwnerConnectBody))]
+[JsonSerializable(typeof(OwnerAgentBody))]
 [JsonSerializable(typeof(NativePanelSummary))]
 [JsonSerializable(typeof(NativeSessionInfo))]
 [JsonSerializable(typeof(NativeBenchViewDto))]

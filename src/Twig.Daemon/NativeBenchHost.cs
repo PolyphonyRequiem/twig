@@ -77,7 +77,7 @@ public static partial class NativeBenchHost
             catch (OperationCanceledException) when (!context.Response.HasStarted)
             {
                 var read = HttpMethods.IsGet(context.Request.Method) || context.Request.Path.Value is { } path
-                    && path.Contains("/planning/", StringComparison.Ordinal);
+                    && (path.Contains("/planning/", StringComparison.Ordinal) || path.EndsWith("/mcp", StringComparison.Ordinal));
                 await Write(context, read
                     ? new Failure("ReadTimeout", "Loading took too long. Your connection and choices were kept; try again.")
                     : new Failure("Indeterminate", "This change could not be confirmed. Check its saved state before trying again."), 504);
@@ -92,11 +92,11 @@ public static partial class NativeBenchHost
         if (options.WindowsSignIn)
             app.MapGet("/api/v1/owner-status", (HttpContext context) => Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1"])))
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1"])))
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1"])));
+                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1"])));
         app.MapGet("/api/v1/device-enrollment", (HttpContext context) =>
             Write(context, new EnrollmentAvailability(options.WindowsSignIn, options.WindowsSignIn)));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
@@ -114,10 +114,8 @@ public static partial class NativeBenchHost
         app.MapGet("/api/v1/views/{id:guid}/session", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id);
-            var selected = session.NativeContext is null ? null
-                : ConnectionObservation(await panel.ReadSelectionAsync(session.NativeContext, context.RequestAborted), app.Logger).SelectedBenchId;
             await Write(context, new NativeSessionInfo(session.CatalogId, session.NativeContentBlocked,
-                session.Preferences with { BenchId = selected }));
+                session.Preferences with { BenchId = session.CurrentBenchId }));
         });
         app.MapDelete("/api/v1/views/{id:guid}/session", async (HttpContext context, Guid id) =>
         {
@@ -156,9 +154,8 @@ public static partial class NativeBenchHost
             var body = await Body<ViewBody>(context);
             if (body.ExpectedRevision != session.Preferences.Revision)
                 throw new HttpFailure(409, "Conflict", "The panel preferences changed. Reload first.");
-            var selection = ConnectionObservation(await panel.ReadSelectionAsync(Context(session), context.RequestAborted), app.Logger);
-            if (body.BenchId != selection.SelectedBenchId)
-                throw new HttpFailure(409, "Conflict", "Use the native selection endpoint to change this worktree's Bench.");
+            if (body.BenchId != session.CurrentBenchId)
+                throw new HttpFailure(409, "Conflict", "Use the Bench selection endpoint before changing its presentation.");
             sessions.Update(session, new(body.ExpectedRevision, body.BenchId, body.Layout, body.GroupSource, body.GroupField), body.ExpectedRevision);
             updates.PublishPresentation();
             await Write(context, session.Preferences with { BenchId = body.BenchId });
@@ -166,6 +163,7 @@ public static partial class NativeBenchHost
         app.MapGet("/api/v1/views/{id:guid}/benches", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id, true);
+            await ResolveBenchConnections(panel, session, context.RequestAborted);
             var shared = Require(await panel.ListAsync(context.RequestAborted));
             var workspaces = Require(await panel.WorkspacesAsync(context.RequestAborted));
             var labels = new List<WorkspaceDto>();
@@ -190,10 +188,12 @@ public static partial class NativeBenchHost
             CancelEditor(session);
             session.Setup.Invalidate();
             var opened = ConnectionObservation(await panel.OpenAsync(body.Root, context.RequestAborted), app.Logger);
+            var selection = Require(await panel.ReadSelectionAsync(opened, context.RequestAborted));
             lock (session)
             {
                 session.NativeContext = opened;
                 session.DisplayContexts[opened.Stamp.Connection] = opened;
+                session.CurrentBenchId ??= selection.SelectedBenchId;
             }
             updates.Publish(0);
             await Write(context, new Ack());
@@ -205,7 +205,22 @@ public static partial class NativeBenchHost
             session.Agent.Invalidate();
             CancelEditor(session);
             session.Setup.Invalidate();
-            _ = Require(await panel.SelectAsync(Context(session), body.ExpectedBenchId, body.BenchId, context.RequestAborted));
+            var shared = Require(await panel.ListAsync(context.RequestAborted));
+            if (body.BenchId is { } selected && !shared.Benches.Any(value => value.Id == selected))
+                throw new HttpFailure(404, "NotFound", "The selected Bench was deleted.");
+            lock (session)
+            {
+                if (session.CurrentBenchId != body.ExpectedBenchId)
+                    throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
+                session.CurrentBenchId = body.BenchId;
+                session.PopulationContext = null;
+                if (body.BenchId is null)
+                {
+                    session.NativeContext = null;
+                    session.DisplayContexts.Clear();
+                }
+            }
+            await ResolveBenchConnections(panel, session, context.RequestAborted);
             updates.Publish(0);
             await Write(context, new Ack());
         });
@@ -286,9 +301,10 @@ public static partial class NativeBenchHost
         app.MapGet("/api/v1/views/{id:guid}/benches/{benchId:guid}", async (HttpContext context, Guid id, Guid benchId) =>
         {
             var session = await Authorize(context, id, true);
+            await ResolveBenchConnections(panel, session, context.RequestAborted);
             NativePanelContext[] chosen;
             lock (session) chosen = session.DisplayContexts.Values.ToArray();
-            var observed = await panel.ReadViewAsync(benchId, Context(session), chosen, context.RequestAborted);
+            var observed = await panel.ReadViewAsync(benchId, session.NativeContext, chosen, context.RequestAborted);
             if (!observed.IsSuccess && observed.Error.Evidence.Contains("bench-definition-changed"))
                 throw new HttpFailure(409, "BenchViewChanged", "The Bench changed while loading. Read its current definition again.");
             var captured = ConnectionObservation(observed, app.Logger);
@@ -319,7 +335,7 @@ public static partial class NativeBenchHost
                     || chosen.Any(source => !session.DisplayContexts.TryGetValue(source.Stamp.Connection, out var current)
                         || !ReferenceEquals(current, source)))
                     throw new HttpFailure(409, "SourceChanged", "The source or profile changed during the access check.");
-            if (Require(await panel.ReadSelectionAsync(anchor, context.RequestAborted)).SelectedBenchId != benchId)
+            if (session.CurrentBenchId != benchId)
                 throw new HttpFailure(409, "Conflict", "The selected Bench changed during the access check.");
             await Write(context, new Ack());
         });
@@ -478,7 +494,7 @@ public static partial class NativeBenchHost
         MapEditor(app, panel, updates, (context, id) => Authorize(context, id, true));
         MapSeeds(app, panel, updates, (context, id) => Authorize(context, id, true));
         MapPlan(app, panel, updates, (context, id) => Authorize(context, id, true));
-        MapAgent(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
+        MapAgent(app, panel, sessions, updates, (context, id) => Authorize(context, id, true), options);
         MapSetup(app, connectionSetup, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         var root = options.WebRoot ?? Path.Combine(AppContext.BaseDirectory, "wwwroot");
         foreach (var route in new[] { "/", "/canvas", "/app.js", "/device.js", "/style.css", "/view-model.js", "/item-detail.js", "/assignee-profiles.js", "/item-editor.js", "/editor-drafts.js", "/connection-setup.js",

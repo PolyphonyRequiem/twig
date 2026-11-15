@@ -120,8 +120,6 @@ public static partial class NativeBenchHost
                 var plan = Require(await panel.ReadPlanAsync(body.BenchId, lifetime.Token));
                 if (plan.Enabled != body.PlanMode)
                     throw new HttpFailure(409, "Conflict", "The Bench mode changed. Your unsaved values were not moved to another mode.");
-                if (source.Root != Context(session).Root && !plan.Enabled)
-                    throw new HttpFailure(422, "Unsupported", "Select this item's connection as the Bench connection before editing.");
                 var capture = Require(await panel.CaptureAsync(source, lifetime.Token, cachedGuidance: true));
                 lifetime.Token.ThrowIfCancellationRequested();
                 var key = capture.Observation.Snapshot.Items.Select(value => value.Key).SingleOrDefault(value =>
@@ -132,7 +130,7 @@ public static partial class NativeBenchHost
                         .SingleOrDefault(value => ViewMapping.Key(new(source.Source.Id, value)) == body.ItemId);
                 var form = Require(await panel.EditorOperationAsync(source, async ct =>
                 {
-                    if (Require(await panel.ReadSelectionAsync(Context(session), ct)).SelectedBenchId != body.BenchId)
+                    if (session.CurrentBenchId != body.BenchId)
                         throw new HttpFailure(409, "Conflict", "The selected Bench changed. Reopen its item before editing.");
                     // Cached key guidance cannot renew an older editor's metadata authority.
                     if (source.Source.AllowOffline || state.Native is null || state.Context != source || state.Bench != body.BenchId
@@ -228,7 +226,7 @@ public static partial class NativeBenchHost
                 var source = state.Context!;
                 var epoch = state.Epoch;
                 var profile = session.ProfileGeneration;
-                if (editor.PlanMode || state.NormalSeed || source != Context(session)
+                if (editor.PlanMode || state.NormalSeed || !session.DisplayContexts.Values.Contains(source)
                     || source.Stamp.Connection.Provider.Value is not ("ado" or "github" or "twig") || state.Item is not { IsLocal: false } target)
                     throw new HttpFailure(422, "Unsupported", "Select two distinct published items in the normal viewing connection.");
                 var endpoint = state.EndpointCandidates.SingleOrDefault(key =>
@@ -248,14 +246,14 @@ public static partial class NativeBenchHost
                     _ = await authorize(http, id);
                     var mode = Require(await panel.ReadPlanAsync(state.Bench, ct));
                     if (mode.Enabled || mode.PlanId != editor.PlanId || mode.Revision != editor.PlanRevision
-                        || Require(await panel.ReadSelectionAsync(source, ct)).SelectedBenchId != state.Bench)
+                        || session.CurrentBenchId != state.Bench)
                         throw new HttpFailure(409, "Conflict", "The LOCAL Bench or mode changed during pair qualification.");
                 }
                 ct.ThrowIfCancellationRequested();
                 lock (state)
                 {
                     if (state.Ticket != body.Ticket || state.Epoch != epoch || session.Revoked
-                        || session.ProfileGeneration != profile || source != Context(session))
+                        || session.ProfileGeneration != profile || !session.DisplayContexts.Values.Contains(source))
                         throw new HttpFailure(409, "Conflict", "The original item ticket changed during endpoint selection.");
                     state.Ticket = form.Fields.Ticket; state.Endpoint = endpoint; state.LocalOnly = form.LocalOnly;
                 }
@@ -336,8 +334,7 @@ public static partial class NativeBenchHost
                         if (state.Ticket != ticket || state.Native is null || state.Context != context || state.Epoch != epoch
                             || session.Revoked || session.ProfileGeneration != profile)
                             throw new HttpFailure(409, "Conflict", "The original editor ticket was retired during source admission. Nothing was replayed.");
-                    var selected = Require(await panel.ReadSelectionAsync(Context(session), ct));
-                    if (selected.SelectedBenchId != state.Bench)
+                    if (session.CurrentBenchId != state.Bench)
                         throw new HttpFailure(409, "Conflict", "The Bench selection changed. Reopen the exact item before saving.");
                     await action(state.Native!, ct);
                     return true;

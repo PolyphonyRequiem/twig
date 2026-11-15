@@ -91,8 +91,18 @@ explicit non-default port and existing trusted CurrentUser localhost certificate
 thumbprint. It publishes only the daemon and selects an immutable version under
 `%LOCALAPPDATA%\Twig\Daemon`; `-RegisterStartup` is explicit opt-in.
 
-The signed-in Bench canvas initializes agent reads, local Plan drafting, pin/unpin
-and saved-rule editing automatically for admitted connections. Access follows the
+The installed Bench host authenticates its Windows owner and initializes agent reads,
+local Plan drafting, pin/unpin and saved-rule editing automatically for the exact
+retained profile and admitted connections, without requiring an active renderer.
+The initializer returns only an acknowledgement; no human content capability is
+disclosed to the host or agent. Explicit sign-out and restrictions remain authoritative.
+The selected Bench owns its declared connections and automatically resolves exact
+registered sources. Selection does not depend on a viewing connection or change
+CLI worktree selection. Missing or ambiguous sources produce a degraded Bench,
+not empty membership; healthy sources and local Bench management remain usable.
+Observed relationships to unavailable or uncached targets retain metadata-only
+unresolved references, never fabricated item fields or inferred deletion.
+Access follows the
 renewable owner session, not a separate 30-minute agent grant. Source/principal,
 profile and policy checks still apply and sign-out revokes access immediately.
 Connection Add completes managed setup and source-qualified all-items admission
@@ -123,6 +133,40 @@ its complete `runtime.json` inventory with the included launcher's
 `Get-BenchRuntime` helper. Source installation creates the separate operator
 selection record; a release archive does not invent local paths or certificate
 configuration.
+
+The daemon also advertises **`mcp-read-v1`**, a read-only MCP interface on
+`POST /api/v1/views/{viewId}/mcp`, on the same localhost origin. There is no
+additional listener. It requires the exact presentation capability and
+authenticated owner; data tools reuse the existing Bench, source/principal,
+snapshot and policy checks.
+
+For stdio clients, configure command `powershell.exe` with arguments `-NoLogo`,
+`-NoProfile`, `-NonInteractive`, `-File`,
+`<absolute LocalApplicationData>\Twig\Daemon\daemon-launch.ps1`, `-Mcp`.
+Resolve the absolute path rather than relying on environment-variable expansion.
+First verify/start the selected daemon with the launcher's `-EnsureRunning`.
+The verified launcher selects its own runtime; do not hardcode a version directory.
+The bridge verifies the existing Windows owner, trusted exact TLS certificate,
+durable daemon identity and protocol, then registers its own scoped view.
+Stdio contains only MCP JSON-RPC, never capabilities or operator logs. EOF closes
+that view, not the daemon. Failed requests are never replayed.
+
+`read_bench` returns selected Bench members, exact snapshot/item identities,
+available field references and unavailable-source metadata.
+`show_work_item_details` accepts those identities, up to five exact field
+references, optional `assignedToField`, `focusField`, and a short explanatory
+`note`. Item values cannot be supplied by the caller. Details distinguish cached
+observations, provider revision, unpublished items, local proposals and unresolved
+references. Unknown fields, stale snapshots, unavailable selected sources and
+revoked access refuse explicitly; an unrelated missing source does not block a
+healthy item's details. If the restored owner profile has no selected Bench,
+choose it in Canvas; MCP never changes selection.
+
+The details tool references `ui://twig/work-item-details`. Its network-isolated
+MCP App HTML belongs to the separately installed canvas package and is verified
+through the full asset hash inventory. Plain MCP text/structured reads do not
+require canvas assets; loading that resource does. No drafting, membership,
+Save or Apply tool is exposed by MCP.
 
 The finite retained data surface is process/schema description, cached
 `show`/`show-batch` and explicit refresh, bounded `query`, typed

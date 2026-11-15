@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Bench.Application;
 using Bench.Infrastructure;
 using Twig.Core;
@@ -10,7 +13,7 @@ using NativeBench = Twig.Core.Bench;
 
 namespace Bench.Server;
 
-internal sealed record NativeAgentGrant(Guid Bench, Guid Profile, NativePanelContext Anchor,
+internal sealed record NativeAgentGrant(Guid Bench, Guid Profile, NativePanelContext? Anchor,
     NativePanelContext? Population, NativePanelContext[] Sources, bool Draft, bool Membership, DateTimeOffset Expires, bool Rules = false)
 {
     internal CancellationTokenSource Lifetime { get; } = new();
@@ -31,6 +34,7 @@ internal sealed class NativeAgentView
     internal string? SelectedItem { get; set; }
     internal long Generation { get; private set; }
     internal bool AutomaticAccess { get; set; } = true;
+    internal bool OwnerHostAuthenticated { get; set; }
     internal long Invalidate()
     {
         lock (this)
@@ -48,7 +52,7 @@ internal sealed class NativeAgentView
 public static partial class NativeBenchHost
 {
     private static void MapAgent(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates,
-        Func<HttpContext, Guid, Task<ViewSession>> human)
+        Func<HttpContext, Guid, Task<ViewSession>> human, ServerOptions options)
     {
         static AgentPermissionsDto Permissions(NativeAgentGrant? grant) => grant is null
             ? new(false, false, false, null, null) : new(true, grant.Draft, grant.Membership, grant.Bench, grant.Expires, grant.Rules);
@@ -86,7 +90,7 @@ public static partial class NativeBenchHost
             var shared = Require(await panel.ListAsync(ct));
             if (shared.InstanceId != session.CatalogId)
                 throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed. Reconnect this view.");
-            if (Require(await panel.ReadSelectionAsync(grant.Anchor, ct)).SelectedBenchId != grant.Bench)
+            if (session.CurrentBenchId != grant.Bench)
                 throw new HttpFailure(409, "AgentScopeChanged", "The selected Bench changed. Grant access to the intended Bench again.");
             var plan = Require(await panel.ReadPlanAsync(grant.Bench, ct));
             if (!ReferenceEquals(Access(session), grant))
@@ -97,6 +101,8 @@ public static partial class NativeBenchHost
         {
             var session = sessions.Presentation(id, Bearer(http));
             http.Items[typeof(ViewSession)] = session;
+            if (session.Agent.OwnerHostAuthenticated)
+                _ = await InitializeAccess(session, http.RequestAborted);
             var grant = Access(session, permission);
             _ = await Current(session, grant, http.RequestAborted);
             return (session, grant);
@@ -186,8 +192,8 @@ public static partial class NativeBenchHost
             long generation, CancellationToken ct, bool automatic = false, bool rules = false)
         {
             if (!session.Canvas) throw new HttpFailure(403, "CanvasRequired", "Agent permission belongs to this canvas view only.");
-            var anchor = Context(session);
-            if (Require(await panel.ReadSelectionAsync(anchor, ct)).SelectedBenchId != benchId)
+            var anchor = session.NativeContext;
+            if (session.CurrentBenchId != benchId)
                 throw new HttpFailure(409, "AgentScopeChanged", "Choose the intended Bench before granting access.");
             NativePanelContext[] sources;
             lock (session) sources = session.DisplayContexts.Values.ToArray();
@@ -209,6 +215,17 @@ public static partial class NativeBenchHost
                 return session.Agent.Grant = granted;
             }
         }
+        if (options.WindowsSignIn)
+            app.MapPost("/api/v1/windows-agent", async (HttpContext http) =>
+            {
+                var body = await Body<OwnerAgentBody>(http);
+                var store = Require(await panel.ListAsync(http.RequestAborted)).InstanceId;
+                var (session, restore) = sessions.AuthenticateAutomaticOwner(store, body.ViewId);
+                if (restore) _ = await RestoreViewReferences(panel, sessions, session, http.RequestAborted);
+                _ = await InitializeAccess(session, http.RequestAborted);
+                await Write(http, new Ack());
+            }).RequireAuthorization("WindowsOwner");
+
         app.MapGet("/api/v1/views/{id:guid}/agent/ui-state", async (HttpContext http, Guid id) =>
         {
             var session = sessions.Presentation(id, Bearer(http));
@@ -219,11 +236,9 @@ public static partial class NativeBenchHost
             var benchSelected = false;
             string? errorCode = null;
             NativeAgentGrant? grant = null;
-            if (connectionSelected)
+            if (signedIn)
             {
-                var selection = await panel.ReadSelectionAsync(session.NativeContext!, http.RequestAborted);
-                if (selection.IsSuccess) benchSelected = selection.Value.SelectedBenchId is not null;
-                else errorCode = selection.Error.Code.ToString();
+                benchSelected = session.CurrentBenchId is not null;
                 if (errorCode is null && benchSelected)
                     try { grant = Access(session); _ = await Current(session, grant, http.RequestAborted); }
                     catch (HttpFailure problem)
@@ -232,7 +247,7 @@ public static partial class NativeBenchHost
             bool automatic;
             AgentDisplayDto? display;
             lock (session.Agent) { automatic = session.Agent.AutomaticAccess; display = session.Agent.Display; }
-            var state = !signedIn ? "SignInRequired" : !connectionSelected ? "ConnectionRequired"
+            var state = !signedIn ? "SignInRequired"
                 : !benchSelected ? errorCode is null ? "BenchRequired" : "SourceUnavailable"
                 : errorCode is not (null or "AgentPermissionRequired" or "AgentScopeChanged") ? "SourceUnavailable"
                 : grant is not null ? "Ready" : !automatic ? "AccessOff"
@@ -257,10 +272,16 @@ public static partial class NativeBenchHost
         app.MapGet("/api/v1/views/{id:guid}/agent/ui", async (HttpContext http, Guid id) =>
         {
             var session = await human(http, id);
+            var grant = await InitializeAccess(session, http.RequestAborted);
+            await Write(http, new AgentUiDto(Permissions(grant), session.Agent.Review));
+        });
+        async Task<NativeAgentGrant?> InitializeAccess(ViewSession session, CancellationToken ct)
+        {
+            await ResolveBenchConnections(panel, session, ct);
             NativeAgentGrant? grant;
             long generation;
             lock (session.Agent) { generation = session.Agent.Generation; grant = session.Agent.Grant; }
-            try { grant = Access(session); _ = await Current(session, grant, http.RequestAborted); }
+            try { grant = Access(session); _ = await Current(session, grant, ct); }
             catch (HttpFailure problem) when (problem.Code is "AgentPermissionRequired" or "AgentScopeChanged")
             {
                 lock (session.Agent)
@@ -270,14 +291,12 @@ public static partial class NativeBenchHost
             }
             bool automatic;
             lock (session.Agent) { automatic = session.Agent.AutomaticAccess; generation = session.Agent.Generation; }
-            if (grant is null && automatic && session.Canvas && session.NativeContext is { } anchor)
+            if (grant is null && automatic && session.Canvas && session.CurrentBenchId is { } benchId)
             {
-                var selection = Require(await panel.ReadSelectionAsync(anchor, http.RequestAborted));
-                if (selection.SelectedBenchId is { } benchId)
-                    grant = await GrantAccess(session, benchId, true, true, generation, http.RequestAborted, automatic: true, rules: true);
+                grant = await GrantAccess(session, benchId, true, true, generation, ct, automatic: true, rules: true);
             }
-            await Write(http, new AgentUiDto(Permissions(grant), session.Agent.Review));
-        });
+            return grant;
+        }
         app.MapPut("/api/v1/views/{id:guid}/agent/permissions", async (HttpContext http, Guid id) =>
         {
             var session = await human(http, id);
@@ -396,6 +415,141 @@ public static partial class NativeBenchHost
             var item = source.Items.Single(value => value.Id == body.ItemId);
             await Write(http, new AgentItemDto(captured.Id, body.SourceId, item with { Pin = null },
                 source.Types?.SingleOrDefault(type => type.Reference == item.Type)));
+        });
+        app.MapPost("/api/v1/views/{id:guid}/mcp", async (HttpContext http, Guid id) =>
+        {
+            var session = sessions.Presentation(id, Bearer(http));
+            http.Items[typeof(ViewSession)] = session;
+            if (!session.OwnerAuthenticated || session.Revoked || session.NativeContentBlocked)
+                throw new HttpFailure(403, "OwnerAuthenticationRequired", "Authenticate the local MCP owner first.");
+            _ = sessions.ReadState(session);
+            if (http.Request.Headers["MCP-Protocol-Version"] is { Count: > 0 } protocol
+                && protocol.ToString() is not ("2025-03-26" or "2025-06-18" or McpReadServer.ProtocolVersion))
+                throw new HttpFailure(400, "ProtocolUnsupported", "Unsupported MCP protocol version.");
+            var body = await Body<McpRequestBody>(http, 16384);
+            var request = JsonSerializer.SerializeToNode(body, TransportJson.Default.McpRequestBody)!.AsObject();
+            byte[] ReadApp()
+            {
+                const string asset = "mcp-work-item-details.html";
+                try
+                {
+                    if (options.CanvasInstallRoot is { } installation) return CanvasAssets.Read(installation, asset).Bytes;
+                    var path = Path.Combine(options.WebRoot ?? Path.Combine(AppContext.BaseDirectory, "wwwroot"), asset);
+                    if (new FileInfo(path).Length > 262144) throw new InvalidDataException("MCP App exceeds its bound.");
+                    return File.ReadAllBytes(path);
+                }
+                catch (Exception failure) when (failure is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    throw new HttpFailure(404, "CanvasNotInstalled", "Install current compatible Twig canvas assets to render details; plain MCP reads remain available.");
+                }
+                catch (Exception failure) when (failure is IOException or InvalidDataException or UnauthorizedAccessException
+                    or JsonException or InvalidOperationException or ArgumentException or FormatException or OverflowException)
+                {
+                    app.Logger.LogError(failure, "MCP App package verification failed");
+                    throw new HttpFailure(503, "CanvasPackageInvalid", "Canvas compatibility or integrity verification failed; no unverified MCP App was served.");
+                }
+            }
+            if (body.Method != "tools/call")
+            {
+                var protocolResponse = await McpReadServer.Dispatch(request,
+                    (_, _) => throw new InvalidOperationException("No data tool was requested."), ReadApp);
+                if (protocolResponse is null) { http.Response.StatusCode = 202; return; }
+                http.Response.ContentType = "application/json";
+                await http.Response.WriteAsync(protocolResponse.ToJsonString(), http.RequestAborted);
+                return;
+            }
+            var (_, grant) = await Agent(http, id);
+            await session.Agent.Gate.WaitAsync(http.RequestAborted);
+            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, grant.Lifetime.Token);
+            try
+            {
+                var response = await McpReadServer.Dispatch(request, async (name, args) =>
+                {
+                    if (name == "read_bench")
+                    {
+                        if (args.Any(field => field.Key is not ("offset" or "limit")))
+                            throw new HttpFailure(400, "InvalidInput", "Use only offset and limit.");
+                        var offset = args["offset"]?.GetValue<int>() ?? 0;
+                        var limit = args["limit"]?.GetValue<int>() ?? 50;
+                        if (offset < 0 || limit is < 1 or > 100)
+                            throw new HttpFailure(400, "InvalidInput", "Use a bounded Bench page.");
+                        var captured = await Capture(session, grant, lifetime.Token);
+                        var page = captured.View.Sources.Where(source => source.ErrorCode is null)
+                            .SelectMany(source => source.Items.Where(item => item.BenchMember && !item.IsExcluded)
+                                .Select(item => (Source: source, Item: item))).ToArray();
+                        var result = new JsonObject
+                        {
+                            ["snapshotId"] = captured.Id, ["benchId"] = captured.Definition.Id, ["name"] = captured.Definition.Name,
+                            ["total"] = page.Length, ["nextOffset"] = (long)offset + limit < page.Length ? offset + limit : null,
+                            ["items"] = new JsonArray(page.Skip(offset).Take(limit).Select(member => (JsonNode)new JsonObject
+                            {
+                                ["sourceId"] = member.Source.SourceId, ["itemId"] = member.Item.Id,
+                                ["locator"] = member.Item.Locator, ["type"] = member.Item.Type,
+                                ["title"] = member.Item.TitleField is { } title ? member.Item.CachedFields
+                                    .SingleOrDefault(field => field.Reference == title)?.Value.Value.GetString() : null,
+                                ["hasDraft"] = member.Item.HasDraft
+                            }).ToArray())
+                        };
+                        result["sources"] = new JsonArray(captured.View.Sources.Select(source => (JsonNode)new JsonObject
+                        {
+                            ["sourceId"] = source.SourceId, ["provider"] = source.Provider, ["label"] = source.Label,
+                            ["errorCode"] = source.ErrorCode, ["mode"] = source.Mode,
+                            ["fields"] = new JsonArray((source.Types ?? []).SelectMany(type => type.Fields)
+                                .DistinctBy(field => field.Reference).Select(field => (JsonNode)new JsonObject
+                                    { ["reference"] = field.Reference, ["name"] = field.Name ?? field.Reference }).ToArray())
+                        }).ToArray());
+                        return result;
+                    }
+                    string[] allowed = ["snapshotId", "sourceId", "itemId", "fields", "assignedToField", "focusField", "note"];
+                    if (args.Any(field => !allowed.Contains(field.Key))
+                        || !Guid.TryParseExact(args["snapshotId"]?.GetValue<string>(), "D", out var snapshotId)
+                        || !Guid.TryParseExact(args["sourceId"]?.GetValue<string>(), "D", out var sourceId)
+                        || args["itemId"]?.GetValue<string>() is not { Length: 64 } itemId
+                        || itemId.Any(value => !char.IsAsciiHexDigitLower(value))
+                        || args["fields"] is not JsonArray fields || fields.Count > 5)
+                        throw new HttpFailure(400, "InvalidInput", "Use exact observed identities and at most five field references.");
+                    var references = fields.Select(field => field?.GetValue<string>()
+                        ?? throw new HttpFailure(400, "InvalidInput", "Use exact field references.")).ToArray();
+                    var focus = args["focusField"]?.GetValue<string>();
+                    var note = args["note"]?.GetValue<string>();
+                    var assigned = args["assignedToField"]?.GetValue<string>();
+                    if (references.Any(field => field.Length is < 1 or > 256)
+                        || references.Distinct(StringComparer.Ordinal).Count() != references.Length
+                        || focus is not null && !references.Contains(focus, StringComparer.Ordinal) || note?.Length > 600
+                        || assigned is { Length: < 1 or > 256 })
+                        throw new HttpFailure(400, "InvalidInput", "Use unique field references and emphasize a selected field.");
+                    var snapshot = await Snapshot(session, grant, snapshotId, lifetime.Token, validateSources: false);
+                    _ = ConnectionObservation(await panel.ValidateDisplayAccessAsync(Source(grant, sourceId), lifetime.Token), app.Logger);
+                    _ = await Current(session, grant, lifetime.Token);
+                    var (_, observed) = Item(snapshot, sourceId, itemId);
+                    var sourceView = snapshot.View.Sources.Single(source => source.SourceId == sourceId);
+                    var itemView = sourceView.Items.Single(item => item.Id == itemId);
+                    var type = sourceView.Types?.SingleOrDefault(type => type.Reference == itemView.Type);
+                    McpFieldDto? Field(string? reference)
+                    {
+                        if (reference is null) return null;
+                        var definition = type?.Fields.SingleOrDefault(field => field.Reference == reference)
+                            ?? throw new HttpFailure(400, "FieldUnknown", "The requested field is not in this item's observed schema.");
+                        var cached = itemView.CachedFields.SingleOrDefault(field => field.Reference == reference);
+                        return new(reference, definition.Name ?? reference, cached is not null, cached?.Value,
+                            itemView.ProposedFields.SingleOrDefault(field => field.Reference == reference)?.Value);
+                    }
+                    var details = new McpDetailsDto(snapshot.Id, sourceId, itemId, itemView.Locator, itemView.Type,
+                        itemView.TitleField is { } title ? itemView.CachedFields.SingleOrDefault(field => field.Reference == title)
+                            ?.Value.Value.GetString() : null,
+                        Field(itemView.StateField), Field(assigned), observed.Revision, itemView.IsLocal, itemView.HasDraft,
+                        sourceView.Connection, sourceView.Label, sourceView.Mode, sourceView.CacheReadAt,
+                        sourceView.Limitations, references.Select(reference => Field(reference)!).ToArray(),
+                        sourceView.UnresolvedReferences.Where(reference => sourceView.Edges.Any(edge =>
+                            edge.From == itemId && edge.To == reference.Id || edge.To == itemId && edge.From == reference.Id)).ToArray(),
+                        focus, note);
+                    return JsonSerializer.SerializeToNode(details, TransportJson.Default.McpDetailsDto)!;
+                }, ReadApp);
+                if (response is null) { http.Response.StatusCode = 202; return; }
+                http.Response.ContentType = "application/json";
+                await http.Response.WriteAsync(response.ToJsonString(), http.RequestAborted);
+            }
+            finally { session.Agent.Gate.Release(); }
         });
         app.MapPost("/api/v1/views/{id:guid}/agent/rules", async (HttpContext http, Guid id) =>
         {

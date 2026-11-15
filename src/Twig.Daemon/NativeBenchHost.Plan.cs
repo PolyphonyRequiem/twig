@@ -68,7 +68,7 @@ public static partial class NativeBenchHost
 
         async Task Current(ViewSession session, Guid bench, CancellationToken ct)
         {
-            if (Required(await panel.ReadSelectionAsync(Context(session), ct)).SelectedBenchId != bench)
+            if (session.CurrentBenchId != bench)
                 throw new HttpFailure(409, "Conflict", "The selected Bench changed. Reopen its exact Plan before continuing.");
         }
         async Task<NativePanelContext[]> Connections(ViewSession session, NativePlanStatus status, CancellationToken ct)
@@ -116,7 +116,7 @@ public static partial class NativeBenchHost
             {
                 if (session.Plan.Operation?.Work is { IsCompleted: false })
                     throw new HttpFailure(409, "PlanBusy", "Wait for the original Plan operation's outcome before changing mode.");
-                var source = Context(session);
+                var source = session.NativeContext;
                 var profile = session.ProfileGeneration;
                 await Current(session, body.BenchId, http.RequestAborted);
                 lock (session)
@@ -128,7 +128,7 @@ public static partial class NativeBenchHost
                 session.Plan.Invalidate();
                 try
                 {
-                    if (body.Enabled)
+                    if (body.Enabled && source is not null)
                     {
                         CancellationToken navigation;
                         lock (session.Editor) navigation = session.Editor.Navigation.Token;
@@ -201,7 +201,7 @@ public static partial class NativeBenchHost
             await session.Plan.Gate.WaitAsync(http.RequestAborted);
             try
             {
-                var anchor = Context(session);
+                var anchor = session.NativeContext;
                 session.Plan.Invalidate();
                 var epoch = session.Plan.Epoch;
                 var generation = session.ProfileGeneration;
@@ -210,7 +210,9 @@ public static partial class NativeBenchHost
                     await Current(session, body.BenchId, ct);
                     var status = Required(await panel.ReadPlanAsync(body.BenchId, ct));
                     var contexts = await Connections(session, status, ct);
-                    var review = Required(await panel.ReviewPlanAsync(anchor, body.BenchId, status.Sources, contexts, ct));
+                    var origin = contexts.FirstOrDefault()
+                        ?? throw new HttpFailure(409, "PlanConnectionRequired", "This Plan has no available original source to review.");
+                    var review = Required(await panel.ReviewPlanAsync(origin, body.BenchId, status.Sources, contexts, ct));
                     await Current(session, body.BenchId, ct);
                     lock (session.Plan)
                     {

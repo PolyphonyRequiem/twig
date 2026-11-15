@@ -10,7 +10,7 @@ internal sealed class NativeConnectionRequest(ConnectionRequestDto value, ViewSe
     internal ConnectionRequestDto Value { get; set; } = value;
     internal Guid Profile { get; } = session.ProfileGeneration;
     internal long Generation { get; } = session.Agent.Generation;
-    internal NativePanelContext Anchor { get; } = session.NativeContext!;
+    internal NativePanelContext? Anchor { get; } = session.NativeContext;
     internal NativePanelContext? Population { get; } = session.PopulationContext;
     internal NativePanelContext[] Sources { get; } = Capture(session);
     internal CancellationTokenSource Lifetime { get; } = new(TimeSpan.FromTicks(Math.Max(0, (value.ExpiresAt - DateTimeOffset.UtcNow).Ticks)));
@@ -78,7 +78,7 @@ public static partial class NativeBenchHost
         _ = PendingConnectionRequest(session, request.Value.RequestId);
         var library = Require(await panel.ListAsync(ct));
         if (library.InstanceId != session.CatalogId
-            || Require(await panel.ReadSelectionAsync(request.Anchor, ct)).SelectedBenchId != request.Value.BenchId)
+            || session.CurrentBenchId != request.Value.BenchId)
             throw new HttpFailure(409, "ConnectionRequestChanged", "The native store or selected Bench changed. Review a new connection request.");
         var definition = library.Benches.SingleOrDefault(bench => bench.Id == request.Value.BenchId);
         if (definition is null || definition.Revision != request.Value.BenchRevision)

@@ -108,6 +108,26 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
     public PairResult ConnectOwner(Guid instance, Guid? viewId, Guid profileId)
         => ConnectOwnerCore(instance, viewId, profileId, explicitConnect: true);
 
+    // The Windows-owner endpoint keeps the generated human capability inside the daemon.
+    public (ViewSession Session, bool Restore) AuthenticateAutomaticOwner(Guid instance, Guid viewId)
+    {
+        lock (gate)
+        {
+            if (!sessions.TryGetValue(viewId, out var session) || !session.Canvas
+                || session.CatalogId != instance || session.Revoked || session.Expires <= time.GetUtcNow())
+                throw new HttpFailure(403, "CapabilityRejected", "Open a fresh panel view.");
+            var restore = !session.OwnerAuthenticated;
+            if (!restore) _ = ReadState(session);
+            else
+            {
+                var profile = ResolveOwnerProfile(instance, new(null, null));
+                _ = RenewOwner(instance, new(viewId, profile.ProfileId, instance));
+            }
+            session.Agent.OwnerHostAuthenticated = true;
+            return (session, restore);
+        }
+    }
+
     private PairResult ConnectOwnerCore(Guid instance, Guid? viewId, Guid profileId, bool explicitConnect, Guid? generation = null)
     {
         lock (gate)

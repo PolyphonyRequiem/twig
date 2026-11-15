@@ -15,7 +15,14 @@ internal static class ViewMapping
         value.Benches.Select(b => new BenchSummary(b.Id, b.Name, b.Revision)).ToArray());
     internal static BenchViewDto View(BenchView value, CatalogSnapshot catalog)
         => ViewLabeled(value, catalog.Sources.ToDictionary(source => source.Id, source => source.Label));
-    internal static BenchViewDto ViewLabeled(BenchView value, IReadOnlyDictionary<Guid, string> labels) => new(value.CatalogId, value.CatalogRevision,
+    internal static BenchViewDto ViewLabeled(BenchView value, IReadOnlyDictionary<Guid, string> labels)
+    {
+        var visible = value.Sources.SelectMany(source => source.Items).Select(item => item.Identity).ToHashSet();
+        var byKey = visible.GroupBy(item => item.Key).ToDictionary(group => group.Key, group => group.Take(2).ToArray());
+        var connections = value.Sources.Select(source => source.Observation?.Binding.Connection ?? source.RequiredConnection)
+            .OfType<Connection>().Distinct().ToArray();
+        QualifiedItem Resolve(QualifiedItem endpoint) => Endpoint(endpoint, visible, byKey, connections);
+        return new(value.CatalogId, value.CatalogRevision,
         value.Definition.Id, value.Definition.Name, value.Sources.Select(source =>
         {
             var label = labels.GetValueOrDefault(source.SourceId) ?? "Unavailable source";
@@ -47,13 +54,41 @@ internal static class ViewMapping
                 source.Fields.Select(f => new GroupFieldDto(f.SourceId, f.Reference, f.Choices.Select(c =>
                     new ChoiceDto(c.Type, Value(c.Value), c.Conditional)).ToArray(), f.CompositeValues)).ToArray(),
                 source.Hierarchy.Available, source.Hierarchy.Relation,
-                source.Hierarchy.Evidence.Select(e => new EdgeDto(Key(e.From), Key(e.To), e.Relation, e.Deleted, e.DraftIntent, e.Origin.ToString())
+                source.Hierarchy.Evidence.Select(e => new EdgeDto(Key(Resolve(e.From)), Key(Resolve(e.To)), e.Relation, e.Deleted, e.DraftIntent, e.Origin.ToString())
                     { LocalVersion = e.Origin == RelationshipOrigin.Local ? e.LocalVersion : null }).ToArray(),
-                source.Hierarchy.Limitations.ToArray(), source.Observation?.Binding.Connection.Provider.Value,
+                source.Hierarchy.Limitations.ToArray(), (source.Observation?.Binding.Connection ?? source.RequiredConnection)?.Provider.Value,
                 source.Types.IsDefault ? [] : source.Types.Select(t => new TypeDto(t.Reference, t.Presentation,
                     t.Fields.ToArray(), t.States.ToArray()) { Gaps = t.Gaps.ToArray() }).ToArray())
-                { SchemaFingerprint = source.Observation?.SchemaFingerprint };
+                {
+                    SchemaFingerprint = source.Observation?.SchemaFingerprint,
+                    Connection = source.Observation?.Binding.Connection ?? source.RequiredConnection,
+                    UnresolvedReferences = source.Hierarchy.Evidence.SelectMany(edge => new[] { edge.From, edge.To })
+                        .Select(Resolve).Distinct().Where(endpoint => !visible.Contains(endpoint))
+                        .Select(endpoint => Reference(value, source, endpoint)).ToArray()
+                };
         }).ToArray());
+    }
+    private static QualifiedItem Endpoint(QualifiedItem endpoint, IReadOnlySet<QualifiedItem> visible,
+        IReadOnlyDictionary<ItemKey, QualifiedItem[]> byKey, Connection[] connections)
+    {
+        if (endpoint.Key.IsLocal || visible.Contains(endpoint))
+            return endpoint;
+        return connections.Count(endpoint.Key.BelongsTo) == 1
+            && byKey.TryGetValue(endpoint.Key, out var observed) && observed.Length == 1 ? observed[0] : endpoint;
+    }
+    private static UnresolvedReferenceDto Reference(BenchView view, SourceView source, QualifiedItem endpoint)
+    {
+        var key = endpoint.Key;
+        var candidates = view.Sources.Select(part => part.Observation?.Binding.Connection ?? part.RequiredConnection)
+            .OfType<Connection>().Where(connection => key.IsLocal
+                ? source.SourceId == endpoint.SourceId && connection == source.Observation?.Binding.Connection
+                : key.BelongsTo(connection)).Distinct().ToArray();
+        var unavailable = view.Sources.Any(part => part.Error is not null
+            && (part.Observation?.Binding.Connection ?? part.RequiredConnection) is { } connection && candidates.Contains(connection));
+        return new(Key(endpoint), key.Provider?.Value, key.ResourceScope, key.NativeId,
+            key.IsLocal ? key.LocalId : null, candidates,
+            unavailable ? "ConnectionUnavailable" : candidates.Length > 1 ? "AmbiguousConnection" : "NotObserved");
+    }
     internal static string Key(QualifiedItem item)
     {
         var key = item.Key;

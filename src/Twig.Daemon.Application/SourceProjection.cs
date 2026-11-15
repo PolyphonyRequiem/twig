@@ -88,7 +88,7 @@ public static class SourceProjection
             rows.Add(new(new(selection.SourceId, key), type, selected.Contains(key), draft is not null,
                 item?.RelationshipsComplete == true, item?.Fields ?? draft?.Baseline?.Fields ?? FieldValues.Empty,
                 draft?.Changes ?? FieldValues.Empty, schema.Types.SingleOrDefault(t => t.Reference == type)?.StateField)
-                { IsExcluded = !displayed.Contains(key) });
+                { IsExcluded = !displayed.Contains(key), Revision = item?.Revision?.Token ?? draft?.Baseline?.Revision?.Token });
         }
         var notes = schema.Gaps.Concat(schema.Types.SelectMany(type => type.Gaps)).ToList();
         if (rows.Any(i => !i.RelationshipsComplete))

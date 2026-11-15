@@ -80,6 +80,38 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         return Result<bool>.Ok(true);
     }
     public Task<Result<ImmutableArray<UserBenchWorkspace>>> WorkspacesAsync(CancellationToken ct) => definitions.WorkspacesAsync(ct);
+    public async Task<Result<ImmutableArray<NativePanelContext>>> ResolveConnectionsAsync(Guid benchId,
+        IEnumerable<NativePanelContext> retained, CancellationToken ct)
+    {
+        var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
+        if (!shared.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(shared.Error);
+        var bench = shared.Value.Benches.SingleOrDefault(value => value.Id == benchId);
+        if (bench is null) return Result<ImmutableArray<NativePanelContext>>.Fail(ErrorCode.NotFound, "The Bench was deleted.");
+        var registry = await definitions.WorkspacesAsync(ct).ConfigureAwait(false);
+        if (!registry.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(registry.Error);
+        var previous = retained.ToArray();
+        var resolved = ImmutableArray.CreateBuilder<NativePanelContext>();
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(30));
+        foreach (var connection in bench.Selectors.Select(value => value.Connection!).Distinct())
+        {
+            ct.ThrowIfCancellationRequested();
+            var admitted = previous.Where(value => value.Stamp.Connection == connection).ToArray();
+            if (admitted.Length == 1) { resolved.Add(admitted[0]); continue; }
+            var registered = registry.Value.Where(value => value.Connection == connection).ToArray();
+            // Several workspace mirrors do not establish which one owns unpublished local drafts.
+            if (registered.Length != 1 || budget.IsCancellationRequested) continue;
+            try
+            {
+                var opened = await OpenAsync(registered[0].Root, budget.Token).ConfigureAwait(false);
+                if (opened.IsSuccess && opened.Value.Stamp.Connection == connection
+                    && opened.Value.Stamp.StoreInstance == registered[0].StoreInstance)
+                    resolved.Add(opened.Value);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { break; }
+        }
+        return Result<ImmutableArray<NativePanelContext>>.Ok(resolved.ToImmutable());
+    }
     public Task<Result<NativePlanStatus>> ReadPlanAsync(Guid benchId, CancellationToken ct) => definitions.ReadPlanStatusAsync(benchId, ct);
     public Task<Result<ImmutableArray<Draft>>> ReadPlanDraftsAsync(NativePlanStatus plan, NativePanelContext context, Guid scope, CancellationToken ct)
         => sources.NativeAsync(context.Root, token => definitions.ReadPlanDraftsAsync(plan.UserInstance, plan.BenchId,
@@ -167,7 +199,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         { Observation = observation with { Schema = observation.Schema with { Planning = metadata.Value.Metadata } } });
     }
 
-    public async Task<Result<NativePanelView>> ReadViewAsync(Guid benchId, NativePanelContext anchor,
+    public async Task<Result<NativePanelView>> ReadViewAsync(Guid benchId, NativePanelContext? anchor,
         IEnumerable<NativePanelContext> chosenContexts, CancellationToken ct,
         IReadOnlyDictionary<NativePanelContext, SourceObservation>? initialObservations = null)
     {
@@ -177,10 +209,10 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         if (bench is null) return Result<NativePanelView>.Fail(ErrorCode.NotFound, "The selected Bench was deleted; its cached items and drafts were not removed.");
         var plan = await definitions.ReadPlanStatusAsync(benchId, ct).ConfigureAwait(false);
         if (!plan.IsSuccess) return Result<NativePanelView>.Fail(plan.Error);
-        var contexts = chosenContexts.Where(context => context.Stamp.Connection != anchor.Stamp.Connection)
+        var contexts = chosenContexts.Where(context => context.Stamp.Connection != anchor?.Stamp.Connection)
             .GroupBy(context => context.Stamp.Connection).ToDictionary(group => group.Key, group => group.Last());
-        contexts[anchor.Stamp.Connection] = anchor;
-        var connections = bench.Selectors.Select(selector => selector.Connection!).Prepend(anchor.Stamp.Connection).Distinct().ToArray();
+        if (anchor is not null) contexts[anchor.Stamp.Connection] = anchor;
+        var connections = bench.Selectors.Select(selector => selector.Connection!).Distinct().ToArray();
         var selections = ImmutableArray.CreateBuilder<SourceSelection>();
         var views = ImmutableArray.CreateBuilder<SourceView>();
         var labels = ImmutableDictionary.CreateBuilder<Guid, string>();
@@ -196,7 +228,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                     string.Join("\n", connection.Provider.Value, connection.ResourceScope, connection.Destination, connection.IdentityRef))).AsSpan(0, 16));
                 labels[identity] = NativeConnectionLabels.Unavailable(connection).Name;
                 views.Add(SourceView.Failed(identity, new(ErrorCode.Unavailable,
-                    "Choose this connection for Add items in Connections. No workspace association was selected automatically; membership is unknown.")));
+                    "This Bench's connection could not be resolved to one available registered source. Membership is unknown; operations requiring it are unavailable."))
+                    with { RequiredConnection = connection });
                 continue;
             }
             labels[context.Source.Id] = context.Source.Label;
@@ -217,8 +250,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             }
             if (!observed.IsSuccess)
             {
-                if (context == anchor) return Result<NativePanelView>.Fail(observed.Error);
-                views.Add(SourceView.Failed(context.Source.Id, observed.Error));
+                views.Add(SourceView.Failed(context.Source.Id, observed.Error) with { RequiredConnection = connection });
                 continue;
             }
             var intent = bench.Selectors.Where(selector => selector.Connection == connection).ToImmutableArray();
@@ -234,7 +266,6 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                         scope.Id, context.Root, context.Stamp, timeout.Token).ConfigureAwait(false);
                 if (!drafts.IsSuccess)
                 {
-                    if (context == anchor) return Result<NativePanelView>.Fail(drafts.Error);
                     views.Add(SourceView.Failed(context.Source.Id, drafts.Error)); continue;
                 }
                 var baselines = drafts.Value.Where(draft => draft.Baseline is not null).Select(draft => draft.Baseline!).ToArray();
@@ -286,7 +317,9 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             return Result<NativePanelView>.Fail(new Error(ErrorCode.Conflict, "The Plan mode or scope changed during acquisition.")
                 { Evidence = ["bench-definition-changed"] });
         var projectedDefinition = new BenchDefinition(bench.Id, bench.Name, bench.Revision, selections);
-        var result = new BenchView(projectedDefinition, shared.Value.InstanceId, current.Value.Revision, views.ToImmutable());
+        var result = new BenchView(projectedDefinition, shared.Value.InstanceId, current.Value.Revision,
+            views.Select(view => view with { RequiredConnection = view.RequiredConnection
+                ?? contexts.Values.SingleOrDefault(context => context.Source.Id == view.SourceId)?.Stamp.Connection }).ToImmutableArray());
         return Result<NativePanelView>.Ok(new(result, labels.ToImmutable(), plan.Value) { NormalDraftCounts = normalDraftCounts.ToImmutable() });
     }
 

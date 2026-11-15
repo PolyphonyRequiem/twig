@@ -35,13 +35,13 @@ public static partial class NativeBenchHost
             _ = await authorize(http, id);
             var state = session.Editor;
             if (session.Revoked || session.ProfileGeneration != profile || state.Epoch != epoch
-                || !ReferenceEquals(Context(session), source) || !ReferenceEquals(state.Context, source)
+                || !session.DisplayContexts.Values.Contains(source) || !ReferenceEquals(state.Context, source)
                 || source.Stamp.Connection.Provider.Value != "github" || state.Native is null || state.Native.PlanMode
                 || state.Native.StoreInstance != source.Stamp.StoreInstance)
                 throw new HttpFailure(409, "Conflict", "The original LOCAL source/session/navigation binding changed; no replacement effect.");
             var plan = Required(await panel.ReadPlanAsync(state.Bench, ct));
             if (plan.Enabled || state.Native.PlanId != plan.PlanId || state.Native.PlanRevision != plan.Revision
-                || Required(await panel.ReadSelectionAsync(source, ct)).SelectedBenchId != state.Bench)
+                || session.CurrentBenchId != state.Bench)
                 throw new HttpFailure(409, "Conflict", "The original LOCAL Bench/mode changed; observe in its exact normal source.");
         }
 

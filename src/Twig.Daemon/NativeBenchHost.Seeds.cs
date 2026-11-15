@@ -140,7 +140,7 @@ public static partial class NativeBenchHost
                 if (source.Stamp.Connection.Provider.Value != "ado")
                     throw new HttpFailure(422, "Unsupported", "Item creation requires the selected ADO connection; GitHub creation is unsupported.");
                 if (SeedRequired(await panel.ReadPlanAsync(bench, lifetime.Token)).Enabled
-                    || SeedRequired(await panel.ReadSelectionAsync(source, lifetime.Token)).SelectedBenchId != bench)
+                    || session.CurrentBenchId != bench)
                     throw new HttpFailure(409, "Conflict", "Choose this exact Bench in normal mode before continuing its item creation.");
                 lifetime.Token.ThrowIfCancellationRequested();
                 await action(source, lifetime.Token);

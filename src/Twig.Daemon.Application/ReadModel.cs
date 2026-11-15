@@ -13,6 +13,7 @@ public sealed record ItemView(QualifiedItem Identity, string Type, bool BenchMem
 {
     public FieldValues EffectiveFields => CachedFields.Overlay(ProposedFields);
     public bool IsExcluded { get; init; }
+    public string? Revision { get; init; }
 }
 public sealed record FieldChoice(string Type, FieldValue Value, bool Conditional);
 public sealed record EnumerableField(Guid SourceId, string Reference, ImmutableArray<FieldChoice> Choices,
@@ -30,6 +31,7 @@ public sealed record SourceView(Guid SourceId, ObservationStamp? Observation, Im
     ImmutableArray<EnumerableField> Fields, HierarchyView Hierarchy, ImmutableArray<string> Limitations, Error? Error,
     ImmutableArray<TypeView> Types = default, string? WebUrl = null)
 {
+    public Connection? RequiredConnection { get; init; }
     public static SourceView Failed(Guid id, Error error) => new(id, null, [], [],
         new(false, null, [], ["Source evidence unavailable; no empty membership was inferred."]), [], error);
 }

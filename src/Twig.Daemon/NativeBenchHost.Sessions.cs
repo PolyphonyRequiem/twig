@@ -79,7 +79,7 @@ public static partial class NativeBenchHost
                 .Select(value => ConnectionSummary(value)!).ToArray(),
             anchor?.Root, population?.Root, ConnectionSummary(anchor), ConnectionSummary(population));
         NativeBenchViewDto? view = null;
-        if (anchor is not null && state.CurrentBenchId is { } bench && shared.Benches.Any(value => value.Id == bench))
+        if (state.CurrentBenchId is { } bench && shared.Benches.Any(value => value.Id == bench))
         {
             var captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations));
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
@@ -159,31 +159,13 @@ public static partial class NativeBenchHost
                     recovery[reference.Root] = new(reference.Root, "unavailable", "Unavailable");
                 }
             }
-            Guid? currentBench = null;
-            if (before.Choices.ViewingRoot is { } viewing && opened.TryGetValue(viewing, out var anchor))
-            {
-                try
-                {
-                    if (initialObservations is not null && initialObservations.TryGetValue(anchor, out var initial))
-                        currentBench = initial.SelectedBenchId;
-                    else
-                    {
-                        var selection = await panel.ReadSelectionAsync(anchor, overall.Token);
-                        if (selection.IsSuccess) currentBench = selection.Value.SelectedBenchId;
-                        else
-                        {
-                            opened.Remove(viewing);
-                            recovery[viewing] = new(viewing, "unavailable", selection.Error.Code.ToString());
-                        }
-                    }
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    opened.Remove(viewing);
-                    recovery[viewing] = new(viewing, "unavailable", "Unavailable");
-                }
-            }
-            var instance = Require(await panel.ListAsync(ct)).InstanceId;
+            var shared = Require(await panel.ListAsync(ct));
+            var currentBench = before.Choices.BenchId
+                ?? (shared.Benches.Length == 1 ? shared.Benches[0].Id : (Guid?)null);
+            var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)
+                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct)).ToArray()
+                : [];
+            var instance = shared.InstanceId;
             if (instance != session.CatalogId)
                 throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed during restoration. Connect explicitly.");
             return sessions.CommitRestoration(session, before.Revision, () =>
@@ -197,16 +179,12 @@ public static partial class NativeBenchHost
                             || !ReferenceEquals(current, pair.Value)))
                         throw new HttpFailure(409, "ViewStateConflict", "A connection choice changed during restoration. Read the current view before restoring.");
                     session.Editor.Invalidate();
-                    session.NativeContext = before.Choices.ViewingRoot is { } viewingRoot ? opened.GetValueOrDefault(viewingRoot) : null;
-                    session.PopulationContext = before.Choices.AddRoot is { } add ? opened.GetValueOrDefault(add) : null;
+                    session.NativeContext = resolved.FirstOrDefault();
+                    session.PopulationContext = before.Choices.AddRoot is { } add
+                        ? resolved.FirstOrDefault(value => ViewSession.PathComparer.Equals(value.Root, add)) : null;
                     session.DisplayContexts.Clear();
-                    foreach (var root in before.Choices.DisplayRoots)
-                        if (opened.TryGetValue(root, out var context))
-                            session.DisplayContexts[context.Stamp.Connection] = context;
-                    if (session.NativeContext is { } contextRoot)
-                        session.DisplayContexts[contextRoot.Stamp.Connection] = contextRoot;
-                    if (session.PopulationContext is { } population)
-                        session.DisplayContexts[population.Stamp.Connection] = population;
+                    foreach (var context in resolved)
+                        session.DisplayContexts[context.Stamp.Connection] = context;
                     session.SourceRecovery.Clear();
                     foreach (var source in recovery) session.SourceRecovery.Add(source.Key, source.Value);
                     session.CurrentBenchId = currentBench;
@@ -214,5 +192,28 @@ public static partial class NativeBenchHost
             });
         }
         finally { session.RecoveryGate.Release(); }
+    }
+
+    private static async Task ResolveBenchConnections(NativePanel panel, ViewSession session, CancellationToken ct)
+    {
+        Guid? bench;
+        NativePanelContext[] previous;
+        lock (session) { bench = session.CurrentBenchId; previous = session.DisplayContexts.Values.ToArray(); }
+        if (bench is null) return;
+        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct));
+        lock (session.Agent)
+        lock (session)
+        {
+            if (session.CurrentBenchId != bench)
+                throw new HttpFailure(409, "BenchViewChanged", "The selected Bench changed during connection resolution.");
+            if (resolved.Length == previous.Length && resolved.All(previous.Contains)) return;
+            session.Agent.Invalidate();
+            session.Editor.Invalidate();
+            session.NativeContext = resolved.FirstOrDefault();
+            session.DisplayContexts.Clear();
+            foreach (var source in resolved) session.DisplayContexts[source.Stamp.Connection] = source;
+            if (session.PopulationContext is { } population && !resolved.Contains(population))
+                session.PopulationContext = null;
+        }
     }
 }

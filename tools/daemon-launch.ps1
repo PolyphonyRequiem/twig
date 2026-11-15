@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string] $InstallRoot, [switch] $EnsureRunning)
+param([string] $InstallRoot, [switch] $EnsureRunning, [switch] $Mcp)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -138,6 +138,7 @@ try {
     $arguments += @('--canvas-root', $installation.Canvas)
     if ($installation.MigrateLegacy) { $arguments += '--migrate-legacy' }
     if ($EnsureRunning) { $arguments += '--ensure-running' }
+    if ($Mcp) { $arguments += '--mcp' }
     # Keep the operator console available for explicit stop; native sign-in never uses pairing codes.
     & $installation.Executable @arguments
     if ($LASTEXITCODE -ne 0) { throw "Twig Bench exited with code $LASTEXITCODE; no existing daemon was stopped." }

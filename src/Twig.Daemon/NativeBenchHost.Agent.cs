@@ -534,15 +534,45 @@ public static partial class NativeBenchHost
                         return new(reference, definition.Name ?? reference, cached is not null, cached?.Value,
                             itemView.ProposedFields.SingleOrDefault(field => field.Reference == reference)?.Value);
                     }
+                    var assignee = Field(assigned);
+                    if (assigned is not null && type!.Fields.Single(field => field.Reference == assigned).Kind
+                        is not (FieldKind.Identity or FieldKind.StringList))
+                        throw new HttpFailure(400, "InvalidInput", "Choose an observed identity or identity-list field for the assignee.");
+                    IdentityProfile[] profiles = [];
+                    if (assigned is not null && observed.CachedFields.TryGetValue(assigned, out var assignment))
+                    {
+                        var identities = assignment.Kind == FieldKind.Identity && assignment.Text is { Length: > 0 } identity
+                            ? ImmutableArray.Create(identity)
+                            : assignment.Kind == FieldKind.StringList ? assignment.Values : [];
+                        identities = identities.Distinct(StringComparer.Ordinal).ToImmutableArray();
+                        if (identities.Length > 16)
+                            throw new HttpFailure(400, "InvalidInput", "At most sixteen observed assignee profiles can be shown.");
+                        if (!identities.IsEmpty)
+                        {
+                            profiles = ConnectionObservation(await panel.ReadIdentityProfilesAsync(
+                                Source(grant, sourceId), identities, lifetime.Token), app.Logger).ToArray();
+                            _ = await Snapshot(session, grant, snapshotId, lifetime.Token, validateSources: false);
+                            _ = await Current(session, grant, lifetime.Token);
+                        }
+                    }
+                    var state = Field(itemView.StateField);
                     var details = new McpDetailsDto(snapshot.Id, sourceId, itemId, itemView.Locator, itemView.Type,
                         itemView.TitleField is { } title ? itemView.CachedFields.SingleOrDefault(field => field.Reference == title)
                             ?.Value.Value.GetString() : null,
-                        Field(itemView.StateField), Field(assigned), observed.Revision, itemView.IsLocal, itemView.HasDraft,
+                        state, assignee, observed.Revision, itemView.IsLocal, itemView.HasDraft,
                         sourceView.Connection, sourceView.Label, sourceView.Mode, sourceView.CacheReadAt,
                         sourceView.Limitations, references.Select(reference => Field(reference)!).ToArray(),
                         sourceView.UnresolvedReferences.Where(reference => sourceView.Edges.Any(edge =>
                             edge.From == itemId && edge.To == reference.Id || edge.To == itemId && edge.From == reference.Id)).ToArray(),
-                        focus, note);
+                        focus, note)
+                    {
+                        TypePresentation = type?.Presentation is { } presentation
+                            ? new(presentation.Name, presentation.Color, presentation.IconId, presentation.IconSvg) : null,
+                        StatePresentation = state?.Value?.Value is { ValueKind: JsonValueKind.String } stateValue
+                            ? type?.States.SingleOrDefault(value => value.Name == stateValue.GetString()) : null,
+                        AssignedProfiles = profiles,
+                        WebUrl = itemView.WebUrl
+                    };
                     return JsonSerializer.SerializeToNode(details, TransportJson.Default.McpDetailsDto)!;
                 }, ReadApp);
                 if (response is null) { http.Response.StatusCode = 202; return; }

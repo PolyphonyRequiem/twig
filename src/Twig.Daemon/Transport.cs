@@ -95,11 +95,18 @@ public sealed record AgentPageBody(Guid SnapshotId, int Offset = 0, int Limit = 
 public sealed record AgentItemBody(Guid SnapshotId, Guid SourceId, string ItemId);
 public sealed record McpRequestBody(string Jsonrpc, string Method, JsonElement? Id = null, JsonObject? Params = null);
 public sealed record McpFieldDto(string Reference, string Name, bool Observed, FieldValueDto? Value, FieldValueDto? ProposedValue);
+public sealed record McpTypePresentationDto(string Name, string? Color, string? IconId, string? IconSvg);
 public sealed record McpDetailsDto(Guid SnapshotId, Guid SourceId, string ItemId, string Locator, string Type,
     string? Title, McpFieldDto? State, McpFieldDto? AssignedTo, string? Revision, bool IsLocal,
     bool HasDraft, Connection? Connection, string SourceLabel, string? Mode, DateTimeOffset? CacheReadAt,
     string[] Limitations, McpFieldDto[] Fields, UnresolvedReferenceDto[] UnresolvedReferences,
-    string? FocusField, string? Note, bool ReadOnly = true);
+    string? FocusField, string? Note, bool ReadOnly = true)
+{
+    public McpTypePresentationDto? TypePresentation { get; init; }
+    public State? StatePresentation { get; init; }
+    public IdentityProfile[] AssignedProfiles { get; init; } = [];
+    public string? WebUrl { get; init; }
+}
 public sealed record AgentPinBody(Guid SnapshotId, Guid SourceId, string Locator);
 public sealed record AgentQueryRuleBody(Guid SnapshotId, Guid SourceId, int RuleIndex, string Selector);
 public sealed record AgentRuleDto(int RuleIndex, Guid SourceId, string Kind, string Selector);

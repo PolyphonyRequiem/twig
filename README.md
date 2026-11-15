@@ -161,6 +161,11 @@ references. Unknown fields, stale snapshots, unavailable selected sources and
 revoked access refuse explicitly; an unrelated missing source does not block a
 healthy item's details. If the restored owner profile has no selected Bench,
 choose it in Canvas; MCP never changes selection.
+Details include discovered type/state presentation and the observed provider web
+link. An explicitly selected identity field resolves only its cached assignment
+IDs through the existing source/principal-bound profile reader. Profile photos
+remain bounded inline data, and unavailable profile information is explicit;
+caller-supplied profile values or identity IDs are not accepted.
 
 The details tool references `ui://twig/work-item-details`. Its network-isolated
 MCP App HTML belongs to the separately installed canvas package and is verified

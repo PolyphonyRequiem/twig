@@ -45,21 +45,28 @@ public sealed partial class GitHubProvider
     private const string Metadata = """
         query {
           issue: __type(name: "Issue") { fields { name type { kind name ofType { kind name ofType { kind name } } } } }
-          issueType: __type(name: "IssueType") { fields { name } }
           repository: __type(name: "Repository") { fields { name } }
           states: __type(name: "IssueState") { enumValues { name } }
-          mutations: __type(name: "Mutation") { fields { name } }
           update: __type(name: "UpdateIssueInput") { inputFields { name type { kind name ofType { kind name ofType { kind name } } } } }
           create: __type(name: "CreateIssueInput") { inputFields { name type { kind name ofType { kind name ofType { kind name } } } } }
+        }
+        """;
+
+    // GitHub permits at most two uses of __Type.fields in one introspection request.
+    private const string AuthoringMetadata = """
+        query {
+          issueType: __type(name: "IssueType") { fields { name } }
+          mutations: __type(name: "Mutation") { fields { name } }
         }
         """;
 
     private async Task<Discovery> Discover(Bound bound, CancellationToken ct, bool includePresentation = false)
     {
         var metadata = await Graph(bound, Metadata, null, ct);
+        var authoring = await Graph(bound, AuthoringMetadata, null, ct);
         var fields = Names(Wire.Member(metadata, "issue"), "fields");
         var repositoryFields = Names(Wire.Member(metadata, "repository"), "fields");
-        var mutations = Names(Wire.Member(metadata, "mutations"), "fields");
+        var mutations = Names(Wire.Member(authoring, "mutations"), "fields");
         var update = Names(Wire.Member(metadata, "update"), "inputFields");
         var create = Names(Wire.Member(metadata, "create"), "inputFields");
         var states = Names(Wire.Member(metadata, "states"), "enumValues");
@@ -116,7 +123,7 @@ public sealed partial class GitHubProvider
         var hidden = new HashSet<string>(StringComparer.Ordinal);
         if (fields.Contains("issueType"))
         {
-            if (!Names(Wire.Member(metadata, "issueType"), "fields").Contains("isEnabled"))
+            if (!Names(Wire.Member(authoring, "issueType"), "fields").Contains("isEnabled"))
                 gaps.Add("IssueType enabled/disabled authoring semantics are unavailable.");
             if (!repositoryFields.Contains("issueTypes"))
                 gaps.Add("Issue types are exposed but their authoritative repository catalog is unavailable.");

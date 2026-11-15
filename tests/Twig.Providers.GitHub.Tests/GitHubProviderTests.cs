@@ -51,6 +51,27 @@ public sealed partial class GitHubProviderTests
         f.Http.Writes.ShouldBe(0);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscoveryRespectsIntrospectionLimitAndRequiresBothResponses(bool secondReadDenied)
+    {
+        using var f = await Fixture.Create();
+        f.Http.LimitIntrospection = true;
+        if (secondReadDenied) f.Http.Defect = "authoring-metadata-denied";
+        var result = await f.Provider.DiscoverSchemaAsync(f.Connection, default);
+        result.IsSuccess.ShouldBe(!secondReadDenied, result.IsSuccess ? "" : result.Error.Message);
+        if (!secondReadDenied)
+        {
+            result.Value.Gaps.ShouldBeEmpty();
+            result.Value.Types.Select(type => type.Reference).ShouldContain("T1");
+            f.Provider.Capabilities.Operations.ShouldContain(OpKind.Create);
+        }
+        f.Http.ReadQueries.Count(query => query.Contains("__type(", StringComparison.Ordinal)).ShouldBe(2);
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
     [Fact]
     public async Task PresentationUsesObservedRepositoryUrlAndTypeNamesWithoutChangingMutationDigest()
     {
@@ -796,7 +817,7 @@ public sealed partial class GitHubProviderTests
         internal string? ProfileDefect;
         internal int AvatarReads;
         internal string Owner = "O1", RepositoryId = "R1", Actor = "A1";
-        internal bool Native = true, ForeignResource;
+        internal bool Native = true, ForeignResource, LimitIntrospection;
         internal string? Defect, WriteFailure, LastPayload, MutationOnlyRelation;
         internal int Writes, WriteStatus = 200;
         internal List<string> ReadQueries = [];
@@ -898,7 +919,10 @@ public sealed partial class GitHubProviderTests
             }
             else if (query.Contains("__type(", StringComparison.Ordinal))
             {
-                if (Defect == "metadata-denied") return new(HttpStatusCode.Forbidden);
+                if (LimitIntrospection && System.Text.RegularExpressions.Regex.Matches(query, @"\bfields\s*\{").Count > 2)
+                    return Json(new JsonObject { ["errors"] = new JsonArray(new JsonObject { ["type"] = "INTROSPECTION_LIMIT_EXCEEDED" }) });
+                if (Defect == "metadata-denied" || Defect == "authoring-metadata-denied"
+                    && query.Contains("mutations: __type(", StringComparison.Ordinal)) return new(HttpStatusCode.Forbidden);
                 var fields = new List<string> { "id", "number", "repository", "title", "body", "state", "updatedAt", "labels", "assignees", "milestone", "issueType" };
                 if (Native) fields.AddRange(["parent", "subIssues", "blockedBy", "blocking"]);
                 if (Defect == "partial-relations") fields.Remove("subIssues");
@@ -918,6 +942,9 @@ public sealed partial class GitHubProviderTests
                 };
                 if (Defect == "field-signature") data["issue"]!["fields"]!.AsArray()
                     .Single(n => n!["name"]!.GetValue<string>() == "title")!["type"]!["name"] = "Int";
+                foreach (var key in data.Select(entry => entry.Key)
+                    .Where(key => !query.Contains(key + ": __type(", StringComparison.Ordinal)).ToArray())
+                    data.Remove(key);
             }
             else if (query.Contains("issue(number:", StringComparison.Ordinal))
             {

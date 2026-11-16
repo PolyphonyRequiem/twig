@@ -397,17 +397,57 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(paths);
+        if (!File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)))
+            throw new InvalidOperationException("activation-required: initialize the current Core workspace before work access.");
+        using var operation = ConnectionOperationGate.Acquire(paths.RepoRoot);
+        var origin = await ResolveAttachedSelectionAsync(configuration, paths, ct).ConfigureAwait(false);
+        var generation = await CoreConnectionAdmission.ValidateAsync(paths, RegistryPath, origin, ct).ConfigureAwait(false);
+        return origin with { StorageGeneration = generation };
+    }
+
+    public async Task<ConnectionInitializationAuthority> CreateInitializationAuthorityAsync(
+        TwigConfiguration configuration, TwigPaths paths, FreshWorkspaceInitialization initialization,
+        CancellationToken ct = default)
+    {
+        await initialization.ValidateAsync(paths, ct).ConfigureAwait(false);
+        var origin = await ResolveAttachedSelectionAsync(configuration, paths, ct).ConfigureAwait(false);
+        var authentication = CreateProvider(origin.Identity);
+        var authority = new ConnectionInitializationAuthority(origin, authentication, async token =>
+        {
+            await initialization.ValidateAsync(paths, token).ConfigureAwait(false);
+            var currentConfiguration = await TwigConfiguration.LoadSplitAsync(paths, token).ConfigureAwait(false);
+            var current = await ResolveAttachedSelectionAsync(currentConfiguration, paths, token).ConfigureAwait(false);
+            await initialization.ValidateAsync(paths, token).ConfigureAwait(false);
+            return current;
+        });
+        try
+        {
+            await authority.RevalidateAsync(ct).ConfigureAwait(false);
+            return authority;
+        }
+        catch
+        {
+            authority.Dispose();
+            throw;
+        }
+    }
+
+    private async Task<ResolvedConnectionBinding> ResolveAttachedSelectionAsync(
+        TwigConfiguration configuration, TwigPaths paths, CancellationToken ct)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(paths);
         var connectionRef = ConnectionRefResolver.Compute(configuration);
 
         // Validate the local attachment before selecting an identity.
-        using var attachmentStore = new WorktreeLocalAttachmentStore(paths, configuration, _clock);
+        using var attachmentStore = new WorktreeLocalAttachmentStore(paths, configuration, _clock, registryPath: RegistryPath);
         var read = await attachmentStore.ReadForBindingAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
             throw new ConnectionBindingResolutionException(read.Error.Message, $"Managed attachment validation refused: {read.Error.Message}");
         // This anchor was freshly discovered and validated against this attachment.
         var attachment = read.Value.Attachment;
         var anchor = read.Value.Anchor;
-        var storageAdmission = MirrorAdmission.Acquire(paths, RegistryPath, anchor);
         var fingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
         var worktreeRow = await _registry.FindWorktreeAsync(fingerprint, ct).ConfigureAwait(false);
         if ((!worktreeRow.IsSuccess && worktreeRow.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new ConnectionBindingResolutionException(worktreeRow.Error.Message, $"Registry refused worktree lookup: {worktreeRow.Error.Message}");
@@ -421,7 +461,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             throw new InvalidOperationException(
                 $"Attached worktree is bound to a different connection (expected {connectionRef}, stored {wt.ConnectionRef}). Refusing to project across connection boundaries.");
 
-        MirrorAdmission.ValidateNoUnfinishedTransition(RegistryPath, fingerprint);
+        ConnectionTransitionAdmission.ValidateNoUnfinishedTransition(RegistryPath, fingerprint);
         var selectedId = attachment.Attachment.BindingPin;
         var selectionSource = "checkout-binding-pin";
         var selectionRevision = attachment.Revision;
@@ -463,10 +503,9 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
                 configuration.Display.Icons,
                 configuration.Display.IconsOverride is not null ? paths.ConfigPath
                     : GlobalDisplayPreferences.Load(paths.GlobalDisplayPath).Icons is not null
-                        ? paths.GlobalDisplayPath : "built-in-defaults"),
-            StorageGeneration: storageAdmission.Generation);
+                        ? paths.GlobalDisplayPath : "built-in-defaults"));
     }
-    public async Task<IAuthenticationProvider> CreateBootstrapProviderAsync(
+    public async Task ValidateInitializationSelectionAsync(
         TwigConfiguration configuration,
         CancellationToken ct = default,
         string? bindingId = null)
@@ -500,8 +539,6 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             throw new InvalidOperationException(
                 $"Binding {b.BindingId} references a missing identity row — the identity registry is inconsistent.");
         EnsurePatAuthority(ToIdentity(idRow), configuration.Organization);
-
-        return CreateProvider(ToIdentity(idRow));
     }
 
     public IAuthenticationProvider CreateAuthenticationProvider(ResolvedConnectionBinding binding)

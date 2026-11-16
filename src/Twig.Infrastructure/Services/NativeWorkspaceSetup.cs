@@ -100,17 +100,10 @@ internal static class NativeWorkspaceSetup
             if (kind == "ado")
             {
                 effects.Before(NativeSetupEffectKind.Registry);
-                var bootstrap = await bindings.CreateBootstrapProviderAsync(config, ct, args.Binding).ConfigureAwait(false);
-                if (bootstrap is IDisposable disposable) disposable.Dispose();
+                await bindings.ValidateInitializationSelectionAsync(config, ct, args.Binding).ConfigureAwait(false);
                 effects.Confirm(NativeSetupEffectKind.Registry);
             }
-            effects.Before(NativeSetupEffectKind.WorkspaceDirectory);
-            Directory.CreateDirectory(twigDir);
-            effects.Confirm(NativeSetupEffectKind.WorkspaceDirectory);
-            effects.Before(NativeSetupEffectKind.InitializationLock);
-            using var initialization = new FileStream(Path.Combine(twigDir, "core-init.lock"), FileMode.CreateNew,
-                FileAccess.Write, FileShare.None);
-            effects.Confirm(NativeSetupEffectKind.InitializationLock);
+            using var initialization = FreshWorkspaceInitialization.Begin(paths, effects);
             var ignorePath = Path.Combine(anchor.WorktreeRoot, ".gitignore");
             var ignore = File.Exists(ignorePath) ? await File.ReadAllTextAsync(ignorePath, ct).ConfigureAwait(false) : "";
             var lastRule = ignore.Split('\n').Select(line => line.TrimEnd('\r'))
@@ -129,7 +122,8 @@ internal static class NativeWorkspaceSetup
             if (kind == "ado")
             {
                 effects.Before(NativeSetupEffectKind.Attachment);
-                using var attachment = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System, args.Binding);
+                using var attachment = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System, args.Binding,
+                    registryPath: bindings.RegistryPath);
                 var attached = await attachment.InitializeAsync(ct).ConfigureAwait(false);
                 if (!attached.IsSuccess) return effects.Fail<NativeCreationReceipt>(attached.Error);
                 effects.Confirm(NativeSetupEffectKind.Attachment);
@@ -147,7 +141,7 @@ internal static class NativeWorkspaceSetup
                 effects.Confirm(NativeSetupEffectKind.Registry);
             }
             var result = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, bindings,
-                database, ct, transport, processes, effects).ConfigureAwait(false);
+                database, ct, transport, processes, effects, initialization).ConfigureAwait(false);
             return result.IsSuccess ? result : effects.Fail<NativeCreationReceipt>(result.Error);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return effects.Cancel<NativeCreationReceipt>(); }

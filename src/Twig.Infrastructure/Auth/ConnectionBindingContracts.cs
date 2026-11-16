@@ -261,8 +261,13 @@ internal interface IConnectionBindingService
         TwigPaths paths,
         CancellationToken ct = default);
 
+    Task<ConnectionInitializationAuthority> CreateInitializationAuthorityAsync(
+        TwigConfiguration configuration, TwigPaths paths, FreshWorkspaceInitialization initialization,
+        CancellationToken ct = default)
+        => Task.FromException<ConnectionInitializationAuthority>(
+            new InvalidOperationException("Fresh initialization requires the actual native binding authority."));
 
-    Task<IAuthenticationProvider> CreateBootstrapProviderAsync(
+    Task ValidateInitializationSelectionAsync(
         TwigConfiguration configuration,
         CancellationToken ct = default,
         string? bindingId = null);

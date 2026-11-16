@@ -28,13 +28,11 @@ internal sealed class AdmittedBoundAuthenticationProvider : IAuthenticationProvi
     private void ValidateStorage()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        MirrorAdmission.ValidateNoUnfinishedTransition(_registryPath, _binding.Operation.WorktreeFingerprint);
-        var current = MirrorAdmission.ReadNativeState(_registryPath, _binding.Operation.WorktreeFingerprint);
-        if (current is null || current.State != "active" || current.Generation != _binding.StorageGeneration
-            || current.BindingId != _binding.Binding.BindingId)
-            throw Changed();
         var paths = TwigPaths.BuildPaths(Path.Combine(_binding.WorktreeRoot, ".twig"), _binding.WorktreeRoot);
-        _ = MirrorAdmission.Acquire(paths, _registryPath);
+        using var operation = ConnectionOperationGate.Acquire(_binding.WorktreeRoot);
+        var configuration = TwigConfiguration.LoadSplitAsync(paths).GetAwaiter().GetResult();
+        var current = _bindings.ResolveAsync(configuration, paths).GetAwaiter().GetResult();
+        ValidateCurrent(current);
     }
 
     public Task<IDisposable> AcquireOperationAsync(CancellationToken ct = default)
@@ -114,8 +112,9 @@ internal sealed class AdmittedBoundAuthenticationProvider : IAuthenticationProvi
     private void ValidateCurrent(ResolvedConnectionBinding current)
     {
         if (current.Binding != _binding.Binding
-            || (current.SelectionSource == "connection-default-binding" && _binding.SelectionSource == current.SelectionSource
-                && current.SelectionRevision != _binding.SelectionRevision) || current.StorageGeneration != _binding.StorageGeneration
+            || current.SelectionSource != _binding.SelectionSource || current.SelectionRevision != _binding.SelectionRevision
+            || current.Operation.AttachmentRevision != _binding.Operation.AttachmentRevision
+            || current.StorageGeneration != _binding.StorageGeneration
             || current.Operation.Organization != _binding.Operation.Organization || current.Operation.Project != _binding.Operation.Project
             || current.Operation.Team != _binding.Operation.Team || current.Operation.WorktreeFingerprint != _binding.Operation.WorktreeFingerprint
             || !SameAuthority(current.Identity, _binding.Identity))
@@ -217,7 +216,7 @@ internal sealed class AdmittedBoundAuthenticationProvider : IAuthenticationProvi
             && current.AdoPrincipalId == frozen.AdoPrincipalId;
 
     private static InvalidOperationException Changed()
-        => new("binding-changed: checkout selection, endpoint, principal or admitted mirror generation changed. Close and reconnect this host; this provider will not adopt another identity.");
+        => new("binding-changed: checkout selection, endpoint, principal or admitted Core store changed. Close and reconnect this host; this provider will not adopt another identity.");
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
     {

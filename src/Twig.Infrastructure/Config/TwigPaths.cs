@@ -1,6 +1,6 @@
 namespace Twig.Infrastructure.Config;
 
-/// <summary>Workspace paths; mirror routing remains subject to native admission.</summary>
+/// <summary>Workspace paths; the current Core locator does not grant store admission.</summary>
 public sealed class TwigPaths
 {
     public string TwigDir { get; }
@@ -27,9 +27,6 @@ public sealed class TwigPaths
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".twig", "display.json");
     }
 
-    /// <summary>Resolves the mirror path without granting permission to open it.</summary>
-    public static string GetCacheDbPath(string twigDir) => Persistence.MirrorAdmission.ResolveMirrorPath(twigDir);
-
     public static TwigPaths BuildPaths(string twigDir, string? startDir = null)
-        => new(twigDir, Path.Combine(twigDir, "config"), GetCacheDbPath(twigDir), startDir);
+        => new(twigDir, Path.Combine(twigDir, "config"), Auth.CoreConnectionAdmission.ResolveDatabasePath(twigDir), startDir);
 }

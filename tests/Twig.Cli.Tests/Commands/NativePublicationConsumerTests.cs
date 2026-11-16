@@ -1911,9 +1911,13 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var initialized = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, _bindings,
             database, default, new CoreTransportOverride(_transport.NewHandle));
         initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
-        initialized.Value.ShouldBeTrue();
         await using var marker = File.OpenRead(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName));
         var document = (await JsonSerializer.DeserializeAsync(marker, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument))!;
+        initialized.Value.Document.ShouldBe(document);
+        initialized.Value.Source.Connection.ShouldBe(document.Connection);
+        initialized.Value.Source.StoreInstance.ShouldBe(document.DatabaseInstance);
+        initialized.Value.Source.PrincipalId.ShouldBe(Actor);
+        initialized.Value.Source.AuthorityStamp.ShouldNotBeNullOrWhiteSpace();
         document.Connection.ResourceScope.ShouldBe("11111111-1111-1111-1111-111111111111");
         document.Connection.Destination.ShouldBe("22222222-2222-2222-2222-222222222222");
         document.PrincipalId.ShouldBe(Actor);
@@ -2198,8 +2202,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.TotalRequests.ShouldBe(requestsBeforeDiscard);
             (await store.ReadAsync(connection, default)).Value.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
             var readsBeforeDelete = _transport.WorkRequests;
-            (await show.Delete(42, force: true, output: "json")).ShouldBe(1);
+            var beforeDelete = (await store.ReadAsync(connection, default)).Value;
+            Run("delete", "42", "--force", "-o", "json").ShouldBe(1);
             _transport.WorkRequests.ShouldBe(readsBeforeDelete);
+            var afterDelete = (await store.ReadAsync(connection, default)).Value;
+            afterDelete.Version.ShouldBe(beforeDelete.Version);
+            afterDelete.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
             _transport.CommittedWrites.ShouldBe(9, "discard and unsupported delete must never dispatch");
         }
         finally
@@ -2362,7 +2370,6 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         var config = new TwigConfiguration { Organization = "fixture", Project = "Project" };
-        config.Display.Hints = false;
         var defaults = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
         var paths = new TwigPaths(defaults.TwigDir, defaults.ConfigPath, defaults.DbPath, root, Path.Combine(Home, "display.json"));
         await config.SaveSplitAsync(paths);

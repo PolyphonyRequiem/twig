@@ -284,7 +284,7 @@ public sealed partial class NativePublicationConsumerTests
             return await inner.ResolveAsync(configuration, paths, ct);
         }
         public IAuthenticationProvider CreateAuthenticationProvider(ResolvedConnectionBinding binding)
-            => new MigrationBoundAuthenticationProvider(new FixtureCredential(this, binding.Identity), binding, RegistryPath, this);
+            => new AdmittedBoundAuthenticationProvider(new FixtureCredential(this, binding.Identity), binding, RegistryPath, this);
         public Task<AuthenticationIdentity> RegisterAadIdentityAsync(string name, TwigRefreshTokenStoreEntry credential, CancellationToken ct = default)
             => inner.RegisterAadIdentityAsync(name, credential, ct);
         public Task<AuthenticationIdentity> RegisterPatIdentityAsync(string name, string organization, string pat, CancellationToken ct = default)

@@ -11,19 +11,20 @@ public sealed partial class NativePublicationConsumerTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task NativeCaptureLegacyBootstrapRequiresActualPayloadAndConfirmedInventory(bool retainedPayload)
+    public async Task NativeCaptureWithoutCreationWitnessRefusesHistoricalAdoption(bool retainedPayload)
     {
         var native = await RelationshipWorkspaceAsync();
         using var services = EditorServices(native.Paths.StartDir);
         var factory = services.GetRequiredService<CoreWorkspaceFactory>();
         var user = UserBenchStore.ForRegistry(_bindings.RegistryPath);
-        var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Legacy migration", []), 0)).Value;
+        var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Unsupported historical namespace", []), 0)).Value;
         using var origin = (await factory.OpenAsync(default)).Value;
         using var editor = (await NativeEditor.OpenAsync(factory, user, bench.Id, origin.Source, default)).Value;
         var key = ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42");
         var item = (await editor.SelectAsync(key, default)).Value;
-        var ready = (await editor.StageAsync(item, FieldValues.Empty.Set("System.Title", FieldValue.String("actual old intent")),
-            null, null, default)).Value;
+        var staged = await editor.StageAsync(item, FieldValues.Empty.Set("System.Title", FieldValue.String("actual old intent")),
+            null, null, default);
+        staged.IsSuccess.ShouldBeTrue();
         var metadata = Path.Combine(Path.GetDirectoryName(_bindings.RegistryPath)!, "benches.db");
         await CaptureSql(metadata, """
             DROP TABLE editor_capture_history;
@@ -38,20 +39,9 @@ public sealed partial class NativePublicationConsumerTests
             """);
         (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeFalse();
         var inventory = await NativeCoreExecution.InventoryAsync(_bindings.RegistryPath);
-        inventory.IsSuccess.ShouldBe(retainedPayload, inventory.IsSuccess ? "" : inventory.Error.Message);
-        if (retainedPayload)
-        {
-            (await NativeCoreExecution.ActivateAsync(_bindings.RegistryPath, inventory.Value, inventory.Value.Digest, false, true)).IsSuccess.ShouldBeFalse();
-            (await NativeCoreExecution.ActivateAsync(_bindings.RegistryPath, inventory.Value, inventory.Value.Digest, true, true)).IsSuccess.ShouldBeTrue();
-            var migrated = (await user.ReadEditorCapturesAsync(default)).Value.Single();
-            migrated.SameAs(ready.Capture!).ShouldBeTrue("migration links actual bytes, not rewritten intent or inferred before-images");
-            (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeTrue();
-        }
-        else
-        {
-            (await user.ReadEditorCapturesAsync(default)).IsSuccess.ShouldBeFalse();
-            (await user.ReadEditorCapturesAsync(default, inspect: true)).IsSuccess.ShouldBeTrue("protected browse is not publishing authority");
-        }
+        inventory.IsSuccess.ShouldBeFalse("historical payload is never adopted as a current creation witness");
+        (await user.ReadEditorCapturesAsync(default)).IsSuccess.ShouldBeFalse();
+        (await user.ReadEditorCapturesAsync(default, inspect: true)).IsSuccess.ShouldBeTrue("protected browse is not publishing authority");
         _transport.PatchAttempts.ShouldBe(0);
     }
 

@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Reflection;
 using Bench.Application;
 using Bench.Infrastructure;
 using Twig.Core;
@@ -22,7 +21,6 @@ internal sealed class NativeEditorView
     internal ItemKey? Item { get; set; }
     internal ItemKey? Endpoint { get; set; }
     internal ImmutableArray<ItemKey> EndpointCandidates { get; set; } = [];
-    internal NativeAuthoringReview? Upgrade { get; set; }
     internal long Epoch { get; set; }
     internal bool LocalOnly { get; set; }
     internal Dictionary<Guid, NativeLocalRelationshipReview> LocalReviews { get; } = [];
@@ -40,7 +38,6 @@ internal sealed class NativeEditorView
             LocalReviews.Clear(); LocalApplyAllowed.Clear();
             Item = Endpoint = null;
             EndpointCandidates = [];
-            Upgrade = null;
             Retired |= retire;
         }
         if (retire && Gate.Wait(0))
@@ -80,27 +77,6 @@ public static partial class NativeBenchHost
             }
             return Require(result);
         }
-        app.MapPost("/api/v1/views/{id:guid}/authoring/review", async (HttpContext http, Guid id) =>
-        {
-            var session = await authorize(http, id);
-            var body = await Body<AuthoringReviewBody>(http);
-            var build = typeof(NativeBenchHost).Assembly.GetName().Version!.ToString()
-                + ":" + typeof(NativeBenchHost).Assembly.GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
-                    .SingleOrDefault(value => value.Key == "SourceRevision")?.Value;
-            if (build.EndsWith(':')) throw new HttpFailure(503, "BuildIdentityRequired", "Use the qualified paired CLI/panel source builds before the one-time safety check.");
-            session.Editor.Upgrade = Require(await NativeAuthoringReview.ReviewAsync(Context(session).Root,
-                body.ObservedReadonlyRelease, body.ObservedCliBuild, build, http.RequestAborted));
-            await Write(http, new AuthoringReviewDto(session.Editor.Upgrade.Digest, session.Editor.Upgrade.Confirmation, NativeAuthoringReview.NativeBuild));
-        });
-        app.MapPost("/api/v1/views/{id:guid}/authoring/confirm", async (HttpContext http, Guid id) =>
-        {
-            var session = await authorize(http, id);
-            var body = await Body<AuthoringConfirmBody>(http);
-            var review = session.Editor.Upgrade ?? throw new HttpFailure(409, "ReviewRequired", "Review the actual native inventory first.");
-            _ = Require(await review.ConfirmAsync(body.Digest, body.Confirmation, body.CompleteInventory, body.OldProcessesQuiesced, http.RequestAborted));
-            session.Editor.Upgrade = null;
-            await Write(http, new Ack());
-        });
         app.MapPost("/api/v1/views/{id:guid}/editor", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);

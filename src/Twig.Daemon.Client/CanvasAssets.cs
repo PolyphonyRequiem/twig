@@ -15,12 +15,14 @@ public static partial class CanvasAssets
     public static string DaemonVersion => typeof(CanvasAssets).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
     public static readonly string[] RequiredFiles =
     [
-        @"wwwroot\native-index.html", @"wwwroot\native-app.js", @"wwwroot\device.js",
+        @"wwwroot\host-index.html", @"wwwroot\host-app.js",
+        @"wwwroot\native-index.html", @"wwwroot\native-app.js",
+        @"wwwroot\mcp-work-item-details.html",
         @"wwwroot\view-model.js", @"wwwroot\item-detail.js", @"wwwroot\assignee-profiles.js",
         @"wwwroot\item-editor.js", @"wwwroot\editor-drafts.js", @"wwwroot\connection-setup.js",
-        @"wwwroot\style.css", @"wwwroot\icons.css", @"wwwroot\fonts\fluent-regular-v1.1.293.woff2",
+        @"wwwroot\style.css", @"wwwroot\icons.css",
         @"wwwroot\vendor\purify.es.mjs", @"wwwroot\vendor\marked.esm.js",
-        @"licenses\azure-devops-ui.LICENSE", @"licenses\fluentui-system-icons.LICENSE",
+        @"licenses\fluentui-system-icons.LICENSE",
         @"licenses\octicons.LICENSE", @"licenses\NOTICE.md", @"licenses\DOMPurify.LICENSE", @"licenses\marked.LICENSE"
     ];
 
@@ -31,15 +33,11 @@ public static partial class CanvasAssets
         using var pointer = Document(selection, 4096);
         var record = pointer.RootElement;
         var schema = record.GetProperty("schema").GetInt32();
-        if (schema == 2)
-        {
-            Fields(record, "application", "schema", "version", "manifestHash", "hostManifestHash");
-            if (!HashPattern().IsMatch(record.GetProperty("hostManifestHash").GetString()!))
-                throw new InvalidDataException("Invalid presentation host digest.");
-        }
-        else Fields(record, "application", "schema", "version", "manifestHash");
-        if (record.GetProperty("application").GetString() != Application || schema is not (1 or 2))
+        Fields(record, "application", "schema", "version", "manifestHash", "hostManifestHash");
+        if (record.GetProperty("application").GetString() != Application || schema != 2)
             throw new InvalidDataException("Foreign canvas selection.");
+        if (!HashPattern().IsMatch(record.GetProperty("hostManifestHash").GetString()!))
+            throw new InvalidDataException("Invalid presentation host digest.");
         var version = record.GetProperty("version").GetString()!;
         var manifestHash = record.GetProperty("manifestHash").GetString()!;
         if (!VersionPattern().IsMatch(version) || !HashPattern().IsMatch(manifestHash))

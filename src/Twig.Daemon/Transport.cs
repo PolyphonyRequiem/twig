@@ -8,29 +8,15 @@ using Twig.Infrastructure.Services;
 namespace Bench.Server;
 
 public sealed record EmptyBody;
-public sealed record PairBody(string Code, Guid? ViewId, Guid ProfileId, bool Attach);
 public sealed record PairResult(Guid ViewId, string ContentCapability, bool NativeContentBlocked);
 public sealed record CanvasRegistration(Guid ViewId, string PresentationCapability);
 public sealed record Ack(bool Acknowledged = true);
-public sealed record EnrollmentAvailability(bool Acknowledged, bool WindowsSignIn);
-public sealed record WindowsEnrollment(Guid DeviceId, Guid ViewId, Guid ProfileId, string PublicKey);
 public sealed record Failure(string Code, string Message);
 public sealed record ServiceStatus(string Protocol, string DataMode, bool CanvasDefaultDeny,
     Guid DaemonId = default, string? DaemonVersion = null, string[]? Capabilities = null);
-public sealed record SourceBody(Guid Id, string Label, string WorkspaceRoot, bool AllowOffline, Guid CatalogId, long ExpectedRevision);
-public sealed record SeedBody(Guid SourceId, Guid NativeBenchId);
-public sealed record PrepareBody(Guid Id, string Name, long ExpectedRevision, SeedBody[] Seeds);
-public sealed record ConfirmBody(Guid Id);
 public sealed record LayoutBody(string Layout);
 public sealed record ViewBody(long ExpectedRevision, Guid? BenchId, string Layout, Guid? GroupSource, string? GroupField);
 public sealed record ViewPreferences(long Revision, Guid? BenchId, string Layout, Guid? GroupSource, string? GroupField);
-public sealed record SessionInfo(Guid CatalogId, bool NativeContentBlocked, ViewPreferences Preferences);
-public sealed record SourceSummary(Guid Id, string Label, bool AllowOffline, DateTimeOffset OnlineAdmittedAt);
-public sealed record BenchSummary(Guid Id, string Name, long Revision);
-public sealed record CatalogSummary(Guid CatalogId, long Revision, SourceSummary[] Sources, BenchSummary[] Benches);
-public sealed record NativeBenchSummary(Guid Id, string Name, int SelectorCount);
-public sealed record CreatePreview(Guid Id, string Name, int SourceCount, int SelectorCount, string Notice);
-public sealed record Created(Guid Id, string Name, Guid CatalogId, long CatalogRevision);
 public sealed record FieldValueDto(string Kind, JsonElement Value, string? DataType);
 public sealed record FieldDto(string Reference, FieldValueDto Value);
 public sealed record ChoiceDto(string Type, FieldValueDto Value, bool Conditional);
@@ -128,11 +114,8 @@ public sealed record AgentContextDto(Guid SnapshotId, DateTimeOffset ExpiresAt, 
     long BenchRevision, long CatalogueRevision, Guid? SelectedSourceId, string? SelectedItemId,
     AgentPermissionsDto Permissions, PlanStatusDto Plan, AgentConnectionDto[] Connections, string Notice)
 {
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CanvasRuntimeContext? RuntimeContext { get; init; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? RepositoryRoot { get; init; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? RepositoryRevision { get; init; }
 }
 public sealed record AgentConnectionsDto(Guid SnapshotId, AgentConnectionDto[] Connections);
@@ -231,9 +214,6 @@ public sealed record SeedTypeDto(string Reference, string Name);
 public sealed record SeedPublicationDto(Guid CaptureId, string ItemId, string LocalId, string Digest, string Status, Failure? Error);
 public sealed record OwnedSeedDto(string ItemId, string LocalId, Guid CaptureId, bool Ready, bool HasDraft, SeedPublicationDto? Publication);
 public sealed record NormalSeedViewDto(SourceViewDto Source, SeedTypeDto[] Types, OwnedSeedDto[] Seeds, Guid StoreInstance);
-public sealed record AuthoringReviewBody(string ObservedReadonlyRelease, string ObservedCliBuild);
-public sealed record AuthoringConfirmBody(string Digest, string Confirmation, bool CompleteInventory, bool OldProcessesQuiesced);
-public sealed record AuthoringReviewDto(string Digest, string Confirmation, string NativeBuild);
 public sealed record SetupEnrollmentBody(string Alias, string? Tenant = null, long Epoch = 0);
 public sealed record SetupBindingBody(string Organization, string Project, string IdentityAlias, long Epoch = 0);
 public sealed record SetupAdoBody(string WorkspaceRoot, string Organization, string Project, string BindingId,
@@ -322,35 +302,15 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(NormalSeedViewDto))]
 [JsonSerializable(typeof(OwnedSeedDto[]))]
 [JsonSerializable(typeof(SeedTypeDto[]))]
-[JsonSerializable(typeof(AuthoringReviewBody))]
-[JsonSerializable(typeof(AuthoringConfirmBody))]
-[JsonSerializable(typeof(AuthoringReviewDto))]
-[JsonSerializable(typeof(PairBody))]
 [JsonSerializable(typeof(PairResult))]
 [JsonSerializable(typeof(CanvasRegistration))]
 [JsonSerializable(typeof(Ack))]
 [JsonSerializable(typeof(Failure))]
 [JsonSerializable(typeof(ServiceStatus))]
-[JsonSerializable(typeof(SourceBody))]
-[JsonSerializable(typeof(PrepareBody))]
-[JsonSerializable(typeof(ConfirmBody))]
 [JsonSerializable(typeof(LayoutBody))]
 [JsonSerializable(typeof(ViewBody))]
 [JsonSerializable(typeof(ViewPreferences))]
-[JsonSerializable(typeof(SessionInfo))]
-[JsonSerializable(typeof(CatalogSummary))]
-[JsonSerializable(typeof(NativeBenchSummary[]))]
-[JsonSerializable(typeof(CreatePreview))]
-[JsonSerializable(typeof(Created))]
 [JsonSerializable(typeof(BenchViewDto))]
-[JsonSerializable(typeof(CanvasApproval))]
-[JsonSerializable(typeof(DeviceRegistration))]
-[JsonSerializable(typeof(DeviceReceipt))]
-[JsonSerializable(typeof(DeviceChallengeRequest))]
-[JsonSerializable(typeof(DeviceChallenge))]
-[JsonSerializable(typeof(DeviceProof))]
-[JsonSerializable(typeof(EnrollmentAvailability))]
-[JsonSerializable(typeof(WindowsEnrollment))]
 [JsonSerializable(typeof(OwnerConnectBody))]
 [JsonSerializable(typeof(OwnerAgentBody))]
 [JsonSerializable(typeof(NativePanelSummary))]

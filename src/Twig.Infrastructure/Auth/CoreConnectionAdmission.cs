@@ -13,6 +13,8 @@ internal static class CoreConnectionAdmission
         => File.Exists(Path.Combine(twigDir, CoreWorkspaceFactory.FileName))
             ? ReadDocument(twigDir).DatabasePath : Path.Combine(twigDir, "core.db");
 
+    internal static void RequireCurrentDocument(TwigPaths paths) => _ = ReadDocument(paths.TwigDir);
+
     private static CoreWorkspaceDocument ReadDocument(string twigDir)
     {
         var marker = Path.Combine(twigDir, CoreWorkspaceFactory.FileName);

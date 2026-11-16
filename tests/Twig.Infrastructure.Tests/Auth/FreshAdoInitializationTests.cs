@@ -143,6 +143,33 @@ public sealed class FreshAdoInitializationTests : IDisposable
         _requests.Count.ShouldBe(2);
     }
 
+    [Theory]
+    [InlineData("missing-marker")]
+    [InlineData("unsupported-marker")]
+    [InlineData("missing-attachment")]
+    public async Task InvalidAttachmentLayoutPrecedesMissingCoreAdmission(string damage)
+    {
+        var (bindings, _, _) = await ArrangeAsync();
+        var initialized = await NativeWorkspaceSetup.InitializeAsync(Arguments(), () => bindings,
+            new NativeSetupEffects(), default, Transport());
+        initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
+        File.Delete(Path.Combine(TwigDir, CoreWorkspaceFactory.FileName));
+        var layout = Path.Combine(TwigDir, WorktreeLocalAttachmentStore.LayoutFileName);
+        File.Exists(layout).ShouldBeTrue();
+        if (damage == "missing-marker") File.Delete(layout);
+        else if (damage == "missing-attachment")
+            File.Delete(Path.Combine(TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName));
+        else await File.WriteAllTextAsync(layout, """{"schema":"unsupported","version":999}""");
+        var paths = TwigPaths.BuildPaths(TwigDir, Root);
+        var config = await TwigConfiguration.LoadSplitAsync(paths);
+
+        var refused = await Should.ThrowAsync<ConnectionBindingResolutionException>(() => bindings.ResolveAsync(config, paths));
+
+        refused.Message.ShouldContain("layout-marker-missing");
+        refused.Message.ShouldNotContain("activation-required");
+        _requests.Count.ShouldBe(2);
+    }
+
     private async Task<(ConnectionBindingService Bindings, IdentityBinding Actor, IdentityBinding Sibling)> ArrangeAsync()
     {
         Directory.CreateDirectory(Root);

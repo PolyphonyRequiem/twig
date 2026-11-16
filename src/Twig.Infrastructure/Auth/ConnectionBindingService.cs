@@ -397,10 +397,10 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(paths);
-        if (!File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)))
-            throw new InvalidOperationException("activation-required: initialize the current Core workspace before work access.");
         using var operation = ConnectionOperationGate.Acquire(paths.RepoRoot);
-        var origin = await ResolveAttachedSelectionAsync(configuration, paths, ct).ConfigureAwait(false);
+        var read = await ReadAttachedCheckoutAsync(configuration, paths, ct).ConfigureAwait(false);
+        CoreConnectionAdmission.RequireCurrentDocument(paths);
+        var origin = await ResolveSelectionAsync(configuration, paths, read.Attachment, read.Anchor, ct).ConfigureAwait(false);
         var generation = await CoreConnectionAdmission.ValidateAsync(paths, RegistryPath, origin, ct).ConfigureAwait(false);
         return origin with { StorageGeneration = generation };
     }
@@ -439,19 +439,28 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
     private async Task<ResolvedConnectionBinding> ResolveAttachedSelectionAsync(
         TwigConfiguration configuration, TwigPaths paths, CancellationToken ct)
     {
+        var read = await ReadAttachedCheckoutAsync(configuration, paths, ct).ConfigureAwait(false);
+        return await ResolveSelectionAsync(configuration, paths, read.Attachment, read.Anchor, ct).ConfigureAwait(false);
+    }
+
+    private async Task<(VersionedPrimaryScopeAttachment Attachment, WorktreeAnchor Anchor)> ReadAttachedCheckoutAsync(
+        TwigConfiguration configuration, TwigPaths paths, CancellationToken ct)
+    {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(paths);
-        var connectionRef = ConnectionRefResolver.Compute(configuration);
-
-        // Validate the local attachment before selecting an identity.
         using var attachmentStore = new WorktreeLocalAttachmentStore(paths, configuration, _clock, registryPath: RegistryPath);
         var read = await attachmentStore.ReadForBindingAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
             throw new ConnectionBindingResolutionException(read.Error.Message, $"Managed attachment validation refused: {read.Error.Message}");
-        // This anchor was freshly discovered and validated against this attachment.
-        var attachment = read.Value.Attachment;
-        var anchor = read.Value.Anchor;
+        return read.Value;
+    }
+
+    private async Task<ResolvedConnectionBinding> ResolveSelectionAsync(
+        TwigConfiguration configuration, TwigPaths paths, VersionedPrimaryScopeAttachment attachment,
+        WorktreeAnchor anchor, CancellationToken ct)
+    {
+        var connectionRef = ConnectionRefResolver.Compute(configuration);
         var fingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
         var worktreeRow = await _registry.FindWorktreeAsync(fingerprint, ct).ConfigureAwait(false);
         if ((!worktreeRow.IsSuccess && worktreeRow.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new ConnectionBindingResolutionException(worktreeRow.Error.Message, $"Registry refused worktree lookup: {worktreeRow.Error.Message}");

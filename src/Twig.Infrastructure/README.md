@@ -42,7 +42,8 @@ Fresh ADO setup holds the newly created initialization handle and an exclusive
 checkout operation lease. Its short-lived authority can acquire only the selected
 metadata credential, rechecking the endpoint, attachment, selector revision and
 actor before use and before recording. It is not a work-request or write guard.
-Runtime admission instead requires the current `core-workspace.json`, its exact
+Runtime admission first validates local attachment layout, then requires the
+current `core-workspace.json`, its exact
 registered root/store/connection, and the actual SQLite instance and workspace pin.
 A missing marker, a copied locator or an unregistered replacement store cannot
 grant admission; cache-mirror markers are not a second supported route.

@@ -95,7 +95,7 @@ environment repair, or green-looking partial summary substitutes for that proof.
 | Work items, status, scheduling | ADO board `PolyphonyRequiem/Twig` via the `twig` CLI (`docs/agents/issue-tracker.md`). GitHub is the public record only. |
 | Triage tags | `docs/agents/triage-labels.md` |
 | Domain language and decisions | `CONTEXT.md`, `docs/adr/`, `wayfinder/`, `wayfinder-1.0/`, `docs/specs/` (`docs/agents/domain.md`) |
-| Ruling ↔ work-item links | `tools/check-tracking.sh` (`--selftest` after editing it) |
+| Ruling ↔ work-item links | `tools/check-tracking.sh` (current workspace cache only; `--selftest` is fully offline) |
 | What CI and the smoke actually run | `.github/workflows/ci.yml`, `tools/run-tests.sh`, `README.md` |
 | Past test-host stalls and broad-suite gaps | `docs/incidents/broad-suite-and-test-host-stalls.md` |
 | False-green defects and mutation harnesses | `docs/incidents/false-green-class.md` |

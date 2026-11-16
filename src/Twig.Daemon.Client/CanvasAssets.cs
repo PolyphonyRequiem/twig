@@ -31,15 +31,11 @@ public static partial class CanvasAssets
         using var pointer = Document(selection, 4096);
         var record = pointer.RootElement;
         var schema = record.GetProperty("schema").GetInt32();
-        if (schema == 2)
-        {
-            Fields(record, "application", "schema", "version", "manifestHash", "hostManifestHash");
-            if (!HashPattern().IsMatch(record.GetProperty("hostManifestHash").GetString()!))
-                throw new InvalidDataException("Invalid presentation host digest.");
-        }
-        else Fields(record, "application", "schema", "version", "manifestHash");
-        if (record.GetProperty("application").GetString() != Application || schema is not (1 or 2))
+        Fields(record, "application", "schema", "version", "manifestHash", "hostManifestHash");
+        if (record.GetProperty("application").GetString() != Application || schema != 2)
             throw new InvalidDataException("Foreign canvas selection.");
+        if (!HashPattern().IsMatch(record.GetProperty("hostManifestHash").GetString()!))
+            throw new InvalidDataException("Invalid presentation host digest.");
         var version = record.GetProperty("version").GetString()!;
         var manifestHash = record.GetProperty("manifestHash").GetString()!;
         if (!VersionPattern().IsMatch(version) || !HashPattern().IsMatch(manifestHash))

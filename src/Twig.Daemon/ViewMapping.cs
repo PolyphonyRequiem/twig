@@ -10,19 +10,14 @@ namespace Bench.Server;
 
 internal static class ViewMapping
 {
-    internal static CatalogSummary Catalog(CatalogSnapshot value) => new(value.Id, value.Revision,
-        value.Sources.Select(s => new SourceSummary(s.Id, s.Label, s.AllowOffline, s.AdmittedOnlineAt)).ToArray(),
-        value.Benches.Select(b => new BenchSummary(b.Id, b.Name, b.Revision)).ToArray());
-    internal static BenchViewDto View(BenchView value, CatalogSnapshot catalog)
-        => ViewLabeled(value, catalog.Sources.ToDictionary(source => source.Id, source => source.Label));
-    internal static BenchViewDto ViewLabeled(BenchView value, IReadOnlyDictionary<Guid, string> labels)
+    internal static NativeBenchViewDto ViewLabeled(BenchView value, IReadOnlyDictionary<Guid, string> labels)
     {
         var visible = value.Sources.SelectMany(source => source.Items).Select(item => item.Identity).ToHashSet();
         var byKey = visible.GroupBy(item => item.Key).ToDictionary(group => group.Key, group => group.Take(2).ToArray());
         var connections = value.Sources.Select(source => source.Observation?.Binding.Connection ?? source.RequiredConnection)
             .OfType<Connection>().Distinct().ToArray();
         QualifiedItem Resolve(QualifiedItem endpoint) => Endpoint(endpoint, visible, byKey, connections);
-        return new(value.CatalogId, value.CatalogRevision,
+        return new(value.StoreId, value.Revision,
         value.Definition.Id, value.Definition.Name, value.Sources.Select(source =>
         {
             var label = labels.GetValueOrDefault(source.SourceId) ?? "Unavailable source";

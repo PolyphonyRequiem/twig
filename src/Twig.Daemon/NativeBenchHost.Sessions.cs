@@ -1,7 +1,7 @@
 using Bench.Domain;
 using Bench.Application;
 using Bench.Infrastructure;
-using static Bench.Server.BenchHost;
+using static Bench.Server.NativeTransport;
 
 namespace Bench.Server;
 
@@ -85,9 +85,9 @@ public static partial class NativeBenchHost
         {
             var captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations, AvailableConnections(session)));
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
-            if (mapped.CatalogId != shared.InstanceId || mapped.CatalogRevision != shared.Revision)
+            if (mapped.StoreId != shared.InstanceId || mapped.Revision != shared.Revision)
                 throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed during initial loading.");
-            view = new(mapped.CatalogId, mapped.CatalogRevision, mapped.Id, mapped.Name,
+            view = new(mapped.StoreId, mapped.Revision, mapped.Id, mapped.Name,
                 mapped.Sources.Select(source => presentSource(source) with {
                     NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId) }).ToArray())
                 { Plan = PlanStatus(session, captured.Plan) };
@@ -154,7 +154,7 @@ public static partial class NativeBenchHost
                         {
                             var result = await panel.OpenAsync(reference.Root, timeout.Token, reference.Binding, observations);
                             if (!result.IsSuccess) state = new(reference.Root, "unavailable", result.Error.Code.ToString());
-                            else if (CatalogFingerprint.Binding(result.Value.Source.Binding) != reference.Binding)
+                            else if (SourceFingerprint.Binding(result.Value.Source.Binding) != reference.Binding)
                                 state = new(reference.Root, "changed", "SourceChanged");
                             else { context = result.Value; state = new(reference.Root, "restored", null); }
                         }

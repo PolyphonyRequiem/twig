@@ -5,7 +5,7 @@ using Twig.Core;
 namespace Bench.Application;
 
 public sealed record QualifiedItem(Guid SourceId, ItemKey Key);
-public sealed record BenchView(BenchDefinition Definition, Guid CatalogId, long CatalogRevision, ImmutableArray<SourceView> Sources);
+public sealed record BenchView(Twig.Core.Bench Definition, Guid StoreId, long Revision, ImmutableArray<SourceView> Sources);
 public sealed record ObservationStamp(SourceBinding Binding, long CacheVersion, DateTimeOffset CacheReadAt,
     string SchemaFingerprint, DateTimeOffset SchemaObservedAt, ObservationMode Mode);
 public sealed record ItemView(QualifiedItem Identity, string Type, bool BenchMember, bool HasDraft,

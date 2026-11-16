@@ -28,23 +28,16 @@ public interface INativeSourceGateway
         => Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.Unsupported, "Native identity profiles are not implemented by this gateway."));
     Task<Result<NativeSourceObservation>> SelectBenchAsync(string root, NativeSourceStamp expected, Guid? previous, Guid? next, CancellationToken ct)
         => NativeSourceReader.SelectBenchAsync(root, expected, previous, next, ct);
-    Task<Result<NativeSourceObservation>> RefreshPlanningAsync(string root, NativeSourceStamp expected, CancellationToken ct)
-        => NativeSourceReader.RefreshPlanningAsync(root, expected, ct);
     Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(string root, NativeSourceStamp expected, CancellationToken ct)
         => NativeSourceReader.DiscoverPlanningTeamsAsync(root, expected, ct);
     Task<Result<NativeSourceObservation>> ReadPlanningAsync(string root, NativeSourceStamp expected, string? selectedTeam, CancellationToken ct)
         => NativeSourceReader.ReadPlanningAsync(root, expected, selectedTeam, ct);
     Task<Result<NativeSourceObservation>> RefreshPlanningAsync(string root, NativeSourceStamp expected, string? selectedTeam, CancellationToken ct)
         => NativeSourceReader.RefreshPlanningAsync(root, expected, selectedTeam, ct);
-    Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(string root, NativeSourceStamp expected, CancellationToken ct)
-        => NativeSourceReader.DiscoverPlanningSourcesAsync(root, expected, ct);
     Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(string root, NativeSourceStamp expected, string? selectedTeam, CancellationToken ct)
         => NativeSourceReader.DiscoverPlanningSourcesAsync(root, expected, selectedTeam, ct);
     Task<Result<NativeSourceObservation>> ReadPlanningSourcesAsync(string root, NativeSourceStamp expected, string? selectedTeam, CancellationToken ct)
         => NativeSourceReader.ReadPlanningSourcesAsync(root, expected, selectedTeam, ct);
-    Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string root, NativeSourceStamp expected,
-        PlanningSourceKind kind, string id, string? team, CancellationToken ct)
-        => NativeSourceReader.BrowsePlanningAsync(root, expected, kind, id, team, ct);
     Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string root, NativeSourceStamp expected,
         string? selectedTeam, PlanningSourceKind kind, string id, CancellationToken ct)
         => NativeSourceReader.BrowsePlanningAsync(root, expected, selectedTeam, kind, id, ct);
@@ -62,7 +55,7 @@ public sealed class NativeSourceGateway : INativeSourceGateway
         => NativeSourceReader.ReadIdentityProfilesAsync(root, expected, identities, ct);
 }
 
-public sealed class NativeSourceAdapter(string directory, INativeSourceGateway gateway, CatalogChanges changes) : ISourceReader
+public sealed class NativeSourceAdapter(string directory, INativeSourceGateway gateway, CatalogChanges changes)
 {
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> nativeRoots = new(
@@ -104,7 +97,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
     }
     public async Task<Result<T>> EditorOperationAsync<T>(RegisteredSource source, Func<CancellationToken, Task<T>> operation, CancellationToken ct)
     {
-        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
+        var gate = gates.GetOrAdd(SourceFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -131,19 +124,12 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant());
     }
 
-    public Task<Result<SourceObservation>> RefreshPlanningAsync(RegisteredSource source, NativeSourceStamp expected, CancellationToken ct)
-        => ObserveExplicitAsync(source, (_, token) => gateway.RefreshPlanningAsync(source.NativeLocator, expected, token), ct);
     public Task<Result<SourceObservation>> RefreshPlanningAsync(RegisteredSource source, NativeSourceStamp expected, string? team, CancellationToken ct)
         => ObserveExplicitAsync(source, (_, token) => gateway.RefreshPlanningAsync(source.NativeLocator, expected, team, token), ct);
 
-    public Task<Result<SourceObservation>> DiscoverPlanningSourcesAsync(RegisteredSource source, NativeSourceStamp expected, CancellationToken ct)
-        => ObserveExplicitAsync(source, (_, token) => gateway.DiscoverPlanningSourcesAsync(source.NativeLocator, expected, token), ct, publish: false);
     public Task<Result<SourceObservation>> DiscoverPlanningSourcesAsync(RegisteredSource source, NativeSourceStamp expected, string? team, CancellationToken ct)
         => ObserveExplicitAsync(source, (_, token) => gateway.DiscoverPlanningSourcesAsync(source.NativeLocator, expected, team, token), ct, publish: false);
 
-    public Task<Result<SourceObservation>> BrowsePlanningAsync(RegisteredSource source, NativeSourceStamp expected,
-        PlanningSourceKind kind, string id, string? team, CancellationToken ct)
-        => ObserveExplicitAsync(source, (_, token) => gateway.BrowsePlanningAsync(source.NativeLocator, expected, kind, id, team, token), ct);
     public Task<Result<SourceObservation>> BrowsePlanningAsync(RegisteredSource source, NativeSourceStamp expected,
         string? team, PlanningSourceKind kind, string id, CancellationToken ct)
         => ObserveExplicitAsync(source, (schema, token) => gateway.BrowsePlanningAsync(source.NativeLocator, expected, team, kind, id, schema, token), ct);
@@ -154,7 +140,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
     public async Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(RegisteredSource source,
         NativeSourceStamp expected, CancellationToken ct)
     {
-        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
+        var gate = gates.GetOrAdd(SourceFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         NativeCacheCheck? check = null;
         try
@@ -175,7 +161,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
     private async Task<Result<SourceObservation>> ObserveExplicitAsync(RegisteredSource source,
         Func<ProcessSchema, CancellationToken, Task<Result<NativeSourceObservation>>> acquire, CancellationToken ct, bool publish = true)
     {
-        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
+        var gate = gates.GetOrAdd(SourceFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         NativeCacheCheck? check = null;
         try
@@ -224,7 +210,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
     internal async Task<Result<SourceObservation>> AdmitAsync(string nativeLocator, NativeSourceObservation local, CancellationToken ct)
     {
         var binding = Binding(local.Source);
-        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(binding), _ => new(1, 1));
+        var gate = gates.GetOrAdd(SourceFingerprint.Binding(binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         NativeCacheCheck? check = null;
         try
@@ -275,7 +261,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         string expectedBinding, CancellationToken ct, bool reuseObservation = false)
     {
         var binding = Binding(local.Source);
-        if (CatalogFingerprint.Binding(binding) != expectedBinding)
+        if (SourceFingerprint.Binding(binding) != expectedBinding)
             return Result<SourceObservation>.Fail(ErrorCode.Conflict, "The retained admission belongs to another exact source.");
         var cached = await Load(binding, ct).ConfigureAwait(false);
         if (!cached.IsSuccess) return Result<SourceObservation>.Fail(cached.Error);
@@ -294,7 +280,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
     public async Task<Result<ImmutableArray<IdentityProfile>>> ReadIdentityProfilesAsync(RegisteredSource source,
         ImmutableArray<string> identities, CancellationToken ct)
     {
-        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
+        var gate = gates.GetOrAdd(SourceFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         NativeCacheCheck? check = null;
         try
@@ -321,7 +307,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
 
     internal async Task<Result<SourceObservation>> CheckInitialAsync(NativePanelContext context, SourceObservation observation, CancellationToken ct)
     {
-        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(context.Source.Binding), _ => new(1, 1));
+        var gate = gates.GetOrAdd(SourceFingerprint.Binding(context.Source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -354,7 +340,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         Func<NativeSourceStamp, CancellationToken, Task<Result<NativeSourceObservation>>> acquire, bool offline, CancellationToken ct,
         bool gateHeld = false)
     {
-        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
+        var gate = gates.GetOrAdd(SourceFingerprint.Binding(source.Binding), _ => new(1, 1));
         if (!gateHeld) await gate.WaitAsync(ct).ConfigureAwait(false);
         NativeCacheCheck? check = null;
         try
@@ -395,7 +381,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
 
     public async Task<Result<SourceObservation>> RecheckAsync(RegisteredSource source, CancellationToken ct)
     {
-        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
+        var gate = gates.GetOrAdd(SourceFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         NativeCacheCheck? check = null;
         try
@@ -445,8 +431,8 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         check.InvalidateIfUnfinished(changes);
         return Result<SourceObservation>.Fail(error);
     }
-    private string PathFor(SourceBinding binding) => Path.Combine(directory, CatalogFingerprint.Binding(binding) + ".json");
-    private string CheckPath(SourceBinding binding) => Path.Combine(directory, CatalogFingerprint.Binding(binding) + ".check");
+    private string PathFor(SourceBinding binding) => Path.Combine(directory, SourceFingerprint.Binding(binding) + ".json");
+    private string CheckPath(SourceBinding binding) => Path.Combine(directory, SourceFingerprint.Binding(binding) + ".check");
     private static bool StorageFailure(Exception error) => error is IOException or InvalidDataException
         or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException or FormatException or OverflowException;
     private async Task<Result<NativeCacheDocument>> Load(SourceBinding binding, CancellationToken ct)

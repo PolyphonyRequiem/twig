@@ -1,6 +1,6 @@
 using Bench.Infrastructure;
 using Twig.Core;
-using static Bench.Server.BenchHost;
+using static Bench.Server.NativeTransport;
 using NativeBench = Twig.Core.Bench;
 
 namespace Bench.Server;

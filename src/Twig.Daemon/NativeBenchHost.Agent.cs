@@ -8,7 +8,7 @@ using Bench.Infrastructure;
 using Twig.Core;
 using Twig.Infrastructure.Services;
 using Twig.Store.Sqlite;
-using static Bench.Server.BenchHost;
+using static Bench.Server.NativeTransport;
 using NativeBench = Twig.Core.Bench;
 
 namespace Bench.Server;
@@ -160,7 +160,7 @@ public static partial class NativeBenchHost
                     view?.Limitations.ToArray() ?? []);
             }).ToArray();
             var result = new NativeAgentSnapshot(Guid.NewGuid(), DateTimeOffset.UtcNow.AddMinutes(5), observed,
-                definition, new(mapped.CatalogId, mapped.CatalogRevision, mapped.Id, mapped.Name, mapped.Sources)
+                definition, new(mapped.StoreId, mapped.Revision, mapped.Id, mapped.Name, mapped.Sources)
                     { Plan = PlanStatus(session, observed.Plan) }, connections);
             _ = await Current(session, grant, ct);
             session.Agent.Snapshot = result;
@@ -340,6 +340,7 @@ public static partial class NativeBenchHost
                 var captured = await Capture(session, grant, lifetime.Token);
                 var selected = captured.View.Sources.SingleOrDefault(source => source.SourceId == session.Agent.SelectedSource)
                     ?.Items.SingleOrDefault(item => item.Id == session.Agent.SelectedItem && item.BenchMember && !item.IsExcluded);
+                // Runtime and filesystem metadata require explicit disclosure, independent of item read permission.
                 var contextMetadata = http.Request.Headers["X-Twig-Bench-Context"] == "1";
                 await Write(http, new AgentContextDto(captured.Id, captured.Expires, grant.Bench, captured.Definition.Name,
                     captured.Definition.Revision, captured.View.Revision, selected is null ? null : session.Agent.SelectedSource,
@@ -432,7 +433,7 @@ public static partial class NativeBenchHost
                 throw new HttpFailure(403, "OwnerAuthenticationRequired", "Authenticate the local MCP owner first.");
             _ = sessions.ReadState(session);
             if (http.Request.Headers["MCP-Protocol-Version"] is { Count: > 0 } protocol
-                && protocol.ToString() is not ("2025-03-26" or "2025-06-18" or McpReadServer.ProtocolVersion))
+                && !McpReadServer.SupportsProtocol(protocol.ToString()))
                 throw new HttpFailure(400, "ProtocolUnsupported", "Unsupported MCP protocol version.");
             var body = await Body<McpRequestBody>(http, 16384);
             var request = JsonSerializer.SerializeToNode(body, TransportJson.Default.McpRequestBody)!.AsObject();
@@ -442,9 +443,7 @@ public static partial class NativeBenchHost
                 try
                 {
                     if (options.CanvasInstallRoot is { } installation) return CanvasAssets.Read(installation, asset).Bytes;
-                    var path = Path.Combine(options.WebRoot ?? Path.Combine(AppContext.BaseDirectory, "wwwroot"), asset);
-                    if (new FileInfo(path).Length > 262144) throw new InvalidDataException("MCP App exceeds its bound.");
-                    return File.ReadAllBytes(path);
+                    throw new FileNotFoundException("No verified canvas installation was selected.");
                 }
                 catch (Exception failure) when (failure is FileNotFoundException or DirectoryNotFoundException)
                 {

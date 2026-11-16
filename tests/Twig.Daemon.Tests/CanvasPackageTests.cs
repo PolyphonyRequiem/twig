@@ -66,6 +66,8 @@ public sealed class CanvasPackageTests : IDisposable
     [InlineData("traversal")]
     [InlineData("license")]
     [InlineData("hash")]
+    [InlineData("retired-selection")]
+    [InlineData("host-digest")]
     public void Package_rejects_incompatible_incomplete_or_unlisted_content(string fault)
     {
         Select(root, new string('c', 40), "content", fault);
@@ -110,9 +112,11 @@ public sealed class CanvasPackageTests : IDisposable
         using var output = new Utf8JsonWriter(pointer);
         output.WriteStartObject();
         output.WriteString("application", CanvasAssets.Application);
-        output.WriteNumber("schema", 1);
+        output.WriteNumber("schema", fault == "retired-selection" ? 1 : 2);
         output.WriteString("version", version);
         output.WriteString("manifestHash", Hash(File.ReadAllBytes(manifest)));
+        if (fault != "retired-selection")
+            output.WriteString("hostManifestHash", fault == "host-digest" ? "invalid" : new string('A', 64));
         output.WriteEndObject();
     }
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));

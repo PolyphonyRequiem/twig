@@ -2,7 +2,7 @@ using System.Threading.Channels;
 
 namespace Bench.Application;
 
-// Advisory local invalidations only. Successful catalog commit remains the authority.
+// Advisory local invalidations only. Native stores and operation journals remain the authority.
 public sealed class CatalogChanges
 {
     public sealed record Change(long Revision, bool PresentationOnly = false, Guid? AgentViewId = null);

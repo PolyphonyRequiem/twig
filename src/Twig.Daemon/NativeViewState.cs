@@ -1,7 +1,4 @@
 using System.Text.Json.Serialization;
-using System.Runtime.CompilerServices;
-
-[assembly: InternalsVisibleTo("Bench.Sessions.Tests")]
 
 namespace Bench.Server;
 

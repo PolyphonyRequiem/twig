@@ -62,7 +62,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                 .Select(value => value.Draft!).ToImmutableArray();
             var receipts = owned.Value.Where(value => !value.Ready || value.Publication is not null || value.Draft is null)
                 .Select(value => value.Item).ToImmutableArray();
-            var view = SourceProjection.CreateOwnedSeeds(new(bench.Id, bench.Name, bench.Revision, [selection]), selection,
+            var view = SourceProjection.CreateOwnedSeeds(bench, selection,
                 capture.Observation, editable, receipts, token);
             return Result<NativePanelSeeds>.Ok(new(capture,
                 view.IsSuccess ? view.Value : SourceView.Failed(context.Source.Id, view.Error), owned.Value));
@@ -226,7 +226,6 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         var contexts = chosenContexts.Where(context => context.Stamp.Connection != anchor?.Stamp.Connection)
             .GroupBy(context => context.Stamp.Connection).ToDictionary(group => group.Key, group => group.Last());
         if (anchor is not null) contexts[anchor.Stamp.Connection] = anchor;
-        var selections = ImmutableArray.CreateBuilder<SourceSelection>();
         var views = ImmutableArray.CreateBuilder<SourceView>();
         var labels = ImmutableDictionary.CreateBuilder<Guid, string>();
         var normalDraftCounts = ImmutableDictionary.CreateBuilder<Guid, int>();
@@ -236,18 +235,17 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         {
             labels[acquired.View.SourceId] = acquired.Label;
             views.Add(acquired.View);
-            if (acquired.Selection is { } selection) selections.Add(selection);
             if (acquired.Drafts != 0) normalDraftCounts[acquired.View.SourceId] = acquired.Drafts;
         }
 
-        async Task<(SourceSelection? Selection, SourceView View, string Label, int Drafts)> ReadConnection(Connection connection)
+        async Task<(SourceView View, string Label, int Drafts)> ReadConnection(Connection connection)
         {
             contexts.TryGetValue(connection, out var context);
             var sourceId = context?.Source.Id ?? new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(
                 string.Join("\n", connection.Provider.Value, connection.ResourceScope, connection.Destination, connection.IdentityRef))).AsSpan(0, 16));
             var label = context?.Source.Label ?? NativeConnectionLabels.Unavailable(connection).Name;
-            (SourceSelection?, SourceView, string, int) Failed(Error error)
-                => (null, SourceView.Failed(sourceId, error) with { RequiredConnection = connection }, label, 0);
+            (SourceView, string, int) Failed(Error error)
+                => (SourceView.Failed(sourceId, error) with { RequiredConnection = connection }, label, 0);
             if (available is not null && !available.Contains(connection))
                 return Failed(new(ErrorCode.PolicyViolation,
                     "This saved Bench dependency is not available in the selected repository. Its rules and drafts were retained; assign the connection in this user's repository bindings to use it here."));
@@ -284,19 +282,18 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                         .Select(draft => new Selector(SelectorKind.Pin, draft.Key, connection: connection)));
                 }
                 var selection = new SourceSelection(context.Source.Id, context.Source.Binding, intent);
-                var definition = new BenchDefinition(bench.Id, bench.Name, bench.Revision, [selection]);
-                var projected = SourceProjection.Create(definition, selection, observation, timeout.Token);
+                var projected = SourceProjection.Create(bench, selection, observation, timeout.Token);
                 if (projected.IsSuccess)
-                    return (selection, normalDebt == 0 ? projected.Value : projected.Value with
+                    return (normalDebt == 0 ? projected.Value : projected.Value with
                     {
                         Limitations = projected.Value.Limitations.Add(
                             $"{normalDebt} normal-mode draft(s) remain separate from this Plan. They are retained in protected draft browse and cannot be published by Plan Apply.")
                     }, label, normalDebt);
                 // Membership failure must not discard this admitted context's protected draft evidence.
                 var empty = new SourceSelection(context.Source.Id, context.Source.Binding, []);
-                var protectedView = SourceProjection.Create(new(bench.Id, bench.Name, bench.Revision, [empty]), empty,
+                var protectedView = SourceProjection.Create(bench, empty,
                     observation with { WorkspaceExclusions = [] }, timeout.Token);
-                return (selection, protectedView.IsSuccess ? protectedView.Value with
+                return (protectedView.IsSuccess ? protectedView.Value with
                 {
                     Error = projected.Error,
                     Limitations = protectedView.Value.Limitations.Add("Bench membership is unavailable. These admitted local drafts remain outside the view; exclusion status is not inferred.")
@@ -319,8 +316,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         if (currentPlan.Value.PlanId != plan.Value.PlanId || currentPlan.Value.Revision != plan.Value.Revision)
             return Result<NativePanelView>.Fail(new Error(ErrorCode.Conflict, "The Plan mode or scope changed during acquisition.")
                 { Evidence = ["bench-definition-changed"] });
-        var projectedDefinition = new BenchDefinition(bench.Id, bench.Name, bench.Revision, selections);
-        var result = new BenchView(projectedDefinition, shared.Value.InstanceId, current.Value.Revision,
+        var result = new BenchView(bench, shared.Value.InstanceId, current.Value.Revision,
             views.Select(view => view with { RequiredConnection = view.RequiredConnection
                 ?? contexts.Values.SingleOrDefault(context => context.Source.Id == view.SourceId)?.Stamp.Connection }).ToImmutableArray());
         return Result<NativePanelView>.Ok(new(result, labels.ToImmutable(), plan.Value) { NormalDraftCounts = normalDraftCounts.ToImmutable() });
@@ -372,12 +368,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         => sources.NativeAsync(context.Root, token => gateway.ReadAsync(context.Root, context.Stamp, false, token), ct);
     public Task<Result<SourceObservation>> RecheckAsync(NativePanelContext context, CancellationToken ct)
         => sources.RecheckAsync(context.Source, ct);
-    public Task<Result<SourceObservation>> RefreshPlanningAsync(NativePanelContext context, CancellationToken ct)
-        => sources.RefreshPlanningAsync(context.Source, context.Stamp, ct);
     public Task<Result<SourceObservation>> RefreshPlanningAsync(NativePanelContext context, string? team, CancellationToken ct)
         => sources.RefreshPlanningAsync(context.Source, context.Stamp, team, ct);
-    public Task<Result<SourceObservation>> DiscoverPlanningSourcesAsync(NativePanelContext context, CancellationToken ct)
-        => sources.DiscoverPlanningSourcesAsync(context.Source, context.Stamp, ct);
     public Task<Result<SourceObservation>> DiscoverPlanningSourcesAsync(NativePanelContext context, string? team, CancellationToken ct)
         => sources.DiscoverPlanningSourcesAsync(context.Source, context.Stamp, team, ct);
     public Task<Result<SourceObservation>> ReadPlanningSourcesAsync(NativePanelContext context, string? team, CancellationToken ct)
@@ -397,7 +389,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
     {
         var source = capture.Context.Source;
         var selection = new SourceSelection(source.Id, source.Binding, []);
-        var definition = new BenchDefinition(source.Id, "Protected drafts", 1, [selection]);
+        var definition = new NativeBench(source.Id, "Protected drafts", []);
         var projected = SourceProjection.Create(definition, selection, capture.Observation);
         return projected.IsSuccess ? Result<BenchView>.Ok(new(definition, capture.Definitions.InstanceId,
             capture.Definitions.Revision, [projected.Value])) : Result<BenchView>.Fail(projected.Error);

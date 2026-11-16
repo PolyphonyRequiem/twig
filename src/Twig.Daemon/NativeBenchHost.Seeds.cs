@@ -2,7 +2,7 @@ using Bench.Application;
 using Bench.Infrastructure;
 using Twig.Core;
 using Twig.Infrastructure.Services;
-using static Bench.Server.BenchHost;
+using static Bench.Server.NativeTransport;
 
 namespace Bench.Server;
 
@@ -47,9 +47,7 @@ public static partial class NativeBenchHost
             {
                 var seeds = SeedRequired(await panel.ReadSeedsAsync(source, bench, ct));
                 foreach (var seed in seeds.Seeds) SeedDenial(seed.Publication?.Error);
-                var definition = new Bench.Domain.BenchDefinition(bench,
-                    seeds.Capture.Definitions.Benches.Single(value => value.Id == bench).Name,
-                    seeds.Capture.Definitions.Benches.Single(value => value.Id == bench).Revision, []);
+                var definition = seeds.Capture.Definitions.Benches.Single(value => value.Id == bench);
                 var mapped = ViewMapping.ViewLabeled(new(definition, seeds.Capture.Definitions.InstanceId,
                     seeds.Capture.Definitions.Revision, [seeds.View]), new Dictionary<Guid, string> { [source.Source.Id] = source.Source.Label })
                     .Sources.Single();

@@ -3,7 +3,7 @@ using Bench.Application;
 using Bench.Infrastructure;
 using Twig.Core;
 using Twig.Infrastructure.Services;
-using static Bench.Server.BenchHost;
+using static Bench.Server.NativeTransport;
 
 namespace Bench.Server;
 

@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text;
 using Twig.Core;
 
 namespace Bench.Domain;
@@ -62,7 +61,7 @@ public sealed record SourceSelection
             while (pending.TryPop(out var entry))
             {
                 if (--budget < 0 || entry.Depth > 16)
-                    throw new ArgumentException("The selected query exceeds the bounded catalog representation.");
+                    throw new ArgumentException("The selected query exceeds the bounded source projection.");
                 foreach (var child in entry.Query.Children) pending.Push((child, entry.Depth + 1));
             }
         }
@@ -71,47 +70,6 @@ public sealed record SourceSelection
     public SourceBinding Binding { get; }
     public ImmutableArray<Selector> Selectors { get; }
 }
-
-public sealed record BenchDefinition
-{
-    public BenchDefinition(Guid id, string name, long revision, IEnumerable<SourceSelection> sources)
-    {
-        Id = Rules.Id(id);
-        Name = Rules.Name(name);
-        if (revision < 1) throw new ArgumentOutOfRangeException(nameof(revision));
-        Revision = revision;
-        ArgumentNullException.ThrowIfNull(sources);
-        var captured = sources.ToImmutableArray();
-        if (captured.Length > 64 || captured.Any(s => s is null)
-            || captured.Select(s => s.SourceId).Distinct().Count() != captured.Length)
-            throw new ArgumentException("A Bench supports at most 64 distinct registered sources.");
-        Sources = captured.OrderBy(s => s.SourceId).ToImmutableArray();
-    }
-    public Guid Id { get; }
-    public string Name { get; }
-    public string CanonicalName => Rules.CanonicalName(Name);
-    public long Revision { get; }
-    public ImmutableArray<SourceSelection> Sources { get; }
-}
-
-public sealed record CreateBenchCommand
-{
-    public CreateBenchCommand(Guid id, string name, Guid expectedCatalogId, long expectedCatalogRevision, IEnumerable<SourceSelection> sources)
-    {
-        if (expectedCatalogRevision < 0) throw new ArgumentOutOfRangeException(nameof(expectedCatalogRevision));
-        ExpectedCatalogId = Rules.Id(expectedCatalogId);
-        Definition = new(id, name, 1, sources);
-        ExpectedCatalogRevision = expectedCatalogRevision;
-    }
-    public BenchDefinition Definition { get; }
-    public Guid ExpectedCatalogId { get; }
-    public long ExpectedCatalogRevision { get; }
-    public string Fingerprint => CatalogFingerprint.Creation(ExpectedCatalogId, Definition);
-}
-
-public sealed record CreationReceipt(Guid CatalogId, Guid CommandId, string Fingerprint, BenchDefinition Definition, long CatalogRevision);
-public sealed record CatalogSnapshot(Guid Id, long Revision, ImmutableArray<RegisteredSource> Sources,
-    ImmutableArray<BenchDefinition> Benches);
 
 public static class Rules
 {
@@ -122,7 +80,4 @@ public static class Rules
             throw new ArgumentException("Use trimmed nonempty text within the documented length bound.");
         return value;
     }
-    public static string Name(string value) => Text(value, 120).Normalize(NormalizationForm.FormC);
-    // This exact comparison, not SQLite NOCASE or a per-transport approximation, defines uniqueness.
-    public static string CanonicalName(string value) => Name(value).ToUpperInvariant();
 }

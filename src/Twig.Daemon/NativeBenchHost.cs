@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Authentication.Negotiate;
 using Twig.Core;
 using Twig.Infrastructure.Services;
 using Twig.Store.Sqlite;
-using static Bench.Server.BenchHost;
+using static Bench.Server.NativeTransport;
 using NativeBench = Twig.Core.Bench;
 
 namespace Bench.Server;
@@ -325,7 +325,7 @@ public static partial class NativeBenchHost
                 throw new HttpFailure(409, "BenchViewChanged", "The Bench changed while loading. Read its current definition again.");
             var captured = ConnectionObservation(observed, app.Logger);
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
-            await Write(context, new NativeBenchViewDto(mapped.CatalogId, mapped.CatalogRevision, mapped.Id, mapped.Name,
+            await Write(context, new NativeBenchViewDto(mapped.StoreId, mapped.Revision, mapped.Id, mapped.Name,
                 mapped.Sources.Select(source => PresentSource(source) with {
                     NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId) }).ToArray()) {
                     Plan = PlanStatus(session, captured.Plan) });
@@ -515,7 +515,6 @@ public static partial class NativeBenchHost
         MapAgent(app, panel, sessions, updates, (context, id) => Authorize(context, id, true), options);
         MapSetup(app, connectionSetup, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapRepositories(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
-        var root = options.WebRoot ?? Path.Combine(AppContext.BaseDirectory, "wwwroot");
         foreach (var route in new[] { "/", "/canvas", "/app.js", "/device.js", "/style.css", "/view-model.js", "/item-detail.js", "/assignee-profiles.js", "/item-editor.js", "/editor-drafts.js", "/connection-setup.js",
             "/vendor/purify.es.mjs", "/vendor/marked.esm.js", "/icons.css", "/fonts/fluent-regular-v1.1.293.woff2" })
             app.MapMethods(route, ["GET", "HEAD"], async (HttpContext context) =>
@@ -550,15 +549,7 @@ public static partial class NativeBenchHost
                     }
                     return;
                 }
-                var file = Path.Combine(root, name);
-                if (!File.Exists(file))
-                {
-                    await Write(context, new Failure("CanvasNotInstalled", "Install a compatible Twig canvas separately, or use the daemon API."), 404);
-                    return;
-                }
-                context.Response.ContentType = ContentType();
-                if (HttpMethods.IsHead(context.Request.Method)) context.Response.ContentLength = new FileInfo(file).Length;
-                else await context.Response.SendFileAsync(file, context.RequestAborted);
+                await Write(context, new Failure("CanvasNotInstalled", "Install a compatible Twig canvas separately, or use the daemon API."), 404);
                 string ContentType() => route.EndsWith(".js", StringComparison.Ordinal) || route.EndsWith(".mjs", StringComparison.Ordinal)
                     ? "text/javascript" : route.EndsWith(".css", StringComparison.Ordinal) ? "text/css"
                     : route.EndsWith(".woff2", StringComparison.Ordinal) ? "font/woff2" : "text/html";
@@ -686,7 +677,8 @@ public static partial class NativeBenchHost
         => new(bench.Id, bench.Name, bench.Revision, BenchCodec.SerializeSelectors(bench.Selectors));
     private static NativeBenchViewDto Mapped(BenchView view, NativePanelCapture capture)
     {
-        var projected = ViewMapping.View(view, new(capture.Definitions.InstanceId, capture.Definitions.Revision, [capture.Context.Source], [view.Definition]));
+        var projected = ViewMapping.ViewLabeled(view,
+            new Dictionary<Guid, string> { [capture.Context.Source.Id] = capture.Context.Source.Label });
         return new(capture.Definitions.InstanceId, capture.Definitions.Revision, projected.Id, projected.Name, projected.Sources);
     }
     private static NativePlanningDto Planning(SourceObservation observation)
@@ -699,7 +691,7 @@ public static partial class NativeBenchHost
         var observation = capture.Observation;
         var selection = new SourceSelection(source.Id, source.Binding,
             [new(SelectorKind.Query, query: new(QueryKind.All), connection: source.Binding.Connection)]);
-        var definition = new BenchDefinition(Guid.NewGuid(), "Find items", 1, [selection]);
+        var definition = new NativeBench(Guid.NewGuid(), "Find items", selection.Selectors);
         var projected = Require(SourceProjection.Create(definition, selection, observation with { WorkspaceExclusions = [] }));
         var mapped = Mapped(new(definition, capture.Definitions.InstanceId, capture.Definitions.Revision, [projected]), capture).Sources.Single();
         ItemKey Resolve(ItemKey key) => observation.Snapshot.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;

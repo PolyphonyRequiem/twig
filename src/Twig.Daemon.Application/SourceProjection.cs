@@ -7,7 +7,7 @@ namespace Bench.Application;
 
 public static class SourceProjection
 {
-    public static Result<SourceView> CreateOwnedSeeds(BenchDefinition definition, SourceSelection selection,
+    public static Result<SourceView> CreateOwnedSeeds(Twig.Core.Bench definition, SourceSelection selection,
         SourceObservation observation, ImmutableArray<Draft> editable, ImmutableArray<ItemKey> receipts, CancellationToken ct)
     {
         if (editable.Any(draft => !draft.Key.IsLocal || draft.Baseline is not null
@@ -22,7 +22,7 @@ public static class SourceProjection
         return Create(definition, temporary, projected, ct);
     }
 
-    public static Result<SourceView> Create(BenchDefinition definition, SourceSelection selection, SourceObservation observation,
+    public static Result<SourceView> Create(Twig.Core.Bench definition, SourceSelection selection, SourceObservation observation,
         CancellationToken ct = default)
     {
         var store = observation.Snapshot;

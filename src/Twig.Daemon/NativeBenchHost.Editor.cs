@@ -1,11 +1,10 @@
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Reflection;
 using Bench.Application;
 using Bench.Infrastructure;
 using Twig.Core;
 using Twig.Infrastructure.Services;
-using static Bench.Server.BenchHost;
+using static Bench.Server.NativeTransport;
 
 namespace Bench.Server;
 
@@ -83,14 +82,9 @@ public static partial class NativeBenchHost
         app.MapPost("/api/v1/views/{id:guid}/authoring/review", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);
-            var body = await Body<AuthoringReviewBody>(http);
-            var build = typeof(NativeBenchHost).Assembly.GetName().Version!.ToString()
-                + ":" + typeof(NativeBenchHost).Assembly.GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
-                    .SingleOrDefault(value => value.Key == "SourceRevision")?.Value;
-            if (build.EndsWith(':')) throw new HttpFailure(503, "BuildIdentityRequired", "Use the qualified paired CLI/panel source builds before the one-time safety check.");
-            session.Editor.Upgrade = Require(await NativeAuthoringReview.ReviewAsync(Context(session).Root,
-                body.ObservedReadonlyRelease, body.ObservedCliBuild, build, http.RequestAborted));
-            await Write(http, new AuthoringReviewDto(session.Editor.Upgrade.Digest, session.Editor.Upgrade.Confirmation, NativeAuthoringReview.NativeBuild));
+            _ = await Body<EmptyBody>(http);
+            session.Editor.Upgrade = Require(await NativeAuthoringReview.ReviewAsync(Context(session).Root, http.RequestAborted));
+            await Write(http, new AuthoringReviewDto(session.Editor.Upgrade.Digest, session.Editor.Upgrade.Confirmation));
         });
         app.MapPost("/api/v1/views/{id:guid}/authoring/confirm", async (HttpContext http, Guid id) =>
         {

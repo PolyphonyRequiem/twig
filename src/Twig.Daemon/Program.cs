@@ -24,7 +24,6 @@ if (args is ["--check-certificate", var selectedCertificate])
 
 var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "DaemonData");
 var port = 0;
-var migrateLegacy = false;
 var ensureRunning = false;
 var mcp = false;
 string? certificateThumbprint = null;
@@ -37,7 +36,6 @@ for (var index = 0; index < args.Length; index++)
         case "--port" when ++index < args.Length && int.TryParse(args[index], out var value) && value is >= 0 and <= 65535: port = value; break;
         case "--https-certificate" when ++index < args.Length: certificateThumbprint = args[index]; break;
         case "--canvas-root" when ++index < args.Length: canvasRoot = args[index]; break;
-        case "--migrate-legacy": migrateLegacy = true; break;
         case "--ensure-running": ensureRunning = true; break;
         case "--mcp": mcp = true; break;
         default: throw new ArgumentException("Options: --data-dir <private absolute directory> --port <stable localhost port> --https-certificate <existing trusted localhost certificate thumbprint> [--canvas-root <verified canvas installation root>] [--mcp]. --mcp is a read-only stdio bridge to the already-running selected daemon. Benches use the native per-user store.");
@@ -129,8 +127,6 @@ else
     identity.Flush(true);
 }
 var definitions = UserBenchStore.ForCurrentUser();
-var migration = await LegacyBenchMigration.CheckAsync(data, definitions, migrateLegacy, default);
-if (!migration.IsSuccess) throw new InvalidOperationException(migration.Error.Message);
 var changes = new CatalogChanges();
 var native = new NativeSourceAdapter(Path.Combine(data, "native-evidence"), new NativeSourceGateway(), changes);
 var panel = new NativePanel(definitions, new NativeSourceGateway(), native);

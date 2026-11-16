@@ -1,38 +1,42 @@
 ---
 command: workspace exclude
 group: workspace
-summary: Hide a work item from this workspace view without changing shared Bench pins.
+summary: Exclude a work item from workspace view.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace exclude`
 
-Save an exclusion for the current initialized workspace and its admitted
-connection. This changes presentation, not shared Bench membership or upstream
-work items. Another worktree using the same Bench retains its own view rules.
+Exclude a work item from workspace view.
 
-```powershell
-twig workspace exclude 3980
-twig workspace exclude 4102 -o json
+## Behavior
+
+Changes a local workspace-view exclusion rule, not shared Bench membership or upstream work. Excluded local drafts remain explicit rather than disappearing silently.
+
+Syntax, required arguments and defaults come from `twig workspace exclude --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
+
+## Examples
+
+```sh
+twig workspace exclude --help
 ```
 
-The positional `id` must be positive. Local seeds and invalid IDs are refused.
-ADO IDs need no work HTTP; GitHub resolves an already cached, typed issue number
-to its canonical native identity. No credentials, account selection, active item
-or current Bench are changed.
-
-Repeatedly excluding the same item is a successful no-op. Rules are persisted
-in the native user store, keyed by workspace root and connection, with captured
-revision checks. They are applied after Bench membership resolution.
-
-Protected drafts are not discarded or silently hidden: excluded items with
-local changes remain visible as protected work and are marked `isExcluded`.
-The shared Bench's saved item/tree/query/area/iteration selections are unchanged.
-
-`-o|--output` supports `human`, JSON variants and `minimal`. Changes report the
-remaining exclusion count and a message. Errors are format-aware on stderr:
-`0` success, `1` unavailable/conflicting state, `2` invalid input.
-
-See [`workspace exclusions`](./exclusions.md),
-[`workspace`](./workspace.md) and [`bench`](../bench/README.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

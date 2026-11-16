@@ -1,52 +1,42 @@
 ---
 command: link local unrelate
 group: links
-summary: Tombstone a LOCAL Related association with exact Core local CAS.
+summary: Tombstone an existing LOCAL Related association through its exact local CAS. Native reads may occur; no native mutation.
 stability: stable
 mutates: local
 ---
 
 # `twig link local unrelate`
 
-```text
-twig link local unrelate <target> --id <source> [-o human|json|json-full|json-compact|minimal]
-```
+Tombstone an existing LOCAL Related association through its exact local CAS. Native reads may occur; no native mutation.
 
-Use explicit native numeric locators, negative Core seed aliases or original
-canonical lowercase GUIDv7s. `--id` is mandatory for every write, including
-human output. The old two-GUID positional syntax is retired.
+## Behavior
 
-The same discovered local-only symmetric Association and live endpoint evidence
-as [`related`](./link-local-related.md) are required. No native capability,
-provider error or connection change authorizes fallback. Native credential,
-schema and read acquisition may occur, but **no native mutation** occurs.
+Tombstone an existing LOCAL Related association through its exact local CAS. Native reads may occur; no native mutation. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-Removal stages one existing Core `Unrelate` operation with the exact edge
-`ExpectedLocalVersion`, then uses the shared digest-bound proposal/apply/verify
-journal. It persists a tombstone with an incremented local version. It never
-deletes a row, rewrites original seed UUID edge keys, or alters provider-origin
-relationships. `Verified` means local CAS, not tracker publication.
-JSON `source`/`target` preserve the original stored identities as typed objects:
-`localId` for a local UUID, or `provider`/`scope`/opaque `nativeId` for a remote
-key. Publication never replaces an existing edge's UUID object with its mapping.
+Syntax, required arguments and defaults come from `twig link local unrelate --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-Absent/deleted edges, stale versions, multiple logical matches, missing endpoint
-evidence, policy/actor mismatches and unresolved effects refuse explicitly.
-No fake Verified no-op is emitted. A subsequently resurrected edge must bind
-the tombstone's exact version, preventing stale ABA writes.
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link local unrelate 43 --id 42
-twig link local unrelate 019a0000-0000-7000-8000-000000000002 --id 42 -o json
+```sh
+twig link local unrelate --help
 ```
 
-## Exit codes
-
-- `0`: the tombstone is Verified and journaled.
-- `1`: absent/conflicting/stale edge, unsupported declaration, missing evidence,
-  authority/policy/fence refusal or storage failure.
-- `2`: invalid/missing/conflicting arguments or unsupported output (`ids` refused).
-
-[`link local list`](./link-local-list.md) is the separate zero-HTTP cache read.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

@@ -1,51 +1,42 @@
 ---
 command: process
 group: process
-summary: List dynamically discovered types from the admitted Core workspace.
+summary: Show process configuration - list types (no args) or type details (with type name).
 stability: stable
 mutates: none
 ---
 
 # `twig process`
 
-List types from the pinned Core workspace's live provider-discovered schema.
-Process vocabulary is discovered, never inferred from a template.
+Show process configuration: list types (no args) or type details (with type name).
 
+## Behavior
+
+Describes the connected schema or one discovered type. Types, states, fields, transitions and gaps come from the provider. An unavailable or incomplete schema is not an empty schema or permission to mutate.
+
+Syntax, required arguments and defaults come from `twig process --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
+
+## Examples
+
+```sh
+twig process "<discovered-type>" -o json
 ```
-twig process [-o human|json|minimal] [--include-hidden] [--refresh]
-twig process <type> [-o json]
-```
 
-`--include-hidden` includes types marked hidden by discovery. Naming a type
-explicitly describes it even when hidden. `--refresh` remains accepted, but every
-Core invocation already discovers live metadata. There is no second metadata
-cache, work-item query, sync, pending flush or write.
-
-JSON and its `json-full`/`json-compact` aliases carry `types` (canonical `typeName`,
-`stateCount`, `isHidden`), `totalTypes`, `schemaFingerprint` and provider `knownGaps`.
-Child-type counts, colors, icons and category membership are not in Core schema;
-they are not fabricated. `ids` is refused with exit 2.
-
-For example:
-
-```
-twig process -o json
-twig process --include-hidden --refresh -o minimal
-```
-
-An admitted, explicitly initialized Core workspace is required. Legacy/unpinned
-schema inspection refuses with initialization guidance. `--org` and `--project`
-remain parser options, but pinned Core overrides explicitly refuse before HTTP;
-use a fresh isolated workspace initialized for the intended target. A half override
-or a conflict with the manifest also refuses rather than substituting ambient scope.
-
-Successful discovery exits 0 (including an empty visible list when all types are
-hidden). Unknown types or discovery/admission failures exit 1, with structured
-errors for JSON output and no successful partial schema.
-
-## See also
-
-- [`twig process <type>`](process-type.md)
-- [`twig process description`](process-description.md)
-- [`twig process layout`](process-layout.md)
-- [`twig states`](states.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

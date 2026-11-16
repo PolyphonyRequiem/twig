@@ -27,7 +27,6 @@ esac
 ARCH="$(uname -m)"
 case "$ARCH" in
     x86_64|amd64)  arch="x64" ;;
-    arm64|aarch64) arch="arm64" ;;
     *)
         echo "Error: Unsupported architecture: $ARCH" >&2
         exit 1
@@ -107,11 +106,10 @@ fi
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 
-# Stage the release so native entry points are checked from this archive, not a
-# previous installation. MCP remains excluded from supported delivery.
+# Check the CLI and native sidecars from this archive, not a previous installation.
 PAYLOAD_DIR="${TEMP_DIR}/payload"
 mkdir -p "$PAYLOAD_DIR"
-if ! tar --exclude='twig-mcp*' --exclude='./twig-mcp*' --exclude='twig-tui*' --exclude='./twig-tui*' --exclude='twig-bench-tui*' --exclude='./twig-bench-tui*' -xzf "$TEMP_ARCHIVE" -C "$PAYLOAD_DIR"; then
+if ! tar -xzf "$TEMP_ARCHIVE" -C "$PAYLOAD_DIR"; then
     echo "Error: Failed to extract archive." >&2
     exit 1
 fi
@@ -124,7 +122,16 @@ if [ "$os" = "linux" ]; then
         fi
     done
 fi
-cp -a "${PAYLOAD_DIR}/." "$INSTALL_DIR/"
+shopt -s dotglob nullglob
+for file in "$PAYLOAD_DIR"/*; do
+    case "$(basename "$file")" in
+        twig|twig.dbg|libe_sqlite3.so)
+            [ -f "$file" ] && [ ! -L "$file" ] || { echo "Error: Invalid CLI payload file." >&2; exit 1; }
+            ;;
+        *) echo "Error: Unexpected CLI payload: $(basename "$file")" >&2; exit 1 ;;
+    esac
+done
+cp "$PAYLOAD_DIR"/* "$INSTALL_DIR/"
 
 # Verify binary exists
 if [ ! -f "${INSTALL_DIR}/twig" ]; then
@@ -136,7 +143,7 @@ fi
 # Make executable
 chmod +x "${INSTALL_DIR}/twig"
 
-echo "  Core CLI only; legacy Browser/TUI/MCP delivery is retired."
+echo "  Installed the Core CLI and its native sidecars."
 
 # Add to PATH via shell profile if not already present
 PATH_EXPORT="export PATH=\"\$HOME/.twig/bin:\$PATH\""

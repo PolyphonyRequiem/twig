@@ -2,41 +2,41 @@
 command: link unparent
 group: links
 summary: Remove the one observed native parent through a verified Core proposal.
-stability: experimental
-mutates: ado
+stability: stable
+mutates: provider
 ---
 
 # `twig link unparent`
 
-Remove the single observed parent of a published Core ADO item. This is a
-standalone removal, not the first half of an automatic reparent operation.
+Remove the one observed native parent through a verified Core proposal.
 
-```
-twig link unparent [child] [--id <n>] [--child <n>] [-o <format>]
-```
+## Behavior
 
-`child` (positional or `--child`) or `--id` selects a positive native child.
-Every machine output requires `--id`, even when `--child` is supplied. Only human
-output may resolve the selected Core item. Conflicting targets refuse
-before HTTP.
+Remove the one observed native parent through a verified Core proposal. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-One discovered directed hierarchy and exactly one observed native parent are
-required. The canonical edge is **parent -> child**, so the parent's freshly
-observed revision binds the exact relation-index removal PATCH. Both endpoints
-must separately certify the removal before success; a changed revision refuses
-without retry.
+Syntax, required arguments and defaults come from `twig link unparent --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link unparent
-twig link unparent --id 1234 -o minimal
+```sh
+twig link unparent --help
 ```
 
-Verified removal exits `0` (`linkUnparented`). No/ambiguous parent, missing
-observations or unverified outcomes exit `1`. Invalid/conflicting targets,
-machine ambient targeting and bare-ID output exit `2`.
-
-See [shared behavior and output](./README.md),
-[`link parent`](./link-parent.md) and the unsupported
-[`link reparent`](./link-reparent.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

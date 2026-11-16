@@ -2,186 +2,386 @@
   {
     "command": "init",
     "group": "getting-started",
-    "summary": "Initialize a new Twig workspace at the current git-worktree root.",
+    "summary": "Initialize one fresh native Core workspace at .twig/core.db. No legacy cache, migration or reset.",
     "stability": "stable",
     "mutates": "local",
     "path": "getting-started/init.md"
   },
   {
-    "command": "refresh",
-    "group": "getting-started",
-    "summary": "Deprecated alias for `twig sync --pull-only` \u2014 refresh the local cache from Azure DevOps.",
+    "command": "set",
+    "group": "context",
+    "summary": "Set the active work item by ID or title pattern.",
     "stability": "stable",
     "mutates": "local",
-    "path": "getting-started/refresh.md"
+    "path": "context/set.md"
   },
   {
-    "command": "sync",
-    "group": "getting-started",
-    "summary": "Flush pending changes to Azure DevOps then refresh the local cache.",
+    "command": "show",
+    "group": "context",
+    "summary": "Display an explicitly cached Core item without changing context; --local-id retains original draft UUIDs and permanent mappings.",
     "stability": "stable",
-    "mutates": "ado",
-    "path": "getting-started/sync.md"
+    "mutates": "none",
+    "path": "context/show.md"
   },
   {
-    "command": "sprint",
-    "group": "views",
-    "summary": "Show sprint items grouped by assignee.",
+    "command": "show-batch",
+    "group": "context",
+    "summary": "Display multiple work items by ID (cache-only). Missing IDs are disclosed and exit nonzero.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "context/show-batch.md"
+  },
+  {
+    "command": "query",
+    "group": "context",
+    "summary": "Search using bounded provider-qualified Core queries. GitHub supports title/body/state only, with at most 100 total candidates.",
     "stability": "stable",
     "mutates": "local",
-    "path": "views/sprint.md"
+    "path": "context/query.md"
+  },
+  {
+    "command": "state",
+    "group": "work-items",
+    "summary": "Change the state of the active work item by name.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "work-items/state.md"
+  },
+  {
+    "command": "process",
+    "group": "process",
+    "summary": "Show process configuration: list types (no args) or type details (with type name).",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "process/process.md"
+  },
+  {
+    "command": "process description",
+    "group": "process",
+    "summary": "Describe the admitted provider's Core schema (core-schema-1), with explicit scope and presentation gaps.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "process/process-description.md"
+  },
+  {
+    "command": "states",
+    "group": "process",
+    "summary": "Human-only alias for the active work item's states; structured callers must use process &lt;type&gt;.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "process/states.md"
   },
   {
     "command": "tree",
     "group": "views",
-    "summary": "Hidden backward-compat alias that routes to show --tree, or workspace --tree with --all.",
+    "summary": "Display a targeted static Core work-item hierarchy; full workspace layout is unsupported.",
     "stability": "stable",
     "mutates": "local",
     "path": "views/tree.md"
   },
   {
-    "command": "area",
-    "group": "workspace",
-    "summary": "Deprecated alias for `workspace area`. Prints a deprecation hint on stderr.",
+    "command": "nav up",
+    "group": "navigation",
+    "summary": "Navigate to the parent work item.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "navigation/nav-up.md"
+  },
+  {
+    "command": "nav down",
+    "group": "navigation",
+    "summary": "Navigate to a child work item.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "navigation/nav-down.md"
+  },
+  {
+    "command": "nav next",
+    "group": "navigation",
+    "summary": "Navigate to the next sibling work item.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "navigation/nav-next.md"
+  },
+  {
+    "command": "nav prev",
+    "group": "navigation",
+    "summary": "Navigate to the previous sibling work item.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "navigation/nav-prev.md"
+  },
+  {
+    "command": "seed new",
+    "group": "seeds",
+    "summary": "Create a new local seed work item.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "seeds/seed-new.md"
+  },
+  {
+    "command": "seed edit",
+    "group": "seeds",
+    "summary": "Edit seed fields in an external editor.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "seeds/seed-edit.md"
+  },
+  {
+    "command": "seed discard",
+    "group": "seeds",
+    "summary": "Discard (delete) a local seed.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "seeds/seed-discard.md"
+  },
+  {
+    "command": "seed view",
+    "group": "seeds",
+    "summary": "Show seed dashboard grouped by parent.",
     "stability": "stable",
     "mutates": "none",
-    "path": "workspace/area-deprecated.md"
+    "path": "seeds/seed-view.md"
   },
   {
-    "command": "area add",
-    "group": "workspace",
-    "summary": "Deprecated alias for `workspace area add`. Prints a deprecation hint on stderr.",
+    "command": "seed link",
+    "group": "seeds",
+    "summary": "Create a virtual link between two items (at least one must be a seed).",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/area-add-deprecated.md"
+    "path": "seeds/seed-link.md"
   },
   {
-    "command": "area list",
-    "group": "workspace",
-    "summary": "Deprecated alias for `workspace area list`. Prints a deprecation hint on stderr.",
+    "command": "seed unlink",
+    "group": "seeds",
+    "summary": "Remove a virtual link between two items.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "seeds/seed-unlink.md"
+  },
+  {
+    "command": "seed links",
+    "group": "seeds",
+    "summary": "List virtual links, optionally filtered by item ID.",
     "stability": "stable",
     "mutates": "none",
-    "path": "workspace/area-list-deprecated.md"
+    "path": "seeds/seed-links.md"
   },
   {
-    "command": "area remove",
-    "group": "workspace",
-    "summary": "Deprecated alias for `workspace area remove`. Prints a deprecation hint on stderr.",
+    "command": "seed chain",
+    "group": "seeds",
+    "summary": "Create a chain of linked seeds — interactively or from explicit titles.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/area-remove-deprecated.md"
+    "path": "seeds/seed-chain.md"
   },
   {
-    "command": "area sync",
-    "group": "workspace",
-    "summary": "Deprecated alias for `workspace area sync`. Prints a deprecation hint on stderr.",
+    "command": "seed validate",
+    "group": "seeds",
+    "summary": "Validate seeds against publish rules.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "seeds/seed-validate.md"
+  },
+  {
+    "command": "seed publish",
+    "group": "seeds",
+    "summary": "Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation, --link-branch to link to a git branch.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "seeds/seed-publish.md"
+  },
+  {
+    "command": "seed reconcile",
+    "group": "seeds",
+    "summary": "Reconcile stale seed links and parent references after partial publishes.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/area-sync-deprecated.md"
+    "path": "seeds/seed-reconcile.md"
+  },
+  {
+    "command": "link parent",
+    "group": "links",
+    "summary": "Set the parent of an unparented published item through a verified Core proposal.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-parent.md"
+  },
+  {
+    "command": "link unparent",
+    "group": "links",
+    "summary": "Remove the one observed native parent through a verified Core proposal.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-unparent.md"
+  },
+  {
+    "command": "link reparent",
+    "group": "links",
+    "summary": "Parent replacement is unsupported; refuses before HTTP without removing any link.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-reparent.md"
+  },
+  {
+    "command": "link predecessor",
+    "group": "links",
+    "summary": "Mark the active work item as blocked by another item (Predecessor link).",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-predecessor.md"
+  },
+  {
+    "command": "link successor",
+    "group": "links",
+    "summary": "Mark the active work item as blocking another item (Successor link).",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-successor.md"
+  },
+  {
+    "command": "link related",
+    "group": "links",
+    "summary": "Relate the active work item to another item (symmetric Related link).",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-related.md"
+  },
+  {
+    "command": "link unrelate",
+    "group": "links",
+    "summary": "Remove a Related link between the active work item and another item.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-unrelate.md"
+  },
+  {
+    "command": "link local related",
+    "group": "links",
+    "summary": "Create an explicit LOCAL, non-native Related association through a Verified local CAS proposal. May acquire native metadata/observations; never mutates native links.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "links/link-local-related.md"
+  },
+  {
+    "command": "link local unrelate",
+    "group": "links",
+    "summary": "Tombstone an existing LOCAL Related association through its exact local CAS. Native reads may occur; no native mutation.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "links/link-local-unrelate.md"
+  },
+  {
+    "command": "link local list",
+    "group": "links",
+    "summary": "List cached LOCAL associations for an explicit item. Zero HTTP; no schema acquisition or context change.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "links/link-local-list.md"
+  },
+  {
+    "command": "link unlink",
+    "group": "links",
+    "summary": "Remove a non-hierarchy link (predecessor, successor, or related) from a work item.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-unlink.md"
+  },
+  {
+    "command": "link artifact",
+    "group": "links",
+    "summary": "Add an artifact link (URL or vstfs:// URI) to a work item.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "links/link-artifact.md"
+  },
+  {
+    "command": "batch",
+    "group": "work-items",
+    "summary": "Batch state transitions, field updates, and notes in a single call.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "work-items/batch.md"
+  },
+  {
+    "command": "note",
+    "group": "work-items",
+    "summary": "Add a note to the active work item.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "work-items/note.md"
+  },
+  {
+    "command": "update",
+    "group": "work-items",
+    "summary": "Update a field on the active work item.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "work-items/update.md"
+  },
+  {
+    "command": "patch",
+    "group": "work-items",
+    "summary": "Atomically patch multiple fields on a work item via JSON input.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "work-items/patch.md"
+  },
+  {
+    "command": "edit",
+    "group": "work-items",
+    "summary": "Edit work item fields in an external editor.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "work-items/edit.md"
+  },
+  {
+    "command": "discard",
+    "group": "work-items",
+    "summary": "Discard pending changes for a single item or all dirty items.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "work-items/discard.md"
+  },
+  {
+    "command": "save",
+    "group": "work-items",
+    "summary": "Save selected staged Core intent through its proposal journal; does not perform a sync pull.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "work-items/save.md"
+  },
+  {
+    "command": "sync",
+    "group": "getting-started",
+    "summary": "Save retained remote drafts through the proposal journal, then pull the selected Bench.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "getting-started/sync.md"
+  },
+  {
+    "command": "refresh",
+    "group": "getting-started",
+    "summary": "Refresh the local cache from the active provider. Routes through sync --pull-only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "getting-started/refresh.md"
   },
   {
     "command": "workspace",
     "group": "workspace",
-    "summary": "Show the current workspace.",
+    "summary": "Read cached Core Bench membership and all protected drafts as a static table. Acquires provider schema metadata.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/workspace.md"
   },
   {
-    "command": "workspace migrate",
+    "command": "ws",
     "group": "workspace",
-    "summary": "Review or explicitly confirm preservation of an admitted ADO workspace.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "workspace/migrate.md"
-  },
-  {
-    "command": "workspace sync",
-    "group": "workspace",
-    "summary": "Pull current Bench selector members and permitted relationship candidates without flushing edits.",
+    "summary": "Read the static cached Core Bench workspace (short alias); acquires provider schema metadata.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace.md"
-  },
-  {
-    "command": "workspace area",
-    "group": "workspace",
-    "summary": "Show the area-filtered workspace view.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "workspace/area.md"
-  },
-  {
-    "command": "workspace area add",
-    "group": "workspace",
-    "summary": "Add an area path to workspace configuration.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/area-add.md"
-  },
-  {
-    "command": "workspace area list",
-    "group": "workspace",
-    "summary": "List configured area paths with match semantics.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "workspace/area-list.md"
-  },
-  {
-    "command": "workspace area remove",
-    "group": "workspace",
-    "summary": "Remove an area path from workspace configuration.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/area-remove.md"
-  },
-  {
-    "command": "workspace area sync",
-    "group": "workspace",
-    "summary": "Fetch team area paths from ADO and replace configuration.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/area-sync.md"
-  },
-  {
-    "command": "workspace exclude",
-    "group": "workspace",
-    "summary": "Exclude a work item from workspace view.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/exclude.md"
-  },
-  {
-    "command": "workspace exclusions",
-    "group": "workspace",
-    "summary": "List all excluded work items; also clears or removes exclusions.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/exclusions.md"
-  },
-  {
-    "command": "workspace sprint add",
-    "group": "workspace",
-    "summary": "Add a sprint iteration expression to workspace configuration.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/sprint-add.md"
-  },
-  {
-    "command": "workspace sprint list",
-    "group": "workspace",
-    "summary": "List configured sprint iteration expressions.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "workspace/sprint-list.md"
-  },
-  {
-    "command": "workspace sprint remove",
-    "group": "workspace",
-    "summary": "Remove a sprint iteration expression from workspace configuration.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/sprint-remove.md"
+    "path": "workspace/ws.md"
   },
   {
     "command": "workspace track",
@@ -202,18 +402,34 @@
   {
     "command": "workspace untrack",
     "group": "workspace",
-    "summary": "Remove a work item from tracking.",
+    "summary": "Remove explicit pins, optionally only single or tree; inherited membership remains.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/untrack.md"
   },
   {
-    "command": "ws",
+    "command": "workspace sync",
     "group": "workspace",
-    "summary": "Short alias for `workspace` \u2014 show the current workspace.",
+    "summary": "Pull only the current Bench's query, pin, and bounded relationship scope; never flush pending writes.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/ws.md"
+    "path": "workspace/workspace-sync.md"
+  },
+  {
+    "command": "workspace exclude",
+    "group": "workspace",
+    "summary": "Exclude a work item from workspace view.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "workspace/exclude.md"
+  },
+  {
+    "command": "workspace exclusions",
+    "group": "workspace",
+    "summary": "List all excluded work items.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "workspace/exclusions.md"
   },
   {
     "command": "bench create",
@@ -224,12 +440,12 @@
     "path": "bench/create.md"
   },
   {
-    "command": "bench delete",
+    "command": "bench",
     "group": "bench",
-    "summary": "Delete a Bench \u2014 one holding pins refuses without --confirm.",
+    "summary": "List the Benches that exist, marking the current one.",
     "stability": "stable",
-    "mutates": "local",
-    "path": "bench/delete.md"
+    "mutates": "none",
+    "path": "bench/bench.md"
   },
   {
     "command": "bench list",
@@ -240,785 +456,161 @@
     "path": "bench/list.md"
   },
   {
+    "command": "bench rename",
+    "group": "bench",
+    "summary": "Rename a user-wide Bench without changing its pins or context selections.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/bench-rename.md"
+  },
+  {
     "command": "bench switch",
     "group": "bench",
-    "summary": "Stand on another Bench.",
+    "summary": "Stand on another Bench. Naming one that does not exist fails; nothing is created.",
     "stability": "stable",
     "mutates": "local",
     "path": "bench/switch.md"
   },
   {
-    "command": "bench configuration",
+    "command": "bench delete",
     "group": "bench",
-    "summary": "Read the current Bench's pins, saved filters, ownership and raw settings digest.",
+    "summary": "Delete a Bench. One holding pins reports what it holds and deletes nothing.",
     "stability": "stable",
-    "mutates": "none",
-    "path": "bench/README.md"
+    "mutates": "local",
+    "path": "bench/delete.md"
   },
   {
-    "command": "bench detail",
+    "command": "bench rules",
     "group": "bench",
-    "summary": "Read full cached, richly rendered work-item or seed detail without changing context.",
+    "summary": "List the exact shared Bench pins/rules and captured revision; no provider reads.",
     "stability": "stable",
     "mutates": "none",
-    "path": "bench/README.md"
+    "path": "bench/bench-rules.md"
   },
   {
-    "command": "bench discussion",
+    "command": "bench rule add",
     "group": "bench",
-    "summary": "Read one remote discussion page for an explicitly qualified cached Bench member.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "bench/README.md"
+    "summary": "Add one connection-qualified shared rule. Conditions inside it are AND; independent Bench pins/rules are OR.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/bench-rule-add.md"
   },
   {
-    "command": "bench browser",
+    "command": "bench rule remove",
     "group": "bench",
-    "summary": "Open the native Bench browser or route authenticated source-scoped Herdr controls.",
-    "stability": "experimental",
+    "summary": "Remove one captured shared pin/rule without deleting any upstream item or local draft.",
+    "stability": "stable",
     "mutates": "local",
-    "path": "bench/README.md"
+    "path": "bench/bench-rule-remove.md"
   },
   {
-    "command": "bench configuration area candidates",
+    "command": "bench planning",
     "group": "bench",
-    "summary": "Read official configured-team area paths without changing Bench or workspace settings.",
+    "summary": "Read cached native planning metadata without refreshing it or changing any Bench.",
     "stability": "stable",
     "mutates": "none",
-    "path": "bench/README.md"
+    "path": "bench/bench-planning.md"
   },
   {
-    "command": "bench configuration area add",
+    "command": "bench planning show",
     "group": "bench",
-    "summary": "Add an exact or Under area filter on the captured Bench only.",
+    "summary": "Read the current context's cached native planning metadata; alias of bench planning.",
     "stability": "stable",
-    "mutates": "local",
-    "path": "bench/README.md"
+    "mutates": "none",
+    "path": "bench/bench-planning-show.md"
   },
   {
-    "command": "bench configuration area remove",
+    "command": "bench planning refresh",
     "group": "bench",
-    "summary": "Remove an area filter on the captured Bench only.",
+    "summary": "Explicitly refresh native areas and the exact selected team's iteration calendar; no work items or Bench rules change.",
     "stability": "stable",
     "mutates": "local",
-    "path": "bench/README.md"
+    "path": "bench/bench-planning-refresh.md"
   },
   {
-    "command": "bench configuration sprint add",
+    "command": "bench sources",
     "group": "bench",
-    "summary": "Add a relative or absolute sprint expression on the captured Bench only.",
+    "summary": "Discover native saved-query hierarchy and exact-team backlogs; does not execute them or change selection.",
     "stability": "stable",
     "mutates": "local",
-    "path": "bench/README.md"
+    "path": "bench/bench-sources.md"
   },
   {
-    "command": "bench configuration sprint remove",
+    "command": "bench browse",
     "group": "bench",
-    "summary": "Remove a sprint expression on the captured Bench only.",
+    "summary": "Explicitly acquire saved-query/backlog membership and item bodies into the native cache; never pins, selects or publishes.",
     "stability": "stable",
     "mutates": "local",
-    "path": "bench/README.md"
+    "path": "bench/bench-browse.md"
   },
   {
-    "command": "history",
-    "group": "context",
-    "summary": "Show the ADO revision history for a work item; read-only, never cached.",
+    "command": "workspace area",
+    "group": "workspace",
+    "summary": "Show the current Bench's cached view, including its shared planning rules and protected drafts.",
     "stability": "stable",
     "mutates": "none",
-    "path": "context/history.md"
+    "path": "workspace/area.md"
   },
   {
-    "command": "query",
-    "group": "context",
-    "summary": "Search and filter work items via an ad-hoc WIQL query built from CLI flags.",
+    "command": "workspace area add",
+    "group": "workspace",
+    "summary": "Add an area to the current Bench's planning rule; areas are OR, area/iteration/ownership categories are AND.",
     "stability": "stable",
     "mutates": "local",
-    "path": "context/query.md"
+    "path": "workspace/area-add.md"
   },
   {
-    "command": "set",
-    "group": "context",
-    "summary": "Set the active work item by ID or title pattern.",
+    "command": "workspace area remove",
+    "group": "workspace",
+    "summary": "Remove one area from the current Bench's planning rule; other pins, rules and workspace exclusions are preserved.",
     "stability": "stable",
     "mutates": "local",
-    "path": "context/set.md"
+    "path": "workspace/area-remove.md"
   },
   {
-    "command": "show",
-    "group": "context",
-    "summary": "Display a work item without changing context; cache-only by default.",
+    "command": "workspace area list",
+    "group": "workspace",
+    "summary": "List saved shared area paths and exact/under semantics without fetching items.",
     "stability": "stable",
     "mutates": "none",
-    "path": "context/show.md"
+    "path": "workspace/area-list.md"
   },
   {
-    "command": "show-batch",
-    "group": "context",
-    "summary": "Display multiple work items by ID from the local cache; missing IDs are disclosed as errors.",
+    "command": "workspace area sync",
+    "group": "workspace",
+    "summary": "Refresh native planning metadata only; does not replace or populate shared Bench rules.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "workspace/area-sync.md"
+  },
+  {
+    "command": "workspace sprint add",
+    "group": "workspace",
+    "summary": "Add an iteration expression to the current Bench's planning rule; union iterations and preserve area/ownership constraints.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "workspace/sprint-add.md"
+  },
+  {
+    "command": "workspace sprint remove",
+    "group": "workspace",
+    "summary": "Remove one saved iteration expression; never replace the last rule with an all-items query.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "workspace/sprint-remove.md"
+  },
+  {
+    "command": "workspace sprint list",
+    "group": "workspace",
+    "summary": "List saved absolute/relative iteration expressions and canonical teams without remote item acquisition.",
     "stability": "stable",
     "mutates": "none",
-    "path": "context/show-batch.md"
+    "path": "workspace/sprint-list.md"
   },
   {
-    "command": "tree-set",
-    "group": "context",
-    "summary": "Render an arbitrary working set of work items as a forest of annotated trees.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "context/tree-set.md"
-  },
-  {
-    "command": "web",
-    "group": "context",
-    "summary": "Open the active or specified work item in Azure DevOps in the default browser.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "context/web.md"
-  },
-  {
-    "command": "back",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav back`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/back.md"
-  },
-  {
-    "command": "down",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav down`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/down.md"
-  },
-  {
-    "command": "fore",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav fore`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/fore.md"
-  },
-  {
-    "command": "nav",
-    "group": "navigation",
-    "summary": "Launch the interactive tree navigator.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav.md"
-  },
-  {
-    "command": "nav back",
-    "group": "navigation",
-    "summary": "Move the navigation-history cursor one entry backward.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-back.md"
-  },
-  {
-    "command": "nav down",
-    "group": "navigation",
-    "summary": "Set the active work item to one of the current item's children.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-down.md"
-  },
-  {
-    "command": "nav fore",
-    "group": "navigation",
-    "summary": "Move the navigation-history cursor one entry forward.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-fore.md"
-  },
-  {
-    "command": "nav history",
-    "group": "navigation",
-    "summary": "Display or pick from the navigation history stack.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-history.md"
-  },
-  {
-    "command": "nav next",
-    "group": "navigation",
-    "summary": "Set the active work item to the next sibling.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-next.md"
-  },
-  {
-    "command": "nav prev",
-    "group": "navigation",
-    "summary": "Set the active work item to the previous sibling.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-prev.md"
-  },
-  {
-    "command": "nav up",
-    "group": "navigation",
-    "summary": "Set the active work item to the parent of the current one.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-up.md"
-  },
-  {
-    "command": "next",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav next`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/next.md"
-  },
-  {
-    "command": "prev",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav prev`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/prev.md"
-  },
-  {
-    "command": "up",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav up`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/up.md"
-  },
-  {
-    "command": "process",
-    "group": "process",
-    "summary": "List work item types, or with a type argument show its states, fields, and transitions.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "process/process.md"
-  },
-  {
-    "command": "process <type>",
-    "group": "process",
-    "summary": "Describe one dynamically discovered work-item type.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "process/process-type.md"
-  },
-  {
-    "command": "process description",
-    "group": "process",
-    "summary": "Write a byte-stable structural description of the process, for diffing against another.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "process/process-description.md"
-  },
-  {
-    "command": "process layout",
-    "group": "process",
-    "summary": "Show the server-defined form layout \u2014 tabs, boxes, and ordered fields \u2014 for a work item type.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "process/process-layout.md"
-  },
-  {
-    "command": "states",
-    "group": "process",
-    "summary": "Hidden alias \u2014 list workflow states for the active work item's type.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "process/states.md"
-  },
-  {
-    "command": "batch",
-    "group": "work-items",
-    "summary": "State transition, field updates, and a note in a single atomic call.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/batch.md"
-  },
-  {
-    "command": "delete",
-    "group": "work-items",
-    "summary": "Permanently delete a work item from Azure DevOps.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/delete.md"
-  },
-  {
-    "command": "discard",
-    "group": "work-items",
-    "summary": "Drop pending changes for a single work item or all dirty items.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "work-items/discard.md"
-  },
-  {
-    "command": "edit",
-    "group": "work-items",
-    "summary": "Edit work item fields interactively in an external editor.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/edit.md"
-  },
-  {
-    "command": "new",
-    "group": "work-items",
-    "summary": "Create a new work item in ADO.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/new.md"
-  },
-  {
-    "command": "note",
-    "group": "work-items",
-    "summary": "Add a note (ADO comment) to the active work item.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/note.md"
-  },
-  {
-    "command": "patch",
-    "group": "work-items",
-    "summary": "Atomically patch multiple fields on a work item via JSON input.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/patch.md"
-  },
-  {
-    "command": "state",
-    "group": "work-items",
-    "summary": "Change the state of the active work item by name.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/state.md"
-  },
-  {
-    "command": "update",
-    "group": "work-items",
-    "summary": "Update a single field on the active work item.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/update.md"
-  },
-  {
-    "command": "link artifact",
-    "group": "links",
-    "summary": "Attach a hyperlink or vstfs artifact link to a work item.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-artifact.md"
-  },
-  {
-    "command": "link local list",
-    "group": "links",
-    "summary": "List Twig-local Related links touching a local work item.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "links/link-local-list.md"
-  },
-  {
-    "command": "link local related",
-    "group": "links",
-    "summary": "Add an explicit Twig-local Related link between two local work items.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "links/link-local-related.md"
-  },
-  {
-    "command": "link local unrelate",
-    "group": "links",
-    "summary": "Remove an existing Twig-local Related link without provider access.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "links/link-local-unrelate.md"
-  },
-  {
-    "command": "link parent",
-    "group": "links",
-    "summary": "Set the parent of the active (or targeted) work item.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-parent.md"
-  },
-  {
-    "command": "link predecessor",
-    "group": "links",
-    "summary": "Mark the active (or targeted) item as blocked by another item.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-predecessor.md"
-  },
-  {
-    "command": "link related",
-    "group": "links",
-    "summary": "Add a symmetric Related link between two work items, optionally with a comment.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-related.md"
-  },
-  {
-    "command": "link reparent",
-    "group": "links",
-    "summary": "Remove the current parent and set a new one in a single operation.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-reparent.md"
-  },
-  {
-    "command": "link successor",
-    "group": "links",
-    "summary": "Mark the active (or targeted) item as blocking another item.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-successor.md"
-  },
-  {
-    "command": "link unlink",
-    "group": "links",
-    "summary": "Remove any non-hierarchy link (predecessor, successor, or related) from a work item.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-unlink.md"
-  },
-  {
-    "command": "link unparent",
-    "group": "links",
-    "summary": "Remove the parent link from the active (or targeted) work item.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-unparent.md"
-  },
-  {
-    "command": "link unrelate",
-    "group": "links",
-    "summary": "Remove a symmetric Related link between two work items.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "links/link-unrelate.md"
-  },
-  {
-    "command": "seed",
-    "group": "seeds",
-    "summary": "Hidden backward-compat shortcut for `seed new`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed.md"
-  },
-  {
-    "command": "seed chain",
-    "group": "seeds",
-    "summary": "Create a chain of successor-linked seeds under a shared parent.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed-chain.md"
-  },
-  {
-    "command": "seed discard",
-    "group": "seeds",
-    "summary": "Delete a local seed and its descendants.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed-discard.md"
-  },
-  {
-    "command": "seed edit",
-    "group": "seeds",
-    "summary": "Edit a seed's fields in an external editor.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed-edit.md"
-  },
-  {
-    "command": "seed link",
-    "group": "seeds",
-    "summary": "Create a virtual link between two items, at least one of which must be a seed.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed-link.md"
-  },
-  {
-    "command": "seed links",
-    "group": "seeds",
-    "summary": "List virtual links, optionally filtered by item ID.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "seeds/seed-links.md"
-  },
-  {
-    "command": "seed new",
-    "group": "seeds",
-    "summary": "Create a new local seed work item.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed-new.md"
-  },
-  {
-    "command": "seed publish",
-    "group": "seeds",
-    "summary": "Publish seeds to Azure DevOps.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "seeds/seed-publish.md"
-  },
-  {
-    "command": "seed reconcile",
-    "group": "seeds",
-    "summary": "Repair stale seed links and parent references after a partial publish.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed-reconcile.md"
-  },
-  {
-    "command": "seed unlink",
-    "group": "seeds",
-    "summary": "Remove a virtual link between two items.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed-unlink.md"
-  },
-  {
-    "command": "seed validate",
-    "group": "seeds",
-    "summary": "Validate seeds against publish rules.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "seeds/seed-validate.md"
-  },
-  {
-    "command": "seed view",
-    "group": "seeds",
-    "summary": "Show the seed dashboard grouped by parent.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "seeds/seed-view.md"
-  },
-  {
-    "command": "pending",
-    "group": "plans",
-    "summary": "List raw staged pending changes in exact staging order.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/pending.md"
-  },
-  {
-    "command": "draft show",
-    "group": "plans",
-    "summary": "Inspect an existing native recoverable draft; may CAS local observation metadata, never intent or remote work.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-show.md"
-  },
-  {
-    "command": "draft open",
-    "group": "plans",
-    "summary": "Open the shared recoverable native draft for a published item via an explicit Bench; records served evidence locally, never publishes.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-open.md"
-  },
-  {
-    "command": "draft stage",
-    "group": "plans",
-    "summary": "Stage an exact ordered field batch from stdin into the recoverable native draft by CAS; never writes pending changes or ADO.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-stage.md"
-  },
-  {
-    "command": "draft retain",
-    "group": "plans",
-    "summary": "Retain staged native draft intent as a local proposal journal capture; never exports, authorizes, or applies.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-retain.md"
-  },
-  {
-    "command": "draft review",
-    "group": "plans",
-    "summary": "Review the exact effects of a retained native draft capture by digest against cached evidence; never authorizes or applies.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "plans/draft-review.md"
-  },
-  {
-    "command": "draft capture",
-    "group": "plans",
-    "summary": "Legacy: capture inspected native draft intent to the local journal and export a proposal file; never authorizes or applies.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-capture.md"
-  },
-  {
-    "command": "policy assess",
-    "group": "plans",
-    "summary": "Assess cached compliance of named items against the declared repository policy, with bounded repair alternatives.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "plans/policy-assess.md"
-  },
-  {
-    "command": "policy reconcile",
-    "group": "plans",
-    "summary": "Render one explicitly selected policy repair as a native proposal on stdout; review and apply remain separate.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "plans/policy-reconcile.md"
-  },
-  {
-    "command": "plan apply",
-    "group": "plans",
-    "summary": "Deprecated alias for `proposal apply`.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "plans/plan-apply.md"
-  },
-  {
-    "command": "plan preview",
-    "group": "plans",
-    "summary": "Deprecated alias for `proposal preview`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "plans/plan-preview.md"
-  },
-  {
-    "command": "plan seed",
-    "group": "plans",
-    "summary": "Deprecated alias for `proposal seed`.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/plan-seed.md"
-  },
-  {
-    "command": "plan status",
-    "group": "plans",
-    "summary": "Deprecated alias for `proposal status`.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/plan-status.md"
-  },
-  {
-    "command": "plan validate",
-    "group": "plans",
-    "summary": "Deprecated alias for `proposal validate`.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/plan-validate.md"
-  },
-  {
-    "command": "proposal apply",
-    "group": "plans",
-    "summary": "Apply a proposal after digest confirmation and identity authorization.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "plans/proposal-apply.md"
-  },
-  {
-    "command": "proposal reconcile",
-    "group": "plans",
-    "summary": "Append an explicit native retirement, readback or Verified replacement receipt without replay.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "plans/README.md"
-  },
-  {
-    "command": "proposal preview",
-    "group": "plans",
-    "summary": "Preview a proposal \u2014 journal import, pending snapshot, digest, and canApply gate.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "plans/proposal-preview.md"
-  },
-  {
-    "command": "proposal latest",
-    "group": "plans",
-    "summary": "Show the latest successfully previewed unresolved proposal in this workspace.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/README.md"
-  },
-  {
-    "command": "proposal seed",
-    "group": "plans",
-    "summary": "Describe a staged seed's identity and fingerprint for proposal authoring.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/proposal-seed.md"
-  },
-  {
-    "command": "proposal status",
-    "group": "plans",
-    "summary": "Show journal state for a proposal file, keyed on its digest.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/proposal-status.md"
-  },
-  {
-    "command": "proposal validate",
-    "group": "plans",
-    "summary": "Validate a proposal v1 file without touching ADO.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/proposal-validate.md"
-  },
-  {
-    "command": "provider discover github",
-    "group": "configuration",
-    "summary": "Observe immutable GitHub repository identity without binding.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "configuration/provider-discover-github.md"
-  },
-  {
-    "command": "provider bind github",
-    "group": "configuration",
-    "summary": "Select a freshly confirmed GitHub repository identity locally.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "configuration/provider-bind-github.md"
-  },
-  {
-    "command": "config",
-    "group": "configuration",
-    "summary": "Read or set a configuration value.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "configuration/config.md"
-  },
-  {
-    "command": "config status-fields",
-    "group": "configuration",
-    "summary": "Configure which fields appear in the status view.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "configuration/config-status-fields.md"
-  },
-  {
-    "command": "help",
-    "group": "configuration",
-    "summary": "Task-oriented help with targeted group and leaf discovery.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "configuration/help.md"
-  },
-  {
-    "command": "migrate-config",
-    "group": "configuration",
-    "summary": "Split a legacy .twig/config into a committed twig.json and gitignored user prefs.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "configuration/migrate-config.md"
-  },
-  {
-    "command": "auth clear",
+    "command": "auth status",
     "group": "system",
-    "summary": "Invalidate selected access/admission proof while preserving credentials and bindings.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-clear.md"
-  },
-  {
-    "command": "auth identities",
-    "group": "system",
-    "summary": "List registered AAD and PAT identities with method-specific principal metadata; credentials are never surfaced.",
+    "summary": "Inspect local authentication state without refreshing. Use --provider github for a selected GitHub App identity.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/auth-status.md"
@@ -1026,162 +618,106 @@
   {
     "command": "auth login",
     "group": "system",
-    "summary": "Enroll or renew an explicitly named AAD identity without changing another connection's account.",
+    "summary": "Enroll an explicit identity. ADO uses loopback PKCE by default; --provider github uses Twig's GitHub App device flow without a shipped secret.",
     "stability": "stable",
     "mutates": "local",
     "path": "system/auth-login.md"
+  },
+  {
+    "command": "auth identities",
+    "group": "system",
+    "summary": "List every registered identity (AAD and PAT) with safe principal metadata. Credential blobs are never surfaced; AAD rows show tenant/objectId/authorityHost, PAT rows show adoPrincipalId/adoAuthority.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "system/auth-identities.md"
   },
   {
     "command": "auth pat",
     "group": "system",
-    "summary": "Enroll or renew a PAT identity through hidden/stdin input and authoritative principal attestation.",
+    "summary": "Enroll or renew a Personal Access Token identity. The PAT is read from a non-echoing Spectre prompt on a TTY, or from stdin when --stdin is set or stdin is redirected; it is never accepted as an argument. The service performs authoritative read-only principal attestation before touching any stored credential.",
     "stability": "stable",
     "mutates": "local",
-    "path": "system/auth-login.md"
-  },
-  {
-    "command": "auth status",
-    "group": "system",
-    "summary": "Inspect the effective attached identity binding and configuration provenance without secrets.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "system/auth-status.md"
+    "path": "system/auth-pat.md"
   },
   {
     "command": "connection bind",
     "group": "system",
-    "summary": "Bind an endpoint (org/project) to a registered identity; --default requests the initial endpoint default without replacing a different one.",
+    "summary": "Bind an endpoint (org/project) to a registered identity. Use --default to request this as the initial default; the service refuses to switch an existing different default.",
     "stability": "stable",
     "mutates": "local",
-    "path": "system/auth-login.md"
+    "path": "system/connection-bind.md"
   },
   {
     "command": "connection list",
     "group": "system",
-    "summary": "List identity bindings for an endpoint; falls back to the workspace's checked-in coordinates when --org and --project are both omitted.",
+    "summary": "List bindings for an endpoint (org/project). Falls back to the workspace's checked-in coordinates when both --org and --project are omitted.",
     "stability": "stable",
     "mutates": "none",
-    "path": "system/auth-status.md"
+    "path": "system/connection-list.md"
   },
   {
     "command": "connection status",
     "group": "system",
-    "summary": "Show the identity and binding the current attached worktree resolves to; refuses with setup guidance when attachment or selection is missing or ambiguous.",
+    "summary": "Show the identity + binding the current attached worktree resolves to. Fails with setup guidance when there is no attachment or the binding is ambiguous; no fallback.",
     "stability": "stable",
     "mutates": "none",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection check",
-    "group": "system",
-    "summary": "Inspect local binding-change prerequisites and exact native blockers without switching, publishing, discarding or releasing claims.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection capabilities",
-    "group": "system",
-    "summary": "Report relationship capabilities and runtime availability; optionally discover GitHub schema support without enumerating repository values.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection migrate",
-    "group": "system",
-    "summary": "Preview or explicitly apply safe legacy migration with verified principal mapping, actual host/store quiescence and native generation admission; no force or implicit publication.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection pin",
-    "group": "system",
-    "summary": "Preview or apply an exact guarded checkout binding pin with native recovery, cold-cache admission and explicit reconnect.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection unpin",
-    "group": "system",
-    "summary": "Preview or apply guarded removal of a checkout binding pin without publishing, discarding or silently replacing a live actor.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection default",
-    "group": "system",
-    "summary": "Preview or resume an exact default-binding transition across affected registered worktrees, preserving pinned checkouts and durable work.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
+    "path": "system/connection-status.md"
   },
   {
     "command": "connection writes",
     "group": "system",
-    "summary": "Inspect native remote-write uncertainty and immutable original-actor outcome evidence without replay.",
+    "summary": "Inspect native remote-write intents, immutable acknowledgments and uncertainty blockers for the attached checkout. Read-only; never replay, expire or discard an unknown write.",
     "stability": "stable",
     "mutates": "none",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection reconcile-write",
-    "group": "system",
-    "summary": "Append native original-actor settlement only after exact exhausted-CAS readback proves an uncertain request's effect; never infer or replay it.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "changelog",
-    "group": "system",
-    "summary": "Display recent release notes from GitHub Releases without applying any update.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "system/changelog.md"
-  },
-  {
-    "command": "upgrade",
-    "group": "system",
-    "summary": "Check GitHub Releases for a newer twig and apply the update, including companion binaries.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/upgrade.md"
+    "path": "system/connection-writes.md"
   },
   {
     "command": "version",
     "group": "system",
-    "summary": "Print the installed twig version.",
+    "summary": "Show the current version.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/version.md"
   },
   {
-    "command": "mcp",
-    "group": "experimental",
-    "summary": "Launch the Model Context Protocol server (requires twig-mcp companion binary).",
-    "stability": "experimental",
-    "mutates": "ado",
-    "path": "experimental/mcp.md"
-  },
-  {
-    "command": "ohmyposh init",
-    "group": "experimental",
-    "summary": "Emit an Oh My Posh shell hook and text-segment JSON for the current shell.",
-    "stability": "experimental",
+    "command": "proposal validate",
+    "group": "plans",
+    "summary": "Validate a proposal's canonical file format offline. Preview separately checks application evidence; no mutation.",
+    "stability": "stable",
     "mutates": "none",
-    "path": "experimental/ohmyposh-init.md"
+    "path": "plans/proposal-validate.md"
   },
   {
-    "command": "tui",
-    "group": "experimental",
-    "summary": "Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.",
-    "stability": "experimental",
+    "command": "proposal preview",
+    "group": "plans",
+    "summary": "Preview a proposal with an optional digest guard. No ADO mutation.",
+    "stability": "stable",
     "mutates": "local",
-    "path": "experimental/tui.md"
+    "path": "plans/proposal-preview.md"
+  },
+  {
+    "command": "proposal apply",
+    "group": "plans",
+    "summary": "Apply a proposal when --confirm &lt;digest&gt; matches the current file digest exactly. Canonical verb is proposal apply; plan apply is a retained deprecated alias.",
+    "stability": "stable",
+    "mutates": "provider",
+    "path": "plans/proposal-apply.md"
+  },
+  {
+    "command": "proposal status",
+    "group": "plans",
+    "summary": "Inspect journal states and receipts for an exact proposal digest without applying or settling it; exit 1 when absent.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "plans/proposal-status.md"
+  },
+  {
+    "command": "pending",
+    "group": "plans",
+    "summary": "Inspect captured typed draft fields, original baselines and seed relationships in retained draft order. Read-only.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "plans/pending.md"
   },
   {
     "command": "skills install",

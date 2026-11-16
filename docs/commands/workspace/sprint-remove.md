@@ -1,75 +1,42 @@
 ---
 command: workspace sprint remove
 group: workspace
-summary: Remove a sprint iteration expression from workspace configuration.
+summary: Remove one saved iteration expression; never replace the last rule with an all-items query.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace sprint remove`
 
-Unsubscribe the workspace from a sprint iteration. The expression is matched
-case-insensitively against the stored `Expression` — pass it exactly as
-`workspace sprint list` prints it.
-
-## Synopsis
-
-```
-twig workspace sprint remove <expression> [flags]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-| --- | --- | --- |
-|`<expression>`|yes|Sprint expression to remove. Matched case-insensitively against the configured entries.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+Remove one saved iteration expression; never replace the last rule with an all-items query.
 
 ## Behavior
 
-Delegates to `SprintCommand.RemoveAsync`
-(`src/Twig/Commands/SprintCommand.cs:59-83`):
+Remove one saved iteration expression; never replace the last rule with an all-items query. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. These are retained contextual rule/view operations, not the removed bare area aliases or a full-screen sprint application. Use discovered planning paths, never assumed process names.
 
-1. If no sprint expressions are configured, emit
-   `No sprint expressions configured.` on stderr and exit `1`
-   (`src/Twig/Commands/SprintCommand.cs:63-67`).
-2. Case-insensitive `FindIndex` on `Workspace.Sprints[].Expression`. Not found
-   fails with `Sprint expression '<expr>' is not configured.` on stderr and
-   exit `1` (`src/Twig/Commands/SprintCommand.cs:69-76`).
-3. Remove at the found index and persist via
-   `config.SaveSplitAsync(paths, ct)`.
-4. Emit a `sprintRemoved` success record echoing the removed expression.
+Syntax, required arguments and defaults come from `twig workspace sprint remove --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-No ADO calls are made.
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```
-$ twig workspace sprint remove @current
-Removed sprint expression '@current'.
-```
-
-```
-$ twig workspace sprint remove "Contoso\Sprint 42" -o json
-{"kind":"sprintRemoved","expression":"Contoso\\Sprint 42","message":"Removed sprint expression 'Contoso\\Sprint 42'."}
+```sh
+twig workspace sprint remove --help
 ```
 
-## Exit codes and failure modes
-
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-|No sprint expressions configured|`1` with `No sprint expressions configured.` on stderr|
-|Expression not found (case-insensitive)|`1` with error on stderr|
-
-## See also
-
-- [`workspace sprint add`](./sprint-add.md)
-- [`workspace sprint list`](./sprint-list.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

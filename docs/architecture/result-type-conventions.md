@@ -1,6 +1,7 @@
 # Result Type Conventions
 
-> **Status**: Living document · **Last updated**: August 2026
+> **Status**: Archived legacy Domain conventions · **Last updated**: August 2026
+> Current Core types and native source define today's result contracts.
 > **Related**: [Domain Model Critique — Item 7](domain-model-critique.md#7-result-type-proliferation)
 
 ---

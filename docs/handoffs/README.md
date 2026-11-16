@@ -1,4 +1,8 @@
-# Handoffs
+# Archived handoffs
+
+The native TUI handoff below is historical hardware/build evidence. The TUI
+product and its executable delivery were retired; do not run this as a current
+release gate or revive removed projects to satisfy it.
 
 Procedures that **a person must run**, because no agent and no CI job can.
 

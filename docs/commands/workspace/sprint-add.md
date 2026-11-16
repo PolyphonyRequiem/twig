@@ -1,79 +1,42 @@
 ---
 command: workspace sprint add
 group: workspace
-summary: Add a sprint iteration expression to workspace configuration.
+summary: Add an iteration expression to the current Bench's planning rule; union iterations and preserve area/ownership constraints.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace sprint add`
 
-Subscribe the workspace to a sprint iteration. The expression can be relative
-(`@current`, `@current-1`, `@current+2`) or an absolute iteration path
-(`Contoso\Sprint 42`). Relative expressions are resolved at every workspace
-evaluation, so they automatically follow the calendar as sprints roll.
-
-## Synopsis
-
-```
-twig workspace sprint add <expression> [flags]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-| --- | --- | --- |
-|`<expression>`|yes|Sprint expression to subscribe to — e.g. `@current`, `@current-1`, or an absolute iteration path like `Contoso\Sprint 42`.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+Add an iteration expression to the current Bench's planning rule; union iterations and preserve area/ownership constraints.
 
 ## Behavior
 
-Delegates to `SprintCommand.AddAsync`
-(`src/Twig/Commands/SprintCommand.cs:28-56`):
+Add an iteration expression to the current Bench's planning rule; union iterations and preserve area/ownership constraints. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. These are retained contextual rule/view operations, not the removed bare area aliases or a full-screen sprint application. Use discovered planning paths, never assumed process names.
 
-1. Empty/whitespace expressions are rejected with a `sprintExpressionInvalid`
-   error on stderr and exit `2`
-   (`src/Twig/Commands/SprintCommand.cs:33-37`).
-2. `config.Workspace.Sprints` is initialized on first use.
-3. Case-insensitive duplicate check on `SprintEntry.Expression`. Duplicates
-   emit `sprintAddDuplicate` at severity `info` (not an error) and exit `0`
-   (`src/Twig/Commands/SprintCommand.cs:41-48`).
-4. New expressions are appended and persisted via
-   `config.SaveSplitAsync(paths, ct)`; the command emits a `sprintAdded`
-   success record.
+Syntax, required arguments and defaults come from `twig workspace sprint add --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-The command does not validate the expression against ADO — an invalid absolute
-path is only surfaced later when the workspace tries to resolve it.
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```
-$ twig workspace sprint add @current
-Added sprint expression '@current'.
-```
-
-```
-$ twig workspace sprint add "Contoso\Sprint 42" -o json
-{"kind":"sprintAdded","expression":"Contoso\\Sprint 42","message":"Added sprint expression 'Contoso\\Sprint 42'."}
+```sh
+twig workspace sprint add --help
 ```
 
-## Exit codes and failure modes
-
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-|Empty or whitespace expression|`2` with error on stderr|
-|Duplicate expression (case-insensitive)|`0` with `sprintAddDuplicate` info outcome|
-
-## See also
-
-- [`workspace sprint remove`](./sprint-remove.md)
-- [`workspace sprint list`](./sprint-list.md)
-- [`workspace`](./workspace.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

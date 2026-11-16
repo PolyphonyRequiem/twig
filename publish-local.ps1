@@ -60,7 +60,7 @@ function Enable-Shims {
     }
 }
 
-function Disable-Shims([string[]]$Names = @('twig', 'twig-tui', 'twig-bench-tui', 'twig-mcp')) {
+function Disable-Shims([string[]]$Names = @('twig')) {
     foreach ($name in $Names) {
         $shim = Join-Path $globalDir "$name.cmd"
         $core = Join-Path $globalDir "$name-core.exe"
@@ -106,18 +106,13 @@ if ($Restore) {
 
 # --- Build & deploy (repo-local) ---
 
-# This directory contains generated publish output. Recreate it so a prior
-# Terminal.Gui publish cannot leave a second Windows UI/runtime in the payload.
+# Recreate the generated CLI publish output.
 if (Test-Path $localDir) {
     Remove-Item $localDir -Recurse -Force
 }
 New-Item -ItemType Directory -Path $localDir -Force | Out-Null
 
 Invoke-Publish "twig" "src\Twig\Twig.csproj"
-
-# Retire only the old repo-local MCP launcher; preserve any installed release binary.
-Disable-Shims @('twig-mcp', 'twig-tui', 'twig-bench-tui')
-Get-ChildItem -Path $localDir -Filter 'twig-mcp*' -File | Remove-Item -Force
 
 # Install shims so 'twig' on PATH resolves to the local build
 Enable-Shims

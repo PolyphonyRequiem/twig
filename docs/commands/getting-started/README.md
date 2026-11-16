@@ -1,11 +1,9 @@
-# Getting Started commands
+# getting-started commands
 
-These commands cover the first-run workspace bootstrap and the round-trip between the local cache and Azure DevOps that keeps it fresh.
+Current bundled command behavior. Executable help supplies declaration-derived syntax.
 
-| Command | Summary | Mutates |
-| --- | --- | --- |
-| [`twig init`](./init.md) | Initialize a new Twig workspace at the invocation git-worktree root. | local |
-| [`twig sync`](./sync.md) | Flush pending changes to ADO then refresh the local cache. | ado |
-| [`twig refresh`](./refresh.md) | Deprecated alias — routes through `twig sync --pull-only`. | local |
-
-`twig refresh` is a hidden, deprecated alias retained for backwards compatibility. It forwards to `SyncCommand.ExecuteAsync(pullOnly: true)`, so the flush phase is never entered. New scripts should call `twig sync --pull-only` directly.
+| Command | Behavior |
+|---|---|
+| [`init`](init.md) | Initialize one fresh native Core workspace at .twig/core.db. No legacy cache, migration or reset. |
+| [`sync`](sync.md) | Save retained remote drafts through the proposal journal, then pull the selected Bench. |
+| [`refresh`](refresh.md) | Refresh the local cache from the active provider. Routes through sync --pull-only. |

@@ -1,122 +1,42 @@
 ---
 command: seed publish
 group: seeds
-summary: Publish seeds to Azure DevOps.
+summary: Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation, --link-branch to link to a git branch.
 stability: stable
-mutates: ado
+mutates: provider
 ---
 
 # `twig seed publish`
 
-Pushes local seeds to Azure DevOps, turning each negative-ID draft into a real work
-item with a positive ID. Publishes in dependency order — parents before children,
-predecessors before successors — so cross-seed references translate cleanly. With
-`--all`, publishes every seed; with an ID, publishes just that one. `--dry-run`
-previews the operation without mutating anything, and `--link-branch` attaches the
-newly-created items to a git branch as an ADO artifact link.
-
-This is the **only** command in this group that talks to Azure DevOps.
-
-## Synopsis
-
-```
-twig seed publish [<id>] [--all] [--force] [--dry-run]
-                  [--link-branch <branch>] [--repo <name>] [-o|--output <format>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-|`id`|conditional|Seed ID to publish. Omit when `--all` is passed; required otherwise.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`--all`|bool|`false`|Publish every seed in topological dependency order.|
-|`--force`|bool|`false`|Skip `seed validate` before publishing.|
-|`--dry-run`|bool|`false`|Preview what would be published without calling ADO.|
-|`--link-branch`|string|`null`|Link each published work item to this git branch as an ADO artifact link (e.g. `feature/my-branch`).|
-|`--repo`|string|`null`|Repository name for branch linking. When omitted, uses the workspace-configured default repository.|
-|`-o, --output`|string|`human`|Output format: `human`, `json`, `minimal`.|
+Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation, --link-branch to link to a git branch.
 
 ## Behavior
 
-- Delegates the transactional work to `SeedPublishOrchestrator.PublishAsync` / `PublishAllAsync`. In `--all` mode the orchestrator computes the topological order and publishes seeds one by one, rewriting inbound references to the newly minted ADO IDs as it goes (`src/Twig/Commands/SeedPublishCommand.cs:45-67`).
-- Requires either an ID **or** `--all`. Bare `twig seed publish` returns exit `1` with `Specify a seed ID or use --all.` (`src/Twig/Commands/SeedPublishCommand.cs:69-73`).
-- When `--link-branch` is set, the branch artifact URI is resolved **once upfront** via `ResolveBranchArtifactUriAsync` — `--repo` chooses `IAdoGitService.GetRepositoryIdByNameAsync`, otherwise the workspace-configured `GetRepositoryIdAsync` — so a bad branch name fails before the publish loop instead of after (`src/Twig/Commands/SeedPublishCommand.cs:42-43,166-197`).
-- After publish, `LinkBatchAsync` walks each successful result and calls the ADO link API. Individual link failures are **best-effort**: they are logged to stderr and counted, but do not fail the command. A summary line (`Linked N / failed M to branch <name>`) follows the publish result (`src/Twig/Commands/SeedPublishCommand.cs:49-55,79-83,203-243`).
-- `--dry-run` skips branch resolution entirely and returns the orchestrator's simulated results without any writes (`src/Twig/Commands/SeedPublishCommand.cs:166-172`).
-- **Active context follow.** If the active work item was one of the published seeds, the active-item pointer is rewritten to the newly assigned positive ID so the next `twig show` still points at the same conceptual item (`src/Twig/Commands/SeedPublishCommand.cs:57-64,85-87`).
-- Exit code mirrors the orchestrator: any error in batch mode → `1`; single-seed mode returns `1` when `!IsSuccess` (`src/Twig/Commands/SeedPublishCommand.cs:66,89`).
-- **Bounded tag vocabulary.** Correlated creates use the shared `twig` and `twig-publishing` tags, never a per-seed GUID/hash tag. The existing staged GUID is appended as a temporary visible paragraph in Description in the original create request.
-- **Exact recovery.** Original native acknowledgments or the exact GUID in creation revision one attribute a prior create. A shared-tag query only discovers candidates; missing or ambiguous evidence cannot authorize replay of an unresolved create. Historical tagged request evidence remains readable.
-- **Confirmed cleanup.** Temporary Description metadata and the owned shared pending tag are removed only after durable intent, published-ID mapping and native outcome evidence exist. Cleanup uses current content and a revision fence, preserving concurrent human edits and caller-owned tags. A failed cleanup does not repeat creation. The GUID remains in ADO revision history after current Description cleanup.
+Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation, --link-branch to link to a git branch. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. A seed is a local UUID-backed draft, not a negative published identity. Discover type/field/relationship rules from the bound schema; creation and verified publication are separate outcomes. After an uncertain attempt preserve the original draft, proposal, digest and receipts instead of repeating creation.
 
-### Batch preflight diagnostics
+Syntax, required arguments and defaults come from `twig seed publish --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-`--all` checks seed validation, parent references, dependency cycles, and seed-ID
-escapes before creating any ADO work items. A passing `seed validate` is not proof
-that batch preflight passed: publishing also checks the graph and field references.
-A single-child dry run can still refuse an unpublished parent.
+## Effects
 
-The escape guard recognizes standalone negative integer tokens that match a seed
-in the batch, including `-3`, `#-3`, `(-3)`, and references inside HTML or URLs.
-Embedded identifier, version, date, and decimal fragments such as `AC-1`,
-`v0.97.1-4`, `2026-1-2`, and `-3.5` are legitimate content, not seed references.
-Titles and all field values are checked; matching references still stop the batch.
-Use seed links for relationships rather than placing local seed IDs in prose.
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
 
-JSON always includes `preFlightErrors` alongside `results` and `cycleErrors`.
-Each preflight entry has the shape
-`{"key":"preFlightError","value":"<diagnostic>"}`, consistent with cycle diagnostics.
-Human and minimal output show each diagnostic too. A preflight refusal exits `1`
-even if `results` is empty; it does **not** say “No seeds to publish.” That message
-is reserved for an empty batch with no diagnostics. The same reporting applies
-to ordinary publishing and `--dry-run`; legitimate AC labels need no workaround.
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Publish one seed:
-
-```
-$ twig seed publish -42
-Published seed #-42 → #7842 (Task)
+```sh
+twig seed publish --help
 ```
 
-Publish everything and link to a branch:
-
-```
-$ twig seed publish --all --link-branch feature/audit-trail
-Published seed #-42 → #7842 (Task)
-Published seed #-43 → #7843 (Task)
-Published seed #-44 → #7844 (Task)
-Linked 3, failed 0 to branch feature/audit-trail.
-```
-
-Preview an `--all` publish without touching ADO:
-
-```
-$ twig seed publish --all --dry-run -o json
-{"results":[{"kind":"seedPublishResult","oldId":-42,"newId":0,"title":"Preview seed","status":"DryRun","isSuccess":true,"errorMessage":null}],"cycleErrors":[],"preFlightErrors":[],"createdCount":0,"skippedCount":0,"hasErrors":false}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Publish succeeded, or `--dry-run` completed.|`0`|
-|Neither an ID nor `--all` supplied.|`1`|
-|Any seed failed to publish (batch: `HasErrors`; single: `!IsSuccess`).|`1`|
-|Batch preflight refused (including `--dry-run`).|`1`; every preflight diagnostic is included in the selected output format.|
-|Branch link failure|**does not fail the command** — reported in the link summary.|
-
-## See also
-
-- [`seed validate`](./seed-validate.md) — the pre-publish gate. Skipped by `--force`.
-- [`seed reconcile`](./seed-reconcile.md) — repair local link tables after a partial publish.
-- [`seed view`](./seed-view.md) — inspect what would be published.
-- [`seed chain`](./seed-chain.md) — build ordered seed sets that publish cleanly here.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

@@ -67,7 +67,7 @@ try {
         $global:DaemonFixture.Mode = 'complete'
         & (Join-Path $tools 'daemon-install.ps1') @arguments | Out-Null
         $record = Get-Content -LiteralPath (Join-Path $root 'current.json') -Raw | ConvertFrom-Json
-        if ($record.application -cne 'twig-daemon' -or $record.schema -ne 4 -or
+        if ($record.application -cne 'twig-daemon' -or $record.schema -ne 5 -or
             $record.canvasInstallRoot -cne $arguments.CanvasInstallRoot) { throw 'Independent daemon selection was not retained.' }
     }
     $retained = [IO.File]::ReadAllText((Join-Path $root 'current.json'))
@@ -77,13 +77,18 @@ try {
     . (Join-Path $tools 'daemon-launch.ps1')
     $record = Get-Content -LiteralPath (Join-Path $root 'current.json') -Raw | ConvertFrom-Json
     $null = Get-BenchInstallation $root $record
-    foreach ($field in @('authority', 'port', 'privateDataDir', 'canvasInstallRoot')) {
+    foreach ($field in @('schema', 'authority', 'port', 'privateDataDir', 'canvasInstallRoot')) {
         $changed = $record | ConvertTo-Json | ConvertFrom-Json
-        $changed.$field = switch ($field) { 'port' { 443 }; 'privateDataDir' { $root }; 'canvasInstallRoot' { $root }; default { 'foreign' } }
+        $changed.$field = switch ($field) { 'schema' { 4 }; 'port' { 443 }; 'privateDataDir' { $root }; 'canvasInstallRoot' { $root }; default { 'foreign' } }
         $refused = $false
         try { Get-BenchInstallation $root $changed | Out-Null } catch { $refused = $true }
         if (-not $refused) { throw "Invalid daemon binding was accepted: $field" }
     }
+    $changed = $record | ConvertTo-Json | ConvertFrom-Json
+    $changed | Add-Member -NotePropertyName migrateLegacy -NotePropertyValue $false
+    $refused = $false
+    try { Get-BenchInstallation $root $changed | Out-Null } catch { $refused = $true }
+    if (-not $refused) { throw 'Removed migration metadata was accepted as current installation authority.' }
     $binary = Join-Path $root ('versions\' + $global:DaemonFixture.Version + '\Twig.Providers.Native.dll')
     [IO.File]::AppendAllText($binary, ' changed')
     $refused = $false

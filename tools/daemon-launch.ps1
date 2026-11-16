@@ -47,10 +47,10 @@ function Get-BenchInstallation([string] $Root, $Record = $null) {
     }
     $native = $true
     $fields = @('application', 'schema', 'version', 'manifestHash', 'privateDataDir',
-        'authority', 'port', 'httpsCertificateThumbprint', 'migrateLegacy', 'canvasInstallRoot')
+        'authority', 'port', 'httpsCertificateThumbprint', 'canvasInstallRoot')
     Assert-BenchFields $record $fields
     if ($record.application -isnot [string] -or $record.application -cne 'twig-daemon' -or
-        ($record.schema -isnot [int] -and $record.schema -isnot [long]) -or $record.schema -ne 4 -or
+        ($record.schema -isnot [int] -and $record.schema -isnot [long]) -or $record.schema -ne 5 -or
         $record.version -isnot [string] -or $record.manifestHash -isnot [string] -or
         $record.version -cnotmatch '^[a-f0-9]{40}$' -or $record.manifestHash -cnotmatch '^[A-F0-9]{64}$') {
         throw 'Unsupported or foreign installation metadata.'
@@ -66,7 +66,7 @@ function Get-BenchInstallation([string] $Root, $Record = $null) {
         throw 'An existing separate private service data directory is required.'
     }
     if ($record.authority -isnot [string] -or $record.authority -cne 'native-user-benches-v1' -or
-        $record.migrateLegacy -isnot [bool] -or $record.canvasInstallRoot -isnot [string]) {
+        $record.canvasInstallRoot -isnot [string]) {
         throw 'Invalid native authority or canvas selection metadata.'
     }
     $canvas = Get-BenchLocalPath $record.canvasInstallRoot
@@ -79,7 +79,7 @@ function Get-BenchInstallation([string] $Root, $Record = $null) {
         throw 'Invalid trusted localhost endpoint metadata.'
     }
     return [pscustomobject]@{ Executable = $executable; Data = $data; Canvas = $canvas;
-        Port = $record.port; Certificate = $record.httpsCertificateThumbprint; Native = $native; MigrateLegacy = $record.migrateLegacy }
+        Port = $record.port; Certificate = $record.httpsCertificateThumbprint; Native = $native }
 }
 
 function Get-BenchRuntime([string] $VersionRoot, [string] $Version, [string] $ManifestHash) {
@@ -136,7 +136,6 @@ try {
     $arguments = @('--data-dir', $installation.Data, '--port', [string]$installation.Port)
     if ($null -ne $installation.Certificate) { $arguments += @('--https-certificate', $installation.Certificate) }
     $arguments += @('--canvas-root', $installation.Canvas)
-    if ($installation.MigrateLegacy) { $arguments += '--migrate-legacy' }
     if ($EnsureRunning) { $arguments += '--ensure-running' }
     if ($Mcp) { $arguments += '--mcp' }
     # Keep the operator console available for explicit stop; native sign-in never uses pairing codes.

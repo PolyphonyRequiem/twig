@@ -1,242 +1,42 @@
 ---
 command: auth status
 group: system
-summary: Inspect the effective attached identity binding and configuration provenance without secrets.
+summary: Inspect local authentication state without refreshing. Use --provider github for a selected GitHub App identity.
 stability: stable
 mutates: none
 ---
 
 # `twig auth status`
 
-Reports the effective binding through the same resolver as `twig connection
-status`. It does not inspect an ambient global token as if that token were the
-selected account. This is integration-branch behavior, not a partial release.
-
-## Synopsis
-
-```text
-twig auth status [-o <format>]
-twig auth status --provider github --identity <alias> [--client-id <registered-app-client-id>] [-o <format>]
-twig connection status [-o <format>]
-twig auth identities [-o <format>]
-twig connection list [--org <organization> --project <project>] [-o <format>]
-twig connection check [-o <format>]
-twig connection capabilities [--github-schema] [-o <format>]
-twig connection migrate --identity <alias> [--method aad|pat] [--confirm <digest>] [-o <format>]
-twig connection pin --binding <binding-id> [--confirm <digest>] [-o <format>]
-twig connection unpin [--confirm <digest>] [-o <format>]
-twig connection default --binding <binding-id> [--confirm <digest>] [-o <format>]
-twig connection writes [-o <format>]
-twig connection reconcile-write --intent <id> --confirm <digest> --rationale <basis> [-o <format>]
-```
+Inspect local authentication state without refreshing. Use --provider github for a selected GitHub App identity.
 
 ## Behavior
 
-With `--provider github`, status inspects only the explicitly selected local
-GitHub App identity. `--identity` and `--client-id` default to user-local
-`github.oauthidentity` and `github.appclientid`; missing selection refuses.
-Output contains host, public app client ID, identity alias, immutable actor ID,
-login locator, access/refresh expiries and one of `signed-out`, `signed-in`,
-`refresh-required` or `needs-login`. Status never contacts GitHub, refreshes,
-selects another credential, or outputs access/refresh tokens. `signed-in` is
-local saved-state information, **not** fresh permission/installation evidence
-or write admission. A refresh-pending uncertainty marker requires explicit
-sign-in, not another refresh attempt.
+Reports the recorded selected/pinned identity and target, not a fresh authentication check. Explicit GitHub App status describes only that named app credential and does not attest a pinned gh actor.
 
-`auth logout --provider github` deletes only the selected local pair; it does not
-revoke GitHub authorization or uninstall the app. See [GitHub enrollment and
-registration](auth-login.md#github-app-oauth-enrollment). The following binding
-diagnostics describe the unchanged default `--provider ado`.
+Syntax, required arguments and defaults come from `twig auth status --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-Status validates the worktree attachment, declared endpoint and effective local
-pin or central binding default. It reports organization/project/team, method, alias, stable principal
-metadata, binding and selection revisions, attachment revision, and configuration
-source paths. `display.icons` reports its winning local/global/default source;
-local preference source is not claimed as the origin of inherited global icons.
-JSON retains the configured `team` and reports `effectiveTeam`, the team actually
-used for iteration requests. When `team` is blank, the existing native convention
-uses `<project> Team`; this is a default request target, not a discovered ADO team.
-Human and structured output use the same admitted snapshot. Status performs no
-work-item request and does not claim fresh remote authorization or locally
-verified JWT signatures.
+## Effects
 
-AAD metadata includes tenant/object/issuer requirements. PAT metadata includes
-`adoPrincipalId` and `adoAuthority`; PAT output omits AAD-only claims. Names are
-management aliases and display labels, never authoritative principal evidence.
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
 
-Identity listing is explicit bootstrap administration and works before attachment.
-Connection listing inspects bindings for paired explicit `--org`/`--project`
-coordinates, or the current configuration's endpoint. Neither command selects
-an account or changes a default. Registry listings contain principal metadata and
-opaque references, never refresh/access tokens or PATs.
+## Failures
 
-Missing, unknown or cross-endpoint selection refuses rather than using a machine
-cache, Azure CLI account, global token store or last login. An initial binding can
-be created with `twig connection bind --identity <alias> --default`; explicit
-coordinates use paired `--org` and `--project`. A different existing default
-refuses; safe identity switching is a separate guarded management transition.
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
-### Binding-change prerequisites
+## Examples
 
-`twig connection check` inspects the attached worktree's local prerequisites for
-an identity change without changing its binding, publishing or discarding work,
-releasing claims, or making work-item requests.
+```sh
+twig auth status
+```
 
-JSON output includes the effective selection and attachment revisions plus exact
-pending edits, local seeds, open publish intents, unresolved journal operations,
-reserved claims, worktree guards and unknown rows. Unknown or unresolved evidence
-blocks eligibility; a later successful operation does not erase an earlier
-unsettled journal row. Actionable next steps describe separate native operations,
-not automatic remediation. There is no force bypass.
-
-This is a prerequisite snapshot, not authorization to switch an identity or proof
-of fresh remote access. An eligible snapshot returns `0`; a blocked snapshot
-returns `1`, retaining its structured evidence.
-
-### Guarded checkout pin and removal
-
-`twig connection pin --binding <id>` previews a checkout-local pin; `twig
-connection unpin` previews returning to the endpoint's explicit default. Inspect
-binding IDs with `connection list`, then apply the same arguments with
-`--confirm <digest>`. Missing, cross-endpoint or stale selections refuse. Actual
-pin changes require the native migrated layout and fresh operation/attachment
-fences; they never activate migration, publish/discard work, or rewrite holders.
-
-An interrupted transition fences reads, writes and ordinary attachment changes.
-Resume its original arguments and digest after resolving the reported blocker;
-do not delete its native intent or start a replacement. Completion resets only
-the one disposable mirror when the effective binding changes. Credentials,
-portable policy, primary scope and durable pending/proposal history survive.
-Old live runtimes require explicit reconnect; verified same-principal credential
-renewal and an identical pin no-op do not erase data or adopt another actor.
-
-### Guarded connection default change
-
-`twig connection default --binding <id>` previews changing an existing endpoint
-default across its registered worktree family. Select a binding from `connection
-list`, then apply the same arguments with the exact reviewed `--confirm <digest>`.
-Establish an initial default separately with `connection bind --default`; this
-command never guesses an account. An identical default is an unchanged no-op.
-
-The preview reports affected members, selection/attachment revisions and blockers.
-Pinned checkouts keep their actor and read data. Pending edits, active holders,
-unknown writes, inaccessible members or changed membership/CAS revisions refuse
-the whole unsafe admission; there is no force, automatic publication, discard or
-claim release. An interrupted family fences affected reads until its original
-binding and digest are resumed; do not erase its native recovery intent.
-
-Eligible preview/completion/no-op returns `0`; blockers or runtime failures return
-`1`; missing `--binding` or unsupported output returns `2`. Supported output is
-human, JSON and minimal. Completion preserves credentials, portable policy and
-durable histories and requires explicit reconnect of stale live runtimes.
-
-### Native uncertain writes
-
-Mutating requests record immutable native admission before HTTP. Lost responses,
-process death and ambiguous server outcomes remain blockers even after physical
-leases disappear. `connection writes` lists original identities, exact request
-digests, response observations and append-only outcome receipts. Inspection never
-replays a write; clearing a pending note does not settle its unknown remote POST.
-
-`connection reconcile-write` requires the exact digest and truthful evidence
-rationale. It resolves the current connection and requires the original
-binding, principal and admitted generation; no caller-supplied authorizer or
-Human/Model steering label is accepted. New receipts retain that native
-connection provenance without claiming a signer, and historical receipts remain
-readable unchanged. It uses original-actor read-only evidence
-collection: an exhausted work-item revision test and the exact immutable first
-post-CAS revision can establish the requested effect. A later matching current
-value, matching comment text/actor, an expired lease or rationale alone cannot.
-An unrevisioned lost POST without attributable server evidence remains blocked;
-there is no force, automatic retirement or alternate-account retry. Reconciliation
-returns `0` only with a native outcome receipt; unresolved evidence returns `1`.
-For a confirmed Description-correlated seed, reconciliation also attempts
-revision-guarded cleanup of its exact temporary marker and owned shared pending
-tag. Retrying the same settled seed receipt can retry that cleanup without
-recreating the item or replacing its outcome receipt. Cleanup warnings do not
-change the confirmed create outcome; concurrent human content remains intact.
-
-### Legacy migration administration
-
-`twig connection migrate` previews a versioned import without activating storage.
-Use `--identity` to explicitly map the endpoint and preserved local work to the
-intended principal. For an unregistered identity, `--method aad` imports the
-metadata home's legacy refresh credential; `--method pat` imports a legacy PAT
-from the worktree's local configuration. Missing principal evidence requires
-explicit enrollment. A global login, token audience, display name or last-used
-account never establishes connection intent, and secrets are not accepted in
-migration arguments or included in output.
-
-Apply with the same identity/method arguments and `--confirm <digest>` from a
-clean preview. Source changes, ambiguous mappings, incompatible claims,
-in-flight native publication, unsupported versions and unreadable data refuse
-before activation. Split mirror versions 16 and 17 are supported; earlier
-unsplit/unknown layouts must be preserved and recovered with their compatible
-Twig version. Migration never flushes pending work, publishes proposals,
-rewrites journal states, replaces another default or weakens portable policy.
-
-Activation inventories supported OS hosts and actual provider/store capabilities
-and handles. Explicitly close affected CLI/TUI/MCP/Herdr subprocesses and legacy
-providers/stores, then rerun. An empty lease ledger or an owner assertion is not
-closure evidence. Unavailable/inconclusive inspection refuses; migration does
-not kill processes, restart hosts automatically or offer a force bypass.
-
-A native preparing intent fences interrupted activation. The disposable mirror
-moves to a generation-admitted entry point; legacy SQLite paths are sealed, and
-current opens require native admission rather than a supplied connection string.
-Credentials, staged work, durable `pending.db`, historical proposals/receipts,
-attachment and portable configuration remain preserved. Unprotected read data
-starts cold. Repeating an active migration is idempotent; an interrupted run
-resumes the original identity and native intent, never a replacement generation
-or actor. Resolve its reported blocker and preview/apply again; do not erase the
-intent, delete the durable store or reinitialize admitted storage with legacy
-`init --force`/`--reinitialize`.
-
-This is explicit management administration, not permission to issue normal work
-requests outside a valid attachment. Preview output includes `state`, `digest`,
-`canApply`, source versions, every blocker and separate next steps. Eligible
-previews/active results return `0`; blocked/runtime failures return `1`; invalid
-method arguments return `2`.
-
-### Relationship capabilities
-
-`twig connection capabilities` reports, for each relationship kind
-(`parent-child`, `predecessor-successor`, `related`), the active provider's
-declared implementation (`native`, `emulated` or `unsupported`), where any
-emulated edge is stored (`none`, `local-only` or
-`local-with-provider-projection`), and runtime availability (`available`,
-`unavailable` or `unknown`) with a reason. Declaration and availability are
-separate: a denied or failed probe never downgrades a native declaration, and a
-provider that offers no probe evidence reports `unknown` with reason
-`not-probed`. The command is read-only, performs no work-item mutation and does
-not enable emulation. It returns `1` when no provider can be resolved or the
-provider's evidence is invalid.
-
-With an active GitHub provider, `--github-schema` explicitly performs a fixed,
-read-only authenticated GraphQL query and adds host schema metadata to the
-report. It lists the `Issue` type, supported field names and GraphQL types,
-the `IssueState` enum, and which relationship fields are present. It does not
-enumerate repository-specific issue types, labels, assignees or milestones.
-The option is rejected for other providers; their process metadata remains on
-their existing provider-specific command surfaces.
-
-Schema support is distinct from relationship availability: a field present in
-the host schema does not prove that the current credential can read a particular
-work item. A successfully discovered missing field or state type is reported as
-`unsupported`; denied discovery is `unavailable`, and incomplete or failed
-discovery is `unknown`. Process and field rules are explicitly reported as
-`unsupported` for GitHub, not as empty rule lists. GitHub schema metadata is
-provider data, not an ADO process configuration or domain policy. Without
-`--github-schema`, this command keeps its existing no-network behavior.
-
-## Exit codes and failure modes
-
-Successful inspection/listing returns `0`. Status returns `1` with setup guidance
-when attachment or effective selection cannot be resolved. Passing only one of
-`--org`/`--project` to connection listing refuses. Missing identity or an attempt
-to replace a different initial default refuses without account fallback.
-
-## See also
-
-- [`auth clear`](auth-clear.md) — invalidate only the selected access cache.
-- [`auth login`](auth-login.md) — explicitly enroll or renew an identity.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

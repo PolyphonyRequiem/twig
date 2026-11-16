@@ -1,214 +1,124 @@
-# Twig — Copilot Instructions
+# Twig - Copilot instructions
 
-## Project Overview
+## Current product
 
-Twig is an **AOT-compiled .NET 10 CLI** for Azure DevOps work-item triage. It renders
-sprint backlogs as rich terminal trees using Spectre.Console.
+Twig is a NativeAOT/full-trim .NET 11 RC3 CLI for explicit work-item reads and
+changes. The Windows native daemon and public RenderTree SDK are distinct
+supported surfaces. RenderTree retains .NET 10/.NET 11 consumers; the
+`Twig.DetailHost` sample targets .NET 10.
 
-**Key constraints:**
-- `PublishAot=true`, `TrimMode=full`, `InvariantGlobalization=true`
-- `JsonSerializerIsReflectionEnabledByDefault=false` — all JSON must use source-generated `TwigJsonContext`
-- CLI framework: **ConsoleAppFramework** (source-gen, no reflection)
-- Data store: **SQLite** with WAL mode, per-workspace at `.twig/{org}/{project}/twig.db`
-- Rendering: **Spectre.Console** (Live regions, async rendering)
-- Warnings as errors: `TreatWarningsAsErrors=true`
-- Nullable reference types enabled globally
-- **Process-agnostic**: No hardcoded state names, type names, or process template assumptions.
-  All process-specific mapping comes from `IProcessConfigurationProvider` at runtime.
-  Never assume a specific process template (Agile, Scrum, CMMI, Basic) — discover
-  states, types, and fields dynamically via the provider.
+- CLI: ConsoleAppFramework source generation, static Spectre.Console rendering,
+  invariant globalization and source-generated JSON; reflection serialization
+  is disabled.
+- Persistence: current Core SQLite store, normally `.twig/core.db`, with WAL.
+  Existing developer-local data is disposable; there is no migration/adoption
+  compatibility requirement.
+- Internal semantics/composition: Core, store, provider projects and native
+  Infrastructure. Infrastructure is nonpackable, not an external SDK.
+- No hardcoded process types/states/fields/templates. Discover vocabulary,
+  transitions, requirements and allowed values through the bound provider schema.
+- Warnings are errors; nullable is enabled. Prefer sealed classes/records and
+  primary constructors, following existing DI modules.
+- New serializable types use the owning source-generated JSON context.
+- Tests use xUnit, Shouldly and NSubstitute; mirror the source structure.
 
-## Coding Conventions
+The [current composition contract](../docs/architecture/clean-core-contract.md)
+and executable help define supported routes. Retired standalone MCP/TUI/Herdr,
+OMP/item-companion adapters, captured UI envelopes, `plan`/bare-area aliases and
+inert presentation flags are not compatibility APIs. The Windows daemon's
+read-only `mcp-read-v1` is current and deliberately has no Save/Apply tools.
 
-- Prefer `sealed` classes and `sealed record` types
-- Use primary constructors for DI injection
-- Register services in `TwigServiceRegistration.cs` (domain/infra) or `Program.cs` (commands)
-- New serializable types must be added to `TwigJsonContext` with `[JsonSerializable]`
-- Test projects mirror source project structure (e.g., `Services/` → `Services/`)
-- Tests use **xUnit** with **Shouldly** assertions and **NSubstitute** for mocking
-- Test classes use `[Fact]` and `[Theory]` attributes (not `[TestClass]`/`[TestMethod]`)
+## Targeting and authority
 
-## Structured CLI targeting
+Structured output (`json`, `json-full`, `json-compact`, `minimal`, `ids`) marks
+a machine invocation. Single-item mutations require `--id`; structured
+`show`/targeted `tree` reads require a positional ID or `--id`. Preserve explicit
+local-ID/list/file scopes where supported. Conflicting targets refuse.
 
-Non-human output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) is treated as a machine invocation. A machine mutation targeting one work item must name it with `--id`. Structured `show`/targeted `tree` reads require a positional ID or `--id`; conflicting targets are refused. Explicit `show --local-id`, retained list scopes and file-scoped proposal operations remain supported. Structured `states` is refused; use `twig process <type>`. Machine workspace output and retained ADO Bench pulls exclude the interactive active item and its relationships, while preserving explicit Bench scope and local drafts. `twig set`, navigation and `twig seed publish` are refused with structured output because they read or change active context. Structured seed creation must choose `--parent <id>` or `--no-parent`.
+Structured `states` is refused; use `process <discovered-type>`. Machine workspace
+output retains explicit Bench scope and local drafts, excluding active-context
+relationships. `set`, navigation and seed publication are refused in structured
+mode. Structured seed creation chooses `--parent` or `--no-parent`.
 
-The closed phase-5 Core/native-host catalog is defined in `docs/architecture/clean-core-contract.md`. No-marker data calls require fresh init, never the old cache/writer graph. Quick `new`, tree-set/full backlog/live UI, native history/layout export, Browser/TUI/MCP and captured UI envelopes, policy assessment/repair selection, migration/reset/reinitialize and identity/target hot-switch commands are retired, not compatibility routes. Native status describes recorded selection, not fresh authenticated evidence; `connection writes` is inspect-only correlated transport evidence, while Core proposal status/journal is execution authority. Domain/shared legacy source deletion is phase 6.
+No-marker data calls require fresh init, not an old cache/writer graph. Recorded
+status is not fresh authenticated access. `connection writes` is inspect-only
+correlated transport evidence; the Core v3 proposal journal is execution
+authority. Preserve original digests/attempts and never replay uncertain writes.
 
-## Telemetry & Data Privacy
+## Telemetry and privacy
 
-Twig supports optional anonymous telemetry via `TWIG_TELEMETRY_ENDPOINT` environment variable.
-These rules are **non-negotiable** for ALL code that emits, collects, or transmits telemetry:
+Optional telemetry uses `TWIG_TELEMETRY_ENDPOINT`. These constraints apply to all
+collection/emission/transmission:
 
-### NEVER send (even hashed)
-- Organization, project, or team names
-- User names, display names, or email addresses
-- Process template names (e.g., "Agile", "Scrum", "CMMI")
-- Work item type names (e.g., "User Story", "Bug", "Task")
-- Field names or reference names (e.g., "Microsoft.VSTS.Scheduling.StoryPoints")
-- Area paths or iteration paths
-- Work item IDs, titles, descriptions, or any content
-- Repository names, branch names, or commit hashes
-- Any ADO-specific identifier or process-specific data
+**Never send, even hashed:** organization/project/team names; user names/emails;
+process/template/type names; field/reference names; area/iteration paths;
+work-item IDs/titles/descriptions/content; repository/branch names or commit
+hashes; any other ADO-specific identifier or process-specific data.
 
-### Safe to send
-- Twig command name (e.g., "status", "tree", "refresh")
-- Command duration (ms), exit code (0/1), output format
-- Twig version, OS platform
-- Generic booleans (e.g., `had_profile`, `merge_needed`)
-- Generic counts (e.g., `field_count: 47` — numbers only, no identifiers)
+**Safe:** command name, duration, exit code, output format, Twig version, OS,
+generic booleans and numeric counts without identifiers.
 
-### Enforcement
-- Telemetry property keys must pass an allowlist check in tests
-- Keys containing "org", "project", "user", "type", "name", "path", "template",
-  "field", "title", "area", "iteration", or "repo" must be rejected
-- Zero network calls when `TWIG_TELEMETRY_ENDPOINT` is unset
-- Telemetry failures must never affect command execution or return codes
+Property keys pass an allowlist in tests. Reject keys containing `org`,
+`project`, `user`, `type`, `name`, `path`, `template`, `field`, `title`, `area`,
+`iteration` or `repo`. Zero network calls when the endpoint is unset. Telemetry
+failure never changes command execution or exit status.
 
-## ADO Work Item Tracking
+## Work tracking
 
-Twig development is tracked in `dangreen-msft/Twig` (Basic process: Epic → Issue → Task).
-Plan documents map to ADO: one Epic per plan, one Issue per plan epic, optionally one Task per
-task row. The mapping is stored in `tools/plan-ado-map.json`.
+Development is tracked through the Twig CLI on ADO
+`PolyphonyRequiem/Twig`; GitHub is the public record. Verify connection and
+authority rather than inferring a tracker from Git remotes. Do not write work
+items without task authorization.
 
-### Seeding conventions
-- `tools/seed-from-plan.ps1` creates the ADO hierarchy from a plan document
-- Plan-level Epic gets the Introduction section as its description
-- Each Issue gets its epic's description text from the plan
-- All items are assigned to the `-AssignedTo` param (default: "Daniel Green")
-- Per-epic effort in hours can be passed via `-EpicEffortHours @{"Epic 1"=8; "Epic 2"=4}`
-- After seeding, the plan Epic is transitioned to "Doing"
+The old plan seeder, SQL/config context-switch scripts and dormant workflow
+recipes are retired. Do not copy legacy `.twig` data into a fresh worktree or
+revive old scripts to satisfy historical plans.
 
-### Creating work items via twig CLI
-- Use the `twig` skill for shared work-item guidance and exact command references
-- **Always assign to the user** after creating and publishing a seed:
-  `twig set <id>` → `twig update System.AssignedTo "Daniel Green"`
-- **Always add a rich description** after creating and publishing a seed:
-  `twig set <id>` → `twig update System.Description "<markdown>" --format markdown`
-- Note: `twig update` pushes immediately to ADO — no `twig save` needed afterward
-- **Description quality standards:**
-  - Always use `--format markdown` for System.Description fields
-  - Write at least 2-3 paragraphs unless the item is truly trivial
-  - Use Markdown headings, bullet lists, bold, and code formatting for readability
-  - Include: what the change is, why it matters, context/background, acceptance criteria
-  - ADO renders the HTML natively — make it look professional
+When authorized to create work, use current seed/proposal commands with
+discovered types, assignment fields and explicit scope. Assign to the intended
+user and supply a rich description in the field's supported format (Markdown
+for supported `System.Description` updates). Explain what/why/context and
+acceptance criteria in a readable 2-3 paragraphs unless truly trivial.
 
-### Commit conventions
-When committing code that implements plan work:
-- Include `AB#<id>` in the commit message (the Issue ID from the mapping file)
-- After committing, close the ADO item through the plan path described in
-  *Work Item Lifecycle Protocol* below. `twig state Done` is **not** the close mechanism
-- When all epics complete, also close the plan-level Epic — any close-gate fields its
-  process declares must be written in the same operation as the transition
-- If no mapping exists for the current work, commit normally without AB# reference
+For mapped tracked work, include `AB#<issue-id>` in implementing commits; without
+a current map, do not invent an ID. Follow
+`.github/instructions/pr-grouping.instructions.md` when authoring plan groups.
 
-### PR Grouping Strategy
+## Tracked lifecycle
 
-PR groups (PGs) are a cross-cutting overlay that organizes plan tasks into reviewable
-pull requests. They are **not** a 1:1 mapping to the ADO work item hierarchy — grouping
-is driven by review coherence.
+Before implementing an authorized tracked task, establish explicit target,
+discover the actual in-progress state, transition through the current CLI and
+record a starting note. Add notes at meaningful discovery/change/test/blocker
+checkpoints, not only completion.
 
-Key heuristics:
-- **2-PR sweet spot**: Two PGs per epic balances parallelism, isolation, and merge simplicity.
-- **3-PR threshold**: Three PGs is where cognitive overhead increases meaningfully —
-  justify reaching for 3, don't default to it.
-- **Sizing guardrails**: ≤2,000 LoC and ≤50 files per PG.
-- **Deep vs Wide**: Classify each PG to set reviewer expectations.
+For completion:
 
-See `.github/instructions/pr-grouping.instructions.md` for the full guide.
+1. Record the final implementation note.
+2. Discover the exact type's Done-category state and all required fields with no
+   supplying rule using `process description`; do not hardcode a gate table.
+3. Author **one** current v3 batch operation carrying the state plus all gate
+   fields together. A bare state-only command cannot carry missing fields.
+4. Validate/preview that explicit file and apply its exact digest with
+   `twig proposal apply --file <path> --confirm <digest>`.
+5. Inspect the Core journal and refresh-read the affected item. Only then mark
+   its todo complete. Leave human-gated or unresolved work open explicitly.
 
-## Work Item Lifecycle Protocol
+Do not treat display, cached state, local reset, transport receipt or command
+success alone as proof of closure. Multi-operation apply is not globally atomic.
+Preserve uncertain attempts; never replay a possibly successful creation or
+verified prefix.
 
-**This protocol is mandatory for ALL agents when work is tracked in ADO work items.**
-It applies whenever you create, start, or complete tasks, issues, or epics via the twig CLI.
+For explicitly authorized final delivery, push only when requested, close any
+authorized parent through the same gate/digest/journal path, then summarize.
+Respect an instruction to commit without pushing.
 
-### Starting a task
+## Validation and documentation
 
-Before writing any code for a tracked task:
-1. `twig set <id>` — set the active work item
-2. `twig state Doing` — transition to Doing
-3. `twig note --text "Starting: <brief plan of approach>"` — record intent
+Read `AGENTS.md` for current bounded serial build/focused-regression/smoke gates.
+No automatic broad suites, deadline expansion, watchdog weakening, global tool
+repair or compatibility work for disposable local data.
 
-### During implementation
-
-Add a `twig note` at each meaningful checkpoint — not just at completion:
-- **After research/discovery** — what files are involved, what the approach is
-- **After each significant code change** — what was done, what remains
-- **After tests pass** — test count, coverage, edge cases deferred
-- **On encountering surprises** — blockers, design changes, scope adjustments
-
-### Completing a task
-
-🔴 **`twig state Done` cannot close a tracked work item.** Two independent reasons:
-
-1. **It writes the wrong thing.** `twig state` stages `System.State` and nothing else. A
-   process may declare *close-gate* fields — fields it makes required in the Done-category
-   state with no process rule supplying a value. A bare state push leaves those fields empty,
-   so ADO's rule engine rejects it — and under `bypassRules` it would be worse, closing the
-   item with its gate fields silently empty.
-2. **It writes the wrong way.** `twig state` PATCHes ADO directly. Board mutations on
-   published items belong in the change-proposal journal, where they are bound to a confirmed
-   digest and tracked in the operation journal. A direct push leaves no journal row.
-
-Close through the plan path instead. When a task's work is verified (code works, tests pass):
-
-1. `twig note --text "Done: <summary of changes>"` — final note
-2. Stage **one** `batch` operation carrying the Done transition *and* its gate fields
-   together: `System.State` set to the Done-category state, plus every close-gate field the
-   connected process declares for the type. One operation, one revision hop, one journal
-   entry — the fields must ride *with* the transition, never before or after it
-3. Apply it with `twig proposal apply --confirm <digest>` (`twig plan apply` is a retained
-   deprecated alias). Agents with the workflow skills invoke
-   `/ado-publish` for this step, or `/closeout` for the whole close
-4. Verify with `twig show <id> --refresh` that the state actually moved
-5. **Then** mark the corresponding todo completed, and proceed to the next task
-
-`twig state` is still the right command for a transition that crosses no gate — `To do` →
-`Doing` when you pick work up, or reopening a closed item.
-
-#### Discovering close gates
-
-Twig ships no close-gate table: the connected process is the only source of truth. Before
-staging a close, read the type's description:
-
-```bash
-twig process description <type-ref> -o json
-```
-
-The close-gate fields are those required in the Done-category state with **no** paired rule
-supplying a value; stage each one, using only the allowed values the description lists. A
-type may declare none. Never hardcode gate fields or values in code or guidance — the
-codebase stays process-agnostic. `twig state` refuses a transition whose declared gate
-fields are unsatisfied instead of emitting a PATCH that ADO would reject.
-
-**Never mark a todo completed while its work item is still open.** The board is the source of
-truth, not the todo list. A todo may be checked off only after the item's Done transition has
-been applied **and** confirmed by a refreshed read. If you cannot close the item — a gate
-field needs a human's judgement, or the type is one a human closes — leave the todo open and
-say so explicitly. Quietly checking it off is exactly what leaves the board stale.
-
-### After the final commit
-
-After all tasks are complete and committed:
-1. `git push`
-2. Close the parent the same way — a staged `batch` op carrying its gate fields, applied
-   through the plan path, writing whatever close-gate fields its process declares
-3. Then summarize — output should come last, not before operational close-out
-
-### Why this ordering matters
-
-The ADO state transition is the source of truth, not the todo list. If you mark a todo
-"completed" without transitioning the work item, the board becomes stale and the user
-has to clean up. Notes during implementation create an auditable trail. Summaries written
-before `git push` and the close-out create a false sense of completion.
-
-Routing the close through the plan path binds the mutation to the exact digest supplied at
-apply time and records each operation's outcome in the journal. A direct `twig state Done`
-has neither guarantee, which is why it is no longer the prescribed mechanism.
-
-## MCP availability
-
-MCP is withdrawn from current delivery pending a separate redesign. Use the
-Twig CLI for agent work-item operations. Preserve the MCP draft as redesign
-context; it is excluded from supported builds, publishing, installation and
-automatic companion downloads. Integration work is parked unless the user
-explicitly resumes it.
+Update canonical command Markdown/index with behavior changes. Declarations own
+syntax/defaults; bundled Markdown owns current behavior/examples. Historical
+ADRs, Wayfinder, plans, specs and research remain archived evidence, not current
+installation/SDK/command contracts.

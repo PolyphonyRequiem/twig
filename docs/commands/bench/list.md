@@ -1,44 +1,42 @@
 ---
 command: bench list
 group: bench
-summary: List user-wide Benches, marking the current worktree's selection.
+summary: List the Benches that exist, marking the current one.
 stability: stable
 mutates: none
 ---
 
 # `twig bench list`
 
-List the native user-wide Bench definitions shared by the CLI and panel. Listing
-does not create or select a default Bench, evaluate queries, refresh work items
-or acquire provider credentials.
+List the Benches that exist, marking the current one.
 
-```powershell
-twig bench list
-twig bench list --include-management -o json
+## Behavior
+
+Reads saved user-wide metadata without evaluating queries, discovering identity profiles or refreshing items. Include-management output, where requested, carries exact stable identity/content evidence, not publication authority.
+
+Syntax, required arguments and defaults come from `twig bench list --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
+
+## Examples
+
+```sh
+twig bench list -o json
 ```
 
-`-o|--output` supports `human`, JSON variants, `minimal` and `ids`. Normal rows
-carry `id`, `name`, `revision`, `selectorCount` and `isCurrent`; `ids` emits only
-canonical Bench GUIDs, one per line. An empty store produces an empty listing.
-
-Without an initialized workspace, metadata listing remains available and no
-Bench is marked current. In an initialized workspace, native local admission
-checks the worktree's selected Bench. Other worktrees' selections are unchanged.
-Previously saved native definitions are preserved once per native store instance;
-conflicting names or intent refuse rather than overwrite existing definitions.
-
-`--include-management` requires JSON output and returns a version-3 object:
-`storeId`, store `revision`, `currentBenchId` (or null), and `benches`. Each entry
-contains `id`, `name`, Bench `revision`, `contentsDigest` and the complete typed
-`definition`, including connection-qualified selectors. This is native metadata,
-not work-item contents or credentials.
-
-The native store is `benches.db` beside the user registry under `TWIG_USER_HOME`
-or the existing per-user Twig home. The panel does not maintain an independent
-authoritative Bench copy.
-
-Exit codes: `0` success (including empty); `1` unavailable/conflicting state;
-`2` invalid input. Errors are format-aware on stderr.
-
-See [`bench create`](./create.md), [`bench rename`](./rename.md),
-[`bench switch`](./switch.md) and [`bench delete`](./delete.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

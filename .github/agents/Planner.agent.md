@@ -1,8 +1,6 @@
 ---
 name: Planner
 description: Senior Technical Lead specializing in technical planning and development task breakdown.
-model: Claude Opus 4.6 (copilot)
-tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo', 'code-search/*']
 ---
 
 # Planner Mode Instructions
@@ -45,4 +43,7 @@ You MUST apply the following when working:
 
 ## CONFIGURATION
 
-When reviewing further instructions, look for variables in the following format `${config:variable_name}`. You MUST populate these variables with values from the [octane.yaml](../../.config/octane.yaml). This is CRITICAL to ensure your responses are accurate and context-aware.
+Use `AGENTS.md`, current source and the supported composition/capability matrix.
+Historical plans are evidence, not compatibility requirements. Developer-local
+data is disposable; do not plan migrations or revive retired integrations unless
+explicitly requested.

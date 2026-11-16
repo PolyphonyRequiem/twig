@@ -1,102 +1,42 @@
 ---
 command: proposal validate
 group: plans
-summary: Validate proposal v1 and v2 files without touching providers.
+summary: Validate a proposal's canonical file format offline. Preview separately checks application evidence; no mutation.
 stability: stable
 mutates: none
 ---
 
 # `twig proposal validate`
 
-Read-only check that a version 1 or 2 proposal JSON file parses, canonicalizes,
-and reports a stable SHA-256 digest. Version 1 retains its existing ADO
-execution contract; version 2 is provider-identity-aware, with execution
-limited to [supported GitHub effects](../../features/proposals.md#github-writes-and-concurrency).
-`validate` never talks to a provider and never touches the journal.
-
-## Synopsis
-
-```
-twig proposal validate --file <path> [-o human|json|minimal]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
-|`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
+Validate a proposal's canonical file format offline. Preview separately checks application evidence; no mutation.
 
 ## Behavior
 
-Delegates to `IPlanLifecycleService.ValidateAsync`
-(`src/Twig/Commands/PlanCommand.cs:48-59`). The service parses the file,
-canonicalizes it, produces a lowercase-hex SHA-256 digest over the canonical
-bytes, and reports any structural or semantic issues (`PlanValidationResult`).
-Behaviors worth naming:
+Reads only the current Core version-3 document and reports canonical validation/digest information. Old v1/v2 envelopes and PlanCommand models are unsupported. Validation does not publish or grant mutation authority.
 
-- **No ADO mutation, no journal write.** Validate is safe to run repeatedly
-  and never contacts the server.
-- **Workspace guard.** The file path must resolve inside the active workspace
-  root; a path outside the workspace is a lifecycle input error, not a usage
-  error (`src/Twig/Commands/PlanCommand.cs:193-207`).
-- **Digest is stable.** The digest returned here is byte-identical to the one
-  `proposal preview` reports and the one `proposal apply --confirm` requires.
-  Version 2 has its own canonical digest; validation alone does not imply
-  execution support, write permission or provider concurrency guarantees.
+Syntax, required arguments and defaults come from `twig proposal validate --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-### Authoring from installed help
+## Effects
 
-Run `twig proposal validate --help` for a complete seed-publication v1 JSON
-example generated from the canonical proposal model and writer, with a
-versioned online reference. Obtain the seed descriptor with
-`twig proposal seed --id -42 -o json`: copy its `identity` GUID string to
-`stagedIdentity` and its `fingerprint` to `expectedFingerprint`. Use your
-active connection's organization/project and a unique operation `id`.
-Save the file inside the active workspace, then run
-`twig proposal validate --file proposal.json -o json`.
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
 
-Validate checks structure, not seed existence or a live fingerprint. Preview
-writes the local journal and presents review without publication permission;
-apply requires the previewed exact digest and checks
-live preconditions. See [the proposal authoring reference](README.md#author-a-minimal-seed-publication-proposal).
+## Failures
 
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Validate a proposal for interactive review:
-
-```console
-$ twig proposal validate --file .twig/proposals/close-1234.json
-proposal: valid  digest=3f9c…a1b7
+```sh
+twig proposal validate --file .twig\proposals\change.json -o json
 ```
 
-Emit machine-readable output for a script that will later confirm the
-digest:
-
-```console
-$ twig proposal validate --file .twig/proposals/close-1234.json -o json
-{ "valid": true, "digest": "3f9c…a1b7", "issues": [] }
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Proposal parses and passes every validator.|`0`|
-|Proposal parses but validator raised at least one issue.|`1`|
-|`--file` omitted, or file path could not be resolved.|`2`|
-
-## See also
-
-- [`proposal preview`](proposal-preview.md) — next step after a clean validate.
-- [`proposal apply`](proposal-apply.md) — consumes the digest this command reports.
-- [`plan validate`](plan-validate.md) — deprecated alias.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

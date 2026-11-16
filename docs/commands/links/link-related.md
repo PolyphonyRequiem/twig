@@ -1,41 +1,42 @@
 ---
 command: link related
 group: links
-summary: Add a discovered symmetric native association through a verified Core proposal.
-stability: experimental
-mutates: ado
+summary: Relate the active work item to another item (symmetric Related link).
+stability: stable
+mutates: provider
 ---
 
 # `twig link related`
 
-Add a symmetric association between published items in an explicitly initialized
-Core ADO workspace. The relation reference comes from the discovered schema,
-not a hardcoded process or native name.
+Relate the active work item to another item (symmetric Related link).
 
-```
-twig link related <targetId> [--id <n>] [-c <comment>] [-o <format>]
-```
+## Behavior
 
-`targetId` names the other endpoint; `--id` names the source. Only human output
-may use the selected Core item. Both IDs must be positive native identities.
-`-c`/`--comment` is retained syntax but **unsupported**: any supplied value,
-including an empty string, refuses before HTTP. The typed relationship effect
-has no comment payload; the command never silently drops it or emits a separate note.
+Relate the active work item to another item (symmetric Related link). Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-One discovered non-directional association is required. The source's observed
-revision binds one add-link PATCH. The shared proposal/journal workflow requires
-independent acknowledgement and fresh reciprocal readback, not a best-effort resync.
+Syntax, required arguments and defaults come from `twig link related --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link related 615
-twig link related 615 --id 619 -o json
+```sh
+twig link related --help
 ```
 
-Success exits `0` with `linkAdded`, `status: Verified`, proposal digest and
-native link records. Duplicate adds, unsupported comments, missing observations
-and unresolved outcomes exit `1`; invalid/self/missing machine targets exit `2`.
-
-See [shared behavior and output](./README.md),
-[`link unrelate`](./link-unrelate.md) and [`link unlink`](./link-unlink.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

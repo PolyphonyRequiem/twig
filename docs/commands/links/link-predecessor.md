@@ -1,38 +1,42 @@
 ---
 command: link predecessor
 group: links
-summary: Mark a published item as blocked by another through a verified Core proposal.
-stability: experimental
-mutates: ado
+summary: Mark the active work item as blocked by another item (Predecessor link).
+stability: stable
+mutates: provider
 ---
 
 # `twig link predecessor`
 
-The named target must complete before the selected item. Requires an explicitly
-initialized Core ADO workspace and one discovered directed dependency kind.
+Mark the active work item as blocked by another item (Predecessor link).
 
-```
-twig link predecessor <targetId> [--id <n>] [-o <format>]
-```
+## Behavior
 
-`targetId` names the blocker; `--id` names the blocked item. Only human output
-may use the selected Core item. Both targets must be positive native IDs.
+Mark the active work item as blocked by another item (Predecessor link). Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-Canonical direction is **blocker -> blocked**. The command therefore mutates
-`targetId` using that blocker's actual observed revision, not the blocked item's
-revision or a guessed inverse relation reference. The shared proposal and journal
-path verifies the immutable acknowledgement and fresh reciprocal observations.
-It does not invent transition or dependency-cycle capabilities; discovered native
-constraints and explicitly declared policy determine admission.
+Syntax, required arguments and defaults come from `twig link predecessor --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link predecessor 65
-twig link predecessor 65 --id 66 -o minimal
+```sh
+twig link predecessor --help
 ```
 
-Verified success exits `0` (`linkAdded`). Duplicate edges, unavailable schema/items
-or unverified outcomes exit `1`. Invalid/self/missing machine targets exit `2`.
-See [shared behavior](./README.md), [`link successor`](./link-successor.md)
-and [`link unlink`](./link-unlink.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

@@ -1,76 +1,42 @@
 ---
 command: workspace area remove
 group: workspace
-summary: Remove an area path from workspace configuration.
+summary: Remove one area from the current Bench's planning rule; other pins, rules and workspace exclusions are preserved.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace area remove`
 
-Remove a previously-configured area path. The lookup is case-insensitive and
-matches on the stored `Path` string; `--exact` versus `under` semantics are
-irrelevant to the removal.
-
-## Synopsis
-
-```
-twig workspace area remove <path> [flags]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-| --- | --- | --- |
-|`<path>`|yes|Area path to remove. Matched case-insensitively against the stored `Path` value.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+Remove one area from the current Bench's planning rule; other pins, rules and workspace exclusions are preserved.
 
 ## Behavior
 
-Delegates to `AreaCommand.RemoveAsync`
-(`src/Twig/Commands/AreaCommand.cs:212-236`):
+Remove one area from the current Bench's planning rule; other pins, rules and workspace exclusions are preserved. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. These are retained contextual rule/view operations, not the removed bare area aliases or a full-screen sprint application. Use discovered planning paths, never assumed process names.
 
-1. If no area paths are configured (`AreaPathEntries` is null or empty), print
-   `No area paths configured.` to stderr and exit `1`
-   (`src/Twig/Commands/AreaCommand.cs:216-220`).
-2. Case-insensitive `FindIndex` on `AreaPathEntries[].Path`. Not found fails
-   with `Area path '<path>' is not configured.` on stderr and exit `1`
-   (`src/Twig/Commands/AreaCommand.cs:222-229`).
-3. Remove the entry at the found index and persist via
-   `config.SaveSplitAsync(paths, ct)`.
-4. Emit an `areaPathRemoved` record with the removed path echoed back.
+Syntax, required arguments and defaults come from `twig workspace area remove --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-No ADO calls are made.
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```
-$ twig workspace area remove "Contoso\Team A"
-Removed area path 'Contoso\Team A'.
-```
-
-```
-$ twig workspace area remove "Contoso\Team A" -o json
-{"kind":"areaPathRemoved","path":"Contoso\\Team A","message":"Removed area path 'Contoso\\Team A'."}
+```sh
+twig workspace area remove --help
 ```
 
-## Exit codes and failure modes
-
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-|No area paths configured|`1` with `No area paths configured.` on stderr|
-|Path not found (case-insensitive)|`1` with error on stderr|
-
-## See also
-
-- [`workspace area add`](./area-add.md)
-- [`workspace area list`](./area-list.md)
-- [`workspace area sync`](./area-sync.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

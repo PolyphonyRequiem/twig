@@ -1,5 +1,8 @@
 # Domain Model Critique — April 2026
 
+> **Archived assessment:** describes the legacy Domain model, not the current
+> Core/native composition or a supported public Infrastructure SDK.
+
 > **Purpose**: Honest architectural assessment of the Twig domain layer,
 > identifying design friction, anti-patterns, and areas for remediation.
 > Each section maps to a tracked Epic in ADO for investigation and resolution.

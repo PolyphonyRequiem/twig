@@ -1,85 +1,42 @@
 ---
 command: nav up
 group: navigation
-summary: Set the active work item to the parent of the current one.
+summary: Navigate to the parent work item.
 stability: stable
 mutates: local
 ---
 
 # `twig nav up`
 
-Moves the active work item pointer one hop up the parent chain. This is a
-non-interactive shortcut for `twig set <parent-id>` when you already know the
-active item has a parent.
-
-## Synopsis
-
-```
-twig nav up [-o|--output <human|json|minimal>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o`, `--output`|`string`|`human`|Output format for the resulting active-item render. One of `human`, `json`, `minimal`.|
+Navigate to the parent work item.
 
 ## Behavior
 
-- Reads the active work item ID from the context store; errors when none is
-  set (`src/Twig/Commands/NavigationCommands.cs:108-113`).
-- Resolves the active item via `ActiveItemResolver`, which auto-fetches from
-  ADO on cache miss (`src/Twig/Commands/NavigationCommands.cs:115-121`).
-- Loads the parent chain and children so that `WorkTree.Build` can compute the
-  correct navigation target
-  (`src/Twig/Commands/NavigationCommands.cs:123-130`).
-- Delegates the actual context change to `SetCommand.ExecuteAsync`, so the
-  transition is treated exactly like a manual `twig set <parent-id>` — it
-  records a navigation history entry and refreshes the prompt state
-  (`src/Twig/Commands/NavigationCommands.cs:137`).
+Navigate to the parent work item. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport.
+
+Syntax, required arguments and defaults come from `twig nav up --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Move up one level and render the new active item in the human format:
-
-```
-$ twig nav up
-● #4102  Task — Wire batch preflight into publish [Doing]
-   Parent: #4090  Epic — Preflight infrastructure
+```sh
+twig nav up --help
 ```
 
-Move up and emit JSON, e.g. for consumption by a shell prompt:
-
-```
-$ twig nav up --output json
-{
-  "id": 4090,
-  "type": "Epic",
-  "title": "Preflight infrastructure",
-  "state": "Doing"
-}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Parent found and active context updated|`0`|
-|No active work item set|`1`, `No active work item. Run 'twig set <id>' first.`|
-|Active work item missing from cache after auto-fetch|`1`, `Work item #<id> not found in cache.`|
-|Active work item has no parent|`1`, `Already at root — no parent to navigate to.`|
-
-## See also
-
-- [`nav down`](./nav-down.md)
-- [`nav next`](./nav-next.md)
-- [`nav prev`](./nav-prev.md)
-- [`up`](./up.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

@@ -1,5 +1,8 @@
 # Windows check: can the terminal interface be compiled natively?
 
+> **Archived:** TUI executable delivery is retired. This procedure preserves
+> historical hardware/build context, not a current release gate.
+
 **Read this on the Windows machine at:**
 <https://github.com/PolyphonyRequiem/twig/blob/main/docs/handoffs/windows-native-tui-check.md>
 

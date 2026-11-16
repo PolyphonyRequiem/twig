@@ -1,78 +1,42 @@
 ---
 command: seed reconcile
 group: seeds
-summary: Repair stale seed links and parent references after a partial publish.
+summary: Reconcile stale seed links and parent references after partial publishes.
 stability: stable
 mutates: local
 ---
 
 # `twig seed reconcile`
 
-Repairs stale rows in the workspace `seed_links` table and stale `ParentId` values on
-seeds whose referenced peers have been published since the row was written. Consults
-the local `publish_id_map` — the record of "seed `#-42` became ADO `#7842`" — and
-rewrites stale references to the new positive IDs, or removes them entirely when the
-peer is no longer traceable.
-
-Reach for this after a `seed publish` batch that halted partway, or whenever
-`seed view` shows dangling parent chains.
-
-## Synopsis
-
-```
-twig seed reconcile [-o|--output <format>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|string|`human`|Output format: `human`, `json`, `minimal`.|
+Reconcile stale seed links and parent references after partial publishes.
 
 ## Behavior
 
-- The command class is `SeedLinkRepairCommand` — the CLI verb was renamed to `seed reconcile` in Program.cs while the underlying repair orchestrator kept its name (`src/Twig/Commands/SeedLinkRepairCommand.cs:9-24`; `src/Twig/Program.cs:901-903`).
-- Delegates the work to `SeedLinkRepair.RepairAsync`. That service walks the `seed_links` table and the seed `ParentId` field, cross-references each row against the `publish_id_map`, and rewrites or removes stale entries in a single unit of work (`src/Twig/Commands/SeedLinkRepairCommand.cs:33`).
-- Emits counts of what was repaired and a warnings table for anything the service could not fix (e.g. a link whose target was published but whose new ID is missing from the map). Machine formats emit a document of counts plus a warnings Table; human output is a labelled summary; minimal emits a single key line (`src/Twig/Commands/SeedLinkRepairCommand.cs:40-109`).
-- Always exits `0`; a partial repair with warnings is not treated as an error (`src/Twig/Commands/SeedLinkRepairCommand.cs:37`).
-- No network calls. All work is against local SQLite: `seed_links`, work items, and `publish_id_map`.
+Reconcile stale seed links and parent references after partial publishes. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. A seed is a local UUID-backed draft, not a negative published identity. Discover type/field/relationship rules from the bound schema; creation and verified publication are separate outcomes. After an uncertain attempt preserve the original draft, proposal, digest and receipts instead of repeating creation.
+
+Syntax, required arguments and defaults come from `twig seed reconcile --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Run reconcile after a partial publish:
-
-```
-$ twig seed reconcile
-Reconciled seed state:
-  Links rewritten: 4
-  Links removed:   1
-  Parents fixed:   2
-  Warnings:        0
+```sh
+twig seed reconcile --help
 ```
 
-Machine form for scripting:
-
-```
-$ twig seed reconcile -o json
-{"kind":"seedReconcile","linksRewritten":4,"linksRemoved":1,"parentsFixed":2,"warnings":[]}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Reconcile completed (with or without warnings).|`0`|
-
-## See also
-
-- [`seed publish`](./seed-publish.md) — the operation whose partial failures this repairs.
-- [`seed links`](./seed-links.md) — inspect the link table before and after.
-- [`seed view`](./seed-view.md) — see the reconciled state alongside the whole dashboard.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

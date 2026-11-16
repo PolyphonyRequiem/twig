@@ -1,86 +1,42 @@
 ---
 command: nav prev
 group: navigation
-summary: Set the active work item to the previous sibling.
+summary: Navigate to the previous sibling work item.
 stability: stable
 mutates: local
 ---
 
 # `twig nav prev`
 
-Moves the active pointer to the previous sibling in the tree — following an
-explicit predecessor link when one exists, or falling back to the parent's
-children in display order.
-
-## Synopsis
-
-```
-twig nav prev [-o|--output <human|json|minimal>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o`, `--output`|`string`|`human`|Output format for the resulting active-item render. One of `human`, `json`, `minimal`.|
+Navigate to the previous sibling work item.
 
 ## Behavior
 
-- Requires an active work item with a parent
-  (`src/Twig/Commands/NavigationCommands.cs:241-260`).
-- **Link-based first.** For `nav prev`, the seed-link store is queried for a
-  `Successor` link whose target is the active item (i.e., the active item is
-  the *successor* of some earlier sibling), and the work-item link store is
-  queried for a `Predecessor` link emanating from the active item
-  (`src/Twig/Commands/NavigationCommands.cs:300-343`).
-- **Fallback to display order.** When no explicit link exists, fetches all
-  siblings from the workspace repository in display order and moves one slot
-  backward (`src/Twig/Commands/NavigationCommands.cs:267-289`).
-- On success, delegates the context change to `SetCommand.ExecuteAsync`, so a
-  navigation history entry is recorded and the prompt state is refreshed.
+Navigate to the previous sibling work item. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport.
+
+Syntax, required arguments and defaults come from `twig nav prev --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Step to the previous sibling under the current parent:
-
-```
-$ twig nav prev
-● #4110  Task — Preflight for `batch` op class detection [Doing]
+```sh
+twig nav prev --help
 ```
 
-Step to the previous sibling as JSON:
-
-```
-$ twig nav prev --output json
-{
-  "id": 4110,
-  "type": "Task",
-  "title": "Preflight for `batch` op class detection",
-  "state": "Doing"
-}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Sibling resolved and active context updated|`0`|
-|No active work item set|`1`, `No active work item. Run 'twig set <id>' first.`|
-|Active work item missing from cache after auto-fetch|`1`, `Work item #<id> not found in cache.`|
-|Active item has no parent (top-level)|`1`, `Cannot navigate siblings — item has no parent.`|
-|Active item is the first sibling and no predecessor link exists|`1`, `Already at first sibling under #<parent-id>.`|
-
-## See also
-
-- [`nav next`](./nav-next.md)
-- [`nav up`](./nav-up.md)
-- [`nav down`](./nav-down.md)
-- [`prev`](./prev.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

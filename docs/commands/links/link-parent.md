@@ -2,43 +2,41 @@
 command: link parent
 group: links
 summary: Set the parent of an unparented published item through a verified Core proposal.
-stability: experimental
-mutates: ado
+stability: stable
+mutates: provider
 ---
 
 # `twig link parent`
 
-Attach a parent to an unparented published item in an explicitly initialized
-Core ADO workspace. Existing parents are never silently replaced.
+Set the parent of an unparented published item through a verified Core proposal.
 
-```
-twig link parent <targetId> [child] [--id <n>] [--child <n>] [-o <format>]
-```
+## Behavior
 
-`targetId` names the parent. `child` (positional or `--child`) or `--id` names
-the child; every machine output requires `--id`. `--child` or the positional
-alone is human convenience, not machine authorization; with `--id` they must match.
-Only human output may use the selected Core item. Supplying different
-child and ID values refuses before HTTP. Targets must be positive native IDs.
+Set the parent of an unparented published item through a verified Core proposal. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-The command discovers one directed hierarchy and observes both endpoints.
-Canonical direction is **parent -> child**: the parent's actual observed revision
-binds one native forward-link PATCH. Shared proposal validation, native rules,
-durable intent, acknowledgement and independent reciprocal readback determine
-success. No native relation reference or revision is guessed.
+Syntax, required arguments and defaults come from `twig link parent --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link parent 5678
-twig link parent 5678 --id 1234 -o json
+```sh
+twig link parent --help
 ```
 
-Success exits `0` with `linkParented`, `status: Verified`, the proposal digest
-and current native links. Duplicate adds, existing other parents, missing
-observations and unresolved effects exit `1`; invalid/self/conflicting targets
-or missing machine targets exit `2`.
-
-See [shared behavior and output](./README.md),
-[`link unparent`](./link-unparent.md) and the explicitly unsupported
-[`link reparent`](./link-reparent.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

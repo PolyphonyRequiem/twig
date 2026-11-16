@@ -1,40 +1,42 @@
 ---
 command: link unlink
 group: links
-summary: Remove a native predecessor, successor or related edge through a verified Core proposal.
-stability: experimental
-mutates: ado
+summary: Remove a non-hierarchy link (predecessor, successor, or related) from a work item.
+stability: stable
+mutates: provider
 ---
 
 # `twig link unlink`
 
-Remove a published Core ADO dependency or association using the same discovered
-shape and canonical direction as its corresponding add command.
+Remove a non-hierarchy link (predecessor, successor, or related) from a work item.
 
-```
-twig link unlink <linkType> <targetId> [--id <n>] [-o <format>]
-```
+## Behavior
 
-`linkType` accepts `predecessor`, `successor` or `related` (case-insensitive).
-`targetId` names the other endpoint; `--id` selects the source. Only human output
-may resolve selected Core context. Hierarchy names are refused: use
-[`link unparent`](./link-unparent.md).
+Remove a non-hierarchy link (predecessor, successor, or related) from a work item. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-Predecessor removal targets the blocker with its observed revision; successor
-and association removal target the selected source. The provider rechecks the
-exact revision and relation index before one PATCH, then separately verifies
-the acknowledgement and fresh reciprocal observations through the shared journal.
+Syntax, required arguments and defaults come from `twig link unlink --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link unlink predecessor 65
-twig link unlink related 615 --id 619 -o json
+```sh
+twig link unlink --help
 ```
 
-Verified removal exits `0` (`linkRemoved`). Missing edges/evidence, revision
-conflicts and unresolved outcomes exit `1`; unknown link types, invalid/self
-targets and missing machine targets exit `2`.
-
-See [shared behavior and output](./README.md), [`link predecessor`](./link-predecessor.md),
-[`link successor`](./link-successor.md) and [`link unrelate`](./link-unrelate.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

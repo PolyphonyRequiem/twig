@@ -1,33 +1,42 @@
 ---
 command: tree
 group: views
-summary: Hidden targeted-tree alias; legacy --all workspace layout is unsupported.
+summary: Display a targeted static Core work-item hierarchy; full workspace layout is unsupported.
 stability: stable
-mutates: local-on-explicit-refresh
+mutates: local
 ---
 
 # `twig tree`
 
-Without `--all`, the hidden `tree` alias retains its existing targeted-tree
-route, equivalent to [`show --tree`](../context/show.md). This correction does
-not rewrite targeted tree behavior or rendering.
+Display a targeted static Core work-item hierarchy; full workspace layout is unsupported.
 
-```powershell
-twig tree 1234 --depth 2
-twig tree --id 1234 -o json
+## Behavior
+
+Renders a bounded static hierarchy for an explicit/active target using retained Core semantics. Structured reads need a positional ID or --id. There is no live/full-backlog tree application; unsupported GitHub shapes refuse.
+
+Syntax, required arguments and defaults come from `twig tree --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
+
+## Examples
+
+```sh
+twig tree 1234
 ```
 
-Supply a positional ID or `--id` for structured output. Conflicting explicit
-targets refuse. Human targeting may use the active item. `--depth`,
-`--no-live` and explicit `--refresh` retain their targeted-route meanings.
-
-`tree --all`, including `--refresh`, now goes to the workspace owner's explicit
-usage refusal **before HTTP**. It does not render all cached items, query the
-team, silently ignore the target or substitute another scope. The same applies
-to `workspace --tree`, `workspace --view tree` and the old sprint layout.
-The workspace UI and full-backlog contract remain unqualified.
-
-Use [`workspace`](../workspace/workspace.md) for a static Core Bench table,
-including all protected draft debt, or targeted `show <id> --tree` for an item
-hierarchy. Unsupported workspace shapes return 2 with format-aware stderr and
-empty stdout; ordinary targeted-route exit behavior is unchanged.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

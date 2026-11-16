@@ -1,81 +1,42 @@
 ---
 command: workspace area add
 group: workspace
-summary: Add an area path to workspace configuration.
+summary: Add an area to the current Bench's planning rule; areas are OR, area/iteration/ownership categories are AND.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace area add`
 
-Add an area path to the workspace's area filter. By default the path matches
-its entire subtree (`under` semantics); `--exact` restricts the match to the
-path itself.
-
-## Synopsis
-
-```
-twig workspace area add <path> [flags]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-| --- | --- | --- |
-|`<path>`|yes|Area path to add, e.g. `Contoso\Team A`. Must be a valid area path — the string is parsed by `AreaPath.Parse`, and invalid input fails fast.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`--exact`|`bool`|`false`|Use exact-match semantics. Without this flag the entry stores `IncludeChildren = true` so the filter matches the whole subtree.|
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+Add an area to the current Bench's planning rule; areas are OR, area/iteration/ownership categories are AND.
 
 ## Behavior
 
-Delegates to `AreaCommand.AddAsync`
-(`src/Twig/Commands/AreaCommand.cs:174-209`):
+Add an area to the current Bench's planning rule; areas are OR, area/iteration/ownership categories are AND. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. These are retained contextual rule/view operations, not the removed bare area aliases or a full-screen sprint application. Use discovered planning paths, never assumed process names.
 
-1. Parse via `AreaPath.Parse(path)`. On failure, print
-   `Invalid area path: <error>` to stderr and exit `2`
-   (`src/Twig/Commands/AreaCommand.cs:178-183`).
-2. Load-or-init `config.Defaults.AreaPathEntries`.
-3. Case-insensitive duplicate check on `.Path`. Duplicates fail with
-   `Area path '<path>' is already configured.` on stderr and exit `1`
-   (`src/Twig/Commands/AreaCommand.cs:187-195`).
-4. Append the entry with `IncludeChildren = !exact` and persist via
-   `config.SaveSplitAsync(paths, ct)` — this writes the split config
-   (`twig.json` + `.twig/config`) documented in AB#3296.
-5. Emit an `areaPathAdded` record whose message includes the semantics label
-   (`under` or `exact`) drawn from `AreaPathEntry.SemanticsLabel`.
+Syntax, required arguments and defaults come from `twig workspace area add --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-No ADO calls are made — the command mutates workspace configuration only.
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```
-$ twig workspace area add "Contoso\Team A"
-Added area path 'Contoso\Team A' (under).
-```
-
-```
-$ twig workspace area add "Contoso\Team A" --exact -o json
-{"kind":"areaPathAdded","path":"Contoso\\Team A","includeChildren":false,"message":"Added area path 'Contoso\\Team A' (exact)."}
+```sh
+twig workspace area add --help
 ```
 
-## Exit codes and failure modes
-
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-|Invalid area path syntax|`2` with parser error on stderr|
-|Duplicate entry (case-insensitive)|`1` with error on stderr|
-
-## See also
-
-- [`workspace area remove`](./area-remove.md)
-- [`workspace area list`](./area-list.md)
-- [`workspace area sync`](./area-sync.md)
-- [`workspace area`](./area.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

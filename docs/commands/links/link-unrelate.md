@@ -1,37 +1,42 @@
 ---
 command: link unrelate
 group: links
-summary: Remove a discovered symmetric association through a verified Core proposal.
-stability: experimental
-mutates: ado
+summary: Remove a Related link between the active work item and another item.
+stability: stable
+mutates: provider
 ---
 
 # `twig link unrelate`
 
-Remove an existing native association between published Core ADO items.
-[`link unlink related`](./link-unlink.md) uses the same owner and effect.
+Remove a Related link between the active work item and another item.
 
-```
-twig link unrelate <targetId> [--id <n>] [-o <format>]
-```
+## Behavior
 
-`targetId` names the other endpoint; `--id` names the source. Only human output
-may use selected Core context. Both IDs must be positive native identities.
-One unambiguous discovered symmetric association and both observed endpoints
-are required.
+Remove a Related link between the active work item and another item. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-The source's exact observed revision and native relation index bind one removal
-PATCH. Independent readback must certify absence on both endpoints; a failed,
-partial or unknown result is not success and never authorizes automatic retry.
+Syntax, required arguments and defaults come from `twig link unrelate --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link unrelate 615
-twig link unrelate 615 --id 619 -o minimal
+```sh
+twig link unrelate --help
 ```
 
-Verified removal exits `0` (`linkRemoved`). An absent edge, unavailable evidence,
-revision conflict or unresolved outcome exits `1`. Invalid/self/missing machine
-targets exit `2`. See [shared behavior and output](./README.md) and
-[`link related`](./link-related.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

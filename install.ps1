@@ -7,6 +7,9 @@ $ErrorActionPreference = 'Stop'
 if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
     throw "Twig supports Windows and Linux only; macOS support is temporarily suspended. This installer requires Windows; use install.sh on Linux."
 }
+if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
+    throw 'The Windows release requires x64.'
+}
 
 $repo = "PolyphonyRequiem/twig"
 $assetName = "twig-win-x64.zip"
@@ -75,9 +78,14 @@ try {
             throw "Release archive is missing the native entry point '$name'."
         }
     }
-    Get-ChildItem -Path $stagingDir -Force |
-        Where-Object { $_.Name -notlike 'twig-mcp*' -and $_.Name -notlike 'twig-tui*' -and $_.Name -notlike 'twig-bench-tui*' } |
-        Copy-Item -Destination $installDir -Force -Recurse
+    $files = @(Get-ChildItem -LiteralPath $stagingDir -Force)
+    foreach ($file in $files) {
+        if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $file.Name -notin @('twig.exe', 'twig.pdb', 'e_sqlite3.dll')) {
+            throw "Unexpected CLI payload: $($file.Name)"
+        }
+    }
+    $files | Copy-Item -Destination $installDir -Force
 } catch {
     Write-Host "Error: Failed to extract archive." -ForegroundColor Red
     Write-Host "  $_" -ForegroundColor Red
@@ -94,7 +102,7 @@ if (-not (Test-Path $twigExe)) {
     exit 1
 }
 
-Write-Host "  Core CLI only; legacy Browser/TUI/MCP delivery is retired." -ForegroundColor Green
+Write-Host "  Installed the Core CLI and its native sidecars." -ForegroundColor Green
 
 # Add to user PATH if not already present
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

@@ -1,8 +1,6 @@
 ---
 name: Coder
 description: Senior Software Engineer specializing in implementing features from detailed task specifications and requirements.
-model: Claude Opus 4.6 (copilot)
-tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo', 'code-search/*']
 ---
 
 # Coder Mode Instructions
@@ -45,4 +43,6 @@ You apply the following when working:
 
 ## CONFIGURATION
 
-When reviewing further instructions, look for variables in the following format `${config:variable_name}`. You MUST populate these variables with values from the [octane.yaml](../../.config/octane.yaml).
+Use `AGENTS.md`, the current composition contract and applicable repository
+instructions. Do not load retired Octane placeholders or infer a public
+Infrastructure SDK. Follow bounded serial validation and explicit Core targets.

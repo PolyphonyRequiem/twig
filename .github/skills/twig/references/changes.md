@@ -1,33 +1,48 @@
 # Changing tracker work
 
-Use after the [Twig foundation](../SKILL.md). This is the proposal procedure, not an organization-specific lifecycle policy or a new authorization mechanism. A Change Recipe generates proposals from inputs; it is not a presentation template.
+Use after the [Twig foundation](../SKILL.md). The current proposal contract is
+Core version 3 only. Old v1/v2 documents, `plan` aliases and `proposal seed` are
+not authoring or compatibility routes.
 
 ## Establish intent
 
-Read `twig proposal --help` and the relevant leaf help. Confirm connection, target identities, requested effects and current revisions. Discover required fields and transition gates; include fields coupled to a transition in the same operation.
+Read `twig proposal --help` and the relevant leaf help. Confirm the connection,
+provider-qualified identities, requested effects and observed revisions.
+Discover type/field requirements and close gates; coupled state and gate-field
+changes belong in one operation. Use the user's scope and explicit review hold.
 
-Use the user's actual scope and any explicit review hold. A proposal does not itself require an extra human prompt or authorizer identity.
+Structured single-item mutations require `--id`. Do not change or rely on the
+interactive active-item pointer for automation. File-scoped proposal operations
+remain bound to their explicit document and targets.
 
-Ready when the intended effects, preconditions and applicable authority are explicit.
+## Validate, preview, apply, verify
 
-## Machine invocations and active context
+1. Author the current native v3 document in the intended workspace using exact
+   captured connection/schema/store/policy evidence. Do not invent identities,
+   revision tokens, published IDs or execution state.
+2. Run `twig proposal validate --file <path> -o json`, then
+   `twig proposal preview --file <path> -o json`. Retain the complete output,
+   workspace and exact digest. Preview is not publication or a lock.
+3. Review every material operation, expected revision and effect from the exact
+   proposal together with preview issues and blockers. The ordinary preview
+   may expose only operation identities/kinds, not a rich effect model.
+   Present exact facts in the destination's supported format. There
+   is no bundled OMP viewer, rendered envelope or human Apply button.
+4. Apply with `twig proposal apply --file <path> --confirm <digest>`.
+   Changed canonical intent requires a fresh preview and digest. Do not flush or
+   discard unrelated local work to make a proposal applicable.
+5. Inspect all operation outcomes with
+   `twig proposal status --file <path> -o json`, then refresh-read affected
+   items. Distinguish verified effects, failures, untouched rows and unresolved
+   outcomes. Multi-operation apply is not globally atomic.
 
-With structured output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`), a mutation targeting one work item must use `--id`; `show`/`tree` reads need a positional ID or `--id`. Do not set or rely on Twig's active-item pointer for automation. Use `twig process <type>`, not structured `states`. Machine workspace output and machine/browser Bench pulls preserve Bench scope and drafts without consulting active context. File-scoped proposal validate, preview and apply commands are already bound to explicit work-item IDs. Human CLI behavior is unchanged.
+## Recovery
 
-## Validate, review, apply, verify
+Preserve the original proposal, digest, attempts and journal. An unknown outcome
+is not proof that no write happened. Follow installed status/apply recovery
+guidance; never blindly repeat a possibly successful creation or replay an
+already verified prefix.
 
-1. **Author:** use the current native schema inside the intended Twig workspace. Execution state belongs in the journal, not the proposal. Obtain staged seed identities and fingerprints through `twig proposal seed`; never predict published IDs or treat temporary aliases as durable identities.
-2. **Validate and preview:** run `twig proposal validate`; resolve every issue before proceeding. When a human review is requested **and** interactive OMP has the selected `twig_proposal_render({file,workspace?,full?})` presenter, call that tool once; it owns one native JSON capture (see the [presentation reference](presentation.md)). Otherwise run `twig proposal preview -o json` once through the ordinary noninteractive path. Retain the exact digest, workspace, complete structured result and supported `reviewModel` from whichever single path was used. Preview can write the local journal, not ADO. `canApply` is not proof that remote revision or process gates still hold. Native presenter support is proven by validating its returned envelope and model version, not by assuming a minimum version.
-3. **Review:** inspect every operation, consequence, precondition and blocker from the complete structured preview. When the interactive presenter was used, details and Back switch retained native brief/full frames; close never applies. If the companion or tool is unavailable **before** a requested human review, disclose that fact and use the ordinary complete structured/plain preview instead. If a tool call begins but returns a malformed, failed, truncated, unsupported, noninteractive or digest-mismatched response, stop that review and report the failure; do not parse ANSI, run another preview, or substitute a mutation path.
-4. **Apply:** call `twig proposal apply --confirm <digest>` with the exact reviewed digest, or use the review page's explicit human Apply action bound to that same digest. Changed canonical content requires a fresh preview and the new digest. Do not auto-flush or discard pending edits to make the proposal applicable.
-5. **Verify:** inspect every result and `twig proposal status`, then refresh-read the affected items. For seed publication, retain and verify the positive published ID against the staged identity when returned. Report verified, failed, unknown and untouched operations separately. Multi-item apply is not atomic: a successful prefix can remain committed after a later failure.
-
-Complete when every intended operation has a verified outcome or an explicitly reported unresolved result, with the native journal and authoritative readback retained.
-
-## Recover without guessing
-
-Read the native journal before retrying interrupted work. Follow the installed `proposal apply --help` and `proposal status --help` recovery contract. An unknown outcome is not proof that no write occurred.
-
-Preserve the old proposal and journal. Establish what landed before drafting any safe remaining change or performing an allowed resume. Never blindly retry an Indeterminate write, repeat seed creation, or replay a verified prefix because the outer session lost its response. Use a fresh proposal when native recovery requires one.
-
-Complete when successful effects remain accounted for, unresolved effects are identified and no possibly successful write has been duplicated. A cached value or zero exit code alone is not verification.
+`connection writes` is inspect-only correlated transport evidence. The Core
+proposal journal is execution authority. Neither a transport receipt, cached
+value, local reset nor a zero exit code alone proves the remote outcome.

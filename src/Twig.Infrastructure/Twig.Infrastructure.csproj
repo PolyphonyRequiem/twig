@@ -1,23 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Multi-targeted so consumers are not forced onto a preview SDK (#315).
-         net10.0 is GA; net11.0 is what twig itself builds and ships against.
-         The blank TargetFramework overrides Directory.Build.props' singular value,
-         which MSBuild otherwise prefers, silently making TargetFrameworks a no-op. -->
-    <TargetFramework></TargetFramework>
-    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
-    <PackageId>PolyphonyRequiem.Twig.Infrastructure</PackageId>
-    <Description>Infrastructure for twig — a high-performance .NET CLI for Azure DevOps work-item triage. SQLite persistence, Azure DevOps REST clients, auth providers, and the AddTwigInfrastructure DI extension.</Description>
-    <PackageTags>azure-devops;ado;work-items;twig;sqlite;infrastructure</PackageTags>
+    <IsPackable>false</IsPackable>
     <IsAotCompatible>true</IsAotCompatible>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1573;CS1574;CS0419;CS1580;CS1584</NoWarn>
   </PropertyGroup>
-
-  <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Markdig" />
@@ -25,7 +13,6 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
-    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,11 +20,6 @@
     <ProjectReference Include="..\Twig.Providers.GitHub\Twig.Providers.GitHub.csproj" />
     <ProjectReference Include="..\Twig.Providers.Native\Twig.Providers.Native.csproj" />
     <ProjectReference Include="..\Twig.Store.Sqlite\Twig.Store.Sqlite.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <AdditionalFiles Include="PublicAPI.Shipped.txt" />
-    <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
   </ItemGroup>
 
   <ItemGroup>

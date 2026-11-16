@@ -1,50 +1,42 @@
 ---
 command: link local list
 group: links
-summary: Read cached LOCAL edges for an explicit Core item with zero HTTP.
+summary: List cached LOCAL associations for an explicit item. Zero HTTP; no schema acquisition or context change.
 stability: stable
 mutates: none
 ---
 
 # `twig link local list`
 
-```text
-twig link local list [<target>] [--id <target>] [-o human|json|json-full|json-compact|minimal|ids]
-```
+List cached LOCAL associations for an explicit item. Zero HTTP; no schema acquisition or context change.
 
-An explicit cached native number, negative seed alias or original canonical
-lowercase GUIDv7 is required. Different positional/`--id` values refuse rather
-than guessing; there is no active-item fallback. Unknown numbers require an
-explicit `show <number> --refresh` outside this command.
+## Behavior
 
-List reads the pinned Core snapshot only: **zero total HTTP**, no credential or
-schema acquisition, no hidden number fetch, no store/journal/context changes.
-It shows active local-origin edges touching the logical target, excludes
-tombstones and native-origin observations, and labels provenance `LOCAL`,
-`local-only`, `non-native`. Original Verified seed mappings let both UUID and
-native number find the same unchanged edge keys.
+List cached LOCAL associations for an explicit item. Zero HTTP; no schema acquisition or context change. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-JSON variants retain typed endpoint objects, kind, local version and deletion
-flag. Each `source`/`target` is either `{ "localId": "<canonical-guid>" }` or
-`{ "provider": "<provider>", "scope": "<scope>", "nativeId": "<opaque-id>" }`.
-These are the original stored edge identities, even after a seed publishes;
-the separately supplied list target remains an explicit locator.
-Human/minimal output is static and displays UUIDs/native IDs, not record dumps.
-`ids` emits explicit numeric neighbor
-locators (negative aliases for live local seeds) only when every neighbor can be
-resolved uniquely from cached evidence; otherwise it explicitly refuses. No
-endpoint is silently dropped to make an IDs result look complete.
+Syntax, required arguments and defaults come from `twig link local list --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link local list 42
-twig link local list --id 019a0000-0000-7000-8000-000000000001 -o json
+```sh
+twig link local list --help
 ```
 
-## Exit codes
-
-- `0`: cached edges read, including an empty list.
-- `1`: unknown/non-live identity, conflicting logical edges or unavailable store.
-- `2`: missing/conflicting/invalid target, unsupported output or unavailable
-  unique neighbor IDs.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

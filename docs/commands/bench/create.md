@@ -1,33 +1,42 @@
 ---
 command: bench create
 group: bench
-summary: Create an empty user-wide Bench without selecting it.
+summary: Create a Bench with a name you will recognise later.
 stability: stable
 mutates: local
 ---
 
 # `twig bench create`
 
-Create a named, durable Bench in the native user-wide store. It is the same
-definition used by the CLI and panel, independent of a repository/worktree's
-lifetime. No initialized workspace, provider credentials or work HTTP is needed.
+Create a Bench with a name you will recognise later.
 
-```powershell
-twig bench create "Release"
-twig bench create "Bugs I own" -o json
+## Behavior
+
+Creates a shared user-wide Bench definition without selecting it or creating provider work. Metadata management can run without an initialized worktree. There is no automatic repository-derived default Bench.
+
+Syntax, required arguments and defaults come from `twig bench create --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
+
+## Examples
+
+```sh
+twig bench create "Release work"
 ```
 
-The new Bench is empty. Nothing is copied, pinned, refreshed or selected
-automatically. Use `twig bench switch <name-or-guid>` in an initialized worktree
-to select it there without switching another worktree.
-
-`name` must be trimmed, nonempty and at most 120 characters. Names are unique
-under Unicode-normalized, case-insensitive comparison. A collision refuses
-without modifying the existing Bench.
-
-`-o|--output` supports `human`, JSON variants and `minimal`. Success reports the
-new `id`, `name`, `revision` and message. Errors use the selected output format
-on stderr: `0` success, `1` conflicting/unavailable state, `2` invalid input.
-
-See [`bench list`](./list.md), [`bench rename`](./rename.md),
-[`bench switch`](./switch.md) and [`bench delete`](./delete.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

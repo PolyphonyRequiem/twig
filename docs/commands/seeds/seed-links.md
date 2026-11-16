@@ -8,62 +8,35 @@ mutates: none
 
 # `twig seed links`
 
-Reads the workspace `seed_links` table and prints its rows. Pass an ID to filter to
-links touching that item; omit it to list every link in the workspace. Read-only.
-
-## Synopsis
-
-```
-twig seed links [<id>] [-o|--output <format>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-|`id`|no|Item ID (seed or published) to filter by. Omit to list all links.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|string|`human`|Output format: `human`, `json`, `minimal`.|
+List virtual links, optionally filtered by item ID.
 
 ## Behavior
 
-- With an ID, calls `ISeedLinkRepository.GetLinksForItemAsync` returning every row where the item appears as source **or** target. Without an ID, calls `GetAllSeedLinksAsync` (`src/Twig/Commands/SeedLinkCommand.cs:222-225`).
-- Machine formats (`json`, `json-full`, `json-compact`, `ids`) emit a `seedLinks` document with a Table containing `sourceId`, `targetId`, `linkType`, and `createdAt` (ISO 8601 `o` format) columns, plus a scalar `count` (`src/Twig/Commands/SeedLinkCommand.cs:229-258`).
-- Human/minimal formats stream one line per link (`#<src> ──<type>──▶ #<tgt>`) followed by a total count. The empty result set prints a distinct `No links for #<id>.` or `No seed links.` info line (`src/Twig/Commands/SeedLinkCommand.cs:261-274`).
+List virtual links, optionally filtered by item ID. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. A seed is a local UUID-backed draft, not a negative published identity. Discover type/field/relationship rules from the bound schema; creation and verified publication are separate outcomes. After an uncertain attempt preserve the original draft, proposal, digest and receipts instead of repeating creation.
+
+Syntax, required arguments and defaults come from `twig seed links --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-List all links:
-
-```
-$ twig seed links
-#-42 ──parent-child──▶ #5678
-#-42 ──blocked-by──▶ #-43
-#-43 ──successor──▶ #-44
-3 link(s) total.
+```sh
+twig seed links --help
 ```
 
-Filter to one seed as JSON:
-
-```
-$ twig seed links -42 -o json
-{"kind":"seedLinks","links":[{"sourceId":-42,"targetId":5678,"linkType":"parent-child", ...}],"count":2}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Query completed (including the empty-result case).|`0`|
-
-## See also
-
-- [`seed link`](./seed-link.md) — create a new link.
-- [`seed unlink`](./seed-unlink.md) — remove a specific link.
-- [`seed view`](./seed-view.md) — see links alongside the full seed dashboard.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

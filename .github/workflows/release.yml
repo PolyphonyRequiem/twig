@@ -164,7 +164,7 @@ jobs:
         shell: pwsh
         run: |
           $primary = (Resolve-Path './publish/win-x64/twig.exe').Path
-          & ./tools/verify-tui-candidate.ps1 -Executable $primary -SourceCommit '${{ github.sha }}' | Tee-Object -FilePath 'artifacts/release-image-verification/windows-trust.json'
+          & ./tools/verify-image-trust.ps1 -Executable $primary -SourceCommit '${{ github.sha }}' | Tee-Object -FilePath 'artifacts/release-image-verification/windows-trust.json'
 
       - name: Archive (zip)
         if: matrix.archive == 'zip'
@@ -272,7 +272,7 @@ jobs:
             ./artifacts/SHA256SUMS
 
   nuget:
-    name: Publish NuGet packages
+    name: Publish RenderTree NuGet package
     # MUST depend on `build`, not `verify-ci`. A nuget.org push is permanently
     # irreversible — a version cannot be deleted or re-pushed. Hanging this job
     # off verify-ci raced it against the platform build legs, which is how
@@ -293,11 +293,10 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Pack libraries
+      - name: Pack RenderTree
         run: |
           set -euo pipefail
           dotnet pack src/Twig.RenderTree/Twig.RenderTree.csproj -c Release -o ./nupkgs
-          dotnet pack src/Twig.Infrastructure/Twig.Infrastructure.csproj -c Release -o ./nupkgs
           ls -la ./nupkgs
 
       - name: Push to nuget.org

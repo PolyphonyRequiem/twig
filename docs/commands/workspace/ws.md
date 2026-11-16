@@ -1,30 +1,42 @@
 ---
 command: ws
 group: workspace
-summary: Short alias for the static Core Bench workspace read.
-stability: preview
-mutates: local-on-explicit-refresh
+summary: Read the static cached Core Bench workspace (short alias); acquires provider schema metadata.
+stability: stable
+mutates: local
 ---
 
 # `twig ws`
 
-`ws` delegates to the same owner and accepts the same flags as
-[`twig workspace`](workspace.md). It reads cached selector membership and all
-protected drafts, acquires actual provider schema metadata, and does not change
-the current Bench or read implicit active context. The default is a static table.
+Read the static cached Core Bench workspace (short alias); acquires provider schema metadata.
 
-```powershell
-twig ws
-twig ws --bench Focused -o json
-twig ws --refresh --expect-bench "<current-bench-guid>" -o ids
+## Behavior
+
+Alias for workspace, with the same static cached projection and structured-scope behavior. It does not initialize, select or invent a default Bench.
+
+Syntax, required arguments and defaults come from `twig ws --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
+
+## Examples
+
+```sh
+twig ws -o json
 ```
 
-See the canonical command for the `core-bench-workspace-v1` document, typed
-cached/proposed field arrays, permanent UUID mapping, missing-scope refusals and
-explicit pull-only refresh. `--flat`, `--no-live` and `--view table` are accepted;
-legacy tree/team/browser/captured-origin shapes are explicitly unsupported,
-not silently rendered with different scope.
-
-Success returns 0, scope/schema/storage refusals return 1, and invalid or
-unsupported arguments return 2. JSON errors are one object on stderr with
-empty stdout.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

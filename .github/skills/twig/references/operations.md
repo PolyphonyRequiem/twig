@@ -21,11 +21,12 @@ Ready when the requested facts, connection and relevant freshness/completeness l
 
 ## Structured calls and explicit scope
 
-Structured output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) marks a machine invocation. Mutations targeting one item require an explicit `--id`. Structured `show`/`tree` reads require a positional ID or `--id`; conflicting targets are refused before workspace resolution. Explicit `show --local-id`, list scopes, `tree --all`, history and file-scoped proposal operations remain legal. Structured `states` is refused; use `twig process <type>` with a discovered type. Machine workspace output and machine/browser Bench pulls do not consult the active pointer or include its relationships; explicit Bench selectors and local drafts remain included. `twig set`, `twig new --set`, navigation commands, and `twig seed publish` are refused with structured output because they read or change active context. For structured seed creation, select `--parent <id>` or `--no-parent`. Human CLI use is unchanged.
+Structured output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) marks a machine invocation. Mutations targeting one item require an explicit `--id`. Structured `show`/targeted `tree` reads require a positional ID or `--id`; conflicting targets are refused before workspace resolution. Explicit `show --local-id`, retained list scopes and file-scoped proposal operations remain supported. Structured `states` is refused; use `twig process <type>` with a discovered type. Machine workspace output excludes the interactive active pointer and its relationships while retaining explicit Bench scope and local drafts. `twig set`, navigation commands and `twig seed publish` are refused with structured output. For structured seed creation, select `--parent <id>` or `--no-parent`.
 
 Examples:
 
-- `twig state Done --id 1234 -o json`
+- `twig state "<discovered-state>" --id 1234 -o json` (only when no coupled
+  close-gate fields are needed; otherwise use one reviewed batch operation)
 - `twig update System.Title "New title" --id 1234 -o json`
 - `twig show 1234 -o json` or `twig show --id 1234 -o json` (explicit read target)
 

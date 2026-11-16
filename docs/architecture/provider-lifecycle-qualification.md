@@ -1,5 +1,9 @@
 # Provider lifecycle qualification
 
+> **Archived qualification record:** the named old cases, composition and
+> counts below apply to their captured revision. Current gates use the supported
+> solution inventory and bounded runner; this is not current-head certification.
+
 The `ADO shared lifecycle qualification` and `GitHub shared lifecycle
 qualification` CI steps exercise production DI, SQLite repositories, provider
 adapters, declared-policy loading/evaluation, capability admission and the shared

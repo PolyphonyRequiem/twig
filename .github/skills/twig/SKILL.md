@@ -19,11 +19,16 @@ Twig connects your working environment to Azure DevOps (ADO) work tracking throu
 
 ## Change-proposal presentation
 
-When a human needs to inspect a proposal, prefer the interactive OMP `twig_proposal_render` presenter when it is available and the selected companion is loaded. Call the tool once; its native capture is the sole observation. Follow [the change procedure](references/changes.md) and [presentation guidance](references/presentation.md) to retain its exact digest, workspace, supported review model and presentation version-1 brief/full frames. Details, Back and close are view controls; the separate human Apply action must remain bound to the displayed digest.
+Use `twig proposal preview --file <path> -o json` for the current Core v3
+document. Retain the exact digest, workspace and complete structured result.
+Read the exact proposal for effects/preconditions not expanded by preview.
+Present those facts directly using the destination's
+verified capabilities. The OMP presenter, item-companion adapters and captured
+CLI rendering envelopes are retired, not fallback routes.
 
-When no interactive review is requested, use the ordinary structured `twig proposal preview -o json` path without opening a viewer.
-
-For a human-review route, if the presenter or selected companion is unavailable before a call, disclose the gap and use the deliberate plain/structured review path. If the tool returns an incompatible, failed or truncated response, stop that review and report the failure without a second preview or mutation fallback. Do not install a companion or rewrite preferences silently. The proposal digest and native apply checks remain authoritative; Twig does not require an authorizer identity or persist an approval snapshot.
+Follow [the change procedure](references/changes.md) for digest-confirmed apply,
+journal inspection and refreshed verification. Rendering never grants mutation
+authority, and a preview is not a remote lock or successful publication.
 
 ## Discuss, Present, Review
 
@@ -38,7 +43,7 @@ Name the discussed item first, then the relationship from its perspective: “is
 
 **Present** a readable work-item hierarchy with identities and actual status wording from ADO. Keep dependencies and associations distinct from hierarchy; label partial or missing context.
 
-**Review** adds proposed effects, preconditions, blockers and available choices. For change-proposal reviews, use the canonical `reviewModel` and [change procedure](references/changes.md); preserve every material operation and consequence.
+**Review** adds proposed effects, preconditions, blockers and available choices. For change-proposal reviews, use the complete native structured preview and [change procedure](references/changes.md); preserve every material operation and consequence.
 
 ## Adapt and report faithfully
 

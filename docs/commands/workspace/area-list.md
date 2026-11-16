@@ -1,75 +1,42 @@
 ---
 command: workspace area list
 group: workspace
-summary: List configured area paths with match semantics.
+summary: List saved shared area paths and exact/under semantics without fetching items.
 stability: stable
 mutates: none
 ---
 
 # `twig workspace area list`
 
-Print every configured area path together with its match semantics
-(`under` vs `exact`). Useful before running `workspace area sync` — which
-replaces the list — or when debugging why an item is or is not showing up in
-`workspace area`.
-
-## Synopsis
-
-```
-twig workspace area list [flags]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-| --- | --- | --- |
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+List saved shared area paths and exact/under semantics without fetching items.
 
 ## Behavior
 
-Delegates to `AreaCommand.ListAsync`
-(`src/Twig/Commands/AreaCommand.cs:239-253`). Behavior:
+List saved shared area paths and exact/under semantics without fetching items. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. These are retained contextual rule/view operations, not the removed bare area aliases or a full-screen sprint application. Use discovered planning paths, never assumed process names.
 
-- If no entries are configured, emit `No area paths configured.` as an
-  `info`-severity `noAreaPathsConfigured` record and exit `0`
-  (`src/Twig/Commands/AreaCommand.cs:245-249`).
-- Otherwise emit each entry through `RenderAreaPathList`, which produces a
-  streamed human list or a machine-format table depending on `--output`
-  (`src/Twig/Commands/AreaCommand.cs:333-357`).
+Syntax, required arguments and defaults come from `twig workspace area list --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-The command does not touch ADO and does not mutate configuration.
+## Effects
+
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```
-$ twig workspace area list
-\Contoso\Team A  (under)
-\Contoso\Team A\Reliability  (exact)
-2 area path(s) configured.
+```sh
+twig workspace area list --help
 ```
 
-```
-$ twig workspace area list -o json
-{"areaPathList":{"count":2,"entries":[{"path":"\\Contoso\\Team A","includeChildren":true},{"path":"\\Contoso\\Team A\\Reliability","includeChildren":false}]}}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-
-## See also
-
-- [`workspace area add`](./area-add.md)
-- [`workspace area remove`](./area-remove.md)
-- [`workspace area sync`](./area-sync.md)
-- [`workspace area`](./area.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

@@ -1,85 +1,42 @@
 ---
 command: link artifact
 group: links
-summary: Attach a hyperlink or vstfs artifact link to a work item.
+summary: Add an artifact link (URL or vstfs -// URI) to a work item.
 stability: stable
-mutates: ado
+mutates: provider
 ---
 
 # `twig link artifact`
 
-Attach an external artifact to a published work item. `http`/`https` URLs are
-stored as `Hyperlink` relations; `vstfs://` URIs (commits, branches, PRs,
-builds, and other ADO resources) are stored as `ArtifactLink` relations. Use
-it to record the branch, commit, doc, or dashboard that belongs to a work
-item — the same underlying operation that `seed publish --link-branch` uses
-to attach a git branch after publishing.
-
-## Synopsis
-
-```
-twig link artifact <url> [--name <name>] [--id <n>] [-o <format>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-|`url`|yes|Artifact URL (`http`/`https`) or `vstfs://` URI.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`--name`|`string?`|`null`|Display name for the link. Rendered in ADO in place of the raw URL.|
-|`--id`|`int?`|`null`|Target a specific work item by ID instead of the active item.|
-|`-o`, `--output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+Add an artifact link (URL or vstfs:// URI) to a work item.
 
 ## Behavior
 
-Resolves the target (active by default, or `--id`), then calls
-`IAdoWorkItemService.AddArtifactLinkAsync` with the URL and optional name
-(`src/Twig/Commands/ArtifactLinkCommand.cs:47`). The service returns a boolean
-indicating whether the link already existed; the command renders
-`artifactAlreadyLinked` in that case and `artifactLinked` otherwise, both with
-exit code `0` (`src/Twig/Commands/ArtifactLinkCommand.cs:79`). Unlike the
-edge-based verbs, the local link cache is not resynced by this command — the
-artifact relation is written directly to ADO.
+Add an artifact link (URL or vstfs:// URI) to a work item. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
+
+Syntax, required arguments and defaults come from `twig link artifact --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Attach a doc URL to the active item:
-
-```
-$ twig link artifact https://example.com/doc --name "Design doc"
-Linked https://example.com/doc to #1234.
+```sh
+twig link artifact --help
 ```
 
-Attach a git commit to a specific item, JSON output:
-
-```
-$ twig link artifact vstfs:///Git/Commit/proj/repo/abc123 --id 42 -o json
-{
-  "kind": "artifactLinked",
-  "itemId": 42,
-  "url": "vstfs:///Git/Commit/proj/repo/abc123",
-  "alreadyLinked": false,
-  "message": "Linked vstfs:///Git/Commit/proj/repo/abc123 to #42."
-}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Artifact linked, or already linked|`0`|
-|Active/target item not found in cache|`1`|
-|ADO rejected the link (invalid URL, auth, network)|`1`|
-
-## See also
-
-- [`link parent`](./link-parent.md)
-- [`link related`](./link-related.md)
-- [Group overview](./README.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

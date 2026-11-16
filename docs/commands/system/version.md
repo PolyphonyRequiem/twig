@@ -1,87 +1,42 @@
 ---
 command: version
 group: system
-summary: Print the installed twig version.
+summary: Show the current version.
 stability: stable
 mutates: none
 ---
 
 # `twig version`
 
-Prints the installed twig version — the informational version baked into the
-assembly at build time — and exits `0`. Reach for it in scripts, bug reports,
-and when you want to confirm which build is on `PATH` without invoking any
-network or workspace machinery.
-
-## Synopsis
-
-```
-twig version
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-| — | — | — | — |
+Show the current version.
 
 ## Behavior
 
-`twig version` reads
-`typeof(TwigCommands).Assembly.GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute), …)`
-and writes the first entry to stdout followed by a newline
-(`src/Twig/Program.cs:1321-1325`, `src/Twig/Program.cs:1407-…`).
+Prints the current executable version offline, without workspace, authentication or provider access.
 
-The same version string is printed by the top-level `twig --version` and
-`twig -v` shortcuts (`src/Twig/Program.cs:127-130`), so the two are
-interchangeable in scripts.
+Syntax, required arguments and defaults come from `twig version --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-Although the group-level help lists `-o, --output` for many system commands,
-`twig version` does not take an output flag. The help text example
-`twig version --output json` is aspirational; the current implementation
-prints a single line to stdout regardless of trailing flags and any unknown
-argument is rejected by ConsoleAppFramework before it reaches the handler.
+## Effects
 
-`twig version` performs no HTTP calls, opens no files, and reads no
-workspace state; it can safely be run on a machine that has never been
-signed in or `twig init`-ed.
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Print the installed version:
-
-```
-$ twig version
-1.4.2
+```sh
+twig version
 ```
 
-Compare it to what `twig upgrade` sees as latest:
-
-```
-$ twig version
-1.4.2
-$ twig upgrade
-Current version: 1.4.2
-Checking for updates...
-Already up to date (1.4.2)
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-| Version attribute present on the assembly (always, in a supported build) | `0` |
-
-## See also
-
-* [`upgrade`](upgrade.md) — check whether a newer version is available.
-* [`changelog`](changelog.md) — read the release notes for recent versions.
-* [System commands group](README.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

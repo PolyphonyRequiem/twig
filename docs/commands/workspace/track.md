@@ -8,79 +8,35 @@ mutates: local
 
 # `twig workspace track`
 
-Pin a single work item to the current Bench so it shows up in the workspace
-view even when it is not in a subscribed sprint or area. Use this to keep a
-one-off cross-team item in sight, or to babysit an item that would otherwise
-drop off the workspace once its iteration rolls.
-
-## Synopsis
-
-```
-twig workspace track <id> [flags]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-| --- | --- | --- |
-|`<id>`|yes|Work item ID to track. Must be a positive integer; seed IDs (negative) are rejected.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
-|`--expect-bench`|`string`|unset|Refuse a changed current Bench instead of retargeting.|
-|`--expect-binding`|`string`|unset|Refuse a changed native connection binding; never selects one.|
-|`--expect-identity`|`string`|unset|Refuse a changed authenticated principal; never selects one.|
-|`--expect-settings`|`string`|unset|Compare the captured raw query-settings digest inside the atomic pin transaction.|
+Track a single work item by ID (pinned to workspace).
 
 ## Behavior
 
-Delegates to `TrackingCommand.TrackAsync`
-(`src/Twig/Commands/TrackingCommand.cs:35-36`), which invokes
-`PinWorkflow.PinAsync(id, includeSubtree: false, ct)` on the current Bench
-(`src/Twig/Commands/TrackingCommand.cs:170-201`). The workflow adds an item
-selector to the Bench; the work item's title is looked up from the local cache
-for display but is not required for the pin to land.
+Track a single work item by ID (pinned to workspace). Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport.
 
-Non-positive IDs (`id <= 0`, including seed IDs) are rejected with
-`Cannot track seeds or invalid IDs. Provide a positive work item ID.` on stderr
-and exit code `2` (`src/Twig/Commands/TrackingCommand.cs:174-178`).
+Syntax, required arguments and defaults come from `twig workspace track --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
 
-The pin is a Bench selector, not a snapshot: it does not pre-expand any
-descendants, and the item continues to be resolved live at workspace-evaluation
-time.
+## Effects
 
-A single pin and subtree pin for the same ID are independent and can coexist.
-This command ensures the single pin is present without replacing a subtree pin.
-Remove only this kind with `workspace untrack <id> --mode single`; omit `--mode`
-only when you intend to remove both explicit kinds.
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```
-$ twig workspace track 4211
-Tracking #4211: Wire retry telemetry
-```
-
-```
-$ twig workspace track 4211 -o json
-{"kind":"tracked","id":4211,"title":"Wire retry telemetry","mode":"single","message":"Tracking #4211: Wire retry telemetry"}
+```sh
+twig workspace track --help
 ```
 
-## Exit codes and failure modes
-
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-|`id <= 0` (seed or invalid ID)|`2` with error on stderr|
-
-## See also
-
-- [`workspace track-tree`](./track-tree.md)
-- [`workspace untrack`](./untrack.md)
-- [`workspace exclude`](./exclude.md)
-- [`workspace`](./workspace.md)
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

@@ -4,17 +4,17 @@
 
 name: twig
 description: >
-  .NET 10 AOT-compiled CLI tool for work-item tracking and SDLC orchestration,
-  built with ConsoleAppFramework. Published as a global dotnet tool with an
-  accompanying MCP server for AI-agent integration.
+  .NET 11 RC3 NativeAOT CLI for explicit work-item reads and changes,
+  built with ConsoleAppFramework. Windows native daemon and public
+  RenderTree SDK are distinct supported surfaces.
 
 tech_stack:
   language: csharp
-  framework: dotnet-10
+  framework: dotnet-11
   runtime: native-aot
   cli_framework: ConsoleAppFramework
-  build_command: "dotnet build src/Twig/Twig.csproj"
-  test_command: "dotnet test tests/Twig.Tests/Twig.Tests.csproj"
+  build_command: 'python tools/run-bounded.py --timeout 120 -- dotnet build "-m:1"'
+  test_command: "python tools/run-bounded.py --timeout 30 -- bash tools/run-tests.sh --pre-push"
   restore_command: "dotnet restore"
   code_conventions:
     - "TreatWarningsAsErrors=true, nullable reference types enabled"
@@ -52,12 +52,8 @@ validation:
     - pattern: ".github/workflows/**"
       category: ci-cd
       description: "GitHub Actions workflows — changes affect CI/CD pipeline"
-    - pattern: "src/Twig.Mcp/**"
-      category: mcp
-      description: "MCP server — changes affect AI-agent integration surface"
+    - pattern: "src/Twig.Daemon*/**"
+      category: daemon
+      description: "Current native daemon and authenticated read-only MCP surface"
 
-# MCP servers specific to this domain (added to workflow runtime)
-mcp_servers:
-  twig-mcp:
-    command: twig-mcp
-    tools: ["*"]
+mcp_servers: {}

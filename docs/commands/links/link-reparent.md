@@ -1,41 +1,42 @@
 ---
 command: link reparent
 group: links
-summary: Parent replacement is unsupported; refuses without removing any link.
-stability: experimental
-mutates: none
+summary: Parent replacement is unsupported; refuses before HTTP without removing any link.
+stability: stable
+mutates: provider
 ---
 
 # `twig link reparent`
 
-The syntax is retained, but parent replacement is **not qualified** by the
-current Core relationship contract. Every invocation refuses before native HTTP.
-No existing parent is removed, no successor request is sent, and no retry is implied.
+Parent replacement is unsupported; refuses before HTTP without removing any link.
 
-```
-twig link reparent <targetId> [child] [--id <n>] [--child <n>] [-o <format>]
-```
+## Behavior
 
-`targetId` is the proposed new parent; `child` (positional or `--child`) and
-`--id` name the child. Conflicting child/ID values are usage errors.
-Every non-human invocation requires `--id`; `--child` alone does not authorize a
-machine mutation, even though replacement itself remains unsupported.
-See [shared targeting, output and safety](./README.md).
+Parent replacement is unsupported; refuses before HTTP without removing any link. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-The old implementation removed and then added links in two HTTP requests. It
-was not atomic: a failed add could leave the child parentless. Core has no typed
-single-request replacement effect, and this command does not fake one with a
-multi-operation proposal or fall back to the old writer.
+Syntax, required arguments and defaults come from `twig link reparent --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link reparent 5678
-twig link reparent 5678 --id 1234 -o json
+```sh
+twig link reparent --help
 ```
 
-Both report the unsupported replacement with exit `1`. Invalid targets,
-conflicting targets, missing machine targets and bare-ID output exit `2`.
-For an item that has **no parent**, use [`link parent`](./link-parent.md).
-An explicit [`link unparent`](./link-unparent.md) is a separate, independently
-verified removal, not a transactional replacement workflow.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

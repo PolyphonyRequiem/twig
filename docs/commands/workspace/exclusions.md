@@ -1,39 +1,42 @@
 ---
 command: workspace exclusions
 group: workspace
-summary: Inspect, remove or clear this workspace's view exclusions.
+summary: List all excluded work items.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace exclusions`
 
-Inspect the current workspace/connection's view rules. These are separate from
-the user-wide Bench definition and never remove shared pins or upstream items.
+List all excluded work items.
 
-```powershell
-twig workspace exclusions -o json
-twig workspace exclusions --remove 3980 -o json
-twig workspace exclusions --clear
+## Behavior
+
+Inspects separately stored local workspace-view exclusions; these are not subtracting Bench selectors or provider deletions.
+
+Syntax, required arguments and defaults come from `twig workspace exclusions --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `local`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
+
+## Examples
+
+```sh
+twig workspace exclusions --help
 ```
 
-With no change flags, list cached rule metadata (`id`, `kind`, `field` and
-`relation`) without work HTTP. `--remove <positive-id>` removes that exact
-single-item exclusion, preserving other rules; an absent exclusion is a
-successful no-op. `--clear` clears this workspace/connection's rules only.
-Combining change flags is a usage error.
-
-`-o|--output` supports `human`, JSON variants and `minimal`. List-only `ids`
-emits one numeric work-item ID per line when every rule is an observed
-single-item exclusion. It refuses query/tree rules or unavailable native
-numbers rather than silently returning a partial ID list.
-
-Changes use the captured rule revision, so concurrent edits are not
-overwritten. Selection, work-item state, pending drafts, proposal journals and
-other contexts' exclusions are untouched.
-
-Exit codes: `0` success (including empty/no-op); `1` unavailable/conflicting
-state; `2` invalid input. Errors use the selected output format on stderr.
-
-See [`workspace exclude`](./exclude.md),
-[`workspace`](./workspace.md) and [`bench`](../bench/README.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

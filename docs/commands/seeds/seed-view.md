@@ -1,74 +1,42 @@
 ---
 command: seed view
 group: seeds
-summary: Show the seed dashboard grouped by parent.
+summary: Show seed dashboard grouped by parent.
 stability: stable
 mutates: none
 ---
 
 # `twig seed view`
 
-Renders the seed dashboard: every local seed in the workspace, grouped under its
-parent work item (or as an "Orphan Seeds" section for unparented drafts). Reach for
-this before publishing to eyeball structure, completeness, and staleness.
-
-## Synopsis
-
-```
-twig seed view [-o|--output <format>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|string|`human`|Output format: `human`, `json`, `minimal`.|
+Show seed dashboard grouped by parent.
 
 ## Behavior
 
-- Read-only against the workspace cache: no ADO calls, no local writes.
-- Counts writable fields from `IFieldDefinitionStore` and computes a per-seed completeness ratio; readonly reference names are excluded so the ratio is meaningful (`src/Twig/Commands/SeedViewCommand.cs:31-38`).
-- Stale threshold comes from `TwigConfiguration.Seed.StaleDays` (`src/Twig/Commands/SeedViewCommand.cs:40`). Seeds older than the threshold are flagged in the rendered view.
-- Builds a per-seed link map from `ISeedLinkRepository` so parent-child and dependency edges are shown alongside each row (`src/Twig/Commands/SeedViewCommand.cs:42-43`).
-- When rendering to an interactive TTY, drops into the Spectre.Console `RenderSeedViewAsync` pipeline with live tables and badges. Non-TTY / machine formats fall back to the `RenderTree` document with a `Seeds (N)` section per parent group plus a `totalSeeds` scalar (`src/Twig/Commands/SeedViewCommand.cs:46-61,64-108`).
+Show seed dashboard grouped by parent. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. A seed is a local UUID-backed draft, not a negative published identity. Discover type/field/relationship rules from the bound schema; creation and verified publication are separate outcomes. After an uncertain attempt preserve the original draft, proposal, digest and receipts instead of repeating creation.
+
+Syntax, required arguments and defaults come from `twig seed view --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Interactive dashboard:
-
-```
-$ twig seed view
-Seeds (5)
-  Parent: #5678 Feature — Batch API rework
-    #-42  Task  Wire audit trail into the batch endpoint    3/7 fields   fresh
-    #-43  Task  Cover audit trail with tests                 2/7 fields   fresh
-  Orphan Seeds
-    #-99  Bug   Race in link publisher                       5/7 fields   stale
+```sh
+twig seed view --help
 ```
 
-Machine form:
-
-```
-$ twig seed view -o json
-{"groups":[...],"totalSeeds":5}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Dashboard rendered.|`0`|
-
-## See also
-
-- [`seed validate`](./seed-validate.md) — check publish readiness for what the dashboard shows.
-- [`seed links`](./seed-links.md) — inspect just the link table.
-- [`seed publish`](./seed-publish.md) — push the dashboard's contents to ADO.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

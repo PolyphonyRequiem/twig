@@ -8,73 +8,35 @@ mutates: none
 
 # `twig seed validate`
 
-Validates one local Core seed draft or every seed in the workspace through the
-same preview path used to prepare publication. Reports failures and returns a
-non-zero exit if any requested seed fails. Provider metadata may be observed;
-validation does not create or update remote work items.
-
-## Synopsis
-
-```
-twig seed validate [<id>] [-o|--output <format>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-|`id`|no|Seed ID to validate. Omit to validate every seed in the workspace.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|string|`human`|Output format: `human`, `json`, `minimal`.|
+Validate seeds against publish rules.
 
 ## Behavior
 
-- `CoreCommandAdapter.SeedValidateAsync` reads local drafts from the Core snapshot
-  and rejects ambiguous display aliases or cyclic local creation links.
-- Drafts are previewed in dependency order. Earlier prepared operations establish
-  the context for later local references; an explicit ID selects the result to report.
-- Preview evaluates the native schema and explicitly declared Twig policy scope.
-  A passing result is not a publication acknowledgement.
-- Description rich text is not passed through the retired legacy
-  Description-origin-paragraph parser. Core ADO creation sends the explicitly
-  authored field value, rather than injecting an origin marker into it.
-- Output contains a per-seed `results` table and `passed`/`total` counts. An empty
-  workspace succeeds with zero rows; an unknown explicit seed is an error.
-- Any requested failing seed returns `1`; all requested seeds passing returns `0`.
+Validate seeds against publish rules. Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. A seed is a local UUID-backed draft, not a negative published identity. Discover type/field/relationship rules from the bound schema; creation and verified publication are separate outcomes. After an uncertain attempt preserve the original draft, proposal, digest and receipts instead of repeating creation.
+
+Syntax, required arguments and defaults come from `twig seed validate --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `none`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-Validate every seed:
-
-```
-$ twig seed validate
-#-42 PASS
-#-43 FAIL  missing System.Title; parent chain unresolved
-1 of 2 seeds passed.
+```sh
+twig seed validate --help
 ```
 
-Validate a single seed as JSON:
-
-```
-$ twig seed validate -42 -o json
-{"kind":"seedValidation","results":[{"id":-42,"passed":true,"failures":""}],"passed":1,"total":1}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Every requested seed passed, or there were no seeds to validate.|`0`|
-|One or more seeds failed at least one rule.|`1`|
-
-## See also
-
-- [`seed publish`](./seed-publish.md) — the operation this gates; publication still requires Core preparation and admission.
-- [`seed view`](./seed-view.md) — visual overview alongside completeness ratios.
-- [`seed link`](./seed-link.md) — fix parent-chain issues surfaced here.
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

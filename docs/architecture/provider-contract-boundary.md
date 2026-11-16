@@ -1,47 +1,23 @@
-# Provider contracts in Domain
+# Provider contract boundary
 
-New work-management provider contracts belong in Infrastructure. Shared Domain
-operations use the provider snapshot, identity, capability and execution ports;
-selecting GitHub must not construct an ADO transport. The reflection guards in
-`ProviderContractBoundaryTests` inventory all Domain types, including internal
-and nested types, and freeze the public member shapes of these exact exceptions.
-The public API analyzers separately protect shipped signatures and nullability.
-No provider-name prefix is exempt.
+Current provider-neutral semantics and ports belong in `Twig.Core`. Adapters in
+`Twig.Providers.Ado`, `Twig.Providers.GitHub` and `Twig.Providers.Native` implement
+only their declared native capabilities. SQLite persistence belongs in
+`Twig.Store.Sqlite`; Infrastructure is internal application composition.
 
-## Frozen compatibility exceptions
+Selecting a provider must not construct another provider's transport or silently
+substitute its credential/source. Identities preserve provider, resource scope
+and opaque native ID; revision tokens are provider evidence, not interchangeable
+integers or proof of atomic conditional mutation.
 
-These are existing public Domain package APIs, not neutral protocols:
+The legacy public Domain/Infrastructure SDK compatibility allowlists are not
+current product contracts. `IGitHubReleaseService`, `GitHubReleaseInfo` and
+`GitHubReleaseAssetInfo` no longer provide a self-update/changelog exception;
+their old delivery island and CLI routes are removed. Infrastructure is
+nonpackable. Only the RenderTree SDK retains a public package/API compatibility
+promise.
 
-| Contract | Reason retained |
-| --- | --- |
-| `IAdoWorkItemService` | Legacy integer/WIQL reads, seed publication, publish-intent recovery, history and artifact workflows. Its existing callers and shipped package API still require the native ADO contract. |
-| `IRevisionBoundAdoWorkItemService` | Native strict-CAS primitives used only behind the ADO execution adapter; shared proposal code uses the neutral mutation port. |
-| `IAdoGitService` | Existing ADO repository/PR and `vstfs` artifact workflows, not GitHub work-item discovery or execution. |
-| `DeleteOutcome.AdoFailed` | Shipped result case used by existing delete consumers. |
-| `PatchOutcome.AdoUnreachable` | Shipped result case used by existing patch consumers. |
-| `FetchedFromAdo` | Shipped active-item result case and generated union surface. |
-
-Moving these contracts and their remaining native orchestrators out of the
-Domain package is a **deferred breaking package migration**, not work completed
-by this change. A new member, overload, type or different shape cannot silently
-expand the exception. It requires an explicit compatibility decision and review.
-The integer/WIQL protocols have not become neutral merely by acquiring a port.
-
-## Separate self-update exception
-
-`IGitHubReleaseService`, `GitHubReleaseInfo` and `GitHubReleaseAssetInfo` serve
-Twig binary self-update/changelog downloads. They are not work-item contracts.
-Their exact names and public shapes are frozen in a separate allowlist; adding
-GitHub work-management members to that API is not covered by this exception.
-
-## Claim projection
-
-The internal `IClaimProjection` receives an opaque scope and holder identity.
-Its inputs and failure types no longer name ADO. The native ADO field mapping,
-readback and identity verification remain in Infrastructure's `AdoClaimProjection`.
-This refactor does not enable GitHub claims or change the legacy diagnostic
-strings `ado-projection-failed` and `release-ado-projection-failed`.
-
-The inventory regression fails on the previous internal ADO claim seam and
-provider-named outcome cases. Positive and negative name controls prevent a
-vacuous guard (including the neutral `ReadOnlySnapshot` spelling).
+Core owns schema/policy/admission, digest-bound execution and journals. Host
+renderers, daemon transport, local metadata and correlated write evidence may
+not create alternate publication or replay authority. See
+[current composition](clean-core-contract.md) and [proposals](../features/proposals.md).

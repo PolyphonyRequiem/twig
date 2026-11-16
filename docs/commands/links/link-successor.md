@@ -1,38 +1,42 @@
 ---
 command: link successor
 group: links
-summary: Mark a published item as blocking another through a verified Core proposal.
-stability: experimental
-mutates: ado
+summary: Mark the active work item as blocking another item (Successor link).
+stability: stable
+mutates: provider
 ---
 
 # `twig link successor`
 
-The selected item must complete before the named target. Requires an explicitly
-initialized Core ADO workspace and one discovered directed dependency kind.
+Mark the active work item as blocking another item (Successor link).
 
-```
-twig link successor <targetId> [--id <n>] [-o <format>]
-```
+## Behavior
 
-`targetId` names the blocked item; `--id` names the blocker. Only human output
-may use the selected Core item. Both targets must be positive native IDs.
+Mark the active work item as blocking another item (Successor link). Uses the retained Core/native path and refuses unavailable provider/schema capabilities. It does not restore legacy Domain orchestration, implicit provider fallback or captured UI transport. Preserve exact source/target identities, relation direction and discovered provider semantics. Local-only Association edges never become remote relationships; unsupported provider effects refuse rather than falling back locally.
 
-Canonical direction is **blocker -> blocked**. The selected blocker's observed
-revision binds one forward-link PATCH. Shared proposal validation, declared policy,
-durable journal intent, independent acknowledgement readback and fresh reciprocal
-observations determine success. No legacy writer or sync fallback is used.
+Syntax, required arguments and defaults come from `twig link successor --help`.
+Structured single-item mutations require an explicit `--id`; active selection
+is a human convenience, not automation scope. Output and error formats are
+declared, never inferred from TTY state.
+
+## Effects
+
+Effect scope: `provider`. Provider effects may publish changes. Local state,
+remote publication and verified outcomes are distinct. Do not auto-save,
+discard or replay unrelated intent.
+
+## Failures
+
+Invalid arguments, unsupported capabilities, stale identity/revision evidence
+and unavailable data are explicit errors, not empty success. Inspect stderr,
+exit status and any per-operation outcome before reporting completion.
 
 ## Examples
 
-```text
-twig link successor 66
-twig link successor 66 --id 65 -o json
+```sh
+twig link successor --help
 ```
 
-Verified success exits `0` (`linkAdded`), including `status: Verified`, digest
-and current native links. Duplicate edges, unavailable evidence and unresolved
-outcomes exit `1`; invalid/self/missing machine targets exit `2`.
-
-See [shared behavior](./README.md), [`link predecessor`](./link-predecessor.md)
-and [`link unlink`](./link-unlink.md).
+Examples use illustrative IDs/names; substitute observed identities and
+discovered process values. Commands ending in `--help` inspect syntax only;
+mutation examples can publish changes.

@@ -46,17 +46,17 @@ public class SqliteAndSerializationTests
     public void TwigJsonContext_SourceGenerated_SerializesAndDeserializesCorrectly()
     {
         // Verify that source-generated AOT serialization works with a real DTO.
-        var config = new TwigConfiguration
+        var config = new TwigRepoConfig
         {
             Organization = "https://dev.azure.com/testorg",
             Project = "TestProject",
         };
 
-        var json = JsonSerializer.Serialize(config, TwigJsonContext.Default.TwigConfiguration);
+        var json = JsonSerializer.Serialize(config, TwigJsonContext.Default.TwigRepoConfig);
         json.ShouldNotBeNullOrEmpty();
         json.ShouldContain("testorg");
 
-        var deserialized = JsonSerializer.Deserialize(json, TwigJsonContext.Default.TwigConfiguration);
+        var deserialized = JsonSerializer.Deserialize(json, TwigJsonContext.Default.TwigRepoConfig);
         deserialized.ShouldNotBeNull();
         deserialized!.Organization.ShouldBe("https://dev.azure.com/testorg");
         deserialized.Project.ShouldBe("TestProject");

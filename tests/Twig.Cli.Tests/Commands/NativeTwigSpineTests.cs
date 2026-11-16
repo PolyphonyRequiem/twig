@@ -28,7 +28,7 @@ public sealed class NativeTwigSpineTests
             var stamp = initialized.Value.Source;
             stamp.Connection.Provider.Value.ShouldBe("twig");
             var configuration = new TwigConfiguration { Provider = "twig" };
-            var paths = TwigPaths.BuildPaths(Path.Combine(work, ".twig"), configuration, work);
+            var paths = TwigPaths.BuildPaths(Path.Combine(work, ".twig"), work);
             using var bindings = new ConnectionBindingService(home);
             var inventory = await NativeCoreExecution.InventoryAsync(bindings.RegistryPath);
             inventory.IsSuccess.ShouldBeTrue(inventory.IsSuccess ? "" : inventory.Error.Message);

@@ -16,7 +16,6 @@ using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Formatters;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Policy;
 using Xunit;
 using CoreModel = Twig.Core;

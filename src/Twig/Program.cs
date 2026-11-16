@@ -6,7 +6,6 @@ using Twig.Formatters;
 using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
 using Twig.Rendering;
 

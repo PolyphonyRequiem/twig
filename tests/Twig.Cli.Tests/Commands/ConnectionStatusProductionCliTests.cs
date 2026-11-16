@@ -81,7 +81,7 @@ public sealed class ConnectionStatusProductionCliTests : IDisposable
         InitCommandTestFixture.InitTempWorktree(_root).ShouldBeTrue();
         var config = new TwigConfiguration { Organization = "fixture", Project = "fixture" };
         config.ResolveWorkItemProviderKind().ShouldBe("ado");
-        var paths = TwigPaths.BuildPaths(Path.Combine(_root, ".twig"), config, _root);
+        var paths = TwigPaths.BuildPaths(Path.Combine(_root, ".twig"), _root);
         await config.SaveSplitAsync(paths);
         using var store = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System);
         (await store.InitializeAsync()).IsSuccess.ShouldBeTrue();

@@ -6,7 +6,6 @@ using System.Security.Principal;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
 using Xunit;
 

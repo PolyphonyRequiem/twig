@@ -25,7 +25,7 @@ public static partial class NativeConnectionLabels
         try
         {
             if (!Path.IsPathFullyQualified(root)) return fallback;
-            var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), new TwigConfiguration(), root);
+            var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
             foreach (var file in new[] { paths.RepoConfigPath, paths.ConfigPath })
                 if (File.Exists(file) && new FileInfo(file).Length > 256 * 1024) return fallback;
             var configuration = await TwigConfiguration.LoadSplitAsync(paths, deadline.Token).ConfigureAwait(false);

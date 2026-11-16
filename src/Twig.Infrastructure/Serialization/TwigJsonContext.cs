@@ -6,7 +6,6 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Persistence.ProviderTargets;
-using Twig.Infrastructure.Telemetry;
 
 namespace Twig.Infrastructure.Serialization;
 
@@ -35,7 +34,6 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection))]
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection[]))]
 [JsonSerializable(typeof(ConnectionDefaultTransitionRecord))]
-[JsonSerializable(typeof(AppInsightsEnvelope))]
 [JsonSerializable(typeof(TokenRefreshResponse))]
 [JsonSerializable(typeof(JwtAccessTokenPayload))]
 [JsonSerializable(typeof(TwigRefreshTokenStoreEntry))]

@@ -92,7 +92,7 @@ public sealed class NativeHostCleanupTests : IDisposable
         foreach (var protocol in new[] { "2025-03-26", "2025-06-18", "2025-11-25" })
         {
             using var request = Request(path,
-                $$"""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"{{protocol}}"}}""");
+                $$$"""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"{{{protocol}}}"}}""");
             request.Headers.Add("MCP-Protocol-Version", protocol);
             using var response = await client.SendAsync(request);
             response.StatusCode.ShouldBe(HttpStatusCode.OK);

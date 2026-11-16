@@ -6,7 +6,6 @@ using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services;
 

@@ -12,18 +12,17 @@ public sealed class CurrentAttachmentLayoutTests : IDisposable
     private string TwigDirectory => Path.Combine(root, ".twig");
 
     [Fact]
-    public async Task MissingAdmissionMarkerDoesNotRouteAnUnmarkedCache()
+    public async Task MissingRegistryCannotAuthorizeCurrentTransitionAdmission()
     {
         var cache = Path.Combine(TwigDirectory, "cache");
         Directory.CreateDirectory(cache);
         var unknown = Path.Combine(cache, "twig.db");
         await File.WriteAllTextAsync(unknown, "unadmitted original evidence");
-        var resolved = MirrorAdmission.ResolveMirrorPath(TwigDirectory);
-        resolved.ShouldNotBe(unknown);
-        var paths = new TwigPaths(TwigDirectory, Path.Combine(TwigDirectory, "config"), resolved, root);
-        Should.Throw<InvalidOperationException>(() => MirrorAdmission.Acquire(paths)).Message.ShouldContain("activation-required");
+        var registry = Path.Combine(root, "system.db");
+        Should.Throw<InvalidOperationException>(() => ConnectionTransitionAdmission.ValidateNoUnfinishedTransition(registry, "worktree"))
+            .Message.ShouldContain("activation-required");
         (await File.ReadAllTextAsync(unknown)).ShouldBe("unadmitted original evidence");
-        File.Exists(resolved).ShouldBeFalse();
+        File.Exists(registry).ShouldBeFalse();
     }
 
     [Fact]

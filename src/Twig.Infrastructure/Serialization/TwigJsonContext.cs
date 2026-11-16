@@ -24,7 +24,6 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoConnectionDataResponse))]
 [JsonSerializable(typeof(PatCredentialEntry))]
 [JsonSerializable(typeof(ConnectionActivationRecord))]
-[JsonSerializable(typeof(MirrorAdmissionDocument))]
 [JsonSerializable(typeof(ConnectionBindingTransitionRecord))]
 [JsonSerializable(typeof(CoreWriteCorrelation))]
 [JsonSerializable(typeof(ConnectionRemoteWriteResponse))]

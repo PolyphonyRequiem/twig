@@ -34,6 +34,7 @@ internal sealed class WorktreeLocalAttachmentStore : IDisposable
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly string? _initialBindingPin;
+    private readonly string? _registryPath;
 
     internal const string LayoutFileName = "layout.json";
     internal const string WorktreeFileName = "worktree.json";
@@ -44,12 +45,14 @@ internal sealed class WorktreeLocalAttachmentStore : IDisposable
     private const int LockAcquireMaxAttempts = 400;
     private const int LockAcquireDelayMs = 25;
 
-    public WorktreeLocalAttachmentStore(TwigPaths paths, TwigConfiguration config, TimeProvider clock, string? initialBindingPin = null)
+    public WorktreeLocalAttachmentStore(TwigPaths paths, TwigConfiguration config, TimeProvider clock, string? initialBindingPin = null,
+        string? registryPath = null)
     {
         _paths = paths;
         _config = config;
         _clock = clock;
         _initialBindingPin = initialBindingPin;
+        _registryPath = registryPath;
     }
 
     public bool IsManagedWorktree()
@@ -288,16 +291,19 @@ internal sealed class WorktreeLocalAttachmentStore : IDisposable
             if (lockHandle is null)
                 return NativeResults.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
 
-            var markerPath = Path.Combine(_paths.TwigDir, "cache", MirrorAdmission.MarkerFile);
-            if (File.Exists(markerPath))
-            {
-                var admission = MirrorAdmission.ReadDocument(markerPath);
-                MirrorAdmission.ValidateNoUnfinishedTransition(admission.RegistryPath, admission.Fingerprint);
-            }
-
             var readRes = await ReadInternalAsync(ct).ConfigureAwait(false);
             if (!readRes.IsSuccess)
                 return NativeResults.Fail(readRes.Error);
+            if (_registryPath is null)
+                return NativeResults.Fail("attachment-registry-authority-required: mutation requires the exact current native registry.");
+            var fingerprint = WorktreeFingerprintProvider.CanonicalJson(readRes.Value.Anchor);
+            using var registry = new SqliteSystemWorktreeRegistry(_registryPath, _clock);
+            var registered = await registry.FindWorktreeAsync(fingerprint, ct).ConfigureAwait(false);
+            if (!registered.IsSuccess) return NativeResults.Fail(registered.Error);
+            if (registered.Value is not { RetiredAt: null } current
+                || current.ConnectionRef != readRes.Value.Projection.ConnectionRef)
+                return NativeResults.Fail("attachment-registry-authority-mismatch: the current checkout registration does not own this attachment.");
+            ConnectionTransitionAdmission.ValidateNoUnfinishedTransition(_registryPath, fingerprint);
 
             var currentProjection = readRes.Value.Projection;
             var currentDoc = readRes.Value.Document;

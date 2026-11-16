@@ -69,15 +69,33 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null)
                     return NativeResults.Fail("remote-write-selection-cas-mismatch: current default no longer matches admitted authority.");
             }
-            if (intent.Origin.StorageGeneration is { } generation)
-            {
-                cmd.CommandText = "SELECT record_json FROM connection_activations WHERE worktree_fingerprint=$fp AND state='active' AND generation=$generation;";
-                cmd.Parameters.AddWithValue("$generation", generation);
-                var json = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
-                var activation = json is null ? null : JsonSerializer.Deserialize(json, TwigJsonContext.Default.ConnectionActivationRecord);
-                if (activation is null || activation.BindingId != intent.Origin.Binding.BindingId)
-                    return NativeResults.Fail("remote-write-generation-cas-mismatch: native admitted generation does not own the selected binding.");
-            }
+            if (intent.Origin.StorageGeneration is not { } generation
+                || !generation.StartsWith("core:", StringComparison.Ordinal)
+                || !Guid.TryParseExact(generation.AsSpan(5), "N", out var instance) || instance == Guid.Empty
+                || intent.Request.CoreCorrelation is not { } correlation || correlation.StoreInstance == Guid.Empty
+                || correlation.Attempt == Guid.Empty || correlation.Operation < 0)
+                return NativeResults.Fail("remote-write-generation-cas-mismatch: the exact current Core generation and operation correlation are required.");
+            var gate = await ReadCoreGate(connection, tx, ct).ConfigureAwait(false);
+            if (!gate.IsSuccess) return NativeResults.Fail(gate.Error);
+            var originSource = gate.Value.Sources.SingleOrDefault(source => source.Instance == instance);
+            var operationSource = gate.Value.Sources.SingleOrDefault(source => source.Instance == correlation.StoreInstance);
+            if (!gate.Value.Active || originSource is null || operationSource is null
+                || !NativePathComparer.Instance.Equals(originSource.Root, intent.Origin.WorktreeRoot)
+                || !NativePathComparer.Instance.Equals(operationSource.Root, intent.Origin.WorktreeRoot)
+                || originSource.Connection != operationSource.Connection
+                || operationSource.Connection.Provider.Value != "ado"
+                || CleanCoreAdoAccess.ConnectionText(operationSource.Connection) != correlation.ConnectionIdentity)
+                return NativeResults.Fail("remote-write-core-source-mismatch: the current origin and operation must retain the exact active Core source authority.");
+            cmd.CommandText = """
+                SELECT 1 FROM core_attempt_refs WHERE instance=$store AND digest=$proposal
+                    AND operation=$operation AND attempt=$attempt AND ever_applying=1 LIMIT 1;
+                """;
+            cmd.Parameters.AddWithValue("$store", correlation.StoreInstance.ToString("D"));
+            cmd.Parameters.AddWithValue("$proposal", correlation.ProposalDigest);
+            cmd.Parameters.AddWithValue("$operation", correlation.Operation);
+            cmd.Parameters.AddWithValue("$attempt", correlation.Attempt.ToString("D"));
+            if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null)
+                return NativeResults.Fail("remote-write-core-attempt-unavailable: the exact Applying attempt has no current native source reference.");
             cmd.CommandText = "SELECT 1 FROM connection_binding_transitions WHERE worktree_fingerprint=$fp AND state<>'completed' LIMIT 1;";
             if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
                 return NativeResults.Fail("remote-write-transition-unfinished: native transition fences mutation admission.");

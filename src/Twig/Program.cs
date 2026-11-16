@@ -770,7 +770,7 @@ public sealed class TwigCommands(IServiceProvider services)
         return MissingCore(output);
     }
 
-    /// <summary>Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation, --link-branch to link to a git branch.</summary>
+    /// <summary>Publish seeds through a validated proposal. Use --all for batch, --dry-run to preview, --link-branch to link to a git branch.</summary>
     /// <param name="id">Seed ID to publish; omit when using --all.</param>
     /// <param name="all">Publish all seeds in dependency order.</param>
     /// <param name="dryRun">Preview what would be published without making changes.</param>

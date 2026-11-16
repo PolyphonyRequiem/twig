@@ -31,6 +31,8 @@ jobs:
         run: python tools/verify-domain-cut.py --selftest
       - name: Smoke supervisor selftests (offline)
         run: python tools/run-bounded.py --timeout 60 -- python tools/test-verify-build.py
+      - name: Cached tracking checker regressions (offline)
+        run: python tools/run-bounded.py --timeout 60 -- python tools/test-check-tracking.py
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json

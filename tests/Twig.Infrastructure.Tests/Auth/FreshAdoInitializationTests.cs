@@ -184,7 +184,7 @@ public sealed class FreshAdoInitializationTests : IDisposable
             if (path == "/fixture/_apis/connectionData")
                 return new(HttpStatusCode.OK)
                 {
-                    Content = new StringContent($$"""{"instanceId":"55555555-5555-5555-5555-555555555555","authenticatedUser":{"id":"{{Principal}}"}}"""),
+                    Content = new StringContent($$$"""{"instanceId":"55555555-5555-5555-5555-555555555555","authenticatedUser":{"id":"{{{Principal}}}"}}"""),
                 };
             path.ShouldBe("/fixture/_apis/projects/Project");
             if (beforeProject is not null) await beforeProject();

@@ -55,11 +55,12 @@ public sealed class ConnectionStatusProductionCliTests : IDisposable
     }
 
     [Fact]
-    public async Task ValidLayoutWithoutBindingKeepsExistingGuidance()
+    public async Task CurrentLayoutWithoutAdmissionRequiresFreshInitialization()
     {
         var paths = await InitializeLayoutAsync();
         File.Exists(Path.Combine(paths.TwigDir, WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeTrue();
         File.Exists(Path.Combine(paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName)).ShouldBeTrue();
+        File.Exists(Path.Combine(paths.TwigDir, "core-workspace.json")).ShouldBeFalse();
 
         var result = await StructuredReadProductionCliTests.RunInWorkspaceAsync(
             _root, Path.Combine(_root, "home"), "connection", "status", "-o", "json");
@@ -69,10 +70,13 @@ public sealed class ConnectionStatusProductionCliTests : IDisposable
         using var error = JsonDocument.Parse(result.Error);
         var message = error.RootElement.GetProperty("error").GetString().ShouldNotBeNull();
         message.ShouldContain("No recorded connection binding");
-        message.ShouldContain("No explicit default binding");
-        message.ShouldContain("Register a named identity, then bind explicit org/project coordinates.");
+        message.ShouldContain("activation-required");
+        message.ShouldContain("initialize the current Core workspace");
+        message.ShouldContain("before work access");
+        message.ShouldNotContain("No explicit default binding");
         message.ShouldNotContain("layout-marker-missing");
         message.ShouldNotContain("move aside");
+        File.Exists(Path.Combine(paths.TwigDir, "core-workspace.json")).ShouldBeFalse();
     }
 
     private async Task<TwigPaths> InitializeLayoutAsync()

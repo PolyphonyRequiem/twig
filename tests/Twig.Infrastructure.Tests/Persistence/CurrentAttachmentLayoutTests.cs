@@ -48,7 +48,9 @@ public sealed class CurrentAttachmentLayoutTests : IDisposable
     {
         await InitializeGit();
         using var store = Store();
-        (await store.InitializeAsync()).IsSuccess.ShouldBeTrue();
+        var initialized = await store.InitializeAsync();
+        initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
+        File.Exists(Path.Combine(TwigDirectory, "binding-operation.lock")).ShouldBeTrue();
         var attachment = Path.Combine(TwigDirectory, "attachment.json");
         var before = await File.ReadAllTextAsync(attachment);
         var fingerprint = Path.Combine(TwigDirectory, "worktree.json");
@@ -65,9 +67,12 @@ public sealed class CurrentAttachmentLayoutTests : IDisposable
         using var first = Store();
         using var second = Store();
         var initialized = await Task.WhenAll(Task.Run(() => first.InitializeAsync()), Task.Run(() => second.InitializeAsync()));
-        initialized.ShouldAllBe(result => result.IsSuccess);
+        foreach (var result in initialized)
+            result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        File.Exists(Path.Combine(TwigDirectory, "binding-operation.lock")).ShouldBeTrue();
         var before = await File.ReadAllTextAsync(Path.Combine(TwigDirectory, "attachment.json"));
-        (await first.InitializeAsync()).IsSuccess.ShouldBeTrue();
+        var reopened = await first.InitializeAsync();
+        reopened.IsSuccess.ShouldBeTrue(reopened.IsSuccess ? "" : reopened.Error.Message);
         (await File.ReadAllTextAsync(Path.Combine(TwigDirectory, "attachment.json"))).ShouldBe(before);
         (await second.ReadWithRevisionAsync()).Value.Revision.ShouldBe(0);
     }

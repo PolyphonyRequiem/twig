@@ -78,6 +78,18 @@ public sealed class NativeCoreRegistryPersistenceTests : IDisposable
     }
 
     [Fact]
+    public async Task RegistryDisposalReleasesDatabaseForExclusiveAccess()
+    {
+        using (var registry = new SqliteSystemWorktreeRegistry(Database, TimeProvider.System))
+        {
+            var opened = await registry.ReadCoreGateAsync(default);
+            opened.IsSuccess.ShouldBeTrue(opened.IsSuccess ? "" : opened.Error.Message);
+        }
+        using var exclusive = new FileStream(Database, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        exclusive.Length.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
     public async Task ConcurrentFreshInitializationSharesIdentity()
     {
         using var first = new SqliteSystemWorktreeRegistry(Database, TimeProvider.System);
@@ -91,8 +103,6 @@ public sealed class NativeCoreRegistryPersistenceTests : IDisposable
 
     public void Dispose()
     {
-        using var pool = new SqliteConnection($"Data Source={Database}");
-        SqliteConnection.ClearPool(pool);
         if (Directory.Exists(root)) Directory.Delete(root, true);
     }
 }

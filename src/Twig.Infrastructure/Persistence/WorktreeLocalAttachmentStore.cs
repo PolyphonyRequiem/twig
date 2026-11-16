@@ -537,7 +537,7 @@ internal sealed class WorktreeLocalAttachmentStore : IDisposable
                 if (name is not ("cache" or TmpDirName or "core-github-intents")) return false;
             }
             else if (name is not (LayoutFileName or WorktreeFileName or AttachmentFileName or AttachmentLockFileName
-                or "config" or "core-workspace.json" or "core-context.json" or "core-init.lock" or "EDIT_MSG"
+                or "config" or "core-workspace.json" or "core-context.json" or "core-init.lock" or "EDIT_MSG" or "binding-operation.lock"
                 or "provider-target.json" or "provider-target.json.lock")
                 && !NativePathComparer.Instance.Equals(Path.GetFullPath(entry), Path.GetFullPath(_paths.DbPath))
                 && !NativePathComparer.Instance.Equals(Path.GetFullPath(entry), Path.GetFullPath(_paths.DbPath + "-wal"))

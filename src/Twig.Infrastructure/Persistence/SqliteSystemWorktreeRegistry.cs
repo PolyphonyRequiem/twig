@@ -227,6 +227,7 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
                 DataSource = _dbPath,
                 Mode = SqliteOpenMode.ReadWriteCreate,
                 DefaultTimeout = 30,
+                Pooling = false,
             }.ToString();
             var newConnection = new SqliteConnection(cs);
             try

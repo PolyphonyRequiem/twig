@@ -53,8 +53,6 @@ public sealed class NativeCaptureRegistryPersistenceTests : IDisposable
 
     public void Dispose()
     {
-        using var pool = new SqliteConnection($"Data Source={Database}");
-        SqliteConnection.ClearPool(pool);
         if (Directory.Exists(root)) Directory.Delete(root, true);
     }
 }

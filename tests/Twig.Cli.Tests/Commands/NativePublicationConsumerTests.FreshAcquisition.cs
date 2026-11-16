@@ -295,8 +295,11 @@ public sealed partial class NativePublicationConsumerTests
             => inner.CreateBindingAsync(organization, project, identityName, makeDefault, ct);
         public Task<IReadOnlyList<IdentityBinding>> ListBindingsAsync(string organization, string project, CancellationToken ct = default)
             => inner.ListBindingsAsync(organization, project, ct);
-        public Task<IAuthenticationProvider> CreateBootstrapProviderAsync(TwigConfiguration configuration, CancellationToken ct = default, string? bindingId = null)
-            => inner.CreateBootstrapProviderAsync(configuration, ct, bindingId);
+        public Task ValidateInitializationSelectionAsync(TwigConfiguration configuration, CancellationToken ct = default, string? bindingId = null)
+            => inner.ValidateInitializationSelectionAsync(configuration, ct, bindingId);
+        public Task<ConnectionInitializationAuthority> CreateInitializationAuthorityAsync(TwigConfiguration configuration,
+            TwigPaths paths, FreshWorkspaceInitialization scope, CancellationToken ct = default)
+            => inner.CreateInitializationAuthorityAsync(configuration, paths, scope, ct);
 
         private sealed class FixtureCredential(CountingNativeBindings owner, AuthenticationIdentity identity)
             : IAuthenticationProvider, IBoundAuthenticationMetadata

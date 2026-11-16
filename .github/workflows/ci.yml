@@ -179,6 +179,7 @@ jobs:
               ("user-bench-store", "Twig.Infrastructure.Tests", "FullyQualifiedName~UserBenchStoreTests"),
               ("native-plan-scopes", "Twig.Infrastructure.Tests", "FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanStoreTests|FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanScopeContractTests"),
               ("native-core-execution", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeCoreExecutionTests|FullyQualifiedName~NativeCoreRegistryPersistenceTests"),
+              ("current-attachment-layout", "Twig.Infrastructure.Tests", "FullyQualifiedName~CurrentAttachmentLayoutTests"),
               ("native-publishing-gate", "Twig.Cli.Tests", "FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativePublishingBeforeActivationIsRefusedByTheActualCliComposition|FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeUnknownWriteBlocksAnotherInitializedRootNormalSaveWithoutMutationHttp|FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeUnknownGitHubWriteFencesAnotherRootNormalSaveThroughRealComposition"),
               ("native-no-effect", "Twig.Cli.Tests", "FullyQualifiedName~NativeHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits|FullyQualifiedName~NativeGitHubHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits"),
               ("native-compound-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeCompoundEditorFieldsAndRelatedDelta"),

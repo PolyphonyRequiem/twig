@@ -191,8 +191,15 @@ public sealed class BuildFixtureRunProcessTests
             return;
         using (process)
         {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException) when (process.HasExited)
+            {
+                // The exact owned process exited between the check and the kill.
+            }
             process.WaitForExit(5000).ShouldBeTrue("the exact owned process must be reaped");
         }
     }

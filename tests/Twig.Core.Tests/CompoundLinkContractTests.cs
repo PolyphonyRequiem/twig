@@ -34,13 +34,24 @@ public sealed class CompoundLinkContractTests
         var proposal = new Proposal(Connection, schema.Fingerprint, 0, [op]);
         var snapshot = new StoreSnapshot(0, [source], proposals: [proposal], journal: [JournalEntry.Planned(proposal.Digest, 0)]);
         var actual = Model.ValidateEffect(proposal, 0, schema, snapshot, new([OpKind.Batch], [], [], true, true));
-        var evaluated = Model.EvaluateEditorFields(schema, source, changes, true).Value;
+        var evaluation = Model.EvaluateEditorFields(schema, source, changes, true);
+        if (scenario == "ambiguous-supplier")
+        {
+            schema.Types[0].Rules.Where(rule => rule.Action == RuleAction.Supplied && !rule.Disabled)
+                .SelectMany(rule => rule.Values).Distinct().Count().ShouldBe(2);
+            evaluation.IsSuccess.ShouldBeFalse();
+            evaluation.Error.Code.ShouldBe(ErrorCode.Unavailable);
+            evaluation.Error.Message.ShouldBe("Enabled suppliers disagree or their combined effective value is unknown.");
+            actual.ShouldHaveSingleItem().ShouldBe(evaluation.Error with { Message = $"{op.Id}: {evaluation.Error.Message}" });
+            return;
+        }
+        evaluation.IsSuccess.ShouldBeTrue(evaluation.IsSuccess ? "" : evaluation.Error.Message);
+        var evaluated = evaluation.Value;
         var title = evaluated.Fields.Single(field => field.Definition.Reference == "title");
         title.ReadOnly.ShouldBe(scenario is "definition-readonly" or "rule-readonly");
         title.Required.ShouldBe(scenario == "null-supplier");
         evaluated.Errors.Select(error => error.Code).ShouldBe(actual.Select(error => error.Code));
         if (scenario == "constrained-empty") { title.HasAllowedConstraint.ShouldBeTrue(); title.Allowed.ShouldBeEmpty(); }
-        if (scenario == "ambiguous-supplier") actual.ShouldContain(error => error.Code == ErrorCode.Unavailable);
     }
 
     [Theory]

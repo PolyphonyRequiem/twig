@@ -113,7 +113,7 @@ public sealed partial class NativePublicationConsumerTests
                 .ShouldBe(0, error.ToString());
             output.ToString().ShouldContain("not freshly authenticated");
             output.GetStringBuilder().Clear();
-            (await runtime.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(false, output: "json"))
+            (await runtime.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(output: "json"))
                 .ShouldBe(0, error.ToString());
             output.ToString().ShouldBe("[]" + Environment.NewLine);
         }

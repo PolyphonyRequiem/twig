@@ -290,8 +290,6 @@ public sealed partial class NativePublicationConsumerTests
         public Task<AuthenticationIdentity> RegisterPatIdentityAsync(string name, string organization, string pat, CancellationToken ct = default)
             => inner.RegisterPatIdentityAsync(name, organization, pat, ct);
         public Task ClearIdentityAccessCacheAsync(string name, CancellationToken ct = default) => inner.ClearIdentityAccessCacheAsync(name, ct);
-        public Task VerifyIdentityCredentialAsync(string name, string organization, CancellationToken ct = default)
-            => inner.VerifyIdentityCredentialAsync(name, organization, ct);
         public Task<IReadOnlyList<AuthenticationIdentity>> ListIdentitiesAsync(CancellationToken ct = default) => inner.ListIdentitiesAsync(ct);
         public Task<IdentityBinding> CreateBindingAsync(string organization, string project, string identityName, bool makeDefault, CancellationToken ct = default)
             => inner.CreateBindingAsync(organization, project, identityName, makeDefault, ct);

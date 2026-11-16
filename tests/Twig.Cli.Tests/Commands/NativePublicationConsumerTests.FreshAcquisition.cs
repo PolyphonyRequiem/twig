@@ -41,7 +41,8 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("generation")]
     public async Task NativeAdoAcquisitionWithinLiveAncestorStillRefusesChangedSource(string damage)
     {
-        var fixture = await FreshAcquisitionFixtureAsync();
+        var fixture = await FreshAcquisitionFixtureAsync(
+            damage == "generation" ? Path.Combine(_temp, "original-core.db") : null);
         using var handle = fixture.Handle;
         using var ancestor = await ((IConnectionOperationGuard)fixture.Authentication).AcquireOperationAsync();
         var original = ((IAdmittedConnectionOperation)ancestor).GetAuthority(fixture.Bindings).ShouldNotBeNull();
@@ -91,7 +92,7 @@ public sealed partial class NativePublicationConsumerTests
         else if (damage == "generation")
         {
             original.StorageGeneration.ShouldBe("core:" + handle.Document.DatabaseInstance.ToString("N"));
-            var replacement = await Twig.Store.Sqlite.SqliteStore.CreateAsync(Path.Combine(fixture.Paths.TwigDir, "replacement-core.db"));
+            var replacement = await Twig.Store.Sqlite.SqliteStore.CreateAsync(Path.Combine(_temp, "replacement-core.db"));
             replacement.IsSuccess.ShouldBeTrue();
             replacement.Value.InstanceId.ShouldNotBe(handle.Document.DatabaseInstance);
             (await replacement.Value.PinWorkspaceAsync(handle.Workspace.Connection)).IsSuccess.ShouldBeTrue();
@@ -100,7 +101,13 @@ public sealed partial class NativePublicationConsumerTests
             await File.WriteAllTextAsync(Path.Combine(fixture.Paths.TwigDir, CoreWorkspaceFactory.FileName),
                 JsonSerializer.Serialize(handle.Document with { DatabasePath = replacement.Value.DatabasePath,
                     DatabaseInstance = replacement.Value.InstanceId }, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
-            var observed = await _bindings.ResolveAsync(fixture.Configuration, fixture.Paths);
+            var currentPaths = new TwigPaths(fixture.Paths.TwigDir, fixture.Paths.ConfigPath,
+                replacement.Value.DatabasePath, fixture.Paths.StartDir, fixture.Paths.GlobalDisplayPath);
+            Directory.GetFiles(currentPaths.TwigDir, "*.db*").ShouldBeEmpty();
+            using var attachmentStore = new WorktreeLocalAttachmentStore(currentPaths, fixture.Configuration, TimeProvider.System);
+            var attached = await attachmentStore.ReadForBindingAsync(default);
+            attached.IsSuccess.ShouldBeTrue(attached.IsSuccess ? "" : attached.Error.Message);
+            var observed = await _bindings.ResolveAsync(fixture.Configuration, currentPaths);
             observed.StorageGeneration.ShouldBe("core:" + replacement.Value.InstanceId.ToString("N"));
             observed.StorageGeneration.ShouldNotBe(original.StorageGeneration);
         }
@@ -111,8 +118,10 @@ public sealed partial class NativePublicationConsumerTests
                 : original.Binding;
             SwapSelection(fixture.Configuration, selected.BindingId);
         }
+        var requests = _transport.TotalRequests;
         var refused = await handle.NativeAdoAccess.AcquireAsync(handle.Workspace.Connection, default);
         refused.IsSuccess.ShouldBeFalse();
+        _transport.TotalRequests.ShouldBe(requests, "a stale captured authority must refuse before any provider HTTP");
         fixture.Bindings.TokenCount.ShouldBe(tokenCount, "A failed fresh entry cannot release a credential.");
         ((IAdmittedConnectionOperation)ancestor).GetAuthority(fixture.Bindings).ShouldBe(original);
         _transport.PatchAttempts.ShouldBe(0);
@@ -247,9 +256,9 @@ public sealed partial class NativePublicationConsumerTests
         capture.Id.ShouldNotBe(Guid.Empty);
     }
 
-    private async Task<FreshAcquisitionFixture> FreshAcquisitionFixtureAsync()
+    private async Task<FreshAcquisitionFixture> FreshAcquisitionFixtureAsync(string? storeFile = null)
     {
-        var host = await CreateHumanHostAsync();
+        var host = await CreateHumanHostAsync(storeFile);
         var paths = TwigPaths.BuildPaths(Path.Combine(host.Root, ".twig"), host.Root);
         var configuration = await TwigConfiguration.LoadSplitAsync(paths);
         var bindings = new CountingNativeBindings(_bindings);

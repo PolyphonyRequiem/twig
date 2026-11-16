@@ -488,15 +488,16 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         }
     }
 
-    private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> RelationshipWorkspaceAsync(bool activate = true)
+    private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> RelationshipWorkspaceAsync(
+        bool activate = true, string? storeFile = null)
     {
         await EnrollNativeFixtureAsync();
         _transport.SetItem(43, "Other endpoint", 7, Actor);
-        return await InitializeCurrentWorkspaceFixtureAsync(Path.Combine(_temp, "checkout"), activate);
+        return await InitializeCurrentWorkspaceFixtureAsync(Path.Combine(_temp, "checkout"), activate, storeFile);
     }
 
     private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> InitializeCurrentWorkspaceFixtureAsync(
-        string root, bool activate = true)
+        string root, bool activate = true, string? storeFile = null)
     {
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
@@ -505,11 +506,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var workRequests = _transport.WorkRequests;
         var writes = _transport.CommittedWrites;
         var initialized = await NativeWorkspaceSetup.InitializeAsync(
-            new(root, "fixture", "Project", null, null, "ado", null, null, null, null, null,
+            new(root, "fixture", "Project", null, null, "ado", null, null, null, storeFile, null,
                 Path.Combine(Home, "display.json")),
             () => _bindings, new NativeSetupEffects(), default, new CoreTransportOverride(_transport.NewHandle));
         initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
         var receipt = initialized.Value;
+        if (storeFile is not null) receipt.Document.DatabasePath.ShouldBe(Path.GetFullPath(storeFile));
         receipt.Source.Connection.ShouldBe(receipt.Document.Connection);
         receipt.Source.StoreInstance.ShouldBe(receipt.Document.DatabaseInstance);
         receipt.Source.PrincipalId.ShouldBe(Actor);

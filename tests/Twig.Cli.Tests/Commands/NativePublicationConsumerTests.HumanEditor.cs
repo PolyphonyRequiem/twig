@@ -83,9 +83,9 @@ public sealed partial class NativePublicationConsumerTests
         HumanPatchAttempts.ShouldBe(0);
     }
 
-    public async Task<(string Root, string Registry, Guid Bench, NativeSourceStamp Stamp)> CreateHumanHostAsync()
+    public async Task<(string Root, string Registry, Guid Bench, NativeSourceStamp Stamp)> CreateHumanHostAsync(string? storeFile = null)
     {
-        var native = await RelationshipWorkspaceAsync();
+        var native = await RelationshipWorkspaceAsync(storeFile: storeFile);
         _transport.RichTextEnabled = _transport.CloseGateEnabled = true;
         using var services = EditorServices(native.Paths.StartDir);
         using var origin = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;

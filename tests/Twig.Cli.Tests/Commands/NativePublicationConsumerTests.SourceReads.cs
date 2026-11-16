@@ -324,7 +324,8 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("binding")]
     public async Task NativeSourceRefusesChangedOriginBeforeMetadata(string change)
     {
-        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var (paths, connection, store) = await RelationshipWorkspaceAsync(
+            storeFile: change == "storage-generation" ? Path.Combine(_temp, "original-core.db") : null);
         var captured = await ReadSource(paths);
         captured.IsSuccess.ShouldBeTrue();
         var markerPath = Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName);
@@ -365,7 +366,7 @@ public sealed partial class NativePublicationConsumerTests
             var config = await TwigConfiguration.LoadSplitAsync(paths);
             var origin = await _bindings.ResolveAsync(config, paths);
             origin.StorageGeneration.ShouldBe("core:" + document.DatabaseInstance.ToString("N"));
-            var replacement = await SqliteStore.CreateAsync(Path.Combine(paths.TwigDir, "replacement-core.db"));
+            var replacement = await SqliteStore.CreateAsync(Path.Combine(_temp, "replacement-core.db"));
             replacement.IsSuccess.ShouldBeTrue();
             replacement.Value.InstanceId.ShouldNotBe(store.InstanceId);
             (await replacement.Value.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
@@ -385,7 +386,13 @@ public sealed partial class NativePublicationConsumerTests
         if (change == "storage-generation")
         {
             var config = await TwigConfiguration.LoadSplitAsync(paths);
-            var observed = await _bindings.ResolveAsync(config, paths);
+            var currentPaths = new TwigPaths(paths.TwigDir, paths.ConfigPath, document.DatabasePath,
+                paths.StartDir, paths.GlobalDisplayPath);
+            Directory.GetFiles(currentPaths.TwigDir, "*.db*").ShouldBeEmpty();
+            using var attachment = new WorktreeLocalAttachmentStore(currentPaths, config, TimeProvider.System);
+            var attached = await attachment.ReadForBindingAsync(default);
+            attached.IsSuccess.ShouldBeTrue(attached.IsSuccess ? "" : attached.Error.Message);
+            var observed = await _bindings.ResolveAsync(config, currentPaths);
             observed.StorageGeneration.ShouldBe("core:" + document.DatabaseInstance.ToString("N"));
             observed.StorageGeneration.ShouldNotBe("core:" + store.InstanceId.ToString("N"));
         }

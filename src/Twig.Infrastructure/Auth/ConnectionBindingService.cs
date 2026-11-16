@@ -410,7 +410,11 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         CancellationToken ct = default)
     {
         await initialization.ValidateAsync(paths, ct).ConfigureAwait(false);
-        var origin = await ResolveAttachedSelectionAsync(configuration, paths, ct).ConfigureAwait(false);
+        var persisted = await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false);
+        if (persisted.ResolveWorkItemProviderKind() != "ado" || persisted.Organization != configuration.Organization
+            || persisted.Project != configuration.Project || persisted.Team != configuration.Team)
+            throw new InvalidOperationException("binding-changed: the recorded initialization endpoint differs from the requested connection.");
+        var origin = await ResolveAttachedSelectionAsync(persisted, paths, ct).ConfigureAwait(false);
         var authentication = CreateProvider(origin.Identity);
         var authority = new ConnectionInitializationAuthority(origin, authentication, async token =>
         {

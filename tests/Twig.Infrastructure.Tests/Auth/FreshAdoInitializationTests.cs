@@ -32,6 +32,7 @@ public sealed class FreshAdoInitializationTests : IDisposable
     {
         var (bindings, selected, _) = await ArrangeAsync();
         var database = customStore ? Path.Combine(_temp, "explicit.db") : Path.Combine(TwigDir, "core.db");
+        if (customStore) await File.WriteAllTextAsync(Path.Combine(_temp, "display.json"), """{"icons":"nerd"}""");
         var observedFreshBoundary = false;
         var transport = Transport(async () =>
         {

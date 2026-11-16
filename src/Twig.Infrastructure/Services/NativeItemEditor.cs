@@ -51,7 +51,7 @@ public sealed partial class NativeItemEditor : IDisposable
             return Result<NativeItemEditor>.Fail(ErrorCode.Unsupported, "This provider has no qualified native item editor.");
         if (!Path.IsPathFullyQualified(root) || Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) != root)
             return Result<NativeItemEditor>.Fail(ErrorCode.InvalidInput, "An exact native workspace is required.");
-        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), new TwigConfiguration(), root);
+        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
         var configuration = await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false);
         var services = new ServiceCollection();
         configure?.Invoke(services);

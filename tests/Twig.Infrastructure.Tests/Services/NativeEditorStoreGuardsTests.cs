@@ -16,7 +16,6 @@ public sealed class NativeEditorStoreGuardsTests : IDisposable
     [InlineData("save")]
     [InlineData("delete")]
     [InlineData("capture")]
-    [InlineData("observe")]
     public async Task EveryNativeBenchMutationHonorsTheExistingCanonicalAuthoringLease(string route)
     {
         Directory.CreateDirectory(root);
@@ -35,7 +34,6 @@ public sealed class NativeEditorStoreGuardsTests : IDisposable
                 var changed = new Bench(bench.Id, "Guarded",
                     [new(SelectorKind.Pin, ItemKey.Remote(connection.Provider, connection.ResourceScope, "42"), connection: connection)], bench.Revision);
                 if (route == "capture") return await store.CaptureAsync(connection, [bench], [changed], default);
-                if (route == "observe") return await store.ObserveAsync(root, connection, Guid.NewGuid(), [changed], default);
                 if (route == "delete") return await store.DeleteAsync(bench.Id, bench.Revision);
                 var saved = await store.SaveAsync(new(bench.Id, "Changed", []), bench.Revision);
                 return saved.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(saved.Error);

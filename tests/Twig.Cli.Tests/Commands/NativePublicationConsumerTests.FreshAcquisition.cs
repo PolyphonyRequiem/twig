@@ -244,7 +244,7 @@ public sealed partial class NativePublicationConsumerTests
     private async Task<FreshAcquisitionFixture> FreshAcquisitionFixtureAsync()
     {
         var host = await CreateHumanHostAsync();
-        var paths = TwigPaths.BuildPaths(Path.Combine(host.Root, ".twig"), new TwigConfiguration(), host.Root);
+        var paths = TwigPaths.BuildPaths(Path.Combine(host.Root, ".twig"), host.Root);
         var configuration = await TwigConfiguration.LoadSplitAsync(paths);
         var bindings = new CountingNativeBindings(_bindings);
         var services = new ServiceCollection();

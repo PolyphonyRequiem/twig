@@ -68,7 +68,7 @@ public sealed partial class NativePublicationConsumerTests
         var capture = new NativeEditorCapture(Guid.NewGuid(), 1, (await user.ReadAsync()).Value.InstanceId, bench.Id,
             bench.Revision, editor.Plan.Id, editor.Plan.Revision, false, Guid.Empty, origin.Source, native.Paths.RepoRoot,
             native.Store.InstanceId, item.StoreVersion, Encoding.UTF8.GetString(Twig.Core.Core.ProposalBytes(proposal)),
-            origin.Workspace.DraftFingerprint(intended), false);
+            origin.Workspace.DraftFingerprint(intended), false) { ExecutionPath = native.Store.DatabasePath };
         (await user.SaveEditorCaptureAsync(capture, 0, default)).IsSuccess.ShouldBeTrue();
         if (stageCompleted)
             (await origin.Workspace.StageEditAsync(key, fields, default, capturedBaseline: item.Observation,

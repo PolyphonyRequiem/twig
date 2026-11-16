@@ -35,7 +35,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             : Task.FromResult(Result<WorkspaceViewRules>.Fail(ErrorCode.Unavailable, "The native user-wide view rule store is not composed."));
     internal Task<Result<StoreSnapshot>> SnapshotAsync(CancellationToken ct) => store.ReadAsync(connection, ct);
     internal Task<Result<StoreSnapshot>> BenchSnapshotAsync(CancellationToken ct)
-        => sharedBenches is not null ? sharedBenches.View(store, worktreeRoot, storeInstance).ReadAsync(connection, ct)
+        => sharedBenches is not null ? sharedBenches.View(store).ReadAsync(connection, ct)
             : SnapshotAsync(ct);
     internal Task<Result<bool>> ValidateReadAccessAsync(CancellationToken ct)
         => provider.ValidateReadAccessAsync(connection, ct);
@@ -136,8 +136,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             return Result<bool>.Fail(ErrorCode.Conflict, "Bench contents changed during this operation; no newer selector was overwritten.");
         if (sharedBenches is not null)
             return await sharedBenches.CaptureAsync(connection, capture.Benches, benches, ct).ConfigureAwait(false);
-        var committed = await store.CommitAsync(connection, capture.Version, Copy(capture, capture.Version + 1, benches: benches), ct).ConfigureAwait(false);
-        return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
+        return Result<bool>.Fail(ErrorCode.Unavailable, "The native user-wide Bench store is not composed.");
     }
 
     internal async Task<Result<QueryPage>> QueryAsync(Query query, CancellationToken ct, int maximum = int.MaxValue)
@@ -161,7 +160,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         {
             var planning = await PlanningCalendarsAsync(ct).ConfigureAwait(false);
             if (!planning.IsSuccess) return Result<QueryPage>.Fail(planning.Error);
-            var resolved = Model.ResolvePlanningQuery(query, null, DateTimeOffset.UtcNow, planning.Value);
+            var resolved = Model.ResolvePlanningQuery(query, planning.Value, DateTimeOffset.UtcNow);
             if (!resolved.IsSuccess) return Result<QueryPage>.Fail(resolved.Error);
             query = resolved.Value;
             if (Model.IsEmptyQuery(query)) return Result<QueryPage>.Ok(new([], [], null, true));
@@ -311,7 +310,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             }
             foreach (var item in Model.PlanningReferences(selector.Query!).Any() ? [] : initial.Value.Items)
             {
-                var match = Model.Matches(selector.Query!, item, schema.Value.Planning, DateTimeOffset.UtcNow, schema.Value.Memberships, planning.Value);
+                var match = Model.Matches(selector.Query!, item, planning.Value, DateTimeOffset.UtcNow, schema.Value.Memberships);
                 if (!match.IsSuccess) return Result<CoreBenchPull>.Fail(match.Error);
                 if (match.Value) targets.Add(item.Key);
             }
@@ -321,8 +320,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 return Result<CoreBenchPull>.Fail(ErrorCode.Unavailable, "The selected Bench query was not exhausted; earlier observations remain cached.");
             fetched.UnionWith(queried.Value.Items.Select(item => item.Key));
         }
-        ItemKey? active = includeActiveContext && context.Value.Position >= 0
-            ? context.Value.History[context.Value.Position].Resolve(connection) : null;
+        ItemKey? active = includeActiveContext ? context.Value.Active?.Resolve(connection) : null;
         if (active is not null) targets.Add(Resolve(initial.Value, active));
         foreach (var key in targets)
         {
@@ -395,7 +393,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             && (value.Connection is null || value.Connection == connection)))
             foreach (var item in final.Value.Items)
             {
-                var match = Model.Matches(selector.Query!, item, schema.Value.Planning, DateTimeOffset.UtcNow, schema.Value.Memberships, planning.Value);
+                var match = Model.Matches(selector.Query!, item, planning.Value, DateTimeOffset.UtcNow, schema.Value.Memberships);
                 if (!match.IsSuccess) return Result<CoreBenchPull>.Fail(match.Error);
                 if (match.Value) members.Add(item.Key);
             }

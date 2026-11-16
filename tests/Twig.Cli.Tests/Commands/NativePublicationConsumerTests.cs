@@ -183,7 +183,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var contextFile = Path.Combine(paths.TwigDir, "core-context.json");
             var originalContext = await File.ReadAllBytesAsync(contextFile);
             using (var context = JsonDocument.Parse(originalContext))
-                context.RootElement.GetProperty("history")[0].GetProperty("localId").GetGuid().ShouldBe(seed.Key.LocalId);
+                context.RootElement.GetProperty("active").GetProperty("localId").GetGuid().ShouldBe(seed.Key.LocalId);
             var beforeUnmapped = (await store.ReadAsync(connection, default)).Value;
             beforeUnmapped.Mappings.ShouldBeEmpty();
             Run("link", "related", "43").ShouldBe(1);
@@ -1187,7 +1187,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var commands = new TwigCommands(root);
             (await commands.Set("42", "human")).ShouldBe(0, stderr.ToString());
             var selection = (await admitted.Workspace.Context.ReadAsync(default)).Value;
-            selection.History[selection.Position].NativeId.ShouldBe("42");
+            selection.Active!.NativeId.ShouldBe("42");
             (await commands.Set("43", "json")).ShouldBe(2);
             (await commands.Edit(output: "json")).ShouldBe(2);
             await editor.DidNotReceive().LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -1231,18 +1231,18 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             (await commands.NavDown(children[0].ToString(CultureInfo.InvariantCulture), "human")).ShouldBe(0, stderr.ToString());
             (await commands.NavNext("human")).ShouldBe(0, stderr.ToString());
             var siblingSelection = (await admitted.Workspace.Context.ReadAsync(default)).Value;
-            siblingSelection.History[siblingSelection.Position].LocalId.ShouldBe(childKeys[1]);
+            siblingSelection.Active!.LocalId.ShouldBe(childKeys[1]);
             (await commands.NavPrev("human")).ShouldBe(0, stderr.ToString());
             (await commands.NavUp("human")).ShouldBe(0, stderr.ToString());
             var beforeRetiredHistory = await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"));
-            (await commands.NavBack("human")).ShouldBe(1, "history movement is deliberately retired, not a missing service");
-            (await commands.NavFore("human")).ShouldBe(1);
+            RunCoreLink(paths, ["nav", "back", "-o", "human"]).ShouldBe(1, "history movement is deliberately retired, not a missing service");
+            RunCoreLink(paths, ["nav", "fore", "-o", "human"]).ShouldBe(1);
             (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"))).ShouldBe(beforeRetiredHistory);
             var returned = (await admitted.Workspace.Context.ReadAsync(default)).Value;
-            returned.History[returned.Position].NativeId.ShouldBe("42");
+            returned.Active!.NativeId.ShouldBe("42");
             stdout.GetStringBuilder().Clear();
             var beforeHistory = _transport.WorkRequests;
-            (await commands.NavHistory(nonInteractive: true, output: "json")).ShouldBe(1);
+            RunCoreLink(paths, ["nav", "history", "-o", "json"]).ShouldBe(1);
             stdout.ToString().ShouldBeEmpty();
             (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"))).ShouldBe(beforeRetiredHistory);
             _transport.WorkRequests.ShouldBe(beforeHistory);
@@ -1909,7 +1909,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var paths = native.GetRequiredService<TwigPaths>();
         _transport.CoreMetadataEnabled = true;
         var database = Path.Combine(paths.TwigDir, "explicit-init-core.db");
-        var initialized = await CoreWorkspaceInitializer.InitializeAsync(config, paths, _bindings,
+        var initialized = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, _bindings,
             database, default, new CoreTransportOverride(_transport.NewHandle));
         initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
         initialized.Value.ShouldBeTrue();
@@ -1921,7 +1921,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var store = (await CleanStore.OpenAsync(database, expectedInstance: document.DatabaseInstance)).Value;
         (await store.CheckWorkspaceAsync(document.Connection)).IsSuccess.ShouldBeTrue();
         var bytes = await File.ReadAllBytesAsync(database);
-        (await CoreWorkspaceInitializer.InitializeAsync(config, paths, _bindings, database, default,
+        (await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, _bindings, database, default,
             new CoreTransportOverride(_transport.NewHandle))).IsSuccess.ShouldBeFalse();
         (await File.ReadAllBytesAsync(database)).ShouldBe(bytes);
         _transport.CommittedWrites.ShouldBe(0);
@@ -2120,14 +2120,14 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             await File.WriteAllBytesAsync(proposalPath, CoreModel.Core.ProposalBytes(proposal));
             var workReads = _transport.WorkRequests;
             stdout.GetStringBuilder().Clear();
-            (await show.PlanApply(proposalPath, new string('0', 64), "json")).ShouldBe(1);
+            (await show.ProposalApply(proposalPath, new string('0', 64), "json")).ShouldBe(1);
             _transport.WorkRequests.ShouldBe(workReads, "wrong digest must refuse before native context or work HTTP");
             stdout.GetStringBuilder().Clear();
-            (await show.PlanApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
+            (await show.ProposalApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(2);
             (await store.ReadAsync(connection, default)).Value.Drafts.ShouldBeEmpty();
             stdout.GetStringBuilder().Clear();
-            (await show.PlanApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
+            (await show.ProposalApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(2, "Verified file reapply must not dispatch");
             stdout.GetStringBuilder().Clear();
             Run("note", "--text", "Core root note", "--id", "42", "--format", "raw", "-o", "json").ShouldBe(0, stderr.ToString());
@@ -2364,7 +2364,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         var config = new TwigConfiguration { Organization = "fixture", Project = "Project" };
         config.Display.Hints = false;
-        var defaults = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), config, root);
+        var defaults = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
         var paths = new TwigPaths(defaults.TwigDir, defaults.ConfigPath, defaults.DbPath, root, Path.Combine(Home, "display.json"));
         await config.SaveSplitAsync(paths);
         using (var attachment = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System))

@@ -12,10 +12,56 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class NativePublicationConsumerTests
 {
+    [Fact]
+    public async Task NativeUserBirthCreatesCompleteCaptureSchemaBeforeAnyEditorReadOrWrite()
+    {
+        await RelationshipWorkspaceAsync();
+        var metadata = Path.Combine(Path.GetDirectoryName(_bindings.RegistryPath)!, "benches.db");
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+        { DataSource = metadata, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+        await db.OpenAsync();
+        using var command = db.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN('editor_captures','editor_capture_meta','editor_capture_history');";
+        Convert.ToInt32(await command.ExecuteScalarAsync()).ShouldBe(3);
+        command.CommandText = "SELECT editor_initialized FROM meta WHERE id=1;";
+        Convert.ToInt32(await command.ExecuteScalarAsync()).ShouldBe(1);
+        (await UserBenchStore.ForRegistry(_bindings.RegistryPath).ReadEditorCapturesAsync(default)).Value.ShouldBeEmpty();
+        _transport.PatchAttempts.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task NativeCaptureWithoutExactExecutionPathIsRefusedWithoutReservationOrDraftChange()
+    {
+        var native = await RelationshipWorkspaceAsync();
+        using var services = EditorServices(native.Paths.StartDir);
+        var factory = services.GetRequiredService<CoreWorkspaceFactory>();
+        var user = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Exact capture source", []), 0)).Value;
+        using var origin = (await factory.OpenAsync(default)).Value;
+        using var editor = (await NativeEditor.OpenAsync(factory, user, bench.Id, origin.Source, default)).Value;
+        var key = ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42");
+        var item = (await editor.SelectAsync(key, default)).Value;
+        var staged = (await editor.StageAsync(item, FieldValues.Empty.Set("System.Title", FieldValue.String("protected")),
+            null, null, default)).Value;
+        var capture = staged.Capture!;
+        Path.IsPathFullyQualified(capture.ExecutionPath).ShouldBeTrue();
+        var before = (await native.Store.ReadAsync(native.Connection, default)).Value;
+        var rejected = await user.SaveEditorCaptureAsync(capture with
+        {
+            Revision = capture.Revision + 1, ExecutionPath = "",
+        }, capture.Revision, default);
+        rejected.IsSuccess.ShouldBeFalse();
+        rejected.Error.Code.ShouldBe(ErrorCode.InvalidInput);
+        (await user.ReadEditorCapturesAsync(default)).Value.Single().SameAs(capture).ShouldBeTrue();
+        (await native.Store.ReadAsync(native.Connection, default)).Value.Version.ShouldBe(before.Version);
+        _transport.PatchAttempts.ShouldBe(0);
+    }
+
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task NativeEditorJointlyMissingCaptureTablesNeverBecomeFirstUseOnReopen(bool sealedLegacyStorage)
+    [InlineData("DROP TABLE editor_captures; DROP TABLE editor_capture_meta;")]
+    [InlineData("ALTER TABLE meta DROP COLUMN editor_initialized;")]
+    [InlineData("DROP TABLE editor_capture_history;")]
+    public async Task NativeEditorMissingCaptureSchemaNeverBecomesFirstUseOnReopen(string damage)
     {
         var native = await RelationshipWorkspaceAsync();
         using var services = EditorServices(native.Paths.StartDir);
@@ -36,25 +82,13 @@ public sealed partial class NativePublicationConsumerTests
         {
             await db.OpenAsync();
             using var command = db.CreateCommand();
-            if (sealedLegacyStorage)
-            {
-                command.CommandText = "ALTER TABLE meta DROP COLUMN editor_initialized;";
-                await command.ExecuteNonQueryAsync();
-                var legacy = await UserBenchStore.ForRegistry(_bindings.RegistryPath).ReadEditorCapturesAsync(default);
-                legacy.IsSuccess.ShouldBeTrue(legacy.IsSuccess ? "" : legacy.Error.Message);
-                legacy.Value.Single().SameAs(staged.Capture).ShouldBeTrue();
-            }
-            command.CommandText = "DROP TABLE editor_captures; DROP TABLE editor_capture_meta;";
+            command.CommandText = damage;
             await command.ExecuteNonQueryAsync();
         }
         var reopenedUser = UserBenchStore.ForRegistry(_bindings.RegistryPath);
-        using var reopened = (await NativeEditor.OpenAsync(factory, reopenedUser, bench.Id, origin.Source, default)).Value;
-        var selected = await reopened.SelectAsync(key, default);
-        if (selected.IsSuccess)
-            (await reopened.StageAsync(selected.Value, FieldValues.Empty, null, null, default)).IsSuccess.ShouldBeFalse(
-                "lost relationship metadata must not permit a new field-only capture");
-        selected.IsSuccess.ShouldBeFalse();
-        selected.Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
+        var reopened = await NativeEditor.OpenAsync(factory, reopenedUser, bench.Id, origin.Source, default);
+        reopened.IsSuccess.ShouldBeFalse();
+        reopened.Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
         (await reopenedUser.SaveEditorCaptureAsync(staged.Capture with { Revision = 1 }, 0, default)).IsSuccess.ShouldBeFalse();
         (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("protected");
         _transport.PatchAttempts.ShouldBe(0);

@@ -147,12 +147,12 @@ public sealed partial class NativePublicationConsumerTests
             services.AddSingleton<IConnectionBindingService>(_bindings);
             services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
         }
-        var choices = await NativeSourceReader.DiscoverPlanningSourcesAsync(paths.RepoRoot, initial.Source, Configure, default);
+        var choices = await NativeSourceReader.DiscoverPlanningSourcesAsync(paths.RepoRoot, initial.Source, null, Configure, default);
         choices.IsSuccess.ShouldBeTrue(choices.IsSuccess ? "" : choices.Error.Message);
         choices.Value.PlanningSources.ShouldNotBeNull().Entries.ShouldContain(source => source.Id == PrincipalTransport.SavedQuery);
         var team = choices.Value.PlanningSources!.Team;
-        var first = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, PlanningSourceKind.SavedQuery,
-            PrincipalTransport.SavedQuery, team, Configure, default);
+        var first = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, team,
+            PlanningSourceKind.SavedQuery, PrincipalTransport.SavedQuery, Configure, default);
         first.IsSuccess.ShouldBeTrue(first.IsSuccess ? "" : first.Error.Message);
         first.Value.PlanningBrowse.ShouldNotBeNull().Items.Single().NativeId.ShouldBe("42");
         first.Value.Snapshot.Benches.ShouldBeEmpty("native browse must never create a Bench");
@@ -170,8 +170,8 @@ public sealed partial class NativePublicationConsumerTests
         _transport.ItemReadIds.ShouldBeEmpty();
         _transport.ObservedPaths.Count(path => path.EndsWith("/wiql/" + PrincipalTransport.SavedQuery, StringComparison.Ordinal)).ShouldBe(queryReads);
         _transport.SavedQueryItems = [43];
-        var refreshed = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, PlanningSourceKind.SavedQuery,
-            PrincipalTransport.SavedQuery, team, Configure, default);
+        var refreshed = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, team,
+            PlanningSourceKind.SavedQuery, PrincipalTransport.SavedQuery, Configure, default);
         refreshed.IsSuccess.ShouldBeTrue(refreshed.IsSuccess ? "" : refreshed.Error.Message);
         refreshed.Value.Schema.ShouldBeNull();
         var retainedSchema = cached.Value.Schema!.Value with { Memberships = refreshed.Value.Memberships,
@@ -197,7 +197,7 @@ public sealed partial class NativePublicationConsumerTests
             services.AddSingleton<IConnectionBindingService>(_bindings);
             services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
         }
-        var choices = (await NativeSourceReader.DiscoverPlanningSourcesAsync(paths.RepoRoot, initial.Source, Configure, default)).Value;
+        var choices = (await NativeSourceReader.DiscoverPlanningSourcesAsync(paths.RepoRoot, initial.Source, null, Configure, default)).Value;
         _transport.BeforePlanningBatchResponse = async () =>
         {
             var path = Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName);
@@ -205,8 +205,8 @@ public sealed partial class NativePublicationConsumerTests
             await File.WriteAllTextAsync(path, JsonSerializer.Serialize(marker with { PrincipalId = Sibling },
                 CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
         };
-        var result = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, PlanningSourceKind.SavedQuery,
-            PrincipalTransport.SavedQuery, choices.PlanningSources!.Team, Configure, default);
+        var result = await NativeSourceReader.BrowsePlanningAsync(paths.RepoRoot, initial.Source, choices.PlanningSources!.Team,
+            PlanningSourceKind.SavedQuery, PrincipalTransport.SavedQuery, Configure, default);
         result.IsSuccess.ShouldBeFalse();
         result.Error.Code.ShouldBe(ErrorCode.Conflict);
         (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(0, "replaced authority must refuse before mirroring acquired items");
@@ -219,15 +219,15 @@ public sealed partial class NativePublicationConsumerTests
     }
 
     [Fact]
-    public async Task NativePanelSelectionSharesCliContextPreservesHistoryAndRejectsStaleOrReplacedAuthority()
+    public async Task NativePanelSelectionSharesCliContextPreservesActiveAndRejectsStaleOrReplacedAuthority()
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
-        var bench = new Bench(Guid.NewGuid(), "Selected by panel", []);
-        (await store.CommitAsync(connection, 0, new(1, benches: [bench]), default)).IsSuccess.ShouldBeTrue();
+        var bench = (await UserBenchStore.ForRegistry(_bindings.RegistryPath)
+            .SaveAsync(new(Guid.NewGuid(), "Selected by panel", []), 0)).Value;
         var capture = (await ReadSource(paths)).Value;
         var context = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
         var original = (await context.ReadAsync(default)).Value;
-        var active = original with { History = [new(null, "42")], Position = 0 };
+        var active = original with { Active = new(null, "42") };
         (await context.WriteAsync(original, active, default)).IsSuccess.ShouldBeTrue();
         void Configure(IServiceCollection services)
         {
@@ -240,15 +240,14 @@ public sealed partial class NativePublicationConsumerTests
         selected.Value.SelectedBenchId.ShouldBe(bench.Id);
         var after = (await context.ReadAsync(default)).Value;
         after.BenchId.ShouldBe(bench.Id);
-        after.History.ShouldBe(active.History);
-        after.Position.ShouldBe(active.Position);
+        after.Active.ShouldBe(active.Active);
         (await NativeSourceReader.SelectBenchAsync(paths.RepoRoot, capture.Source, null, null, Configure, default))
             .Error.Code.ShouldBe(ErrorCode.Conflict);
         (await NativeSourceReader.SelectBenchAsync(paths.RepoRoot, capture.Source with { PrincipalId = "different" },
             bench.Id, null, Configure, default)).Error.Code.ShouldBe(ErrorCode.Conflict);
         (await context.ReadAsync(default)).Value.BenchId.ShouldBe(bench.Id);
         _transport.TotalRequests.ShouldBe(requests);
-        (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(1);
+        (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(0);
     }
 
     [Fact]
@@ -261,12 +260,13 @@ public sealed partial class NativePublicationConsumerTests
             new(key, "1"), relationshipsComplete: true, resourcesComplete: true);
         var edge = new Relationship(key, other, "Native.ParentForward", RelationshipOrigin.Provider);
         var draft = new Draft(ItemKey.Local(Guid.NewGuid()), item.Type, null, item.Fields);
-        var bench = new Bench(Guid.NewGuid(), "Copy this scope", [new(SelectorKind.Pin, key)]);
+        var bench = (await UserBenchStore.ForRegistry(_bindings.RegistryPath)
+            .SaveAsync(new(Guid.NewGuid(), "Copy this scope", [new(SelectorKind.Pin, key, connection: connection)]), 0)).Value;
         var proposal = new Proposal(connection, "retained-schema", 0,
             [new("keep", OpKind.Batch, key, item.Revision, item.Fields)]);
         var journal = JournalEntry.Planned(proposal.Digest, 0);
         (await store.CommitAsync(connection, 0, new(1, [item], [edge], [draft], [proposal], [journal],
-            benches: [bench]), default)).IsSuccess.ShouldBeTrue();
+            benches: []), default)).IsSuccess.ShouldBeTrue();
         var before = (await store.ReadAsync(connection, default)).Value;
         var marker = await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName));
         File.Exists(Path.Combine(paths.TwigDir, "core-context.json")).ShouldBeFalse();

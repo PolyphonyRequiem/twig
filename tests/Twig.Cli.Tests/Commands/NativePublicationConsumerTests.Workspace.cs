@@ -466,8 +466,7 @@ public sealed partial class NativePublicationConsumerTests
         (await handle.Workspace.Context.WriteAsync(context, context with
         {
             BenchId = bench.Id,
-            History = [CoreContextKey.Capture(Key("90"))],
-            Position = 0,
+            Active = CoreContextKey.Capture(Key("90")),
         }, default)).IsSuccess.ShouldBeTrue();
         return (paths, connection, store, bench.Id, seed);
     }

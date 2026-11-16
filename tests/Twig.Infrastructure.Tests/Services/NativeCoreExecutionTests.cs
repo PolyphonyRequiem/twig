@@ -322,19 +322,24 @@ public sealed class NativeCoreExecutionTests : IDisposable
     public async Task RetainedPlanInventoryIncludesSupersededScopesAndDeletedBenchRemnants()
     {
         var original = await Source("first", connection);
+        var activation = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [original]));
+        Required(await NativeCoreExecution.ActivateAsync(Registry, activation, activation.Digest, true, true));
         var user = UserBenchStore.ForRegistry(Registry);
         var bench = Required(await user.SaveAsync(new(Guid.NewGuid(), "Synthetic", []), 0));
         var library = Required(await user.ReadAsync());
         var mode = Required(await user.SetPlanModeAsync(library.InstanceId, bench.Id, bench.Revision, 0, true));
         var source = new NativeSourceStamp(connection, original.Instance, "actor", "authority");
         var plan = Required(await user.ReservePlanScopeAsync(library.InstanceId, bench.Id, mode.Revision, original.Root, source));
-        var ready = Required(await user.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, plan.Scopes.Single().Id));
+        var ready = Required(await user.CompleteCoveredPlanScopeAsync(library.InstanceId, bench.Id, plan.Revision,
+            plan.Scopes.Single().Id, Registry, original));
         var otherRoot = Path.Combine(root, "reassociated");
         Directory.CreateDirectory(otherRoot);
+        var nextOrigin = await Source("reassociated", connection);
         var moved = Required(await user.ReassociatePlanScopeAsync(library.InstanceId, bench.Id, ready.Revision,
-            ready.Scopes.Single().Id, 0, otherRoot, source with { StoreInstance = Guid.NewGuid(), AuthorityStamp = "new" }));
+            ready.Scopes.Single().Id, 0, otherRoot, source with { StoreInstance = nextOrigin.Instance, AuthorityStamp = "new" }));
         (await NativeCoreExecution.InventoryAsync(Registry)).IsSuccess.ShouldBeFalse("the retained Preparing store is not silently omitted");
-        var completed = Required(await user.CompletePlanScopeAsync(library.InstanceId, bench.Id, moved.Revision, moved.Scopes[1].Id));
+        var completed = Required(await user.CompleteCoveredPlanScopeAsync(library.InstanceId, bench.Id, moved.Revision,
+            moved.Scopes[1].Id, Registry, nextOrigin));
         Required(await user.DeleteAsync(bench.Id, bench.Revision));
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry));
         foreach (var scope in completed.Scopes)

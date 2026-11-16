@@ -409,7 +409,7 @@ public sealed class NativePlanReview
     {
         if (!Path.IsPathFullyQualified(root) || Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) != root)
             throw new ArgumentException("An exact canonical native origin is required.", nameof(root));
-        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), new TwigConfiguration(), root);
+        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
         var configuration = await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false);
         var services = new ServiceCollection();
         configure?.Invoke(services);

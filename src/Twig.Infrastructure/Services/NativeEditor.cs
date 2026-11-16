@@ -8,7 +8,7 @@ using Model = Twig.Core.Core;
 namespace Twig.Infrastructure.Services;
 
 internal sealed record NativeEditorItem(WorkItem Observation, Draft? Draft, long StoreVersion,
-    NativeEditorCapture? Capture, EditorEvaluation Evaluation);
+    NativeEditorCapture? Capture);
 
 /// <summary>Native-only authoring session. Cached guidance never grants publication authority.</summary>
 internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBenchStore user, CoreWorkspaceHandle handle,
@@ -159,7 +159,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The normal seed is owned by another exact Bench; its capture was not adopted.");
         var evaluation = Model.EvaluateEditorFields(metadata.Schema, draft?.Baseline ?? observed, draft?.Changes ?? FieldValues.Empty,
             Workspace.Capabilities.AtomicFieldBatches, draft?.Type);
-        return evaluation.IsSuccess ? Result<NativeEditorItem>.Ok(new(observed, draft, stored.Version, matches.SingleOrDefault(), evaluation.Value))
+        return evaluation.IsSuccess ? Result<NativeEditorItem>.Ok(new(observed, draft, stored.Version, matches.SingleOrDefault()))
             : Result<NativeEditorItem>.Fail(evaluation.Error);
     }
 

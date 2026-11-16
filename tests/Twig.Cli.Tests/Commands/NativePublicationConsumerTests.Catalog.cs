@@ -178,7 +178,7 @@ public sealed partial class NativePublicationConsumerTests
     }
 
     [Fact]
-    public async Task RetiredRootLeavesNeverResolveLegacyCommandsOrLaunchers()
+    public void RetiredRootLeavesAreAbsentRatherThanDormantRefusalStubs()
     {
         var infrastructure = typeof(CoreWorkspaceFactory).Assembly;
         foreach (var name in new[]
@@ -195,25 +195,8 @@ public sealed partial class NativePublicationConsumerTests
             infrastructure.GetType(name).ShouldBeNull("retired business executors must not remain compiled");
         typeof(IConnectionRemoteWriteReconciliationService).GetMethods()
             .Select(method => method.Name).ShouldBe(["InspectAsync"]);
-        var provider = Substitute.For<IServiceProvider>();
-        provider.GetService(Arg.Any<Type>()).Returns(_ => throw new InvalidOperationException("Unexpected command resolution"));
-        var root = new TwigCommands(provider);
-        using var error = new StringWriter();
-        var oldError = Console.Error;
-        try
-        {
-            Console.SetError(error);
-            (await root.New(output: "json")).ShouldBe(1);
-            (await root.TreeSet(output: "json")).ShouldBe(1);
-            (await root.History(42, output: "json")).ShouldBe(1);
-            (await root.BenchBrowser(output: "json")).ShouldBe(1);
-            (await root.Tui(output: "json")).ShouldBe(1);
-            (await root.Mcp()).ShouldBe(1);
-            (await root.PlanLatest(output: "json")).ShouldBe(1);
-            (await root.ConnectionReconcileWrite(output: "json")).ShouldBe(1);
-            provider.DidNotReceive().GetService(Arg.Any<Type>());
-        }
-        finally { Console.SetError(oldError); }
+        foreach (var name in new[] { "New", "TreeSet", "History", "BenchBrowser", "Tui", "Mcp", "PlanLatest", "ConnectionReconcileWrite" })
+            typeof(TwigCommands).GetMethod(name).ShouldBeNull("retired commands have no native implementation");
     }
 
     [Fact]

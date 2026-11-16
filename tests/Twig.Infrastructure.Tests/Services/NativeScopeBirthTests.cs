@@ -5,7 +5,6 @@ using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services;
 using Twig.Store.Sqlite;
 using Xunit;
-using System.Reflection;
 
 namespace Twig.Infrastructure.Tests.Services;
 
@@ -85,20 +84,10 @@ public sealed partial class NativeScopeBirthTests : IDisposable
         return (user, library, bench, plan, origin);
     }
 
-    private async Task<Result<NativeBenchPlan>> Complete(UserBenchStore user, UserBenchSnapshot library, Bench bench,
+    private Task<Result<NativeBenchPlan>> Complete(UserBenchStore user, UserBenchSnapshot library, Bench bench,
         NativeBenchPlan plan, NativeCoreStoreReference origin)
-    {
-        var method = typeof(UserBenchStore).GetMethod("CompleteCoveredPlanScopeAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-        if (method is not null)
-            return await (Task<Result<NativeBenchPlan>>)method.Invoke(user,
-                [library.InstanceId, bench.Id, plan.Revision, plan.Scopes.Single().Id, Registry, origin, CancellationToken.None])!;
-        var legacy = await user.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, plan.Scopes.Single().Id);
-        if (!legacy.IsSuccess) return legacy;
-        var scope = legacy.Value.Scopes.Single();
-        var registered = await NativeCoreExecution.RegisterAsync(Registry,
-            new(scope.StoreInstance, scope.DatabasePath, scope.OriginRoot, scope.Source.Connection), default);
-        return registered.IsSuccess ? legacy : Result<NativeBenchPlan>.Fail(registered.Error);
-    }
+        => user.CompleteCoveredPlanScopeAsync(library.InstanceId, bench.Id, plan.Revision,
+            plan.Scopes.Single().Id, Registry, origin);
 
     public void Dispose()
     {

@@ -82,6 +82,9 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var registered = await NativeCoreExecution.RegisterAsync(bindings.RegistryPath,
             new(document.DatabaseInstance, document.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
         if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
+        var workspaceRegistration = await benches.RegisterWorkspaceAsync(paths.RepoRoot, document.Connection,
+            document.DatabaseInstance, ct).ConfigureAwait(false);
+        if (!workspaceRegistration.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(workspaceRegistration.Error);
         var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler());
         var workspace = new CoreWorkspace(document.Connection, provider, store,
             new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance,
@@ -253,6 +256,9 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
                 var registered = await NativeCoreExecution.RegisterAsync(executionRegistryPath,
                     new(store.InstanceId, store.DatabasePath, paths.RepoRoot, connection), ct).ConfigureAwait(false);
                 if (!registered.IsSuccess) return registered;
+                var workspaceRegistration = await UserBenchStore.ForRegistry(executionRegistryPath)
+                    .RegisterWorkspaceAsync(paths.RepoRoot, connection, store.InstanceId, ct).ConfigureAwait(false);
+                if (!workspaceRegistration.IsSuccess) return workspaceRegistration;
                 effects?.Confirm(NativeSetupEffectKind.CoreRegistration);
             }
             onRecorded?.Invoke(document);

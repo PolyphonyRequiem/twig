@@ -44,6 +44,12 @@ internal sealed class CoreNativeWorkspaceHost(TwigPaths paths, IConnectionBindin
         var registered = await NativeCoreExecution.RegisterAsync(bindings.RegistryPath,
             new(document.DatabaseInstance, document.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
         if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
+        if (!scoped)
+        {
+            var workspaceRegistration = await UserBenchStore.ForRegistry(bindings.RegistryPath)
+                .RegisterWorkspaceAsync(paths.RepoRoot, document.Connection, document.DatabaseInstance, ct).ConfigureAwait(false);
+            if (!workspaceRegistration.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(workspaceRegistration.Error);
+        }
         var provider = new NativeProvider(source.Value, store);
         var workspace = new CoreWorkspace(document.Connection, provider, store,
             new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot,

@@ -12,12 +12,12 @@ internal sealed record CoreContextKey(Guid? LocalId, string? NativeId)
     {
         if (LocalId is { } local && local != Guid.Empty && NativeId is null) return ItemKey.Local(local);
         if (LocalId is null && !string.IsNullOrWhiteSpace(NativeId)) return ItemKey.Remote(connection.Provider, connection.ResourceScope, NativeId);
-        throw new JsonException("The retained active/history identity is invalid.");
+        throw new JsonException("The retained active identity is invalid.");
     }
 }
 
 internal sealed record CoreContextDocument(int Version, Connection Connection, Guid StoreInstance,
-    CoreContextKey[] History, int Position, Guid? BenchId = null);
+    CoreContextKey? Active, Guid? BenchId = null);
 
 internal sealed class CoreHostContext(string workspaceRoot, Connection connection, Guid storeInstance)
 {
@@ -46,25 +46,19 @@ internal sealed class CoreHostContext(string workspaceRoot, Connection connectio
     {
         using var operation = ConnectionOperationGate.Acquire(workspaceRoot, exclusive: false);
         if (storeInstance == Guid.Empty) return Result<CoreContextDocument>.Fail(ErrorCode.StorageUnavailable, "Core context requires the admitted store instance.");
-        if (!File.Exists(PathName)) return Result<CoreContextDocument>.Ok(new(1, connection, storeInstance, [], -1));
+        if (!File.Exists(PathName)) return Result<CoreContextDocument>.Ok(new(1, connection, storeInstance, null));
         try
         {
             await using var file = File.OpenRead(PathName);
             var document = await JsonSerializer.DeserializeAsync(file, CoreContextJsonContext.Default.CoreContextDocument, ct).ConfigureAwait(false);
-            if (document is not { Version: 1 } || document.Connection != connection || document.StoreInstance != storeInstance
-                || document.History is null || document.Position < -1 || document.Position >= document.History.Length
-                || document.History.Length != 0 && document.Position == -1)
-                return Result<CoreContextDocument>.Fail(ErrorCode.Conflict, "The retained active/history context belongs to a different store or is incompatible; it was preserved.");
-            foreach (var key in document.History)
-            {
-                if (key is null) throw new JsonException("The retained active/history identity is missing.");
-                _ = key.Resolve(connection);
-            }
+            if (document is not { Version: 1 } || document.Connection != connection || document.StoreInstance != storeInstance)
+                return Result<CoreContextDocument>.Fail(ErrorCode.Conflict, "The retained active context belongs to a different store or is incompatible; it was preserved.");
+            _ = document.Active?.Resolve(connection);
             return Result<CoreContextDocument>.Ok(document);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
         {
-            return Result<CoreContextDocument>.Fail(ErrorCode.StorageUnavailable, $"The retained active/history context could not be read; it was preserved: {ex.Message}");
+            return Result<CoreContextDocument>.Fail(ErrorCode.StorageUnavailable, $"The retained active context could not be read; it was preserved: {ex.Message}");
         }
     }
 
@@ -74,14 +68,14 @@ internal sealed class CoreHostContext(string workspaceRoot, Connection connectio
         var current = await ReadAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
         if (current.Value.Connection != expected.Connection || current.Value.StoreInstance != expected.StoreInstance
-            || current.Value.Position != expected.Position || current.Value.BenchId != expected.BenchId
-            || !current.Value.History.SequenceEqual(expected.History))
-            return Result<bool>.Fail(ErrorCode.Conflict, "Active/history context changed during selection; the newer selection was preserved.");
-        if (next.Connection != connection || next.StoreInstance != storeInstance)
+            || current.Value.Active != expected.Active || current.Value.BenchId != expected.BenchId)
+            return Result<bool>.Fail(ErrorCode.Conflict, "Active context changed during selection; the newer selection was preserved.");
+        if (next.Version != 1 || next.Connection != connection || next.StoreInstance != storeInstance)
             return Result<bool>.Fail(ErrorCode.Conflict, "The selected context is outside the admitted workspace.");
         var temporary = PathName + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
+            _ = next.Active?.Resolve(connection);
             await using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 4096, FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
@@ -92,9 +86,9 @@ internal sealed class CoreHostContext(string workspaceRoot, Connection connectio
             File.Move(temporary, PathName, overwrite: true);
             return Result<bool>.Ok(true);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            return Result<bool>.Fail(ErrorCode.StorageUnavailable, $"Active/history context was not saved: {ex.Message}");
+            return Result<bool>.Fail(ErrorCode.StorageUnavailable, $"Active context was not saved: {ex.Message}");
         }
         finally
         {

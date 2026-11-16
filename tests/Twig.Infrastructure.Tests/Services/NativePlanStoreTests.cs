@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Shouldly;
 using Twig.Core;
 using Twig.Infrastructure.Services;
+using Twig.Infrastructure.Persistence;
 using Twig.Store.Sqlite;
 using Xunit;
 
@@ -12,7 +13,9 @@ public sealed class NativePlanStoreTests : IDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "twig-plan-store-" + Guid.NewGuid().ToString("N"));
     private readonly Connection connection = new(new("github"), "synthetic-api", "[\"owner\",\"repo\"]", "old-authority");
-    private UserBenchStore User => new(Path.Combine(root, "user", "benches.db"));
+    private string Registry => Path.Combine(root, "user", "system.db");
+    private UserBenchStore User => UserBenchStore.ForRegistry(Registry);
+    private NativeCoreStoreReference origin = null!;
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
 
@@ -25,7 +28,7 @@ public sealed class NativePlanStoreTests : IDisposable
         if (indexExists)
         {
             var scope = plan.Scopes.Single();
-            var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+            var ready = Required(await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id));
             Required(await User.ReservePlanSeedAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, Guid.NewGuid()));
         }
         using var db = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -45,7 +48,7 @@ public sealed class NativePlanStoreTests : IDisposable
     {
         var (library, bench, plan, source) = await Reserve();
         var scope = plan.Scopes.Single();
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var ready = Required(await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id));
         var left = Required(await User.SetPlanModeAsync(library.InstanceId, bench.Id, bench.Revision, ready.Revision, false));
         var opened = Required(await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, left.Revision, scope.Id, root, source));
         opened.InstanceId.ShouldBe(scope.StoreInstance);
@@ -54,25 +57,19 @@ public sealed class NativePlanStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task PreparingScopeResumesOnlyItsReservedInstanceAndNeverAdoptsAReplacement()
+    public async Task PreparingScopeRejectsAnExistingFileWithoutIndependentBirthEvidence()
     {
         var (library, bench, plan, source) = await Reserve();
         var scope = plan.Scopes.Single();
         Directory.CreateDirectory(Path.GetDirectoryName(scope.DatabasePath)!);
         var reserved = Required(await SqliteStore.CreateAsync(scope.DatabasePath, scope.StoreInstance));
         reserved.InstanceId.ShouldBe(scope.StoreInstance);
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
-        ready.Scopes.Single().State.ShouldBe(NativePlanScopeState.Ready);
-        var opened = Required(await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, root, source));
-        opened.InstanceId.ShouldBe(scope.StoreInstance);
-        var displaced = scope.DatabasePath + ".original";
-        File.Move(scope.DatabasePath, displaced);
-        Required(await SqliteStore.CreateAsync(scope.DatabasePath)).InstanceId.ShouldNotBe(scope.StoreInstance);
-        var replaced = await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, root, source);
-        replaced.IsSuccess.ShouldBeFalse();
-        replaced.Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
-        Required(await User.ReadPlanAsync(bench.Id)).Scopes.Single().StoreInstance.ShouldBe(scope.StoreInstance);
-        File.Exists(displaced).ShouldBeTrue();
+        var before = await File.ReadAllBytesAsync(scope.DatabasePath);
+        (await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id)).IsSuccess.ShouldBeFalse();
+        (await File.ReadAllBytesAsync(scope.DatabasePath)).ShouldBe(before);
+        var retained = Required(await User.ReadPlanAsync(bench.Id));
+        retained.Revision.ShouldBe(plan.Revision);
+        retained.Scopes.Single().State.ShouldBe(NativePlanScopeState.Preparing);
     }
 
     [Fact]
@@ -84,7 +81,7 @@ public sealed class NativePlanStoreTests : IDisposable
         var stale = await otherView.SetPlanModeAsync(library.InstanceId, bench.Id, bench.Revision, 1, false);
         stale.IsSuccess.ShouldBeFalse();
         stale.Error.Code.ShouldBe(ErrorCode.Conflict);
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var ready = Required(await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id));
         var wrongRoot = await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id,
             Path.Combine(root, "sibling"), source);
         wrongRoot.IsSuccess.ShouldBeFalse();
@@ -108,7 +105,7 @@ public sealed class NativePlanStoreTests : IDisposable
     {
         var (library, bench, plan, _) = await Reserve();
         var scope = plan.Scopes.Single();
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var ready = Required(await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id));
         var id = Guid.NewGuid();
         var captured = Required(await User.ReservePlanSeedAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, id));
         var owner = Required(await User.ReadPlanSeedOwnerAsync(id));
@@ -116,9 +113,9 @@ public sealed class NativePlanStoreTests : IDisposable
         var other = Required(await User.SaveAsync(new(Guid.NewGuid(), "Other", []), 0));
         var otherMode = Required(await User.SetPlanModeAsync(library.InstanceId, other.Id, other.Revision, 0, true));
         var otherPlan = Required(await User.ReservePlanScopeAsync(library.InstanceId, other.Id, otherMode.Revision, root,
-            new(connection, Guid.NewGuid(), "actor", "authority")));
+            plan.Scopes.Single().Source));
         var otherScope = otherPlan.Scopes.Single();
-        var otherReady = Required(await User.CompletePlanScopeAsync(library.InstanceId, other.Id, otherPlan.Revision, otherScope.Id));
+        var otherReady = Required(await Complete(library.InstanceId, other.Id, otherPlan.Revision, otherScope.Id));
         var stolen = await User.ReservePlanSeedAsync(library.InstanceId, other.Id, otherReady.Revision, otherScope.Id, id);
         stolen.IsSuccess.ShouldBeFalse();
         stolen.Error.Code.ShouldBe(ErrorCode.Conflict);
@@ -131,7 +128,7 @@ public sealed class NativePlanStoreTests : IDisposable
     {
         var (library, bench, plan, source) = await Reserve();
         var scope = plan.Scopes.Single();
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var ready = Required(await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id));
         var nextSource = source with
         {
             Connection = new(connection.Provider, connection.ResourceScope, connection.Destination, "new-worktree-authority"),
@@ -156,7 +153,7 @@ public sealed class NativePlanStoreTests : IDisposable
     {
         var (library, bench, plan, source) = await Reserve();
         var scope = plan.Scopes.Single();
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var ready = Required(await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id));
         var store = Required(await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, root, source));
         var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "I_item");
         var fields = new FieldValues([KeyValuePair.Create("github.title", FieldValue.String("authored"))]);
@@ -207,7 +204,7 @@ public sealed class NativePlanStoreTests : IDisposable
     {
         var (library, bench, plan, source) = await Reserve();
         var scope = plan.Scopes.Single();
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var ready = Required(await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id));
         var key = ItemKey.Local(Guid.NewGuid());
         var owned = Required(await User.ReservePlanSeedAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, key.LocalId));
         var owner = Required(await User.ReadPlanSeedOwnerAsync(key.LocalId));
@@ -249,7 +246,7 @@ public sealed class NativePlanStoreTests : IDisposable
     {
         var (library, bench, plan, _) = await Reserve();
         var scope = plan.Scopes.Single();
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var ready = Required(await Complete(library.InstanceId, bench.Id, plan.Revision, scope.Id));
         var local = Guid.NewGuid();
         Required(await User.ReservePlanSeedAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, local));
         using var db = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -294,15 +291,24 @@ public sealed class NativePlanStoreTests : IDisposable
     private async Task<(UserBenchSnapshot Library, Bench Bench, NativeBenchPlan Plan, NativeSourceStamp Source)> Reserve()
     {
         Directory.CreateDirectory(root);
+        var store = Required(await SqliteStore.CreateAsync(Path.Combine(root, "origin.db")));
+        Required(await store.PinWorkspaceAsync(connection));
+        origin = new(store.InstanceId, store.DatabasePath, root, connection);
+        Required(await NativeCoreExecution.RegisterAsync(Registry, origin, default));
+        var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [origin]));
+        Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
         var bench = Required(await User.SaveAsync(new(Guid.NewGuid(), "Shared", []), 0));
         var library = Required(await User.ReadAsync());
-        var source = new NativeSourceStamp(connection, Guid.NewGuid(), "actor", "authority");
+        var source = new NativeSourceStamp(connection, origin.Instance, "actor", "authority");
         var mode = Required(await User.SetPlanModeAsync(library.InstanceId, bench.Id, bench.Revision, 0, true));
         var plan = Required(await User.ReservePlanScopeAsync(library.InstanceId, bench.Id, mode.Revision, root, source));
         plan.Scopes.Single().State.ShouldBe(NativePlanScopeState.Preparing);
         File.Exists(plan.Scopes.Single().DatabasePath).ShouldBeFalse();
         return (library, bench, plan, source);
     }
+
+    private Task<Result<NativeBenchPlan>> Complete(Guid user, Guid bench, long revision, Guid scope)
+        => User.CompleteCoveredPlanScopeAsync(user, bench, revision, scope, Registry, origin);
 
     private static T Required<T>(Result<T> result)
     {

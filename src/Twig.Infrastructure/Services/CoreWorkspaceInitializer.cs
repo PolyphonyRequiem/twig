@@ -12,15 +12,6 @@ namespace Twig.Infrastructure.Services;
 
 internal static class CoreWorkspaceInitializer
 {
-    internal static async Task<Result<bool>> InitializeAsync(TwigConfiguration configuration, TwigPaths paths,
-        IConnectionBindingService bindings, string databasePath, CancellationToken ct, CoreTransportOverride? transport = null,
-        Twig.Infrastructure.GitHub.IBoundedProcessRunner? githubProcesses = null)
-    {
-        var initialized = await InitializeWithEvidenceAsync(configuration, paths, bindings, databasePath,
-            ct, transport, githubProcesses).ConfigureAwait(false);
-        return initialized.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(initialized.Error);
-    }
-
     internal static async Task<Result<NativeCreationReceipt>> InitializeWithEvidenceAsync(TwigConfiguration configuration, TwigPaths paths,
         IConnectionBindingService bindings, string databasePath, CancellationToken ct, CoreTransportOverride? transport = null,
         Twig.Infrastructure.GitHub.IBoundedProcessRunner? githubProcesses = null, NativeSetupEffects? effects = null)

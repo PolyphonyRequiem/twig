@@ -51,16 +51,16 @@ public sealed partial class NativePublicationConsumerTests
         WorkItem Item(string area, string iteration, string owner)
             => new(key, "Fixture.Task", FieldValues.Empty.Set("System.AreaPath", FieldValue.String(area))
                 .Set("System.IterationPath", FieldValue.String(iteration)).Set("System.AssignedTo", FieldValue.Identity(owner)), new(key, "1"), true);
-        Model.Matches(query, Item("project\\a", "Project\\Next", Actor), metadata, now).Value.ShouldBeTrue();
-        Model.Matches(query, Item("Project\\A\\Child", "Project\\Next", Actor), metadata, now).Value.ShouldBeFalse();
-        Model.Matches(query, Item("Project\\B\\Child", "Project\\Next", Actor), metadata, now).Value.ShouldBeTrue();
-        Model.Matches(query, Item("Project\\B", "Project\\Current", Actor), metadata, now).Value.ShouldBeFalse();
-        Model.Matches(query, Item("Project\\B", "Project\\Next", Sibling), metadata, now).Value.ShouldBeFalse();
+        Model.Matches(query, Item("project\\a", "Project\\Next", Actor), [metadata], now).Value.ShouldBeTrue();
+        Model.Matches(query, Item("Project\\A\\Child", "Project\\Next", Actor), [metadata], now).Value.ShouldBeFalse();
+        Model.Matches(query, Item("Project\\B\\Child", "Project\\Next", Actor), [metadata], now).Value.ShouldBeTrue();
+        Model.Matches(query, Item("Project\\B", "Project\\Current", Actor), [metadata], now).Value.ShouldBeFalse();
+        Model.Matches(query, Item("Project\\B", "Project\\Next", Sibling), [metadata], now).Value.ShouldBeFalse();
         RunPlanning(paths, ["workspace", "area", "remove", "Project\\A", "-o", "json"]).Code.ShouldBe(0);
         RunPlanning(paths, ["workspace", "sprint", "remove", "@CURRENT+1", "-o", "json"]).Code.ShouldBe(0);
         var inactive = (await store.ReadAsync()).Value.Benches.Single().Selectors.Single(selector => selector.Kind == SelectorKind.Query).Query!;
         inactive.Children.Single(value => value.Kind == QueryKind.Iteration).Value!.Values.ShouldBeEmpty();
-        Model.Matches(inactive, Item("Project\\B", "Project\\Next", Actor), metadata, now).Value.ShouldBeFalse("last sprint removal must not broaden to an area/ownership-only query");
+        Model.Matches(inactive, Item("Project\\B", "Project\\Next", Actor), [metadata], now).Value.ShouldBeFalse("last sprint removal must not broaden to an area/ownership-only query");
         var invalid = RunPlanning(paths, ["workspace", "sprint", "add", "@Current+0", "-o", "json"]);
         invalid.Code.ShouldBe(2);
         _transport.TotalRequests.ShouldBe(requests, "configuration and listing are native cached metadata operations, not provider acquisition");

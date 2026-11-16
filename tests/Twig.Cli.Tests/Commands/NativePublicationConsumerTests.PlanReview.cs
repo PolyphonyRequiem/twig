@@ -187,7 +187,7 @@ public sealed partial class NativePublicationConsumerTests
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         var config = new TwigConfiguration { Organization = "fixture-two", Project = "Project" };
-        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), config, root);
+        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
         await config.SaveSplitAsync(paths);
         using (var attachment = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System))
             (await attachment.InitializeAsync()).IsSuccess.ShouldBeTrue();

@@ -80,48 +80,6 @@ public sealed partial class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<Bench>(ex); }
     }
 
-    /// <summary>Atomically preserves explicitly supplied legacy definitions. Identity/name conflicts never overwrite or rename.</summary>
-    public async Task<Result<UserBenchSnapshot>> ImportAsync(IEnumerable<Bench> definitions, CancellationToken ct = default)
-    {
-        try
-        {
-            var incoming = definitions.ToImmutableArray();
-            if (incoming.Length > 1024 || incoming.Select(bench => bench.Id).Distinct().Count() != incoming.Length
-                || incoming.Select(bench => CanonicalName(bench.Name)).Distinct(StringComparer.Ordinal).Count() != incoming.Length)
-                return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "Legacy Bench identities or names conflict; nothing was imported.");
-            foreach (var bench in incoming) Validate(bench);
-            using var authoring = AcquireAuthoringLeases(incoming.Select(bench => bench.Id));
-            await using var db = await Open(ct).ConfigureAwait(false);
-            using var transaction = db.BeginTransaction(deferred: false);
-            var before = await Read(db, transaction, ct).ConfigureAwait(false);
-            var changed = false;
-            foreach (var bench in incoming)
-            {
-                var existing = await Find(db, transaction, bench.Id, ct).ConfigureAwait(false);
-                if (existing is { } retained)
-                {
-                    if (retained.Deleted || retained.Bench.Name != bench.Name
-                        || BenchCodec.SerializeSelectors(retained.Bench.Selectors) != BenchCodec.SerializeSelectors(bench.Selectors)
-                        || !retained.Bench.Connections.ToHashSet().SetEquals(bench.Connections))
-                        return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "A legacy Bench identity has different saved intent or was deleted. Reconcile explicitly; nothing was imported.");
-                    continue;
-                }
-                if (before.Benches.Any(value => CanonicalName(value.Name) == CanonicalName(bench.Name)))
-                    return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "A legacy Bench name belongs to another identity. Reconcile explicitly; nothing was imported.");
-                await Put(db, transaction, new(bench.Id, bench.Name, bench.Selectors, 1, bench.Connections), false, ct).ConfigureAwait(false);
-                changed = true;
-            }
-            if (changed) await Advance(db, transaction, ct).ConfigureAwait(false);
-            var after = await Read(db, transaction, ct).ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-            transaction.Commit();
-            return Result<UserBenchSnapshot>.Ok(after);
-        }
-        catch (ArgumentException ex) { return Result<UserBenchSnapshot>.Fail(ErrorCode.InvalidInput, ex.Message); }
-        catch (ConnectionBindingResolutionException) { return Result<UserBenchSnapshot>.Fail(ErrorCode.Conflict, "A native authoring operation protects an imported Bench."); }
-        catch (Exception ex) when (StorageFailure(ex)) { return Failure<UserBenchSnapshot>(ex); }
-    }
-
     public async Task<Result<bool>> DeleteAsync(Guid id, long expectedRevision, CancellationToken ct = default)
     {
         try
@@ -443,9 +401,7 @@ public sealed partial class UserBenchStore
         return OperatingSystem.IsWindows() ? full.ToUpperInvariant() : full;
     }
 
-    // Import existing user-created definitions once. Never derive a Bench from a repository or worktree.
-    internal async Task<Result<bool>> ObserveAsync(string root, Connection connection, Guid storeInstance,
-        ImmutableArray<Bench> legacy, CancellationToken ct)
+    internal async Task<Result<bool>> RegisterWorkspaceAsync(string root, Connection connection, Guid storeInstance, CancellationToken ct)
     {
         try
         {
@@ -454,60 +410,16 @@ public sealed partial class UserBenchStore
             var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
             var key = OperatingSystem.IsWindows() ? full.ToUpperInvariant() : full;
             var binding = JsonSerializer.Serialize(connection, UserBenchJson.Default.Connection);
-            using var authoring = AcquireAuthoringLeases(legacy.Select(bench => bench.Id));
             await using var db = await Open(ct).ConfigureAwait(false);
+            using var transaction = db.BeginTransaction(deferred: false);
             await using (var probe = db.CreateCommand())
             {
-                probe.CommandText = """
-                    SELECT i.connection,w.connection,w.store_instance,w.root
-                    FROM imports i LEFT JOIN workspaces w ON w.context_key=$key
-                    WHERE i.store_instance=$instance;
-                    """;
-                probe.Parameters.AddWithValue("$key", key);
+                probe.Transaction = transaction;
+                probe.CommandText = "SELECT COUNT(*) FROM workspaces WHERE store_instance=$instance AND connection<>$connection;";
                 probe.Parameters.AddWithValue("$instance", storeInstance.ToString("D"));
-                await using var observed = await probe.ExecuteReaderAsync(ct).ConfigureAwait(false);
-                if (await observed.ReadAsync(ct).ConfigureAwait(false))
-                {
-                    if (observed.GetString(0) != binding)
-                        return Result<bool>.Fail(ErrorCode.Conflict, "The native store instance belongs to a different connection.");
-                    if (!observed.IsDBNull(1) && observed.GetString(1) == binding
-                        && observed.GetString(2) == storeInstance.ToString("D") && observed.GetString(3) == full)
-                        return Result<bool>.Ok(true);
-                }
-            }
-            using var transaction = db.BeginTransaction(deferred: false);
-            await using var imported = db.CreateCommand();
-            imported.Transaction = transaction;
-            imported.CommandText = "SELECT connection FROM imports WHERE store_instance=$id;";
-            imported.Parameters.AddWithValue("$id", storeInstance.ToString("D"));
-            var previous = await imported.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
-            if (previous is not null && previous != binding)
-                return Result<bool>.Fail(ErrorCode.Conflict, "The native store instance belongs to a different connection.");
-            if (previous is null)
-            {
-                foreach (var old in legacy)
-                {
-                    var existing = await Find(db, transaction, old.Id, ct).ConfigureAwait(false);
-                    if (existing is { Deleted: true }) continue;
-                    var scoped = old.Selectors.Select(selector => Scope(selector, connection)).ToImmutableArray();
-                    if (existing is { } retained)
-                    {
-                        if (retained.Bench.Name != old.Name)
-                            return Result<bool>.Fail(ErrorCode.Conflict, "Existing Bench identity has different saved intent; nothing was adopted.");
-                        var same = retained.Bench.Selectors.Where(s => s.Connection == connection).ToArray();
-                        if (same.Length != 0 && BenchCodec.SerializeSelectors(same) != BenchCodec.SerializeSelectors(scoped))
-                            return Result<bool>.Fail(ErrorCode.Conflict, "Existing Bench selectors differ; reconcile them explicitly.");
-                        if (same.Length != 0) continue;
-                        scoped = retained.Bench.Selectors.AddRange(scoped);
-                    }
-                    var connections = (existing?.Bench.Connections ?? []).Union(old.Connections).Append(connection);
-                    var next = new Bench(old.Id, old.Name, scoped, (existing?.Bench.Revision ?? 0) + 1, connections);
-                    Validate(next);
-                    await Put(db, transaction, next, false, ct).ConfigureAwait(false);
-                }
-                imported.CommandText = "INSERT INTO imports(store_instance,connection) VALUES($id,$connection);";
-                imported.Parameters.AddWithValue("$connection", binding);
-                await imported.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                probe.Parameters.AddWithValue("$connection", binding);
+                if (Convert.ToInt32(await probe.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 0)
+                    return Result<bool>.Fail(ErrorCode.Conflict, "The native store instance belongs to a different connection.");
             }
             await using var workspace = db.CreateCommand();
             workspace.Transaction = transaction;
@@ -520,13 +432,11 @@ public sealed partial class UserBenchStore
             workspace.Parameters.AddWithValue("$connection", binding);
             workspace.Parameters.AddWithValue("$instance", storeInstance.ToString("D"));
             await workspace.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            if (previous is null) await Advance(db, transaction, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             transaction.Commit();
             return Result<bool>.Ok(true);
         }
         catch (ArgumentException ex) { return Result<bool>.Fail(ErrorCode.InvalidInput, ex.Message); }
-        catch (ConnectionBindingResolutionException) { return Result<bool>.Fail(ErrorCode.Conflict, "A native authoring operation protects an observed Bench."); }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
     }
 
@@ -574,17 +484,15 @@ public sealed partial class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
     }
 
-    internal IStore View(IStore native, string root, Guid instance)
-        => new NativeView(this, native, root, instance);
+    internal IStore View(IStore native)
+        => new NativeView(this, native);
 
-    private sealed class NativeView(UserBenchStore owner, IStore native, string root, Guid instance) : IStore
+    private sealed class NativeView(UserBenchStore owner, IStore native) : IStore
     {
         public async Task<Result<StoreSnapshot>> ReadAsync(Connection connection, CancellationToken ct)
         {
             var read = await native.ReadAsync(connection, ct).ConfigureAwait(false);
             if (!read.IsSuccess) return read;
-            var observed = await owner.ObserveAsync(root, connection, instance, read.Value.Benches, ct).ConfigureAwait(false);
-            if (!observed.IsSuccess) return Result<StoreSnapshot>.Fail(observed.Error);
             var shared = await owner.ReadAsync(ct).ConfigureAwait(false);
             if (!shared.IsSuccess) return Result<StoreSnapshot>.Fail(shared.Error);
             var snapshot = read.Value;
@@ -668,6 +576,9 @@ public sealed partial class UserBenchStore
             }
             command.CommandText = "PRAGMA synchronous=FULL;";
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            using var transaction = db.BeginTransaction(deferred: true);
+            await CheckCaptureStorage(db, transaction, ct).ConfigureAwait(false);
+            transaction.Commit();
             return db;
         }
         catch { await db.DisposeAsync().ConfigureAwait(false); throw; }
@@ -701,11 +612,17 @@ public sealed partial class UserBenchStore
                     PRAGMA application_id={ApplicationId};
                     PRAGMA user_version=2;
                     CREATE TABLE meta(id INTEGER PRIMARY KEY CHECK(id=1),instance TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>=0),
-                        editor_registry TEXT,editor_generation INTEGER NOT NULL DEFAULT 0,editor_head TEXT NOT NULL DEFAULT '') STRICT;
-                    INSERT INTO meta(id,instance,revision,editor_registry) VALUES(1,'{user:D}',0,{(registryIdentity is null ? "NULL" : "'" + registryIdentity.Value.ToString("N") + "'")});
+                        editor_registry TEXT,editor_generation INTEGER NOT NULL DEFAULT 0,editor_head TEXT NOT NULL DEFAULT '',
+                        editor_initialized INTEGER NOT NULL CHECK(editor_initialized=1)) STRICT;
+                    INSERT INTO meta(id,instance,revision,editor_registry,editor_initialized) VALUES(1,'{user:D}',0,{(registryIdentity is null ? "NULL" : "'" + registryIdentity.Value.ToString("N") + "'")},1);
+                    CREATE TABLE editor_captures(id TEXT PRIMARY KEY,bench_id TEXT NOT NULL,plan_id TEXT NOT NULL,
+                        store_instance TEXT NOT NULL,item TEXT NOT NULL,revision INTEGER NOT NULL,document TEXT NOT NULL);
+                    CREATE TABLE editor_capture_meta(id INTEGER PRIMARY KEY CHECK(id=1),digest TEXT NOT NULL);
+                    INSERT INTO editor_capture_meta VALUES(1,'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+                    CREATE TABLE editor_capture_history(generation INTEGER PRIMARY KEY,head TEXT NOT NULL,
+                        document TEXT NOT NULL,before_document TEXT NOT NULL);
                     CREATE TABLE benches(id TEXT PRIMARY KEY,canonical_name TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),deleted INTEGER NOT NULL CHECK(deleted IN(0,1)),document TEXT NOT NULL) STRICT;
                     CREATE UNIQUE INDEX bench_names ON benches(canonical_name) WHERE deleted=0;
-                    CREATE TABLE imports(store_instance TEXT PRIMARY KEY,connection TEXT NOT NULL) STRICT;
                     CREATE TABLE workspaces(context_key TEXT PRIMARY KEY,root TEXT NOT NULL,connection TEXT NOT NULL,store_instance TEXT NOT NULL) STRICT;
                     CREATE TABLE repository_bindings(repository_key TEXT PRIMARY KEY,revision INTEGER NOT NULL CHECK(revision>0),document TEXT NOT NULL) STRICT;
                     CREATE TABLE view_rules(context_key TEXT NOT NULL,connection TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),exclusions TEXT NOT NULL,PRIMARY KEY(context_key,connection)) STRICT;

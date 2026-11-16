@@ -16,6 +16,45 @@ public sealed class UserBenchStoreTests : IDisposable
     private UserBenchStore Store => new(Path.Combine(directory, "user", "benches.db"));
 
     [Fact]
+    public async Task ExactActiveSelectionIsStoreBoundAndCasPreservesNewerBenchAndPermanentUuid()
+    {
+        var native = await Native("context");
+        var context = new CoreHostContext(native.Root, ado, native.Store.InstanceId);
+        var empty = Required(await context.ReadAsync(default));
+        empty.Active.ShouldBeNull();
+        var key = ItemKey.Local(Guid.NewGuid());
+        var bench = Guid.NewGuid();
+        var selected = empty with { Active = CoreContextKey.Capture(key), BenchId = bench };
+        Required(await context.WriteAsync(empty, selected, default));
+        Required(await context.ReadAsync(default)).Active!.Resolve(ado).ShouldBe(key);
+        (await context.WriteAsync(empty, empty with { Active = new(null, "42") }, default))
+            .Error.Code.ShouldBe(ErrorCode.Conflict);
+        var current = Required(await context.ReadAsync(default));
+        current.BenchId.ShouldBe(bench);
+        current.Active.ShouldBe(selected.Active);
+        (await new CoreHostContext(native.Root, ado, Guid.NewGuid()).ReadAsync(default))
+            .Error.Code.ShouldBe(ErrorCode.Conflict);
+        (await context.WriteAsync(current, current with { Active = new(key.LocalId, "42") }, default))
+            .IsSuccess.ShouldBeFalse();
+        Required(await context.ReadAsync(default)).Active.ShouldBe(selected.Active);
+    }
+
+    [Fact]
+    public async Task BenchMutationWithoutSharedStoreRefusesInsteadOfWritingConnectionLocalDefinitions()
+    {
+        var native = await Native("no-shared-store");
+        var workspace = new CoreWorkspace(ado, Substitute.For<IProvider>(), native.Store,
+            new ConfiguredPolicyProjectionSource(native.Root), "actor", native.Root, native.Store.InstanceId);
+        var before = Required(await native.Store.ReadAsync(ado, default));
+        var result = await workspace.CaptureBenchesAsync(before, [new(Guid.NewGuid(), "Not local", [])], default);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        var after = Required(await native.Store.ReadAsync(ado, default));
+        after.Version.ShouldBe(before.Version);
+        after.Benches.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task ConnectionDependenciesSurviveEmptyMembershipAndScopedRemoval()
     {
         Directory.CreateDirectory(directory);
@@ -26,7 +65,7 @@ public sealed class UserBenchStoreTests : IDisposable
         reopened.Connections.ShouldBe([ado, github]);
         reopened.Selectors.ShouldBeEmpty();
         BenchCodec.Deserialize(BenchCodec.Serialize(reopened)).Connections.ShouldBe([ado, github]);
-        var view = Store.View(source.Store, source.Root, source.Store.InstanceId);
+        var view = Store.View(source.Store);
         var captured = Required(await view.ReadAsync(ado, default));
         var selected = captured.Benches.Single();
         selected.Connections.ShouldBe([ado]);
@@ -35,8 +74,6 @@ public sealed class UserBenchStoreTests : IDisposable
         var after = Required(await Store.ReadAsync()).Benches.Single();
         after.Connections.ShouldBe([ado, github]);
         after.Selectors.ShouldBeEmpty();
-        Required(await Store.ImportAsync([after], default));
-        (await Store.ImportAsync([new(after.Id, after.Name, [], connections: [ado])], default)).IsSuccess.ShouldBeFalse();
     }
 
     [Fact]
@@ -53,7 +90,7 @@ public sealed class UserBenchStoreTests : IDisposable
         await Git(repo, "worktree", "add", "--quiet", "-b", "fixture-sibling", sibling);
         await Git(another, "init", "--quiet");
         var source = await Native("registered-source");
-        Required(await Store.View(source.Store, source.Root, source.Store.InstanceId).ReadAsync(ado, default));
+        Required(await Store.RegisterWorkspaceAsync(source.Root, ado, source.Store.InstanceId, default));
         var bench = Required(await Store.SaveAsync(new(Guid.NewGuid(), "Shared", [], connections: [ado, github]), 0));
         var original = BenchCodec.Serialize(bench);
         Required(await Store.ReadRepositoryAsync(repo)).Revision.ShouldBe(0);
@@ -116,8 +153,8 @@ public sealed class UserBenchStoreTests : IDisposable
         Required(await contextB.WriteAsync(beforeB, beforeB with { BenchId = second.Id }, default));
         Required(await contextA.ReadAsync(default)).BenchId.ShouldBe(saved.Id);
         Required(await contextB.ReadAsync(default)).BenchId.ShouldBe(second.Id);
-        var viewA = Required(await Store.View(a.Store, a.Root, a.Store.InstanceId).ReadAsync(ado, default));
-        var viewB = Required(await Store.View(b.Store, b.Root, b.Store.InstanceId).ReadAsync(ado, default));
+        var viewA = Required(await Store.View(a.Store).ReadAsync(ado, default));
+        var viewB = Required(await Store.View(b.Store).ReadAsync(ado, default));
         viewA.Benches.Select(value => value.Id).ShouldBe(viewB.Benches.Select(value => value.Id));
         viewA.Benches.Single(value => value.Id == saved.Id).Selectors.Length.ShouldBe(4);
         Required(await a.Store.ReadAsync(ado, default)).Benches.ShouldBeEmpty();
@@ -133,8 +170,8 @@ public sealed class UserBenchStoreTests : IDisposable
         var bench = Required(await Store.SaveAsync(new(Guid.NewGuid(), "Shared",
             [new(SelectorKind.Pin, Key(ado, "41"), connection: ado),
              new(SelectorKind.Pin, Key(github, "I_node"), connection: github)]), 0));
-        var viewA = Store.View(a.Store, a.Root, a.Store.InstanceId);
-        var viewB = Store.View(b.Store, b.Root, b.Store.InstanceId);
+        var viewA = Store.View(a.Store);
+        var viewB = Store.View(b.Store);
         var captureA = Required(await viewA.ReadAsync(ado, default));
         var captureB = Required(await viewB.ReadAsync(github, default));
         var provider = Substitute.For<IProvider>();
@@ -162,17 +199,21 @@ public sealed class UserBenchStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task ExistingDefinitionsImportOnceAndDeletionCannotBeUndoneByOldWorkspaceOrIdReuse()
+    public async Task NativeReadsNeverImportConnectionLocalBenchesOrResurrectDeletedSharedDefinitions()
     {
         Directory.CreateDirectory(directory);
         var native = await Native("existing");
         var old = new Bench(Guid.NewGuid(), "User-created earlier", [new(SelectorKind.Pin, Key(ado, "41"))]);
         Required(await native.Store.CommitAsync(ado, 0, new(1, benches: [old]), default));
-        var view = Store.View(native.Store, native.Root, native.Store.InstanceId);
-        Required(await view.ReadAsync(ado, default)).Benches.Single().Id.ShouldBe(old.Id);
-        var imported = Required(await Store.ReadAsync()).Benches.Single();
-        Required(await Store.DeleteAsync(imported.Id, imported.Revision));
-        Required(await Store.View(native.Store, native.Root, native.Store.InstanceId).ReadAsync(ado, default))
+        var view = Store.View(native.Store);
+        Required(await view.ReadAsync(ado, default)).Benches.ShouldBeEmpty();
+        Required(await Store.ReadAsync()).Benches.ShouldBeEmpty();
+        Required(await Store.WorkspacesAsync()).ShouldBeEmpty("snapshot reads are not workspace enrollment");
+        Required(await Store.RegisterWorkspaceAsync(native.Root, ado, native.Store.InstanceId, default));
+        Required(await Store.WorkspacesAsync()).Single().StoreInstance.ShouldBe(native.Store.InstanceId);
+        var saved = Required(await Store.SaveAsync(new(old.Id, old.Name, [], connections: [ado]), 0));
+        Required(await Store.DeleteAsync(saved.Id, saved.Revision));
+        Required(await Store.View(native.Store).ReadAsync(ado, default))
             .Benches.ShouldBeEmpty();
         Required(await native.Store.ReadAsync(ado, default)).Benches.Single().Id.ShouldBe(old.Id);
         (await Store.SaveAsync(new(old.Id, "Replayed identity", []), 0)).Error.Code.ShouldBe(ErrorCode.Conflict);
@@ -261,24 +302,24 @@ public sealed class UserBenchStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task ExplicitImportIsAtomicIdempotentAndDoesNotOverwriteConflictingIntentOrTombstones()
+    public async Task ExplicitWorkspaceRegistrationIsIdempotentAndPreservesExactSourceIdentityWithoutChangingBenches()
     {
         Directory.CreateDirectory(directory);
         var store = Store;
-        var first = new Bench(Guid.NewGuid(), "First", [new(SelectorKind.Pin, Key(ado, "41"), connection: ado)]);
-        var second = new Bench(Guid.NewGuid(), "Second", [new(SelectorKind.Query,
-            query: new(QueryKind.Under, "System.AreaPath", FieldValue.String("Project\\Area")), connection: ado)]);
-        var imported = Required(await store.ImportAsync([first, second]));
-        var repeated = Required(await store.ImportAsync([first, second]));
-        repeated.Revision.ShouldBe(imported.Revision);
-        repeated.Benches.Length.ShouldBe(2);
-        var third = new Bench(Guid.NewGuid(), "Third", []);
-        (await store.ImportAsync([third, new(first.Id, "Conflicting name", first.Selectors)])).Error.Code.ShouldBe(ErrorCode.Conflict);
-        Required(await store.ReadAsync()).Benches.ShouldNotContain(bench => bench.Id == third.Id);
-        var retained = repeated.Benches.Single(bench => bench.Id == first.Id);
-        Required(await store.DeleteAsync(retained.Id, retained.Revision));
-        (await store.ImportAsync([first])).Error.Code.ShouldBe(ErrorCode.Conflict);
-        Required(await store.ReadAsync()).Benches.ShouldNotContain(bench => bench.Id == first.Id);
+        var source = await Native("enrolled");
+        var before = Required(await store.ReadAsync());
+        Required(await store.RegisterWorkspaceAsync(source.Root, ado, source.Store.InstanceId, default));
+        Required(await store.RegisterWorkspaceAsync(source.Root, ado, source.Store.InstanceId, default));
+        var retained = Required(await store.WorkspacesAsync()).ShouldHaveSingleItem();
+        retained.Root.ShouldBe(source.Root);
+        retained.Connection.ShouldBe(ado);
+        retained.StoreInstance.ShouldBe(source.Store.InstanceId);
+        (await store.RegisterWorkspaceAsync(Path.Combine(directory, "sibling"), github, source.Store.InstanceId, default))
+            .Error.Code.ShouldBe(ErrorCode.Conflict);
+        Required(await store.WorkspacesAsync()).Single().ShouldBe(retained);
+        var after = Required(await store.ReadAsync());
+        after.Revision.ShouldBe(before.Revision);
+        after.Benches.ShouldBeEmpty();
     }
     [Fact]
     public async Task PlanningIntentAndCalendarPersistSeparatelyWithoutMaterializingOrChangingBenchRules()

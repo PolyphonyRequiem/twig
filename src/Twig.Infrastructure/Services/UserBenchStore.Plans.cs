@@ -86,31 +86,6 @@ public sealed partial class UserBenchStore
             }));
         }, ct);
 
-    internal Task<Result<NativeBenchPlan>> CompletePlanScopeAsync(Guid expectedInstance, Guid benchId,
-        long expectedPlanRevision, Guid scopeId, CancellationToken ct = default)
-        => ChangePlan(expectedInstance, benchId, expectedPlanRevision, async (_, _, plan) =>
-        {
-            var scope = plan.Scopes.SingleOrDefault(value => value.Id == scopeId);
-            if (scope is null || scope.State != NativePlanScopeState.Preparing)
-                return Result<NativeBenchPlan>.Fail(ErrorCode.Conflict, "Only this exact reserved Plan scope can complete.");
-            Directory.CreateDirectory(Path.GetDirectoryName(scope.DatabasePath)!);
-            var opened = File.Exists(scope.DatabasePath)
-                ? await SqliteStore.OpenAsync(scope.DatabasePath, ct, scope.StoreInstance).ConfigureAwait(false)
-                : await SqliteStore.CreateAsync(scope.DatabasePath, scope.StoreInstance, ct).ConfigureAwait(false);
-            if (!opened.IsSuccess) return Result<NativeBenchPlan>.Fail(opened.Error);
-            var pinned = await opened.Value.CheckWorkspaceAsync(scope.Source.Connection, ct).ConfigureAwait(false);
-            if (!pinned.IsSuccess)
-            {
-                pinned = await opened.Value.PinWorkspaceAsync(scope.Source.Connection, ct).ConfigureAwait(false);
-                if (!pinned.IsSuccess) return Result<NativeBenchPlan>.Fail(pinned.Error);
-            }
-            return Result<NativeBenchPlan>.Ok(plan with
-            {
-                Scopes = plan.Scopes.Select(value => value.Id == scope.Id
-                    ? value with { State = NativePlanScopeState.Ready } : value).ToImmutableArray(),
-            });
-        }, ct);
-
     internal Task<Result<NativeBenchPlan>> CompleteCoveredPlanScopeAsync(Guid expectedInstance, Guid benchId,
         long expectedPlanRevision, Guid scopeId, string registryPath, NativeCoreStoreReference origin, CancellationToken ct = default)
         => ChangePlan(expectedInstance, benchId, expectedPlanRevision, async (_, _, plan) =>

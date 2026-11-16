@@ -68,6 +68,8 @@ public sealed class CanvasPackageTests : IDisposable
     [InlineData("hash")]
     public void Package_rejects_incompatible_incomplete_or_unlisted_content(string fault)
     {
+        Select(root, new string('c', 40), "content");
+        Encoding.UTF8.GetString(CanvasAssets.Read(root, "native-index.html").Bytes).ShouldBe("content");
         Select(root, new string('c', 40), "content", fault);
         Should.Throw<InvalidDataException>(() => CanvasAssets.Read(root, "native-index.html"));
     }
@@ -110,9 +112,10 @@ public sealed class CanvasPackageTests : IDisposable
         using var output = new Utf8JsonWriter(pointer);
         output.WriteStartObject();
         output.WriteString("application", CanvasAssets.Application);
-        output.WriteNumber("schema", 1);
+        output.WriteNumber("schema", 2);
         output.WriteString("version", version);
         output.WriteString("manifestHash", Hash(File.ReadAllBytes(manifest)));
+        output.WriteString("hostManifestHash", new string('A', 64));
         output.WriteEndObject();
     }
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));

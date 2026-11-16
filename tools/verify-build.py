@@ -168,7 +168,8 @@ def worker(binary, directory, trace):
                 'policyIdentity': None, 'policyRevision': None,
                 'operations': [{'id': 'offline-smoke', 'kind': 0, 'item': ['local', seed['localId']],
                     'revision': None, 'type': draft['Type'], 'fields': fields, 'other': None,
-                    'relation': None, 'origin': 0, 'concurrency': 0, 'localVersion': None,
+                    # v3 ObservedNonAtomic, as emitted by the actual local-draft proposal builder.
+                    'relation': None, 'origin': 0, 'concurrency': 1, 'localVersion': None,
                     'body': None, 'resource': None}]}
     (workspace / 'smoke.json').write_text(json.dumps(proposal))
     preview = json.loads(run('preview', 'proposal', 'preview', '--file', 'smoke.json', '-o', 'json').stdout)

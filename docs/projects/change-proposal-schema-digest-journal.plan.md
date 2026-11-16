@@ -406,7 +406,7 @@ Add to `plan_journals`, all nullable so existing rows migrate cleanly:
 | `authorized_at` | TEXT | **yes** | ISO-8601, at the moment authorization was recorded. |
 
 `authorization_mode` takes exactly `human` or `model` — a closed set of two. It is
-**not** the same vocabulary as `Custom.WayfinderExecutionMode` (`HITL`/`AFK`), which
+**not** the same vocabulary as a session's execution mode (`HITL`/`AFK`), which
 describes a *session*. Conflating a session property with an audit fact is how
 audit trails become unreconstructable; they are kept distinct deliberately.
 

@@ -1,6 +1,8 @@
 # Result Type Conventions
 
-> **Status**: Living document · **Last updated**: August 2026
+> **Status**: Historical Domain-era conventions, not a current API inventory.
+> `Twig.Domain` is removed; see [current ownership](overview.md).
+> **Last updated**: August 2026
 > **Related**: [Domain Model Critique — Item 7](domain-model-critique.md#7-result-type-proliferation)
 
 ---

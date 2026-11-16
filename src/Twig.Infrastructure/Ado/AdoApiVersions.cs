@@ -25,9 +25,8 @@ namespace Twig.Infrastructure.Ado;
 /// data. Never treat a count-shaped body as success on these routes.
 /// </description></item>
 /// </list>
-/// Evidence: branch <c>docs/process-descriptor-map</c>,
-/// <c>wayfinder-process-descriptor/assets/0001-endpoint-findings.md</c> (probed live
-/// 2026-08-11). Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c>
+/// Probed live 2026-08-11 on branch <c>docs/process-descriptor-map</c>.
+/// See <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c>
 /// Implementation Decision 7.
 /// <para>
 /// Every constant below states <b>what that version buys</b>. A version that is merely

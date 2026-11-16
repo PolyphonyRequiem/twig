@@ -28,7 +28,7 @@ public sealed class OutputFormatterFactory(HumanOutputFormatter human)
     /// Resolves a formatter for <paramref name="format"/>.
     /// </summary>
     /// <remarks>
-    /// Wayfinder 0019: membership is decided by <see cref="OutputFormats"/>, not
+    /// Membership is decided by <see cref="OutputFormats"/>, not
     /// by a restated arm list. Unknown values are rejected at the entrypoint
     /// (<see cref="OutputFormatArgumentValidator"/>) and cannot reach this
     /// method from the CLI; the human fallback below therefore only covers

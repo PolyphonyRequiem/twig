@@ -1,23 +1,23 @@
-**[[Home]]**
+## Twig
 
-**Architecture**
-- [[Overview|architecture/overview]]
-- [[Data Layer|architecture/data-layer]]
-- [[Commands|architecture/commands]]
-- [[ADO Integration|architecture/ado-integration]]
-- [[MCP Server|architecture/mcp-server]]
-- [[Build & Release|architecture/build-and-release]]
+- [Documentation](README.md)
+- [Installation](installation.md)
+- [Getting started](getting-started.md)
+- [Commands](commands/README.md)
 
-**Guides**
-- [[Oh My Posh|ohmyposh]]
+## Guides
 
-**Command Reference**
-- [[Command Reference|commands/README]]
+- [Authentication](features/authentication.md)
+- [Benches and context](features/workspace-bench-context.md)
+- [Seeds and publishing](features/seeds-and-publishing.md)
+- [Proposals](features/proposals.md)
+- [Process description](features/process-description.md)
+- [Skills](features/skills.md)
+- [Windows daemon](daemon.md)
 
-**Feature Guides**
-- [[Workspace, Bench, and Context|features/workspace-bench-context]]
-- [[Seeds and Publishing|features/seeds-and-publishing]]
-- [[Plans and Proposals|features/proposals]]
-- [[Authentication|features/authentication]]
-- [[Reference Profile|features/reference-profile]]
-- [[Process Description|features/process-description]]
+## Development
+
+- [Contributing](contributing.md)
+- [Architecture](architecture/overview.md)
+- [Build and release](architecture/build-and-release.md)
+- [Historical records](history.md)

@@ -1,33 +1,30 @@
 ---
 command: tree
 group: views
-summary: Hidden targeted-tree alias; legacy --all workspace layout is unsupported.
+summary: Render one qualified cached hierarchy, optionally with explicit refresh.
 stability: stable
-mutates: local-on-explicit-refresh
+mutates: local
 ---
 
 # `twig tree`
 
-Without `--all`, the hidden `tree` alias retains its existing targeted-tree
-route, equivalent to [`show --tree`](../context/show.md). This correction does
-not rewrite targeted tree behavior or rendering.
-
-```powershell
-twig tree 1234 --depth 2
-twig tree --id 1234 -o json
+```sh
+twig tree 12345
+twig show 12345 --tree
 ```
 
-Supply a positional ID or `--id` for structured output. Conflicting explicit
-targets refuse. Human targeting may use the active item. `--depth`,
-`--no-live` and explicit `--refresh` retain their targeted-route meanings.
+## Behavior
 
-`tree --all`, including `--refresh`, now goes to the workspace owner's explicit
-usage refusal **before HTTP**. It does not render all cached items, query the
-team, silently ignore the target or substitute another scope. The same applies
-to `workspace --tree`, `workspace --view tree` and the old sprint layout.
-The workspace UI and full-backlog contract remain unqualified.
+Uses discovered hierarchy relationships for a targeted Core tree.
+Human output can use active context; structured output requires an explicit
+positional ID or `--id`. `--refresh` explicitly permits provider acquisition;
+default presentation is cached. GitHub tree presentation is not qualified.
 
-Use [`workspace`](../workspace/workspace.md) for a static Core Bench table,
-including all protected draft debt, or targeted `show <id> --tree` for an item
-hierarchy. Unsupported workspace shapes return 2 with format-aware stderr and
-empty stdout; ordinary targeted-route exit behavior is unchanged.
+## Effects
+
+Optional refresh writes observations, never publishes drafts or changes selection.
+
+## Failure modes
+
+Unavailable target/hierarchy evidence or invalid depth refuses.
+`--all`, full backlog, live UI and `tree-set` are retired, not fallback routes.

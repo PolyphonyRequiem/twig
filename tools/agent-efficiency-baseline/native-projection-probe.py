@@ -189,7 +189,7 @@ def run_offline(harness) -> int:
         ) as calls:
             tools.show({
                 "work_item_id": 880,
-                "fields": "System.Title,System.State,Custom.WayfinderExecutionMode",
+                "fields": "System.Title,System.State,System.AssignedTo",
                 "sections": "links,parent",
             })
         argv = calls[0].argv if calls else []
@@ -197,7 +197,7 @@ def run_offline(harness) -> int:
             len(calls) == 1
             and argv[1:3] == ["show", "880"]
             and _trailing(argv, "--fields")
-                == "System.Title,System.State,Custom.WayfinderExecutionMode"
+                == "System.Title,System.State,System.AssignedTo"
             and _trailing(argv, "--sections") == "links,parent"
             and _argv_ok_trailing(argv)
         )

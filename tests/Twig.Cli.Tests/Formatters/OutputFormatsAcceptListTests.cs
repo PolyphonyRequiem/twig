@@ -6,7 +6,7 @@ using Xunit;
 namespace Twig.Cli.Tests.Formatters;
 
 /// <summary>
-/// Wayfinder 0019 — one accept-list for output formats.
+/// One accept-list for output formats.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -23,7 +23,7 @@ namespace Twig.Cli.Tests.Formatters;
 /// from the renderer switch.
 /// </para>
 /// <para>
-/// Scope note: 0010 deliberately left payload/field shape UNPINNED. There are
+/// Payload/field shapes are outside this test's scope. There are
 /// intentionally no schema, <c>schemaVersion</c>, or golden-payload assertions
 /// here. The accept-list is the entire contract.
 /// </para>

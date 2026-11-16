@@ -1,7 +1,7 @@
 namespace Twig.Formatters;
 
 /// <summary>
-/// Entrypoint validation for the <c>-o</c>/<c>--output</c> option (wayfinder 0019).
+/// Entrypoint validation for the <c>-o</c>/<c>--output</c> option.
 /// </summary>
 /// <remarks>
 /// Validated ONCE, in <c>Program.cs</c> before <c>app.Run(args)</c>, rather

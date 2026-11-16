@@ -1,7 +1,7 @@
 namespace Twig.Formatters;
 
 /// <summary>
-/// The single accept-list for the <c>-o</c>/<c>--output</c> option (wayfinder 0019).
+/// The single accept-list for the <c>-o</c>/<c>--output</c> option.
 /// </summary>
 /// <remarks>
 /// <para>

@@ -8,6 +8,8 @@ mutates: local
 
 # `twig init`
 
+## Behavior
+
 Initialization has one path: a **new Core SQLite store**, pinned to the observed
 native connection and actor, with `.twig/core-workspace.json` recording its actual
 absolute path and instance. The default database is `.twig/core.db`. It never
@@ -26,10 +28,10 @@ Init never deletes it or clears uncertain remote-write evidence.
 
 If `twig connection status` reports `layout-marker-missing`, the error names the
 local `.twig` directory whose attachment layout is missing or unsupported. This
-is not evidence of a missing identity or connection binding. Inspect and back up
-the directory and check the Twig version first. To initialize a fresh workspace,
-preserving or moving aside existing local state is a separate manual decision;
-then run `twig init <org> <project>` at the worktree root. Status does not repair,
+is not evidence of a missing identity or connection binding. Check the Twig version and explicitly identified application-data location.
+Disposable developer-local state can be discarded separately before fresh init;
+never delete source, credentials, or remote-write evidence as a retry shortcut.
+Then run `twig init <org> <project>` at the worktree root. Status does not repair,
 delete, reauthenticate or rebind, and init refuses existing state.
 
 ## Synopsis
@@ -112,5 +114,4 @@ Optional telemetry uses static command metadata and duration only, never native
 identities, accounts, coordinates, paths or work content. Telemetry failure cannot
 change initialization's result.
 
-This closes fresh initialization only. The rest of the no-marker command catalog,
-UI cutover and old Domain/source removal are separate work.
+See [getting started](../../getting-started.md) for a complete first read and Bench.

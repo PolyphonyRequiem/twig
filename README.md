@@ -1,799 +1,136 @@
-# TWIG — Terminal Work Integration Gadget
+# Twig
 
-A high-performance, opinionated CLI for Azure DevOps work item management. Twig brings a git-like interaction model to ADO work tracking: fast local reads from a SQLite cache, terse commands, context-aware operations, and seamless integration with developer workflows.
+**Work tracking from your terminal.** Twig is a local-first CLI for Azure DevOps,
+GitHub issues, and Twig-native work items. Read cached items, organize work in
+named **Benches**, draft new items locally, and apply changes through a
+digest-bound proposal journal.
 
-Built with C# .NET 11 RC3 Native AOT — single binary, sub-100ms cold start.
+The CLI ships as a NativeAOT binary for **Windows x64 and Linux x64**. macOS
+support is suspended. The optional **Windows daemon** is also owned and released
+by this repository; its canvas presentation package is separate.
 
-**Supported platforms: Windows x64 and Linux x64. macOS support is temporarily
-suspended on both Intel and Apple Silicon.** New macOS builds, qualification,
-installation, upgrades and companion launches are disabled. Historical releases
-and dormant platform implementation remain available as restoration context,
-not as currently supported alternatives.
+## Install
 
-> **[Full Documentation](docs/README.md)** — architecture, internals, and contributor guides
-
-## Quick Start
-
-```bash
-# Initialize a fresh native Core store at .twig/core.db (requires an enrolled ADO binding)
-twig init --org contoso --project MyProject
-
-# Sync data from ADO into local cache
-twig sync
-
-# View your assigned work items
-twig ws
-```
-
-`init` now creates **only a fresh Core store**, never the old cache. An optional
-`--core-store <new-absolute-file>` overrides its path (the parent must exist).
-Existing or partial `.twig` state and existing database files are refused without
-migration, adoption, reset or deletion. `--force`, `--reinitialize`, `--profile`,
-`--sprint` and `--area` are retired and explicitly refused. Fresh GitHub worktrees use
-`twig init --provider github --host github.com --repository owner/repo --account selected`;
-the exact selected native `gh` account, not ambient tokens or the active account,
-supplies authority. See [initialization](docs/commands/getting-started/init.md).
-The production catalog is now **Core data plus native host utilities only**.
-With or without a Core marker, production never registers the old item repository,
-pending store/flusher, seed publisher, plan executor or asynchronous workspace/UI
-workflow. Without a marker, data commands give an initialization-required refusal.
-There is no legacy cache fallback, migration or compatibility mode.
-
-### Twig-native work items and daemon
-
-`twig init --provider twig` initializes a fresh workspace against this user's
-durable native authority, without ADO/GitHub credentials. The authority is
-`native-authority.db` beside the user registry (`TWIG_USER_HOME` applies), separate
-from each workspace's client mirror, drafts and journal. It retains a stable
-source UUID and exact owner identity; replacing either refuses old bindings.
-Published keys use provider `twig` and that source's scope, never a seed UUID.
-The explicit `Twig.Item` schema contains `Twig.Title`, Markdown
-`Twig.Description` and `Twig.State` (Open, Active, Closed). Scalar edits use exact
-revision CAS. Creation remains observed-non-atomic in Core's receipt model.
-
-For example, `twig seed new --no-parent --type Twig.Item --title "First item"`
-stages a local seed. Normal native preview/confirmation/publish or Bench Plan
-Review/Apply then creates an authoritative item. No assignee, tracker path,
-comment or relationship capability is invented. Original digests and durable
-attempt UUIDs fence uncertain writes; recovery observes the original authority
-ledger and separately verifies readback, never redispatches a creation.
-Existing inventory/activation and policy gates still apply.
-
-The Windows daemon is built from `src\Twig.Daemon` and owns its source, build,
-installation and release lifecycle. Its `Bench.*` assembly names are retained;
-the executable is currently `Bench.Server.exe`. Presentation assets and their
-licenses live in the separate
-[twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas) package.
-The daemon can run without that package. Its optional direct static routes serve
-fully hash/protocol-verified assets for diagnostics. Normal canvas opens use a
-separately packaged presentation host, which renders before daemon readiness and
-forwards tightly bounded requests from one browser origin. The daemon remains
-the durable authority; no remote listener or remote authentication is introduced.
-The pure `Twig.Daemon.Client` library shares package verification and the
-same-machine startup protocol without importing daemon/provider composition.
-
-`owner-approved-connections-v1` lets a scoped agent request native Twig or an
-explicit public GitHub repository without choosing an account, credentials or
-filesystem path. Only the authenticated owner approves setup, with an explicit
-named GitHub account. `NativeConnectionSetup.InitializeManagedAsync` creates a
-private Git-backed client context under the native metadata home's `sources`
-directory, then uses ordinary fresh initialization and exact creation-bound
-schema/online readback. It neither edits source checkouts nor treats that client
-anchor as authoritative Twig identity. Separate owner consent admits the source
-and attaches its explicit Bench dependency through revision CAS without adding a
-membership rule, preserving other rules and the viewing context. The daemon persists exact source references before
-success. Revocation, expiry and scope changes retire requests; uncertain
-admissions cannot be redispatched. Save/Apply and provider publication guards are
-unchanged.
-
-On Windows, `tools\daemon-install.ps1` requires an existing private data directory,
-explicit non-default port and existing trusted CurrentUser localhost certificate
-thumbprint. It publishes only the daemon and selects an immutable version under
-`%LOCALAPPDATA%\Twig\Daemon`; `-RegisterStartup` is explicit opt-in.
-
-The installed Bench host authenticates its Windows owner and initializes agent reads,
-local Plan drafting, pin/unpin and saved-rule editing automatically for the exact
-retained profile and admitted connections, without requiring an active renderer.
-The initializer returns only an acknowledgement; no human content capability is
-disclosed to the host or agent. Explicit sign-out and restrictions remain authoritative.
-The selected Bench owns its declared connections and automatically resolves exact
-registered sources. Selection does not depend on a viewing connection or change
-CLI worktree selection. Missing or ambiguous sources produce a degraded Bench,
-not empty membership; healthy sources and local Bench management remain usable.
-Dependencies persist independently of pins and queries, including an attached
-connection with zero members. Each source has its own bounded resolution/read
-budget and acquisition is parallel, so an unavailable first source cannot consume
-another source's budget.
-
-User-local repository bindings reference these registered connections and an
-optional default Bench. They live in `benches.db`, never checked-in repo config;
-linked worktrees share a Git-common-directory identity. Connections can be reused
-across repositories. Repo availability constrains effective reads without changing
-shared Bench intent, draft ownership or pending delivery destinations. A
-multi-source Bench requires an explicit Add items destination.
-
-Documented Canvas SDK session ID and working-directory metadata select an isolated
-session view profile and the actual local repository's defaults. Repository/branch
-metadata are hints, not authority. App chat/project classification and persistent
-Project IDs remain unknown; no conversation access or remote-directory mapping is
-used. Agent context always includes nullable `runtimeContext`, `repositoryRoot`
-and `repositoryRevision` fields in its single current response envelope. Repo binding
-changes invalidate scoped grants, editor and Plan captures.
-The user Bench store is now format version 2: choose a fresh `TWIG_USER_HOME` for
-old developer-local state rather than migrating it. Changing only daemon private
-storage does not replace this user-wide store; nothing resets installed state or
-upstream items automatically.
-
-Observed relationships to unavailable or uncached targets retain metadata-only
-unresolved references, never fabricated item fields or inferred deletion.
-Access follows the
-renewable owner session, not a separate 30-minute agent grant. Source/principal,
-profile and policy checks still apply and sign-out revokes access immediately.
-Connection Add completes managed setup and attaches the source without creating
-membership selectors or repeated approvals; GitHub resolves the verified active CLI account and
-pins that name without switching accounts. Existing rules remain unchanged.
-Save/Apply, digest review and tracker publication remain human-only.
-`tools\daemon-launch.ps1` starts that selected verified runtime. `-EnsureRunning`
-is the canvas startup boundary: authenticate the exact Windows owner, verify
-trusted pinned TLS, durable daemon identity and protocol, then reuse the existing
-process. Only actual connection refusal permits serialized startup with the
-exclusive instance guard. An existing unavailable process or uncertain startup
-is never restarted/replayed. Canvas close never stops the shared daemon.
-`-CanvasInstallRoot` selects the independent asset root, defaulting to
-`%LOCALAPPDATA%\Twig\Canvas`. UI-only installs never invoke the daemon installer,
-restart it or invalidate compatible sessions. Old developer-local data is not
-migrated or silently adopted. No installation should replace a running instance
-without explicit operator authorization.
-
-`tools\daemon-package.ps1 -Output <checkout>\artifacts\daemon-win-x64`
-builds and verifies a standalone self-contained package from an exact clean
-checkout, without installation, certificate or Startup changes.
-The **Daemon package** workflow builds that artifact independently; `daemon-v*`
-tags publish its archive and SHA-256 digest. The archive's runtime can be
-started directly with `Bench.Server.exe --data-dir <private-directory>
---port <stable-port> --https-certificate <existing-thumbprint>
---canvas-root <independent-assets-root>` after verifying the archive digest and
-its complete `runtime.json` inventory with the included launcher's
-`Get-BenchRuntime` helper. Source installation creates the separate operator
-selection record; a release archive does not invent local paths or certificate
-configuration.
-
-The daemon also advertises **`mcp-read-v1`**, a read-only MCP interface on
-`POST /api/v1/views/{viewId}/mcp`, on the same localhost origin. There is no
-additional listener. It requires the exact presentation capability and
-authenticated owner; data tools reuse the existing Bench, source/principal,
-snapshot and policy checks.
-
-For stdio clients, configure command `powershell.exe` with arguments `-NoLogo`,
-`-NoProfile`, `-NonInteractive`, `-File`,
-`<absolute LocalApplicationData>\Twig\Daemon\daemon-launch.ps1`, `-Mcp`.
-Resolve the absolute path rather than relying on environment-variable expansion.
-First verify/start the selected daemon with the launcher's `-EnsureRunning`.
-The verified launcher selects its own runtime; do not hardcode a version directory.
-The bridge verifies the existing Windows owner, trusted exact TLS certificate,
-durable daemon identity and protocol, then registers its own scoped view.
-Stdio contains only MCP JSON-RPC, never capabilities or operator logs. EOF closes
-that view, not the daemon. Failed requests are never replayed.
-
-`read_bench` returns selected Bench members, exact snapshot/item identities,
-available field references and unavailable-source metadata.
-`show_work_item_details` accepts those identities, up to five exact field
-references, optional `assignedToField`, `focusField`, and a short explanatory
-`note`. Item values cannot be supplied by the caller. Details distinguish cached
-observations, provider revision, unpublished items, local proposals and unresolved
-references. Unknown fields, stale snapshots, unavailable selected sources and
-revoked access refuse explicitly; an unrelated missing source does not block a
-healthy item's details. If the restored owner profile has no selected Bench,
-choose it in Canvas; MCP never changes selection.
-Details include discovered type/state presentation and the observed provider web
-link. An explicitly selected identity field resolves only its cached assignment
-IDs through the existing source/principal-bound profile reader. Profile photos
-remain bounded inline data, and unavailable profile information is explicit;
-caller-supplied profile values or identity IDs are not accepted.
-
-The details tool references `ui://twig/work-item-details`. Its network-isolated
-MCP App HTML belongs to the separately installed canvas package and is verified
-through the full asset hash inventory. Plain MCP text/structured reads do not
-require canvas assets; loading that resource does. No drafting, membership,
-Save or Apply tool is exposed by MCP.
-
-The finite retained data surface is process/schema description, cached
-`show`/`show-batch` and explicit refresh, bounded `query`, typed
-`update`/`patch`/`state`/`note`/`batch`, `pending`/`save`/`discard`,
-`seed new/view/validate/publish/discard`, file-scoped
-`proposal validate/preview/apply/status` (also `plan`), Bench list/create/switch,
-single-item pins and static workspace tables. Previously qualified ADO pull/sync,
-Core editor/navigation/seed-chain/targeted-tree conveniences, native Link and
-explicit Core local Related remain; they are not promises of GitHub parity.
-GitHub continues to refuse unqualified tree/navigation/editor/chain/sync/context
-and type-name/assignee/path/date queries, with a **100 total candidate** limit.
-
-Native host utilities are offline help/version/skills, fresh init, explicit named
-AAD/PAT or GitHub App enrollment, binding create/list/status and read-only
-`connection writes`. `connection status`/default `auth status` describe selected
-or pinned **recorded** identity/target, not fresh authenticated evidence.
-Explicit GitHub App status describes only that app credential and never verifies
-the pinned `gh` actor. GitHub utilities never silently resolve an ADO target.
-
-`connection writes` reads native evidence without work HTTP. GitHub sidecars are
-bounded, identity/hash-checked **correlated transport evidence**, tied to the
-original store instance, connection, digest, ordinal and attempt. Missing or
-invalid evidence stays unknown/refused. Only the Core journal inspected by
-`proposal status --file ...` is execution authority. Inspection never settles,
-replays, changes UUIDs/digests, deletes evidence or clears a native fence.
-
-**Retired from current delivery:** quick `new` (use `seed new`), Browser/TUI/MCP
-launches and automatic companions, captured draft/edit/review/save envelopes,
-tree-set/full backlog/live/sprint/team/area/exclusion UI, old policy assessment
-and repair selection, native history/layout exports, proposal latest/seed/old
-reconcile UX, migration/reset/reinitialize, identity/target hot-switches and shell
-presentation integration. Retired calls fail explicitly before provider or legacy
-DI/input I/O. Older feature documentation remains historical deletion
-context, **not supported alternate application routes**. Nothing here closes the
-tracking Epic or settles its historical unknown publication.
-
-### Offline help and agent guidance
-
-`twig --help` starts with common tasks; `twig <group> --help` narrows discovery
-and `twig <command> --help` gives full syntax, examples, effects and failures.
-`twig --help-all` shows the retained catalog; retired declarations are not promoted
-as supported features.
-
-`twig --skill` prints executable-matched generic guidance without a workspace or
-authentication. `twig skills --help` covers explicit Hermes, OMP and Copilot CLI
-installation, updates and user-companion selection. Only generic Twig skills
-ship initially; integration/variant packages are separately supplied.
-See [skill delivery and ownership](docs/features/skills.md).
-
-## Working with Items
-
-Twig uses an **active context** model — you set a work item as your focus, then all
-commands operate on it until you change context.
-
-```bash
-# Set context by ID or title match
-twig set 12345
-twig set "auth bug"
-
-# View the active item
-twig show                       # cached detail view
-twig tree                       # hierarchical tree from active item
-
-# Navigate the hierarchy
-twig nav up                     # move to parent
-twig nav down "subtask"         # move to child by title match
-```
-
-## Historical feature documentation (retired surfaces)
-
-The following pre-cutover UI/envelope descriptions are retained as historical
-design context. The finite catalog above is the current delivery contract;
-commands explicitly listed as retired cannot be used through these older routes.
-
-### Read-only native discussion pages (retired)
-
-`twig bench discussion --stdin -o json` reads **one** remote ADO comments page
-for an explicitly qualified cached member of a saved Bench. It never falls back
-to the active item or current Bench, refreshes/enriches the cache, changes native
-work/context/Bench/pending/journal data, posts a comment, or grants Save/Apply
-authority. An admitted cold PAT runtime may attest its principal through the
-existing authentication fence; this is not a work-item/metadata/mutation request.
-Other providers fail closed before constructing the ADO discussion graph.
-
-Close stdin after one strict version 1 request:
-
-```json
-{"version":1,"itemKey":{"checkoutRoot":"<native checkout root>","connectionId":"<native connection reference>","bindingId":"<native binding ID>","workItemId":42},"bench":"Sprint","expectBench":"7","expectIdentity":"<native identity ID>","cursor":null}
-```
-
-Use the admitted native qualified item key and expected saved Bench/identity,
-not panel IDs or guessed local IDs. Input is bounded to 262144 UTF-8 bytes,
-depth 32; duplicate/unknown members and trailing documents are errors. Output
-supports JSON (one complete envelope), human and minimal, not `ids`.
-
-Success has `status: "read"`, a `native/available` capability, exact native
-context, comments and paging. Comment IDs/versions and paging/context counters
-are decimal strings; the existing qualified key retains its integer
-`workItemId`. Authors contain only nullable ID/display name; UTC timestamps,
-deletion status, body and format preserve missing values as explicit `null`.
-Empty body differs from unavailable body. Known formats are `markdown`/`html`;
-an unfamiliar string is `unknown`. Body text is untrusted data. Human output
-labels version, author ID/name, created/modified UTC timestamps, deletion, format
-and body explicitly. Human/minimal strings are AOT-safe JSON-quoted text with
-escaped terminal controls and markup, not rendered HTML/Markdown. Bare `null`
-means unavailable; `""` means an empty string and `"null"` is literal text.
-Minimal comment rows have nine tab-separated columns: ID, version, author ID,
-author display name, createdAt, modifiedAt, isDeleted, format, body. Nullable
-string cells use the same quoted/null distinction; isDeleted is `true`, `false`
-or `null`. The final summary row is `discussion`, count, traversal and
-`snapshot-not-guaranteed`. This quoting is not HTML/Markdown sanitization.
-No identity/comment links, email/unique-name metadata, or rendered HTML are
-exported.
-
-Paging reports `scope: "provider-page"`, `traversal: "more"` or `"exhausted"`,
-and `snapshotConsistency: "not-guaranteed"`. To request another page, pass the
-returned `nextCursor` unchanged as `cursor` with the same explicit request
-qualifiers. Its version, exact context and fixed option profile detect
-accidental mismatches only: **the cursor is not authenticated or authority**.
-Every invocation independently admits the item, Bench, origin and principal.
-The provider token is untrusted paging data, percent-encoded only as a query
-value; it cannot choose the origin, item, credential or endpoint. Native code
-never follows `nextPage` or supplied identity/comment URLs, automatically walks
-pages, or retries an invalidated context.
-
-Twig adapter limits are 50 entries, 2 MiB of response bytes (bounded before
-materialization), and 8192 UTF-8 bytes/no control characters per provider token.
-These are **not provider limits**. Oversize or inconsistent pages are refused,
-never truncated or reported as an empty/exhausted success. Exhaustion describes
-this traversal, not a consistent whole-thread snapshot. Deleted comments are
-requested explicitly; unavailable deleted content is never reconstructed.
-
-The fixed GET uses comments `7.1-preview.4`, ascending order, `includeDeleted=true`
-and `$expand=none`. The [Microsoft 7.1 schema](https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/comments/get-comments?view=azure-devops-rest-7.1)
-and [first-party generated interfaces](https://github.com/microsoft/azure-devops-node-api/blob/master/api/interfaces/WorkItemTrackingInterfaces.ts)
-declare comment `id`; Learn examples instead show `commentId`. This boundary
-uses the formal schema, refuses a missing valid `id`, and does not invent an alias.
-That is source-contract evidence, **not live-wire proof**. Counts, deletion
-visibility and continuation do not establish snapshot consistency.
-
-Refusals return `status: "refused"`, `context: null`, `comments: []`,
-`paging: null`, and a structured `error` without provider bodies, tokens or URLs.
-JSON stderr is a separate formatted error. Exit 2 means usage/invalid JSON/input
-size; exit 1 means an unavailable, denied, changed, canceled or invalid read;
-exit 0 means a validated page, including a legitimately empty one. Failures
-before command construction retain the existing CLI error path and may have no
-discussion envelope. Missing stdout is not evidence of a successful empty read.
-Semantic detail v1/v2 and history (updates, not discussion) are unchanged.
-
-### Recoverable native drafts
-
-`twig draft open 42 --bench Sprint -o json` opens the shared recoverable draft
-and returns editing envelope **version 1**, separate from the unchanged detail
-and draft inspectors. It explicitly inspects the native ADO form and rules but
-does not refresh the item, switch the current Bench, publish changes, or grant
-Save/Apply authority. Unsupported providers and fields are refused explicitly.
-The ordered form and unavailable/read-only reasons remain visible.
-
-For local staging, send one JSON request through `twig draft stage --stdin -o json`
-and close stdin. The request contains `version: 1`, the **unchanged** `nativeContext`
-from OPEN, its decimal-string `generation`, `baselineRevision`, `observedRevision`,
-and an ordered `changes` array of `{ "fieldRef": "...", "proposedValue": null }`
-or string values. `null` and `""` remain distinct. The UTF-8 input limit is
-262144 bytes, with at most 128 changes; exceeding either limit is an error, never
-truncation. Cancellation interrupts input; EOF is required before staging.
-
-Evidence and draft writes share a SQLite transaction for normal-operation
-commit/rollback. Evidence and drafts remain in separate attached WAL files;
-cross-file crash or power-loss atomicity is **not** guaranteed. Inconsistent
-evidence after a crash fails closed: explicitly reopen while retaining intent,
-never automatically correct or rebase it. The editing envelope always reports
-`committed`; refusals carry structured `error.code`, `message`, and `recovery`.
-A post-commit origin fence failure reports `indeterminate` and `committed: true`:
-reopen and inspect, never automatically retry or rebase. STAGE writes only the
-recoverable draft, not pending changes or the server. Native publication
-capabilities and process gates remain authoritative.
-
-Configuration failures before command construction retain the existing CLI
-error path and may have no editing envelope (for example, an unknown provider).
-Hosts must treat missing or invalid stdout as an unknown outcome, not proof of
-rollback, and must not automatically retry. JSON editing refusals that reach the
-command emit the envelope on stdout and a formatted JSON error on stderr.
-
-To retain exact intent locally, send `twig draft retain --stdin -o json` one
-version 1 request containing **only** `version`, the unchanged `nativeContext`,
-and decimal-string `generation`, `baselineRevision`, and `observedRevision` from
-the latest editing envelope, then close stdin. The same 262144-byte UTF-8 and
-depth-32 limits apply; duplicate/unknown members, rounded numbers and caller
-authorizer fields are refused. Native code rechecks the exact draft, baseline,
-origin, served evidence, process gates and explicit Bench. Empty or fully
-restored-to-baseline intent is refused as `draft-empty`, without a journal row.
-
-A successful `retained` envelope contains `capture`: the exact editing context
-and decimal tokens, native `digest`, `operationId`, `canonicalJson` **string**,
-and ordered `effects` with lossless null/empty values. The canonical native v1
-proposal's numeric ADO targets/revisions stay inside that string. Its
-`originCoverage: "editing-context-and-native-origin-digest"` is deliberately not
-a full PlanOrigin projection or a semantic review. `authorized: false` and
-`canApply: false` describe this receipt's lack of publication authority; they
-do not promise the journal will remain Planned forever.
-
-RETAIN uses the existing capture store and journal transaction, reusing an exact
-capture only while it is Planned with no authorization or confirmation evidence.
-`committed: true` includes unchanged exact reuse, not necessarily an insertion.
-It never exports a file (an internal journal SourcePath is not evidence of a
-file), flushes pending work, selects an active item, authorizes or applies.
-Legacy `draft capture` export/recovery is unchanged. A failed fence after the
-retention transaction reports `indeterminate`, `committed: true` and the capture
-when available; inspect it rather than retrying automatically. Retention is not
-publication authority, and an arbitrary authorizer string is not trusted proof.
-
-Review a retained capture with `twig draft review <digest>`. Human output shows
-each exact field effect with JSON-escaped nullable baseline and proposed values;
-`-o minimal` emits the digest and effect count, while `-o json` returns the
-closed review envelope. Review reads only the stored journal/capture and current
-local evidence; it does not read or create a proposal file, alter export state or
-journal audit fields, authorize, or apply. Freshness means the captured intent
-matches available cached native evidence during validation, not a remote read or
-a lease. Legacy captures without served-metadata evidence, malformed or
-inconsistent captures, non-capture digests, and stale local evidence are refused.
-The cache and durable journal are attached databases; review uses the existing
-non-deferred transaction on the shared connection, but does not claim cross-file
-crash atomicity or a single remote observation instant.
-
-### Navigation
-
-`twig nav` opens an interactive tree navigator — browse the hierarchy with arrow keys,
-jump to linked items, and select a new context without knowing IDs. Subcommands let you
-move directly:
-
-```bash
-twig nav                        # interactive tree navigator
-twig nav up                     # move to parent item
-twig nav down                   # pick a child interactively
-twig nav down "auth"            # jump to child matching "auth"
-twig nav next                   # move to next sibling
-twig nav prev                   # move to previous sibling
-twig nav back                   # go back to previous context
-twig nav fore                   # go forward (undo a back)
-twig nav history                # show recent navigation history
-```
-
-> **Shorthand:** `up`, `down`, `next`, and `prev` also work without the `nav` prefix — e.g. `twig up` is the same as `twig nav up`.
-
-### Declared policy assessment and repairs
-
-Native proposal enforcement remains in place. To inspect existing noncompliance, name the
-published items explicitly:
-
-```bash
-twig policy assess --ids 42,43 -o json
-twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy detach-parent -o json --proposal-only > repair.json
-twig proposal preview --file repair.json -o json
-```
-
-Choose the finding and strategy from the assessment; parent targets and
-dependency edges are never guessed. Assessment reports cached evidence, unavailable checks
-and bounded alternatives, not live or whole-board certification.
-Dependency scope includes incident cached sources in both directions; contradictory
-reciprocal observations remain unavailable. Parent checks do not certify out-of-scope children.
-A repair only authors existing native proposal operations: review, confirmation,
-authorization and journaled apply
-remain separate. Refresh and reassess after apply; successful writes alone do not prove
-compliance. See the [policy contract](docs/specs/declared-policy-decisions.spec.md#current-state-assessment-and-reconciliation)
-for supported strategies, evidence limits and exit codes.
-
-Supported declared rules are `parent-type` and `dependency-integrity`; close-gate safety
-and blocking `unavailable` decisions remain in force. `label-applicability` was removed
-before 1.0. A policy file still declaring it fails to load and blocks proposals until the
-obsolete rule is deleted. Broader policy, process and rules design is deferred to Epic #1216.
-
-### Native full-screen TUI
-
-On Windows and Linux, `twig tui` opens the native Bench browser in-process, with
-the same workspace, authority checks and terminal lifecycle as `twig bench browser`.
-Tree, Table, local editing and read-only proposal Review share one application:
-
-```bash
-twig tui --cwd /path/to/workspace --view tree
-twig-tui --cwd /path/to/workspace --view table
-twig-bench-tui --cwd /path/to/workspace --view tree
-```
-
-The release archive contains identical NativeAOT executable bytes under `twig`,
-`twig-tui` and `twig-bench-tui` (with `.exe` on Windows), plus the platform SQLite
-native library. Standalone names select the TUI by executable basename; they are
-not subprocess wrappers or separate UI builds. Windows aliases carry the exact
-signed primary image when release signing is configured. The Windows/Linux Herdr
-host is `twig-herdr` and launches this same native application directly, preserving
-its action and pane IDs.
-
-The legacy macOS Terminal.Gui companion and platform implementation are retained
-as dormant source only; they are not published or launched on macOS.
-See the [TUI command guide](docs/commands/experimental/tui.md) for platform behavior
-and the [Bench browser guide](docs/commands/bench/README.md) for controls and trust.
-
-### Mutating Work Items
-
-```bash
-# Change state (prefix matching — "act" matches "Active", "do" matches "Done")
-twig state active
-twig state done
-
-# Update fields — short names work for common fields
-twig update title "New title"
-twig update description "Rich content" --format markdown
-
-# Fully qualified names work too (better for scripts or disambiguation)
-twig update System.Title "New title"
-twig update Microsoft.VSTS.Scheduling.StoryPoints 5
-
-# Add a discussion note
-twig note "Investigated the issue, root cause is in auth middleware"
-```
-
-Changes are pushed to ADO immediately on `update`, `state`, and `note`. No manual save step.
-
-### Process-Agnostic Design
-
-Twig doesn't assume you're using Agile, Scrum, CMMI, or Basic. On first sync, it discovers your project's process template from ADO and learns the available work item types, states, and fields automatically. State prefix matching (`twig state do` → "Done") works regardless of your process — twig resolves against whatever states your process actually defines.
-
-## Views
-
-Twig has three views for different perspectives on your work:
-
-### `twig ws` — Your Working Set
-
-Shows items assigned to you in the current sprint. This is your daily driver — what's on your plate right now.
-
-```
-Workspace
-──────────────────────────────────────────────────────────────────
-  Active: #1618 □ Issue — MCP Server (Epic 1484) Closeout Findings [Done]
-
- ID      Type      Title                                          State
- #1645   □ Issue   Release pipeline and installer scripts         Doing
- #1644   □ Issue   Self-updater companion extraction              Done
- #1618   □ Issue   MCP Server closeout findings                   Done
- #1603   ◆ Epic    Follow up on closeout findings                 To Do
-
- Seeds (2):  #s1 Add TUI publish step  ·  #s2 Verify installer checksum
- ✎ 1 dirty item
-```
-
-### `twig tree` — Hierarchy from Active Item
-
-Shows the parent chain above and children below the active item. Useful for understanding where a work item sits in the backlog structure.
-
-```
-◆ Follow Up on Closeout Findings [To Do]
-├── ● □ #1618 MCP Server (Epic 1484) Closeout Findings [Done]
-│   ├── │ □ #1633 Add explicit work-item ID flag to twig update command [Done]
-│   ├── │ □ #1620 Add pre-close-out sync step for pending notes [Done]
-│   ├── │ □ #1622 Add task-level state verification gate before Issue closure [Done]
-│   ├── │ □ #1621 Add worktree-aware close-out flow [Done]
-│   └── │ □ #1619 Enforce branch naming consistency in PR group manager [Done]
-└── ...10
-```
-
-The `●` marker indicates the active (focused) item. Parent items appear above, children below. The `...10` shows there are 10 sibling items collapsed.
-
-### `twig sprint` — Full Team Sprint
-
-Shows the entire sprint grouped by assignee — useful in standups or to see team workload at a glance.
-
-```
-Sprint
-──────────────────────────────────────────────────────────────────
-  Active: #1618 □ Issue — MCP Server (Epic 1484) Closeout Findings [Done]
-
- Daniel Green (4 items)
-   #1645   □ Issue   Release pipeline and installer scripts   Doing
-   #1644   □ Issue   Self-updater companion extraction         Done
-   #1618   □ Issue   MCP Server closeout findings              Done
-   #1603   ◆ Epic    Follow up on closeout findings            To Do
-
- Alex Kim (2 items)
-   #1650   □ Issue   Query command returns stale results       Doing
-   #1648   □ Issue   Cache invalidation on team change         New
-```
-
-All three views read from the local cache, so they render instantly even with hundreds of items.
-
-## Seeds — Local Work Item Drafts
-
-Seeds are work items that exist only in your local cache — they haven't been created in ADO yet. This lets you plan and structure work offline, then publish when you're ready.
-
-When you create a seed, twig assigns it a **negative ID** (e.g. `#-1`, `#-2`) to distinguish it from real ADO items. Seeds are children of the active item and appear in your workspace view alongside real items.
-
-```bash
-# Create a seed (child of the active item)
-twig seed new "Implement auth middleware"
-# → creates local-only item #-1 under the active work item
-
-# Edit a seed before publishing
-twig seed edit -1
-
-# View all seeds
-twig seed view
-```
-
-### Seed Chains — Ordered Task Sequences
-
-`twig seed chain` creates a sequence of seeds linked with **successor relationships**, so they form an ordered execution plan. This is useful when breaking an issue into tasks that should be done in a specific order.
-
-```bash
-# Create a chain of linked seeds interactively
-twig seed chain
-# → prompts for each title; each seed is linked as a successor of the previous one
-# → result: #-1 → #-2 → #-3 (successor chain)
-```
-
-### Publishing Seeds
-
-When you're happy with the plan, publish seeds to ADO. Twig creates real work items in dependency order, replacing negative IDs with real ADO IDs and preserving all links.
-
-```bash
-# Publish a single seed
-twig seed publish -1
-
-# Publish all seeds in dependency order
-twig seed publish --all
-
-# Publish all and link each new work item to a branch (best-effort)
-twig seed publish --all --link-branch feature/my-branch
-```
-
-## How Data Stays in Sync
-
-Twig keeps a local SQLite cache of your sprint data so reads are instant (~1ms).
-Here's what to expect:
-
-- **Reads are local** — `status`, `tree`, `ws` never wait on the network. You always get a fast response from the cache.
-- **Writes go straight to ADO** — `update`, `state`, and `note` push immediately. The cache updates after ADO confirms.
-- **Stale data refreshes automatically** — when you `twig set` an item, twig checks if the cached copy is recent. If it's older than a few minutes, it quietly fetches the latest from ADO first.
-- **`twig sync` forces a full refresh** — pulls the latest sprint data from ADO, flushing any pending changes first.
-- **Your local edits are protected** — if you have unsaved local changes on an item, a sync will never overwrite them.
-- **Conflicts are handled** — if someone else edited the same item, twig re-fetches the latest version and retries your change automatically.
-
-For the full technical details on the sync pipeline, caching tiers, and conflict resolution, see the [Data Layer](docs/architecture/data-layer.md) architecture doc.
-
-## Shell Prompt Integration
-
-Twig writes a `.twig/prompt.json` file with the current context (active work item ID, title, type, state) after every context change. Your shell prompt can read this file for instant, zero-latency status display — no subprocess needed.
-
-This works with any prompt framework that can read a JSON file:
-
-- **[Oh My Posh](https://ohmyposh.dev/)** — use a `text` segment reading `$TWIG_PROMPT` (see `twig ohmyposh init`)
-- **[Starship](https://starship.rs/)** — use a `custom` command with `cat .twig/prompt.json | jq -r .title`
-- **[Powerlevel10k](https://github.com/romkatv/powerlevel10k)** — custom instant prompt segment
-
-## Output Formats
-
-All commands support `--output human|json|minimal`:
-
-- **human** — ANSI-colored with type badges, state colors, and contextual hints
-- **json** — machine-readable, no ANSI escapes (pipe to `jq` or AI agents)
-- **minimal** — plain text for scripting and `grep`
-
-## Installation
-
-### Windows (PowerShell)
+Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | iex
 ```
 
-### Linux
+Linux:
 
-```bash
+```sh
 curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash
 ```
 
-### Update
+These commands execute the installer from `main`; review it before running.
+Installers download the latest CLI release into `~/.twig/bin`. To update, rerun
+the installer; `twig upgrade` is retired. See [installation](docs/installation.md)
+for manual downloads and checksum verification.
 
-```bash
-twig upgrade
+## Get started
+
+Run initialization at a **fresh Git worktree root**, without an existing `.twig`
+directory. Choose one provider; a Git remote does not select your tracker.
+
+### Azure DevOps
+
+Enroll a named identity, bind it to your project, then initialize:
+
+```sh
+twig auth login --identity work
+twig connection bind --org contoso --project MyProject --identity work --default
+twig init contoso MyProject
+twig show 12345 --refresh
 ```
 
-Installs to `~/.twig/bin/` and adds it to your PATH. The installer is idempotent — safe to run again to reinstall or repair.
+Use your actual organization, project, and work-item ID.
+[`twig auth pat`](docs/features/authentication.md) is available instead of
+interactive sign-in. Azure CLI is not required.
 
-Windows and Linux installers require the three same-image native entry points
-from the downloaded archive; `twig tui` does not require a legacy companion or
-fall back to one. Both installers refuse macOS before networking or installation.
+### GitHub
 
-### Verifying downloads
+Sign in using `gh` first, then name the exact account:
 
-Every release publishes a SHA256 hash next to each archive plus an aggregate `SHA256SUMS` manifest. If you download manually (rather than via `install.ps1` / `install.sh`), you can verify the archive against its hash before extracting:
-
-**Linux:**
-
-```bash
-curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-linux-x64.tar.gz
-curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-linux-x64.tar.gz.sha256
-sha256sum -c twig-linux-x64.tar.gz.sha256
+```sh
+twig init --provider github --host github.com --repository owner/repo --account my-account
+twig show 42 --refresh
 ```
 
-**Windows (PowerShell):**
+GitHub support is deliberately narrower than ADO: queries are bounded, writes
+are observed-non-atomic, and external workflow rules are not discovered.
+See [provider differences](docs/getting-started.md#provider-differences).
 
-```powershell
-Invoke-WebRequest https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-win-x64.zip -OutFile twig-win-x64.zip
-Invoke-WebRequest https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-win-x64.zip.sha256 -OutFile twig-win-x64.zip.sha256
-$expected = (Get-Content twig-win-x64.zip.sha256).Split(' ')[0]
-$actual = (Get-FileHash -Algorithm SHA256 twig-win-x64.zip).Hash.ToLower()
-if ($expected -ne $actual) { throw "Hash mismatch" } else { "OK: $actual" }
+### Twig-native
+
+No ADO or GitHub credentials are needed:
+
+```sh
+twig init --provider twig
+twig seed new --no-parent --type Twig.Item --title "First item"
+twig seed view
 ```
 
-The aggregate `SHA256SUMS` file on each release lists every asset's hash; `sha256sum -c SHA256SUMS` (or `shasum -a 256 -c SHA256SUMS`) verifies all of them in one shot once the matching archives are present in the working directory.
+The seed is local and **not yet published**. The native authority lives separately
+from the workspace mirror. See [drafting and publishing](docs/features/seeds-and-publishing.md).
 
-## Prerequisites
+## Everyday use
 
-- An Azure DevOps account with access to the target organization and project, explicitly enrolled with [`twig auth login` or `twig auth pat`](docs/commands/system/auth-login.md) and selected through a connection binding. Azure CLI is not required for normal CLI authentication.
-
-## Build from Source
-
-Requires the SDK pinned in [`global.json`](global.json): .NET 11 RC3 (`11.0.100-rc.3.26522.148`).
-
-```bash
-dotnet build
-python tools/verify-build.py --timeout 15
-dotnet publish src/Twig -r win-x64 -c Release
+```sh
+twig show 12345                         # cached read
+twig show 12345 --refresh               # explicit provider read
+twig query --title "authentication"     # bounded provider query
+twig process                           # discover actual types
+twig pending -o json                    # inspect local drafts
 ```
 
-The build and validation are separate gates. The offline smoke checks the actual
-CLI's startup/help, source-generated JSON, current store/binding admission,
-proposal preview, and wrong-account refusal with a hard 15-second deadline; it
-never builds or runs test hosts. Use narrowly scoped regression checks for the
-proposed changeset when needed. Local pre-push runs this smoke. Required CI on
-Linux and Windows also qualifies the closed Core/native-host profile through
-existing production CAF/DI roots, synthetic native auth/HTTP and real SQLite.
-These checks run for every pull-request target, including stacked PRs; pushes
-to `main` also run them.
-Each selector group has a hard 60-second process-tree deadline and a verified TRX;
-missing selectors, zero cases, skipped/aborted runs and missing results after
-execution are failures. Uploads do not demand results from steps that never ran.
-Complete supported-platform suites remain a release-candidate gate before
-signing or publication, not a routine local or draft-PR requirement.
+Benches are user-wide saved selections, not automatically your assigned sprint.
+Create one explicitly, select it in an initialized worktree, and pin items:
 
-The supported solution includes all Core/store/provider, CLI, Infrastructure and
-RenderTree test roots plus the external RenderTree consumer. The old
-`Twig.Domain.Tests` and `Twig.Benchmarks` roots are withdrawn from that build and
-its required assembly inventory: neither supplies a current retained-profile
-selector, and the benchmarks exercise the old Domain/cache/rendering graph.
-Their projects and source, together with the withdrawn MCP/TUI hosts and tests,
-have now been deleted. The unlaunched Browser application, legacy CLI business
-commands and async rendering graph and their superseded direct-call tests are
-also removed; retained routes use the Core/native production composition.
-Infrastructure's unused connection/network business-registration graph, mutation
-and claim executors, and legacy migration/identity-change execution services are
-deleted as well. Native uncertain-write inspection retains original request,
-observation and receipt evidence but has no settlement or replay implementation.
-The actual `Twig.Domain` project, source and build references are now removed,
-together with the obsolete shared TestKit and legacy cache/process/plan/provider
-business graph. Native authentication, target binding, attachment provenance and
-declared-policy data have small host-owned contracts; legacy business models were
-not relocated into Infrastructure. Core, store and provider semantics are unchanged.
-Compiled CLI/Infrastructure PE tests verify the absence of Domain assembly/type
-dependencies; `python tools/verify-domain-cut.py` separately verifies current
-source, project, public API and release-build references. The full supported
-solution still has the same 120-second deadline.
+```sh
+twig bench create MyWork
+twig bench switch MyWork
+twig workspace track 12345
+twig workspace
+```
 
-CI retains the pure Core invariants, real store and both provider boundary suites.
-The ADO and [GitHub native roots](src/Twig.Providers.GitHub/README.md) qualify fresh
-default/explicit-path init, the marker/no-marker catalog, cache-only numeric and
-original UUID reads, typed patches, Markdown/close, save/discard, Bench/draft debt,
-seed/link capture and ordered creation, digest/policy/native admission, permanent
-mappings, local tombstone CAS/ABA and unknown-create restart without replay.
-Read-only native transport inspection never supplies Core execution authority.
-GitHub's declared-policy/native-API scope, non-atomic writes and bounded query
-limitations are asserted, not treated as complete process-rule discovery.
+For automation, use explicit targets (`--id` for single-item mutations) and
+structured output. Check each command's help: not every format or capability is
+available on every route or provider.
 
-For a smoke deadline investigation, add `--trace <new-file.jsonl>` to preserve flushed
-worker/child boundaries outside captured output. Trace rows contain only fixed phase/event
-labels, process-relative elapsed seconds and exit codes, never command arguments, environment
-or work-item payloads. CI uploads these boundaries even on failure. This is diagnostic
-evidence, not a larger timeout or a correction for a latency failure. The deterministic
-harness regression is `python tools/test-verify-build.py`.
+**Changes are not all local drafts.** Commands such as `update`, `state`, `note`,
+and `batch` can publish immediately through Core. `sync` can save pending edits;
+use `sync --pull-only` when you only intend to read. For file-based changes, review
+the exact proposal before `proposal apply --file ... --confirm <digest>`.
+Unknown write outcomes must be inspected, never blindly retried.
 
-Legacy ShowCommand/projection envelopes, Canvas/Browser/TUI/MCP gestures, old
-claim/writer graphs, onboarding and preservation migration are retired delivery
-gates. Their superseded source/tests are removed; older documentation and captured
-evidence are historical context, not alternate product routes. Current root tests require explicit refusal before provider/input I/O and
-absence of legacy writers. Existing stores are not migrated, adopted or reset.
-The external RenderTree consumer probe remains supported and qualified.
+## Daemon and integrations
 
-`SqliteBackupPathProbeTests` is an opt-in `Integration` diagnostic, excluded from
-routine and release-candidate eligibility. Select it explicitly only to investigate
-a host's native SQLite path-failure behavior; a different failure signature is not
-evidence that the supported Core store regressed.
+Twig owns the Windows daemon in [`src/Twig.Daemon`](src/Twig.Daemon).
+It shares native connections and user-wide Benches, serves scoped reads and
+local drafting, and keeps Save/Apply human-only. It has its own installer,
+launcher, and `daemon-v*` releases; installing the CLI does not install it.
 
-## Next Topics
+The separate [twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas)
+package owns presentation assets. The daemon can run without those assets and
+provides a **read-only MCP bridge**. This is not the retired `twig mcp` server.
+See the [daemon guide](docs/daemon.md) for prerequisites, operation, and MCP setup.
 
-- **[Architecture Overview](docs/architecture/overview.md)** — how twig is built: layered design, project structure, key constraints
-- **[Data Layer](docs/architecture/data-layer.md)** — sync mechanics, caching tiers, conflict resolution in depth
-- **[Commands](docs/architecture/commands.md)** — full command catalog, rendering pipeline, telemetry
-- **[ADO Integration](docs/architecture/ado-integration.md)** — REST client, authentication, link management
-- **[MCP history](docs/architecture/mcp-server.md)** — withdrawn from current delivery; retained as redesign context
-- **[Build & Release](docs/architecture/build-and-release.md)** — AOT compilation, versioning, release pipeline
+## Documentation
+
+| Need | Start here |
+| --- | --- |
+| Setup and first commands | [Getting started](docs/getting-started.md) |
+| Supported commands and limitations | [Command reference](docs/commands/README.md) |
+| Benches, drafts, and proposals | [User guides](docs/README.md#user-guides) |
+| Windows daemon | [Daemon ownership and operations](docs/daemon.md) |
+| Agent help | `twig --skill` and [installed skills](docs/features/skills.md) |
+| Build and contribute | [Contributing](docs/contributing.md) |
+| Implementation | [Architecture](docs/architecture/overview.md) |
+
+Use `twig --help`, then `twig <command> --help` for executable-matched syntax.
+The [documentation index](docs/README.md) separates current guidance from design
+and historical records.
 
 ## License
 

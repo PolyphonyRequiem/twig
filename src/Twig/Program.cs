@@ -166,7 +166,7 @@ if (strayPositionalError is not null)
 // -o validation so the rewrite cannot perturb it (neither option is -o).
 args = RepeatableOptionNormalizer.Normalize(args);
 
-// Wayfinder 0019: -o is validated ONCE, here, against the single accept-list in
+// -o is validated ONCE, here, against the single accept-list in
 // OutputFormats. Previously both format factories ended in a catch-all that
 // silently meant "human", so `-o jsno` emitted ANSI prose with exit 0 — the
 // worst failure mode for a tool whose stdout is piped into jq.

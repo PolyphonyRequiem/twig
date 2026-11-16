@@ -2,7 +2,7 @@
   {
     "command": "init",
     "group": "getting-started",
-    "summary": "Initialize a new Twig workspace at the current git-worktree root.",
+    "summary": "Initialize one fresh, natively bound Core store at the current git-worktree root.",
     "stability": "stable",
     "mutates": "local",
     "path": "getting-started/init.md"
@@ -10,7 +10,7 @@
   {
     "command": "refresh",
     "group": "getting-started",
-    "summary": "Deprecated alias for `twig sync --pull-only` \u2014 refresh the local cache from Azure DevOps.",
+    "summary": "Deprecated alias for pull-only sync of the selected Core Bench.",
     "stability": "stable",
     "mutates": "local",
     "path": "getting-started/refresh.md"
@@ -18,23 +18,15 @@
   {
     "command": "sync",
     "group": "getting-started",
-    "summary": "Flush pending changes to Azure DevOps then refresh the local cache.",
+    "summary": "Save eligible existing-item drafts, then pull the selected Bench; pull-only never saves.",
     "stability": "stable",
     "mutates": "ado",
     "path": "getting-started/sync.md"
   },
   {
-    "command": "sprint",
-    "group": "views",
-    "summary": "Show sprint items grouped by assignee.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "views/sprint.md"
-  },
-  {
     "command": "tree",
     "group": "views",
-    "summary": "Hidden backward-compat alias that routes to show --tree, or workspace --tree with --all.",
+    "summary": "Render one qualified cached hierarchy, optionally with explicit refresh.",
     "stability": "stable",
     "mutates": "local",
     "path": "views/tree.md"
@@ -42,7 +34,7 @@
   {
     "command": "area",
     "group": "workspace",
-    "summary": "Deprecated alias for `workspace area`. Prints a deprecation hint on stderr.",
+    "summary": "Deprecated alias for workspace area.",
     "stability": "stable",
     "mutates": "none",
     "path": "workspace/area-deprecated.md"
@@ -50,7 +42,7 @@
   {
     "command": "area add",
     "group": "workspace",
-    "summary": "Deprecated alias for `workspace area add`. Prints a deprecation hint on stderr.",
+    "summary": "Deprecated alias for shared planning area editing.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/area-add-deprecated.md"
@@ -58,7 +50,7 @@
   {
     "command": "area list",
     "group": "workspace",
-    "summary": "Deprecated alias for `workspace area list`. Prints a deprecation hint on stderr.",
+    "summary": "Deprecated alias for reading shared planning area conditions.",
     "stability": "stable",
     "mutates": "none",
     "path": "workspace/area-list-deprecated.md"
@@ -66,7 +58,7 @@
   {
     "command": "area remove",
     "group": "workspace",
-    "summary": "Deprecated alias for `workspace area remove`. Prints a deprecation hint on stderr.",
+    "summary": "Deprecated alias for shared planning area removal.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/area-remove-deprecated.md"
@@ -74,7 +66,7 @@
   {
     "command": "area sync",
     "group": "workspace",
-    "summary": "Deprecated alias for `workspace area sync`. Prints a deprecation hint on stderr.",
+    "summary": "Deprecated alias for native planning metadata refresh.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/area-sync-deprecated.md"
@@ -82,23 +74,15 @@
   {
     "command": "workspace",
     "group": "workspace",
-    "summary": "Show the current workspace.",
+    "summary": "Read static selected Bench membership, or explicitly pull it without saving drafts.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/workspace.md"
   },
   {
-    "command": "workspace migrate",
-    "group": "workspace",
-    "summary": "Review or explicitly confirm preservation of an admitted ADO workspace.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "workspace/migrate.md"
-  },
-  {
     "command": "workspace sync",
     "group": "workspace",
-    "summary": "Pull current Bench selector members and permitted relationship candidates without flushing edits.",
+    "summary": "Read static selected Bench membership, or explicitly pull it without saving drafts.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/workspace.md"
@@ -106,7 +90,7 @@
   {
     "command": "workspace area",
     "group": "workspace",
-    "summary": "Show the area-filtered workspace view.",
+    "summary": "Read the current Bench view over shared native planning rules.",
     "stability": "stable",
     "mutates": "none",
     "path": "workspace/area.md"
@@ -114,7 +98,7 @@
   {
     "command": "workspace area add",
     "group": "workspace",
-    "summary": "Add an area path to workspace configuration.",
+    "summary": "Add or update an area condition within one shared native planning rule.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/area-add.md"
@@ -122,7 +106,7 @@
   {
     "command": "workspace area list",
     "group": "workspace",
-    "summary": "List configured area paths with match semantics.",
+    "summary": "Read shared current-connection area rule conditions and exact/under semantics.",
     "stability": "stable",
     "mutates": "none",
     "path": "workspace/area-list.md"
@@ -130,7 +114,7 @@
   {
     "command": "workspace area remove",
     "group": "workspace",
-    "summary": "Remove an area path from workspace configuration.",
+    "summary": "Remove an exact area condition from one shared native planning rule.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/area-remove.md"
@@ -138,7 +122,7 @@
   {
     "command": "workspace area sync",
     "group": "workspace",
-    "summary": "Fetch team area paths from ADO and replace configuration.",
+    "summary": "Refresh native planning metadata without replacing Bench rule intent.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/area-sync.md"
@@ -146,7 +130,7 @@
   {
     "command": "workspace exclude",
     "group": "workspace",
-    "summary": "Exclude a work item from workspace view.",
+    "summary": "Hide a work item from this workspace view without changing shared Bench pins.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/exclude.md"
@@ -154,7 +138,7 @@
   {
     "command": "workspace exclusions",
     "group": "workspace",
-    "summary": "List all excluded work items; also clears or removes exclusions.",
+    "summary": "Inspect, remove or clear this workspace's view exclusions.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/exclusions.md"
@@ -162,7 +146,7 @@
   {
     "command": "workspace sprint add",
     "group": "workspace",
-    "summary": "Add a sprint iteration expression to workspace configuration.",
+    "summary": "Add iteration intent to one shared native planning rule.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/sprint-add.md"
@@ -170,7 +154,7 @@
   {
     "command": "workspace sprint list",
     "group": "workspace",
-    "summary": "List configured sprint iteration expressions.",
+    "summary": "Read retained iteration expressions and their exact rule/team scope.",
     "stability": "stable",
     "mutates": "none",
     "path": "workspace/sprint-list.md"
@@ -178,7 +162,7 @@
   {
     "command": "workspace sprint remove",
     "group": "workspace",
-    "summary": "Remove a sprint iteration expression from workspace configuration.",
+    "summary": "Remove an exact retained iteration expression from one shared rule.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/sprint-remove.md"
@@ -186,7 +170,7 @@
   {
     "command": "workspace track",
     "group": "workspace",
-    "summary": "Track a single work item by ID (pinned to workspace).",
+    "summary": "Retain an explicit connection-qualified item pin in the selected shared Bench.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/track.md"
@@ -194,7 +178,7 @@
   {
     "command": "workspace track-tree",
     "group": "workspace",
-    "summary": "Track a work item and its subtree.",
+    "summary": "Retain a discovered-hierarchy subtree selector in the selected Bench.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/track-tree.md"
@@ -202,7 +186,7 @@
   {
     "command": "workspace untrack",
     "group": "workspace",
-    "summary": "Remove a work item from tracking.",
+    "summary": "Remove exact single/subtree selectors without deleting inherited membership or drafts.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/untrack.md"
@@ -210,15 +194,15 @@
   {
     "command": "ws",
     "group": "workspace",
-    "summary": "Short alias for `workspace` \u2014 show the current workspace.",
+    "summary": "Alias for static selected Core Bench presentation.",
     "stability": "stable",
-    "mutates": "local",
+    "mutates": "none",
     "path": "workspace/ws.md"
   },
   {
     "command": "bench create",
     "group": "bench",
-    "summary": "Create a Bench with a name you will recognise later.",
+    "summary": "Create an empty user-wide Bench without selecting it.",
     "stability": "stable",
     "mutates": "local",
     "path": "bench/create.md"
@@ -226,7 +210,7 @@
   {
     "command": "bench delete",
     "group": "bench",
-    "summary": "Delete a Bench \u2014 one holding pins refuses without --confirm.",
+    "summary": "Delete a shared Bench; one holding pins requires its exact name as confirmation.",
     "stability": "stable",
     "mutates": "local",
     "path": "bench/delete.md"
@@ -234,7 +218,7 @@
   {
     "command": "bench list",
     "group": "bench",
-    "summary": "List the Benches that exist, marking the current one.",
+    "summary": "List user-wide Benches, marking the current worktree's selection.",
     "stability": "stable",
     "mutates": "none",
     "path": "bench/list.md"
@@ -242,95 +226,15 @@
   {
     "command": "bench switch",
     "group": "bench",
-    "summary": "Stand on another Bench.",
+    "summary": "Select an existing shared Bench in this initialized worktree.",
     "stability": "stable",
     "mutates": "local",
     "path": "bench/switch.md"
   },
   {
-    "command": "bench configuration",
-    "group": "bench",
-    "summary": "Read the current Bench's pins, saved filters, ownership and raw settings digest.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "bench detail",
-    "group": "bench",
-    "summary": "Read full cached, richly rendered work-item or seed detail without changing context.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "bench discussion",
-    "group": "bench",
-    "summary": "Read one remote discussion page for an explicitly qualified cached Bench member.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "bench browser",
-    "group": "bench",
-    "summary": "Open the native Bench browser or route authenticated source-scoped Herdr controls.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "bench configuration area candidates",
-    "group": "bench",
-    "summary": "Read official configured-team area paths without changing Bench or workspace settings.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "bench configuration area add",
-    "group": "bench",
-    "summary": "Add an exact or Under area filter on the captured Bench only.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "bench configuration area remove",
-    "group": "bench",
-    "summary": "Remove an area filter on the captured Bench only.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "bench configuration sprint add",
-    "group": "bench",
-    "summary": "Add a relative or absolute sprint expression on the captured Bench only.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "bench configuration sprint remove",
-    "group": "bench",
-    "summary": "Remove a sprint expression on the captured Bench only.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "bench/README.md"
-  },
-  {
-    "command": "history",
-    "group": "context",
-    "summary": "Show the ADO revision history for a work item; read-only, never cached.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "context/history.md"
-  },
-  {
     "command": "query",
     "group": "context",
-    "summary": "Search and filter work items via an ad-hoc WIQL query built from CLI flags.",
+    "summary": "Run a bounded typed provider query and cache acquired observations.",
     "stability": "stable",
     "mutates": "local",
     "path": "context/query.md"
@@ -338,7 +242,7 @@
   {
     "command": "set",
     "group": "context",
-    "summary": "Set the active work item by ID or title pattern.",
+    "summary": "Change the local human active-item pointer without claiming work.",
     "stability": "stable",
     "mutates": "local",
     "path": "context/set.md"
@@ -346,103 +250,31 @@
   {
     "command": "show",
     "group": "context",
-    "summary": "Display a work item without changing context; cache-only by default.",
+    "summary": "Read an explicit cached Core item, with optional provider refresh.",
     "stability": "stable",
-    "mutates": "none",
+    "mutates": "local",
     "path": "context/show.md"
   },
   {
     "command": "show-batch",
     "group": "context",
-    "summary": "Display multiple work items by ID from the local cache; missing IDs are disclosed as errors.",
+    "summary": "Read explicit cached numeric targets and disclose missing items.",
     "stability": "stable",
     "mutates": "none",
     "path": "context/show-batch.md"
   },
   {
-    "command": "tree-set",
-    "group": "context",
-    "summary": "Render an arbitrary working set of work items as a forest of annotated trees.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "context/tree-set.md"
-  },
-  {
-    "command": "web",
-    "group": "context",
-    "summary": "Open the active or specified work item in Azure DevOps in the default browser.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "context/web.md"
-  },
-  {
-    "command": "back",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav back`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/back.md"
-  },
-  {
-    "command": "down",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav down`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/down.md"
-  },
-  {
-    "command": "fore",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav fore`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/fore.md"
-  },
-  {
-    "command": "nav",
-    "group": "navigation",
-    "summary": "Launch the interactive tree navigator.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav.md"
-  },
-  {
-    "command": "nav back",
-    "group": "navigation",
-    "summary": "Move the navigation-history cursor one entry backward.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-back.md"
-  },
-  {
     "command": "nav down",
     "group": "navigation",
-    "summary": "Set the active work item to one of the current item's children.",
+    "summary": "Select a discovered child by unambiguous ID or title pattern.",
     "stability": "stable",
     "mutates": "local",
     "path": "navigation/nav-down.md"
   },
   {
-    "command": "nav fore",
-    "group": "navigation",
-    "summary": "Move the navigation-history cursor one entry forward.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-fore.md"
-  },
-  {
-    "command": "nav history",
-    "group": "navigation",
-    "summary": "Display or pick from the navigation history stack.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-history.md"
-  },
-  {
     "command": "nav next",
     "group": "navigation",
-    "summary": "Set the active work item to the next sibling.",
+    "summary": "Select the next sibling in the retained numeric ordering.",
     "stability": "stable",
     "mutates": "local",
     "path": "navigation/nav-next.md"
@@ -450,7 +282,7 @@
   {
     "command": "nav prev",
     "group": "navigation",
-    "summary": "Set the active work item to the previous sibling.",
+    "summary": "Select the previous sibling in the retained numeric ordering.",
     "stability": "stable",
     "mutates": "local",
     "path": "navigation/nav-prev.md"
@@ -458,39 +290,15 @@
   {
     "command": "nav up",
     "group": "navigation",
-    "summary": "Set the active work item to the parent of the current one.",
+    "summary": "Select the active item's unique discovered parent.",
     "stability": "stable",
     "mutates": "local",
     "path": "navigation/nav-up.md"
   },
   {
-    "command": "next",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav next`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/next.md"
-  },
-  {
-    "command": "prev",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav prev`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/prev.md"
-  },
-  {
-    "command": "up",
-    "group": "navigation",
-    "summary": "Deprecated alias for `nav up`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/up.md"
-  },
-  {
     "command": "process",
     "group": "process",
-    "summary": "List work item types, or with a type argument show its states, fields, and transitions.",
+    "summary": "List discovered Core type references and explicit schema gaps.",
     "stability": "stable",
     "mutates": "none",
     "path": "process/process.md"
@@ -498,7 +306,7 @@
   {
     "command": "process <type>",
     "group": "process",
-    "summary": "Describe one dynamically discovered work-item type.",
+    "summary": "Describe one discovered Core type and its relevant schema evidence.",
     "stability": "stable",
     "mutates": "none",
     "path": "process/process-type.md"
@@ -506,23 +314,15 @@
   {
     "command": "process description",
     "group": "process",
-    "summary": "Write a byte-stable structural description of the process, for diffing against another.",
+    "summary": "Project acquired Core schema with fingerprint, scope and explicit known gaps.",
     "stability": "stable",
-    "mutates": "none",
+    "mutates": "local",
     "path": "process/process-description.md"
-  },
-  {
-    "command": "process layout",
-    "group": "process",
-    "summary": "Show the server-defined form layout \u2014 tabs, boxes, and ordered fields \u2014 for a work item type.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "process/process-layout.md"
   },
   {
     "command": "states",
     "group": "process",
-    "summary": "Hidden alias \u2014 list workflow states for the active work item's type.",
+    "summary": "Human active-item state convenience; machine callers name a type.",
     "stability": "stable",
     "mutates": "none",
     "path": "process/states.md"
@@ -530,23 +330,15 @@
   {
     "command": "batch",
     "group": "work-items",
-    "summary": "State transition, field updates, and a note in a single atomic call.",
+    "summary": "Apply explicit typed field/state/comment intent through one ordered Core proposal.",
     "stability": "stable",
     "mutates": "ado",
     "path": "work-items/batch.md"
   },
   {
-    "command": "delete",
-    "group": "work-items",
-    "summary": "Permanently delete a work item from Azure DevOps.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/delete.md"
-  },
-  {
     "command": "discard",
     "group": "work-items",
-    "summary": "Drop pending changes for a single work item or all dirty items.",
+    "summary": "Remove eligible existing-item drafts without deleting journal or provider work.",
     "stability": "stable",
     "mutates": "local",
     "path": "work-items/discard.md"
@@ -554,23 +346,15 @@
   {
     "command": "edit",
     "group": "work-items",
-    "summary": "Edit work item fields interactively in an external editor.",
+    "summary": "Use the qualified external editor and save typed changes through Core.",
     "stability": "stable",
     "mutates": "ado",
     "path": "work-items/edit.md"
   },
   {
-    "command": "new",
-    "group": "work-items",
-    "summary": "Create a new work item in ADO.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "work-items/new.md"
-  },
-  {
     "command": "note",
     "group": "work-items",
-    "summary": "Add a note (ADO comment) to the active work item.",
+    "summary": "Publish a comment on an explicit qualified published item through Core.",
     "stability": "stable",
     "mutates": "ado",
     "path": "work-items/note.md"
@@ -578,7 +362,7 @@
   {
     "command": "patch",
     "group": "work-items",
-    "summary": "Atomically patch multiple fields on a work item via JSON input.",
+    "summary": "Apply a discovered typed field object to one explicit published target.",
     "stability": "stable",
     "mutates": "ado",
     "path": "work-items/patch.md"
@@ -586,7 +370,7 @@
   {
     "command": "state",
     "group": "work-items",
-    "summary": "Change the state of the active work item by name.",
+    "summary": "Apply one discovered transition without bypassing coupled required fields.",
     "stability": "stable",
     "mutates": "ado",
     "path": "work-items/state.md"
@@ -594,7 +378,7 @@
   {
     "command": "update",
     "group": "work-items",
-    "summary": "Update a single field on the active work item.",
+    "summary": "Edit one discovered typed field and immediately save published-item intent through Core.",
     "stability": "stable",
     "mutates": "ado",
     "path": "work-items/update.md"
@@ -610,7 +394,7 @@
   {
     "command": "link local list",
     "group": "links",
-    "summary": "List Twig-local Related links touching a local work item.",
+    "summary": "Read cached LOCAL edges for an explicit Core item with zero HTTP.",
     "stability": "stable",
     "mutates": "none",
     "path": "links/link-local-list.md"
@@ -618,7 +402,7 @@
   {
     "command": "link local related",
     "group": "links",
-    "summary": "Add an explicit Twig-local Related link between two local work items.",
+    "summary": "Verify an explicit LOCAL Related association through Core local CAS.",
     "stability": "stable",
     "mutates": "local",
     "path": "links/link-local-related.md"
@@ -626,7 +410,7 @@
   {
     "command": "link local unrelate",
     "group": "links",
-    "summary": "Remove an existing Twig-local Related link without provider access.",
+    "summary": "Tombstone a LOCAL Related association with exact Core local CAS.",
     "stability": "stable",
     "mutates": "local",
     "path": "links/link-local-unrelate.md"
@@ -634,79 +418,71 @@
   {
     "command": "link parent",
     "group": "links",
-    "summary": "Set the parent of the active (or targeted) work item.",
-    "stability": "stable",
+    "summary": "Set the parent of an unparented published item through a verified Core proposal.",
+    "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-parent.md"
   },
   {
     "command": "link predecessor",
     "group": "links",
-    "summary": "Mark the active (or targeted) item as blocked by another item.",
-    "stability": "stable",
+    "summary": "Mark a published item as blocked by another through a verified Core proposal.",
+    "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-predecessor.md"
   },
   {
     "command": "link related",
     "group": "links",
-    "summary": "Add a symmetric Related link between two work items, optionally with a comment.",
-    "stability": "stable",
+    "summary": "Add a discovered symmetric native association through a verified Core proposal.",
+    "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-related.md"
   },
   {
     "command": "link reparent",
     "group": "links",
-    "summary": "Remove the current parent and set a new one in a single operation.",
-    "stability": "stable",
-    "mutates": "ado",
+    "summary": "Parent replacement is unsupported; refuses without removing any link.",
+    "stability": "experimental",
+    "mutates": "none",
     "path": "links/link-reparent.md"
   },
   {
     "command": "link successor",
     "group": "links",
-    "summary": "Mark the active (or targeted) item as blocking another item.",
-    "stability": "stable",
+    "summary": "Mark a published item as blocking another through a verified Core proposal.",
+    "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-successor.md"
   },
   {
     "command": "link unlink",
     "group": "links",
-    "summary": "Remove any non-hierarchy link (predecessor, successor, or related) from a work item.",
-    "stability": "stable",
+    "summary": "Remove a native predecessor, successor or related edge through a verified Core proposal.",
+    "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-unlink.md"
   },
   {
     "command": "link unparent",
     "group": "links",
-    "summary": "Remove the parent link from the active (or targeted) work item.",
-    "stability": "stable",
+    "summary": "Remove the one observed native parent through a verified Core proposal.",
+    "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-unparent.md"
   },
   {
     "command": "link unrelate",
     "group": "links",
-    "summary": "Remove a symmetric Related link between two work items.",
-    "stability": "stable",
+    "summary": "Remove a discovered symmetric association through a verified Core proposal.",
+    "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-unrelate.md"
   },
   {
-    "command": "seed",
-    "group": "seeds",
-    "summary": "Hidden backward-compat shortcut for `seed new`.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "seeds/seed.md"
-  },
-  {
     "command": "seed chain",
     "group": "seeds",
-    "summary": "Create a chain of successor-linked seeds under a shared parent.",
+    "summary": "Stage explicit ADO ordered seed creation intent.",
     "stability": "stable",
     "mutates": "local",
     "path": "seeds/seed-chain.md"
@@ -714,7 +490,7 @@
   {
     "command": "seed discard",
     "group": "seeds",
-    "summary": "Delete a local seed and its descendants.",
+    "summary": "Discard eligible explicit unpublished seed intent.",
     "stability": "stable",
     "mutates": "local",
     "path": "seeds/seed-discard.md"
@@ -722,7 +498,7 @@
   {
     "command": "seed edit",
     "group": "seeds",
-    "summary": "Edit a seed's fields in an external editor.",
+    "summary": "Edit an eligible local seed through its acquired native field schema.",
     "stability": "stable",
     "mutates": "local",
     "path": "seeds/seed-edit.md"
@@ -730,7 +506,7 @@
   {
     "command": "seed link",
     "group": "seeds",
-    "summary": "Create a virtual link between two items, at least one of which must be a seed.",
+    "summary": "Capture a qualified local seed creation relationship.",
     "stability": "stable",
     "mutates": "local",
     "path": "seeds/seed-link.md"
@@ -738,7 +514,7 @@
   {
     "command": "seed links",
     "group": "seeds",
-    "summary": "List virtual links, optionally filtered by item ID.",
+    "summary": "List retained local creation-link intent without publication.",
     "stability": "stable",
     "mutates": "none",
     "path": "seeds/seed-links.md"
@@ -746,7 +522,7 @@
   {
     "command": "seed new",
     "group": "seeds",
-    "summary": "Create a new local seed work item.",
+    "summary": "Stage a UUID-backed typed seed without provider creation.",
     "stability": "stable",
     "mutates": "local",
     "path": "seeds/seed-new.md"
@@ -754,7 +530,7 @@
   {
     "command": "seed publish",
     "group": "seeds",
-    "summary": "Publish seeds to Azure DevOps.",
+    "summary": "Explicitly publish selected seeds through Core proposals and verified mappings.",
     "stability": "stable",
     "mutates": "ado",
     "path": "seeds/seed-publish.md"
@@ -762,7 +538,7 @@
   {
     "command": "seed reconcile",
     "group": "seeds",
-    "summary": "Repair stale seed links and parent references after a partial publish.",
+    "summary": "Settle eligible local seed evidence from original verified publication, without replay.",
     "stability": "stable",
     "mutates": "local",
     "path": "seeds/seed-reconcile.md"
@@ -770,7 +546,7 @@
   {
     "command": "seed unlink",
     "group": "seeds",
-    "summary": "Remove a virtual link between two items.",
+    "summary": "Remove exact retained local creation-link intent.",
     "stability": "stable",
     "mutates": "local",
     "path": "seeds/seed-unlink.md"
@@ -778,7 +554,7 @@
   {
     "command": "seed validate",
     "group": "seeds",
-    "summary": "Validate seeds against publish rules.",
+    "summary": "Evaluate seed publication prerequisites without creating items.",
     "stability": "stable",
     "mutates": "none",
     "path": "seeds/seed-validate.md"
@@ -786,7 +562,7 @@
   {
     "command": "seed view",
     "group": "seeds",
-    "summary": "Show the seed dashboard grouped by parent.",
+    "summary": "Inspect retained UUID-backed local seeds.",
     "stability": "stable",
     "mutates": "none",
     "path": "seeds/seed-view.md"
@@ -794,79 +570,15 @@
   {
     "command": "pending",
     "group": "plans",
-    "summary": "List raw staged pending changes in exact staging order.",
+    "summary": "Inspect retained typed Core drafts without changing them.",
     "stability": "stable",
     "mutates": "none",
     "path": "plans/pending.md"
   },
   {
-    "command": "draft show",
-    "group": "plans",
-    "summary": "Inspect an existing native recoverable draft; may CAS local observation metadata, never intent or remote work.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-show.md"
-  },
-  {
-    "command": "draft open",
-    "group": "plans",
-    "summary": "Open the shared recoverable native draft for a published item via an explicit Bench; records served evidence locally, never publishes.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-open.md"
-  },
-  {
-    "command": "draft stage",
-    "group": "plans",
-    "summary": "Stage an exact ordered field batch from stdin into the recoverable native draft by CAS; never writes pending changes or ADO.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-stage.md"
-  },
-  {
-    "command": "draft retain",
-    "group": "plans",
-    "summary": "Retain staged native draft intent as a local proposal journal capture; never exports, authorizes, or applies.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-retain.md"
-  },
-  {
-    "command": "draft review",
-    "group": "plans",
-    "summary": "Review the exact effects of a retained native draft capture by digest against cached evidence; never authorizes or applies.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "plans/draft-review.md"
-  },
-  {
-    "command": "draft capture",
-    "group": "plans",
-    "summary": "Legacy: capture inspected native draft intent to the local journal and export a proposal file; never authorizes or applies.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "plans/draft-capture.md"
-  },
-  {
-    "command": "policy assess",
-    "group": "plans",
-    "summary": "Assess cached compliance of named items against the declared repository policy, with bounded repair alternatives.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "plans/policy-assess.md"
-  },
-  {
-    "command": "policy reconcile",
-    "group": "plans",
-    "summary": "Render one explicitly selected policy repair as a native proposal on stdout; review and apply remain separate.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "plans/policy-reconcile.md"
-  },
-  {
     "command": "plan apply",
     "group": "plans",
-    "summary": "Deprecated alias for `proposal apply`.",
+    "summary": "Deprecated alias for exact-file, exact-digest Core proposal application.",
     "stability": "stable",
     "mutates": "ado",
     "path": "plans/plan-apply.md"
@@ -874,23 +586,15 @@
   {
     "command": "plan preview",
     "group": "plans",
-    "summary": "Deprecated alias for `proposal preview`.",
+    "summary": "Deprecated alias for current Core proposal preview.",
     "stability": "stable",
     "mutates": "local",
     "path": "plans/plan-preview.md"
   },
   {
-    "command": "plan seed",
-    "group": "plans",
-    "summary": "Deprecated alias for `proposal seed`.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/plan-seed.md"
-  },
-  {
     "command": "plan status",
     "group": "plans",
-    "summary": "Deprecated alias for `proposal status`.",
+    "summary": "Deprecated alias for exact Core proposal journal inspection.",
     "stability": "stable",
     "mutates": "none",
     "path": "plans/plan-status.md"
@@ -898,7 +602,7 @@
   {
     "command": "plan validate",
     "group": "plans",
-    "summary": "Deprecated alias for `proposal validate`.",
+    "summary": "Deprecated alias for canonical Core proposal format validation.",
     "stability": "stable",
     "mutates": "none",
     "path": "plans/plan-validate.md"
@@ -906,47 +610,23 @@
   {
     "command": "proposal apply",
     "group": "plans",
-    "summary": "Apply a proposal after digest confirmation and identity authorization.",
+    "summary": "Apply a current Core proposal under its exact confirmed digest and verify outcomes.",
     "stability": "stable",
     "mutates": "ado",
     "path": "plans/proposal-apply.md"
   },
   {
-    "command": "proposal reconcile",
-    "group": "plans",
-    "summary": "Append an explicit native retirement, readback or Verified replacement receipt without replay.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "plans/README.md"
-  },
-  {
     "command": "proposal preview",
     "group": "plans",
-    "summary": "Preview a proposal \u2014 journal import, pending snapshot, digest, and canApply gate.",
+    "summary": "Check current Core proposal evidence and retain review intent without publication.",
     "stability": "stable",
     "mutates": "local",
     "path": "plans/proposal-preview.md"
   },
   {
-    "command": "proposal latest",
-    "group": "plans",
-    "summary": "Show the latest successfully previewed unresolved proposal in this workspace.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/README.md"
-  },
-  {
-    "command": "proposal seed",
-    "group": "plans",
-    "summary": "Describe a staged seed's identity and fingerprint for proposal authoring.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/proposal-seed.md"
-  },
-  {
     "command": "proposal status",
     "group": "plans",
-    "summary": "Show journal state for a proposal file, keyed on its digest.",
+    "summary": "Inspect exact Core proposal journal rows and receipts without replay.",
     "stability": "stable",
     "mutates": "none",
     "path": "plans/proposal-status.md"
@@ -954,71 +634,23 @@
   {
     "command": "proposal validate",
     "group": "plans",
-    "summary": "Validate a proposal v1 file without touching ADO.",
+    "summary": "Validate canonical Core proposal format and report its digest.",
     "stability": "stable",
     "mutates": "none",
     "path": "plans/proposal-validate.md"
   },
   {
-    "command": "provider discover github",
-    "group": "configuration",
-    "summary": "Observe immutable GitHub repository identity without binding.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "configuration/provider-discover-github.md"
-  },
-  {
-    "command": "provider bind github",
-    "group": "configuration",
-    "summary": "Select a freshly confirmed GitHub repository identity locally.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "configuration/provider-bind-github.md"
-  },
-  {
-    "command": "config",
-    "group": "configuration",
-    "summary": "Read or set a configuration value.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "configuration/config.md"
-  },
-  {
-    "command": "config status-fields",
-    "group": "configuration",
-    "summary": "Configure which fields appear in the status view.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "configuration/config-status-fields.md"
-  },
-  {
     "command": "help",
     "group": "configuration",
-    "summary": "Task-oriented help with targeted group and leaf discovery.",
+    "summary": "Read offline root, group and leaf help matched to the installed executable.",
     "stability": "stable",
     "mutates": "none",
     "path": "configuration/help.md"
   },
   {
-    "command": "migrate-config",
-    "group": "configuration",
-    "summary": "Split a legacy .twig/config into a committed twig.json and gitignored user prefs.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "configuration/migrate-config.md"
-  },
-  {
-    "command": "auth clear",
-    "group": "system",
-    "summary": "Invalidate selected access/admission proof while preserving credentials and bindings.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-clear.md"
-  },
-  {
     "command": "auth identities",
     "group": "system",
-    "summary": "List registered AAD and PAT identities with method-specific principal metadata; credentials are never surfaced.",
+    "summary": "Inspect recorded identity/binding selection and native transport evidence without work HTTP.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/auth-status.md"
@@ -1026,7 +658,7 @@
   {
     "command": "auth login",
     "group": "system",
-    "summary": "Enroll or renew an explicitly named AAD identity without changing another connection's account.",
+    "summary": "Explicitly enroll or renew a named native identity without switching worktree selection.",
     "stability": "stable",
     "mutates": "local",
     "path": "system/auth-login.md"
@@ -1034,7 +666,7 @@
   {
     "command": "auth pat",
     "group": "system",
-    "summary": "Enroll or renew a PAT identity through hidden/stdin input and authoritative principal attestation.",
+    "summary": "Explicitly enroll or renew a named native identity without switching worktree selection.",
     "stability": "stable",
     "mutates": "local",
     "path": "system/auth-login.md"
@@ -1042,7 +674,7 @@
   {
     "command": "auth status",
     "group": "system",
-    "summary": "Inspect the effective attached identity binding and configuration provenance without secrets.",
+    "summary": "Inspect recorded identity/binding selection and native transport evidence without work HTTP.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/auth-status.md"
@@ -1050,7 +682,7 @@
   {
     "command": "connection bind",
     "group": "system",
-    "summary": "Bind an endpoint (org/project) to a registered identity; --default requests the initial endpoint default without replacing a different one.",
+    "summary": "Explicitly enroll or renew a named native identity without switching worktree selection.",
     "stability": "stable",
     "mutates": "local",
     "path": "system/auth-login.md"
@@ -1058,7 +690,7 @@
   {
     "command": "connection list",
     "group": "system",
-    "summary": "List identity bindings for an endpoint; falls back to the workspace's checked-in coordinates when --org and --project are both omitted.",
+    "summary": "Inspect recorded identity/binding selection and native transport evidence without work HTTP.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/auth-status.md"
@@ -1066,127 +698,31 @@
   {
     "command": "connection status",
     "group": "system",
-    "summary": "Show the identity and binding the current attached worktree resolves to; refuses with setup guidance when attachment or selection is missing or ambiguous.",
+    "summary": "Inspect recorded identity/binding selection and native transport evidence without work HTTP.",
     "stability": "stable",
     "mutates": "none",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection check",
-    "group": "system",
-    "summary": "Inspect local binding-change prerequisites and exact native blockers without switching, publishing, discarding or releasing claims.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection capabilities",
-    "group": "system",
-    "summary": "Report relationship capabilities and runtime availability; optionally discover GitHub schema support without enumerating repository values.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection migrate",
-    "group": "system",
-    "summary": "Preview or explicitly apply safe legacy migration with verified principal mapping, actual host/store quiescence and native generation admission; no force or implicit publication.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection pin",
-    "group": "system",
-    "summary": "Preview or apply an exact guarded checkout binding pin with native recovery, cold-cache admission and explicit reconnect.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection unpin",
-    "group": "system",
-    "summary": "Preview or apply guarded removal of a checkout binding pin without publishing, discarding or silently replacing a live actor.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection default",
-    "group": "system",
-    "summary": "Preview or resume an exact default-binding transition across affected registered worktrees, preserving pinned checkouts and durable work.",
-    "stability": "stable",
-    "mutates": "local",
     "path": "system/auth-status.md"
   },
   {
     "command": "connection writes",
     "group": "system",
-    "summary": "Inspect native remote-write uncertainty and immutable original-actor outcome evidence without replay.",
+    "summary": "Inspect recorded identity/binding selection and native transport evidence without work HTTP.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/auth-status.md"
-  },
-  {
-    "command": "connection reconcile-write",
-    "group": "system",
-    "summary": "Append native original-actor settlement only after exact exhausted-CAS readback proves an uncertain request's effect; never infer or replay it.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/auth-status.md"
-  },
-  {
-    "command": "changelog",
-    "group": "system",
-    "summary": "Display recent release notes from GitHub Releases without applying any update.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "system/changelog.md"
-  },
-  {
-    "command": "upgrade",
-    "group": "system",
-    "summary": "Check GitHub Releases for a newer twig and apply the update, including companion binaries.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "system/upgrade.md"
   },
   {
     "command": "version",
     "group": "system",
-    "summary": "Print the installed twig version.",
+    "summary": "Print the installed CLI version offline.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/version.md"
   },
   {
-    "command": "mcp",
-    "group": "experimental",
-    "summary": "Launch the Model Context Protocol server (requires twig-mcp companion binary).",
-    "stability": "experimental",
-    "mutates": "ado",
-    "path": "experimental/mcp.md"
-  },
-  {
-    "command": "ohmyposh init",
-    "group": "experimental",
-    "summary": "Emit an Oh My Posh shell hook and text-segment JSON for the current shell.",
-    "stability": "experimental",
-    "mutates": "none",
-    "path": "experimental/ohmyposh-init.md"
-  },
-  {
-    "command": "tui",
-    "group": "experimental",
-    "summary": "Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.",
-    "stability": "experimental",
-    "mutates": "local",
-    "path": "experimental/tui.md"
-  },
-  {
     "command": "skills install",
     "group": "configuration",
-    "summary": "Install the generic Twig skill family into an explicit root.",
+    "summary": "Install the canonical Twig skill into an explicit root.",
     "stability": "stable",
     "mutates": "local",
     "path": "configuration/skills-install.md"
@@ -1222,5 +758,85 @@
     "stability": "stable",
     "mutates": "local",
     "path": "configuration/skills-add.md"
+  },
+  {
+    "command": "bench",
+    "group": "bench",
+    "summary": "List user-wide Benches, marking the current worktree's selection.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/list.md"
+  },
+  {
+    "command": "bench browse",
+    "group": "bench",
+    "summary": "Explicitly acquire native saved-query or backlog members without pinning or publication.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/planning.md"
+  },
+  {
+    "command": "bench planning",
+    "group": "bench",
+    "summary": "Read cached native areas and exact-team iteration metadata.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/planning.md"
+  },
+  {
+    "command": "bench planning refresh",
+    "group": "bench",
+    "summary": "Explicitly refresh native planning metadata without replacing Bench intent.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/planning.md"
+  },
+  {
+    "command": "bench planning show",
+    "group": "bench",
+    "summary": "Read cached native planning metadata; alias of bench planning.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/planning.md"
+  },
+  {
+    "command": "bench rename",
+    "group": "bench",
+    "summary": "Rename a user-wide Bench without changing its pins or context selections.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/rename.md"
+  },
+  {
+    "command": "bench rule add",
+    "group": "bench",
+    "summary": "Add one connection-qualified shared planning, query or backlog rule.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/planning.md"
+  },
+  {
+    "command": "bench rule remove",
+    "group": "bench",
+    "summary": "Remove one exact shared rule under its captured index and revision.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/planning.md"
+  },
+  {
+    "command": "bench rules",
+    "group": "bench",
+    "summary": "Inspect exact shared selectors and the captured Bench revision.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/planning.md"
+  },
+  {
+    "command": "bench sources",
+    "group": "bench",
+    "summary": "Discover native saved-query hierarchy and exact-team backlogs without executing them.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/planning.md"
   }
 ]

@@ -1,51 +1,21 @@
-# Workspace commands
+# Workspace view and selection
 
-The `workspace` group is Twig's canonical entry point for viewing and shaping
-the local working set: what appears in the workspace view, which items are
-pinned or hidden, and which sprints and area paths the workspace subscribes to.
-`workspace`/`ws` now read a static **Core Bench** table (preview), including all
-protected draft debt. They require an explicitly initialized Core ADO workspace,
-never guess a default Bench, and acquire provider schema metadata while leaving
-cached items untouched unless `--refresh` is explicit. Legacy tree/team/browser
-workspace layouts are unsupported. See [the read contract](workspace.md).
+`workspace` (also `ws`) shows a cached projection of the selected user-wide Bench,
+not automatically every item assigned to you in a sprint.
 
-The remaining subcommands below are not all cut over to Core. Legacy self views also
-resolve the bound account's canonical ADO identity; that lookup can contact Azure
-DevOps and refuses if the identity cannot be established. `workspace area sync`
-reads team area paths to rebuild local configuration. No sub-command in this
-group pushes work-item mutations to ADO.
+| Route | Purpose |
+| --- | --- |
+| [`workspace`](workspace.md), [`ws`](ws.md) | Static cached membership and protected drafts |
+| `workspace sync` | Pull selected Bench scope without flushing edits |
+| [`workspace track`](track.md), [`track-tree`](track-tree.md), [`untrack`](untrack.md) | Shared explicit selectors |
+| [`workspace exclude`](exclude.md), [`exclusions`](exclusions.md) | Local view exclusions, not shared membership removal |
+| [`workspace area`](area.md) and area add/remove/list/sync | Retained ADO planning-rule management/metadata |
+| `workspace sprint add/remove/list` | Retained ADO iteration planning rules |
 
-## Commands
+See [Bench planning](../bench/planning.md) for rule conjunction/union and captured
+revision requirements. These routes no longer edit a legacy repository config
+list or replace rules with today's query results.
 
-|Command|Summary|
-|---|---|
-|[`workspace`](./workspace.md)|Show the current workspace.|
-|[`ws`](./ws.md)|Short alias for `workspace`.|
-|[`workspace track`](./track.md)|Track a single work item by ID (pinned to workspace).|
-|[`workspace track-tree`](./track-tree.md)|Track a work item and its subtree.|
-|[`workspace untrack`](./untrack.md)|Remove a work item from tracking.|
-|[`workspace exclude`](./exclude.md)|Exclude a work item from workspace view.|
-|[`workspace exclusions`](./exclusions.md)|List, clear, or remove exclusions.|
-|[`workspace area`](./area.md)|Show the area-filtered workspace view.|
-|[`workspace area add`](./area-add.md)|Add an area path to workspace configuration.|
-|[`workspace area remove`](./area-remove.md)|Remove an area path from workspace configuration.|
-|[`workspace area list`](./area-list.md)|List configured area paths with match semantics.|
-|[`workspace area sync`](./area-sync.md)|Fetch team area paths from ADO and replace configuration.|
-|[`workspace sprint add`](./sprint-add.md)|Add a sprint iteration expression to workspace configuration.|
-|[`workspace sprint remove`](./sprint-remove.md)|Remove a sprint iteration expression from workspace configuration.|
-|[`workspace sprint list`](./sprint-list.md)|List configured sprint iteration expressions.|
-
-## Deprecated aliases
-
-The top-level `area` verbs are retained as hidden deprecated aliases that emit
-a `hint:` line on stderr and then delegate to the canonical `workspace area`
-implementation (`src/Twig/Program.cs:1214-1262`). New scripts and skills SHOULD
-use `workspace area …` instead.
-
-|Deprecated alias|Canonical form|
-|---|---|
-|[`area`](./area-deprecated.md)|[`workspace area`](./area.md)|
-|[`area add`](./area-add-deprecated.md)|[`workspace area add`](./area-add.md)|
-|[`area remove`](./area-remove-deprecated.md)|[`workspace area remove`](./area-remove.md)|
-|[`area list`](./area-list-deprecated.md)|[`workspace area list`](./area-list.md)|
-|[`area sync`](./area-sync-deprecated.md)|[`workspace area sync`](./area-sync.md)|
+Machine views/pulls do not expand active-item context. `--tree`, `--all`,
+`--live`, workspace migration and old UI envelopes are retired. GitHub allows the
+narrow static view, single-item pins and exclusions, not ADO planning/sync parity.

@@ -18,4 +18,4 @@ Conventions:
 
 | File | Runs on | Answers |
 |---|---|---|
-| [windows-native-tui-check.md](windows-native-tui-check.md) | Windows, owner's hardware | Can the TUI be compiled natively on Windows? Gates [ticket 1002](../../wayfinder-1.0/tickets/1002-fold-the-tui-into-one-binary.md) / issue #359. |
+| [windows-native-tui-check.md](windows-native-tui-check.md) | Windows, owner's hardware | Historical native TUI compilation check for issue #359. |

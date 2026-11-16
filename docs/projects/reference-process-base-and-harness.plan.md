@@ -72,9 +72,8 @@ process.
 - Three backlog behaviors are present across the type set:
   - `Microsoft.VSTS.Basic.EpicBacklogBehavior` — displayed as "Initiatives", rank 30.
     Held only by `Hyperbright.Epic` (default).
-  - `System.RequirementBacklogBehavior` — displayed as "Work", rank 20. Held by
-    `Hyperbright.Feature`, `Hyperbright.Bug`, `Hyperbright.Spec`,
-    `Hyperbright.WayfinderTask`.
+  - `System.RequirementBacklogBehavior` — displayed as "Work", rank 20. Includes
+    `Hyperbright.Feature`, `Hyperbright.Bug`, and `Hyperbright.Spec`.
   - `System.TaskBacklogBehavior` — displayed as "Tasks", rank 10. Held only by
     `Hyperbright.Task` (default).
 
@@ -649,7 +648,7 @@ Restating them so #735 (T4 — implementation) does not accidentally over-scope:
 - **Migration tooling from `.conductor/process-config.yaml`** — deferred (§6).
 - **Automatic backlog resequencing** — out of scope per #727.
 - **Types beyond the locked hierarchy** (`Objective, Outcome, Workstream, Spike,
-  Change, Delivery Work, Wayfinder Task, Grilling, Prototype, Research, Map, Idea,
+  Change, Delivery Work, Grilling, Prototype, Research, Map, Idea,
   Decision, Spec`) — explicitly not part of this reference profile per #727. The
   Hyperbright process's existing use of some of these names is orthogonal to the
   reference profile.

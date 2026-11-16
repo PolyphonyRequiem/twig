@@ -11,7 +11,7 @@
 2. **Sync-first for machine output** — JSON/minimal formats sync
    synchronously before emitting a single complete output. No streaming,
    no async re-render.
-3. **Cache-only is the default** — reads never fetch (wayfinder 0004 §3). `--refresh`
+3. **Cache-only is the default** — reads never fetch implicitly. `--refresh`
    opts into a sync pass for both human and
    machine formats. Without it, read commands always produce fresh data.
 

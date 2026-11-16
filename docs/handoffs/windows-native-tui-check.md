@@ -9,8 +9,7 @@ same file is at `docs\handoffs\windows-native-tui-check.md` in the clone.
 **Who runs this:** Daniel, on Windows. No agent and no Linux box can — native compilation
 cannot cross operating systems.
 
-**Ticket:** [1002 — Fold the TUI into one binary](../../wayfinder-1.0/tickets/1002-fold-the-tui-into-one-binary.md)
-is gated on this result. GitHub issue #359.
+**Tracking:** GitHub issue #359.
 
 **Time:** ~10 minutes if the toolchain is already installed. Add 20-30 minutes once, if not.
 

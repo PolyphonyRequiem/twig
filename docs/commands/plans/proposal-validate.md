@@ -1,102 +1,32 @@
 ---
 command: proposal validate
 group: plans
-summary: Validate proposal v1 and v2 files without touching providers.
+summary: Validate canonical Core proposal format and report its digest.
 stability: stable
 mutates: none
 ---
 
 # `twig proposal validate`
 
-Read-only check that a version 1 or 2 proposal JSON file parses, canonicalizes,
-and reports a stable SHA-256 digest. Version 1 retains its existing ADO
-execution contract; version 2 is provider-identity-aware, with execution
-limited to [supported GitHub effects](../../features/proposals.md#github-writes-and-concurrency).
-`validate` never talks to a provider and never touches the journal.
-
-## Synopsis
-
+```sh
+twig proposal validate --file change.json -o json
 ```
-twig proposal validate --file <path> [-o human|json|minimal]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
-|`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
 
 ## Behavior
 
-Delegates to `IPlanLifecycleService.ValidateAsync`
-(`src/Twig/Commands/PlanCommand.cs:48-59`). The service parses the file,
-canonicalizes it, produces a lowercase-hex SHA-256 digest over the canonical
-bytes, and reports any structural or semantic issues (`PlanValidationResult`).
-Behaviors worth naming:
+Requires an explicit current canonical Core proposal file inside the admitted
+workspace file boundary. Reports digest, format version and operation count.
+`validationScope: "canonical-format"` and `applicationEvidenceChecked: false`
+mean that process, policy and current execution evidence have **not** been checked.
+Old plan v1/provider-plan v2 JSON is not translated.
 
-- **No ADO mutation, no journal write.** Validate is safe to run repeatedly
-  and never contacts the server.
-- **Workspace guard.** The file path must resolve inside the active workspace
-  root; a path outside the workspace is a lifecycle input error, not a usage
-  error (`src/Twig/Commands/PlanCommand.cs:193-207`).
-- **Digest is stable.** The digest returned here is byte-identical to the one
-  `proposal preview` reports and the one `proposal apply --confirm` requires.
-  Version 2 has its own canonical digest; validation alone does not imply
-  execution support, write permission or provider concurrency guarantees.
+## Effects
 
-### Authoring from installed help
+No provider request, journal import, draft change or publication.
+Data-command workspace admission still applies.
 
-Run `twig proposal validate --help` for a complete seed-publication v1 JSON
-example generated from the canonical proposal model and writer, with a
-versioned online reference. Obtain the seed descriptor with
-`twig proposal seed --id -42 -o json`: copy its `identity` GUID string to
-`stagedIdentity` and its `fingerprint` to `expectedFingerprint`. Use your
-active connection's organization/project and a unique operation `id`.
-Save the file inside the active workspace, then run
-`twig proposal validate --file proposal.json -o json`.
+## Failure modes
 
-Validate checks structure, not seed existence or a live fingerprint. Preview
-writes the local journal and presents review without publication permission;
-apply requires the previewed exact digest and checks
-live preconditions. See [the proposal authoring reference](README.md#author-a-minimal-seed-publication-proposal).
-
-
-## Examples
-
-Validate a proposal for interactive review:
-
-```console
-$ twig proposal validate --file .twig/proposals/close-1234.json
-proposal: valid  digest=3f9c…a1b7
-```
-
-Emit machine-readable output for a script that will later confirm the
-digest:
-
-```console
-$ twig proposal validate --file .twig/proposals/close-1234.json -o json
-{ "valid": true, "digest": "3f9c…a1b7", "issues": [] }
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-|---|---|
-|Proposal parses and passes every validator.|`0`|
-|Proposal parses but validator raised at least one issue.|`1`|
-|`--file` omitted, or file path could not be resolved.|`2`|
-
-## See also
-
-- [`proposal preview`](proposal-preview.md) — next step after a clean validate.
-- [`proposal apply`](proposal-apply.md) — consumes the digest this command reports.
-- [`plan validate`](plan-validate.md) — deprecated alias.
+Missing file/invalid canonical input is an error. Syntax success does not imply
+`canApply`; separately [preview](proposal-preview.md) the exact file.
+Human, JSON aliases and minimal inspection are supported, not `ids`.

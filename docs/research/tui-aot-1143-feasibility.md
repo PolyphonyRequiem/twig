@@ -38,7 +38,7 @@ Historical spike findings, read with `git show 0a8c185d:AOT-SPIKE-FINDINGS.md`:
 3. Rooting Terminal.Gui and the TUI assembly, with `TrimMode=partial`, preserved the required reflection metadata. The roughly 19 MB Linux executable actually rendered, accepted keys and exited 0 in a tmux pseudo-terminal.
 4. This is a trim/configuration caveat, not a general inability to generate native code. The historical workaround suppresses analysis and loses full-trim assurance. It must not be silently adopted as the new full-trim contract.
 
-**There is also historical Windows proof.** `wayfinder-1.0/tickets/1002-fold-the-tui-into-one-binary.md:15-20` records owner-run Windows 11 evidence dated 2026-08-06: 19.2 MB native output, complete old-TUI draw, input and exit 0, with four nonfatal IL3051 diagnostics. It links [the owner result](https://github.com/PolyphonyRequiem/twig/issues/359#issuecomment-5209252542). The Linux spike's own untested-Windows statement predates this follow-on; it must not be restated as the overall evidence status.
+**There is also historical Windows proof.** The [owner result](https://github.com/PolyphonyRequiem/twig/issues/359#issuecomment-5209252542) records a Windows 11 run dated 2026-08-06: 19.2 MB native output, complete old-TUI draw, input and exit 0, with four nonfatal IL3051 diagnostics. The Linux spike's own untested-Windows statement predates this follow-on; it must not be restated as the overall evidence status.
 
 Neither historical record qualifies current Bench wrapping, mouse, resize, HTML tails, continuous detail scrolling, the installed Herdr, or the proposed .NET 10 prototype. Task 139 remains a separately owned tracker item; this report does not close it.
 

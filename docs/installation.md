@@ -1,0 +1,61 @@
+# Installation
+
+## Supported platforms
+
+The CLI is released for **Windows x64** and **Linux x64** as a self-contained
+NativeAOT application. A .NET SDK is needed to build from source, not to run a
+release binary. macOS support is suspended on both Intel and Apple Silicon.
+
+The [Windows daemon](daemon.md) is a separate self-contained application with
+its own package and setup. The CLI installer does not install a daemon, canvas,
+TUI, or the retired `twig-mcp` companion.
+
+## Install or update the CLI
+
+Review the installer before executing it from the network.
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | iex
+```
+
+Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash
+```
+
+The installers use the latest CLI release and install to `~/.twig/bin`.
+Windows updates the user PATH; on Linux, follow the installer's PATH guidance.
+Run `twig --version` in the intended terminal to confirm which binary is selected.
+Rerun the installer to update. `twig upgrade` and `twig changelog` are retired;
+release notes are on [GitHub Releases](https://github.com/PolyphonyRequiem/twig/releases).
+
+## Manual download and verification
+
+Select a CLI `v*` release, not a separately versioned `daemon-v*` release.
+Download the archive for your platform and its matching `.sha256` file from the
+same release. Verify **before extracting or running**:
+
+Linux:
+
+```sh
+sha256sum -c twig-linux-x64.tar.gz.sha256
+```
+
+Windows (PowerShell, in the download directory):
+
+```powershell
+$expected = (Get-Content .\twig-win-x64.zip.sha256).Split(' ')[0]
+$actual = (Get-FileHash -Algorithm SHA256 .\twig-win-x64.zip).Hash
+if ($expected -ine $actual) { throw 'Checksum mismatch' }
+```
+
+Extract the complete archive, including its native SQLite library, to a dedicated
+directory on PATH. Do not copy just the executable or assume obsolete TUI aliases
+are part of the current package. Checksums detect corruption or mismatched
+downloads; obtain them from the trusted release, not an unrelated source.
+
+For source builds and local publishing, see [contributing](contributing.md).
+For first use after installation, see [getting started](getting-started.md).

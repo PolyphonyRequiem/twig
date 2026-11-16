@@ -8,6 +8,8 @@ mutates: ado
 
 # `twig link unparent`
 
+## Behavior
+
 Remove the single observed parent of a published Core ADO item. This is a
 standalone removal, not the first half of an automatic reparent operation.
 

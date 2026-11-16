@@ -8,6 +8,8 @@ mutates: local
 
 # `twig workspace exclusions`
 
+## Behavior
+
 Inspect the current workspace/connection's view rules. These are separate from
 the user-wide Bench definition and never remove shared pins or upstream items.
 

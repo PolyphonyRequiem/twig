@@ -1,69 +1,44 @@
 ---
 command: help
 group: configuration
-summary: Task-oriented help with targeted group and leaf discovery.
+summary: Read offline root, group and leaf help matched to the installed executable.
 stability: stable
 mutates: none
 ---
 
 # `twig help`
 
-Help is available without a checkout, workspace, authentication or network.
-Start with the short task-oriented root, select a group, then a leaf command.
-The executable embeds the canonical command reference's behavior sections;
-ConsoleAppFramework generates syntax, options and defaults from declarations.
-
-## Synopsis
-
-```text
+```sh
 twig --help
-twig <group> --help
-twig <command> --help
-twig help <command>
-twig --help-all
-twig --skill [operations|changes|presentation]
+twig proposal --help
+twig proposal apply --help
+twig help workspace area add
+twig --skill operations
 ```
 
 ## Behavior
 
-- `--help`, `-h` and `help` show the same short root. Bare `twig` does so only
-  outside an initialized workspace; inside a workspace bare `twig` still runs `show`.
-- Group help lists only that group's descendants. Groups with a bare operation,
-  such as `process`, retain its options before the focused child list.
-- Leaf help preserves generated usage, options and defaults, registered examples,
-  and the bundled reference's behavior, conditional effects and failure sections.
-  Hidden compatibility aliases remain reachable through targeted help.
-- `--help-all` is the explicit complete generated catalog, including registered
-  aliases. Unknown commands fail with a short discovery hint rather than dumping it.
-- `--skill` prints the executable-matched canonical `twig` foundation and package
-  identity. An optional `operations`, `changes`, or `presentation` topic prints
-  that bundled conditional reference. The `presentation` topic explains retained-
-  observation OMP review and the separately supplied `twig-omp-presenter`
-  companion; select companions through `twig skills configure`, not help. See
-  [skill delivery](../../features/skills.md).
-- Help exits before workspace services, native database initialization, self-update
-  cleanup and companion downloads. Supplying work-item arguments with `--help`
-  does not execute that operation. A help token following `--` remains argument data.
+Offline discovery without workspace, authentication or network.
+ConsoleAppFramework supplies declared syntax/defaults; embedded command Markdown
+supplies behavior/effects/failures. Some retained declarations/examples still
+describe retired options, so the [current catalog](../README.md) and actual
+admission boundary take precedence.
 
-## Examples
+**Known limitation:** the current guard refuses `--help-all`, despite its root
+help advertisement. Use group/leaf help, not that escape hatch.
+`--skill` prints the executable-matched foundation and optional
+`operations`, `changes` or `presentation` reference. Bundled older presenter
+guidance cannot qualify retired captured UI/preview flags.
 
-```sh
-twig proposal --help                 # choose a proposal operation
-twig proposal apply --help           # exact syntax, gates, effects and errors
-twig help workspace area add         # equivalent targeted-help spelling
-twig --help-all                      # complete discovery escape hatch
-twig --skill operations              # offline operating reference from this build
-```
+Bare `twig` displays help outside an initialized workspace; inside, it can read
+the selected item. Use explicit `--help` for discovery without data-command effects.
 
-## Exit codes and failure modes
+## Effects
 
-|Condition|Result|
-|---|---|
-|Known root, group or leaf help|`0`|
-|Unknown command or help topic|`1`, compact diagnostic on stderr|
-|Missing or invalid arguments to an actual operation|That command's normal failure contract; help does not execute it|
+Help/skill printing never initializes data, selects credentials, installs
+companions or executes the requested work operation.
 
-## See also
+## Failure modes
 
-- [Skill delivery](../../features/skills.md)
-- [Command reference](../README.md)
+Unknown commands/topics and the current `--help-all` refusal return nonzero.
+An option following `--` remains argument data, not a help request.

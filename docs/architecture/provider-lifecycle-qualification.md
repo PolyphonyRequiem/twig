@@ -1,5 +1,11 @@
 # Provider lifecycle qualification
 
+> **Historical qualification record.** The fixtures, projects and named CI
+> steps below describe a pre-Core lifecycle. They do not establish current
+> provider parity or release qualification. Use
+> [build and release](build-and-release.md), the current workflow and
+> [provider boundaries](ado-integration.md) for today's supported path.
+
 The `ADO shared lifecycle qualification` and `GitHub shared lifecycle
 qualification` CI steps exercise production DI, SQLite repositories, provider
 adapters, declared-policy loading/evaluation, capability admission and the shared

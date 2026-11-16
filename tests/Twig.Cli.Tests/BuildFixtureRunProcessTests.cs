@@ -91,8 +91,8 @@ public sealed class BuildFixtureRunProcessTests
             var result = await run.WaitAsync(MustReturnWithin);
             result.Exited.ShouldBeTrue();
             result.ExitCode.ShouldBe(0);
+            parent.HasExited.ShouldBeTrue("the direct child must exit before RunProcess returns");
             holder.HasExited.ShouldBeFalse("returning must not depend on the pipe holder exiting");
-            result.Stdout.ShouldNotBeNull();
         }
         finally
         {
@@ -193,7 +193,7 @@ public sealed class BuildFixtureRunProcessTests
             try
             {
                 if (!process.HasExited)
-                    process.Kill(entireProcessTree: true);
+                    process.Kill();
             }
             catch (InvalidOperationException) when (process.HasExited)
             {

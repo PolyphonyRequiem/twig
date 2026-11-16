@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using Twig;
+using Twig.Commands;
 using Shouldly;
 using Xunit;
 
@@ -117,6 +118,7 @@ public sealed class CommandExampleParameterDriftTests
     public void BooleanArity_IsReflectedFromTheRealCommandSignature()
     {
         var commands = DiscoverCommands();
+        CommandCatalog.KnownCommands.ShouldContain("show");
         commands.ShouldContainKey("show");
         commands.ShouldNotContainKey("policy reconcile");
         var show = commands["show"];
@@ -156,20 +158,26 @@ public sealed class CommandExampleParameterDriftTests
     private static Dictionary<string, CommandSignature> DiscoverCommands()
     {
         var result = new Dictionary<string, CommandSignature>(StringComparer.Ordinal);
+        var catalog = CommandCatalog.KnownCommands;
+        catalog.ShouldNotBeEmpty("the generated public catalog must contain real routes");
 
-        // 🔴 Match attributes BY NAME, not by type. ConsoleAppFramework source-generates
-        // CommandAttribute/ArgumentAttribute into every assembly that references it, so the
-        // copy in this test assembly is a DIFFERENT type from the copy in twig — a
-        // GetCustomAttribute<CommandAttribute>() probe compiles (with CS0436) and then
-        // silently matches nothing, which passes vacuously. The emptiness guards in the
-        // test body exist to catch exactly that.
-        foreach (var method in typeof(TwigConsoleApp).GetMethods(
-                     BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+        // These are the registrations in TwigConsoleApp.CreateRunner. Exact catalog coverage
+        // below fails if composition adds a command class or changes a registration prefix.
+        (Type Type, string Prefix)[] registrations =
+            [(typeof(global::TwigCommands), ""), (typeof(SkillCommands), "skills")];
+        foreach (var (type, prefix) in registrations)
+        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
         {
-            var command = GetAttribute(method, "CommandAttribute");
-            var commandName = command?.GetType().GetProperty("Command")?.GetValue(command) as string
+            // CAF attributes are generated separately in each assembly; inspect declaration
+            // metadata rather than binding to the test assembly's copy of those types.
+            var command = method.GetCustomAttributesData()
+                .SingleOrDefault(attribute => attribute.AttributeType.Name == "CommandAttribute");
+            var declaredNames = command?.ConstructorArguments[0].Value as string
                 ?? ToKebabCase(method.Name);
-            if (string.IsNullOrWhiteSpace(commandName))
+            var commandNames = declaredNames.Split('|')
+                .Select(name => prefix.Length == 0 ? name : prefix + " " + name)
+                .Where(catalog.Contains).ToArray();
+            if (commandNames.Length == 0)
                 continue;
 
             var positional = 0;
@@ -195,18 +203,19 @@ public sealed class CommandExampleParameterDriftTests
                     booleans.Add(option);
             }
 
-            result.TryAdd(commandName, new CommandSignature(positional, options, booleans))
-                .ShouldBeTrue($"duplicate public command declaration: {commandName}");
+            foreach (var commandName in commandNames)
+                result.TryAdd(commandName, new CommandSignature(positional, options, booleans))
+                    .ShouldBeTrue($"duplicate public command declaration: {commandName}");
         }
 
+        result.Keys.OrderBy(name => name, StringComparer.Ordinal)
+            .ShouldBe(catalog.OrderBy(name => name, StringComparer.Ordinal),
+                "every generated public route must resolve to its real registered signature");
         return result;
     }
 
     private static bool HasAttribute(ParameterInfo p, string name) =>
         p.GetCustomAttributes().Any(a => a.GetType().Name == name);
-
-    private static Attribute? GetAttribute(MemberInfo m, string name) =>
-        m.GetCustomAttributes().FirstOrDefault(a => a.GetType().Name == name);
 
     /// <summary>
     /// Read the same bundled references as installed help, not a second example registry.

@@ -124,9 +124,10 @@ public sealed class BuildFixture
         var drainGrace = pipeDrainGrace ?? PipeDrainGrace;
         if (!Task.WhenAll(stdoutTask, stderrTask).Wait(drainGrace))
         {
-            // Still open: something inherited the handles and outlived its parent.
-            // Killing the tree closes them, which is what actually unblocks the reads.
-            KillTree(process);
+            // Windows can enumerate and kill surviving descendants even after the direct
+            // child exits. Do not turn a bounded pipe wait into that unbounded tree walk.
+            if (!process.HasExited)
+                KillTree(process);
             Task.WhenAll(stdoutTask, stderrTask).Wait(drainGrace);
         }
 

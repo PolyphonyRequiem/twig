@@ -271,9 +271,12 @@ public sealed class GitHubAppAuthenticationTests
         loaded.GitHubOAuthIdentity.ShouldBe("personal");
         File.ReadAllText(paths.RepoConfigPath).ShouldNotContain(AppId);
         File.WriteAllText(paths.RepoConfigPath, """{"gitHubCredentialSource":"github-app","gitHubAppClientId":"Iv1maliciousclient","gitHubOAuthIdentity":"someone"}""");
-        loaded = TwigConfiguration.LoadSplit(paths);
-        loaded.GitHubAppClientId.ShouldBe(AppId);
+        Should.Throw<TwigConfigurationException>(() => TwigConfiguration.LoadSplit(paths))
+            .Message.ShouldContain("gitHubCredentialSource");
         File.Delete(paths.ConfigPath);
+        Should.Throw<TwigConfigurationException>(() => TwigConfiguration.LoadSplit(paths))
+            .Message.ShouldContain("gitHubCredentialSource");
+        File.WriteAllText(paths.RepoConfigPath, "{}");
         loaded = TwigConfiguration.LoadSplit(paths);
         loaded.GitHubCredentialSource.ShouldBeNull();
         loaded.GitHubAppClientId.ShouldBeNull();

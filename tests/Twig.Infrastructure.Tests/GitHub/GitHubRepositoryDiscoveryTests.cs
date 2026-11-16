@@ -34,6 +34,7 @@ public sealed class GitHubRepositoryDiscoveryTests
         using var network = new DiscoveryTransport();
         using var http = GitHubReadOnlyAuthHandler.CreateClient(tokens, Endpoint, network);
         var discovery = new GitHubRepositoryDiscovery(http, new("github.com", "old/repo", Endpoint));
+        File.Exists(fixture.SystemDbPath).ShouldBeFalse();
 
         var observation = await discovery.DiscoverAsync();
 
@@ -42,9 +43,7 @@ public sealed class GitHubRepositoryDiscoveryTests
         observation.ResourceScope.ShouldBe("https://api.github.com");
         tokens.Calls.ShouldBe(1);
         network.Requests.ShouldBe(1);
-        var row = await fixture.Registry.FindByIdentityAsync(observation.Target.ToIdentity(Endpoint));
-        row.IsSuccess.ShouldBeTrue(row.IsSuccess ? null : row.Error.Message);
-        row.Value.ShouldBeNull();
+        File.Exists(fixture.SystemDbPath).ShouldBeFalse();
         (await fixture.Attachment.ReadWithRevisionAsync()).Value.Revision.ShouldBe(0);
         File.Exists(Path.Combine(fixture.Paths.TwigDir, "provider-target.json")).ShouldBeFalse();
     }

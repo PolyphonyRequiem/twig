@@ -100,17 +100,13 @@ public sealed class StructuredMutationArgumentValidatorTests
         AssertError(
             ["seed", "new", "--title", "--no-parent", "-o", "json"],
             "--parent <id> or --no-parent");
-        StructuredMutationArgumentValidator.Validate(["new", "--title", "--set", "-o", "json"])
-            .ShouldBeNull();
     }
 
     [Theory]
-    [InlineData("up")]
-    [InlineData("down")]
-    [InlineData("next")]
-    [InlineData("prev")]
-    [InlineData("nav", "back")]
-    [InlineData("nav", "fore")]
+    [InlineData("nav", "up")]
+    [InlineData("nav", "down")]
+    [InlineData("nav", "next")]
+    [InlineData("nav", "prev")]
     [InlineData("seed", "publish", "123")]
     public void ActiveContextChangesAreRejectedForStructuredOutput(string command, params string[] arguments)
     {
@@ -118,16 +114,10 @@ public sealed class StructuredMutationArgumentValidatorTests
     }
 
     [Fact]
-    public void ExplicitListAndHistoryScopesRemainUsableWithoutId()
+    public void ExplicitListScopesRemainUsableWithoutId()
     {
         StructuredMutationArgumentValidator.Validate(["query", "--wiql", "select [System.Id] from WorkItems", "-o", "json"]).ShouldBeNull();
         StructuredMutationArgumentValidator.Validate(["show-batch", "42,43", "-o", "json"]).ShouldBeNull();
-        StructuredMutationArgumentValidator.Validate(["tree", "--all", "-o", "json"]).ShouldBeNull();
-        StructuredMutationArgumentValidator.Validate(["nav", "history", "-o", "json"]).ShouldBeNull();
-        StructuredMutationArgumentValidator.Validate(["nav", "history", "-o", "minimal"]).ShouldBeNull();
-        AssertError(
-            ["nav", "history", "-o", "json-full"],
-            "supports only -o json or -o minimal");
     }
 
     [Theory]
@@ -213,14 +203,6 @@ public sealed class StructuredMutationArgumentValidatorTests
             ["seed", "new", "--title", "example", "--parent", "-o", "json"],
             "--parent <id> or --no-parent");
         AssertError(["seed", "chain", "--title", "example", "-o", "json"], "--parent <id>");
-    }
-
-    [Fact]
-    public void NewSetIsRejectedForStructuredOutput()
-    {
-        AssertError(
-            ["new", "--title", "example", "--type", "Task", "--set", "-o", "json"],
-            "changes the active work item");
     }
 
     private static void AssertError(IReadOnlyList<string> args, string expectedMessage)

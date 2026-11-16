@@ -1,115 +1,43 @@
-using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
-using Twig.Infrastructure.Auth;
-using Twig.Infrastructure.Persistence;
-using Twig.Infrastructure.Persistence.ProviderTargets;
+using Twig.Infrastructure.Telemetry;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public class TelemetryHelperTests
+public sealed class TelemetryHelperTests
 {
     [Fact]
-    public void TrackCommand_With_Null_Client_Does_Not_Throw()
+    public void HostHookReceivesOnlySafeFixedKeysWithoutActivityOrIdentifierExtras()
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
+        var client = Substitute.For<ITelemetryClient>();
+        Dictionary<string, string>? properties = null;
+        Dictionary<string, double>? metrics = null;
+        client.When(value => value.TrackEvent(Arg.Any<string>(), Arg.Any<Dictionary<string, string>>(),
+            Arg.Any<Dictionary<string, double>>())).Do(call =>
+            {
+                properties = call.ArgAt<Dictionary<string, string>>(1);
+                metrics = call.ArgAt<Dictionary<string, double>>(2);
+            });
+        using var activity = new Activity("private-work-123").Start();
+        TelemetryHelper.TrackCommand(client, "show", "json", 0, Stopwatch.GetTimestamp());
 
-        Should.NotThrow(() =>
-            TelemetryHelper.TrackCommand(null, "status", "human", 0, startTimestamp));
+        properties.ShouldNotBeNull().Keys.ShouldBe(
+            ["command", "exit_code", "output_format", "twig_version", "os_platform"], ignoreOrder: true);
+        metrics.ShouldNotBeNull().Keys.ShouldBe(["duration_ms"]);
+        properties.Values.ShouldNotContain(activity.Id!);
+        properties.Values.ShouldNotContain("private-work-123");
     }
 
     [Fact]
-    public void TrackCommand_Emits_Event_With_Correct_Properties()
+    public void HostFailureCannotChangeCommandOutcome()
     {
         var client = Substitute.For<ITelemetryClient>();
-        var startTimestamp = Stopwatch.GetTimestamp();
-
-        TelemetryHelper.TrackCommand(client, "status", "json", 0, startTimestamp);
-
-        client.Received(1).TrackEvent(
-            "CommandExecuted",
-            Arg.Is<Dictionary<string, string>>(p =>
-                p["command"] == "status" &&
-                p["exit_code"] == "0" &&
-                p["output_format"] == "json" &&
-                p.ContainsKey("twig_version") &&
-                p.ContainsKey("os_platform")),
-            Arg.Is<Dictionary<string, double>>(m =>
-                m.ContainsKey("duration_ms")));
-    }
-
-    [Fact]
-    public void TrackCommand_Emits_Event_With_NonZero_Exit_Code()
-    {
-        var client = Substitute.For<ITelemetryClient>();
-        var startTimestamp = Stopwatch.GetTimestamp();
-
-        TelemetryHelper.TrackCommand(client, "tree", "human", 1, startTimestamp);
-
-        client.Received(1).TrackEvent(
-            "CommandExecuted",
-            Arg.Is<Dictionary<string, string>>(p =>
-                p["command"] == "tree" &&
-                p["exit_code"] == "1"),
-            Arg.Any<Dictionary<string, double>>());
-    }
-
-    [Fact]
-    public void TrackCommand_Merges_Extra_Properties()
-    {
-        var client = Substitute.For<ITelemetryClient>();
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var extras = new Dictionary<string, string>
-        {
-            ["hash_changed"] = "true",
-        };
-
-        TelemetryHelper.TrackCommand(client, "refresh", "human", 0, startTimestamp,
-            extraProperties: extras);
-
-        client.Received(1).TrackEvent(
-            "CommandExecuted",
-            Arg.Is<Dictionary<string, string>>(p =>
-                p["command"] == "refresh" &&
-                p["hash_changed"] == "true"),
-            Arg.Any<Dictionary<string, double>>());
-    }
-
-    [Fact]
-    public void TrackCommand_Merges_Extra_Metrics()
-    {
-        var client = Substitute.For<ITelemetryClient>();
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var extraMetrics = new Dictionary<string, double>
-        {
-            ["item_count"] = 42.0,
-        };
-
-        TelemetryHelper.TrackCommand(client, "refresh", "human", 0, startTimestamp,
-            extraMetrics: extraMetrics);
-
-        client.Received(1).TrackEvent(
-            "CommandExecuted",
-            Arg.Any<Dictionary<string, string>>(),
-            Arg.Is<Dictionary<string, double>>(m =>
-                m["duration_ms"] >= 0 &&
-                m["item_count"] == 42.0));
-    }
-
-    [Fact]
-    public void TrackCommand_Duration_Is_Non_Negative()
-    {
-        var client = Substitute.For<ITelemetryClient>();
-        var startTimestamp = Stopwatch.GetTimestamp();
-
-        TelemetryHelper.TrackCommand(client, "status", "human", 0, startTimestamp);
-
-        client.Received(1).TrackEvent(
-            Arg.Any<string>(),
-            Arg.Any<Dictionary<string, string>>(),
-            Arg.Is<Dictionary<string, double>>(m => m["duration_ms"] >= 0));
+        client.When(value => value.TrackEvent(Arg.Any<string>(), Arg.Any<Dictionary<string, string>>(),
+            Arg.Any<Dictionary<string, double>>())).Do(_ => throw new InvalidOperationException("hook failed"));
+        Should.NotThrow(() => TelemetryHelper.TrackCommand(client, "show", "json", 0, Stopwatch.GetTimestamp()));
+        Should.NotThrow(() => TelemetryHelper.TrackCommand(null, "show", "json", 0, Stopwatch.GetTimestamp()));
     }
 }

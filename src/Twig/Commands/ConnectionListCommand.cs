@@ -15,28 +15,24 @@ internal sealed class ConnectionListCommand
 {
     private readonly IConnectionBindingService _bindingService;
     private readonly TwigConfiguration _config;
-    private readonly OutputFormatterFactory _formatterFactory;
     private readonly RendererFactory _rendererFactory;
 
     public ConnectionListCommand(
         IConnectionBindingService bindingService,
         TwigConfiguration config,
-        OutputFormatterFactory formatterFactory,
         RendererFactory? rendererFactory = null)
     {
         _bindingService = bindingService;
         _config = config;
-        _formatterFactory = formatterFactory;
         _rendererFactory = rendererFactory ?? new RendererFactory();
     }
 
     public async Task<int> ExecuteAsync(
         string? organization,
         string? project,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        string outputFormat = OutputFormats.Default,
         CancellationToken ct = default)
     {
-        var fmt = _formatterFactory.GetFormatter(outputFormat);
 
         var orgProvided = !string.IsNullOrWhiteSpace(organization);
         var projectProvided = !string.IsNullOrWhiteSpace(project);

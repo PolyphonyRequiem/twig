@@ -128,7 +128,7 @@ public sealed class ShowBatchPositionalProductionCliTests : IDisposable
     /// <remarks>
     /// <para>
     /// 🔴 Added after mutation: deleting the positional example from
-    /// <see cref="Twig.CommandExamples"/> left the entire suite green. The generated parser
+    /// the former hand-maintained examples table left the entire suite green. The generated parser
     /// emits its own <c>Arguments:</c> block from the SLOT, so the arm above stays green with
     /// no example present, and help/parser drift in the direction
     /// <c>tools/positional-drift.py</c> exists to catch — silently.

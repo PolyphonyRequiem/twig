@@ -5,7 +5,7 @@ namespace Twig.Formatters;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Before this type existed, both <see cref="OutputFormatterFactory"/> and
+/// Before this type existed, both the former formatter factory and
 /// <see cref="Twig.Rendering.RendererFactory"/> ended their format switch in a
 /// catch-all arm that silently meant <c>human</c>. A typo — <c>-o jsno</c>,
 /// <c>-o json5</c> — therefore produced ANSI prose on stdout and exit code 0,

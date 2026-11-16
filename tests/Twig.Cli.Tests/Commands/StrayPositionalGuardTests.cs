@@ -33,7 +33,6 @@ public sealed class StrayPositionalGuardTests
     [InlineData("note|a|b|c", "b", "twig note \"a b c\"")]
     [InlineData("edit|System.Title|extra", "extra", "twig edit \"System.Title extra\"")]
     [InlineData("seed|chain|alpha|beta", "beta", "twig seed chain \"alpha beta\"")]
-    [InlineData("new|task|Write|tests", "tests", "twig new task \"Write tests\"")]
     public void SurplusPositionals_AreRejectedWithAQuotingHint(string argv, string stray, string suggestion)
     {
         var error = StrayPositionalGuard.Validate(argv.Split('|'));
@@ -76,8 +75,6 @@ public sealed class StrayPositionalGuardTests
     [InlineData("note")]
     [InlineData("edit|System.Title")]
     [InlineData("seed|chain|design api,build api")]
-    [InlineData("new|task")]
-    [InlineData("new|task|Write tests")]
     public void PositionalsWithinArity_AreRoutedNormally(string argv)
     {
         var args = argv.Split('|');
@@ -93,9 +90,7 @@ public sealed class StrayPositionalGuardTests
     [InlineData("note|--text|hello world")]
     [InlineData("note|--text|hello world|--id|398")]
     [InlineData("edit|--field|System.Title")]
-    [InlineData("new|--title|hello world|--type|Task")]
     [InlineData("seed|chain|--parent|383")]
-    [InlineData("new|--type|Task|--field|a=1|--field|b=2")]
     public void NamedSpellings_AreRoutedNormally(string argv)
     {
         var args = argv.Split('|');
@@ -110,7 +105,6 @@ public sealed class StrayPositionalGuardTests
     /// </summary>
     [Theory]
     [InlineData("note|hello|world|--help")]
-    [InlineData("new|task|a|b|-h")]
     [InlineData("seed|chain|a|b|--help")]
     public void HelpRequests_AreNeverAUsageError(string argv)
     {
@@ -186,7 +180,7 @@ public sealed class StrayPositionalGuardTests
     public void EveryRegisteredChain_IsAKnownCommand()
     {
         foreach (var chain in StrayPositionalGuard.Arity.Keys)
-            GroupedHelp.KnownCommands.ShouldContain(chain,
+            CommandCatalog.KnownCommands.ShouldContain(chain,
                 customMessage: $"'{chain}' is registered in Arity but is not a known command — "
                     + "a stale entry silently guards nothing.");
     }

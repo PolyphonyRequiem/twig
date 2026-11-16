@@ -20,7 +20,6 @@ internal sealed class ConnectionStatusCommand
     private readonly IConnectionBindingService _bindingService;
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
-    private readonly OutputFormatterFactory _formatterFactory;
     private readonly RendererFactory _rendererFactory;
     private readonly CoreWorkspaceFactory? _core;
 
@@ -28,23 +27,20 @@ internal sealed class ConnectionStatusCommand
         IConnectionBindingService bindingService,
         TwigConfiguration config,
         TwigPaths paths,
-        OutputFormatterFactory formatterFactory,
         RendererFactory? rendererFactory = null,
         CoreWorkspaceFactory? core = null)
     {
         _bindingService = bindingService;
         _config = config;
         _paths = paths;
-        _formatterFactory = formatterFactory;
         _rendererFactory = rendererFactory ?? new RendererFactory();
         _core = core;
     }
 
     public async Task<int> ExecuteAsync(
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        string outputFormat = OutputFormats.Default,
         CancellationToken ct = default)
     {
-        var fmt = _formatterFactory.GetFormatter(outputFormat);
         if (_config.ResolveWorkItemProviderKind() == "github")
         {
             if (_core is null)

@@ -15,19 +15,18 @@ public sealed class AuthGitHubCommandTests : IDisposable
 {
     private const string AppId = "Iv1syntheticclient";
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "twig-app-command-" + Guid.NewGuid().ToString("N"));
-    private readonly OutputFormatterFactory _formatters = new(new HumanOutputFormatter());
 
     [Theory]
     [InlineData("human")]
     [InlineData("json")]
     [InlineData("minimal")]
-    public async Task LoginStatusLogout_AreExplicitTokenFreeAndLocalStatusDoesNotRefresh(string format)
+    public async Task LoginStatus_AreExplicitTokenFreeAndLocalStatusDoesNotRefresh(string format)
     {
         var wire = new Wire();
         var config = new TwigConfiguration { GitHubAppClientId = AppId, GitHubOAuthIdentity = "personal" };
         var command = Command(config, wire);
         var (login, output) = await StdoutCapture.RunAsync(
-            () => command.ExecuteAsync("login", null, null, format, CancellationToken.None));
+            () => command.ExecuteAsync("login", "personal", null, format, CancellationToken.None));
         login.ShouldBe(0);
         output.ShouldContain("signed-in");
         output.ShouldNotContain("ghu_");
@@ -44,14 +43,6 @@ public sealed class AuthGitHubCommandTests : IDisposable
         status.ShouldBe(0);
         statusOutput.ShouldContain("U_fixture");
         wire.Calls.ShouldBe(3);
-
-        var (logout, logoutOutput) = await StdoutCapture.RunAsync(
-            () => command.ExecuteAsync("logout", null, null, format, CancellationToken.None));
-        logout.ShouldBe(0);
-        logoutOutput.ShouldContain("NOT revoked");
-        wire.Calls.ShouldBe(3);
-        (await StdoutCapture.RunAsync(() => command.ExecuteAsync("status", null, null, format, CancellationToken.None)))
-            .stdout.ShouldContain("signed-out");
     }
 
     [Fact]
@@ -95,7 +86,6 @@ public sealed class AuthGitHubCommandTests : IDisposable
         var config = new TwigConfiguration { GitHubAppClientId = AppId, GitHubOAuthIdentity = "personal" };
         var wire = new Wire();
         var services = new ServiceCollection();
-        services.AddSingleton(_formatters);
         services.AddSingleton(Command(config, wire));
         using var provider = services.BuildServiceProvider();
         var commands = new TwigCommands(provider);
@@ -103,19 +93,15 @@ public sealed class AuthGitHubCommandTests : IDisposable
             () => commands.AuthStatus(output: "json", provider: "github"));
         status.ShouldBe(0);
         output.ShouldContain("signed-out");
-        (await StdoutCapture.RunAsync(() => commands.AuthLogout(provider: "github", output: "json")))
-            .result.ShouldBe(0);
         (await StdoutCapture.RunAsync(() => commands.AuthLogin(provider: "github", tenant: "organizations")))
             .result.ShouldBe(2);
         (await StdoutCapture.RunAsync(() => commands.AuthStatus(provider: "ado", clientId: AppId)))
-            .result.ShouldBe(2);
-        (await StdoutCapture.RunAsync(() => commands.AuthLogout()))
             .result.ShouldBe(2);
         wire.Calls.ShouldBe(0);
     }
 
     private AuthGitHubCommand Command(TwigConfiguration config, Wire wire) => new(
-        config, _formatters, createAuthentication: (client, alias) => new(
+        config, createAuthentication: (client, alias) => new(
             new(_directory, client, alias),
             () => new(new Forwarder(wire), TimeProvider.System, (_, ct) =>
             {

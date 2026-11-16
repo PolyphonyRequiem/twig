@@ -22,11 +22,11 @@ internal sealed class LocalRelationshipCommand(
     private readonly TextWriter _stderr = stderrWriter ?? Console.Error;
 
     public Task<int> AddRelatedAsync(string? sourceText, string? targetText,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default)
         => MutateAsync(sourceText, targetText, true, outputFormat, ct);
 
     public Task<int> UnrelateAsync(string? sourceText, string? targetText,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default)
         => MutateAsync(sourceText, targetText, false, outputFormat, ct);
 
     private Task<int> MutateAsync(string? sourceText, string? targetText, bool adding, string output, CancellationToken ct)
@@ -72,7 +72,7 @@ internal sealed class LocalRelationshipCommand(
         });
 
     public Task<int> ListAsync(string? targetText, string? id = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default)
         => RunAsync("link local list", outputFormat, async () =>
         {
             if (!SupportsOutput(outputFormat, true)) return Error(outputFormat, "Use human, json, json-full, json-compact, minimal or ids output.", 2);

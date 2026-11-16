@@ -71,7 +71,6 @@ internal static class StrayPositionalGuard
         ["note"] = 1,
         ["edit"] = 1,
         ["seed chain"] = 1,
-        ["new"] = 2,
     };
 
     /// <summary>
@@ -135,13 +134,13 @@ internal static class StrayPositionalGuard
     {
         index = 1;
         var chain = args[0];
-        if (!GroupedHelp.KnownCommands.Contains(chain) && !SubcommandGuard.IsGroupPrefix(chain))
+        if (!CommandCatalog.KnownCommands.Contains(chain) && !SubcommandGuard.IsGroupPrefix(chain))
             return null;
 
         while (index < args.Length && !args[index].StartsWith('-'))
         {
             var candidate = $"{chain} {args[index]}";
-            if (!GroupedHelp.KnownCommands.Contains(candidate) && !SubcommandGuard.IsGroupPrefix(candidate))
+            if (!CommandCatalog.KnownCommands.Contains(candidate) && !SubcommandGuard.IsGroupPrefix(candidate))
                 break;
             chain = candidate;
             index++;

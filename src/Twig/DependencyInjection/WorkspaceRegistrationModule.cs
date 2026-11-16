@@ -48,7 +48,7 @@ internal static class WorkspaceRegistrationModule
         if (admission is not null) throw new InvalidOperationException(admission);
         if (File.Exists(Path.Combine(twigDir, CoreWorkspaceFactory.FileName)))
         {
-            var corePaths = TwigPaths.BuildPaths(twigDir, config, startDir);
+            var corePaths = TwigPaths.BuildPaths(twigDir, startDir);
             services.AddCoreWorkspaceServices(config, corePaths);
             services.AddSingleton<Twig.Commands.IConsoleInput, ConsoleInput>();
             services.TryAddSingleton<Twig.Commands.IEditorLauncher, EditorLauncher>();

@@ -22,31 +22,31 @@ internal sealed class LinkCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
     public Task<int> ParentAsync(int targetId, int? id = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, int? child = null, int? positionalChild = null)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default, int? child = null, int? positionalChild = null)
         => ExecuteAsync("parent", targetId, id, child, null, false, outputFormat, ct, positionalChild);
 
     public Task<int> UnparentAsync(int? id = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, int? child = null, int? positionalChild = null)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default, int? child = null, int? positionalChild = null)
         => ExecuteAsync("unparent", null, id, child, null, true, outputFormat, ct, positionalChild);
 
     public Task<int> ReparentAsync(int targetId, int? id = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, int? child = null, int? positionalChild = null)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default, int? child = null, int? positionalChild = null)
         => ExecuteAsync("reparent", targetId, id, child, null, false, outputFormat, ct, positionalChild);
 
     public Task<int> DependencyAsync(string linkType, int targetId, int? id = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default)
         => ExecuteAsync(linkType, targetId, id, null, null, false, outputFormat, ct);
 
     public Task<int> RelatedAsync(int targetId, int? id = null, string? comment = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default)
         => ExecuteAsync("related", targetId, id, null, comment, false, outputFormat, ct);
 
     public Task<int> UnrelateAsync(int targetId, int? id = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default)
         => ExecuteAsync("related", targetId, id, null, null, true, outputFormat, ct);
 
     public Task<int> UnlinkDependencyAsync(string linkType, int targetId, int? id = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default)
         => ExecuteAsync(linkType.Trim().ToLowerInvariant() is "predecessor" or "successor" or "related" ? linkType : "",
             targetId, id, null, null, true, outputFormat, ct);
 
@@ -107,9 +107,9 @@ internal sealed class LinkCommand(
             {
                 var context = await workspace.Context.ReadAsync(ct);
                 if (!context.IsSuccess) return Error(format, context.Error.Message);
-                if (context.Value.Position < 0)
+                if (context.Value.Active is null)
                     return Error(format, "No active Core item is selected. Run 'twig set <id>' or pass --id.");
-                source = context.Value.History[context.Value.Position].Resolve(workspace.Connection);
+                source = context.Value.Active.Resolve(workspace.Connection);
                 if (source.IsLocal)
                 {
                     var captured = await workspace.SnapshotAsync(ct);

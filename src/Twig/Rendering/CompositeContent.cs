@@ -63,7 +63,7 @@ internal sealed class FieldBlockContent(RenderNode.FieldBlock block, bool unicod
                         RenderTextRole.After => new Color(85, 170, 255),
                         _ => Ink.Foreground,
                     };
-                    paragraph.Append(span.Text, SpectreTheme.OnSurface(foreground, Surface));
+                    paragraph.Append(span.Text, OnSurface(foreground, Surface));
                 }
             else paragraph.Append(field.Value.DisplayText, Ink);
             var right = Segment.SplitLines(((IRenderable)paragraph).Render(options, values)).ToList();
@@ -79,5 +79,33 @@ internal sealed class FieldBlockContent(RenderNode.FieldBlock block, bool unicod
                 yield return Segment.LineBreak;
             }
         }
+    }
+
+    internal static Style OnSurface(Color foreground, Color background)
+    {
+        static double Luminance(Color color)
+        {
+            static double Linear(byte value)
+            {
+                var s = value / 255.0;
+                return s <= 0.04045 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+            }
+            return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+        }
+        var bg = Luminance(background);
+        bool Readable(Color c)
+        {
+            var fg = Luminance(c);
+            return (Math.Max(fg, bg) + 0.05) / (Math.Min(fg, bg) + 0.05) >= 4.5;
+        }
+        if (Readable(foreground)) return new Style(foreground, background);
+        for (var step = 1; step <= 255; step++)
+            foreach (var end in new[] { 255, 0 })
+            {
+                byte Mix(byte value) => (byte)(value + (end - value) * step / 255);
+                var candidate = new Color(Mix(foreground.R), Mix(foreground.G), Mix(foreground.B));
+                if (Readable(candidate)) return new Style(candidate, background);
+            }
+        return new Style(foreground, background);
     }
 }

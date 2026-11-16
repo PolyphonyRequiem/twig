@@ -36,7 +36,6 @@ internal sealed class AuthPatCommand(
     IConnectionBindingService bindingService,
     TwigConfiguration config,
     TwigPaths paths,
-    OutputFormatterFactory formatterFactory,
     IAnsiConsole ansiConsole,
     ITelemetryClient? telemetryClient = null,
     Rendering.RendererFactory? rendererFactory = null)
@@ -47,7 +46,7 @@ internal sealed class AuthPatCommand(
         string? identity,
         string? org,
         bool stdin,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        string outputFormat = OutputFormats.Default,
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
@@ -60,7 +59,6 @@ internal sealed class AuthPatCommand(
         string? identity, string? org, bool stdin, string outputFormat, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var fmt = formatterFactory.GetFormatter(outputFormat);
         if (string.IsNullOrWhiteSpace(identity))
         {
             CommandError.Write(_rendererFactory, Console.Error, outputFormat,

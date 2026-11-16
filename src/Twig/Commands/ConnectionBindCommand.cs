@@ -26,18 +26,15 @@ internal sealed class ConnectionBindCommand
 {
     private readonly Func<IConnectionBindingService> _bindingService;
     private readonly TwigConfiguration _config;
-    private readonly OutputFormatterFactory _formatterFactory;
     private readonly RendererFactory _rendererFactory;
 
     public ConnectionBindCommand(
         Func<IConnectionBindingService> bindingService,
         TwigConfiguration config,
-        OutputFormatterFactory formatterFactory,
         RendererFactory? rendererFactory = null)
     {
         _bindingService = bindingService;
         _config = config;
-        _formatterFactory = formatterFactory;
         _rendererFactory = rendererFactory ?? new RendererFactory();
     }
 
@@ -46,10 +43,9 @@ internal sealed class ConnectionBindCommand
         string? project,
         string? identity,
         bool makeDefault,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        string outputFormat = OutputFormats.Default,
         CancellationToken ct = default)
     {
-        var fmt = _formatterFactory.GetFormatter(outputFormat);
 
         if (string.IsNullOrWhiteSpace(identity))
         {

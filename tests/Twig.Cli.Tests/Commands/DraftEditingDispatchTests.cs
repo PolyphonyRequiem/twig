@@ -10,9 +10,9 @@ public sealed class DraftEditingDispatchTests
     [InlineData("open")]
     [InlineData("stage")]
     [InlineData("retain")]
-    public void DraftEditingCommands_AreListedAndAcceptedByNativeGuard(string verb)
+    public void RetiredDraftEditingCommandsAreAbsentAndRefusedBeforeComposition(string verb)
     {
-        GroupedHelp.KnownCommands.ShouldContain("draft " + verb);
-        SubcommandGuard.Validate(["draft", verb]).ShouldBeNull();
+        CommandCatalog.KnownCommands.ShouldNotContain("draft " + verb);
+        Twig.CoreMutationAdmissionGuard.ValidateCatalog(["draft", verb]).ShouldNotBeNull();
     }
 }

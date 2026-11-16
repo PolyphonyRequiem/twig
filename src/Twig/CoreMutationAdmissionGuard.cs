@@ -39,7 +39,7 @@ internal static class CoreMutationAdmissionGuard
         var command = args[0];
         if (args.Count > 1 && !args[1].StartsWith('-')
             && args[0] is "auth" or "connection" or "bench" or "workspace" or "process"
-                or "proposal" or "plan" or "seed" or "draft" or "nav" or "link")
+                or "proposal" or "seed" or "draft" or "nav" or "link")
             command += " " + args[1];
         return $"Unsupported: {command} or its UI envelope is retired from current delivery; no provider, credential or legacy workflow was opened.";
     }
@@ -56,6 +56,13 @@ internal static class CoreMutationAdmissionGuard
 
     private static bool Retired(IReadOnlyList<string> args)
     {
+        var options = args.TakeWhile(value => value != "--").Select(value => value.Split('=', 2)[0]).ToHashSet(StringComparer.Ordinal);
+        if (args[0] is "tree" or "workspace" or "ws" && options.Overlaps(["--no-live", "--flat"])
+            || args[0] == "process" && options.Contains("--refresh")
+            || args.Count > 1 && args[0] == "seed" && args[1] == "publish" && options.Contains("--force")
+            || args.Count > 1 && args[0] == "proposal" && args[1] == "preview"
+                && options.Overlaps(["--full", "--width", "--color"]))
+            return true;
         if (args.Any(value => value.Split('=', 2)[0] is "--browser" or "--include-browser" or "--browser-version"
             or "--expect-binding" or "--expect-identity" or "--expect-settings"
             or "--include-rendering" or "--interactive" or "--live" or "--all-backlog"))
@@ -72,13 +79,12 @@ internal static class CoreMutationAdmissionGuard
             "nav" => args.Count < 2 || args[1] is not ("up" or "down" or "next" or "prev"),
             "process" => args.Count > 1 && args[1] == "layout",
             "seed" => args.Count < 2 || args[1] is not ("new" or "view" or "validate" or "publish" or "discard" or "reconcile" or "chain" or "edit" or "link" or "unlink" or "links"),
-            "proposal" or "plan" => args.Count < 2 || args[1] is not ("validate" or "preview" or "apply" or "status"),
+            "proposal" => args.Count < 2 || args[1] is not ("validate" or "preview" or "apply" or "status"),
             "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "switch" or "rename" or "delete")
                 && !PlanningRoute(args),
             "workspace" or "ws" => args.Contains("--all") || args.Contains("--tree")
                 || args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("view" or "track" or "track-tree" or "untrack" or "sync" or "exclude" or "exclusions")
                     && !PlanningRoute(args),
-            "area" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("add" or "remove" or "list" or "sync"),
             "link" => false,
             _ => true,
         };
@@ -105,7 +111,7 @@ internal static class CoreMutationAdmissionGuard
         "bench" => args.Count == 1 || args.Count > 1 && args[1] is "list" or "create" or "switch",
         "workspace" or "ws" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "view" or "track" or "untrack" or "exclude" or "exclusions",
         "seed" => args.Count > 1 && args[1] is "new" or "view" or "publish" or "discard" or "validate",
-        "proposal" or "plan" => args.Count > 1 && args[1] is "preview" or "apply" or "status" or "validate",
+        "proposal" => args.Count > 1 && args[1] is "preview" or "apply" or "status" or "validate",
         "skills" or "help" or "version" => true,
         _ => false,
     };

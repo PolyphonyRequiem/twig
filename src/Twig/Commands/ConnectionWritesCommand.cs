@@ -24,29 +24,20 @@ internal sealed class ConnectionWritesCommand(
     IConnectionRemoteWriteReconciliationService reconciliation,
     TwigConfiguration configuration,
     TwigPaths paths,
-    OutputFormatterFactory formatters,
     RendererFactory renderers,
     ITelemetryClient? telemetry = null,
     CoreWorkspaceFactory? core = null)
 {
-    public async Task<int> ExecuteAsync(bool reconcile, string? intent = null, string? confirm = null,
-        string? rationale = null,
-        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string output = OutputFormats.Default, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         var exit = 1;
         try
         {
-            if (reconcile)
-            {
-                CommandError.Write(renderers, Console.Error, output,
-                    "Unsupported: native reconciliation is retired. Core proposal status is execution authority; inspection cannot settle, replay or clear uncertainty.");
-                return exit = 1;
-            }
             var normalized = OutputFormats.Normalize(output);
             if (normalized is not ("human" or "json" or "json-full" or "json-compact" or "minimal"))
             {
-                Console.Error.WriteLine(formatters.GetFormatter(output).FormatError("Supported output formats: human, json, json-full, json-compact, minimal."));
+                CommandError.Write(renderers, Console.Error, output, "Supported output formats: human, json, json-full, json-compact, minimal.");
                 return exit = 2;
             }
             if (configuration.ResolveWorkItemProviderKind() == "github")
@@ -60,10 +51,7 @@ internal sealed class ConnectionWritesCommand(
             }).ToArray();
             if (normalized is "json" or "json-full" or "json-compact")
             {
-                if (reconcile)
-                    Console.Out.WriteLine(JsonSerializer.Serialize(reports[0], TwigJsonContext.Default.ConnectionRemoteWriteInspection));
-                else
-                    Console.Out.WriteLine(JsonSerializer.Serialize(reports.ToArray(), TwigJsonContext.Default.ConnectionRemoteWriteInspectionArray));
+                Console.Out.WriteLine(JsonSerializer.Serialize(reports.ToArray(), TwigJsonContext.Default.ConnectionRemoteWriteInspectionArray));
             }
             else if (normalized == "minimal")
             {
@@ -93,7 +81,7 @@ internal sealed class ConnectionWritesCommand(
                 if (reports.Count == 0) sections.Add(new RenderNode.Text("No native remote-write intents are recorded for this checkout."));
                 renderers.GetRenderer(output).Render(new RenderTree.RenderTree(sections));
             }
-            return exit = !reconcile || reports[0].Receipt is not null ? 0 : 1;
+            return exit = 0;
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or JsonException or AdoException or ArgumentException)
         {
@@ -102,7 +90,7 @@ internal sealed class ConnectionWritesCommand(
         }
         finally
         {
-            try { TelemetryHelper.TrackCommand(telemetry, reconcile ? "connection reconcile-write" : "connection writes", output, exit, started); }
+            try { TelemetryHelper.TrackCommand(telemetry, "connection writes", output, exit, started); }
             catch (Exception) { Trace.TraceWarning("Optional command telemetry was unavailable."); }
         }
     }

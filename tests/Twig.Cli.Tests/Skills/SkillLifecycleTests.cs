@@ -174,38 +174,36 @@ public sealed class SkillLifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Update_migrates_legacy_family_and_preserves_selections_externals_and_user_files()
+    public void Update_refuses_legacy_layout_without_touching_any_files()
     {
         WriteLegacyInstall("omp");
-        var selection = File.ReadAllBytes(Path.Combine(Target, SkillLifecycle.LegacySelectionPath));
-        var companion = File.ReadAllText(Path.Combine(Target, "my-presenter/SKILL.md"));
+        var before = Directory.GetFiles(Target, "*", SearchOption.AllDirectories)
+            .ToDictionary(path => path, File.ReadAllBytes);
+        before.Keys.ShouldContain(Path.Combine(Target, "twig-cli", "SKILL.md"));
+        File.Exists(Path.Combine(Target, "twig", "SKILL.md")).ShouldBeFalse();
 
-        new SkillLifecycle(Package("2.0.0+foundation")).Update("omp", Target).State.ShouldBe("updated");
+        Should.Throw<SkillLifecycleException>(() =>
+            new SkillLifecycle(Package("2.0.0+foundation")).Update("omp", Target));
 
-        File.Exists(Path.Combine(Target, "twig/SKILL.md")).ShouldBeTrue();
-        File.ReadAllBytes(Path.Combine(Target, SkillLifecycle.SelectionPath)).ShouldBe(selection);
-        File.Exists(Path.Combine(Target, "twig-cli/SKILL.md")).ShouldBeFalse();
-        File.Exists(Path.Combine(Target, "twig-changes/SKILL.md")).ShouldBeFalse();
-        Directory.Exists(Path.Combine(Target, "twig-cli")).ShouldBeFalse();
-        Directory.Exists(Path.Combine(Target, "twig-changes")).ShouldBeFalse();
-        File.ReadAllText(Path.Combine(Target, "my-presenter/SKILL.md")).ShouldBe(companion);
-        File.ReadAllText(Path.Combine(Target, "unrelated-settings.json")).ShouldBe("user settings");
+        Directory.GetFiles(Target, "*", SearchOption.AllDirectories).ShouldBe(before.Keys, ignoreOrder: true);
+        foreach (var (path, bytes) in before) File.ReadAllBytes(path).ShouldBe(bytes);
+        File.Exists(Path.Combine(Target, ".twig-skills.lock")).ShouldBeFalse();
     }
 
     [Fact]
-    public void Legacy_migration_refuses_edited_managed_file_and_existing_canonical_name()
+    public void Legacy_layout_with_user_edits_and_canonical_conflict_is_never_adopted()
     {
         WriteLegacyInstall("hermes");
         Write("twig-changes/SKILL.md", "user edit");
         Should.Throw<SkillLifecycleException>(() => new SkillLifecycle(Package("2.0.0+foundation")).Update("hermes", Target))
-            .Message.ShouldContain("edited");
+            .Message.ShouldContain("managed package path");
         File.Exists(Path.Combine(Target, "twig/SKILL.md")).ShouldBeFalse();
 
         Directory.Delete(Target, true);
         WriteLegacyInstall("hermes");
         Write("twig/SKILL.md", "unmanaged canonical conflict");
         Should.Throw<SkillLifecycleException>(() => new SkillLifecycle(Package("2.0.0+foundation")).Update("hermes", Target))
-            .Message.ShouldContain("conflict");
+            .Message.ShouldContain("managed package path");
         File.ReadAllText(Path.Combine(Target, "twig/SKILL.md")).ShouldBe("unmanaged canonical conflict");
         File.Exists(Path.Combine(Target, "twig-cli/SKILL.md")).ShouldBeTrue();
     }
@@ -245,7 +243,7 @@ public sealed class SkillLifecycleTests : IDisposable
         {
             ["twig-cli/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig-cli\ndescription: Legacy CLI\n---\nLegacy"),
             ["twig-changes/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig-changes\ndescription: Legacy changes\n---\nLegacy"),
-            [SkillLifecycle.LegacySelectionPath] = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"selections\":{\"" + provider + "\":{\"terminal\":\"my-presenter\"}}}")
+            ["twig-cli/references/user-selections.json"] = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"selections\":{\"" + provider + "\":{\"terminal\":\"my-presenter\"}}}")
         };
         foreach (var (path, bytes) in legacyFiles)
         {

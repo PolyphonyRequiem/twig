@@ -6,7 +6,7 @@ namespace Twig.Rendering;
 /// <summary>
 /// Resolves an <see cref="IRenderer"/> by output-format name. Mirrors the
 /// alias normalization of
-/// <see cref="Twig.Formatters.OutputFormatterFactory"/>: <c>json</c>,
+/// <see cref="Twig.Formatters.OutputFormats"/>: <c>json</c>,
 /// <c>json-full</c>, and <c>json-compact</c> all resolve to
 /// <see cref="JsonRenderer"/>; <c>minimal</c> resolves to
 /// <see cref="MinimalRenderer"/>; <c>ids</c> resolves to
@@ -27,10 +27,8 @@ namespace Twig.Rendering;
 /// </remarks>
 public sealed class RendererFactory
 {
-    private readonly SpectreTheme? _theme;
     /// <summary>Creates a default renderer factory.</summary>
     public RendererFactory() { }
-    internal RendererFactory(SpectreTheme theme) => _theme = theme;
     /// <summary>The default format used when none is specified.</summary>
     public const string DefaultFormat = Twig.Formatters.OutputFormats.Default;
 
@@ -56,7 +54,7 @@ public sealed class RendererFactory
             "json-compact" => new JsonRenderer(Console.Out, indented: true),
             "minimal"      => new MinimalRenderer(Console.Out),
             "ids"          => new IdsRenderer(Console.Out),
-            _              => new SpectreNodeRenderer(CreateAnsiConsole(Console.Out), _theme),
+            _              => new SpectreNodeRenderer(CreateAnsiConsole(Console.Out)),
         };
     }
 
@@ -79,39 +77,8 @@ public sealed class RendererFactory
             "json-compact" => new JsonRenderer(writer, indented: true),
             "minimal"      => new MinimalRenderer(writer),
             "ids"          => new IdsRenderer(writer),
-            _              => new SpectreNodeRenderer(CreateAnsiConsole(writer), _theme),
+            _              => new SpectreNodeRenderer(CreateAnsiConsole(writer)),
         };
-    }
-
-    internal IRenderer GetHumanRenderer(TextWriter writer, int? width, string color)
-        => new SpectreNodeRenderer(CreateExplicitConsole(writer, width, color == "always"), _theme);
-
-    internal (string Text, bool Ansi) CaptureHuman(RenderTree.RenderTree tree, int width, string color)
-    {
-        using var writer = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
-        var console = CreateExplicitConsole(writer, width, color == "always");
-        new SpectreNodeRenderer(console, _theme).Render(tree);
-        return (writer.ToString(), console.Profile.Capabilities.Ansi);
-    }
-
-    private static IAnsiConsole CreateExplicitConsole(TextWriter writer, int? width, bool ansi)
-    {
-
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Out = new AnsiConsoleOutput(writer),
-            Ansi = ansi ? AnsiSupport.Yes : AnsiSupport.No,
-            ColorSystem = ansi ? ColorSystemSupport.TrueColor : ColorSystemSupport.NoColors,
-            Interactive = InteractionSupport.No,
-        });
-        // Explicit opt-in works over a pipe without inferring terminal capabilities.
-        console.Profile.Capabilities.Ansi = ansi;
-        console.Profile.Capabilities.Links = ansi;
-        console.Profile.Capabilities.Interactive = false;
-        console.Profile.Capabilities.Unicode = true;
-        console.Profile.Capabilities.ColorSystem = ansi ? ColorSystem.TrueColor : ColorSystem.NoColors;
-        console.Profile.Width = width ?? int.MaxValue;
-        return console;
     }
 
     private static IAnsiConsole CreateAnsiConsole(TextWriter writer)
@@ -138,9 +105,6 @@ public sealed class RendererFactory
         // Disabling ANSI/colour unconditionally here gives deterministic
         // output across platforms. Box-drawing characters (tables, trees)
         // still render via Unicode, which works fine in non-TTY contexts.
-        // HumanOutputFormatter keeps its own hardcoded ANSI codes for the
-        // legacy paths that target live terminals directly, so interactive
-        // colour output is preserved through that surface.
         var settings = new AnsiConsoleSettings
         {
             Out = new AnsiConsoleOutput(writer),

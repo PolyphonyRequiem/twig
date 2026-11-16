@@ -1,7 +1,6 @@
 using Twig.Infrastructure.Telemetry;
 using System.Diagnostics;
 using System.Globalization;
-using System.Text.Json;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Persistence.ProviderTargets;
@@ -14,7 +13,7 @@ using Twig.Rendering;
 namespace Twig.Commands;
 
 internal sealed class AuthGitHubCommand(
-    TwigConfiguration config, OutputFormatterFactory formatterFactory,
+    TwigConfiguration config,
     RendererFactory? rendererFactory = null, ITelemetryClient? telemetryClient = null,
     Func<string, string, GitHubAppAuthentication>? createAuthentication = null)
 {
@@ -32,7 +31,6 @@ internal sealed class AuthGitHubCommand(
     private async Task<int> ExecuteCoreAsync(string operation, string? identity, string? clientId,
         string outputFormat, CancellationToken ct)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -41,7 +39,7 @@ internal sealed class AuthGitHubCommand(
             try { GitHubAppCredentialStore.ValidateSelection(selectedClient, selectedIdentity); }
             catch (GitHubDeviceFlowException ex)
             {
-                Console.Error.WriteLine(FormatError(fmt, outputFormat, ex.Message));
+                CommandError.Write(_renderer, Console.Error, outputFormat, ex.Message);
                 return 2;
             }
             var auth = (createAuthentication ?? GitHubAppAuthentication.CreateDefault)(
@@ -51,24 +49,17 @@ internal sealed class AuthGitHubCommand(
             {
                 case "login":
                     status = await auth.LoginAsync(instructions =>
-                        Console.Error.WriteLine(fmt.FormatInfo(
+                        Console.Error.WriteLine(
                             $"Open {instructions.VerificationUri} and enter {instructions.UserCode}. " +
-                            "Authorize only the intended GitHub App. Tokens are never printed.")), ct);
+                            "Authorize only the intended GitHub App. Tokens are never printed."), ct);
                     break;
                 case "status":
-                    status = auth.Inspect();
-                    break;
-                case "logout":
-                    auth.Logout();
                     status = auth.Inspect();
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(operation));
             }
-            var message = operation == "logout"
-                ? "Removed selected local OAuth credentials. Remote authorization is NOT revoked. " +
-                    "Revoke it in GitHub Settings > Applications > Authorized GitHub Apps."
-                : "Local GitHub App identity status; repository permissions and write admission are not established.";
+            var message = "Local GitHub App identity status; repository permissions and write admission are not established.";
             var values = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
             {
                 ["provider"] = RenderCell.String(status.Provider),
@@ -99,20 +90,14 @@ internal sealed class AuthGitHubCommand(
         }
         catch (GitHubDeviceFlowException ex)
         {
-            Console.Error.WriteLine(FormatError(fmt, outputFormat, ex.Message));
+            CommandError.Write(_renderer, Console.Error, outputFormat, ex.Message);
             return 1;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            Console.Error.WriteLine(FormatError(fmt, outputFormat, "GitHub sign-in was cancelled; no alternate credential source was used."));
+            CommandError.Write(_renderer, Console.Error, outputFormat, "GitHub sign-in was cancelled; no alternate credential source was used.");
             return 1;
         }
     }
 
-    internal static string FormatError(IOutputFormatter formatter, string format, string message)
-    {
-        var error = formatter.FormatError(message);
-        return OutputFormats.Normalize(format)?.StartsWith("json", StringComparison.Ordinal) == true
-            ? "{\"error\":\"" + JsonEncodedText.Encode(error) + "\"}" : error;
-    }
 }

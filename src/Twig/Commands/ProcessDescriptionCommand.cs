@@ -7,7 +7,6 @@ namespace Twig.Commands;
 /// <summary>Projects the same admitted Core schema, with an explicit version, scope and presentation gaps.</summary>
 internal sealed class ProcessDescriptionCommand(
     ProcessCommand process,
-    OutputFormatterFactory formatterFactory,
     RendererFactory rendererFactory,
     TextWriter? stderr = null)
 {
@@ -18,10 +17,9 @@ internal sealed class ProcessDescriptionCommand(
 
     public async Task<int> ExecuteAsync(
         string? typeName = null, string? outPath = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default,
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default,
         string? sections = null, string? fields = null)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
         int Error(string message, int code = 1)
         {
             CommandError.Write(rendererFactory, _stderr, outputFormat, message);
@@ -94,7 +92,7 @@ internal sealed class ProcessDescriptionCommand(
                 CommandError.Write(rendererFactory, _stderr, outputFormat, $"Could not remove scratch file '{temporary}': {ex.Message}");
             }
         }
-        _stderr.WriteLine(fmt.FormatInfo($"Wrote process description (core-schema-1) to {outPath}"));
+        _stderr.WriteLine($"Wrote process description (core-schema-1) to {outPath}");
         return 0;
     }
 }

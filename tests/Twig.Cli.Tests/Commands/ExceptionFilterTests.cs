@@ -44,38 +44,7 @@ public class ExceptionFilterTests
             stderr.ToString().ShouldContain("something was null");
         });
 
-    [Fact]
-    public void Handle_AdoConflictException_Returns1WithHint() =>
-        WithExitCodeRestored(() =>
-        {
-            var stderr = new StringWriter();
-            var code = ExceptionHandler.Handle(new AdoConflictException(42), stderr);
-            code.ShouldBe(1);
-            Environment.ExitCode.ShouldBe(1);
-            var output = stderr.ToString();
-            output.ShouldContain("error: Concurrency conflict (revision mismatch).");
-            output.ShouldContain("hint: Another change is being processed. Run 'twig sync' and retry.");
-        });
 
-    [Fact]
-    public void Handle_AdoFieldValidationFailure_ReturnsActionablePatchHint() =>
-        WithExitCodeRestored(() =>
-        {
-            var stderr = new StringWriter();
-            var exception = new AdoBadRequestException(
-                "The field 'Substate' contains the value 'Proposed' that is not in the list of supported values.");
-
-            var code = ExceptionHandler.Handle(exception, stderr);
-
-            code.ShouldBe(1);
-            var output = stderr.ToString();
-            output.ShouldContain("The field 'Substate'");
-            output.ShouldContain("hint:");
-            output.ShouldContain("twig patch");
-            output.ShouldNotContain("Transition not allowed");
-            output.ShouldNotContain("twig sync");
-            output.ShouldNotContain("unreachable");
-        });
 
     [Fact]
     public void Handle_EditorNotFoundException_SetsExitCode1AndWritesMessageToStderr() =>

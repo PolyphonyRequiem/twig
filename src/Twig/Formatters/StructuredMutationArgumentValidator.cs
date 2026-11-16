@@ -28,17 +28,10 @@ public static class StructuredMutationArgumentValidator
 
     private static readonly HashSet<string> ActiveContextChangeCommands =
     [
-        "up",
-        "down",
-        "next",
-        "prev",
-        "nav",
         "nav up",
         "nav down",
         "nav next",
         "nav prev",
-        "nav back",
-        "nav fore",
         "seed publish",
     ];
 
@@ -128,12 +121,6 @@ public static class StructuredMutationArgumentValidator
 
         if (command == "set")
             return "twig set cannot be used with structured output because it changes the active work item.";
-
-        if (command == "new" && HasBooleanOption(args, "--set"))
-            return "twig new --set cannot be used with structured output because it changes the active work item.";
-
-        if (command == "nav history" && outputFormat is not ("json" or "minimal"))
-            return "Structured twig nav history supports only -o json or -o minimal; other formats may open an interactive selection and change active context.";
 
         if (ActiveContextChangeCommands.Contains(command))
             return $"twig {command} cannot be used with structured output because it reads or changes active work-item context.";
@@ -242,7 +229,7 @@ public static class StructuredMutationArgumentValidator
         var local = command == "show" && HasNonEmptyValueOption(args, "--local-id");
         if (local && target.HasValue)
             return "Conflicting work-item targets: use an integer ID or --local-id, not both.";
-        if (!required || target.HasValue || local || command == "tree" && HasBooleanOption(args, "--all"))
+        if (!required || target.HasValue || local)
             return null;
         return $"twig {command} with structured output requires an explicit work-item ID (positional or --id); it will not use the active work item.";
     }

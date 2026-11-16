@@ -42,7 +42,7 @@ Run 'twig --help-all' for the complete command catalog.
         if (args.Length == 1 && args[0] == "--help-all")
         {
             Console.WriteLine("Commands (retained Core and native host):");
-            foreach (var row in ReadCatalog(CaptureGeneratedHelp(generatedHelp, ["--help"])))
+            foreach (var row in CommandCatalog.Rows)
                 Console.WriteLine($"  {string.Join('|', row.Names),-34} {row.Description}");
             Console.WriteLine("Run 'twig <command> --help' for detailed usage, examples, effects and failures.");
             return true;
@@ -56,7 +56,7 @@ Run 'twig --help-all' for the complete command catalog.
             ShowRoot();
             return true;
         }
-        var group = words.Length == 1 && words[0] is "auth" or "connection" or "proposal" or "plan" or "seed" or "nav" or "link";
+        var group = words.Length == 1 && words[0] is "auth" or "connection" or "proposal" or "seed" or "nav" or "link";
         if (!group && Twig.CoreMutationAdmissionGuard.ValidateCatalog(words) is { } retired)
         {
             Twig.Commands.CommandError.Write(new Twig.Rendering.RendererFactory(), Console.Error,
@@ -68,7 +68,7 @@ Run 'twig --help-all' for the complete command catalog.
         // CAF embeds this text at compile time from registered declarations. Parsing
         // its padded command rows retains aliases and descriptions without reflection
         // (important for NativeAOT), or a second hand-written command registry.
-        var catalog = ReadCatalog(CaptureGeneratedHelp(generatedHelp, ["--help"]));
+        var catalog = CommandCatalog.Rows;
         var command = ResolveCommand(words, catalog);
         if (command is null)
         {
@@ -80,16 +80,13 @@ Run 'twig --help-all' for the complete command catalog.
         var children = catalog.Where(row => row.Names.Any(name =>
             name.StartsWith(command + " ", StringComparison.Ordinal))).ToArray();
         var leaf = catalog.FirstOrDefault(row => row.Names.Contains(command, StringComparer.Ordinal));
-        var hiddenLeaf = leaf is null && children.Length == 0 && GroupedHelp.KnownCommands.Contains(command);
 
-        // A group can also have a useful bare command: process, workspace, nav,
-        // config, workspace area. Keep that declaration's full options before the
-        // focused child list. Hidden bare seed is not the canonical group operation.
-        if (leaf is not null || hiddenLeaf)
+        // A group can also have a useful bare command, such as process or workspace.
+        // Keep that declaration's options before the focused child list.
+        if (leaf is not null)
         {
             generatedHelp([.. command.Split(' '), "--help"]);
             var canonical = leaf?.Names[0] ?? command;
-            CommandExamples.ShowIfPresent(canonical.Split(' '));
             CommandHelpReference.ShowIfPresent(canonical);
         }
         else
@@ -103,8 +100,7 @@ Run 'twig --help-all' for the complete command catalog.
             Console.WriteLine($"Commands in '{command}':");
             foreach (var child in children)
             {
-                // Select the spelling in this group (e.g. the legacy 'plan' group)
-                // without leaking commands from the alias's other namespace.
+                // Select the spelling in this group without leaking other aliases.
                 var name = child.Names.First(n => n.StartsWith(command + " ", StringComparison.Ordinal));
                 Console.WriteLine($"  {name,-28} {child.Description}");
             }
@@ -142,7 +138,7 @@ Run 'twig --help-all' for the complete command catalog.
         return false;
     }
 
-    private static string CaptureGeneratedHelp(Action<string[]> generatedHelp, string[] args)
+    internal static string CaptureGeneratedHelp(Action<string[]> generatedHelp, string[] args)
     {
         using var writer = new StringWriter();
         var previous = ConsoleApp.Log;
@@ -193,8 +189,7 @@ Run 'twig --help-all' for the complete command catalog.
         {
             if (word.StartsWith('-')) break;
             chain = chain.Length == 0 ? word : chain + " " + word;
-            if (catalog.Any(row => row.Names.Any(name => name == chain || name.StartsWith(chain + " ", StringComparison.Ordinal)))
-                || GroupedHelp.KnownCommands.Contains(chain))
+            if (catalog.Any(row => row.Names.Any(name => name == chain || name.StartsWith(chain + " ", StringComparison.Ordinal))))
                 resolved = chain;
             else
             {

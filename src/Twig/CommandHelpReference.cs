@@ -30,7 +30,7 @@ internal static class CommandHelpReference
             output.WriteLine();
             output.WriteLine($"Behavior and effects (bundled reference: docs/commands/{path}):");
             output.WriteLine(narrative);
-            if (command is "proposal validate" or "proposal seed")
+            if (command is "proposal validate")
                 ShowProposalAuthoring(output);
             return;
         }
@@ -62,7 +62,7 @@ internal static class CommandHelpReference
             if (line.StartsWith("## ", StringComparison.Ordinal))
             {
                 var heading = line[3..].Trim();
-                include = heading is "Behavior" or "Side effects" or "Effects"
+                include = heading is "Behavior" or "Side effects" or "Effects" or "Examples"
                     || heading.StartsWith("Exit codes", StringComparison.Ordinal)
                     || heading.StartsWith("Failure", StringComparison.Ordinal);
             }
@@ -74,7 +74,6 @@ internal static class CommandHelpReference
     {
         output.WriteLine();
         output.WriteLine($"Authoring requires canonical Core proposal format {Proposal.FormatVersion}.");
-        output.WriteLine("Use 'twig proposal seed --id <local-id> -o json' for the original draft identity.");
         output.WriteLine("Retain the exact initialized connection, schema fingerprint, store version and typed operations.");
         output.WriteLine("Preview the file, then apply only with its exact --confirm digest. Earlier plan formats are not translated.");
     }

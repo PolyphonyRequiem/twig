@@ -19,11 +19,9 @@ internal sealed class WorkspaceCommand(
     CoreWorkspaceFactory? factory = null,
     ITelemetryClient? telemetryClient = null)
 {
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat,
-        bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default,
-        bool sprintLayout = false, bool flat = false, bool tree = false, string? view = null,
-        bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null,
-        string? bench = null, int? browserVersion = null, string? expectBench = null, string? expectSettings = null)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormats.Default,
+        bool refresh = false, CancellationToken ct = default,
+        string? view = null, string? bench = null, string? expectBench = null)
     {
         var started = Stopwatch.GetTimestamp();
         var format = OutputFormats.Normalize(outputFormat);
@@ -55,10 +53,8 @@ internal sealed class WorkspaceCommand(
         async Task<int> ReadAsync()
         {
             if (format is null) return Error($"Unsupported output format. Use {OutputFormats.Describe()}.", 2);
-            if (all || sprintLayout || tree || view is not null && !view.Equals("table", StringComparison.OrdinalIgnoreCase))
-                return Error("Only the static Bench table is qualified. --all, sprint, --tree and --view tree are unsupported; use workspace [--view table].", 2);
-            if (includeBrowser || browserVersion is not null || expectBinding is not null || expectIdentity is not null || expectSettings is not null)
-                return Error("Browser envelopes and captured browser binding/identity/settings flags are unsupported by the Core workspace read.", 2);
+            if (view is not null && !view.Equals("table", StringComparison.OrdinalIgnoreCase))
+                return Error("Only the static Bench table is qualified; use workspace [--view table].", 2);
             if (bench is not null && (string.IsNullOrWhiteSpace(bench) || bench != bench.Trim()))
                 return Error("--bench requires an exact saved name or GUID.", 2);
             if (expectBench is not null && !Guid.TryParseExact(expectBench, "D", out _))

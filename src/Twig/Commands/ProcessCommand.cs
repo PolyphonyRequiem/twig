@@ -16,9 +16,8 @@ internal sealed class ProcessCommand(
 
     public async Task<int> ExecuteAsync(
         string? typeName = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        string outputFormat = OutputFormats.Default,
         bool includeHidden = false,
-        bool refresh = false,
         CancellationToken ct = default)
     {
         if (OutputFormats.Normalize(outputFormat) == "ids")
@@ -30,14 +29,13 @@ internal sealed class ProcessCommand(
         if (typeName is not null && type is null)
             return Error(outputFormat, $"Unknown work-item type '{typeName}'. Run 'twig process' to list discovered references.");
 
-        // Discovery is always live; --refresh is accepted without creating a second metadata cache.
         var tree = type is null ? ListTree(schema, includeHidden) : new RenderTree.RenderTree([TypeDocument(type)]);
         rendererFactory.GetRenderer(outputFormat).Render(tree);
         return 0;
     }
 
     public async Task<int> ExecuteStatesAsync(
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        string outputFormat = OutputFormats.Default, CancellationToken ct = default)
     {
         if (OutputFormats.Normalize(outputFormat) != "human")
             return Error(outputFormat, "Structured states is refused. Use 'twig process <type>' with an explicit type.", 2);
@@ -48,11 +46,11 @@ internal sealed class ProcessCommand(
         var workspace = handle.Workspace;
         var context = await workspace.Context.ReadAsync(ct);
         if (!context.IsSuccess) return Error(outputFormat, context.Error.Message);
-        if (context.Value.Position < 0)
+        if (context.Value.Active is null)
             return Error(outputFormat, "No active Core item is selected. Use 'twig set <id>' or 'twig process <type>'.");
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(outputFormat, snapshot.Error.Message);
-        var key = context.Value.History[context.Value.Position].Resolve(workspace.Connection);
+        var key = context.Value.Active.Resolve(workspace.Connection);
         key = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
         var type = key.IsLocal
             ? snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == key)?.Type

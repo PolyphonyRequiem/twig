@@ -33,7 +33,7 @@ public sealed class InitCommand
     }
 
     public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null,
-        bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null,
+        bool force = false, string outputFormat = OutputFormats.Default, string? sprint = null,
         string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null,
         string? provider = null, string? host = null, string? repository = null, string? binding = null,
         string? coreStore = null, string? account = null)

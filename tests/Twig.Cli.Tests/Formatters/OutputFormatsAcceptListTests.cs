@@ -10,7 +10,7 @@ namespace Twig.Cli.Tests.Formatters;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Before this fix both <see cref="OutputFormatterFactory"/> and
+/// Before this fix both the former formatter factory and
 /// <see cref="RendererFactory"/> ended their format switch in a catch-all arm
 /// that silently meant <c>human</c>, and nothing validated <c>-o</c>. So
 /// <c>twig show -o jsno</c> emitted ANSI prose on stdout and exited 0 — the
@@ -50,7 +50,6 @@ public class OutputFormatsAcceptListTests
     public void FactoryDefaults_ForwardToTheSingleList()
     {
         // Both factories must read the one list rather than restate it.
-        OutputFormatterFactory.DefaultFormat.ShouldBe(OutputFormats.Default);
         RendererFactory.DefaultFormat.ShouldBe(OutputFormats.Default);
     }
 
@@ -209,26 +208,7 @@ public class OutputFormatsAcceptListTests
         }
     }
 
-    [Fact]
-    public void EveryAcceptedFormat_ResolvesToAFormatter()
-    {
-        var factory = new OutputFormatterFactory(new HumanOutputFormatter());
 
-        foreach (var accepted in OutputFormats.Accepted)
-            factory.GetFormatter(accepted).ShouldNotBeNull();
-    }
-
-    [Fact]
-    public void MachineFormats_ResolveToAnAnsiStrippingFormatter()
-    {
-        var factory = new OutputFormatterFactory(new HumanOutputFormatter());
-
-        foreach (var accepted in OutputFormats.Accepted.Where(f => f != "human"))
-        {
-            var fmt = factory.GetFormatter(accepted);
-            fmt.FormatInfo("hello").ShouldNotContain("\x1b[", customMessage: accepted);
-        }
-    }
 
     [Fact]
     public void Describe_ListsEveryAcceptedValue_AndNothingElse()

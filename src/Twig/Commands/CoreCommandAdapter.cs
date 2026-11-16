@@ -30,8 +30,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (id is not null) return await handle.Workspace.ResolveTargetAsync(id.Value, allowNativeLookup, ct);
         var context = await handle.Workspace.Context.ReadAsync(ct);
         if (!context.IsSuccess) return Result<ItemKey>.Fail(context.Error);
-        if (context.Value.Position < 0) return Result<ItemKey>.Fail(ErrorCode.NotFound, "No active Core item is selected. Run `twig set <id>` or pass --id.");
-        var key = context.Value.History[context.Value.Position].Resolve(handle.Workspace.Connection);
+        if (context.Value.Active is null) return Result<ItemKey>.Fail(ErrorCode.NotFound, "No active Core item is selected. Run `twig set <id>` or pass --id.");
+        var key = context.Value.Active.Resolve(handle.Workspace.Connection);
         var snapshot = await handle.Workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Result<ItemKey>.Fail(snapshot.Error);
         if (key.IsLocal)
@@ -114,8 +114,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (shownItem is null) return Error(output, "The exact selected item is unavailable; active context was preserved.");
         var context = await workspace.Context.ReadAsync(ct);
         if (!context.IsSuccess) return Error(output, context.Error.Message);
-        var history = context.Value.History.Take(context.Value.Position + 1).Append(CoreContextKey.Capture(selected)).ToArray();
-        var saved = await workspace.Context.WriteAsync(context.Value, context.Value with { History = history, Position = history.Length - 1 }, ct);
+        var saved = await workspace.Context.WriteAsync(context.Value, context.Value with { Active = CoreContextKey.Capture(selected) }, ct);
         if (!saved.IsSuccess) return Error(output, saved.Error.Message);
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text(
             $"#{(key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId)} {shownItem.Fields.GetValueOrDefault(TitleField)?.Text}", Severity.Success)]));
@@ -188,54 +187,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return await SetAsync(candidates[0].IsLocal ? LocalAlias(candidates[0]).ToString(CultureInfo.InvariantCulture) : candidates[0].NativeId!, output, ct);
     }
 
-    internal async Task<int> MoveHistoryAsync(int direction, string output, CancellationToken ct)
-    {
-        if (factory.IsGitHub) return Error(output, "GitHub history navigation is not qualified.");
-        if (output != "human") return Error(output, "Structured history navigation is refused because it changes interactive context.", 2);
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
-        using var handle = opened.Value;
-        var context = await handle.Workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Error(output, context.Error.Message);
-        var position = context.Value.Position + direction;
-        if (position < 0 || position >= context.Value.History.Length)
-            return Error(output, "No further active-item history is available.");
-        var selected = context.Value.History[position].Resolve(handle.Workspace.Connection);
-        var snapshot = await handle.Workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        var key = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == selected)?.Remote ?? selected;
-        if (key.IsLocal && !snapshot.Value.Drafts.Any(draft => draft.Key == key))
-            return Error(output, "The historical local draft is no longer available; history was preserved.");
-        if (!key.IsLocal && !snapshot.Value.Items.Any(item => item.Key == key))
-        {
-            var observed = await handle.Workspace.ReadAsync(key, ct);
-            if (!observed.IsSuccess) return Error(output, observed.Error.Message);
-        }
-        var saved = await handle.Workspace.Context.WriteAsync(context.Value, context.Value with { Position = position }, ct);
-        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text(
-            $"#{(key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId)} selected from history.", Severity.Success)]));
-        return 0;
-    }
 
-    internal async Task<int> NavigationHistoryAsync(string output, CancellationToken ct)
-    {
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
-        using var handle = opened.Value;
-        var context = await handle.Workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Error(output, context.Error.Message);
-        var rows = context.Value.History.Select((key, index) => new RenderRow("navigationHistory",
-            new Dictionary<string, RenderCell>
-            {
-                ["position"] = RenderCell.Integer(index), ["active"] = RenderCell.Boolean(index == context.Value.Position),
-                ["localId"] = key.LocalId is { } local ? RenderCell.String(local.ToString("D")) : new("", new RenderValue.Null()),
-                ["nativeId"] = key.NativeId is { } native ? RenderCell.String(native) : new("", new RenderValue.Null()),
-            })).ToArray();
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table(null,
-            [new("position", "Position"), new("nativeId", "Native ID"), new("localId", "Local UUID"), new("active", "Active")], rows)]));
-        return 0;
-    }
 
     internal async Task<int> TreeAsync(int? id, bool all, int? depth, bool refresh, string output, CancellationToken ct)
     {
@@ -461,12 +413,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
-    internal async Task<int> BenchAsync(string action, string? name, string output, CancellationToken ct, string? expectBench = null,
-        string? expectBinding = null, string? expectIdentity = null, bool management = false)
+    internal async Task<int> SwitchBenchAsync(string name, string output, CancellationToken ct, string? expectBench = null)
     {
         using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
-        if (expectBinding is not null || expectIdentity is not null || management)
-            return Error(output, "The versioned browser management envelope is not yet connected to Core Bench admission; no operation was performed.");
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
@@ -475,35 +424,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var context = await workspace.Context.ReadAsync(ct);
         if (!context.IsSuccess) return Error(output, context.Error.Message);
-        if (action == "list")
-        {
-            var rows = snapshot.Value.Benches.Select(bench => new RenderRow("bench", new Dictionary<string, RenderCell>
-            {
-                ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
-                ["isCurrent"] = RenderCell.Boolean(context.Value.BenchId == bench.Id),
-                ["selectorCount"] = RenderCell.Integer(bench.Selectors.Length),
-            })).ToArray();
-            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table(null,
-                [new("name", "Bench"), new("id", "ID"), new("isCurrent", "Current"), new("selectorCount", "Selectors")], rows)]));
-            return 0;
-        }
+
         if (string.IsNullOrWhiteSpace(name) || name != name.Trim()) return Error(output, "A nonempty, canonical Bench name is required.", 2);
         var matches = snapshot.Value.Benches.Where(bench => bench.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
             || bench.Id.ToString("D").Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (action == "create")
-        {
-            if (matches.Length != 0) return Error(output, "A Bench with this name already exists; nothing was selected or replaced.");
-            var bench = new Bench(Guid.NewGuid(), name, []);
-            var saved = await workspace.CaptureBenchesAsync(snapshot.Value, snapshot.Value.Benches.Add(bench), ct);
-            if (!saved.IsSuccess) return Error(output, saved.Error.Message);
-            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("benchCreated",
-                new Dictionary<string, RenderCell>
-                {
-                    ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
-                    ["message"] = RenderCell.String($"Created Bench '{bench.Name}' without selecting it."),
-                })]));
-            return 0;
-        }
+
         if (matches.Length != 1) return Error(output, "The named Bench is absent or ambiguous; no Bench was created or selected.");
         var target = matches[0];
         if (expectBench is not null && expectBench != target.Id.ToString("D"))
@@ -520,13 +445,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     }
 
     internal async Task<int> PinAsync(int id, bool subtree, bool remove, string output, CancellationToken ct,
-        string? expectBench, string? expectBinding, string? expectIdentity, string? expectSettings, string? mode = null)
+        string? expectBench, string? mode = null)
     {
         if (factory.IsGitHub && (subtree || mode == "tree"))
             return Error(output, "GitHub subtree selectors are not qualified; pin an explicit cached item.");
         using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
-        if (expectBinding is not null || expectIdentity is not null || expectSettings is not null)
-            return Error(output, "Captured browser origin/settings admission is not yet connected; no selector was changed.");
         if (id == 0) return Error(output, "A nonzero explicit pin target is required.", 2);
         mode = mode?.ToLowerInvariant();
         if (mode is not null && mode is not ("single" or "tree"))
@@ -606,7 +529,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
             id = selected.Value;
         }
-        if (id < 0 && !all) return await SeedPublishAsync(id, false, false, false, null, null, output, ct);
+        if (id < 0 && !all) return await SeedPublishAsync(id, false, false, null, null, output, ct);
         if (id is not null && (id <= 0 || all)) return Error(output, "Specify one positive --id or --all, not both.", 2);
         if (id is null && !all) return Error(output, "No Core active scope is selected. Specify --id or --all.", 2);
         var opened = await factory.OpenAsync(ct);
@@ -671,7 +594,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     }
 
     internal async Task<int> SyncAsync(string output, bool pullOnly, CancellationToken ct, bool workspaceOnly = false,
-        string? expectBench = null, string? expectBinding = null, string? expectIdentity = null)
+        string? expectBench = null)
     {
         var started = Stopwatch.GetTimestamp();
         var format = OutputFormats.Normalize(output) ?? string.Empty;
@@ -684,8 +607,6 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 format = "human";
                 return exit = Error(format, "Sync supports human, minimal and JSON output, not IDs.", 2);
             }
-            if (expectBinding is not null || expectIdentity is not null)
-                return exit = Error(format, "Captured browser origin admission is not yet connected to Core sync; no operation was performed.");
             using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
             var opened = await factory.OpenAsync(ct);
             if (!opened.IsSuccess) return exit = Error(format, opened.Error.Message);
@@ -1222,7 +1143,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return passed == rows.Count ? 0 : 1;
     }
 
-    internal async Task<int> SeedPublishAsync(int? id, bool all, bool force, bool dryRun,
+    internal async Task<int> SeedPublishAsync(int? id, bool all, bool dryRun,
         string? branch, string? repository, string output, CancellationToken ct)
     {
         if (factory.IsGitHub && branch is not null) return Error(output, "GitHub creation-bound resources are not qualified.");

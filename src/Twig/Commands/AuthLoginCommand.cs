@@ -30,18 +30,13 @@ internal sealed class AuthLoginCommand
     /// </summary>
     internal const string AzureCliClientId = NativeSetupEnrollment.ClientId;
 
-    private readonly OutputFormatterFactory _formatterFactory;
     private readonly Rendering.RendererFactory _rendererFactory;
     private readonly Func<IConnectionBindingService> _bindingService;
 
     public AuthLoginCommand(
-        OutputFormatterFactory formatterFactory,
         Func<IConnectionBindingService> bindingService,
-        TwigConfiguration config,
-        TwigPaths paths,
         Rendering.RendererFactory? rendererFactory = null)
     {
-        _formatterFactory = formatterFactory;
         _bindingService = bindingService;
         _rendererFactory = rendererFactory ?? new Rendering.RendererFactory();
     }
@@ -51,16 +46,15 @@ internal sealed class AuthLoginCommand
         string? tenant,
         bool noBrowser,
         string? identity,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        string outputFormat = OutputFormats.Default,
         CancellationToken ct = default)
     {
-        var fmt = _formatterFactory.GetFormatter(outputFormat);
         InteractiveAuthResult? flowResult = null;
         var effects = new NativeSetupEffects();
         var registered = await NativeSetupEnrollment.EnrollAsync(identity, tenant, async (resolvedTenant, token) =>
         {
-            flowResult = useDeviceCode ? await RunDeviceCodeAsync(resolvedTenant, fmt, token)
-                : await RunPkceAsync(resolvedTenant, !noBrowser, fmt, token);
+            flowResult = useDeviceCode ? await RunDeviceCodeAsync(resolvedTenant, token)
+                : await RunPkceAsync(resolvedTenant, !noBrowser, token);
             return flowResult;
         }, _bindingService, ownsBindings: false, effects, ct);
         if (!registered.IsSuccess)
@@ -111,7 +105,7 @@ internal sealed class AuthLoginCommand
         _rendererFactory.GetRenderer(outputFormat).Render(new global::Twig.RenderTree.RenderTree(new[] { node }));
     }
 
-    private static async Task<InteractiveAuthResult> RunPkceAsync(string tenant, bool launchBrowser, IOutputFormatter fmt, CancellationToken ct)
+    private static async Task<InteractiveAuthResult> RunPkceAsync(string tenant, bool launchBrowser, CancellationToken ct)
     {
         var flow = new LoopbackPkceFlow();
         return await flow.RunAsync(
@@ -136,7 +130,7 @@ internal sealed class AuthLoginCommand
             ct: ct);
     }
 
-    private static async Task<InteractiveAuthResult> RunDeviceCodeAsync(string tenant, IOutputFormatter fmt, CancellationToken ct)
+    private static async Task<InteractiveAuthResult> RunDeviceCodeAsync(string tenant, CancellationToken ct)
     {
         var flow = new DeviceCodeFlow();
         return await flow.RunAsync(

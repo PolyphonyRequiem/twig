@@ -99,7 +99,7 @@ internal static class SkillPaths
     internal static void ValidateManagedPath(string relative)
     {
         var parts = relative.Split('/');
-        if (parts.Length < 2 || !ReservedNames.Contains(parts[0], StringComparer.Ordinal)
+        if (parts.Length < 2 || !Family.Contains(parts[0], StringComparer.Ordinal)
             || parts.Any(p => p.Length == 0 || p is "." or ".." || p.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_' and not '.'))
             || parts.Any(p => p.EndsWith('.') || IsDeviceName(p)))
             throw new SkillLifecycleException($"Unsafe managed package path '{relative}'. Only flat Twig family paths are allowed.");

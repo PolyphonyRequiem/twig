@@ -67,9 +67,10 @@ public sealed class HardcodedProcessStringInventoryTests
     private static string[] SweepRoots(string root)
     {
         var roots = XDocument.Load(Path.Combine(root, "Twig.slnx")).Descendants("Project")
-            .Select(project => (string?)project.Attribute("Path"))
-            .Where(path => path is not null && path.StartsWith("src/", StringComparison.Ordinal))
-            .Select(path => path![..path.LastIndexOf('/')])
+            .Select(project => (string?)project.Attribute("Path")
+                ?? throw new InvalidOperationException("a solution project has no path"))
+            .Where(path => path.StartsWith("src/", StringComparison.Ordinal))
+            .Select(path => path[..path.LastIndexOf('/')])
             .ToArray();
         roots.ShouldNotBeEmpty("the current supported solution must have production projects");
         roots.Distinct(StringComparer.Ordinal).Count().ShouldBe(roots.Length);

@@ -41,7 +41,7 @@ public sealed class BuildFixtureRunProcessTests
         IsWindows ? $"/c \"{script}\"" : $"-c \"{script}\"";
 
     [Fact]
-    public void RunProcess_WhenGrandchildHoldsStdoutOpen_StillReturns()
+    public async Task RunProcess_WhenGrandchildHoldsStdoutOpen_StillReturns()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"twig-inherited-pipe-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -88,8 +88,7 @@ public sealed class BuildFixtureRunProcessTests
             holder.HasExited.ShouldBeFalse("the grandchild must still hold the inherited stdout pipe");
             File.WriteAllText(Path.Combine(directory, "release"), "");
 
-            run.Wait(MustReturnWithin).ShouldBeTrue("RunProcess must not wait for EOF from a surviving grandchild");
-            var result = run.GetAwaiter().GetResult();
+            var result = await run.WaitAsync(MustReturnWithin);
             result.Exited.ShouldBeTrue();
             result.ExitCode.ShouldBe(0);
             holder.HasExited.ShouldBeFalse("returning must not depend on the pipe holder exiting");
@@ -105,7 +104,7 @@ public sealed class BuildFixtureRunProcessTests
             {
                 StopOwned(parent);
                 if (run is not null)
-                    run.Wait(MustReturnWithin).ShouldBeTrue("fixture cleanup must release all inherited pipes");
+                    await run.WaitAsync(MustReturnWithin);
                 Directory.Delete(directory, recursive: true);
             }
         }

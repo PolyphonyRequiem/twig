@@ -1,10 +1,14 @@
 """Deterministic subprocess tests for optional smoke boundary diagnostics."""
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location("smoke", Path(__file__).with_name("verify-build.py"))
 smoke = importlib.util.module_from_spec(SPEC)
@@ -12,6 +16,54 @@ SPEC.loader.exec_module(smoke)
 
 
 class SmokeTraceTests(unittest.TestCase):
+    def test_failed_cleanup_never_enters_an_untimed_context_wait_and_retains_partial_output(self):
+        class UnreapedProcess:
+            def communicate(self, timeout):
+                raise subprocess.TimeoutExpired(['worker'], timeout, output=b'partial-output\n',
+                                                stderr=b'partial-error\n')
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                raise AssertionError('Popen context cleanup would wait without a deadline')
+
+            def poll(self):
+                return None
+
+        class CleanupFailure(Exception):
+            pass
+
+        process = UnreapedProcess()
+        runner = SimpleNamespace(RunFailure=CleanupFailure,
+                                 stop_session=Mock(side_effect=CleanupFailure('synthetic unconfirmed tree')))
+        spec = SimpleNamespace(name='synthetic_runner', loader=SimpleNamespace(exec_module=Mock()))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(smoke.subprocess, 'Popen', return_value=process), \
+                patch.object(smoke.importlib.util, 'spec_from_file_location', return_value=spec), \
+                patch.object(smoke.importlib.util, 'module_from_spec', return_value=runner), \
+                patch.dict(sys.modules, {spec.name: runner}), \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = smoke.run_worker(['worker'], 1, smoke.SmokeTrace(None))
+        self.assertEqual(result, 1)
+        runner.stop_session.assert_called_once_with(process)
+        self.assertIn('partial-output', stdout.getvalue())
+        self.assertIn('partial-error', stderr.getvalue())
+        self.assertIn('tree termination unconfirmed', stderr.getvalue())
+        self.assertNotIn('owned tree stopped', stderr.getvalue())
+
+    def test_interrupt_reaps_only_the_owned_worker_and_preserves_130(self):
+        process = Mock()
+        process.communicate.side_effect = KeyboardInterrupt
+        stderr = io.StringIO()
+        with patch.object(smoke.subprocess, 'Popen', return_value=process), \
+                patch.object(smoke, 'stop_worker', return_value=True) as stop, \
+                contextlib.redirect_stderr(stderr):
+            result = smoke.run_worker(['worker'], 1, smoke.SmokeTrace(None))
+        self.assertEqual(result, 130)
+        stop.assert_called_once_with(process)
+        self.assertIn('SMOKE INTERRUPTED: owned tree stopped', stderr.getvalue())
+
     def test_partial_worker_trace_survives_supervisor_timeout(self):
         with tempfile.TemporaryDirectory() as directory:
             trace = Path(directory) / "trace.jsonl"

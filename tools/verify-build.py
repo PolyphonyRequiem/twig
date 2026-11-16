@@ -43,21 +43,46 @@ class SmokeTrace:
             output.flush()
 
 
+def stop_worker(process):
+    spec = importlib.util.spec_from_file_location('ci_runner', ROOT / 'tools/run-ci-tests.py')
+    runner = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = runner
+    spec.loader.exec_module(runner)
+    try:
+        runner.stop_session(process)
+        return True
+    except (runner.RunFailure, OSError, subprocess.SubprocessError) as error:
+        print(f'SMOKE CLEANUP UNCONFIRMED: {error}; root exit={process.poll()}; survivors unknown',
+              file=sys.stderr, flush=True)
+        return False
+
+
 def run_worker(command, timeout, trace):
     trace.write('supervisor', 'start')
-    with subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          text=True, encoding='utf-8', start_new_session=os.name != 'nt') as process:
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            spec = importlib.util.spec_from_file_location('ci_runner', ROOT / 'tools/run-ci-tests.py')
-            runner = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = runner
-            spec.loader.exec_module(runner)
-            runner.stop_session(process)
-            trace.write('supervisor', 'timeout')
-            print(f'SMOKE FAILED: {timeout}s deadline exceeded; no timeout expansion', file=sys.stderr)
-            return 1
+    # Popen.__exit__ performs an untimed wait, including after failed tree cleanup.
+    process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, encoding='utf-8', start_new_session=os.name != 'nt')
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        for value, destination in ((error.stdout, sys.stdout), (error.stderr, sys.stderr)):
+            if value:
+                print(value.decode('utf-8', errors='replace') if isinstance(value, bytes) else value,
+                      end='', file=destination, flush=True)
+        stopped = stop_worker(process)
+        if not stopped:
+            trace.write('supervisor', 'error')
+        trace.write('supervisor', 'timeout')
+        cleanup = 'owned tree stopped' if stopped else 'tree termination unconfirmed'
+        print(f'SMOKE FAILED: {timeout}s deadline exceeded; {cleanup}; no timeout expansion',
+              file=sys.stderr, flush=True)
+        return 1
+    except KeyboardInterrupt:
+        stopped = stop_worker(process)
+        trace.write('supervisor', 'error', 130)
+        cleanup = 'owned tree stopped' if stopped else 'tree termination unconfirmed'
+        print(f'SMOKE INTERRUPTED: {cleanup}', file=sys.stderr, flush=True)
+        return 130
     trace.write('supervisor', 'end', process.returncode)
     print(stdout, end='')
     print(stderr, end='', file=sys.stderr)

@@ -261,10 +261,10 @@ public sealed class GitHubAppAuthenticationTests
         System.IO.Directory.CreateDirectory(root);
         var twig = Path.Combine(root, ".twig");
         var paths = new TwigPaths(twig, Path.Combine(twig, "config"), Path.Combine(twig, "twig.db"), root);
-        var config = new TwigConfiguration();
-        config.SetValue("github.credentialsource", "github-app").ShouldBeTrue();
-        config.SetValue("github.appclientid", AppId).ShouldBeTrue();
-        config.SetValue("github.oauthidentity", "personal").ShouldBeTrue();
+        var config = new TwigConfiguration
+        {
+            GitHubCredentialSource = "github-app", GitHubAppClientId = AppId, GitHubOAuthIdentity = "personal",
+        };
         await config.SaveSplitAsync(paths);
         var loaded = TwigConfiguration.LoadSplit(paths);
         loaded.GitHubCredentialSource.ShouldBe("github-app");

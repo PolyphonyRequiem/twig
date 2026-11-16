@@ -32,9 +32,7 @@ public interface IProvider
         => Task.FromResult(Result<ImmutableArray<IdentityProfile>>.Fail(ErrorCode.Unsupported, "This provider does not expose identity profiles."));
     Task<Result<bool>> ValidateReadAccessAsync(Connection connection, CancellationToken ct)
         => Task.FromResult(Result<bool>.Fail(ErrorCode.Unsupported, "This provider does not expose fresh native read-access validation."));
-    Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct);
-    Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
-        => DiscoverSchemaAsync(connection, ct);
+    Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation = false);
     Task<Result<PlanningMetadata>> DiscoverPlanningAsync(Connection connection, string? team, CancellationToken ct)
         => Task.FromResult(Result<PlanningMetadata>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning metadata."));
     Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(Connection connection, CancellationToken ct)

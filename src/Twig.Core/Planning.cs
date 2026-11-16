@@ -44,17 +44,15 @@ public static partial class Core
         _ => false,
     };
 
-    public static Result<Query> ResolvePlanningQuery(Query query, PlanningMetadata? planning, DateTimeOffset? now = null)
-        => ResolvePlanningQuery(query, planning, now, null);
-
-    public static Result<Query> ResolvePlanningQuery(Query query, PlanningMetadata? planning, DateTimeOffset? now,
-        IEnumerable<PlanningMetadata>? planningCalendars)
+    public static Result<Query> ResolvePlanningQuery(Query query, IEnumerable<PlanningMetadata>? planningCalendars = null,
+        DateTimeOffset? now = null)
     {
         if (query.Kind == QueryKind.Iteration)
         {
-            if (planningCalendars is not null && query.Value!.Values.Any(text => new IterationExpression(text).IsRelative))
+            PlanningMetadata? planning = null;
+            if (query.Value!.Values.Any(text => new IterationExpression(text).IsRelative))
             {
-                var calendars = planningCalendars.Where(value => value.Team == query.PlanningTeam).ToArray();
+                var calendars = (planningCalendars ?? []).Where(value => value.Team == query.PlanningTeam).ToArray();
                 if (query.PlanningTeam is null || calendars.Length != 1)
                     return Result<Query>.Fail(ErrorCode.Unavailable, "This exact native team has no unique retained calendar; another team's calendar is not a substitute.");
                 planning = calendars[0];
@@ -86,7 +84,7 @@ public static partial class Core
         var children = new List<Query>();
         foreach (var child in query.Children)
         {
-            var resolved = ResolvePlanningQuery(child, planning, now, planningCalendars);
+            var resolved = ResolvePlanningQuery(child, planningCalendars, now);
             if (!resolved.IsSuccess) return resolved;
             children.Add(resolved.Value);
         }

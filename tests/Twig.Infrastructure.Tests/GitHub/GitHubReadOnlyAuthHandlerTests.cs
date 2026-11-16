@@ -14,24 +14,36 @@ public sealed class GitHubReadOnlyAuthHandlerTests
     private const string DiscoveryQuery = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id nameWithOwner owner { id login } } }";
 
     [Fact]
+    public async Task BootstrapDoesNotAuthorizeRetiredSchemaIntrospection()
+    {
+        const string retired = """
+            query {
+              issue: __type(name: "Issue") {
+                kind name
+                fields(includeDeprecated: true) {
+                  name
+                  type { kind name ofType { kind name ofType { kind name ofType { kind name } } } }
+                }
+              }
+              issueState: __type(name: "IssueState") {
+                kind name
+                enumValues(includeDeprecated: true) { name }
+              }
+            }
+            """;
+        var h = new Harness();
+        await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(() =>
+            h.SendAsync(HttpMethod.Post, Endpoint.ToString(), Body(retired, new Dictionary<string, string?>())));
+        h.Tokens.Calls.ShouldBe(0);
+        h.Network.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task FixedAuthenticatedViewer_IsAdmittedWithEmptyVariables()
     {
         var h = new Harness();
         using var response = await h.SendAsync(HttpMethod.Post, Endpoint.ToString(),
             Body("query { viewer { id login } }", new Dictionary<string, string?>()));
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        h.Tokens.Calls.ShouldBe(1);
-        h.Network.Requests.Count.ShouldBe(1);
-        h.Network.Requests[0].Authorization.ShouldBe("Bearer " + Token);
-    }
-
-    [Fact]
-    public async Task FixedSchemaMetadata_IsAdmittedWithEmptyVariables()
-    {
-        var h = new Harness();
-        using var response = await h.SendAsync(HttpMethod.Post, Endpoint.ToString(),
-            Body(GitHubIssueQueries.SchemaMetadata, new Dictionary<string, string?>()));
-
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         h.Tokens.Calls.ShouldBe(1);
         h.Network.Requests.Count.ShouldBe(1);
@@ -119,9 +131,7 @@ public sealed class GitHubReadOnlyAuthHandlerTests
     private static string Body(string query, object variables) =>
         JsonSerializer.Serialize(new Dictionary<string, object> { ["query"] = query, ["variables"] = variables });
 
-    private static readonly string SnapshotBody = Body(GitHubIssueQueries.Snapshot, new Dictionary<string, string> { ["id"] = "I_1" });
-    private static readonly string ConnectionBody = Body(GitHubIssueQueries.Connection("subIssues"),
-        new Dictionary<string, string?> { ["id"] = "I_1", ["after"] = null });
+    private static readonly string DiscoveryBody = Body(DiscoveryQuery, new { owner = "owner", name = "repo" });
 
     private sealed class Harness
     {
@@ -146,17 +156,11 @@ public sealed class GitHubReadOnlyAuthHandlerTests
     }
 
     [Theory]
-    [InlineData("snapshot")]
-    [InlineData("connection")]
-    [InlineData("connection-cursor")]
-    public async Task AdmittedRead_CarriesBearerToken(string shape)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AdmittedRead_CarriesBearerToken(bool viewer)
     {
-        var body = shape switch
-        {
-            "snapshot" => SnapshotBody,
-            "connection" => ConnectionBody,
-            _ => Body(GitHubIssueQueries.Connection("blockedBy"), new Dictionary<string, string?> { ["id"] = "I_1", ["after"] = "c1" }),
-        };
+        var body = viewer ? Body(GitHubIssueQueries.AuthenticatedViewer, new Dictionary<string, string?>()) : DiscoveryBody;
         var h = new Harness();
 
         using var response = await h.SendAsync(HttpMethod.Post, Endpoint.ToString(), body);
@@ -168,40 +172,37 @@ public sealed class GitHubReadOnlyAuthHandlerTests
 
     public static TheoryData<string, string, string?> RefusedRequests()
     {
-        var snapshot = GitHubIssueQueries.Snapshot;
-        var id = new Dictionary<string, string> { ["id"] = "I_1" };
+        var variables = new { owner = "owner", name = "repo" };
         return new()
         {
             { "GET", Endpoint.ToString(), null },
-            { "PUT", Endpoint.ToString(), SnapshotBody },
+            { "PUT", Endpoint.ToString(), DiscoveryBody },
             { "DELETE", Endpoint.ToString(), null },
-            { "POST", "https://evil.example.com/graphql", SnapshotBody },
-            { "POST", "http://api.github.com/graphql", SnapshotBody },
-            { "POST", "https://api.github.com:8443/graphql", SnapshotBody },
-            { "POST", "https://api.github.com/graphql/extra", SnapshotBody },
-            { "POST", "https://api.github.com/graphql?x=1", SnapshotBody },
-            { "POST", "https://user:pw@api.github.com/graphql", SnapshotBody },
-            { "POST", "https://api.github.com/repos/o/r/issues", SnapshotBody },
+            { "POST", "https://evil.example.com/graphql", DiscoveryBody },
+            { "POST", "http://api.github.com/graphql", DiscoveryBody },
+            { "POST", "https://api.github.com:8443/graphql", DiscoveryBody },
+            { "POST", "https://api.github.com/graphql/extra", DiscoveryBody },
+            { "POST", "https://api.github.com/graphql?x=1", DiscoveryBody },
+            { "POST", "https://api.github.com/graphql#fragment", DiscoveryBody },
+            { "POST", "https://user:pw@api.github.com/graphql", DiscoveryBody },
+            { "POST", "https://api.github.com/repos/o/r/issues", DiscoveryBody },
             { "POST", Endpoint.ToString(), null },
             { "POST", Endpoint.ToString(), "not json" },
             { "POST", Endpoint.ToString(), "[]" },
-            { "POST", Endpoint.ToString(), Body(snapshot + " ", id) },
-            { "POST", Endpoint.ToString(), Body(snapshot.Replace("title", "title viewerCanUpdate"), id) },
-            { "POST", Endpoint.ToString(), Body("mutation($id: ID!) { closeIssue(input: {issueId: $id}) { clientMutationId } }", id) },
-            { "POST", Endpoint.ToString(), Body(snapshot + "\nmutation { x }", id) },
-            { "POST", Endpoint.ToString(), Body(snapshot, new Dictionary<string, string>()) },
-            { "POST", Endpoint.ToString(), Body(snapshot, new Dictionary<string, string> { ["id"] = "" }) },
-            { "POST", Endpoint.ToString(), Body(snapshot, new Dictionary<string, object> { ["id"] = 5 }) },
-            { "POST", Endpoint.ToString(), Body(snapshot, new Dictionary<string, string?> { ["id"] = "I_1", ["after"] = null }) },
-            { "POST", Endpoint.ToString(), Body(snapshot, new Dictionary<string, string> { ["id"] = "I_1", ["input"] = "x" }) },
-            { "POST", Endpoint.ToString(), Body(GitHubIssueQueries.Connection("labels"), id) },
-            { "POST", Endpoint.ToString(), Body(GitHubIssueQueries.Connection("labels"), new Dictionary<string, object?> { ["id"] = "I_1", ["after"] = 3 }) },
-            { "POST", Endpoint.ToString(), Body(GitHubIssueQueries.SchemaMetadata + " ", new Dictionary<string, string?>()) },
-            { "POST", Endpoint.ToString(), Body(GitHubIssueQueries.SchemaMetadata, new Dictionary<string, string?> { ["type"] = "Issue" }) },
-            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + ",\"variables\":{\"id\":\"I_1\"},\"operationName\":\"x\"}" },
-            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + ",\"query\":\"mutation { x }\",\"variables\":{\"id\":\"I_1\"}}" },
-            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + ",\"variables\":{\"id\":\"I_1\",\"id\":\"I_2\"}}" },
-            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(snapshot) + "}" },
+            { "POST", Endpoint.ToString(), Body(DiscoveryQuery + " ", variables) },
+            { "POST", Endpoint.ToString(), Body(DiscoveryQuery.Replace("nameWithOwner", "nameWithOwner viewerCanAdminister"), variables) },
+            { "POST", Endpoint.ToString(), Body("mutation { x }", variables) },
+            { "POST", Endpoint.ToString(), Body(DiscoveryQuery + "\nmutation { x }", variables) },
+            { "POST", Endpoint.ToString(), Body(DiscoveryQuery, new Dictionary<string, string>()) },
+            { "POST", Endpoint.ToString(), Body(DiscoveryQuery, new { owner = "", name = "repo" }) },
+            { "POST", Endpoint.ToString(), Body(DiscoveryQuery, new { owner = 5, name = "repo" }) },
+            { "POST", Endpoint.ToString(), Body(DiscoveryQuery, new { owner = "owner", name = "repo", after = "cursor" }) },
+            { "POST", Endpoint.ToString(), Body(DiscoveryQuery, new { owner = "owner", name = "repo", input = "x" }) },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(DiscoveryQuery) + ",\"variables\":{\"owner\":\"owner\",\"name\":\"repo\"},\"operationName\":\"x\"}" },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(DiscoveryQuery) + ",\"query\":\"mutation { x }\",\"variables\":{\"owner\":\"owner\",\"name\":\"repo\"}}" },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(DiscoveryQuery) + ",\"variables\":{\"owner\":\"owner\",\"owner\":\"other\",\"name\":\"repo\"}}" },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(DiscoveryQuery) + ",\"variables\":{\"owner\":\"owner\",\"name\":\"repo\"},\"variables\":{\"owner\":\"owner\",\"name\":\"repo\"}}" },
+            { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(DiscoveryQuery) + "}" },
             { "POST", "https://evil.example.com/graphql", Body(GitHubIssueQueries.AuthenticatedViewer, new Dictionary<string, string?>()) },
             { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(GitHubIssueQueries.AuthenticatedViewer) + "}" },
             { "POST", Endpoint.ToString(), "{\"query\":" + JsonSerializer.Serialize(GitHubIssueQueries.AuthenticatedViewer) + ",\"variables\":{},\"operationName\":\"x\"}" },
@@ -230,7 +231,7 @@ public sealed class GitHubReadOnlyAuthHandlerTests
         var h = new Harness();
 
         await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(() => h.SendAsync(HttpMethod.Post, Endpoint.ToString(),
-            viewer ? Body(GitHubIssueQueries.AuthenticatedViewer, new Dictionary<string, string?>()) : SnapshotBody,
+            viewer ? Body(GitHubIssueQueries.AuthenticatedViewer, new Dictionary<string, string?>()) : DiscoveryBody,
             r => r.Headers.Authorization = new("Bearer", "other")));
 
         h.Tokens.Calls.ShouldBe(0);
@@ -258,7 +259,7 @@ public sealed class GitHubReadOnlyAuthHandlerTests
         var h = new Harness(status, new Uri("https://evil.example.com/collect"));
 
         var ex = await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(
-            () => h.SendAsync(HttpMethod.Post, Endpoint.ToString(), SnapshotBody));
+            () => h.SendAsync(HttpMethod.Post, Endpoint.ToString(), DiscoveryBody));
 
         h.Network.Requests.Count.ShouldBe(1);
         h.Network.Requests[0].Uri.ShouldBe(Endpoint);
@@ -279,7 +280,7 @@ public sealed class GitHubReadOnlyAuthHandlerTests
     public async Task RefusalMessages_NeverContainToken()
     {
         var h = new Harness();
-        await h.SendAsync(HttpMethod.Post, Endpoint.ToString(), SnapshotBody);
+        await h.SendAsync(HttpMethod.Post, Endpoint.ToString(), DiscoveryBody);
 
         var ex = await Should.ThrowAsync<GitHubReadOnlyRequestRefusedException>(
             () => h.SendAsync(HttpMethod.Get, Endpoint.ToString(), null));

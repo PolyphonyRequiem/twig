@@ -18,7 +18,7 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
     public Task<Result<bool>> ValidateReadAccessAsync(Connection connection, CancellationToken ct)
         => Guard(connection, async () => { _ = await authority.Read(ct); return true; });
 
-    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct)
+    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation = false)
         => Guard(connection, async () => { _ = await authority.Read(ct); return Schema(); });
 
     private ProcessSchema Schema()

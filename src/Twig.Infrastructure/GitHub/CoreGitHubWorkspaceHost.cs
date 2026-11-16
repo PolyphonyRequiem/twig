@@ -14,12 +14,6 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
     IConnectionBindingService nativeBindings, IGitHubTokenSource? selectedCredential = null, CoreTransportOverride? transport = null,
     IBoundedProcessRunner? processes = null)
 {
-    internal async Task<Result<bool>> InitializeAsync(string databasePath, CancellationToken ct)
-    {
-        var initialized = await InitializeWithEvidenceAsync(databasePath, ct).ConfigureAwait(false);
-        return initialized.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(initialized.Error);
-    }
-
     internal async Task<Result<NativeCreationReceipt>> InitializeWithEvidenceAsync(string databasePath, CancellationToken ct,
         NativeSetupEffects? effects = null)
     {
@@ -115,6 +109,12 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
             var registered = await NativeCoreExecution.RegisterAsync(nativeBindings.RegistryPath,
                 new(document.DatabaseInstance, document.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
             if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
+            if (!scoped)
+            {
+                var registeredWorkspace = await benches.RegisterWorkspaceAsync(paths.RepoRoot, document.Connection,
+                    document.DatabaseInstance, ct).ConfigureAwait(false);
+                if (!registeredWorkspace.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registeredWorkspace.Error);
+            }
             provider = new(document.Connection, access, store, transport?.CreateHandler());
             var workspace = new CoreWorkspace(document.Connection, provider, store,
                 new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance,

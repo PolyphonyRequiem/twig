@@ -13,6 +13,20 @@ public sealed class GitHubRepositoryDiscoveryTests
     private static readonly Uri Endpoint = new("https://api.github.com/graphql");
 
     [Fact]
+    public async Task UnboundTargetRequiresFreshInitializationNotRetiredBindingCommands()
+    {
+        using var fixture = new GitHubTargetFixture();
+        (await fixture.Attachment.ReadWithRevisionAsync()).Value.Envelope.ShouldBeNull();
+        var resolver = new GitHubBoundTargetResolver(fixture.Attachment, fixture.Registry,
+            new("github.com", "owner/repo", Endpoint));
+        var error = await Should.ThrowAsync<InvalidDataException>(() => resolver.ResolveAsync(default));
+        error.Message.ShouldContain("fresh `twig init --provider github`");
+        error.Message.ShouldNotContain("provider discover");
+        error.Message.ShouldNotContain("provider bind");
+        (await fixture.Attachment.ReadWithRevisionAsync()).Value.Revision.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Discovery_ReportsOpaqueIdentityWithoutWritingBindingOrPointer()
     {
         using var fixture = new GitHubTargetFixture();

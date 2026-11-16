@@ -12,7 +12,7 @@ public sealed class AreaExactRuleRegressionTests
         var connection = new Connection(new("ado"), "collection", "project", "identity");
         var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
         // The persisted operator number is part of the compatibility contract.
-        var query = new Query((QueryKind)8, "System.AreaPath", FieldValue.String("Project\\Area"));
+        var query = new Query(QueryKind.PathEqual, "System.AreaPath", FieldValue.String("Project\\Area"));
         WorkItem Item(string area) => new(key, "Native.Type",
             FieldValues.Empty.Set("System.AreaPath", FieldValue.String(area)), new(key, "1"), true);
         Twig.Core.Core.Matches(query, Item("project\\AREA")).Value.ShouldBeTrue();

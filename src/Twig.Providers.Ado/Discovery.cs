@@ -20,10 +20,7 @@ public sealed partial class AdoProvider
             return true;
         }, ct));
 
-    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct)
-        => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token)).Schema, ct));
-
-    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
+    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation = false)
         => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token, includePresentation)).Schema, ct));
 
     private async Task<Discovery> Discover(Bound bound, CancellationToken ct, bool includePresentation = false)

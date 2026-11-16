@@ -9,24 +9,23 @@ namespace Twig.Infrastructure.Tests.GitHub;
 public sealed class GitHubDeviceFlowClientTests
 {
     private const string DeviceSecret = "synthetic-device-secret";
-    private const string TokenSecret = "synthetic-access-secret";
+    private const string ClientId = "Iv1synthetic";
+    private const string TokenSecret = "ghu_synthetic";
     private const string Code = """{"device_code":"synthetic-device-secret","user_code":"ABCD-1234","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}""";
-    private const string Token = """{"access_token":"synthetic-access-secret","token_type":"bearer","scope":""}""";
+    private const string Token = """{"access_token":"ghu_synthetic","token_type":"bearer","scope":"","expires_in":28800,"refresh_token":"ghr_synthetic","refresh_token_expires_in":15897600}""";
 
-    [Theory]
-    [InlineData(false, "")]
-    [InlineData(true, "repo")]
-    public async Task ExplicitScope_UsesFixedPublicClientAndEndpoints(bool privateRepositories, string requested)
+    [Fact]
+    public async Task ExplicitApp_UsesSelectedClientAndFixedEndpoints()
     {
         var clock = new Clock();
-        using var wire = new Wire(Code, Token.Replace("\"scope\":\"\"", $"\"scope\":\"{requested}\""));
+        using var wire = new Wire(Code, Token);
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var displayed = new List<GitHubDeviceInstructions>();
-        var grant = await client.RunAsync(privateRepositories ? GitHubDeviceScope.PrivateRepositories
-            : GitHubDeviceScope.PublicRepositories, displayed.Add);
+        var grant = await client.RunAppAsync(ClientId, displayed.Add);
         grant.AccessToken.ShouldBe(TokenSecret);
-        grant.Scope.ShouldBe(requested);
-        grant.ExpiresIn.ShouldBeNull();
+        grant.Scope.ShouldBe("");
+        grant.ExpiresIn.ShouldBe(28800);
+        grant.RefreshToken.ShouldBe("ghr_synthetic");
         grant.ToString().ShouldBe(nameof(GitHubDeviceGrant));
         displayed.ShouldHaveSingleItem();
         displayed[0].VerificationUri.ShouldBe(new Uri("https://github.com/login/device"));
@@ -36,7 +35,7 @@ public sealed class GitHubDeviceFlowClientTests
         {
             "https://github.com/login/device/code", "https://github.com/login/oauth/access_token",
         });
-        wire.Requests[0].Form.ShouldBe($"client_id={GitHubDeviceFlowClient.ClientId}&scope={requested}");
+        wire.Requests[0].Form.ShouldBe($"client_id={ClientId}&scope=offline_access");
         wire.Requests[1].Form.ShouldContain("device_code=" + DeviceSecret);
         wire.Requests[1].Form.ShouldContain("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code");
         wire.Requests.ShouldAllBe(r => r.Authorization == null && r.Cookie == null && r.Accept == "application/json");
@@ -50,7 +49,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code, """{"error":"authorization_pending"}""",
             """{"error":"slow_down"}""", Token);
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
-        await client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { });
+        await client.RunAppAsync(ClientId, _ => { });
         clock.Delays.Select(d => d.TotalSeconds).ShouldBe(new[] { 5d, 5d, 10d });
     }
 
@@ -65,10 +64,10 @@ public sealed class GitHubDeviceFlowClientTests
     public async Task TerminalErrors_DoNotRepeatOrExposeServerBody(string error)
     {
         var clock = new Clock();
-        using var wire = new Wire(Code, $$"""{"error":"{{error}}","error_description":"synthetic-access-secret"}""");
+        using var wire = new Wire(Code, $$"""{"error":"{{error}}","error_description":"ghu_synthetic"}""");
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var exception = await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }));
+            client.RunAppAsync(ClientId, _ => { }));
         exception.ToString().ShouldNotContain(error);
         exception.ToString().ShouldNotContain(TokenSecret);
         exception.InnerException.ShouldBeNull();
@@ -76,25 +75,31 @@ public sealed class GitHubDeviceFlowClientTests
     }
 
     [Theory]
-    [InlineData("""{"access_token":"synthetic-access-secret","error":"authorization_pending"}""")]
-    [InlineData("""{"access_token":"synthetic-access-secret","token_type":"bearer","scope":"repo"}""")]
-    [InlineData("""{"access_token":"synthetic-access-secret","token_type":"basic","scope":""}""")]
-    [InlineData("""{"access_token":"two tokens","token_type":"bearer","scope":""}""")]
-    [InlineData("""{"access_token":"synthetic-access-secret","access_token":"other","token_type":"bearer","scope":""}""")]
-    [InlineData("""{"access_token":"synthetic-access-secret","token_type":"bearer","scope":"","expires_in":0}""")]
-    [InlineData("""{"access_token":42,"token_type":"bearer","scope":""}""")]
-    [InlineData("[]")]
-    [InlineData("synthetic-access-secret")]
+    [MemberData(nameof(InvalidTokens))]
     public async Task InvalidTokenResponse_RefusesWithoutLeaking(string response)
     {
         var clock = new Clock();
         using var wire = new Wire(Code, response);
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var exception = await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }));
+            client.RunAppAsync(ClientId, _ => { }));
         exception.ToString().ShouldNotContain(TokenSecret);
         wire.Requests.Count.ShouldBe(2);
     }
+
+    public static TheoryData<string> InvalidTokens() => new()
+    {
+        Token.Replace("\"access_token\":", "\"error\":\"authorization_pending\",\"access_token\":"),
+        Token.Replace("\"scope\":\"\"", "\"scope\":\"repo\""),
+        Token.Replace("\"token_type\":\"bearer\"", "\"token_type\":\"basic\""),
+        Token.Replace(TokenSecret, "two tokens"),
+        Token.Replace("\"access_token\":", "\"access_token\":\"other\",\"access_token\":"),
+        Token.Replace("\"expires_in\":28800", "\"expires_in\":0"),
+        Token.Replace("\"" + TokenSecret + "\"", "42"),
+        Token.Replace("\"refresh_token_expires_in\":15897600", "\"refresh_token_expires_in\":0"),
+        "[]",
+        TokenSecret,
+    };
 
     [Theory]
     [InlineData("https://github.com/login/device", "https://evil.example/login/device")]
@@ -112,7 +117,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var displays = 0;
         await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => displays++));
+            client.RunAppAsync(ClientId, _ => displays++));
         displays.ShouldBe(0);
         wire.Requests.Count.ShouldBe(1);
     }
@@ -124,7 +129,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code);
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => clock.Advance(900)));
+            client.RunAppAsync(ClientId, _ => clock.Advance(900)));
         wire.Requests.Count.ShouldBe(1);
     }
 
@@ -135,7 +140,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code, Token) { BeforeResponse = call => { if (call == 2) clock.Advance(900); } };
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }));
+            client.RunAppAsync(ClientId, _ => { }));
     }
 
     [Fact]
@@ -145,7 +150,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code);
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         await Should.ThrowAsync<OperationCanceledException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }, new CancellationToken(true)));
+            client.RunAppAsync(ClientId, _ => { }, new CancellationToken(true)));
         wire.Requests.ShouldBeEmpty();
     }
 
@@ -160,7 +165,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(TokenSecret) { Status = status };
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var exception = await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }));
+            client.RunAppAsync(ClientId, _ => { }));
         exception.ToString().ShouldNotContain(TokenSecret);
         wire.Requests.Count.ShouldBe(1);
     }
@@ -172,7 +177,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(new string('x', GitHubDeviceFlowClient.MaxResponseBytes + 1)) { UnknownLength = true };
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var exception = await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }));
+            client.RunAppAsync(ClientId, _ => { }));
         exception.Message.ShouldContain("response size exceeded");
     }
 
@@ -183,7 +188,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(new string('x', GitHubDeviceFlowClient.MaxResponseBytes + 1));
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         (await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }))).Message.ShouldContain("response size exceeded");
+            client.RunAppAsync(ClientId, _ => { }))).Message.ShouldContain("response size exceeded");
     }
 
     [Fact]
@@ -194,7 +199,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var shown = false;
         await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => shown = true));
+            client.RunAppAsync(ClientId, _ => shown = true));
         shown.ShouldBeFalse();
     }
 
@@ -205,7 +210,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code) { ContentType = "text/html" };
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }));
+            client.RunAppAsync(ClientId, _ => { }));
         wire.Requests.Count.ShouldBe(1);
     }
 
@@ -222,7 +227,7 @@ public sealed class GitHubDeviceFlowClientTests
             return Task.CompletedTask;
         });
         await Should.ThrowAsync<OperationCanceledException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }, cancelled.Token));
+            client.RunAppAsync(ClientId, _ => { }, cancelled.Token));
         wire.Requests.Count.ShouldBe(1);
     }
 
@@ -233,7 +238,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code) { BeforeResponse = _ => clock.Advance(15) };
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         (await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }))).Message.ShouldContain("request deadline exceeded");
+            client.RunAppAsync(ClientId, _ => { }))).Message.ShouldContain("request deadline exceeded");
         wire.Requests.Count.ShouldBe(1);
     }
 
@@ -244,7 +249,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code, Token) { BeforeResponse = call => { if (call == 2) clock.Advance(15); } };
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         (await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }))).Message.ShouldContain("request deadline exceeded");
+            client.RunAppAsync(ClientId, _ => { }))).Message.ShouldContain("request deadline exceeded");
         wire.Requests.Count.ShouldBe(2);
     }
 
@@ -260,19 +265,19 @@ public sealed class GitHubDeviceFlowClientTests
         } };
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var error = await Should.ThrowAsync<OperationCanceledException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }, cancelled.Token));
+            client.RunAppAsync(ClientId, _ => { }, cancelled.Token));
         error.CancellationToken.ShouldBe(cancelled.Token);
         error.ToString().ShouldNotContain(TokenSecret);
     }
 
     [Fact]
-    public async Task InvalidScope_DoesNotSendOrDisplay()
+    public async Task InvalidAppClient_DoesNotSendOrDisplay()
     {
         var clock = new Clock();
         using var wire = new Wire(Code);
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
-        await Should.ThrowAsync<ArgumentOutOfRangeException>(() =>
-            client.RunAsync((GitHubDeviceScope)99, _ => throw new InvalidOperationException()));
+        await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
+            client.RunAppAsync("Ov23legacy", _ => throw new InvalidOperationException()));
         wire.Requests.ShouldBeEmpty();
     }
 
@@ -283,7 +288,7 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code) { BeforeResponse = _ => throw new HttpRequestException(TokenSecret) };
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         var error = await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }));
+            client.RunAppAsync(ClientId, _ => { }));
         error.ToString().ShouldNotContain(TokenSecret);
         error.InnerException.ShouldBeNull();
     }
@@ -295,21 +300,20 @@ public sealed class GitHubDeviceFlowClientTests
         using var wire = new Wire(Code.Replace("\"expires_in\":900", "\"expires_in\":5"));
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
         await Should.ThrowAsync<GitHubDeviceFlowException>(() =>
-            client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { }));
+            client.RunAppAsync(ClientId, _ => { }));
         clock.Delays.ShouldBeEmpty();
         wire.Requests.Count.ShouldBe(1);
     }
 
     [Fact]
-    public async Task ExpiringGrant_DoesNotRequireOrExposeRefreshToken()
+    public async Task AppGrant_RequiresRefreshToken()
     {
         var clock = new Clock();
-        using var wire = new Wire(Code, Token.Replace("\"scope\":\"\"",
-            "\"scope\":\"\",\"expires_in\":28800,\"refresh_token\":\"synthetic-refresh-secret\""));
+        using var wire = new Wire(Code, Token.Replace("\"refresh_token\":\"ghr_synthetic\",", ""));
         using var client = new GitHubDeviceFlowClient(wire, clock, clock.Delay);
-        var grant = await client.RunAsync(GitHubDeviceScope.PublicRepositories, _ => { });
-        grant.ExpiresIn.ShouldBe(28800);
-        grant.ToString().ShouldNotContain("synthetic-refresh-secret");
+        var error = await Should.ThrowAsync<GitHubDeviceFlowException>(() => client.RunAppAsync(ClientId, _ => { }));
+        error.ToString().ShouldNotContain(TokenSecret);
+        error.InnerException.ShouldBeNull();
     }
 
     [Fact]

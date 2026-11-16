@@ -36,10 +36,7 @@ public sealed partial class GitHubProvider
             return true;
         }, ct));
 
-    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct)
-        => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token)).Schema, ct));
-
-    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
+    public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation = false)
         => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token, includePresentation)).Schema, ct));
 
     private const string Metadata = """

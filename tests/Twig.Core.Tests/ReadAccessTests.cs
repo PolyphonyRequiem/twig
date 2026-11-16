@@ -19,7 +19,7 @@ public sealed class ReadAccessTests
     private sealed class UnsupportedProvider : IProvider
     {
         public ProviderCapabilities Capabilities => throw new NotSupportedException();
-        public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct) => throw new NotSupportedException();
+        public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation = false) => throw new NotSupportedException();
         public Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct) => throw new NotSupportedException();
         public Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false) => throw new NotSupportedException();
         public Task<Result<long>> ImportAsync(Proposal proposal, string confirmation, CancellationToken ct = default) => throw new NotSupportedException();

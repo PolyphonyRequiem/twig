@@ -38,22 +38,42 @@ public sealed class PlanningTests
             new("Project\\Undated", null, null),
         ], [], "Native team");
         var current = new Query(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current"]), planningTeam: "Native team");
-        Required(Model.Matches(current, Item("project\\CURRENT a"), calendar, now)).ShouldBeTrue();
-        Required(Model.Matches(current, Item("Project\\Current B"), calendar, now)).ShouldBeTrue();
-        Required(Model.Matches(current, Item("Project\\Next"), calendar, now)).ShouldBeFalse();
+        Required(Model.Matches(current, Item("project\\CURRENT a"), [calendar], now)).ShouldBeTrue();
+        Required(Model.Matches(current, Item("Project\\Current B"), [calendar], now)).ShouldBeTrue();
+        Required(Model.Matches(current, Item("Project\\Next"), [calendar], now)).ShouldBeFalse();
         var next = new Query(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current+1"]), planningTeam: "Native team");
-        Required(Model.Matches(next, Item("Project\\Current B"), calendar, now)).ShouldBeTrue();
-        Required(Model.Matches(next, Item("Project\\Next"), calendar, now)).ShouldBeTrue();
-        Required(Model.Matches(next, Item("Project\\Current A"), calendar, now)).ShouldBeFalse();
+        Required(Model.Matches(next, Item("Project\\Current B"), [calendar], now)).ShouldBeTrue();
+        Required(Model.Matches(next, Item("Project\\Next"), [calendar], now)).ShouldBeTrue();
+        Required(Model.Matches(next, Item("Project\\Current A"), [calendar], now)).ShouldBeFalse();
         Required(Model.Matches(new(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current+99"]), planningTeam: "Native team"),
-            Item("Project\\Next"), calendar, now)).ShouldBeFalse();
-        Required(Model.Matches(current, Item("Project\\Next"), calendar, now.AddYears(1))).ShouldBeFalse();
+            Item("Project\\Next"), [calendar], now)).ShouldBeFalse();
+        Required(Model.Matches(current, Item("Project\\Next"), [calendar], now.AddYears(1))).ShouldBeFalse();
         Model.Matches(current, Item("Project\\Next")).Error.Code.ShouldBe(ErrorCode.Unavailable);
-        Model.Matches(current, Item("Project\\Next"), calendar with { Team = "Different team" }, now).Error.Code.ShouldBe(ErrorCode.Unavailable);
+        Model.Matches(current, Item("Project\\Next"), [calendar with { Team = "Different team" }], now).Error.Code.ShouldBe(ErrorCode.Unavailable);
         Model.ResolveBench(new(Guid.NewGuid(), "Relative intent", [new(SelectorKind.Query, query: current)]),
             new(0), new(connection, [], []), now).Error.Code.ShouldBe(ErrorCode.Unavailable);
         Required(Model.Matches(new(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["Project\\Next"])),
             Item("project\\next"))).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void RelativeEvaluationRequiresUniqueExactTeamCalendarNotSelectedUiState()
+    {
+        var calendar = new PlanningMetadata(now, [],
+            [new("Project\\Current", now.AddDays(-1), now.AddDays(1))], [], "Native team");
+        var other = calendar with { Team = "Other team" };
+        var query = new Query(QueryKind.Iteration, "System.IterationPath",
+            FieldValue.Strings(["@Current"]), planningTeam: "Native team");
+        var item = Item("Project\\Current");
+        Required(Model.Matches(query, item, [other, calendar], now)).ShouldBeTrue();
+        Model.Matches(query, item, [calendar, calendar], now).Error.Code.ShouldBe(ErrorCode.Unavailable);
+        Model.Matches(query, item, [other], now).Error.Code.ShouldBe(ErrorCode.Unavailable);
+        Model.Matches(query, item, [calendar]).Error.Code.ShouldBe(ErrorCode.Unavailable);
+        var bench = new Bench(Guid.NewGuid(), "Relative intent", [new(SelectorKind.Query, query: query)]);
+        var schema = new ProcessSchema(connection, [], []) { Planning = calendar };
+        Model.ResolveBench(bench, new(0, [item]), schema, now).Error.Code.ShouldBe(ErrorCode.Unavailable);
+        Required(Model.ResolveBench(bench, new(0, [item]),
+            schema with { Planning = other, PlanningCalendars = [calendar] }, now)).ShouldBe([item.Key]);
     }
 
     [Fact]

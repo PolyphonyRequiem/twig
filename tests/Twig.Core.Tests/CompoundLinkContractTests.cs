@@ -113,15 +113,15 @@ public sealed class CompoundLinkContractTests
     {
         Proposal WithLink(CreationLink link) => new(Connection, Schema.Fingerprint, 0,
             [new("edit", OpKind.Batch, Item, new(Item, "1"), FieldValues.Empty.Set("title", FieldValue.String("new")), links: [link])]);
-        var legacy = WithLink(new(Other, "related", true));
+        var addition = WithLink(new(Other, "related", true));
         var explicitDefault = WithLink(new(Other, "related", true, false));
         var removal = WithLink(new(Other, "related", true, true));
-        Model.ProposalBytes(explicitDefault).ShouldBe(Model.ProposalBytes(legacy));
-        using var added = JsonDocument.Parse(Model.ProposalBytes(legacy));
+        Model.ProposalBytes(explicitDefault).ShouldBe(Model.ProposalBytes(addition));
+        using var added = JsonDocument.Parse(Model.ProposalBytes(addition));
         using var removed = JsonDocument.Parse(Model.ProposalBytes(removal));
         added.RootElement.GetProperty("operations")[0].GetProperty("links")[0].GetArrayLength().ShouldBe(3);
         removed.RootElement.GetProperty("operations")[0].GetProperty("links")[0].GetArrayLength().ShouldBe(4);
-        removal.Digest.ShouldNotBe(legacy.Digest);
+        removal.Digest.ShouldNotBe(addition.Digest);
         Proposal.FormatVersion.ShouldBe(3);
     }
 
@@ -166,13 +166,5 @@ public sealed class CompoundLinkContractTests
         var capabilities = new ProviderCapabilities([OpKind.Batch, OpKind.Relate, OpKind.Unrelate], ["related"], [], true, true)
             { AtomicRelationshipBatches = true };
         Model.Validate(proposal, proposal.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
-    }
-
-    [Fact]
-    public void ApprovedRemovalConstructorIsAdditiveAndLegacyConstructorRemains()
-    {
-        typeof(CreationLink).GetConstructor([typeof(ItemKey), typeof(string), typeof(bool)])!.ShouldNotBeNull();
-        typeof(CreationLink).GetConstructor([typeof(ItemKey), typeof(string), typeof(bool), typeof(bool)]).ShouldNotBeNull();
-        Proposal.FormatVersion.ShouldBe(3);
     }
 }

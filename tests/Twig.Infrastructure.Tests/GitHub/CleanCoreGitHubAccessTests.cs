@@ -25,7 +25,7 @@ public sealed class CleanCoreGitHubAccessTests
         using var native = new GitHubTargetFixture();
         await native.BindAsync();
         var config = new TwigConfiguration { Provider = "github", GitHub = new() { Host = "github.com", Repository = "original/repo" } };
-        await config.SaveAsync(native.Paths.ConfigPath);
+        await config.SaveSplitAsync(native.Paths);
         GitHubWorkspaceScope.TryCreate(config.GitHub, out var scope, out _).ShouldBeTrue();
         var targets = new GitHubBoundTargetResolver(native.Attachment, native.Registry, scope!);
         var origin = await targets.ResolveAsync(default);
@@ -82,7 +82,7 @@ public sealed class CleanCoreGitHubAccessTests
         using var native = new GitHubTargetFixture();
         await native.BindAsync();
         var config = new TwigConfiguration { Provider = "github", GitHub = new() { Host = "github.com", Repository = "original/repo" } };
-        await config.SaveAsync(native.Paths.ConfigPath);
+        await config.SaveSplitAsync(native.Paths);
         GitHubWorkspaceScope.TryCreate(config.GitHub, out var scope, out _).ShouldBeTrue();
         var targets = new GitHubBoundTargetResolver(native.Attachment, native.Registry, scope!);
         var origin = await targets.ResolveAsync(default);

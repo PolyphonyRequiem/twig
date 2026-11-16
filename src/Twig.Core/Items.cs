@@ -6,10 +6,7 @@ public enum RelationshipOrigin { Provider, Local }
 
 public sealed record CreationLink
 {
-    public CreationLink(ItemKey other, string relation, bool outgoing)
-        : this(other, relation, outgoing, false) { }
-
-    public CreationLink(ItemKey other, string relation, bool outgoing, bool remove)
+    public CreationLink(ItemKey other, string relation, bool outgoing, bool remove = false)
     {
         Other = other ?? throw new ArgumentNullException(nameof(other));
         Relation = Contract.Text(relation, nameof(relation));
@@ -50,8 +47,6 @@ public sealed record WorkItem
 
 public sealed record Relationship(ItemKey From, ItemKey To, string Kind, RelationshipOrigin Origin,
     long LocalVersion = 0, bool Deleted = false);
-
-public sealed record AttachmentRef(string NativeId, string Name, Uri? DownloadUri);
 
 public sealed record ResourceLink
 {

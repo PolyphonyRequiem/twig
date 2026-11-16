@@ -6,8 +6,6 @@ using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.GitHub;
 
-internal enum GitHubDeviceScope { PublicRepositories, PrivateRepositories }
-
 internal sealed class GitHubDeviceFlowException(string reason)
     : InvalidOperationException($"GitHub device authorization failed: {reason}.");
 
@@ -29,13 +27,12 @@ internal sealed class GitHubDeviceGrant(
 
 /// <summary>
 /// Explicit github.com device grant. The caller must obtain sign-in consent for the selected
-/// scope; this protocol does not establish consent, principal attestation or enrollment.
+/// App; this protocol does not establish consent, principal attestation or enrollment.
 /// No CLI selection, storage, refresh or browser effects. Response bodies are capped at 16 KiB,
 /// requests at 15 seconds, and the complete flow at the server expiry (at most 15 minutes).
 /// </summary>
 internal sealed class GitHubDeviceFlowClient : IDisposable
 {
-    internal const string ClientId = "Ov23liZEX3NdjEa13bjo";
     internal const int MaxResponseBytes = 16384;
     private static readonly Uri CodeEndpoint = new("https://github.com/login/device/code");
     private static readonly Uri TokenEndpoint = new("https://github.com/login/oauth/access_token");
@@ -64,63 +61,10 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
         UseProxy = false,
     };
 
-    internal async Task<GitHubDeviceGrant> RunAsync(GitHubDeviceScope scope,
-        Action<GitHubDeviceInstructions> reportInstructions, CancellationToken ct = default)
-    {
-        var requestedScope = scope switch
-        {
-            GitHubDeviceScope.PublicRepositories => "",
-            GitHubDeviceScope.PrivateRepositories => "repo",
-            _ => throw new ArgumentOutOfRangeException(nameof(scope)),
-        };
-        return await RunCoreAsync(ClientId, requestedScope, false, reportInstructions, ct).ConfigureAwait(false);
-    }
-
-    internal Task<GitHubDeviceGrant> RunAppAsync(string clientId,
+    internal async Task<GitHubDeviceGrant> RunAppAsync(string clientId,
         Action<GitHubDeviceInstructions> reportInstructions, CancellationToken ct = default)
     {
         ValidateAppClientId(clientId);
-        return RunCoreAsync(clientId, "offline_access", true, reportInstructions, ct);
-    }
-
-    internal async Task<GitHubDeviceGrant> RefreshAppAsync(
-        string clientId, string refreshToken, CancellationToken ct = default)
-    {
-        ValidateAppClientId(clientId);
-        if (!AppToken(refreshToken, "ghr_"))
-            throw new GitHubDeviceFlowException("invalid stored refresh credential; sign in again");
-        var requestedAt = _clock.GetUtcNow();
-        var response = await SendAsync(TokenEndpoint, new()
-        {
-            ["client_id"] = clientId,
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = refreshToken,
-        }, TwigJsonContext.Default.GitHubDeviceTokenResponse, RequestBudget, ct).ConfigureAwait(false);
-        return AppGrant(response, requestedAt);
-    }
-
-    internal async Task<GitHubAppActor> ObserveAppActorAsync(string accessToken, CancellationToken ct)
-    {
-        if (!AppToken(accessToken, "ghu_"))
-            throw new GitHubDeviceFlowException("invalid app credential");
-        var actor = await SendAsync(new("https://api.github.com/user"), null,
-            TwigJsonContext.Default.GitHubAppActor, RequestBudget, ct, accessToken).ConfigureAwait(false);
-        if (!Canonical(actor.NodeId) || actor.NodeId!.Length > 256 || actor.NodeId.Any(char.IsWhiteSpace)
-            || !Canonical(actor.Login) || actor.Login!.Length > 100 || actor.Login.Any(char.IsWhiteSpace))
-            throw new GitHubDeviceFlowException("authenticated actor observation is incomplete");
-        return actor;
-    }
-
-    internal static void ValidateAppClientId(string clientId)
-    {
-        if (!clientId.StartsWith("Iv", StringComparison.Ordinal) || clientId.Length is < 10 or > 100
-            || clientId.Any(c => !char.IsAsciiLetterOrDigit(c)))
-            throw new GitHubDeviceFlowException("configure the registered GitHub App client ID before sign-in");
-    }
-
-    private async Task<GitHubDeviceGrant> RunCoreAsync(string clientId, string requestedScope,
-        bool app, Action<GitHubDeviceInstructions> reportInstructions, CancellationToken ct)
-    {
         ArgumentNullException.ThrowIfNull(reportInstructions);
         ct.ThrowIfCancellationRequested();
         // Include the initial request in the monotonic total, never restart expiry per poll.
@@ -129,7 +73,7 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
         var code = await SendAsync(CodeEndpoint, new()
         {
             ["client_id"] = clientId,
-            ["scope"] = requestedScope,
+            ["scope"] = "offline_access",
         }, TwigJsonContext.Default.GitHubDeviceAuthorizationResponse, total, ct).ConfigureAwait(false);
         if (code.Error is not null || !Canonical(code.DeviceCode) || code.DeviceCode!.Length > 256
             || code.DeviceCode!.Any(char.IsWhiteSpace)
@@ -184,16 +128,43 @@ internal sealed class GitHubDeviceFlowClient : IDisposable
                         throw new GitHubDeviceFlowException("authorization server refused the request");
                 }
             }
-            if (app)
-                return AppGrant(token, requestedAt);
-            if (!Canonical(token.AccessToken) || token.AccessToken!.Length > 4096
-                || token.AccessToken!.Any(char.IsWhiteSpace)
-                || !string.Equals(token.TokenType, "bearer", StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(token.Scope, requestedScope, StringComparison.Ordinal)
-                || token.ExpiresIn is <= 0)
-                throw new GitHubDeviceFlowException("invalid token response");
-            return new(token.AccessToken!, requestedScope, token.ExpiresIn);
+            return AppGrant(token, requestedAt);
         }
+    }
+
+    internal async Task<GitHubDeviceGrant> RefreshAppAsync(
+        string clientId, string refreshToken, CancellationToken ct = default)
+    {
+        ValidateAppClientId(clientId);
+        if (!AppToken(refreshToken, "ghr_"))
+            throw new GitHubDeviceFlowException("invalid stored refresh credential; sign in again");
+        var requestedAt = _clock.GetUtcNow();
+        var response = await SendAsync(TokenEndpoint, new()
+        {
+            ["client_id"] = clientId,
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+        }, TwigJsonContext.Default.GitHubDeviceTokenResponse, RequestBudget, ct).ConfigureAwait(false);
+        return AppGrant(response, requestedAt);
+    }
+
+    internal async Task<GitHubAppActor> ObserveAppActorAsync(string accessToken, CancellationToken ct)
+    {
+        if (!AppToken(accessToken, "ghu_"))
+            throw new GitHubDeviceFlowException("invalid app credential");
+        var actor = await SendAsync(new("https://api.github.com/user"), null,
+            TwigJsonContext.Default.GitHubAppActor, RequestBudget, ct, accessToken).ConfigureAwait(false);
+        if (!Canonical(actor.NodeId) || actor.NodeId!.Length > 256 || actor.NodeId.Any(char.IsWhiteSpace)
+            || !Canonical(actor.Login) || actor.Login!.Length > 100 || actor.Login.Any(char.IsWhiteSpace))
+            throw new GitHubDeviceFlowException("authenticated actor observation is incomplete");
+        return actor;
+    }
+
+    internal static void ValidateAppClientId(string clientId)
+    {
+        if (!clientId.StartsWith("Iv", StringComparison.Ordinal) || clientId.Length is < 10 or > 100
+            || clientId.Any(c => !char.IsAsciiLetterOrDigit(c)))
+            throw new GitHubDeviceFlowException("configure the registered GitHub App client ID before sign-in");
     }
 
     private static GitHubDeviceGrant AppGrant(GitHubDeviceTokenResponse token, DateTimeOffset requestedAt)

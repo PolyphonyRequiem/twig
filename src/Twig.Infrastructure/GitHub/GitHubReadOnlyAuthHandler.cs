@@ -9,7 +9,7 @@ namespace Twig.Infrastructure.GitHub;
 internal sealed class GitHubReadOnlyRequestRefusedException(string message) : InvalidOperationException(message);
 
 /// <summary>
-/// Epic #1167 read-only enforcement for the GitHub adapter. A request is admitted only when it
+/// Read-only enforcement for GitHub bootstrap. A request is admitted only when it
 /// is a POST to the exact configured GraphQL endpoint whose body is exactly one of the adapter's
 /// own fixed read documents (<see cref="GitHubIssueQueries"/>) with the expected variable shape.
 /// Everything else is refused before the token is requested or the network is touched. Redirects
@@ -103,35 +103,10 @@ internal sealed class GitHubReadOnlyAuthHandler(IGitHubTokenSource tokenSource, 
 
         if (query is not { ValueKind: JsonValueKind.String } q || variables is not { ValueKind: JsonValueKind.Object } v)
             return false;
-        if (string.Equals(q.GetString(), GitHubIssueQueries.AuthenticatedViewer, StringComparison.Ordinal)
-            || string.Equals(q.GetString(), GitHubIssueQueries.SchemaMetadata, StringComparison.Ordinal))
+        if (string.Equals(q.GetString(), GitHubIssueQueries.AuthenticatedViewer, StringComparison.Ordinal))
             return !v.EnumerateObject().Any();
-        var discovery = string.Equals(q.GetString(), GitHubIssueQueries.RepositoryDiscovery, StringComparison.Ordinal);
-        if (discovery)
-            return IsDiscoveryVariables(v);
-        if (!GitHubIssueQueries.TryMatch(q.GetString()!, out var paginated))
-            return false;
-
-        bool sawId = false, sawAfter = false;
-        foreach (var variable in v.EnumerateObject())
-        {
-            switch (variable.Name)
-            {
-                case "id" when !sawId:
-                    if (variable.Value.ValueKind != JsonValueKind.String || variable.Value.GetString()!.Length == 0)
-                        return false;
-                    sawId = true;
-                    break;
-                case "after" when paginated && !sawAfter:
-                    if (variable.Value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
-                        return false;
-                    sawAfter = true;
-                    break;
-                default:
-                    return false;
-            }
-        }
-        return sawId && sawAfter == paginated;
+        return string.Equals(q.GetString(), GitHubIssueQueries.RepositoryDiscovery, StringComparison.Ordinal)
+            && IsDiscoveryVariables(v);
     }
 
     private static bool IsDiscoveryVariables(JsonElement variables)

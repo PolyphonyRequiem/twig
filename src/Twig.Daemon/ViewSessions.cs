@@ -12,13 +12,11 @@ public sealed class HttpFailure(int status, string code, string message) : Excep
     public string Code { get; } = code;
 }
 
-public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string presentationHash, DateTimeOffset expires,
-    CanvasApproval? approval = null)
+public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string presentationHash, DateTimeOffset expires)
 {
     internal Guid Id { get; } = id;
     internal Guid CatalogId { get; } = catalogId;
     internal bool Canvas { get; } = canvas;
-    internal CanvasApproval? Approval { get; } = approval;
     internal bool OwnerAuthenticated { get; set; }
     internal bool Revoked { get; set; }
     internal Guid ProfileGeneration { get; set; }
@@ -34,23 +32,21 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal Bench.Infrastructure.NativePanelContext? NativeContext { get; set; }
     internal Bench.Infrastructure.NativePanelContext? PopulationContext { get; set; }
     internal Dictionary<Twig.Core.Connection, Bench.Infrastructure.NativePanelContext> DisplayContexts { get; } = [];
-    internal bool NativeContentBlocked => Canvas && Approval is null && !OwnerAuthenticated;
+    internal bool NativeContentBlocked => Canvas && !OwnerAuthenticated;
     internal string PresentationHash { get; } = presentationHash;
     internal DateTimeOffset Expires { get; set; } = expires;
     internal DateTimeOffset PresentationExpires { get; } = expires;
     internal string? ContentHash { get; set; }
     internal bool Attached { get; set; }
-    internal Guid? DeviceId { get; set; }
     internal Guid ProfileId { get; set; }
     internal ViewPreferences Preferences { get; set; } = new(0, null, "list", null, null);
-    internal CreateBenchCommand? PendingCreation { get; set; }
     internal NativeEditorView Editor { get; } = new();
     internal NativePlanView Plan { get; } = new();
     internal NativeSetupView Setup { get; } = new();
     internal NativeAgentView Agent { get; } = new();
 }
 
-public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? canvasApproval = null, TimeProvider? timeProvider = null)
+public sealed class ViewSessions(string preferencesDirectory, TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
@@ -58,8 +54,6 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
     private static readonly TimeSpan OwnerRenewalLead = TimeSpan.FromHours(12);
     private readonly object gate = new();
     private readonly Dictionary<Guid, ViewSession> sessions = [];
-    private readonly Dictionary<string, (DateTimeOffset Expires, bool Canvas)> codes = [];
-    private readonly Queue<DateTimeOffset> attempts = [];
     public CanvasRegistration RegisterNativeCanvas(Guid instance, CanvasRuntimeContext? context = null)
     {
         lock (gate)
@@ -194,96 +188,14 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
             return new(session.Id, content, false);
         }
     }
-    public string IssueCode(bool canvas)
-    {
-        lock (gate)
-        {
-            Prune();
-            if (codes.Count >= 8) throw new InvalidOperationException("Wait for existing pairing codes to expire.");
-            var code = Secret();
-            codes.Add(Hash(code), (time.GetUtcNow().AddMinutes(2), canvas));
-            return code;
-        }
-    }
-    public CanvasRegistration RegisterCanvas(CatalogSnapshot catalog)
-    {
-        lock (gate)
-        {
-            var approved = canvasApproval?.Matches(catalog) == true ? canvasApproval : null;
-            var registered = Register(catalog.Id, true, approved);
-            return new(registered.Session.Id, registered.Secret);
-        }
-    }
-    public PairResult Pair(PairBody body, CatalogSnapshot catalog)
-    {
-        lock (gate)
-        {
-            Prune();
-            var now = time.GetUtcNow();
-            while (attempts.TryPeek(out var time) && now - time >= TimeSpan.FromMinutes(1)) attempts.Dequeue();
-            if (attempts.Count >= 10) throw new HttpFailure(429, "PairingThrottled", "Wait one minute and request a new local console code.");
-            attempts.Enqueue(now);
-            if (body.ProfileId == Guid.Empty || !ValidSecret(body.Code)
-                || !codes.TryGetValue(Hash(body.Code), out var grant) || grant.Expires <= now)
-                throw new HttpFailure(403, "PairingRejected", "Pairing code expired, invalid or already used.");
-            ViewSession session;
-            if (body.ViewId is { } id)
-            {
-                if (!grant.Canvas || !sessions.TryGetValue(id, out session!) || !session.Canvas || session.CatalogId != catalog.Id)
-                    throw new HttpFailure(403, "PairingScope", "Use a canvas-scoped code for this view.");
-                if (session.Approval is { } approval && !approval.Matches(catalog))
-                    throw new HttpFailure(403, "CanvasScopeChanged", "Approved source or Bench identity changed before pairing.");
-            }
-            else
-            {
-                if (grant.Canvas || body.Attach) throw new HttpFailure(403, "PairingScope", "A browser-scoped console code is required.");
-                session = Register(catalog.Id, false).Session;
-            }
-            codes.Remove(Hash(body.Code));
-            session.ProfileId = body.ProfileId;
-            session.Preferences = LoadPreferences(session);
-            session.Attached = session.Canvas && body.Attach;
-            var content = Secret();
-            session.ContentHash = Hash(content);
-            return new(session.Id, content, session.NativeContentBlocked);
-        }
-    }
     public ViewSession Content(Guid id, string capability, bool native)
     {
         lock (gate)
         {
             var session = Admit(id, capability, false);
             if (native && session.NativeContentBlocked)
-                throw new HttpFailure(403, "CanvasDisclosureBlocked", "This canvas has no matching exact-source display approval. Use the local browser.");
+                throw new HttpFailure(403, "CanvasDisclosureBlocked", "Authenticate this canvas with its Windows owner before reading native content.");
             return session;
-        }
-    }
-    public PairResult ResumeDevice(Guid requestedView, Guid deviceId, Guid profileId, CatalogSnapshot catalog)
-    {
-        lock (gate)
-        {
-            Prune();
-            if (canvasApproval is null || !canvasApproval.Matches(catalog))
-                throw new HttpFailure(403, "CanvasScopeChanged", "The remembered source or Bench is no longer approved.");
-            if (!sessions.TryGetValue(requestedView, out var session))
-                session = Register(catalog.Id, true, canvasApproval).Session;
-            if (!session.Canvas || session.CatalogId != catalog.Id || session.Approval != canvasApproval)
-                throw new HttpFailure(403, "DeviceScopeDenied", "This remembered device cannot authorize that view.");
-            session.ProfileId = profileId;
-            session.DeviceId = deviceId;
-            session.Preferences = LoadPreferences(session);
-            session.Attached = false;
-            var content = Secret();
-            session.ContentHash = Hash(content);
-            return new(session.Id, content, false);
-        }
-    }
-    public void ForgetDevice(Guid deviceId)
-    {
-        lock (gate)
-        {
-            foreach (var session in sessions.Values.Where(value => value.DeviceId == deviceId))
-                Revoke(session);
         }
     }
     public ViewSession Presentation(Guid id, string capability)
@@ -308,7 +220,7 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
         lock (gate)
         {
             var session = Admit(id, capability, true);
-            if (!session.Attached) throw new HttpFailure(403, "NotAttached", "Pair this canvas and explicitly attach layout controls.");
+            if (!session.Attached) throw new HttpFailure(403, "NotAttached", "Connect this canvas and explicitly attach layout controls.");
             if (session.OwnerAuthenticated) _ = ReadState(session);
             Update(session, session.Preferences with { Layout = body.Layout });
         }
@@ -334,9 +246,7 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
             }
             if (expectedRevision is { } expected && session.Preferences.Revision != expected)
                 throw new HttpFailure(409, "Conflict", "View changed in another request. Re-read before changing it.");
-            if (session.Canvas && session.Approval is { } approval && !approval.Permits(value))
-                throw new HttpFailure(403, "CanvasScopeDenied", "This presentation selection is outside the approved source/Bench.");
-            if (session.NativeContentBlocked && (value.BenchId is not null || value.GroupSource is not null || value.GroupField is not null))
+            if (value.BenchId is not null || value.GroupSource is not null || value.GroupField is not null)
                 throw new HttpFailure(403, "CanvasDisclosureBlocked", "This canvas permits layout only.");
             if (value.Layout is not ("tree" or "list") || value.GroupField is { } field
                 && (field.Length is < 1 or > 256 || field.Any(char.IsControl))
@@ -377,26 +287,14 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
     {
         lock (gate) { var session = Admit(id, capability, true); session.Agent.Invalidate(); session.Editor.Invalidate(retire: true); session.Plan.Invalidate(retire: true); session.Setup.Invalidate(); sessions.Remove(id); }
     }
-    private ViewPreferences LoadPreferences(ViewSession session)
-    {
-        var path = PreferencePath(session);
-        if (!File.Exists(path))
-            return session.Approval is { } approved ? new(0, approved.BenchId, "list", null, null) : new(0, null, "list", null, null);
-        if (new FileInfo(path).Length > 8192) throw new InvalidDataException("Preferences exceed bound.");
-        var value = JsonSerializer.Deserialize(File.ReadAllText(path), TransportJson.Default.ViewPreferences)
-            ?? throw new InvalidDataException("Invalid preferences.");
-        if (value.Layout is not ("tree" or "list") || value.Revision < 0) throw new InvalidDataException("Invalid preferences.");
-        return !session.Canvas || session.OwnerAuthenticated ? value : session.Approval is { } approval ? approval.Restrict(value)
-            : value with { BenchId = null, GroupSource = null, GroupField = null };
-    }
     private string PreferencePath(ViewSession session)
         => Path.Combine(preferencesDirectory, $"{session.CatalogId:D}-{session.ProfileId:D}-{(session.Canvas ? "canvas" : "browser")}.json");
-    private (ViewSession Session, string Secret) Register(Guid catalogId, bool canvas, CanvasApproval? approval = null)
+    private (ViewSession Session, string Secret) Register(Guid catalogId, bool canvas)
     {
         Prune();
         if (sessions.Count >= 64) throw new HttpFailure(429, "ViewLimit", "Close old views or wait for expiry.");
         var token = Secret();
-        var session = new ViewSession(Guid.NewGuid(), catalogId, canvas, Hash(token), time.GetUtcNow() + Lifetime, approval);
+        var session = new ViewSession(Guid.NewGuid(), catalogId, canvas, Hash(token), time.GetUtcNow() + Lifetime);
         sessions.Add(session.Id, session);
         return (session, token);
     }
@@ -423,7 +321,6 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
         var now = time.GetUtcNow();
         foreach (var id in sessions.Where(s => s.Value.Expires <= now).Select(s => s.Key).ToArray())
         { sessions[id].Editor.Invalidate(retire: true); sessions[id].Plan.Invalidate(retire: true); sessions[id].Setup.Invalidate(); sessions.Remove(id); }
-        foreach (var key in codes.Where(c => c.Value.Expires <= now).Select(c => c.Key).ToArray()) codes.Remove(key);
     }
     public (PairResult Connection, bool Recovered) RenewOwner(Guid instance, OwnerRenewBody body, string? contentCapability = null)
     {
@@ -496,8 +393,6 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
                 var context = contexts.FirstOrDefault(value => ViewSession.PathComparer.Equals(value.Root, root));
                 var prior = document.Sources.FirstOrDefault(value => ViewSession.PathComparer.Equals(value.Root, root));
                 return context is not null ? new NativeSourceReference(root, CatalogFingerprint.Binding(context.Source.Binding))
-                    { AllowCachedDisplay = prior is not null && prior.Binding == CatalogFingerprint.Binding(context.Source.Binding)
-                        && prior.AllowCachedDisplay }
                     : prior
                     ?? throw new HttpFailure(409, "ContextRequired", "Choose each intended connection explicitly before saving its reference.");
             }).ToArray();
@@ -569,7 +464,6 @@ public sealed class ViewSessions(string preferencesDirectory, CanvasApproval? ca
         session.Revoked = session.OwnerAuthenticated;
         session.ContentHash = null;
         session.Attached = false;
-        session.PendingCreation = null;
         session.NativeContext = null;
         session.PopulationContext = null;
         lock (session) { session.DisplayContexts.Clear(); session.SourceRecovery.Clear(); }

@@ -31,7 +31,7 @@ public sealed partial class UserBenchStore
             if (!await reader.ReadAsync(ct).ConfigureAwait(false) || reader.GetString(0) != head.User.ToString("D")
                 || reader.IsDBNull(1) || reader.GetString(1) != head.Registry.ToString("N")
                 || reader.GetInt64(2) != head.Generation || reader.GetString(3) != head.Head
-                || head.Birth == "reserved" || head.Birth.StartsWith("migrating:", StringComparison.Ordinal))
+                || head.Birth != "born")
                 return Result<bool>.Fail(ErrorCode.StorageUnavailable, "Independent native user/capture generation disagrees; no empty-state or rewind inference.");
             reader.Close();
             if (head.Generation != 0)
@@ -66,7 +66,7 @@ public sealed partial class UserBenchStore
         var heads = await registry.CaptureHeadsAsync(ct).ConfigureAwait(false);
         if (!heads.IsSuccess) throw new InvalidDataException(heads.Error.Message);
         var head = heads.Value.SingleOrDefault(value => NativePathComparer.Instance.Equals(value.Path, path))
-            ?? throw new InvalidDataException("Historical native user namespace requires actual one-time provenance inventory; empty is not first-use proof.");
+            ?? throw new InvalidDataException("Native user namespace lacks its exact creation witness; use supported fresh initialization.");
         var valid = await CheckGenerationAsync(head, ct).ConfigureAwait(false);
         if (!valid.IsSuccess) throw new InvalidDataException(valid.Error.Message);
         var history = await registry.CaptureInventoryAsync(ct).ConfigureAwait(false);
@@ -74,8 +74,7 @@ public sealed partial class UserBenchStore
         return head;
     }
 
-    internal async Task<Result<string>> CaptureInventoryEvidenceAsync(IEnumerable<NativeCoreStoreReference> sources, CancellationToken ct,
-        InitialAuthoringObservation? initialAuthoring = null)
+    internal async Task<Result<string>> CaptureInventoryEvidenceAsync(IEnumerable<NativeCoreStoreReference> sources, CancellationToken ct)
     {
         try
         {
@@ -86,93 +85,11 @@ public sealed partial class UserBenchStore
             if (!heads.IsSuccess) return Result<string>.Fail(heads.Error);
             var user = (await ReadAsync(ct).ConfigureAwait(false)).Value.InstanceId;
             if (heads.Value.Any(value => NativePathComparer.Instance.Equals(value.Path, path) || value.User == user))
-                return initialAuthoring is not null
-                    ? Result<string>.Fail(ErrorCode.Unavailable, "Existing capture provenance cannot be replaced by readonly adoption.")
-                    : await registry.CaptureInventoryAsync(ct).ConfigureAwait(false);
-            if (initialAuthoring is not null)
-                return Result<string>.Ok(await NativeInitialAuthoring.Evidence(path, initialAuthoring, sources, ct).ConfigureAwait(false));
-            var captures = await ReadEditorCapturesAsync(ct, inspect: true).ConfigureAwait(false);
-            if (!captures.IsSuccess) return Result<string>.Fail(captures.Error);
-            if (captures.Value.IsEmpty || captures.Value.Any(capture => !capture.Ready))
-                return Result<string>.Fail(ErrorCode.StorageUnavailable, "Historical namespace lacks actual sealed Ready payload/history; completeness cannot fabricate it.");
-            foreach (var capture in captures.Value.Where(value => !value.Settled))
-            {
-                var source = sources.SingleOrDefault(value => value.Instance == capture.StoreInstance && value.Root == capture.Root
-                    && value.Connection == capture.Origin.Connection);
-                if (source is null) return Result<string>.Fail(ErrorCode.StorageUnavailable, "Legacy capture has no exact execution source.");
-                var stored = await NativeCoreExecution.InspectAsync(source, ct).ConfigureAwait(false);
-                if (!stored.IsSuccess) return Result<string>.Fail(stored.Error);
-                var key = ParseIntent(capture.IntentJson).Operations.Single().Item;
-                if (CoreWorkspace.Fingerprint(source.Connection, stored.Value.Drafts.SingleOrDefault(value => value.Key == key)) != capture.DraftFingerprint)
-                    return Result<string>.Fail(ErrorCode.Conflict, "Legacy capture differs from authoritative protected draft.");
-            }
-            using var tx = db.BeginTransaction(deferred: true);
-            return Result<string>.Ok("legacy:" + await CaptureDigest(db, tx, ct).ConfigureAwait(false));
+                return await registry.CaptureInventoryAsync(ct).ConfigureAwait(false);
+            return Result<string>.Fail(ErrorCode.StorageUnavailable,
+                "Native user namespace lacks its exact creation witness; use supported fresh initialization.");
         }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<string>(ex); }
-    }
-
-    internal async Task<Result<bool>> MigrateCaptureProvenanceAsync(IEnumerable<NativeCoreStoreReference> sources, CancellationToken ct,
-        InitialAuthoringObservation? initialAuthoring = null, string proof = "", string? expectedEvidence = null)
-    {
-        try
-        {
-            using var lease = AcquireCaptureLease();
-            using var registry = new SqliteSystemWorktreeRegistry(captureRegistry!, TimeProvider.System);
-            var heads = await registry.CaptureHeadsAsync(ct).ConfigureAwait(false);
-            if (!heads.IsSuccess) return Result<bool>.Fail(heads.Error);
-            if (heads.Value.Any(value => NativePathComparer.Instance.Equals(value.Path, path))) return Result<bool>.Ok(true);
-            await using var db = await Open(ct).ConfigureAwait(false);
-            using var adoption = initialAuthoring is null ? null : db.BeginTransaction(deferred: false);
-            var evidence = await CaptureInventoryEvidenceAsync(sources, ct, initialAuthoring).ConfigureAwait(false);
-            if (!evidence.IsSuccess) return Result<bool>.Fail(evidence.Error);
-            if (expectedEvidence is not null && evidence.Value != expectedEvidence)
-                return Result<bool>.Fail(ErrorCode.Conflict, "The exact namespace inventory changed before reservation.");
-            if (initialAuthoring is not null && proof.Length == 0)
-                return Result<bool>.Fail(ErrorCode.PolicyViolation, "Initial authoring confirmation evidence is missing.");
-            var user = (await ReadAsync(ct).ConfigureAwait(false)).Value.InstanceId;
-            var identity = (await registry.ReadCoreGateAsync(ct).ConfigureAwait(false)).Value.Instance;
-            var migration = initialAuthoring is null ? evidence.Value : NativeInitialAuthoring.Hash(evidence.Value);
-            var registered = await registry.MigrateCaptureUserAsync(path, user, migration, ct, proof).ConfigureAwait(false);
-            if (!registered.IsSuccess) return registered;
-            using (var tx = adoption ?? db.BeginTransaction(deferred: false))
-            {
-                using var command = db.CreateCommand(); command.Transaction = tx;
-                command.CommandText = """
-                    ALTER TABLE meta ADD COLUMN editor_registry TEXT;
-                    ALTER TABLE meta ADD COLUMN editor_generation INTEGER NOT NULL DEFAULT 0;
-                    ALTER TABLE meta ADD COLUMN editor_head TEXT NOT NULL DEFAULT '';
-                    UPDATE meta SET editor_registry=$registry WHERE id=1;
-                    """;
-                command.Parameters.AddWithValue("$registry", identity.ToString("N"));
-                await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false); tx.Commit();
-            }
-            if (initialAuthoring is not null)
-                return await registry.CompleteCaptureMigrationAsync(user, migration, ct).ConfigureAwait(false);
-            using var rows = db.CreateCommand(); rows.CommandText = "SELECT document FROM editor_captures ORDER BY id;";
-            var documents = new List<string>();
-            using (var reader = await rows.ExecuteReaderAsync(ct).ConfigureAwait(false))
-                while (await reader.ReadAsync(ct).ConfigureAwait(false)) documents.Add(reader.GetString(0));
-            long generation = 0; var parent = "";
-            foreach (var document in documents)
-            {
-                var capture = JsonSerializer.Deserialize(document, NativeEditorJson.Default.NativeEditorCapture)!;
-                var source = sources.Single(value => value.Instance == capture.StoreInstance && value.Root == capture.Root
-                    && value.Connection == capture.Origin.Connection);
-                var reference = new NativeCaptureReference(path, user, ++generation, parent, capture.Id, capture.Revision,
-                    CaptureHash(document), "", source.DatabasePath, capture.Root, capture.Origin, capture.StoreInstance,
-                    capture.StoreVersion, "unavailable-legacy", capture.DraftFingerprint) { Migration = evidence.Value };
-                var reserved = await registry.ReserveCaptureAsync(reference, ct).ConfigureAwait(false);
-                if (!reserved.IsSuccess) return Result<bool>.Fail(reserved.Error);
-                using var tx = db.BeginTransaction(deferred: false);
-                await RecordCaptureHistory(db, tx, reference, document, "", ct).ConfigureAwait(false); tx.Commit();
-                var confirmed = await registry.MarkCaptureAsync(user, generation, reference.Head, false, null, ct).ConfigureAwait(false);
-                if (!confirmed.IsSuccess) return confirmed;
-                parent = reference.Head;
-            }
-            return await registry.CompleteCaptureMigrationAsync(user, evidence.Value, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
     }
 
     internal static async Task<Result<bool>> CheckHistoryAsync(NativeCaptureReference reference, CancellationToken ct)
@@ -203,14 +120,7 @@ public sealed partial class UserBenchStore
             capture.BeforeFingerprint, capture.DraftFingerprint);
         using var registry = new SqliteSystemWorktreeRegistry(captureRegistry!, TimeProvider.System);
         if (reference.ExecutionPath.Length == 0)
-        {
-            var gate = await registry.ReadCoreGateAsync(ct).ConfigureAwait(false);
-            if (!gate.IsSuccess) throw new InvalidDataException(gate.Error.Message);
-            var source = gate.Value.Sources.SingleOrDefault(value => value.Instance == capture.StoreInstance
-                && value.Root == capture.Root && value.Connection == capture.Origin.Connection)
-                ?? throw new InvalidDataException("The legacy capture's exact source is unavailable.");
-            reference = reference with { ExecutionPath = source.DatabasePath };
-        }
+            throw new InvalidDataException("The current capture requires its exact execution-store path.");
         var reserved = await registry.ReserveCaptureAsync(reference, ct).ConfigureAwait(false);
         if (!reserved.IsSuccess) throw new InvalidDataException(reserved.Error.Message);
         return reserved.Value;

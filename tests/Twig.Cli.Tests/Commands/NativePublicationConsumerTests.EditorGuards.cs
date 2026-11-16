@@ -61,6 +61,7 @@ public sealed partial class NativePublicationConsumerTests
         using var editor = (await NativeEditor.OpenAsync(factory, user, bench.Id, origin.Source, default)).Value;
         var key = ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42");
         var item = (await editor.SelectAsync(key, default)).Value;
+        item.Draft.ShouldBeNull("recovery must distinguish an interrupted stage from a durable intended draft");
         var fields = FieldValues.Empty.Set("System.Title", FieldValue.String("durable intended value"));
         var intended = new Draft(key, item.Observation.Type, item.Observation, fields);
         var proposal = new Proposal(native.Connection, editor.Metadata.Schema.Fingerprint, item.StoreVersion,
@@ -68,8 +69,13 @@ public sealed partial class NativePublicationConsumerTests
         var capture = new NativeEditorCapture(Guid.NewGuid(), 1, (await user.ReadAsync()).Value.InstanceId, bench.Id,
             bench.Revision, editor.Plan.Id, editor.Plan.Revision, false, Guid.Empty, origin.Source, native.Paths.RepoRoot,
             native.Store.InstanceId, item.StoreVersion, Encoding.UTF8.GetString(Twig.Core.Core.ProposalBytes(proposal)),
-            origin.Workspace.DraftFingerprint(intended), false);
-        (await user.SaveEditorCaptureAsync(capture, 0, default)).IsSuccess.ShouldBeTrue();
+            origin.Workspace.DraftFingerprint(intended), false)
+        {
+            ExecutionPath = origin.Document.DatabasePath,
+            BeforeFingerprint = origin.Workspace.DraftFingerprint(item.Draft)
+        };
+        var saved = await user.SaveEditorCaptureAsync(capture, 0, default);
+        saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         if (stageCompleted)
             (await origin.Workspace.StageEditAsync(key, fields, default, capturedBaseline: item.Observation,
                 expectedVersion: item.StoreVersion)).IsSuccess.ShouldBeTrue();

@@ -248,12 +248,6 @@ Twig.Infrastructure.Services.NativeSourceObservation.PlanningCalendars.get -> Sy
 Twig.Infrastructure.Services.NativeSourceObservation.PlanningCalendars.init -> void
 Twig.Infrastructure.Services.NativeSourceObservation.PlanningTeams.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.PlanningTeam!>
 Twig.Infrastructure.Services.NativeSourceObservation.PlanningTeams.init -> void
-Twig.Infrastructure.Services.NativeAuthoringReview
-Twig.Infrastructure.Services.NativeAuthoringReview.Digest.get -> string!
-Twig.Infrastructure.Services.NativeAuthoringReview.Confirmation.get -> string!
-static Twig.Infrastructure.Services.NativeAuthoringReview.NativeBuild.get -> string!
-static Twig.Infrastructure.Services.NativeAuthoringReview.ReviewAsync(string! root, string! observedReadonlyRelease, string! observedCliBuild, string! panelBuild, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAuthoringReview!>!>!
-Twig.Infrastructure.Services.NativeAuthoringReview.ConfirmAsync(string! digest, string! confirmation, bool completeInventory, bool oldProcessesQuiesced, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<bool>!>!
 Twig.Infrastructure.Services.NativeEditForm
 Twig.Infrastructure.Services.NativeEditForm.NativeEditForm(System.Guid Ticket, Twig.Core.ItemKey! Item, string! Type, string! StateField, Twig.Core.FieldValues! Values, Twig.Core.EditorEvaluation! Evaluation) -> void
 Twig.Infrastructure.Services.NativeEditForm.Ticket.get -> System.Guid

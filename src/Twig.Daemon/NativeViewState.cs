@@ -30,11 +30,7 @@ public sealed record NativeOwnerSession(Guid ViewId, string ContentCapability, b
 }
 public sealed record NativeInitialView(NativePanelSummary Summary, NativeSessionInfo Session, NativeBenchViewDto? View);
 
-internal sealed record NativeSourceReference(string Root, string Binding)
-{
-    // Older profiles contain this field; it no longer controls display behavior.
-    public bool AllowCachedDisplay { get; init; }
-}
+internal sealed record NativeSourceReference(string Root, string Binding);
 internal sealed record NativeViewDocument(int Version, Guid StoreId, Guid ProfileId, long Revision, Guid Generation,
     bool SignedOut, NativeViewChoices Choices, NativeSourceReference[] Sources);
 

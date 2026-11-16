@@ -56,9 +56,9 @@ public static partial class NativeBenchHost
             var host = $"{(options.Certificate is null ? "127.0.0.1" : "localhost")}:{context.Connection.LocalPort}";
             var origin = context.Request.Headers.Origin.ToString();
             var bootstrap = (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
-                && context.Request.Path.Value is "/" or "/canvas" or "/app.js" or "/device.js" or "/style.css"
+                && context.Request.Path.Value is "/" or "/canvas" or "/app.js" or "/style.css"
                     or "/view-model.js" or "/item-detail.js" or "/assignee-profiles.js" or "/item-editor.js" or "/editor-drafts.js" or "/connection-setup.js" or "/vendor/purify.es.mjs" or "/vendor/marked.esm.js"
-                    or "/icons.css" or "/fonts/fluent-regular-v1.1.293.woff2";
+                    or "/icons.css";
             if (context.Request.Host.Value != host || !bootstrap && (origin.Length != 0 && origin != $"{context.Request.Scheme}://{host}"
                 || context.Request.Headers["Sec-Fetch-Site"] == "cross-site"))
             { await Write(context, new Failure("OriginRejected", "Use the exact local service origin."), 403); return; }
@@ -97,8 +97,6 @@ public static partial class NativeBenchHost
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
                 CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1"])));
-        app.MapGet("/api/v1/device-enrollment", (HttpContext context) =>
-            Write(context, new EnrollmentAvailability(options.WindowsSignIn, options.WindowsSignIn)));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
             var body = await Body<RegisterCanvasBody>(context);
@@ -516,8 +514,8 @@ public static partial class NativeBenchHost
         MapSetup(app, connectionSetup, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapRepositories(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         var root = options.WebRoot ?? Path.Combine(AppContext.BaseDirectory, "wwwroot");
-        foreach (var route in new[] { "/", "/canvas", "/app.js", "/device.js", "/style.css", "/view-model.js", "/item-detail.js", "/assignee-profiles.js", "/item-editor.js", "/editor-drafts.js", "/connection-setup.js",
-            "/vendor/purify.es.mjs", "/vendor/marked.esm.js", "/icons.css", "/fonts/fluent-regular-v1.1.293.woff2" })
+        foreach (var route in new[] { "/", "/canvas", "/app.js", "/style.css", "/view-model.js", "/item-detail.js", "/assignee-profiles.js", "/item-editor.js", "/editor-drafts.js", "/connection-setup.js",
+            "/vendor/purify.es.mjs", "/vendor/marked.esm.js", "/icons.css" })
             app.MapMethods(route, ["GET", "HEAD"], async (HttpContext context) =>
             {
                 var name = route is "/" or "/canvas" ? "native-index.html"
@@ -560,8 +558,7 @@ public static partial class NativeBenchHost
                 if (HttpMethods.IsHead(context.Request.Method)) context.Response.ContentLength = new FileInfo(file).Length;
                 else await context.Response.SendFileAsync(file, context.RequestAborted);
                 string ContentType() => route.EndsWith(".js", StringComparison.Ordinal) || route.EndsWith(".mjs", StringComparison.Ordinal)
-                    ? "text/javascript" : route.EndsWith(".css", StringComparison.Ordinal) ? "text/css"
-                    : route.EndsWith(".woff2", StringComparison.Ordinal) ? "font/woff2" : "text/html";
+                    ? "text/javascript" : route.EndsWith(".css", StringComparison.Ordinal) ? "text/css" : "text/html";
             });
         return app;
 

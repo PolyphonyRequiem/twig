@@ -3,7 +3,6 @@ param(
     [Parameter(Mandatory = $true)][string] $PrivateDataDir,
     [int] $Port = 0,
     [string] $HttpsCertificateThumbprint,
-    [switch] $MigrateLegacy,
     [string] $InstallRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Twig\Daemon'),
     [string] $CanvasInstallRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Twig\Canvas'),
     [string] $PythonExecutable = 'python3',
@@ -80,10 +79,6 @@ if ($Port -lt 1 -or $Port -gt 65535 -or $Port -eq 443 -or
     $HttpsCertificateThumbprint -cnotmatch '^[A-Fa-f0-9]{40}$') {
     throw 'Native panel installation requires an explicit stable port and an existing trusted localhost certificate thumbprint; no certificate is created or trusted.'
 }
-if ((Test-Path -LiteralPath (Join-Path $PrivateDataDir 'catalog.db') -PathType Leaf) -and
-    -not (Test-Path -LiteralPath (Join-Path $PrivateDataDir 'native-migration.receipt') -PathType Leaf) -and -not $MigrateLegacy) {
-    throw 'Legacy panel definitions were preserved. Explicit -MigrateLegacy is required; conflicts are reconciled at native startup, never silently overwritten.'
-}
 if ($RegisterStartup) {
     $StartupDirectory = Get-BenchLocalPath $StartupDirectory
     if (-not (Test-Path -LiteralPath $StartupDirectory -PathType Container)) { throw 'Startup directory does not exist.' }
@@ -151,7 +146,7 @@ Write-BenchAtomic (Join-Path $stage 'runtime.json') ($manifest | ConvertTo-Json 
 $record = [ordered]@{
     application = 'twig-daemon'; schema = 4; version = $version
     manifestHash = Get-BenchHash (Join-Path $stage 'runtime.json')
-    privateDataDir = $PrivateDataDir; authority = 'native-user-benches-v1'; migrateLegacy = [bool]$MigrateLegacy
+    privateDataDir = $PrivateDataDir; authority = 'native-user-benches-v1'
     port = $Port; httpsCertificateThumbprint = $HttpsCertificateThumbprint
     canvasInstallRoot = $CanvasInstallRoot
 }

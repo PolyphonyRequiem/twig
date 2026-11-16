@@ -10,9 +10,6 @@ namespace Bench.Server;
 
 internal static class ViewMapping
 {
-    internal static CatalogSummary Catalog(CatalogSnapshot value) => new(value.Id, value.Revision,
-        value.Sources.Select(s => new SourceSummary(s.Id, s.Label, s.AllowOffline, s.AdmittedOnlineAt)).ToArray(),
-        value.Benches.Select(b => new BenchSummary(b.Id, b.Name, b.Revision)).ToArray());
     internal static BenchViewDto View(BenchView value, CatalogSnapshot catalog)
         => ViewLabeled(value, catalog.Sources.ToDictionary(source => source.Id, source => source.Label));
     internal static BenchViewDto ViewLabeled(BenchView value, IReadOnlyDictionary<Guid, string> labels)

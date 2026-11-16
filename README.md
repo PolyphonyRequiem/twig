@@ -116,8 +116,8 @@ Documented Canvas SDK session ID and working-directory metadata select an isolat
 session view profile and the actual local repository's defaults. Repository/branch
 metadata are hints, not authority. App chat/project classification and persistent
 Project IDs remain unknown; no conversation access or remote-directory mapping is
-used. Agent context metadata is opt-in through `X-Twig-Bench-Context: 1`; older
-exact-shaped clients retain their original response envelope. Repo binding
+used. Agent context always includes nullable `runtimeContext`, `repositoryRoot`
+and `repositoryRevision` fields in its single current response envelope. Repo binding
 changes invalidate scoped grants, editor and Plan captures.
 The user Bench store is now format version 2: choose a fresh `TWIG_USER_HOME` for
 old developer-local state rather than migrating it. Changing only daemon private
@@ -129,8 +129,8 @@ unresolved references, never fabricated item fields or inferred deletion.
 Access follows the
 renewable owner session, not a separate 30-minute agent grant. Source/principal,
 profile and policy checks still apply and sign-out revokes access immediately.
-Connection Add completes managed setup and source-qualified all-items admission
-without repeated approvals; GitHub resolves the verified active CLI account and
+Connection Add completes managed setup and attaches the source without creating
+membership selectors or repeated approvals; GitHub resolves the verified active CLI account and
 pins that name without switching accounts. Existing rules remain unchanged.
 Save/Apply, digest review and tracker publication remain human-only.
 `tools\daemon-launch.ps1` starts that selected verified runtime. `-EnsureRunning`

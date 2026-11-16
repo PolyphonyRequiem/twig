@@ -126,8 +126,12 @@ public sealed class NativeCoreExecutionTests : IDisposable
             proposals: before.Proposals, journal: [acknowledged], mappings: [new(uuid, remote, create.Proposal.Digest, 0)]), default));
         if (deletedReferences)
         {
+            using (var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System))
+                Required(await registry.CoreAttemptReferencesAsync(first.Instance, default)).ShouldNotBeEmpty();
             await DeleteReferences(first);
-            Required(await NativeCoreExecution.RegisterAsync(Registry, first, default));
+            var registered = await NativeCoreExecution.RegisterAsync(Registry, first, default);
+            registered.IsSuccess.ShouldBeFalse("source registration must not reconstruct deleted attempt evidence");
+            registered.Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
             (await NativeCoreExecution.InventoryAsync(Registry)).IsSuccess.ShouldBeFalse("inventory must not silently reconstruct deleted reference evidence");
         }
         var edit = await Attempt(second, remote, OpStatus.Planned);

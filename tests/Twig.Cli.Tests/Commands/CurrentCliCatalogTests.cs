@@ -1,4 +1,3 @@
-using ConsoleAppFramework;
 using Shouldly;
 using Xunit;
 
@@ -18,16 +17,9 @@ public sealed class CurrentCliCatalogTests
     public void GeneratedHelpDoesNotAdvertiseIgnoredOptions(string command, string option)
     {
         var runner = Twig.TwigConsoleApp.CreateRunner(_ => { });
-        using var output = new StringWriter();
-        var previous = ConsoleApp.Log;
-        try
-        {
-            ConsoleApp.Log = line => output.WriteLine(line);
-            runner([.. command.Split(' '), "--help"]);
-        }
-        finally { ConsoleApp.Log = previous; }
-        output.ToString().ShouldContain("Usage:");
-        output.ToString().ShouldNotContain(option);
+        var output = ProgressiveHelp.CaptureGeneratedHelp(runner, [.. command.Split(' '), "--help"]);
+        output.ShouldContain("Usage:");
+        output.ShouldNotContain(option);
     }
 
     [Theory]

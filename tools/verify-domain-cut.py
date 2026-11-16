@@ -1,11 +1,10 @@
 """Independently verify source/project absence; compiled PE regressions prove the binary boundary."""
 from pathlib import Path
 import argparse
-import io
 import json
 import re
-import subprocess
-import tarfile
+import tempfile
+import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 DECLARATION = re.compile(r"\b(class|interface|enum|struct|record)\s+(?:struct\s+)?([A-Z]\w*)")
@@ -26,16 +25,15 @@ def source_metrics(sources):
     return projects
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baseline", help="Optional Git revision for same-method production source metrics")
-    args = parser.parse_args()
+def inspect(root):
+    if not (root / "Twig.slnx").is_file() or not (root / "src" / "Twig.Core" / "Twig.Core.csproj").is_file():
+        raise ValueError("current solution and Core project must exist")
     failures = []
     sources = {}
-    for path in (ROOT / "src").rglob("*"):
-        if any(part in {"bin", "obj"} for part in path.relative_to(ROOT).parts) or not path.is_file():
+    for path in (root / "src").rglob("*"):
+        if any(part in {"bin", "obj"} for part in path.relative_to(root).parts) or not path.is_file():
             continue
-        relative = path.relative_to(ROOT).as_posix()
+        relative = path.relative_to(root).as_posix()
         if path.suffix == ".cs":
             text = path.read_text(encoding="utf-8-sig")
             sources[relative] = text
@@ -45,25 +43,55 @@ def main():
             failures.append(relative)
         if path.name.startswith("PublicAPI.") and "Twig.Domain" in path.read_text(encoding="utf-8-sig"):
             failures.append(relative)
-    for path in ROOT.rglob("*"):
-        if any(part in {"bin", "obj", ".git", "artifacts"} for part in path.relative_to(ROOT).parts) or not path.is_file():
+    if not sources or not any(name.startswith("src/Twig.Core/") for name in sources):
+        raise ValueError("current production/Core source inventory must not be empty")
+    for path in root.rglob("*"):
+        if any(part in {"bin", "obj", ".git", "artifacts"} for part in path.relative_to(root).parts) or not path.is_file():
             continue
         if path.suffix in {".csproj", ".props", ".targets", ".slnx"}:
             if any(token in path.read_text(encoding="utf-8-sig") for token in ("Twig.Domain", "Twig.TestKit")):
-                failures.append(path.relative_to(ROOT).as_posix())
+                failures.append(path.relative_to(root).as_posix())
     for name in ("ci.yml", "release.yml"):
-        path = ROOT / ".github" / "workflows" / name
+        path = root / ".github" / "workflows" / name
         if "src/Twig.Domain/Twig.Domain.csproj" in path.read_text(encoding="utf-8"):
-            failures.append(path.relative_to(ROOT).as_posix())
-    report = {"failures": sorted(set(failures)), "production": source_metrics(sources)}
-    if args.baseline:
-        archive = subprocess.check_output(["git", "archive", "--format=tar", args.baseline, "src"], cwd=ROOT)
-        with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
-            baseline = {member.name: tree.extractfile(member).read().decode("utf-8-sig")
-                        for member in tree.getmembers() if member.isfile() and member.name.endswith(".cs")}
-        report["baseline"] = source_metrics(baseline)
+            failures.append(path.relative_to(root).as_posix())
+    return {"failures": sorted(set(failures)), "production": source_metrics(sources)}
+
+
+class DomainCutTests(unittest.TestCase):
+    def test_scanner_rejects_empty_roots_and_detects_a_real_source_reference(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(ValueError, "must exist"):
+                inspect(root)
+            (root / "Twig.slnx").write_text("<Solution />")
+            core = root / "src" / "Twig.Core"
+            core.mkdir(parents=True)
+            (core / "Twig.Core.csproj").write_text("<Project />")
+            with self.assertRaisesRegex(ValueError, "must not be empty"):
+                inspect(root)
+            workflows = root / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            for name in ("ci.yml", "release.yml"):
+                (workflows / name).write_text("jobs: {}")
+            source = core / "Example.cs"
+            source.write_text("public sealed class Example {}")
+            self.assertEqual(inspect(root)["failures"], [])
+            source.write_text("using Twig.Domain; public sealed class Example {}")
+            self.assertEqual(inspect(root)["failures"], ["src/Twig.Core/Example.cs"])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--selftest", action="store_true")
+    args = parser.parse_args()
+    if args.selftest:
+        result = unittest.TextTestRunner(verbosity=2).run(
+            unittest.defaultTestLoader.loadTestsFromTestCase(DomainCutTests))
+        return int(not result.wasSuccessful())
+    report = inspect(ROOT)
     print(json.dumps(report, indent=2, sort_keys=True))
-    return 1 if failures else 0
+    return int(bool(report["failures"]))
 
 
 if __name__ == "__main__":

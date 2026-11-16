@@ -87,7 +87,8 @@ public sealed class BuildFixture
     /// hanging the suite — a truncated log still lets the assertions report honestly.
     /// </remarks>
     internal static (string Stdout, string Stderr, int ExitCode, bool Exited) RunProcess(
-        string fileName, string arguments, int timeoutMinutes = 5, string? workingDirectory = null)
+        string fileName, string arguments, int timeoutMinutes = 5, string? workingDirectory = null,
+        TimeSpan? pipeDrainGrace = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -120,12 +121,13 @@ public sealed class BuildFixture
 
         // The direct child is gone, but grandchildren (MSBuild nodes, VBCSCompiler)
         // may still hold the write end open. Give the pipes a BOUNDED grace period.
-        if (!Task.WhenAll(stdoutTask, stderrTask).Wait(PipeDrainGrace))
+        var drainGrace = pipeDrainGrace ?? PipeDrainGrace;
+        if (!Task.WhenAll(stdoutTask, stderrTask).Wait(drainGrace))
         {
             // Still open: something inherited the handles and outlived its parent.
             // Killing the tree closes them, which is what actually unblocks the reads.
             KillTree(process);
-            Task.WhenAll(stdoutTask, stderrTask).Wait(PipeDrainGrace);
+            Task.WhenAll(stdoutTask, stderrTask).Wait(drainGrace);
         }
 
         // Abandon rather than block if a reader STILL has not completed. This is the

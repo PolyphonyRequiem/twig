@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Run already-built CI assemblies serially, with bounded CLI sessions and exact coverage.
 
-Usage: python tools/run-ci-tests.py [--selftest | --selftest-windows-cleanup]
-The local run-tests.sh BinaryLauncher exclusion is deliberately NOT used here.
+Usage: python tools/run-ci-tests.py [SUITE ... | --list | --selftest | --selftest-windows-cleanup]
+Local explicit suites and release-candidate runs use the same eligibility and evidence.
 """
 
 import argparse
 from collections import Counter
+import contextlib
 from dataclasses import dataclass
 import ctypes
 import json
+import io
 import os
 from pathlib import Path
 import queue
@@ -27,13 +29,9 @@ import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSEMBLIES = ("Cli", "Core", "Store.Sqlite", "Providers.Ado", "Providers.GitHub",
-              "Infrastructure", "RenderTree")
-HOST_CLASSES = {
-}
-HOST_CLASSES = set(HOST_CLASSES)
+ASSEMBLIES = ("Cli", "Core", "Daemon", "Infrastructure", "Providers.Ado",
+              "Providers.GitHub", "Providers.Native", "RenderTree", "Store.Sqlite")
 MAX_CLI_CASES = 200
-MAX_HOST_CASES = 10
 MAX_FILTER_LENGTH = 6000  # Leave room in Windows' command-line limit for SDK/artifact paths.
 SESSION_TIMEOUT = 300000
 BAD_OUTPUT = re.compile(
@@ -174,6 +172,25 @@ def require(condition, message):
         raise RunFailure(message)
 
 
+def current_inventory(root=ROOT):
+    projects = []
+    for project in ET.parse(root / "Twig.slnx").getroot().iter("Project"):
+        path = project.get("Path", "")
+        if not path.startswith("tests/"):
+            continue
+        match = re.fullmatch(r"tests/(Twig\.([\w.]+)\.Tests)/\1\.csproj", path)
+        require(match is not None, f"invalid test project path: {path}")
+        require(ET.parse(root / path).getroot().findtext("PropertyGroup/IsTestProject") == "true",
+                f"solution test project is not a test suite: {path}")
+        projects.append(match.group(2))
+    require(len(projects) == len(set(projects)), "duplicate solution test projects")
+    require(set(projects) == set(ASSEMBLIES), f"current suite inventory differs from solution: {projects}")
+    on_disk = {path.parent.name for path in (root / "tests").glob("*/*.csproj")}
+    require(on_disk == {f"Twig.{suite}.Tests" for suite in ASSEMBLIES},
+            f"test project inventory differs from disk: {sorted(on_disk)}")
+    return ASSEMBLIES
+
+
 def check_process(output, exit_code):
     # The native exit code is authoritative; clean-looking summaries are not verdicts.
     require(exit_code == 0, f"process exit code {exit_code}")
@@ -210,65 +227,52 @@ class Partition:
     name: str
     filter: str
     cases: Counter
-    host_inventory: bool = False
 
 
-def partition_cli(cases, host_methods, base_filter):
-    methods = {method_name(name) for name in cases}
-    require(host_methods <= methods, "HostInventory discovery includes ineligible methods")
-    expected_host = {method for method in methods if method.rsplit(".", 1)[0] in HOST_CLASSES}
-    require(host_methods == expected_host, "HostInventory trait does not match the declared inventory classes")
-    require({method.rsplit(".", 1)[0] for method in host_methods} == HOST_CLASSES, "an inventory class is missing")
+def partition_cli(cases, base_filter):
+    require(bool(cases), "empty CLI inventory")
     groups = {}
     for name, count in cases.items():
         method = method_name(name)
         groups.setdefault(method.rsplit(".", 1)[0], {}).setdefault(method, Counter())[name] = count
 
     partitions = []
-    for host in (False, True):
-        batch = Counter()
-        selectors = []
+    batch = Counter()
+    selectors = []
 
-        def flush():
-            nonlocal batch, selectors
-            if batch:
-                category = "Category=HostInventory" if host else "Category!=HostInventory"
-                expression = f"({base_filter})&{category}&({'|'.join(selectors)})"
-                require(len(expression) <= MAX_FILTER_LENGTH, "CLI filter exceeds command-line bound")
-                partitions.append(Partition(f"Cli-{'host' if host else 'part'}-{len(partitions) + 1:03d}",
-                                            expression, batch, host))
-                batch = Counter()
-                selectors = []
+    def flush():
+        nonlocal batch, selectors
+        if batch:
+            expression = f"({base_filter})&({'|'.join(selectors)})"
+            require(len(expression) <= MAX_FILTER_LENGTH, "CLI filter exceeds command-line bound")
+            partitions.append(Partition(f"Cli-part-{len(partitions) + 1:03d}", expression, batch))
+            batch = Counter()
+            selectors = []
 
-        for class_name, class_methods in sorted(groups.items()):
-            if (class_name in HOST_CLASSES) != host:
-                continue
-            limit = MAX_HOST_CASES if host else MAX_CLI_CASES
-            class_rows = Counter()
-            for rows in class_methods.values():
-                class_rows.update(rows)
-            # Whole-class selectors keep normal partitions compact. Only oversized classes
-            # need exact method selectors, and theories remain indivisible discovery units.
-            if sum(class_rows.values()) <= limit:
-                units = [(f"FullyQualifiedName~{class_name}.", class_rows)]
-            else:
-                units = [(f"FullyQualifiedName={method}", rows) for method, rows in sorted(class_methods.items())]
-            for selector, rows in units:
-                require(sum(rows.values()) <= limit, f"one theory exceeds partition bound: {selector}")
-                filter_length = sum(len(item) + 1 for item in selectors) + len(selector) + len(base_filter) + 50
-                if batch and (sum(batch.values()) + sum(rows.values()) > limit or filter_length > MAX_FILTER_LENGTH):
-                    flush()
-                batch.update(rows)
-                selectors.append(selector)
-            if host:
-                flush()  # Inventory classes never overlap, even within one session.
-        flush()
+    for class_name, class_methods in sorted(groups.items()):
+        class_rows = Counter()
+        for rows in class_methods.values():
+            class_rows.update(rows)
+        # Keep theories indivisible; large classes are split only at method boundaries.
+        if sum(class_rows.values()) <= MAX_CLI_CASES:
+            units = [(f"FullyQualifiedName~{class_name}.", class_rows)]
+        else:
+            units = [(f"FullyQualifiedName={method}", rows) for method, rows in sorted(class_methods.items())]
+        for selector, rows in units:
+            require(sum(rows.values()) <= MAX_CLI_CASES, f"one theory exceeds partition bound: {selector}")
+            filter_length = sum(len(item) + 1 for item in selectors) + len(selector) + len(base_filter) + 10
+            if batch and (sum(batch.values()) + sum(rows.values()) > MAX_CLI_CASES or filter_length > MAX_FILTER_LENGTH):
+                flush()
+            batch.update(rows)
+            selectors.append(selector)
+    flush()
 
     reconcile_coverage(cases, [part.cases for part in partitions])
     return partitions
 
 
 def reconcile_coverage(expected, completed):
+    require(bool(expected), "empty expected coverage")
     actual = Counter()
     for cases in completed:
         actual.update(cases)
@@ -293,6 +297,7 @@ def reconcile_result(output, exit_code, trx, expected):
     results = root.findall("t:Results/t:UnitTestResult", NS)
     actual = Counter(result.get("testName") for result in results)
     reconcile_coverage(expected, [actual])
+    require(all(result.get("executionId") and result.get("testId") for result in results), "missing TRX identity")
     require(len({result.get("executionId") for result in results}) == len(results), "duplicate TRX execution")
     require(len({result.get("testId") for result in results}) == len(results), "duplicate TRX test identity")
     outcomes = Counter(result.get("outcome") for result in results)
@@ -306,6 +311,21 @@ def reconcile_result(output, exit_code, trx, expected):
         if result.get("outcome") == "NotExecuted":
             print(f"TWIG-SKIPPED {result.get('testName')}")
     return actual, passed, skipped
+
+
+def reconcile_trace(path, trx):
+    results = ET.parse(trx).getroot().findall("t:Results/t:UnitTestResult", NS)
+    expected = Counter(method_name(result.get("testName", "")) for result in results
+                       if result.get("outcome") == "Passed")
+    require(bool(expected), "session executed no passing cases")
+    require(path.is_file(), f"shared test diagnostics did not activate: {path}")
+    boundaries = {"START": Counter(), "END": Counter()}
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        parts = line.split("\t")
+        require(len(parts) == 3 and parts[1] in boundaries, f"invalid trace row: {line!r}")
+        boundaries[parts[1]][parts[2]] += 1
+    require(boundaries["START"] == expected and boundaries["END"] == expected,
+            f"trace boundaries differ from passed cases: expected={dict(expected)}, actual={boundaries}")
 
 
 def _cleanup_output(value):
@@ -366,23 +386,22 @@ def _stop_windows_session(process):
         )
 
 
-def stop_session(process, elevated):
+def stop_session(process):
     # Kill only the tree launched by this runner; never leave a timed-out host beside the next partition.
     if os.name == "nt":
         _stop_windows_session(process)
         return
     else:
-        prefix = ["sudo", "-n"] if elevated else []
         # Freeze parents before looking for children, so the captured tree cannot keep spawning.
         pending = [process.pid]
         stopped = []
         while pending:
-            subprocess.run([*prefix, "/bin/kill", "-STOP", "--", *map(str, pending)], capture_output=True, check=False)
+            subprocess.run(["/bin/kill", "-STOP", "--", *map(str, pending)], capture_output=True, check=False)
             stopped.extend(pending)
             snapshot = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True, text=True, check=True)
             parents = {int(pid): int(parent) for pid, parent in (line.split() for line in snapshot.stdout.splitlines())}
             pending = [pid for pid, parent in parents.items() if parent in stopped and pid not in stopped]
-        subprocess.run([*prefix, "/bin/kill", "-KILL", "--", *map(str, reversed(stopped))], capture_output=True, check=False)
+        subprocess.run(["/bin/kill", "-KILL", "--", *map(str, reversed(stopped))], capture_output=True, check=False)
     try:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired as error:
@@ -406,22 +425,12 @@ class Runner:
         self.trace = Path(os.environ.get("TWIG_TEST_TRACE", ROOT / "artifacts" / "trace-311")).resolve()
         self.env = dict(os.environ, DOTNET_CLI_UI_LANGUAGE="en-US")
 
-    def invoke(self, dll, options, name, elevated=False):
+    def invoke(self, dll, options, name):
         command = [self.dotnet, "vstest", str(dll), f"/Settings:{self.settings}", *options]
         env = dict(self.env)
         trace = self.trace / self.logs.name / name
         trace.mkdir(parents=True, exist_ok=True)
         env["TWIG_TEST_TRACE"] = str(trace)
-        elevated = elevated and sys.platform.startswith("linux")
-        if elevated:
-            # /proc/*/fd inspection needs root on the hosted Linux runner. No product bypass.
-            # Pin the same SDK and child-process PATH; do not depend on sudo's secure_path.
-            env["DOTNET_ROOT"] = str(Path(self.dotnet).parent)
-            env["DOTNET_CLI_HOME"] = str(self.logs / "host-sdk-home")
-            keep = ("PATH", "DOTNET_ROOT", "DOTNET_ROOT_X64", "DOTNET_ROOT_ARM64", "DOTNET_CLI_HOME",
-                    "DOTNET_ROLL_FORWARD", "DOTNET_CLI_UI_LANGUAGE", "DOTNET_CLI_TELEMETRY_OPTOUT",
-                    "DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "LD_LIBRARY_PATH", "TWIG_TEST_TRACE")
-            command = ["sudo", "-n", "env", *(f"{key}={env[key]}" for key in keep if key in env), *command]
         print(f"TWIG-SESSION {name}", flush=True)
         log = self.logs / f"{name}.log"
         with log.open("w", encoding="utf-8") as stream:
@@ -431,7 +440,7 @@ class Runner:
                 try:
                     exit_code = process.wait(timeout=SESSION_TIMEOUT / 1000)
                 except subprocess.TimeoutExpired:
-                    stop_session(process, elevated)
+                    stop_session(process)
                     stream.write("\nTest Run Aborted: runner process deadline of 300000ms exceeded.\n")
                     exit_code = 1
         elapsed = time.monotonic() - started
@@ -450,20 +459,13 @@ class Runner:
         require(bool(methods) and all(re.fullmatch(r"Twig\.[\w.+]+", method) for method in methods), "invalid or empty filtered discovery")
         return methods
 
-    def run(self):
-        # Read the supported solution inventory, not retired TUI/MCP DLLs on disk.
-        solution = ET.parse(ROOT / "Twig.slnx").getroot()
-        supported = set()
-        for project in solution.iter("Project"):
-            path = project.get("Path")
-            if path.startswith("tests/") and ET.parse(ROOT / path).getroot().findtext("PropertyGroup/IsTestProject") == "true":
-                supported.add(Path(path).stem)
-        require(supported == {f"Twig.{suite}.Tests" for suite in ASSEMBLIES}, f"supported assembly inventory changed: {sorted(supported)}")
+    def run(self, assemblies):
+        current_inventory()
         framework = ET.parse(ROOT / "Directory.Build.props").getroot().findtext("PropertyGroup/TargetFramework")
         require(bool(framework), "test target framework missing")
         failed = False
         totals = Counter()
-        for assembly in ASSEMBLIES:
+        for assembly in assemblies:
             try:
                 dll = ROOT / "tests" / f"Twig.{assembly}.Tests" / "bin" / "Debug" / framework / f"Twig.{assembly}.Tests.dll"
                 require(dll.is_file(), f"built assembly missing: {dll}")
@@ -473,13 +475,11 @@ class Runner:
                 methods = self.discover_methods(dll, self.base_filter, f"{assembly}-eligible")
                 cases = eligible_cases(all_cases, methods)
                 if assembly == "Cli":
-                    host_methods = (self.discover_methods(dll, f"({self.base_filter})&Category=HostInventory", "Cli-host-discovery")
-                                    if HOST_CLASSES else set())
-                    partitions = partition_cli(cases, host_methods, self.base_filter)
+                    partitions = partition_cli(cases, self.base_filter)
                 else:
                     partitions = [Partition(assembly, self.base_filter, cases)]
                 manifest = [{"name": part.name, "filter": part.filter, "expected": sum(part.cases.values()),
-                             "hostInventory": part.host_inventory, "cases": dict(sorted(part.cases.items()))} for part in partitions]
+                             "cases": dict(sorted(part.cases.items()))} for part in partitions]
                 (self.logs / f"{assembly}-plan.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
                 print(f"TWIG-DISCOVERY {assembly}: {sum(cases.values())} eligible, {sum(all_cases.values()) - sum(cases.values())} excluded by runsettings, {len(partitions)} sessions")
                 completed = []
@@ -488,8 +488,10 @@ class Runner:
                         results = self.logs / part.name
                         results.mkdir()
                         output, exit_code = self.invoke(dll, [f"/TestCaseFilter:{part.filter}", f"/ResultsDirectory:{results}",
-                                                            "/Logger:trx;LogFileName=results.trx"], part.name, part.host_inventory)
+                                                            "/Logger:trx;LogFileName=results.trx"], part.name)
                         actual, passed, skipped = reconcile_result(output, exit_code, results / "results.trx", part.cases)
+                        reconcile_trace(self.trace / self.logs.name / part.name / f"Twig.{assembly}.Tests.tsv",
+                                        results / "results.trx")
                         completed.append(actual)
                         totals.update(passed=passed, skipped=skipped)
                         print(f"TWIG-VERDICT {part.name}: PASSED ({passed} passed, {skipped} skipped; {sum(part.cases.values())} expected)")
@@ -509,12 +511,8 @@ class RunnerSelfTests(unittest.TestCase):
     """Runner contracts only: source inventory and synthetic process/result checks."""
 
     def test_supported_assembly_inventory_excludes_retired_delivery(self):
-        supported = set()
+        self.assertEqual(len(current_inventory()), 9)
         projects = [project.get("Path") for project in ET.parse(ROOT / "Twig.slnx").getroot().iter("Project")]
-        for path in projects:
-            if path.startswith("tests/") and ET.parse(ROOT / path).getroot().findtext("PropertyGroup/IsTestProject") == "true":
-                supported.add(Path(path).stem)
-        self.assertEqual(supported, {f"Twig.{suite}.Tests" for suite in ASSEMBLIES})
         self.assertNotIn("src/Twig.Domain/Twig.Domain.csproj", projects)
         self.assertFalse((ROOT / "src/Twig.Domain/Twig.Domain.csproj").exists())
         self.assertIn("samples/Twig.DetailHost/Twig.DetailHost.csproj", projects)
@@ -533,6 +531,84 @@ class RunnerSelfTests(unittest.TestCase):
         self.assertNotIn("Tui", ASSEMBLIES)
         self.assertNotIn("Mcp", ASSEMBLIES)
 
+    def test_inventory_rejects_missing_duplicate_and_unregistered_projects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            solution = ET.Element("Solution")
+            for suite in ASSEMBLIES:
+                path = f"tests/Twig.{suite}.Tests/Twig.{suite}.Tests.csproj"
+                ET.SubElement(solution, "Project", Path=path)
+                project = root / path
+                project.parent.mkdir(parents=True)
+                project.write_text("<Project><PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup></Project>")
+            target = root / "Twig.slnx"
+            ET.ElementTree(solution).write(target)
+            self.assertEqual(current_inventory(root), ASSEMBLIES)
+            solution.remove(solution[-1])
+            ET.ElementTree(solution).write(target)
+            with self.assertRaisesRegex(RunFailure, "differs from solution"):
+                current_inventory(root)
+            ET.SubElement(solution, "Project", Path=solution[0].get("Path"))
+            ET.ElementTree(solution).write(target)
+            with self.assertRaisesRegex(RunFailure, "duplicate"):
+                current_inventory(root)
+            solution[-1].set("Path", f"tests/Twig.{ASSEMBLIES[-1]}.Tests/Twig.{ASSEMBLIES[-1]}.Tests.csproj")
+            ET.ElementTree(solution).write(target)
+            extra = root / "tests" / "Twig.Unregistered.Tests" / "Twig.Unregistered.Tests.csproj"
+            extra.parent.mkdir()
+            extra.write_text("<Project />")
+            with self.assertRaisesRegex(RunFailure, "differs from disk"):
+                current_inventory(root)
+
+    def test_trace_requires_exactly_one_start_and_end_per_passed_case(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trace.tsv"
+            trx = Path(directory) / "results.trx"
+            root = ET.Element("TestRun", xmlns=NS["t"])
+            results = ET.SubElement(root, "Results")
+            for name in ("Run(one)", "Run(two)"):
+                ET.SubElement(results, "UnitTestResult", testName=f"Twig.Core.Tests.Sample.{name}", outcome="Passed")
+            ET.ElementTree(root).write(trx)
+            with self.assertRaisesRegex(RunFailure, "did not activate"):
+                reconcile_trace(path, trx)
+            start = "now\tSTART\tTwig.Core.Tests.Sample.Run\n"
+            end = "now\tEND\tTwig.Core.Tests.Sample.Run\n"
+            path.write_text((start + end) * 2)
+            reconcile_trace(path, trx)
+            for text in ((start + end), (start + end) * 3, start * 2 + end):
+                path.write_text(text)
+                with self.assertRaisesRegex(RunFailure, "boundaries differ"):
+                    reconcile_trace(path, trx)
+
+    def test_shell_entrypoint_preserves_smoke_deadline_and_native_exit(self):
+        bash = r"C:\Program Files\Git\bin\bash.exe" if os.name == "nt" else shutil.which("bash")
+        self.assertTrue(bash, "the supported shell interpreter must exist")
+        with tempfile.TemporaryDirectory() as directory:
+            environment = Path(directory) / "environment.sh"
+            environment.write_text("python() { printf 'PYTHON'; printf ' <%s>' \"$@\"; printf '\\n'; return 7; }\n")
+            for arguments in ([], ["--pre-push"]):
+                result = subprocess.run([bash, str(ROOT / "tools" / "run-tests.sh"), *arguments],
+                                        env={**os.environ, "BASH_ENV": environment.as_posix()},
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+                self.assertIn("<tools/verify-build.py> <--timeout> <15>", result.stdout)
+                self.assertIn("TWIG-VERDICT OVERALL: FAILED", result.stdout)
+            result = subprocess.run([bash, str(ROOT / "tools" / "run-tests.sh"), "Daemon", "Providers.Native"],
+                                    env={**os.environ, "BASH_ENV": environment.as_posix()},
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+            self.assertIn("<tools/run-ci-tests.py> <Daemon> <Providers.Native>", result.stdout)
+
+    def test_unknown_and_duplicate_suites_fail_before_startup(self):
+        for arguments in (["Cli", "Missing"], ["Cli", "Cli"]):
+            output = io.StringIO()
+            with patch.object(sys, "argv", [__file__, *arguments]), \
+                    patch(__name__ + ".Runner", side_effect=AssertionError("runner must not start")), \
+                    contextlib.redirect_stdout(output):
+                self.assertNotEqual(main(), 0)
+            self.assertIn("TWIG-VERDICT OVERALL: FAILED", output.getvalue())
+            self.assertIn("nothing ran", output.getvalue())
+
     def test_windows_taskkill_failure_reaps_wrapper_without_claiming_tree_stopped(self):
         process = Mock(pid=4321)
         process.poll.return_value = None
@@ -544,7 +620,7 @@ class RunnerSelfTests(unittest.TestCase):
         with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
             with patch.object(subprocess, "run", return_value=taskkill) as run:
                 with self.assertRaisesRegex(RunFailure, "tree termination unconfirmed") as failure:
-                    stop_session(process, False)
+                    stop_session(process)
 
         process.wait.assert_called_once_with(timeout=10)
         self.assertIn("taskkill returned 1", str(failure.exception))
@@ -566,7 +642,7 @@ class RunnerSelfTests(unittest.TestCase):
         with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
             with patch.object(subprocess, "run", side_effect=timeout) as run:
                 with self.assertRaisesRegex(RunFailure, "taskkill timed out") as failure:
-                    stop_session(process, False)
+                    stop_session(process)
 
         process.wait.assert_called_once_with(timeout=10)
         self.assertIn("partial taskkill stdout", str(failure.exception))
@@ -588,7 +664,7 @@ class RunnerSelfTests(unittest.TestCase):
         with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
             with patch.object(subprocess, "run", return_value=taskkill):
                 with self.assertRaisesRegex(RunFailure, "wrapper did not exit") as failure:
-                    stop_session(process, False)
+                    stop_session(process)
 
         process.wait.assert_called_once_with(timeout=10)
         self.assertIn("tree termination unconfirmed", str(failure.exception))
@@ -602,7 +678,7 @@ class RunnerSelfTests(unittest.TestCase):
 
         with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
             with patch.object(subprocess, "run", return_value=taskkill) as run:
-                stop_session(process, False)
+                stop_session(process)
 
         run.assert_called_once_with(
             ["taskkill", "/PID", "4324", "/T", "/F"],
@@ -620,7 +696,7 @@ class RunnerSelfTests(unittest.TestCase):
         with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
             with patch.object(subprocess, "run", return_value=taskkill):
                 with self.assertRaises(RunFailure) as failure:
-                    stop_session(process, False)
+                    stop_session(process)
 
         process.wait.assert_called_once_with(timeout=10)
         self.assertNotIn("tree stopped", str(failure.exception))
@@ -632,7 +708,7 @@ class RunnerSelfTests(unittest.TestCase):
         with patch.object(sys.modules[__name__], "os", SimpleNamespace(name="nt")):
             with patch.object(subprocess, "run", side_effect=FileNotFoundError("taskkill missing")) as run:
                 with self.assertRaisesRegex(RunFailure, "tree termination unconfirmed") as failure:
-                    stop_session(process, False)
+                    stop_session(process)
 
         process.wait.assert_called_once_with(timeout=10)
         self.assertIn("taskkill could not run", str(failure.exception))
@@ -644,22 +720,17 @@ class RunnerSelfTests(unittest.TestCase):
             timeout=10,
         )
 
-    @patch(__name__ + ".HOST_CLASSES", {"Twig.Cli.Tests.Commands.SyntheticHost"})
     def test_partition_coverage_is_complete_disjoint_and_bounded(self):
         cases = Counter({f"Twig.Cli.Tests.Commands.Ordinary{index // 15}.Case{index}": 1 for index in range(421)})
         cases.update({f"Twig.Cli.Tests.Commands.Oversized.Case{index}": 1 for index in range(250)})
-        cases.update({f"{name}.Migrate{method}(row: {row})": 1 for name in HOST_CLASSES for method in range(4) for row in range(3)})
-        host_methods = {f"{name}.Migrate{method}" for name in HOST_CLASSES for method in range(4)}
-        partitions = partition_cli(cases, host_methods, "Category!=Interactive&Category!=Integration")
+        cases.update({f"Twig.Cli.Tests.Commands.Rows.Apply{method}(row: {row})": 1 for method in range(4) for row in range(3)})
+        partitions = partition_cli(cases, "Category!=Interactive&Category!=Integration")
         reconcile_coverage(cases, [part.cases for part in partitions])
         self.assertTrue(all(0 < sum(part.cases.values()) <= MAX_CLI_CASES for part in partitions))
-        inventory = [part for part in partitions if part.host_inventory]
-        self.assertEqual(inventory, partitions[-len(inventory):])
-        self.assertTrue(all(0 < sum(part.cases.values()) <= MAX_HOST_CASES for part in inventory))
-        self.assertEqual(partitions, partition_cli(Counter(dict(reversed(list(cases.items())))), host_methods,
+        self.assertEqual(partitions, partition_cli(Counter(dict(reversed(list(cases.items())))),
                                                  "Category!=Interactive&Category!=Integration"))
         with self.assertRaises(RunFailure):
-            partition_cli(cases, set(), "Category!=Interactive")
+            partition_cli(Counter(), "Category!=Interactive")
         with self.assertRaises(RunFailure):
             reconcile_coverage(cases, [part.cases for part in partitions[:-1]])
         with self.assertRaises(RunFailure):
@@ -1180,18 +1251,20 @@ def _stop_with_evidence(process, phase):
         return run(command, *args, **kwargs)
 
     with patch.object(subprocess, "run", side_effect=recorded_run):
-        return stop_session(process, False)
+        return stop_session(process)
 
 
 def main():
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true", help="check coverage and false-green guards with synthetic data only")
     parser.add_argument("--selftest-windows-cleanup", action="store_true", help="opt-in real Windows process-tree cleanup control")
+    parser.add_argument("--list", action="store_true", help="list the validated current suite inventory without running tests")
+    parser.add_argument("suites", nargs="*", help="current suites to run; omitted means all current suites")
     args = parser.parse_args()
-    if args.selftest and args.selftest_windows_cleanup:
-        parser.error("--selftest and --selftest-windows-cleanup are separate selectors")
+    if sum((args.selftest, args.selftest_windows_cleanup, args.list)) > 1 or (
+            args.suites and (args.selftest or args.selftest_windows_cleanup or args.list)):
+        print("TWIG-VERDICT OVERALL: FAILED (conflicting runner selectors; nothing ran)")
+        return 2
     if args.selftest:
         result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(RunnerSelfTests))
         return int(not result.wasSuccessful())
@@ -1203,11 +1276,20 @@ def main():
         )
         return int(not result.wasSuccessful())
     try:
-        return Runner().run()
+        inventory = current_inventory()
+        if args.list:
+            print(" ".join(inventory))
+            return 0
+        unknown = set(args.suites) - set(inventory)
+        require(not unknown, f"unknown suite(s) {sorted(unknown)}; known: {' '.join(inventory)}; nothing ran")
+        require(len(args.suites) == len(set(args.suites)), "duplicate suites; nothing ran")
+        return Runner().run(tuple(args.suites) if args.suites else inventory)
     except (RunFailure, OSError, ET.ParseError, ValueError) as error:
         print(f"TWIG-VERDICT OVERALL: FAILED ({error})")
         return 1
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())

@@ -25,12 +25,21 @@ jobs:
         run: python tools/run-bounded.py --selftest
       - name: TRX selector coverage selftest (offline)
         run: python tools/verify-trx.py --selftest
+      - name: Current suite inventory and runner selftests (offline)
+        run: python tools/run-ci-tests.py --selftest
+      - name: Current source-boundary scanner selftest (offline)
+        run: python tools/verify-domain-cut.py --selftest
+      - name: Smoke supervisor selftests (offline)
+        run: python tools/run-bounded.py --timeout 60 -- python tools/test-verify-build.py
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
       - run: dotnet restore
       - name: Supported solution build (120-second deadline)
         run: python tools/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:1"
+
+      - name: Current architecture, trace activation and owned-pipe regressions
+        run: python tools/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~TestDiagnosticsActivationTests|FullyQualifiedName~HardcodedProcessStringInventoryTests|FullyQualifiedName~CommandExampleParameterDriftTests|FullyQualifiedName~BuildFixtureRunProcessTests" --logger "trx;LogFileName=current-test-gates.trx" --results-directory artifacts/test-logs/ci/current-test-gates
 
       - name: Native authority, lost acknowledgement recovery and independent canvas packages
         shell: python
@@ -71,22 +80,6 @@ jobs:
           name: twig-native-setup-${{ matrix.rid }}
           path: artifacts/test-logs/ci/native-setup/*.trx
           if-no-files-found: error
-
-      - name: Compiled v10/v11 registry fresh-open and cached-handle compatibility (offline)
-        shell: python
-        run: |
-          import subprocess, sys
-          from pathlib import Path
-          for version, revision in [(10, "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"),
-                                    (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
-              legacy = Path("artifacts") / f"legacy-core-v{version}"
-              subprocess.run(["git", "worktree", "add", "--detach", str(legacy), revision], check=True)
-              subprocess.run([sys.executable, "tools/run-bounded.py", "--timeout", "120", "--",
-                              "dotnet", "build", str(legacy / "src" / "Twig.Infrastructure" / "Twig.Infrastructure.csproj"),
-                              "-f", "net11.0", "-m:1", "--verbosity", "minimal"], check=True)
-              subprocess.run([sys.executable, "tools/verify-core-registry-compat.py", "--legacy-version", str(version),
-                              "--legacy-assembly", str(legacy / "src" / "Twig.Infrastructure" / "bin" / "Debug" / "net11.0" / "Twig.Infrastructure.dll"),
-                              "--current-assembly", str(Path("src") / "Twig.Infrastructure" / "bin" / "Debug" / "net11.0" / "Twig.Infrastructure.dll")], check=True)
 
       - name: Clean-core invariant regression
         id: core
@@ -185,7 +178,7 @@ jobs:
           for label, project, selector in [
               ("user-bench-store", "Twig.Infrastructure.Tests", "FullyQualifiedName~UserBenchStoreTests"),
               ("native-plan-scopes", "Twig.Infrastructure.Tests", "FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanStoreTests|FullyQualifiedName~Twig.Infrastructure.Tests.Services.NativePlanScopeContractTests"),
-              ("native-core-execution", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeCoreExecutionTests|FullyQualifiedName~NativeCoreRegistryMigrationTests"),
+              ("native-core-execution", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeCoreExecutionTests|FullyQualifiedName~NativeCoreRegistryPersistenceTests"),
               ("native-publishing-gate", "Twig.Cli.Tests", "FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativePublishingBeforeActivationIsRefusedByTheActualCliComposition|FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeUnknownWriteBlocksAnotherInitializedRootNormalSaveWithoutMutationHttp|FullyQualifiedName=Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeUnknownGitHubWriteFencesAnotherRootNormalSaveThroughRealComposition"),
               ("native-no-effect", "Twig.Cli.Tests", "FullyQualifiedName~NativeHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits|FullyQualifiedName~NativeGitHubHttpRejectionPermitsOnlyFreshReviewedNoEffectEdits"),
               ("native-compound-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeCompoundEditorFieldsAndRelatedDelta"),
@@ -198,7 +191,7 @@ jobs:
               ("native-editor-authority", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorCapturedAuthorityAndVersions|FullyQualifiedName~NativeEditorExactSourceStoreAndUserInstance|FullyQualifiedName~NativeEditorBaselineFingerprint"),
               ("native-editor-recovery", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorInterruptedCapture|FullyQualifiedName~NativeEditorMissingOrCorruptCapture|FullyQualifiedName~NativeEditorCachedGuidance|FullyQualifiedName~NativeEditorPendingSafetyCheck"),
               ("native-editor-persistence", "Twig.Cli.Tests", "FullyQualifiedName~NativeEditorJointlyMissingCaptureTables|FullyQualifiedName~NativeEditorStoredDocumentBound"),
-              ("native-capture-schema", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeCaptureRegistryMigrationTests"),
+              ("native-capture-schema", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeCaptureRegistryPersistenceTests"),
               ("native-human-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeHumanEditorPublishes|FullyQualifiedName~NativeHumanEditorBridge|FullyQualifiedName~NativeHumanEditorReuses"),
               ("native-human-editor-guards", "Twig.Cli.Tests", "FullyQualifiedName~NativeHumanEditorFreshGuards|FullyQualifiedName~NativeHumanEditorNormalSaveNeverFlushes"),
               ("native-public-relationships-reopen", "Twig.Cli.Tests", "FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativePublicRelationshipIntentReopensWithoutScalarPublication"),
@@ -239,7 +232,7 @@ jobs:
               ("native-initial-authoring", "Twig.Cli.Tests", "FullyQualifiedName~InitialReadonlyAuthoringAdoption"),
               ("native-capture-rewind", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureWholeDatabaseRewind"),
               ("native-capture-lifecycle", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureInterruptedBeforeCoreStage|FullyQualifiedName~NativeCaptureUserCommitBeforeRegistryConfirmation|FullyQualifiedName~NativeCaptureReserveAndPostCoreCrash"),
-              ("native-capture-bootstrap", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureLegacyBootstrap|FullyQualifiedName~NativeCaptureMissingBidirectionalHistory"),
+              ("native-capture-birth", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureIncompleteBirthCannotBeInventoriedOrActivated|FullyQualifiedName~NativeCaptureMissingBidirectionalHistory|FullyQualifiedName~NativeUserBirthCreatesCompleteCaptureSchemaBeforeAnyEditorReadOrWrite|FullyQualifiedName~NativeCaptureWithoutExactExecutionPathIsRefusedWithoutReservationOrDraftChange"),
               ("native-gh-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubEditorCaptures"),
               ("native-gh-human-scalars", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubHumanEditorSavesScalarsAndExplicitMarkdownClearThroughCore|FullyQualifiedName~NativeGitHubHumanEditorOnlyOffersCapturedScalarInputs"),
               ("native-gh-human-plan", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubHumanPlanStagesScalarsAndNormalSaveNeverFlushesPlanDebt"),

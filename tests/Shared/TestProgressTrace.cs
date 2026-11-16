@@ -1,6 +1,8 @@
 using System.Reflection;
 using Xunit.Sdk;
 
+[assembly: Twig.TestSupport.TestProgressTrace]
+
 namespace Twig.TestSupport;
 
 /// <summary>
@@ -10,21 +12,17 @@ namespace Twig.TestSupport;
 ///
 /// <para>
 /// 🔴 <b>This file is LINK-COMPILED into every test assembly</b> (see
-/// <c>Directory.Build.props</c> under <c>tests/</c>). It is deliberately NOT hosted in
-/// <c>Twig.TestKit</c>: TestKit carries no xunit reference, and adding one would push
-/// xunit into the dependency graph of every consumer — while still failing to reach
-/// <c>Twig.RenderTree.Tests</c>, which does not reference TestKit at all. Link-compiling
-/// a source file changes no project's package graph and reaches all six assemblies.
+/// <c>Directory.Build.props</c> under <c>tests/</c>). Linking the implementation and
+/// assembly attribute together activates tracing exactly once in all nine current suites,
+/// without adding a shared test library or changing package dependencies.
 /// </para>
 ///
 /// <para>
 /// <b>Why it is no longer one file.</b> The original hook (Cli-only) wrote every boundary
 /// to the single path named by <c>TWIG_TEST_TRACE</c>, guarded by an in-process
 /// <see cref="Lock"/>. That was sound while exactly one assembly was instrumented and each
-/// suite ran in its own <c>dotnet test</c> invocation. CI runs ONE invocation across six
-/// assemblies <b>in parallel processes</b> — verified in the 2026-08-14 capture, where all
-/// six hosts started within 9 s of each other. An in-process lock does nothing across
-/// process boundaries, so six hosts appending to one file would interleave mid-line and
+/// suite ran in its own <c>dotnet test</c> invocation. An in-process lock does nothing across
+/// process boundaries, so hosts appending to one file would interleave mid-line and
 /// corrupt the START/END reconciliation that is the entire point of the trace.
 /// </para>
 ///
@@ -43,9 +41,7 @@ namespace Twig.TestSupport;
 /// <para>
 /// Reading the output: the LAST <c>START</c> line with no matching <c>END</c> is the test
 /// that was in flight when the host died. <c>tools/find-hung-test.sh</c> does that
-/// reconciliation across every per-assembly file. All six captures to date show NO test in
-/// flight — every START had an END — which is why the stall is understood to be at the
-/// dispatch boundary rather than inside a test body.
+/// reconciliation across every per-assembly file.
 /// </para>
 ///
 /// <para>

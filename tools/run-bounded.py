@@ -28,7 +28,7 @@ def load_runner():
 def _stop_owned_tree(process, runner):
     """Return True only when the shared cleanup confirmed the owned tree stopped."""
     try:
-        runner.stop_session(process, False)
+        runner.stop_session(process)
         return True
     except (runner.RunFailure, OSError, subprocess.SubprocessError) as error:
         # Expected cleanup failures leave survivors unknown: report, never claim success.
@@ -96,8 +96,8 @@ class _FakeRunner:
         self.failure = failure
         self.calls = []
 
-    def stop_session(self, process, elevated):
-        self.calls.append((process.pid, elevated))
+    def stop_session(self, process):
+        self.calls.append(process.pid)
         if self.failure is not None:
             raise self.failure
 
@@ -119,7 +119,7 @@ class RunBoundedSelfTests(unittest.TestCase):
                                              "tree termination unconfirmed; taskkill stderr='synthetic'"))
         code, stderr = self.invoke(process, runner)
         self.assertEqual(124, code)
-        self.assertEqual([(4321, False)], runner.calls)
+        self.assertEqual([4321], runner.calls)
         self.assertIn('BOUNDED-VERDICT: FAILED (deadline 7s; owned process tree termination unconfirmed)', stderr)
         self.assertIn('BOUNDED-CLEANUP: tree termination unconfirmed', stderr)
         self.assertIn('root still running', stderr)

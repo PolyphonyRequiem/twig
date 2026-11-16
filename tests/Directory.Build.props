@@ -3,19 +3,17 @@
   <!-- Inherit the repo-root Directory.Build.props (TargetFramework, Nullable, etc.). -->
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
-  <!--
-    GitHub issue #311 instrumentation, link-compiled into every test assembly.
+  <PropertyGroup>
+    <TwigTestSupportDirectory>$(MSBuildThisFileDirectory)Shared\</TwigTestSupportDirectory>
+  </PropertyGroup>
 
-    Hosted as linked SOURCE so no shared fixture library or additional package
-    dependency is required. Each test assembly compiles its own copy,
-    which is also what lets the attribute name its own assembly for the per-assembly
-    trace file.
-
-    Guarded on IsTestProject so libraries without xunit cannot pick it up.
-  -->
-  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
-    <Compile Include="$(MSBuildThisFileDirectory)Shared\TestProgressTrace.cs"
-             Link="TestSupport\TestProgressTrace.cs" />
-  </ItemGroup>
+  <!-- IsTestProject is declared in the projects, after this props import. -->
+  <Target Name="IncludeTwigTestDiagnostics" BeforeTargets="CoreCompile"
+          Condition="'$(IsTestProject)' == 'true'">
+    <ItemGroup>
+      <Compile Include="$(TwigTestSupportDirectory)TestProgressTrace.cs"
+               Link="TestSupport\TestProgressTrace.cs" />
+    </ItemGroup>
+  </Target>
 
 </Project>

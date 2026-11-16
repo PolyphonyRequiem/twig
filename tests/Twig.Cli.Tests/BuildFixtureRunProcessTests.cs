@@ -20,14 +20,12 @@ namespace Twig.Cli.Tests;
 /// first test hangs forever (and would abort the run); against the fixed one it returns
 /// within the bounded grace period.
 /// </summary>
-public class BuildFixtureRunProcessTests
+public sealed class BuildFixtureRunProcessTests
 {
     /// <summary>
-    /// Upper bound for a call that MUST return. Generous versus the 30 s internal
-    /// grace period, but far below the 300 s session timeout, so a regression fails
-    /// this test honestly instead of aborting the whole run.
+    /// Fixture-only bounds; the normal build/publish grace and session watchdog are unchanged.
     /// </summary>
-    private static readonly TimeSpan MustReturnWithin = TimeSpan.FromSeconds(120);
+    private static readonly TimeSpan MustReturnWithin = TimeSpan.FromSeconds(10);
 
     private static bool IsWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
 
@@ -45,31 +43,72 @@ public class BuildFixtureRunProcessTests
     [Fact]
     public void RunProcess_WhenGrandchildHoldsStdoutOpen_StillReturns()
     {
-        // A grandchild inherits stdout and holds it open well past the parent's exit.
-        // The direct child exits immediately, so WaitForExit returns fast — exactly the
-        // #311 shape, where the surviving handle is what blocks the reader.
-        //
-        // Both spellings background a long-lived process that INHERITS the redirected
-        // stdout handle (no redirection to nul/dev-null, or the handle would not be
-        // held and the test would prove nothing).
-        var script = IsWindows
-            ? "start /b ping -n 3600 127.0.0.1 & echo parent-done"
-            : "sleep 3600 & echo parent-done";
+        var directory = Path.Combine(Path.GetTempPath(), $"twig-inherited-pipe-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        Process? parent = null;
+        Process? holder = null;
+        Task<(string Stdout, string Stderr, int ExitCode, bool Exited)>? run = null;
+        try
+        {
+            var scriptPath = Path.Combine(directory, IsWindows ? "parent.ps1" : "parent.sh");
+            if (IsWindows)
+            {
+                var escaped = directory.Replace("'", "''", StringComparison.Ordinal);
+                File.WriteAllText(Path.Combine(directory, "holder.ps1"),
+                    "[Console]::WriteLine('pipe-holder-ready'); while ($true) { Start-Sleep -Seconds 1 }");
+                File.WriteAllText(scriptPath, $$"""
+                    [IO.File]::WriteAllText('{{escaped}}\parent.tmp', "$PID")
+                    Move-Item -LiteralPath '{{escaped}}\parent.tmp' -Destination '{{escaped}}\parent.pid'
+                    $child = Start-Process powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-File','"{{escaped}}\holder.ps1"' -NoNewWindow -PassThru
+                    [IO.File]::WriteAllText('{{escaped}}\holder.tmp', "$($child.Id)")
+                    Move-Item -LiteralPath '{{escaped}}\holder.tmp' -Destination '{{escaped}}\holder.pid'
+                    while (!(Test-Path -LiteralPath '{{escaped}}\release')) { Start-Sleep -Milliseconds 10 }
+                    Write-Output 'parent-done'
+                    """);
+            }
+            else
+            {
+                File.WriteAllText(scriptPath, """
+                    echo $$ > parent.tmp
+                    mv parent.tmp parent.pid
+                    sleep 3600 &
+                    echo $! > holder.tmp
+                    mv holder.tmp holder.pid
+                    while [ ! -f release ]; do sleep 0.01; done
+                    echo parent-done
+                    """);
+            }
+            run = Task.Run(() => BuildFixture.RunProcess(
+                IsWindows ? "powershell.exe" : "/bin/sh",
+                IsWindows ? $"-NoProfile -NonInteractive -File \"{scriptPath}\"" : $"\"{scriptPath}\"",
+                timeoutMinutes: 1, workingDirectory: directory, pipeDrainGrace: TimeSpan.FromMilliseconds(100)));
+            parent = OpenOwnedProcess(Path.Combine(directory, "parent.pid"));
+            holder = OpenOwnedProcess(Path.Combine(directory, "holder.pid"));
+            parent.HasExited.ShouldBeFalse("the direct child must wait until the test owns both process handles");
+            holder.HasExited.ShouldBeFalse("the grandchild must still hold the inherited stdout pipe");
+            File.WriteAllText(Path.Combine(directory, "release"), "");
 
-        var sw = Stopwatch.StartNew();
-        var (stdout, _, _, exited) = RunGuarded(ShellFileName, ShellArgs(script));
-        sw.Stop();
-
-        exited.ShouldBeTrue("the direct child exits immediately; only the pipe lingers");
-
-        // The contract is that it RETURNS, not that output survives. Abandoning a
-        // stuck reader (empty stdout) is an acceptable, documented outcome.
-        sw.Elapsed.ShouldBeLessThan(
-            MustReturnWithin,
-            "RunProcess must never block unboundedly on a pipe held by a grandchild " +
-            "— that is twig#311. Returning truncated output is the intended tradeoff.");
-
-        stdout.ShouldNotBeNull();
+            run.Wait(MustReturnWithin).ShouldBeTrue("RunProcess must not wait for EOF from a surviving grandchild");
+            var result = run.GetAwaiter().GetResult();
+            result.Exited.ShouldBeTrue();
+            result.ExitCode.ShouldBe(0);
+            holder.HasExited.ShouldBeFalse("returning must not depend on the pipe holder exiting");
+            result.Stdout.ShouldNotBeNull();
+        }
+        finally
+        {
+            try
+            {
+                StopOwned(holder);
+            }
+            finally
+            {
+                StopOwned(parent);
+                if (run is not null)
+                    run.Wait(MustReturnWithin).ShouldBeTrue("fixture cleanup must release all inherited pipes");
+                Directory.Delete(directory, recursive: true);
+            }
+        }
     }
 
     [Fact]
@@ -107,7 +146,8 @@ public class BuildFixtureRunProcessTests
         {
             try
             {
-                result = BuildFixture.RunProcess(fileName, arguments, timeoutMinutes: 1);
+                result = BuildFixture.RunProcess(fileName, arguments, timeoutMinutes: 1,
+                    pipeDrainGrace: TimeSpan.FromMilliseconds(100));
             }
             catch (Exception ex)
             {
@@ -134,5 +174,26 @@ public class BuildFixtureRunProcessTests
         }
 
         return result;
+    }
+
+    private static Process OpenOwnedProcess(string path)
+    {
+        SpinWait.SpinUntil(() => File.Exists(path), MustReturnWithin).ShouldBeTrue($"fixture did not publish {path}");
+        var process = Process.GetProcessById(int.Parse(File.ReadAllText(path),
+            System.Globalization.CultureInfo.InvariantCulture));
+        _ = process.SafeHandle;
+        return process;
+    }
+
+    private static void StopOwned(Process? process)
+    {
+        if (process is null)
+            return;
+        using (process)
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            process.WaitForExit(5000).ShouldBeTrue("the exact owned process must be reaped");
+        }
     }
 }

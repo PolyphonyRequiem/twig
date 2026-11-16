@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Shouldly;
@@ -15,15 +14,9 @@ public sealed class HostContractOwnershipTests
     [InlineData("Twig.Infrastructure")]
     public void Compiled_native_assembly_has_no_legacy_domain_dependency(string assemblyName)
     {
-        var baselineDirectory = Environment.GetEnvironmentVariable("TWIG_OWNERSHIP_ASSEMBLY_DIR");
-        var assemblyPath = baselineDirectory is null
-            ? assemblyName == "twig" ? typeof(EditorLauncher).Assembly.Location : typeof(TwigConfiguration).Assembly.Location
-            : Path.Combine(baselineDirectory, assemblyName + ".dll");
+        var assemblyPath = assemblyName == "twig"
+            ? typeof(EditorLauncher).Assembly.Location : typeof(TwigConfiguration).Assembly.Location;
         File.Exists(assemblyPath).ShouldBeTrue("the real production assembly must exist");
-        if (baselineDirectory is not null)
-            FileVersionInfo.GetVersionInfo(assemblyPath).ProductVersion.ShouldNotBeNull()
-                .EndsWith("+cea0ee45e57e9312efdf307677b2bf553de270ee", StringComparison.Ordinal).ShouldBeTrue(
-                    "the red fixture must be the exact phase-5 production binary");
         using var stream = File.OpenRead(assemblyPath);
         using var pe = new PEReader(stream);
         pe.HasMetadata.ShouldBeTrue();
@@ -43,20 +36,11 @@ public sealed class HostContractOwnershipTests
     public void Compiled_implementation_uses_host_owned_contract(string implementationNamespace,
         string implementationName, string contractName, string expectedNamespace, string expectedAssembly)
     {
-        var baselineDirectory = Environment.GetEnvironmentVariable("TWIG_OWNERSHIP_ASSEMBLY_DIR");
-        var assemblyPath = baselineDirectory is null
-            ? implementationName == "TelemetryClient"
-                ? typeof(TwigConfiguration).Assembly.Location
-                : typeof(EditorLauncher).Assembly.Location
-            : Path.Combine(baselineDirectory,
-                implementationName == "TelemetryClient" ? "Twig.Infrastructure.dll" : "twig.dll");
+        var assemblyPath = implementationName == "TelemetryClient"
+            ? typeof(TwigConfiguration).Assembly.Location
+            : typeof(EditorLauncher).Assembly.Location;
         File.Exists(assemblyPath).ShouldBeTrue("the production assembly must exist");
         var bytes = File.ReadAllBytes(assemblyPath);
-        if (baselineDirectory is not null)
-            FileVersionInfo.GetVersionInfo(assemblyPath).ProductVersion.ShouldNotBeNull()
-                .EndsWith("+cea0ee45e57e9312efdf307677b2bf553de270ee", StringComparison.Ordinal).ShouldBeTrue(
-                    "each red fixture assembly must be from the exact phase-5 production build");
-
         using var stream = new MemoryStream(bytes);
         using var pe = new PEReader(stream);
         pe.HasMetadata.ShouldBeTrue();

@@ -2,6 +2,8 @@
 """Validate an already-built CLI offline in at most 15 seconds; never build or run test hosts."""
 import argparse
 import base64
+import datetime
+import hashlib
 import importlib.util
 import json
 import os
@@ -52,7 +54,7 @@ def run_worker(command, timeout, trace):
             runner = importlib.util.module_from_spec(spec)
             sys.modules[spec.name] = runner
             spec.loader.exec_module(runner)
-            runner.stop_session(process, False)
+            runner.stop_session(process)
             trace.write('supervisor', 'timeout')
             print(f'SMOKE FAILED: {timeout}s deadline exceeded; no timeout expansion', file=sys.stderr)
             return 1
@@ -62,13 +64,72 @@ def run_worker(command, timeout, trace):
     return process.returncode
 
 
+def attach_offline_fixture(command, workspace, home, env, trace):
+    """Create only current native binding evidence, using fictional credentials and no HTTP."""
+    def run(label, argv, **kwargs):
+        trace.write(label, 'start')
+        result = subprocess.run(argv, **kwargs)
+        trace.write(label, 'end', result.returncode)
+        return result
+
+    run('git-init', ['git', 'init', '--quiet', str(workspace)], check=True)
+
+    def git_path(flag):
+        label = {'--git-common-dir': 'git-common', '--absolute-git-dir': 'git-dir',
+                 '--show-toplevel': 'git-root'}[flag]
+        value = run(label, ['git', '-C', str(workspace), 'rev-parse', '--path-format=absolute', flag],
+                    check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
+        return str(Path(value).resolve())
+
+    fingerprint = {'gitCommonDir': git_path('--git-common-dir'),
+                   'worktreeGitDir': git_path('--absolute-git-dir'),
+                   'worktreeRoot': git_path('--show-toplevel')}
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(',', ':'))
+    connection = hashlib.sha256(canonical({'organization': 'fixture.invalid',
+                                          'project': 'BuildSmoke'}).encode()).hexdigest()
+    metadata = home / 'metadata'
+    run('fixture-identities', command + ['auth', 'identities', '-o', 'json'], cwd=workspace,
+        env=env, check=True, capture_output=True, text=True)
+    stamp = '2026-01-01T00:00:00+00:00'
+    tenant, actor = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+    issuer = f'https://sts.windows.net/{tenant}/'
+    credential_ref = 'cred-cccccccccccccccccccccccccccccccc'
+    with sqlite3.connect(metadata / 'system.db') as db:
+        db.execute('INSERT INTO connections VALUES (?,?,?,?,?,?)',
+                   (connection, 'fixture.invalid', 'BuildSmoke', None, stamp, stamp))
+        db.execute('INSERT INTO worktrees VALUES (?,?,?,?,?,?)',
+                   (canonical(fingerprint), connection, str(workspace), stamp, stamp, None))
+        db.execute('INSERT INTO identities (identity_id,name,tenant_id,object_id,issuer,authority_host,credential_ref,account_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                   ('fixture-identity', 'offline-reviewer', tenant, actor, issuer, 'login.microsoftonline.com',
+                    credential_ref, 'reviewer@fixture.invalid', stamp, stamp))
+        db.execute('INSERT INTO connection_bindings VALUES (?,?,?,?,?,?)',
+                   ('fixture-binding', connection, 'fixture-identity', 1, stamp, stamp))
+        db.execute('INSERT INTO connection_defaults VALUES (?,?,?,?)', (connection, 'fixture-binding', 1, stamp))
+    local = workspace / '.twig'
+    (local / 'layout.json').write_text(json.dumps({
+        '$schema': 'twig-layout/v1', 'version': 1, 'initializedAt': stamp, 'createdBy': 'offline-fixture'}))
+    (local / 'worktree.json').write_text(json.dumps({
+        '$schema': 'twig-worktree/v1', 'version': 1, 'worktreeFingerprint': fingerprint}))
+    (local / 'attachment.json').write_text(json.dumps({
+        '$schema': 'twig-attachment/v1', 'version': 1, 'revision': 0, 'connectionRef': connection}))
+    expiry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+    encode = lambda value: base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip('=')
+    token = encode({'alg': 'none'}) + '.' + encode({
+        'aud': '499b84ac-1321-427f-aa17-267ca6975798', 'tid': tenant, 'oid': actor,
+        'iss': issuer, 'exp': int(expiry.timestamp())}) + '.fictional'
+    credentials = metadata / 'credentials'
+    credentials.mkdir(exist_ok=True)
+    (credentials / f'{credential_ref}.token-cache').write_text(
+        f'{int(expiry.timestamp() * 10000000) + 621355968000000000}\n{token}\n')
+
+
 def worker(binary, directory, trace):
     trace.write('worker', 'start')
     directory = directory.resolve()
     workspace, home = directory / 'workspace', directory / 'home'
     (workspace / '.twig').mkdir(parents=True)
     home.mkdir()
-    (workspace / 'twig.json').write_text(json.dumps({'organization': 'fixture.invalid', 'project': 'PresenterSmoke'}))
+    (workspace / 'twig.json').write_text(json.dumps({'organization': 'fixture.invalid', 'project': 'BuildSmoke'}))
     command = ['dotnet', str(binary)] if binary.suffix == '.dll' else [str(binary)]
     env = {key: value for key, value in os.environ.items() if key in {'PATH', 'DOTNET_ROOT', 'DOTNET_ROOT_X64', 'DOTNET_ROOT_ARM64', 'LD_LIBRARY_PATH'}}
     env.update(HOME=str(home), USERPROFILE=str(home), TWIG_USER_HOME=str(home / 'metadata'),
@@ -87,11 +148,8 @@ def worker(binary, directory, trace):
     for label, arguments in (('help', ('--help',)), ('auth-help', ('auth', '--help')),
                              ('connection-help', ('connection', 'status', '--help'))):
         run(label, *arguments)
-    spec = importlib.util.spec_from_file_location('presenter_fixture', ROOT / 'tools/verify-proposal-presenters.py')
-    fixture = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(fixture)
     trace.write('fixture', 'start')
-    fixture.attach_offline_fixture(command, workspace, home, env, trace=trace)
+    attach_offline_fixture(command, workspace, home, env, trace)
     trace.write('fixture', 'end')
     status = json.loads(run('identity', 'auth', 'status', '-o', 'json').stdout)
     if status.get('identity') != 'offline-reviewer':

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using Twig;
 using Shouldly;
 using Xunit;
@@ -9,36 +10,6 @@ namespace Twig.Cli.Tests.Architecture;
 /// AB#389 — pins every <c>--help</c> example against the parameters its command actually
 /// declares, so the two cannot drift apart again.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The reported defect: <c>twig link parent --help</c> advertised
-/// <c>twig link parent 5678 1234</c>, and the command rejected it —
-/// <i>"Argument '1234' is not recognized."</i> Not undocumented behaviour, but
-/// <b>documented behaviour that did not exist</b>. Batch reparenting therefore cost two
-/// commands per item (<c>twig set &lt;child&gt;</c> then <c>twig link parent &lt;parent&gt;</c>),
-/// and mutated active-item context as a side effect of a link operation.
-/// </para>
-/// <para>
-/// 🔴 <b>Why a test rather than three corrected strings.</b> The examples table
-/// (<c>CommandExamples.Examples</c>) and the <c>[Command]</c> method signatures are two
-/// hand-maintained sources of truth for one fact, and nothing compared them. That is the
-/// defect class, and the reporter named it: <i>"A test that asserts this mechanically
-/// would prevent the whole class."</i> Fixing only the three known strings would leave
-/// the generator of the fault in place.
-/// </para>
-/// <para>
-/// <b>It found a third instance immediately.</b> The report confirmed <c>link parent</c>
-/// and <c>link unparent</c> and listed <c>link reparent</c> only as a thing to check.
-/// This assertion caught <c>link reparent</c> on the first run, which is the argument for
-/// the mechanical form over a manual sweep.
-/// </para>
-/// <para>
-/// <b>Scope is deliberately the whole CLI, not just the link verbs.</b> Nothing about the
-/// drift is specific to <c>link</c>; any command whose examples are edited without its
-/// signature (or vice versa) has the same failure mode, and it is silent until a user
-/// copies the example.
-/// </para>
-/// </remarks>
 public sealed class CommandExampleParameterDriftTests
 {
     /// <summary>
@@ -49,11 +20,12 @@ public sealed class CommandExampleParameterDriftTests
     public void EveryExample_IsAcceptedByItsCommandSignature()
     {
         var commands = DiscoverCommands();
-        commands.ShouldNotBeEmpty("no [Command] methods discovered — the reflection probe is broken, "
+        commands.ShouldNotBeEmpty("no public command methods discovered — the reflection probe is broken, "
             + "and a probe that finds nothing passes vacuously");
 
-        var examplesTable = LoadExamplesTable();
+        var examplesTable = LoadExamplesTable(commands);
         examplesTable.ShouldNotBeEmpty("no examples discovered — see above; an empty table cannot fail");
+        examplesTable.ShouldContainKey("show", "the current public read command must contribute real examples");
 
         var failures = new List<string>();
 
@@ -64,8 +36,9 @@ public sealed class CommandExampleParameterDriftTests
 
             foreach (var example in examples)
             {
-                // An example line is "<invocation><two-or-more spaces><description>".
-                var invocation = SplitInvocation(example);
+                var invocation = example.Trim();
+                if (invocation is "twig --help" or "twig --version")
+                    continue; // ConsoleAppFramework owns these root options.
 
                 // 🔴 A GROUP's entry legitimately advertises its SUBCOMMANDS: the "nav" key
                 // lists `twig nav up` and `twig nav down`, which are separate [Command]s with
@@ -73,8 +46,13 @@ public sealed class CommandExampleParameterDriftTests
                 // command it actually names, or a group heading reads as its own bare verb
                 // taking extra positionals — 3 of the first run's false failures.
                 var effectiveName = MostSpecificCommand(invocation, commandName, commands);
-                if (!commands.TryGetValue(effectiveName, out signature))
+                if (!commands.TryGetValue(effectiveName, out signature)
+                    || !invocation.StartsWith("twig " + effectiveName + " ", StringComparison.Ordinal)
+                        && invocation != "twig " + effectiveName)
+                {
+                    failures.Add($"{commandName}: example names no current public command: {invocation}");
                     continue;
+                }
 
                 var tokens = Tokenize(invocation, effectiveName);
 
@@ -120,6 +98,8 @@ public sealed class CommandExampleParameterDriftTests
     [InlineData("twig probe --ids \">\" extra", 1)]
     [InlineData("twig probe \">\"", 1)]
     [InlineData("twig probe --proposal-only \"|\" extra", 2)]
+    [InlineData("twig probe --ids 'two words' extra", 1)]
+    [InlineData("twig probe --ids '>' extra # comment", 1)]
     public void ShellOperatorCut_AndBooleanArity_CountOnlyRealPositionals(string invocation, int expected)
     {
         var signature = new CommandSignature(
@@ -131,18 +111,18 @@ public sealed class CommandExampleParameterDriftTests
     }
 
     /// <summary>
-    /// Boolean arity comes from the reflected signature, not from a name list: the real
-    /// <c>policy reconcile</c> declares <c>--proposal-only</c> as a switch and <c>--ids</c>
-    /// as a valued option.
+    /// Use a current public command; internal refusal stubs are not public discovery controls.
     /// </summary>
     [Fact]
     public void BooleanArity_IsReflectedFromTheRealCommandSignature()
     {
-        var reconcile = DiscoverCommands()["policy reconcile"];
-
-        reconcile.BooleanOptions.ShouldContain("proposal-only");
-        reconcile.Options.ShouldContain("ids");
-        reconcile.BooleanOptions.ShouldNotContain("ids");
+        var commands = DiscoverCommands();
+        commands.ShouldContainKey("show");
+        commands.ShouldNotContainKey("policy reconcile");
+        var show = commands["show"];
+        show.BooleanOptions.ShouldContain("refresh");
+        show.Options.ShouldContain("id");
+        show.BooleanOptions.ShouldNotContain("id");
     }
 
     private sealed record CommandSignature(
@@ -163,18 +143,14 @@ public sealed class CommandExampleParameterDriftTests
         if (words.Length == 0 || words[0] != "twig")
             return fallback;
 
-        var best = fallback;
         for (var take = words.Length - 1; take >= 1; take--)
         {
             var candidate = string.Join(' ', words.Skip(1).Take(take));
-            if (commands.ContainsKey(candidate) && candidate.Length > best.Length)
-            {
-                best = candidate;
-                break;
-            }
+            if (commands.ContainsKey(candidate))
+                return candidate;
         }
 
-        return best;
+        return fallback;
     }
 
     private static Dictionary<string, CommandSignature> DiscoverCommands()
@@ -187,27 +163,18 @@ public sealed class CommandExampleParameterDriftTests
         // GetCustomAttribute<CommandAttribute>() probe compiles (with CS0436) and then
         // silently matches nothing, which passes vacuously. The emptiness guards in the
         // test body exist to catch exactly that.
-        var programType = TwigAssembly
-            .GetTypes()
-            .FirstOrDefault(t => t.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                .Any(m => HasAttribute(m, "CommandAttribute")));
-
-        if (programType is null)
-            return result;
-
-        foreach (var method in programType.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+        foreach (var method in typeof(TwigConsoleApp).GetMethods(
+                     BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
         {
             var command = GetAttribute(method, "CommandAttribute");
-            if (command is null)
-                continue;
-
-            var commandName = command.GetType().GetProperty("Command")?.GetValue(command) as string;
+            var commandName = command?.GetType().GetProperty("Command")?.GetValue(command) as string
+                ?? ToKebabCase(method.Name);
             if (string.IsNullOrWhiteSpace(commandName))
                 continue;
 
             var positional = 0;
-            var options = new HashSet<string>(StringComparer.Ordinal);
-            var booleans = new HashSet<string>(StringComparer.Ordinal);
+            var options = new HashSet<string>(StringComparer.Ordinal) { "help", "version" };
+            var booleans = new HashSet<string>(StringComparer.Ordinal) { "help", "version" };
 
             foreach (var p in method.GetParameters())
             {
@@ -228,18 +195,12 @@ public sealed class CommandExampleParameterDriftTests
                     booleans.Add(option);
             }
 
-            result[commandName] = new CommandSignature(positional, options, booleans);
+            result.TryAdd(commandName, new CommandSignature(positional, options, booleans))
+                .ShouldBeTrue($"duplicate public command declaration: {commandName}");
         }
 
         return result;
     }
-
-    // Anchored on a real twig type so the assembly is guaranteed loaded — scanning
-    // AppDomain assemblies would depend on load order and could find nothing.
-    private static Assembly TwigAssembly { get; } = typeof(Twig.Commands.LinkCommand).Assembly;
-
-    private static bool HasAttribute(MemberInfo m, string name) =>
-        m.GetCustomAttributes().Any(a => a.GetType().Name == name);
 
     private static bool HasAttribute(ParameterInfo p, string name) =>
         p.GetCustomAttributes().Any(a => a.GetType().Name == name);
@@ -248,35 +209,47 @@ public sealed class CommandExampleParameterDriftTests
         m.GetCustomAttributes().FirstOrDefault(a => a.GetType().Name == name);
 
     /// <summary>
-    /// Read the table DIRECTLY rather than by reflection. <c>Twig.csproj</c> grants
-    /// <c>InternalsVisibleTo</c> to this assembly, so the internal member is reachable and
-    /// the reference is compiler-checked — a rename breaks the build instead of silently
-    /// returning an empty table and passing vacuously. (The reflective first draft did
-    /// exactly that; the emptiness guard in the test body is what caught it.)
+    /// Read the same bundled references as installed help, not a second example registry.
     /// </summary>
-    private static Dictionary<string, string[]> LoadExamplesTable() => CommandExamples.Examples;
-
-    /// <summary>
-    /// Split "&lt;invocation&gt;   &lt;description&gt;" into just the invocation.
-    /// </summary>
-    /// <remarks>
-    /// 🔴 Two-space separation is the CONVENTION, not a guarantee. A handful of examples
-    /// use a single space before their description, so a naive two-space split swallows
-    /// the prose as positional arguments — that produced a 10-positional reading of one
-    /// line and 14 false failures on the first run. Where the convention is absent, fall
-    /// back to cutting at the first token that looks like prose (a capitalised word that
-    /// is not a flag, a number, a URL, or a quoted string).
-    /// </remarks>
-    private static string SplitInvocation(string example)
+    private static Dictionary<string, string[]> LoadExamplesTable(Dictionary<string, CommandSignature> commands)
     {
-        var idx = example.IndexOf("  ", StringComparison.Ordinal);
-        if (idx >= 0)
-            return example[..idx].Trim();
-
-        // No two-space separator: the line is invocation-only. Descriptions in this table
-        // are always separated by two or more spaces, so treating the whole line as the
-        // invocation is correct here and, importantly, is not a guess about prose.
-        return example.Trim();
+        using var stream = CommandHelpReference.OpenResource("index.json");
+        using var index = JsonDocument.Parse(stream);
+        var examples = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        foreach (var entry in index.RootElement.EnumerateArray())
+        {
+            var command = entry.GetProperty("command").GetString()!;
+            if (!commands.ContainsKey(command))
+                continue;
+            using var reference = CommandHelpReference.OpenResource(entry.GetProperty("path").GetString()!);
+            using var reader = new StreamReader(reference);
+            var lines = new List<string>();
+            var include = false;
+            var fenced = false;
+            while (reader.ReadLine() is { } line)
+            {
+                if (line.StartsWith("## ", StringComparison.Ordinal))
+                {
+                    include = line[3..].Trim() == "Examples";
+                    fenced = false;
+                }
+                if (!include)
+                    continue;
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith("```", StringComparison.Ordinal))
+                {
+                    fenced = !fenced;
+                    continue;
+                }
+                if (trimmed.StartsWith("$ ", StringComparison.Ordinal))
+                    trimmed = trimmed[2..];
+                if (fenced && trimmed.StartsWith("twig ", StringComparison.Ordinal))
+                    lines.Add(trimmed);
+            }
+            if (lines.Count > 0)
+                examples.Add(command, [.. lines]);
+        }
+        return examples;
     }
 
     /// <summary>
@@ -285,7 +258,7 @@ public sealed class CommandExampleParameterDriftTests
     /// placeholder such as <c>&lt;digest&gt;</c> and a quoted <c>"&gt;"</c> stay ordinary values.
     /// </summary>
     private static readonly HashSet<string> ShellOperators =
-        new(StringComparer.Ordinal) { ">", ">>", "<", "2>", "2>>", "|", "&&", "||", ";" };
+        new(StringComparer.Ordinal) { ">", ">>", "<", "2>", "2>>", "|", "&&", "||", ";", "#" };
 
     private static string[] Tokenize(string invocation, string commandName)
     {
@@ -304,13 +277,18 @@ public sealed class CommandExampleParameterDriftTests
     {
         var tokens = new List<(string, bool)>();
         var current = new System.Text.StringBuilder();
-        var inQuotes = false;
+        var quote = '\0';
         var quoted = false;
 
         foreach (var c in s)
         {
-            if (c == '"') { inQuotes = !inQuotes; quoted = true; continue; }
-            if (c == ' ' && !inQuotes)
+            if ((c is '"' or '\'') && (quote == '\0' || quote == c))
+            {
+                quote = quote == '\0' ? c : '\0';
+                quoted = true;
+                continue;
+            }
+            if (char.IsWhiteSpace(c) && quote == '\0')
             {
                 if (current.Length > 0 || quoted) { tokens.Add((current.ToString(), quoted)); current.Clear(); }
                 quoted = false;

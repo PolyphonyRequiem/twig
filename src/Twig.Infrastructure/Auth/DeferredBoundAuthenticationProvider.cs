@@ -24,16 +24,13 @@ namespace Twig.Infrastructure.Auth;
 internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IDisposable
 {
     private readonly Func<CancellationToken, Task<IAuthenticationProvider>> _factory;
-    private readonly bool _initializationMetadataOnly;
     private readonly object _sync = new();
     private Task<IAuthenticationProvider>? _resolution;
     private bool _disposed;
 
-    public DeferredBoundAuthenticationProvider(Func<CancellationToken, Task<IAuthenticationProvider>> factory,
-        bool initializationMetadataOnly = false)
+    public DeferredBoundAuthenticationProvider(Func<CancellationToken, Task<IAuthenticationProvider>> factory)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
-        _initializationMetadataOnly = initializationMetadataOnly;
     }
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
@@ -88,7 +85,6 @@ internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvi
     private Task<IDisposable?> AcquireAdmittedFreshOperation(IAuthenticationProvider provider, IConnectionBindingService resolver,
         Config.TwigPaths paths, Action<ResolvedConnectionBinding> validateCurrent, CancellationToken ct)
     {
-        if (_initializationMetadataOnly) return Task.FromResult<IDisposable?>(null);
         return provider is IConnectionOperationGuard guard ? guard.TryAcquireFreshOperationAsync(resolver, paths, validateCurrent, ct)
             : Task.FromException<IDisposable?>(new InvalidOperationException("Attached runtime lacks native operation admission; reconnect through the connection binding module."));
     }
@@ -98,15 +94,12 @@ internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvi
 
     private Task<IDisposable> AcquireAdmittedOperation(IAuthenticationProvider provider, CancellationToken ct)
     {
-        if (_initializationMetadataOnly) return Task.FromResult<IDisposable>(BootstrapMetadataLease.Instance);
         return provider is IConnectionOperationGuard guard ? guard.AcquireOperationAsync(ct)
             : Task.FromException<IDisposable>(new InvalidOperationException("Attached runtime lacks native operation admission; reconnect through the connection binding module."));
     }
 
     public async Task<IConnectionRemoteWriteAdmission> BeginRemoteWriteAsync(ConnectionRemoteWriteRequest request, CancellationToken ct = default)
     {
-        if (_initializationMetadataOnly)
-            throw new InvalidOperationException("bootstrap-metadata-only: initialization may inspect metadata but cannot perform normal remote writes. Attach and reconnect through the admitted binding first.");
         var provider = await GetProviderAsync(ct).ConfigureAwait(false);
         if (provider is not IConnectionRemoteWriteGuard guard)
             throw new InvalidOperationException("remote-write-admission-required: reconnect through the attached native binding before publication.");
@@ -119,12 +112,6 @@ internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvi
         // failure; returning success here would conceal a failed auth clear.
         var provider = GetProviderAsync(CancellationToken.None).GetAwaiter().GetResult();
         provider.InvalidateToken();
-    }
-
-    private sealed class BootstrapMetadataLease : IDisposable
-    {
-        internal static readonly BootstrapMetadataLease Instance = new();
-        public void Dispose() { }
     }
 
     private Task<IAuthenticationProvider> GetProviderAsync(CancellationToken ct)

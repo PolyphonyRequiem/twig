@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -59,57 +58,4 @@ internal static class JwtTestFactory
             .Replace('/', '_');
     }
 
-    /// <summary>
-    /// Builds the MSAL cache JSON string with a single ADO access token entry.
-    /// </summary>
-    public static string BuildMsalCacheJson(
-        string secret,
-        string target = AdoResourceId + "/.default",
-        long? expiresOnEpoch = null)
-    {
-        expiresOnEpoch ??= DateTimeOffset.UtcNow.AddMinutes(50).ToUnixTimeSeconds();
-        return $$"""
-        {
-            "AccessToken": {
-                "entry1": {
-                    "secret": "{{secret}}",
-                    "target": "{{target}}",
-                    "expires_on": "{{expiresOnEpoch.Value.ToString(CultureInfo.InvariantCulture)}}"
-                }
-            }
-        }
-        """;
-    }
-
-    /// <summary>
-    /// Builds an MSAL cache JSON string containing a RefreshToken + Account pair sufficient
-    /// for <c>MsalTokenRefresher.FindRefreshContext</c> to extract a bootstrap context.
-    /// </summary>
-    public static string BuildMsalCacheJsonWithRefreshToken(
-        string refreshTokenSecret = "rt-secret",
-        string clientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
-        string tenantId = "ten-1234",
-        string oid = "oid-5678",
-        string authorityHost = "login.microsoftonline.com")
-    {
-        var homeAccountId = $"{oid}.{tenantId}";
-        return $$"""
-        {
-            "RefreshToken": {
-                "rt1": {
-                    "secret": "{{refreshTokenSecret}}",
-                    "client_id": "{{clientId}}",
-                    "home_account_id": "{{homeAccountId}}"
-                }
-            },
-            "Account": {
-                "acct1": {
-                    "home_account_id": "{{homeAccountId}}",
-                    "realm": "{{tenantId}}",
-                    "environment": "{{authorityHost}}"
-                }
-            }
-        }
-        """;
-    }
 }

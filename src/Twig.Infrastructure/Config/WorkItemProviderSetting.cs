@@ -56,20 +56,4 @@ public static class WorkItemProviderSetting
             new InvalidDataException(UnknownReasonCode));
     }
 
-    /// <summary>
-    /// The single structural gate in front of every ADO network client. Returns only when the
-    /// workspace resolves to ADO; an unknown token fails with <see cref="UnknownReasonCode"/>
-    /// and any other recognized provider with <see cref="UnavailableReasonCode"/>, so a
-    /// workspace configured for another provider can never reach ADO through a command that
-    /// still injects an ADO client.
-    /// </summary>
-    public static void RequireAdo(string? stored)
-    {
-        var kind = Resolve(stored);
-        if (kind == Default)
-            return;
-        throw new TwigConfigurationException(
-            $"{UnavailableReasonCode}: workspace provider '{kind}' cannot use this Azure DevOps service.",
-            new NotSupportedException(UnavailableReasonCode));
-    }
 }

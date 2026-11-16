@@ -458,13 +458,13 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             Operation: new ConnectionOperationSnapshot(
                 configuration.Organization, configuration.Project, configuration.Team,
                 fingerprint, attachment.Revision,
-                configuration.IsLegacyMode ? paths.ConfigPath : paths.RepoConfigPath,
+                paths.RepoConfigPath,
                 File.Exists(paths.ConfigPath) ? paths.ConfigPath : "built-in-defaults",
                 configuration.Display.Icons,
                 configuration.Display.IconsOverride is not null ? paths.ConfigPath
                     : GlobalDisplayPreferences.Load(paths.GlobalDisplayPath).Icons is not null
                         ? paths.GlobalDisplayPath : "built-in-defaults"),
-            StorageGeneration: storageAdmission?.Generation);
+            StorageGeneration: storageAdmission.Generation);
     }
     public async Task<IAuthenticationProvider> CreateBootstrapProviderAsync(
         TwigConfiguration configuration,
@@ -509,20 +509,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(binding);
         EnsurePatAuthority(binding.Identity, binding.Operation.Organization);
-        return new MigrationBoundAuthenticationProvider(CreateProvider(binding.Identity), binding, Path.Combine(_userHome, SystemDbFileName), this);
-    }
-
-    public async Task VerifyIdentityCredentialAsync(string identityName, string organization, CancellationToken ct = default)
-    {
-        ThrowIfDisposed();
-        var lookup = await _registry.FindIdentityByNameAsync(identityName.Trim(), ct).ConfigureAwait(false);
-        var row = lookup.Optional();
-        if (row is null)
-            throw new InvalidOperationException("migration-identity-unavailable: enroll the explicit identity before setting up its mapping.");
-        var identity = ToIdentity(row);
-        EnsurePatAuthority(identity, organization);
-        var provider = CreateProvider(identity);
-        _ = await provider.GetAccessTokenAsync(ct).ConfigureAwait(false);
+        return new AdmittedBoundAuthenticationProvider(CreateProvider(binding.Identity), binding, Path.Combine(_userHome, SystemDbFileName), this);
     }
 
     private IAuthenticationProvider CreateProvider(AuthenticationIdentity identity)

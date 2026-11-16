@@ -1,9 +1,11 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Config;
 
 /// <summary>Machine-wide display defaults; never contains a workspace connection or credentials.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class GlobalDisplayPreferences
 {
     public string? Icons { get; set; }

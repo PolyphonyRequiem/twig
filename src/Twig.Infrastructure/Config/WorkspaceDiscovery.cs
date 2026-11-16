@@ -1,10 +1,10 @@
 namespace Twig.Infrastructure.Config;
 
 /// <summary>
-/// Locates the nearest <c>.twig/</c> workspace directory by walking up the
+/// Locates the nearest manifest-owned workspace by walking up the
 /// directory tree from a starting point — analogous to how git finds <c>.git/</c>.
 /// <para>
-/// AB#3296: also recognizes a repo-root <c>twig.json</c> manifest as a workspace
+/// Recognizes only a repo-root <c>twig.json</c> manifest as a workspace
 /// marker. A repo with only <c>twig.json</c> committed (fresh clone, no local
 /// <c>.twig/</c> yet) is a valid workspace; the <c>.twig/</c> directory is
 /// created on demand by commands that need it.
@@ -38,11 +38,10 @@ public static class WorkspaceDiscovery
 
     /// <summary>
     /// Walks up the directory tree from <paramref name="startDir"/> (or CWD if null)
-    /// looking for a <c>.twig/</c> subdirectory that is a valid workspace OR a
-    /// repo-root <c>twig.json</c> manifest. Returns the <c>.twig/</c> path
+    /// looking for a repo-root <c>twig.json</c> manifest. Returns the <c>.twig/</c> path
     /// (possibly synthesized as <c>&lt;repo-root&gt;/.twig</c> when only the
     /// manifest exists), or <c>null</c> if no workspace marker is found.
-    /// Skips the global home at <c>~/.twig/</c> which holds binaries and profiles
+    /// Skips the global home at <c>~/.twig/</c> which holds machine state
     /// but is not a workspace.
     /// </summary>
     public static string? FindTwigDir(string? startDir = null)
@@ -52,10 +51,8 @@ public static class WorkspaceDiscovery
     }
 
     /// <summary>
-    /// AB#3296: walks up from <paramref name="startDir"/> (or CWD) looking for the
-    /// repo root that owns a twig workspace — i.e., the first ancestor that
-    /// contains either a valid <c>.twig/</c> workspace directory OR a
-    /// <c>twig.json</c> manifest. Returns the ancestor directory path, or
+    /// Walks up from <paramref name="startDir"/> (or CWD) looking for the
+    /// first ancestor with a <c>twig.json</c> manifest. Returns its directory path, or
     /// <c>null</c> if no marker is found.
     /// </summary>
     public static string? FindWorkspaceRoot(string? startDir = null)
@@ -64,11 +61,7 @@ public static class WorkspaceDiscovery
 
         while (dir is not null)
         {
-            if (File.Exists(Path.Combine(dir, RepoManifestFileName)))
-                return dir;
-
-            var candidate = Path.Combine(dir, ".twig");
-            if (Directory.Exists(candidate) && IsWorkspaceDirectory(candidate))
+            if (IsWorkspaceDirectory(Path.Combine(dir, ".twig")))
                 return dir;
 
             dir = Directory.GetParent(dir)?.FullName;
@@ -78,14 +71,7 @@ public static class WorkspaceDiscovery
     }
 
     /// <summary>
-    /// Determines whether a <c>.twig/</c> path belongs to an actual workspace
-    /// (as opposed to the global home). A workspace contains either:
-    /// <list type="bullet">
-    /// <item>A sibling repo-root <c>twig.json</c> manifest, OR</item>
-    /// <item>A <c>config</c> file (legacy or current workspace config), OR</item>
-    /// <item>A nested <c>{org}/{project}/twig.db</c> database file, OR</item>
-    /// <item>A nested <c>{org}/{project}/config</c> file (multi-workspace layout).</item>
-    /// </list>
+    /// Determines whether a <c>.twig/</c> path belongs to a manifest-owned workspace.
     /// The global home at <c>~/.twig/</c> is always excluded regardless of contents.
     /// The <c>.twig/</c> directory itself does not need to exist when the committed
     /// manifest is present; commands create local workspace state on demand.
@@ -101,39 +87,6 @@ public static class WorkspaceDiscovery
             return false;
 
         var repoRoot = Path.GetDirectoryName(normalizedCandidate);
-        if (repoRoot is not null && File.Exists(Path.Combine(repoRoot, RepoManifestFileName)))
-            return true;
-
-        // A valid workspace has a config file at its root
-        if (File.Exists(Path.Combine(twigDirPath, "config")))
-            return true;
-
-        // Or has at least one nested context: {org}/{project}/twig.db or {org}/{project}/config
-        if (HasNestedWorkspaceContext(twigDirPath))
-            return true;
-
-        return false;
-    }
-
-    private static bool HasNestedWorkspaceContext(string twigDirPath)
-    {
-        try
-        {
-            foreach (var orgDir in Directory.EnumerateDirectories(twigDirPath))
-            {
-                foreach (var projectDir in Directory.EnumerateDirectories(orgDir))
-                {
-                    if (File.Exists(Path.Combine(projectDir, "twig.db"))
-                        || File.Exists(Path.Combine(projectDir, "config")))
-                        return true;
-                }
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Filesystem access issues — treat as not a workspace
-        }
-
-        return false;
+        return repoRoot is not null && File.Exists(Path.Combine(repoRoot, RepoManifestFileName));
     }
 }

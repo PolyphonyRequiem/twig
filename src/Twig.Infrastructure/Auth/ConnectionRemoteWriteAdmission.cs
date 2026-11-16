@@ -13,8 +13,6 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
     private readonly string _registryPath;
     private readonly ConnectionRemoteWriteIntent _intent;
 
-    public bool IsDefinitivelyRejected { get; private set; }
-
     private ConnectionRemoteWriteAdmission(string registryPath, ConnectionRemoteWriteIntent intent)
     {
         _registryPath = registryPath;
@@ -63,7 +61,6 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
         using var registry = new SqliteSystemWorktreeRegistry(_registryPath, TimeProvider.System);
         var recorded = await registry.ObserveConnectionRemoteWriteAsync(_intent, observation, receipt, ct).ConfigureAwait(false);
         if (!recorded.IsSuccess) throw new InvalidOperationException(recorded.Error.Message);
-        IsDefinitivelyRejected = kind == "rejected";
     }
 
     internal static string RequestDigest(ResolvedConnectionBinding origin, ConnectionRemoteWriteRequest request)

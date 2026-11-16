@@ -90,53 +90,11 @@ internal interface IConnectionRemoteWriteGuard
 
 internal interface IConnectionRemoteWriteAdmission
 {
-    bool IsDefinitivelyRejected { get; }
     Task RecordResponseAsync(ConnectionRemoteWriteResponse response, CancellationToken ct = default);
 }
 
 internal static class ConnectionOperationAdmission
 {
-    private static readonly object RejectedWriteAdmissionKey = new();
-    internal static Task<IDisposable?> AcquireAsync(IAuthenticationProvider provider, CancellationToken ct)
-        => provider is IConnectionOperationGuard guard
-            ? AsNullableAsync(guard.AcquireOperationAsync(ct)) : Task.FromResult<IDisposable?>(null);
-
-    private static async Task<IDisposable?> AsNullableAsync(Task<IDisposable> operation)
-        => await operation.ConfigureAwait(false);
-
-    internal static async Task<IConnectionRemoteWriteAdmission?> BeginRemoteWriteAsync(
-        IAuthenticationProvider provider, HttpRequestMessage request, string? effectKind, CancellationToken ct,
-        SeedPublishCorrelation? seedCorrelation = null)
-    {
-        if (effectKind is null) return null;
-        if (provider is not IConnectionRemoteWriteGuard guard)
-            throw new InvalidOperationException("remote-write-admission-required: normal writes require an attached bound runtime with native outcome admission; reconnect explicitly before publication.");
-        var payload = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        var ifMatch = request.Headers.TryGetValues("If-Match", out var values) ? values.FirstOrDefault() : null;
-        return await guard.BeginRemoteWriteAsync(new ConnectionRemoteWriteRequest(effectKind, request.Method.Method,
-            request.RequestUri!.AbsoluteUri, payload, ifMatch, seedCorrelation), ct).ConfigureAwait(false);
-    }
-
-    internal static async Task RecordRemoteWriteResponseAsync(
-        IConnectionRemoteWriteAdmission? admission, HttpResponseMessage response, string credential, string? authorizationParameter, CancellationToken ct)
-    {
-        if (admission is null) return;
-        var body = RedactCredential(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false), credential, authorizationParameter);
-        var requestId = response.Headers.TryGetValues("X-VSS-E2EID", out var values) ? values.FirstOrDefault()
-            : response.Headers.TryGetValues("X-MS-Correlation-Request-Id", out values) ? values.FirstOrDefault() : null;
-        await admission.RecordResponseAsync(new ConnectionRemoteWriteResponse((int)response.StatusCode, body,
-            requestId is null ? null : RedactCredential(requestId, credential, authorizationParameter),
-            response.Headers.Location is { } location ? RedactCredential(location.ToString(), credential, authorizationParameter) : null), ct).ConfigureAwait(false);
-    }
-
-    internal static void RecordRejectedWriteAuthException(Exception exception, IConnectionRemoteWriteAdmission? admission)
-    {
-        if (admission?.IsDefinitivelyRejected == true) exception.Data[RejectedWriteAdmissionKey] = admission;
-    }
-
-    internal static bool CanRenewAfterWriteRejection(Exception exception)
-        => exception.Data[RejectedWriteAdmissionKey] is IConnectionRemoteWriteAdmission { IsDefinitivelyRejected: true };
-
     internal static string RedactCredential(string value, string credential, string? authorizationParameter)
     {
         value = Redact(value, credential);
@@ -283,8 +241,6 @@ internal interface IConnectionBindingService
         CancellationToken ct = default);
 
     Task ClearIdentityAccessCacheAsync(string name, CancellationToken ct = default);
-
-    Task VerifyIdentityCredentialAsync(string identityName, string organization, CancellationToken ct = default);
 
     Task<IReadOnlyList<AuthenticationIdentity>> ListIdentitiesAsync(CancellationToken ct = default);
 

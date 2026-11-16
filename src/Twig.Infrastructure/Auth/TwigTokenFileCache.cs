@@ -3,21 +3,18 @@ using System.Globalization;
 namespace Twig.Infrastructure.Auth;
 
 /// <summary>
-/// Cross-process token cache backed by <c>~/.twig/.token-cache</c>.
+/// Cross-process access-token cache at an explicitly selected credential path.
 /// Atomic write (tmp + rename) so concurrent readers never see a partial file.
 /// On Unix, the file is chmod'd to 600. Best-effort everywhere — failures are silent.
 /// </summary>
 internal sealed class TwigTokenFileCache
 {
-    private static readonly string DefaultCachePath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".twig", ".token-cache");
-
     private readonly string _cachePath;
 
-    public TwigTokenFileCache(string? cachePath = null)
+    public TwigTokenFileCache(string cachePath)
     {
-        _cachePath = cachePath ?? DefaultCachePath;
+        ArgumentException.ThrowIfNullOrWhiteSpace(cachePath);
+        _cachePath = cachePath;
     }
 
     public string Path => _cachePath;

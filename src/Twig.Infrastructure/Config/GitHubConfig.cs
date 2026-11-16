@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Text.Json.Serialization;
 
 namespace Twig.Infrastructure.Config;
 
@@ -7,6 +8,7 @@ namespace Twig.Infrastructure.Config;
 /// Consulted only when the workspace selects <c>provider=github</c>. Nothing here is inferred
 /// from the git remote; both values must be set explicitly.
 /// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class GitHubConfig
 {
     /// <summary>Bare lowercase host name, e.g. <c>github.com</c>.</summary>

@@ -1,15 +1,12 @@
 using System.Text.Json;
+using System.Text;
 using Twig.Core;
-using Twig.Infrastructure.Policy;
 
 namespace Twig.Infrastructure.Policy;
 
 /// <summary>Outcome of loading <c>twig.policy.json</c>.</summary>
 public sealed record DeclaredPolicyLoadResult
 {
-    /// <summary>No policy file: no declared rules.</summary>
-    public static readonly DeclaredPolicyLoadResult None = new();
-
     /// <summary>The parsed policy, when the file exists and is valid.</summary>
     public DeclaredPolicy? Policy { get; init; }
 
@@ -18,47 +15,23 @@ public sealed record DeclaredPolicyLoadResult
 }
 
 /// <summary>
-/// Reads the repository-owned declared policy (AB#1169, D2). A present but unusable file is a
-/// blocking <see cref="PolicyOutcome.Unavailable"/> decision, never a silent permit (D3).
+/// Parses the bounded, strict repository-owned policy schema. An unusable declaration
+/// is a blocking failure, never a silent permit.
 /// </summary>
 /// <remarks>
 /// Parsed with <see cref="JsonDocument"/> rather than a serializer contract: the schema is small,
 /// the reader stays AOT-safe without reflection, and every rejection can name the exact rule and
 /// property at fault.
 /// </remarks>
-public sealed class DeclaredPolicyLoader(string policyPath)
+public static class DeclaredPolicyLoader
 {
-    /// <summary>The file this loader reads.</summary>
-    public string PolicyPath { get; } = policyPath;
-
-    /// <summary>Loads the policy file, if any.</summary>
-    public async Task<DeclaredPolicyLoadResult> LoadAsync(CancellationToken ct = default)
-    {
-        string json;
-        try
-        {
-            json = await File.ReadAllTextAsync(PolicyPath, ct).ConfigureAwait(false);
-        }
-        catch (FileNotFoundException)
-        {
-            return DeclaredPolicyLoadResult.None;
-        }
-        catch (DirectoryNotFoundException)
-        {
-            return DeclaredPolicyLoadResult.None;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or ArgumentException or NotSupportedException or System.Security.SecurityException)
-        {
-            return Fail($"Policy file '{PolicyPath}' could not be read: {ex.Message}");
-        }
-
-        return Parse(json, PolicyPath);
-    }
+    internal const int MaximumBytes = 1024 * 1024;
 
     /// <summary>Parses policy JSON. <paramref name="source"/> names the file in failure reasons.</summary>
     public static DeclaredPolicyLoadResult Parse(string json, string source = "twig.policy.json")
     {
+        if (Encoding.UTF8.GetByteCount(json) > MaximumBytes)
+            return Fail($"Policy file '{source}' exceeds the 1 MiB acquisition bound.");
         try
         {
             using var document = JsonDocument.Parse(json, new JsonDocumentOptions
@@ -66,6 +39,8 @@ public sealed class DeclaredPolicyLoader(string policyPath)
                 CommentHandling = JsonCommentHandling.Skip,
                 AllowTrailingCommas = true,
             });
+            if (!KnownShape(document.RootElement))
+                return Fail($"Policy file '{source}' contains duplicate or unsupported policy members.");
             return new DeclaredPolicyLoadResult { Policy = ReadPolicy(document.RootElement) };
         }
         catch (JsonException ex)
@@ -83,6 +58,34 @@ public sealed class DeclaredPolicyLoader(string policyPath)
         Failure = new Error(ErrorCode.Unavailable,
             reason + " Declared rules cannot be checked until the file is fixed."),
     };
+
+    private static bool KnownShape(JsonElement root)
+    {
+        if (!Members(root, ["$schema", "version", "rules"])
+            || !root.TryGetProperty("rules", out var rules) || rules.ValueKind != JsonValueKind.Array)
+            return false;
+        foreach (var rule in rules.EnumerateArray())
+        {
+            if (rule.ValueKind != JsonValueKind.Object || !rule.TryGetProperty("kind", out var kind)
+                || kind.ValueKind != JsonValueKind.String)
+                return false;
+            var known = kind.GetString() switch
+            {
+                DeclaredPolicyRuleKinds.ParentType => Members(rule, ["id", "kind", "enforcement", "childType", "allowedParentTypes"]),
+                DeclaredPolicyRuleKinds.DependencyIntegrity => Members(rule, ["id", "kind", "enforcement", "maxNodes"]),
+                _ => false,
+            };
+            if (!known) return false;
+        }
+        return true;
+    }
+
+    private static bool Members(JsonElement value, string[] allowed)
+    {
+        if (value.ValueKind != JsonValueKind.Object) return false;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return value.EnumerateObject().All(p => allowed.Contains(p.Name, StringComparer.Ordinal) && seen.Add(p.Name));
+    }
 
     private static DeclaredPolicy ReadPolicy(JsonElement root)
     {

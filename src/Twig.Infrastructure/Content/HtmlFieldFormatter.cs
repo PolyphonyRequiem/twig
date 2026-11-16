@@ -1,7 +1,3 @@
-using Twig.Infrastructure.Auth;
-using Twig.Infrastructure.Persistence;
-using Twig.Infrastructure.Persistence.ProviderTargets;
-
 namespace Twig.Infrastructure.Content;
 
 /// <summary>
@@ -19,7 +15,7 @@ namespace Twig.Infrastructure.Content;
 /// <list type="bullet">
 ///   <item><c>"markdown"</c> — always convert.</item>
 ///   <item><c>"raw"</c> — never convert; pass through unchanged.</item>
-///   <item><c>null</c> — auto-detect via field DataType (auto entry points only).</item>
+///   <item><c>null</c> — convert Markdown to HTML.</item>
 /// </list>
 /// </remarks>
 public static class HtmlFieldFormatter
@@ -29,12 +25,7 @@ public static class HtmlFieldFormatter
 
     /// <summary>Result of a format resolution.</summary>
     /// <param name="EffectiveValue">Value to send to ADO.</param>
-    /// <param name="IsHtml">
-    /// True when the resulting field will hold HTML markup — either because
-    /// conversion happened or because the destination is an HTML-typed field
-    /// or comment. Drives <see cref="FieldAppender.Append"/> wrapping.
-    /// </param>
-    public readonly record struct FormatResult(string EffectiveValue, bool IsHtml);
+    public readonly record struct FormatResult(string EffectiveValue);
 
     /// <summary>
     /// Validates a format option string. Returns <see langword="null"/> when
@@ -49,31 +40,15 @@ public static class HtmlFieldFormatter
     }
 
     /// <summary>
-    /// Resolves a value for a surface whose existing contract is "Markdown by
-    /// default" (e.g. <c>twig_new</c>, <c>twig_seed_new</c>, <c>twig_seed_edit</c>
-    /// description parameters, and CLI <c>twig new --description</c> targeting
-    /// <c>System.Description</c>). Does not consult the field-definition store,
-    /// so it is robust against a stale or missing cache.
-    /// </summary>
-    public static FormatResult ResolveForcedMarkdownDefault(string value, string? format)
-    {
-        if (string.Equals(format, RawFormat, StringComparison.OrdinalIgnoreCase))
-            return new FormatResult(value, IsHtml: true);
-
-        // markdown or null → convert
-        return new FormatResult(MarkdownConverter.ToHtml(value), IsHtml: true);
-    }
-
-    /// <summary>
-    /// Resolves a comment body for <c>twig note</c> / <c>twig_note</c>. ADO
+    /// Resolves a comment body for <c>twig note</c>. ADO
     /// comments accept HTML; default to Markdown→HTML conversion so the
     /// rendered comment matches operator intent.
     /// </summary>
     public static FormatResult ResolveComment(string text, string? format)
     {
         if (string.Equals(format, RawFormat, StringComparison.OrdinalIgnoreCase))
-            return new FormatResult(text, IsHtml: true);
+            return new FormatResult(text);
 
-        return new FormatResult(MarkdownConverter.ToHtml(text), IsHtml: true);
+        return new FormatResult(MarkdownConverter.ToHtml(text));
     }
 }

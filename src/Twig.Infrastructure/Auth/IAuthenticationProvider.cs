@@ -2,7 +2,7 @@ namespace Twig.Infrastructure.Auth;
 
 /// <summary>
 /// Provides authentication tokens for Azure DevOps API access.
-/// Implemented in Infrastructure (AzCli / PAT).
+/// Implemented by explicitly selected, identity-bound credential providers.
 /// </summary>
 public interface IAuthenticationProvider
 {
@@ -10,8 +10,7 @@ public interface IAuthenticationProvider
 
     /// <summary>
     /// Clears any cached token so the next <see cref="GetAccessTokenAsync"/> call
-    /// acquires a fresh one. Called by the HTTP layer on auth failures (401 / 203 HTML challenge)
-    /// before retrying the request.
+    /// acquires a fresh one. This does not select or adopt another identity.
     /// </summary>
     void InvalidateToken();
 }

@@ -1,8 +1,9 @@
 namespace Twig.Infrastructure.Telemetry;
 
 /// <summary>
-/// Emits anonymous, privacy-safe telemetry events. Implementation is fire-and-forget —
-/// callers never await. All methods are no-ops when <c>TWIG_TELEMETRY_ENDPOINT</c> is unset.
+/// Optional host-injected hook for anonymous, privacy-safe telemetry.
+/// Twig does not register a sender or initiate telemetry network requests.
+/// Hosts must isolate failures and reject identifiers or content.
 /// </summary>
 public interface ITelemetryClient
 {

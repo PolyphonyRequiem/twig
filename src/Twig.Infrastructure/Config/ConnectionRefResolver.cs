@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text.Json;
-using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Config;
 
@@ -52,8 +51,4 @@ internal static class ConnectionRefResolver
     public static string Compute(TwigConfiguration config) =>
         Compute(config.Organization, config.Project);
 
-    // Suppress: the JSON context reference keeps the tree-shaker from stripping the
-    // canonicaliser above when only ConnectionRefResolver is invoked from init.
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0051")]
-    private static void _EnsureJsonContextReferenced() => _ = TwigJsonContext.Default;
 }

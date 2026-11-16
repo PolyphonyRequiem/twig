@@ -6,7 +6,7 @@ using Twig.Infrastructure.Config;
 namespace Twig.Infrastructure.Auth;
 
 /// <summary>Freezes checkout authority; an old provider refuses changes until explicit reconnect.</summary>
-internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IDisposable
+internal sealed class AdmittedBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IDisposable
 {
     private readonly IAuthenticationProvider _inner;
     private readonly ResolvedConnectionBinding _binding;
@@ -15,7 +15,7 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
     private readonly AsyncLocal<OperationScope?> _operationScope = new();
     private bool _disposed;
 
-    internal MigrationBoundAuthenticationProvider(IAuthenticationProvider inner, ResolvedConnectionBinding binding,
+    internal AdmittedBoundAuthenticationProvider(IAuthenticationProvider inner, ResolvedConnectionBinding binding,
         string registryPath, IConnectionBindingService bindings)
     {
         _inner = inner;
@@ -30,13 +30,11 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
         ObjectDisposedException.ThrowIf(_disposed, this);
         MirrorAdmission.ValidateNoUnfinishedTransition(_registryPath, _binding.Operation.WorktreeFingerprint);
         var current = MirrorAdmission.ReadNativeState(_registryPath, _binding.Operation.WorktreeFingerprint);
-        if (current is null && _binding.StorageGeneration is null) return;
         if (current is null || current.State != "active" || current.Generation != _binding.StorageGeneration
             || current.BindingId != _binding.Binding.BindingId)
             throw Changed();
-        var paths = TwigPaths.BuildPaths(Path.Combine(_binding.WorktreeRoot, ".twig"), new TwigConfiguration(), _binding.WorktreeRoot);
-        _ = MirrorAdmission.Acquire(paths, _registryPath)
-            ?? throw new InvalidOperationException("migration-incomplete: native storage capability is missing.");
+        var paths = TwigPaths.BuildPaths(Path.Combine(_binding.WorktreeRoot, ".twig"), _binding.WorktreeRoot);
+        _ = MirrorAdmission.Acquire(paths, _registryPath);
     }
 
     public Task<IDisposable> AcquireOperationAsync(CancellationToken ct = default)
@@ -58,7 +56,7 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(validateCurrent);
         if (!ReferenceEquals(resolver, _bindings)) throw Changed();
-        var expected = TwigPaths.BuildPaths(Path.Combine(_binding.WorktreeRoot, ".twig"), new TwigConfiguration(), _binding.WorktreeRoot);
+        var expected = TwigPaths.BuildPaths(Path.Combine(_binding.WorktreeRoot, ".twig"), _binding.WorktreeRoot);
         if (!SameContext(paths, expected)) return Task.FromResult<IDisposable?>(null);
         var prior = CurrentScope();
         // Retain only the physical lease; the child must obtain its own fresh authority.
@@ -96,7 +94,7 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            var paths = validationPaths ?? TwigPaths.BuildPaths(Path.Combine(_binding.WorktreeRoot, ".twig"), new TwigConfiguration(), _binding.WorktreeRoot);
+            var paths = validationPaths ?? TwigPaths.BuildPaths(Path.Combine(_binding.WorktreeRoot, ".twig"), _binding.WorktreeRoot);
             var configuration = await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false);
             var current = await _bindings.ResolveAsync(configuration, paths, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -154,7 +152,7 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
                     || _origin.Operation.Team != configuration.Team
                     || _origin.Operation.DisplayIcons != configuration.Display.Icons
                     || !comparer.Equals(_origin.Operation.PortableConfigurationSource,
-                        configuration.IsLegacyMode ? paths.ConfigPath : paths.RepoConfigPath)
+                        paths.RepoConfigPath)
                     || (configuration.Display.IconsOverride is not null) != comparer.Equals(
                         _origin.Operation.DisplayIconsSource, paths.ConfigPath)) return null;
                 return _origin;
@@ -188,7 +186,7 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
         }
     }
 
-    private sealed class OperationLease(MigrationBoundAuthenticationProvider provider, OperationScope scope, OperationScope? prior, bool owner) : IAdmittedConnectionOperation
+    private sealed class OperationLease(AdmittedBoundAuthenticationProvider provider, OperationScope scope, OperationScope? prior, bool owner) : IAdmittedConnectionOperation
     {
         private int _disposed;
 
@@ -219,7 +217,7 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
             && current.AdoPrincipalId == frozen.AdoPrincipalId;
 
     private static InvalidOperationException Changed()
-        => new("binding-changed: checkout selection, endpoint, principal or admitted cache generation changed. Explicitly close and reconnect this CLI/TUI/MCP/Herdr host; this provider will not adopt another identity.");
+        => new("binding-changed: checkout selection, endpoint, principal or admitted mirror generation changed. Close and reconnect this host; this provider will not adopt another identity.");
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
     {

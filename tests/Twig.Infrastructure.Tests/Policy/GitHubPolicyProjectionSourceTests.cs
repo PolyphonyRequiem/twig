@@ -77,6 +77,31 @@ public sealed class GitHubPolicyProjectionSourceTests : IDisposable
         result.Error.Code.ShouldBeOneOf(ErrorCode.Unavailable, ErrorCode.Unsupported);
     }
 
+    [Theory]
+    [InlineData("""{"version":1,"rules":[],"complete":true}""")]
+    [InlineData("""{"version":1,"version":1,"rules":[]}""")]
+    [InlineData("""{"version":1,"rules":[{"id":"d","kind":"dependency-integrity","maxNodes":1,"maxNodes":2}]}""")]
+    [InlineData("""{"version":1,"rules":[{"id":"d","kind":"dependency-integrity","complete":true}]}""")]
+    [InlineData("""{"version":2,"rules":[]}""")]
+    [InlineData("""{"version":1,"rules":[{"id":"d","kind":"dependency-integrity"},{"id":"D","kind":"dependency-integrity"}]}""")]
+    public void SharedParserRejectsUnsupportedDuplicateAndUnknownDeclarations(string json)
+    {
+        var result = DeclaredPolicyLoader.Parse(json);
+        result.Policy.ShouldBeNull();
+        result.Failure.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task PolicyAcquisitionAndParserShareTheByteBound()
+    {
+        var json = """{"version":1,"rules":[]}""" + new string(' ', 1024 * 1024);
+        DeclaredPolicyLoader.Parse(json).Failure.ShouldNotBeNull();
+        await File.WriteAllTextAsync(PolicyPath, json);
+        var result = await Source().ReadAsync(default);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+    }
+
     [Fact]
     public async Task WrongConnectionAndLostRepositoryFailInsteadOfUsingAmbientPolicy()
     {

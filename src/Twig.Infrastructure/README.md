@@ -1,4 +1,16 @@
-# PolyphonyRequiem.Twig.Infrastructure
+# Twig native infrastructure
+
+This is an internal assembly for the current CLI and native daemon, not a public
+SDK package. The supported rendering SDK is `Twig.RenderTree`.
+
+Configuration uses the committed `twig.json` and local `.twig/config` preferences
+only. Retired and unknown configuration members are refused rather than silently
+defaulted; area defaults use structured `defaults.areaPathEntries` exclusively.
+Only a `twig.json` manifest identifies a workspace. Authentication uses explicit
+named bindings and credential paths, never foreign MSAL-cache discovery or an
+ambient PAT. Admission, principal freezing and uncertain-write fences remain
+mandatory. Optional telemetry is a host-injected `ITelemetryClient` hook; this
+assembly registers no sender and starts no telemetry HTTP requests.
 
 ## Human ADO editor
 

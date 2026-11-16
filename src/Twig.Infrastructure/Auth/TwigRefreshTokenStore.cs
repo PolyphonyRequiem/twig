@@ -4,24 +4,17 @@ using Twig.Infrastructure.Serialization;
 namespace Twig.Infrastructure.Auth;
 
 /// <summary>
-/// Owns <c>~/.twig/.refresh-token</c>: twig's private refresh-token store. After a one-time
-/// bootstrap from the MSAL cache, every subsequent token mint reads from here instead of
-/// <c>~/.azure/msal_token_cache.json</c> — eliminating the foreign-mutation hazard surface.
+/// Owns the explicitly selected identity's private refresh-token store.
 /// Atomic write (tmp + rename), chmod 600 on Unix. Best-effort everywhere — failures are silent.
 /// </summary>
 internal sealed class TwigRefreshTokenStore
 {
-    private static readonly string DefaultPath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".twig", ".refresh-token");
-
-    private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
-
     private readonly string _path;
 
-    public TwigRefreshTokenStore(string? path = null)
+    public TwigRefreshTokenStore(string path)
     {
-        _path = path ?? DefaultPath;
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        _path = path;
     }
 
     public string Path => _path;
@@ -65,7 +58,7 @@ internal sealed class TwigRefreshTokenStore
         }
         catch
         {
-            // Best effort — provider falls back to bootstrap-on-next-call.
+            // Best effort; a later refresh still uses only this selected credential.
         }
     }
 

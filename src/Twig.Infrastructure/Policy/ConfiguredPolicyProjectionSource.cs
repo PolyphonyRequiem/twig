@@ -1,9 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Twig.Core;
-using Twig.Infrastructure.Policy;
 using Twig.Providers.GitHub;
 using CorePolicy = Twig.Core.Policy;
 
@@ -45,13 +43,12 @@ internal sealed class ConfiguredPolicyProjectionSource
         {
             await using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read,
                 4096, FileOptions.Asynchronous);
-            const int limit = 1024 * 1024;
             using var buffer = new MemoryStream();
             var chunk = new byte[4096];
             int count;
             while ((count = await stream.ReadAsync(chunk, ct).ConfigureAwait(false)) != 0)
             {
-                if (buffer.Length + count > limit)
+                if (buffer.Length + count > DeclaredPolicyLoader.MaximumBytes)
                     return Result<DeclaredPolicyDocument>.Fail(ErrorCode.Unavailable, "The Twig policy exceeds the 1 MiB acquisition bound.");
                 buffer.Write(chunk, 0, count);
             }
@@ -65,20 +62,13 @@ internal sealed class ConfiguredPolicyProjectionSource
         try
         {
             var json = new UTF8Encoding(false, true).GetString(bytes);
-            using var document = JsonDocument.Parse(json, new JsonDocumentOptions
-            {
-                CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true,
-            });
-            if (!KnownShape(document.RootElement))
-                return Result<DeclaredPolicyDocument>.Fail(ErrorCode.Unsupported,
-                    "The Twig declaration contains duplicate or unsupported policy members.");
             var parsed = DeclaredPolicyLoader.Parse(json, _path);
             if (parsed.Failure is { } failure)
                 return Result<DeclaredPolicyDocument>.Fail(failure);
             return Result<DeclaredPolicyDocument>.Ok(new(parsed.Policy!,
                 "sha256:" + Convert.ToHexStringLower(SHA256.HashData(bytes))));
         }
-        catch (Exception ex) when (ex is JsonException or DecoderFallbackException)
+        catch (DecoderFallbackException)
         {
             return Result<DeclaredPolicyDocument>.Fail(ErrorCode.Unavailable, "The acquired Twig declaration is invalid.");
         }
@@ -126,31 +116,4 @@ internal sealed class ConfiguredPolicyProjectionSource
         }
     }
 
-    private static bool KnownShape(JsonElement root)
-    {
-        if (!Members(root, ["$schema", "version", "rules"])
-            || !root.TryGetProperty("rules", out var rules) || rules.ValueKind != JsonValueKind.Array)
-            return false;
-        foreach (var rule in rules.EnumerateArray())
-        {
-            if (rule.ValueKind != JsonValueKind.Object || !rule.TryGetProperty("kind", out var kind)
-                || kind.ValueKind != JsonValueKind.String)
-                return false;
-            var known = kind.GetString() switch
-            {
-                DeclaredPolicyRuleKinds.ParentType => Members(rule, ["id", "kind", "enforcement", "childType", "allowedParentTypes"]),
-                DeclaredPolicyRuleKinds.DependencyIntegrity => Members(rule, ["id", "kind", "enforcement", "maxNodes"]),
-                _ => false,
-            };
-            if (!known) return false;
-        }
-        return true;
-    }
-
-    private static bool Members(JsonElement value, string[] allowed)
-    {
-        if (value.ValueKind != JsonValueKind.Object) return false;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        return value.EnumerateObject().All(p => allowed.Contains(p.Name, StringComparer.Ordinal) && seen.Add(p.Name));
-    }
 }

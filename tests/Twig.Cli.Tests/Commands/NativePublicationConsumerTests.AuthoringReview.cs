@@ -12,7 +12,11 @@ public sealed partial class NativePublicationConsumerTests
     {
         var native = await RelationshipWorkspaceAsync();
         var user = UserBenchStore.ForRegistry(_bindings.RegistryPath);
-        var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Current Bench", []), 0)).Value;
+        var pinned = ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42");
+        var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Current Bench",
+            [new(SelectorKind.Pin, item: pinned, connection: native.Connection)]), 0)).Value;
+        bench.Selectors.ShouldHaveSingleItem();
+        bench.Connections.ShouldHaveSingleItem().ShouldBe(native.Connection);
         var reviewed = await NativeAuthoringReview.ReviewAsync(native.Paths.StartDir, ConfigureHumanEditor, default);
         reviewed.IsSuccess.ShouldBeTrue(reviewed.IsSuccess ? "" : reviewed.Error.Message);
         var review = reviewed.Value;
@@ -30,8 +34,10 @@ public sealed partial class NativePublicationConsumerTests
         (await review.ConfirmAsync(review.Digest, review.Confirmation, true, true)).IsSuccess.ShouldBeFalse();
         review = (await NativeAuthoringReview.ReviewAsync(native.Paths.StartDir, ConfigureHumanEditor, default)).Value;
         (await review.ConfirmAsync(review.Digest, review.Confirmation, true, true)).IsSuccess.ShouldBeTrue();
-        (await user.ReadAsync()).Value.Benches.Single().ShouldBe(bench);
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().ShouldBe(draft);
+        var retainedBench = (await user.ReadAsync()).Value.Benches.ShouldHaveSingleItem();
+        BenchCodec.Serialize(retainedBench).ShouldBe(BenchCodec.Serialize(bench));
+        var retainedDraft = (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.ShouldHaveSingleItem();
+        CoreWorkspace.Fingerprint(native.Connection, retainedDraft).ShouldBe(CoreWorkspace.Fingerprint(native.Connection, draft));
         (await user.ReadEditorCapturesAsync(default)).Value.ShouldBeEmpty();
         _transport.PatchAttempts.ShouldBe(0);
     }

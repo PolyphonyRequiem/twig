@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.Core;
@@ -39,15 +40,21 @@ public sealed partial class NativePublicationConsumerTests
             DROP TABLE editor_capture_refs; DROP TABLE editor_user_heads; DROP TABLE editor_provenance_meta;
             UPDATE layout_meta SET version=11;
             """);
-        var registryBefore = await File.ReadAllBytesAsync(_bindings.RegistryPath);
-        var metadataBefore = await File.ReadAllBytesAsync(metadata);
+        await using var registryEvidence = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = _bindings.RegistryPath, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+        await registryEvidence.OpenAsync();
+        await using var metadataEvidence = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = metadata, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+        await metadataEvidence.OpenAsync();
+        var registryBefore = await CaptureDataVersion(registryEvidence);
+        var metadataBefore = await CaptureDataVersion(metadataEvidence);
         (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeFalse();
         (await NativeCoreExecution.InventoryAsync(_bindings.RegistryPath)).IsSuccess.ShouldBeFalse();
         (await NativeCoreExecution.ActivateAsync(_bindings.RegistryPath, confirmed.Value, confirmed.Value.Digest, true, true)).IsSuccess.ShouldBeFalse();
         (await user.ReadEditorCapturesAsync(default)).IsSuccess.ShouldBeFalse();
         (await user.ReadEditorCapturesAsync(default, inspect: true)).IsSuccess.ShouldBeFalse();
-        (await File.ReadAllBytesAsync(_bindings.RegistryPath)).ShouldBe(registryBefore);
-        (await File.ReadAllBytesAsync(metadata)).ShouldBe(metadataBefore);
+        (await CaptureDataVersion(registryEvidence)).ShouldBe(registryBefore, "refusal must not commit registry repairs, including in the WAL");
+        (await CaptureDataVersion(metadataEvidence)).ShouldBe(metadataBefore, "refusal must not commit capture-store repairs, including in the WAL");
         _transport.PatchAttempts.ShouldBe(0);
     }
 
@@ -70,5 +77,12 @@ public sealed partial class NativePublicationConsumerTests
         (await user.ReadEditorCapturesAsync(default)).IsSuccess.ShouldBeFalse();
         (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeFalse();
         _transport.PatchAttempts.ShouldBe(0);
+    }
+
+    private static async Task<long> CaptureDataVersion(SqliteConnection database)
+    {
+        using var command = database.CreateCommand();
+        command.CommandText = "PRAGMA data_version;";
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
     }
 }

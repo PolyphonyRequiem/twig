@@ -501,19 +501,43 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
 
     private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> RelationshipWorkspaceAsync()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
+        var root = Path.Combine(_temp, "checkout");
+        Directory.CreateDirectory(root);
+        InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
+        Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse("the fixture must exercise supported fresh initialization");
+        await _bindings.RegisterPatIdentityAsync("actor", "fixture", ActorPat);
+        await _bindings.RegisterPatIdentityAsync("sibling", "fixture", SiblingPat);
+        await _bindings.CreateBindingAsync("fixture", "Project", "actor", true);
         _transport.CoreMetadataEnabled = true;
+        _transport.SetItem(42, "Original actor plan", 1, Actor);
         _transport.SetItem(43, "Other endpoint", 7, Actor);
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "relationships-core.db");
-        var created = await CleanStore.CreateAsync(database);
-        created.IsSuccess.ShouldBeTrue();
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, created.Value, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
+        _transport.SetItem(44, "Sibling private plan", 1, Sibling);
+        var initialized = await NativeWorkspaceSetup.InitializeAsync(
+            new(root, "fixture", "Project", null, null, "ado", null, null, null, null, null,
+                Path.Combine(Home, "display.json")),
+            () => _bindings, new NativeSetupEffects(), default, new CoreTransportOverride(_transport.NewHandle));
+        initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
+        var receipt = initialized.Value;
+        receipt.Source.Connection.ShouldBe(receipt.Document.Connection);
+        receipt.Source.StoreInstance.ShouldBe(receipt.Document.DatabaseInstance);
+        receipt.Source.PrincipalId.ShouldBe(Actor);
+        receipt.Source.AuthorityStamp.ShouldNotBeNullOrWhiteSpace();
+        var defaults = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
+        var paths = new TwigPaths(defaults.TwigDir, defaults.ConfigPath, receipt.Document.DatabasePath,
+            root, Path.Combine(Home, "display.json"));
+        File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
+        var created = await CleanStore.OpenAsync(receipt.Document.DatabasePath, expectedInstance: receipt.Source.StoreInstance);
+        created.IsSuccess.ShouldBeTrue(created.IsSuccess ? "" : created.Error.Message);
+        var connection = receipt.Source.Connection;
+        (await created.Value.CheckWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
+        var snapshot = (await created.Value.ReadAsync(connection, default)).Value;
+        snapshot.Version.ShouldBe(0);
+        snapshot.Drafts.ShouldBeEmpty();
+        snapshot.Journal.ShouldBeEmpty();
         await ActivateNativeSafetyFixtureAsync(paths);
+        (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeTrue();
+        _transport.WorkRequests.ShouldBe(0);
+        _transport.CommittedWrites.ShouldBe(0);
         return (paths, connection, created.Value);
     }
 

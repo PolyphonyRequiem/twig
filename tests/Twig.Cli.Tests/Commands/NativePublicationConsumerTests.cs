@@ -585,7 +585,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 list.RootElement.GetProperty("totalTypes").GetInt32().ShouldBe(1);
                 list.RootElement.GetProperty("types")[0].GetProperty("typeName").GetString().ShouldBe("Fixture.Task");
             }
-            Run("process", "Fixture.Task", "--refresh", "-o", "json").ShouldBe(0, stderr.ToString());
+            Run("process", "Fixture.Task", "-o", "json").ShouldBe(0, stderr.ToString());
             using (var detail = JsonDocument.Parse(stdout.ToString()))
             {
                 detail.RootElement.GetProperty("states").GetArrayLength().ShouldBe(3);
@@ -612,7 +612,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 gate.GetProperty("conditions")[0].GetProperty("value").GetProperty("value").GetString().ShouldBe("Done");
                 gate.GetProperty("disabled").GetBoolean().ShouldBeFalse();
             }
-            var file = Path.Combine(paths.TwigDir, "process-description.json");
+            var file = Path.Combine(paths.StartDir, "process-description.json");
             Run("process", "description", "Fixture.Task", "--out", file, "-o", "json").ShouldBe(0, stderr.ToString());
             (await File.ReadAllTextAsync(file)).Trim().ShouldBe(full.Trim());
             Run("process", "description", "Fixture.Task", "--sections", "requirements",
@@ -700,7 +700,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             resource: new("Hyperlink", "https://example.test/captured-evidence", "Captured evidence"),
             links: [new(key, "System.LinkTypes.Dependency-Forward", true)])).Value;
         var proposal = (await workspace.PreviewDraftAsync(key, default)).Value.Proposal.ShouldNotBeNull();
-        var file = Path.Combine(paths.TwigDir, "inspection-proposal.json");
+        var file = Path.Combine(paths.StartDir, "inspection-proposal.json");
         await File.WriteAllBytesAsync(file, CoreModel.Core.ProposalBytes(proposal));
         var capture = (await store.ReadAsync(connection, default)).Value;
         capture.Drafts.Length.ShouldBe(2);
@@ -735,6 +735,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 validation.RootElement.GetProperty("applicationEvidenceChecked").GetBoolean().ShouldBeFalse();
             }
             Run("proposal", "status", "--file", file, "-o", "json").ShouldBe(1, stderr.ToString());
+            stderr.ToString().ShouldBeEmpty("an absent journal is an inspection result, not a workspace admission failure");
+            stdout.ToString().ShouldNotBeNullOrWhiteSpace();
             using (var status = JsonDocument.Parse(stdout.ToString()))
                 status.RootElement.GetProperty("found").GetBoolean().ShouldBeFalse();
             Run("pending", "-o", "json").ShouldBe(0, stderr.ToString());
@@ -762,7 +764,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(capture.Version);
             (await workspace.RetainReviewAsync(proposal, default)).IsSuccess.ShouldBeTrue();
             var retained = (await store.ReadAsync(connection, default)).Value;
-            Run("plan", "status", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
+            Run("proposal", "status", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
             using (var status = JsonDocument.Parse(stdout.ToString()))
             {
                 status.RootElement.GetProperty("digest").GetString().ShouldBe(proposal.Digest);
@@ -804,12 +806,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             Run("pending", "-o", "ids").ShouldBe(2);
             var foreign = new CoreModel.Proposal(new(connection.Provider, connection.ResourceScope, connection.Destination,
                 "another principal"), proposal.SchemaFingerprint, proposal.ExpectedStoreVersion, proposal.Operations);
-            var foreignFile = Path.Combine(paths.TwigDir, "foreign-inspection.json");
+            var foreignFile = Path.Combine(paths.StartDir, "foreign-inspection.json");
             await File.WriteAllBytesAsync(foreignFile, CoreModel.Core.ProposalBytes(foreign));
             Run("proposal", "status", "--file", foreignFile, "-o", "json").ShouldBe(2);
             using (var error = JsonDocument.Parse(stderr.ToString()))
                 error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("another immutable workspace");
-            var invalid = Path.Combine(paths.TwigDir, "old-inspection.json");
+            var invalid = Path.Combine(paths.StartDir, "old-inspection.json");
             await File.WriteAllTextAsync(invalid, """{"version":2}""");
             Run("proposal", "validate", "--file", invalid, "-o", "json").ShouldBe(2);
             var calls = telemetry.ReceivedCalls().ToArray();
@@ -2020,7 +2022,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 .IsSuccess.ShouldBeTrue();
             var preview = (await workspace.PreviewDraftAsync(key, default)).Value;
             var proposal = preview.Proposal.ShouldNotBeNull();
-            var proposalPath = Path.Combine(paths.TwigDir, "core-reviewed-proposal.json");
+            var proposalPath = Path.Combine(paths.StartDir, "core-reviewed-proposal.json");
             await File.WriteAllBytesAsync(proposalPath, CoreModel.Core.ProposalBytes(proposal));
             var workReads = _transport.WorkRequests;
             stdout.GetStringBuilder().Clear();

@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """Validate an already-built CLI offline in at most 15 seconds; never build or run test hosts."""
 import argparse
-import base64
-import datetime
-import hashlib
 import importlib.util
 import json
 import os
@@ -20,8 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 class SmokeTrace:
     """Optional safe boundary records, written outside the captured worker pipes."""
     PHASES = {'supervisor', 'worker', 'version', 'help', 'auth-help', 'connection-help',
-              'configure', 'fixture', 'identity', 'preview', 'wrong-account', 'journal',
-              'git-init', 'git-common', 'git-dir', 'git-root', 'fixture-identities'}
+              'initialize', 'schema', 'draft', 'detail', 'preview', 'wrong-connection',
+              'wrong-digest', 'journal', 'git-init'}
     EVENTS = {'start', 'end', 'error', 'timeout'}
 
     def __init__(self, path):
@@ -89,72 +86,12 @@ def run_worker(command, timeout, trace):
     return process.returncode
 
 
-def attach_offline_fixture(command, workspace, home, env, trace):
-    """Create only current native binding evidence, using fictional credentials and no HTTP."""
-    def run(label, argv, **kwargs):
-        trace.write(label, 'start')
-        result = subprocess.run(argv, **kwargs)
-        trace.write(label, 'end', result.returncode)
-        return result
-
-    run('git-init', ['git', 'init', '--quiet', str(workspace)], check=True)
-
-    def git_path(flag):
-        label = {'--git-common-dir': 'git-common', '--absolute-git-dir': 'git-dir',
-                 '--show-toplevel': 'git-root'}[flag]
-        value = run(label, ['git', '-C', str(workspace), 'rev-parse', '--path-format=absolute', flag],
-                    check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
-        return str(Path(value).resolve())
-
-    fingerprint = {'gitCommonDir': git_path('--git-common-dir'),
-                   'worktreeGitDir': git_path('--absolute-git-dir'),
-                   'worktreeRoot': git_path('--show-toplevel')}
-    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(',', ':'))
-    connection = hashlib.sha256(canonical({'organization': 'fixture.invalid',
-                                          'project': 'BuildSmoke'}).encode()).hexdigest()
-    metadata = home / 'metadata'
-    run('fixture-identities', command + ['auth', 'identities', '-o', 'json'], cwd=workspace,
-        env=env, check=True, capture_output=True, text=True)
-    stamp = '2026-01-01T00:00:00+00:00'
-    tenant, actor = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-    issuer = f'https://sts.windows.net/{tenant}/'
-    credential_ref = 'cred-cccccccccccccccccccccccccccccccc'
-    with sqlite3.connect(metadata / 'system.db') as db:
-        db.execute('INSERT INTO connections VALUES (?,?,?,?,?,?)',
-                   (connection, 'fixture.invalid', 'BuildSmoke', None, stamp, stamp))
-        db.execute('INSERT INTO worktrees VALUES (?,?,?,?,?,?)',
-                   (canonical(fingerprint), connection, str(workspace), stamp, stamp, None))
-        db.execute('INSERT INTO identities (identity_id,name,tenant_id,object_id,issuer,authority_host,credential_ref,account_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-                   ('fixture-identity', 'offline-reviewer', tenant, actor, issuer, 'login.microsoftonline.com',
-                    credential_ref, 'reviewer@fixture.invalid', stamp, stamp))
-        db.execute('INSERT INTO connection_bindings VALUES (?,?,?,?,?,?)',
-                   ('fixture-binding', connection, 'fixture-identity', 1, stamp, stamp))
-        db.execute('INSERT INTO connection_defaults VALUES (?,?,?,?)', (connection, 'fixture-binding', 1, stamp))
-    local = workspace / '.twig'
-    (local / 'layout.json').write_text(json.dumps({
-        '$schema': 'twig-layout/v1', 'version': 1, 'initializedAt': stamp, 'createdBy': 'offline-fixture'}))
-    (local / 'worktree.json').write_text(json.dumps({
-        '$schema': 'twig-worktree/v1', 'version': 1, 'worktreeFingerprint': fingerprint}))
-    (local / 'attachment.json').write_text(json.dumps({
-        '$schema': 'twig-attachment/v1', 'version': 1, 'revision': 0, 'connectionRef': connection}))
-    expiry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
-    encode = lambda value: base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip('=')
-    token = encode({'alg': 'none'}) + '.' + encode({
-        'aud': '499b84ac-1321-427f-aa17-267ca6975798', 'tid': tenant, 'oid': actor,
-        'iss': issuer, 'exp': int(expiry.timestamp())}) + '.fictional'
-    credentials = metadata / 'credentials'
-    credentials.mkdir(exist_ok=True)
-    (credentials / f'{credential_ref}.token-cache').write_text(
-        f'{int(expiry.timestamp() * 10000000) + 621355968000000000}\n{token}\n')
-
-
 def worker(binary, directory, trace):
     trace.write('worker', 'start')
     directory = directory.resolve()
     workspace, home = directory / 'workspace', directory / 'home'
-    (workspace / '.twig').mkdir(parents=True)
+    workspace.mkdir()
     home.mkdir()
-    (workspace / 'twig.json').write_text(json.dumps({'organization': 'fixture.invalid', 'project': 'BuildSmoke'}))
     command = ['dotnet', str(binary)] if binary.suffix == '.dll' else [str(binary)]
     env = {key: value for key, value in os.environ.items() if key in {'PATH', 'DOTNET_ROOT', 'DOTNET_ROOT_X64', 'DOTNET_ROOT_ARM64', 'LD_LIBRARY_PATH'}}
     env.update(HOME=str(home), USERPROFILE=str(home), TWIG_USER_HOME=str(home / 'metadata'),
@@ -173,79 +110,104 @@ def worker(binary, directory, trace):
     for label, arguments in (('help', ('--help',)), ('auth-help', ('auth', '--help')),
                              ('connection-help', ('connection', 'status', '--help'))):
         run(label, *arguments)
-    trace.write('fixture', 'start')
-    attach_offline_fixture(command, workspace, home, env, trace)
-    trace.write('fixture', 'end')
-    status = json.loads(run('identity', 'auth', 'status', '-o', 'json').stdout)
-    if status.get('identity') != 'offline-reviewer':
-        raise RuntimeError('Current-store binding metadata was not admitted')
-    collection, project_id = '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222'
-    actor = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-    identity_ref = json.dumps(['fixture-binding', 'fixture-identity', 'aad', actor], separators=(',', ':'))
-    connection_data = {'Provider': {'Value': 'ado'}, 'ResourceScope': collection,
-                       'Destination': project_id, 'IdentityRef': identity_ref}
-    connection_text = json.dumps(connection_data, separators=(',', ':')).replace('\\"', '\\u0022')
-    instance = '33333333-3333-3333-3333-333333333333'
+    trace.write('git-init', 'start')
+    git = subprocess.run(['git', 'init', '--quiet', str(workspace)], env=env, capture_output=True, text=True)
+    trace.write('git-init', 'end', git.returncode)
+    if git.returncode != 0:
+        raise RuntimeError(f'Fresh smoke worktree initialization failed: {git.stderr}')
+    initialized = json.loads(run('initialize', 'init', '--provider', 'twig', '-o', 'json').stdout)
+    if initialized.get('coreInitialized') is not True:
+        raise RuntimeError('The real fresh native initializer did not establish a Core workspace')
     core_db = workspace / '.twig/core.db'
-    with sqlite3.connect(core_db) as db:
-        db.execute(f'PRAGMA application_id={0x54574353}')
-        db.execute('PRAGMA user_version=3')
-        db.execute('PRAGMA journal_mode=WAL')
-        db.execute('CREATE TABLE core_identity(id TEXT PRIMARY KEY NOT NULL,workspace_connection TEXT) STRICT')
-        db.execute('INSERT INTO core_identity VALUES (?,?)', (instance, connection_text))
-        db.execute('CREATE TABLE core_snapshots(connection TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL CHECK(version>0),document TEXT NOT NULL) STRICT')
-        snapshot = {'Version': 3, 'StoreVersion': 1, 'Items': [], 'Relationships': [], 'Drafts': [],
-                    'Proposals': [], 'Journal': [], 'Mappings': [], 'Benches': []}
-        db.execute('INSERT INTO core_snapshots VALUES (?,?,?)', (connection_text, 1, json.dumps(snapshot, separators=(',', ':'))))
-    (workspace / '.twig/core-workspace.json').write_text(json.dumps({
-        'version': 1, 'databasePath': str(core_db), 'databaseInstance': instance,
-        'connection': {'provider': {'value': 'ado'}, 'resourceScope': collection,
-                       'destination': project_id, 'identityRef': identity_ref}, 'principalId': actor}))
-    key = ['remote', 'ado', collection, '42']
-    proposal = {'version': 3, 'connection': {'provider': 'ado', 'scope': collection,
-                    'destination': project_id, 'identity': identity_ref},
-                'schema': 'fictional-offline-schema', 'storeVersion': 1,
+    marker = json.loads((workspace / '.twig/core-workspace.json').read_text(encoding='utf-8-sig'))
+    connection = marker['connection']
+    if connection['provider']['value'] != 'twig' or Path(marker['databasePath']) != core_db:
+        raise RuntimeError('Fresh initialization did not record its exact native store')
+    schema = json.loads(run('schema', 'process', '-o', 'json').stdout)
+    types = schema['types']
+    if not types or not schema['schemaFingerprint']:
+        raise RuntimeError('Native schema discovery returned no usable type evidence')
+    title = 'Offline smoke draft'
+    seed = json.loads(run('draft', 'seed', 'new', '--type', types[0]['typeName'],
+                          '--title', title, '--no-parent', '-o', 'json').stdout)
+    if seed.get('isSeed') is not True or seed.get('title') != title or not seed.get('localId'):
+        raise RuntimeError('Structured native seed creation lost its actual local draft identity')
+    detail = json.loads(run('detail', 'show', '--local-id', seed['localId'], '-o', 'json').stdout)
+    if detail.get('title') != title or detail.get('localId') != seed['localId']:
+        raise RuntimeError('Current detail reads did not reopen the exact staged draft')
+
+    def snapshot():
+        with sqlite3.connect(core_db.as_uri() + '?mode=ro', uri=True) as db:
+            rows = db.execute('SELECT version, document FROM core_snapshots').fetchall()
+        if len(rows) != 1:
+            raise RuntimeError('Fresh native store must have exactly one actual connection snapshot')
+        version, document = rows[0]
+        stored = json.loads(document)
+        if stored['Version'] != 3 or stored['StoreVersion'] != version:
+            raise RuntimeError('Current native store snapshot/version evidence disagrees')
+        return stored
+
+    staged = snapshot()
+    if len(staged['Drafts']) != 1 or staged['Proposals'] or staged['Journal'] or staged['Mappings'] or staged['Items']:
+        raise RuntimeError('Seed staging must retain one unpublished draft without transport or proposal effects')
+    draft = staged['Drafts'][0]
+    if draft['Key']['LocalId'] != seed['localId'] or draft['Type'] != types[0]['typeName']:
+        raise RuntimeError('Staged Core draft does not match the public CLI result')
+    fields = {}
+    for field in draft['Changes']:
+        value = field['Value']
+        if value['Kind'] != 1 or not isinstance(value['Text'], str):
+            raise RuntimeError('Fresh native smoke draft must expose actual typed text fields')
+        fields[field['Reference']] = [value['Kind'], value['Text']]
+    if not fields:
+        raise RuntimeError('The actual native draft must contain nonempty typed fields')
+    proposal = {'version': 3, 'connection': {'provider': connection['provider']['value'],
+                    'scope': connection['resourceScope'], 'destination': connection['destination'],
+                    'identity': connection['identityRef']},
+                'schema': schema['schemaFingerprint'], 'storeVersion': staged['StoreVersion'],
                 'policyIdentity': None, 'policyRevision': None,
-                'operations': [{'id': 'offline-smoke', 'kind': 1, 'item': key,
-                    'revision': {'item': key, 'token': 'ado-rev:1'}, 'type': None,
-                    'fields': {'System.Title': [1, 'Reviewed smoke item']}, 'other': None,
+                'operations': [{'id': 'offline-smoke', 'kind': 0, 'item': ['local', seed['localId']],
+                    'revision': None, 'type': draft['Type'], 'fields': fields, 'other': None,
                     'relation': None, 'origin': 0, 'concurrency': 0, 'localVersion': None,
                     'body': None, 'resource': None}]}
     (workspace / 'smoke.json').write_text(json.dumps(proposal))
     preview = json.loads(run('preview', 'proposal', 'preview', '--file', 'smoke.json', '-o', 'json').stdout)
-    if len(preview.get('operations', [])) != 1:
-        raise RuntimeError('Offline native proposal preview lost its operation')
-    decisions = preview.get('reviewModel', {}).get('policyDecisions', [])
-    if preview.get('canApply') or not any(
-            decision.get('kind') == 'process-required-fields'
-            and decision.get('outcome') == 'unavailable'
-            and decision.get('blocking') is True
-            for decision in decisions):
-        raise RuntimeError('Offline native proposal preview did not fail closed on unavailable process rules')
-    token_cache = home / 'metadata/credentials/cred-cccccccccccccccccccccccccccccccc.token-cache'
-    expiry, token = token_cache.read_text().splitlines()[:2]
-    header, payload, signature = token.split('.')
-    claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
-    claims['oid'] = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
-    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
-    token_cache.write_text(f'{expiry}\n{header}.{payload}.{signature}\n')
-    refusal = run('wrong-account', 'show', '42', '--refresh', '-o', 'json', expected=1)
-    error = json.loads(refusal.stderr).get('error', '')
-    if 'bound principal' not in error:
-        raise RuntimeError('Wrong-account refusal was not established')
-    trace.write('journal', 'start')
-    with sqlite3.connect(core_db) as db:
-        retained = json.loads(db.execute('SELECT document FROM core_snapshots WHERE connection=?', (connection_text,)).fetchone()[0])
-        if len(retained['Proposals']) != 1 or len(retained['Journal']) != 1:
-            raise RuntimeError('Core preview must retain the exact unconfirmed proposal')
-        row = retained['Journal'][0]
-        if row['Status'] != 0 or row['Attempt'] != '00000000-0000-0000-0000-000000000000' or row['Receipts']:
-            raise RuntimeError('Core smoke must never acquire Applying or a transport attempt')
-    trace.write('journal', 'end')
+    if preview.get('canApply') is not True or len(preview.get('operations', [])) != 1:
+        raise RuntimeError(f'Actual native draft proposal was not successfully reviewed: {preview}')
+    digest = preview['digest']
+    if len(digest) != 64 or any(character not in '0123456789abcdef' for character in digest):
+        raise RuntimeError('Current proposal review did not return its canonical digest')
+    wrong_digest = ('1' if digest[0] == '0' else '0') + digest[1:]
+    refusal = run('wrong-digest', 'proposal', 'preview', '--file', 'smoke.json',
+                  '--expect-digest', wrong_digest, '-o', 'json', expected=1)
+    if 'exact expected review digest' not in json.loads(refusal.stderr).get('error', ''):
+        raise RuntimeError('Mismatched review digest was not explicitly refused')
+    proposal['connection']['destination'] += '-wrong'
+    (workspace / 'wrong-connection.json').write_text(json.dumps(proposal))
+    refusal = run('wrong-connection', 'proposal', 'preview', '--file', 'wrong-connection.json',
+                  '-o', 'json', expected=1)
+    if 'another immutable workspace connection' not in json.loads(refusal.stderr).get('error', ''):
+        raise RuntimeError('Mismatched immutable proposal connection was not explicitly refused')
+    status = json.loads(run('journal', 'proposal', 'status', '--file', 'smoke.json', '-o', 'json').stdout)
+    if status.get('found') is not True or status.get('digest') != digest or len(status.get('operations', [])) != 1:
+        raise RuntimeError('Current proposal status did not read the exact retained review')
+    operation = status['operations'][0]
+    if operation.get('status') != 'Planned' or operation.get('attempt') is not None or operation.get('receipts') != []:
+        raise RuntimeError('Public journal inspection must report only an unattempted planned operation')
+    retained = snapshot()
+    if (retained['StoreVersion'] != staged['StoreVersion'] + 1
+            or len(retained['Proposals']) != 1 or len(retained['Journal']) != 1
+            or retained['Proposals'][0]['Digest'] != digest):
+        raise RuntimeError('Core preview must retain only its exact unconfirmed proposal')
+    row = retained['Journal'][0]
+    if row['Digest'] != digest or row['Status'] != 0 or row['Attempt'] != '00000000-0000-0000-0000-000000000000' or row['Receipts']:
+        raise RuntimeError('Core smoke must never acquire Applying or a transport attempt')
+    if retained['Drafts'] != staged['Drafts'] or retained['Items'] or retained['Mappings']:
+        raise RuntimeError('Review/refusals must preserve the unpublished draft without native creation')
     if (workspace / '.twig/cache').exists():
         raise RuntimeError('Native host/Core smoke must not materialize a legacy cache')
     trace.write('worker', 'end', 0)
-    print('SMOKE PASSED: retained startup/help, native binding, Core-only offline fail-closed proposal preview, wrong-account refusal; no legacy cache, work HTTP or apply')
+    print('SMOKE PASSED: fresh native init, discovered schema, draft/detail, proposal review/status, wrong-connection/digest refusals; no legacy cache, work HTTP or apply')
     return 0
 
 

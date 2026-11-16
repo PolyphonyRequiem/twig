@@ -20,8 +20,8 @@ internal sealed partial class NativeEditor
 
     internal async Task<Result<ImmutableArray<NativeOwnedSeed>>> ReadOwnedSeedsAsync(CancellationToken ct)
     {
-        if (plan.PlanMode || origin.Connection.Provider.Value != "ado")
-            return Result<ImmutableArray<NativeOwnedSeed>>.Fail(ErrorCode.Unsupported, "Owned normal seed enumeration requires an exact normal ADO source.");
+        if (plan.PlanMode)
+            return Result<ImmutableArray<NativeOwnedSeed>>.Fail(ErrorCode.Unsupported, "Owned normal seed enumeration requires an exact normal source.");
         var valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<ImmutableArray<NativeOwnedSeed>>.Fail(valid.Error);
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);

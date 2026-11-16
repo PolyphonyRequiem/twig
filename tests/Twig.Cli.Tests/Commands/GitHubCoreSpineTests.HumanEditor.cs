@@ -11,6 +11,53 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class GitHubCoreSpineTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeGitHubSeedKeepsOriginalCreationAndNeverReplays(bool loseAcknowledgement)
+    {
+        using var fixture = new HumanEditorFixture();
+        await fixture.InitializeAsync();
+        ItemKey seed;
+        using (var editor = (await fixture.OpenAsync()).Value)
+        {
+            var type = (await editor.SelectAsync(fixture.Key)).Value.Type;
+            var created = await editor.CreateSeedAsync(type);
+            created.IsSuccess.ShouldBeTrue(created.IsSuccess ? "" : created.Error.Message);
+            seed = created.Value.Item;
+            seed.IsLocal.ShouldBeTrue();
+            created.Value.Values.Count.ShouldBe(0);
+            var staged = await editor.StageAsync(created.Value.Ticket, FieldValues.Empty
+                .Set(GitHubProvider.Title, FieldValue.String("Brand new issue"))
+                .Set(GitHubProvider.Body, FieldValue.RichText("**Initial body**", FieldKind.Markdown))
+                .Set(GitHubProvider.StateField, FieldValue.String("OPEN")));
+            staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
+            fixture.Writes.ShouldBe(0);
+        }
+        using var reopened = (await fixture.OpenAsync()).Value;
+        var owned = (await reopened.ReadOwnedSeedsAsync()).Value.ShouldHaveSingleItem();
+        owned.Item.ShouldBe(seed);
+        owned.Publication.ShouldBeNull();
+        var selected = (await reopened.SelectAsync(seed)).Value;
+        fixture.Native.Http.LoseAcknowledgement = loseAcknowledgement;
+        var saved = await reopened.SaveAsync(selected.Ticket, FieldValues.Empty);
+        saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
+        var publication = saved.Value.SeedPublication.ShouldNotBeNull();
+        publication.Status.ShouldBe(loseAcknowledgement ? "Protected" : "Complete");
+        fixture.Native.Http.Creates.ShouldBe(1);
+        fixture.Writes.ShouldBe(1);
+        var snapshot = await fixture.SnapshotAsync();
+        snapshot.Proposals.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem().Kind.ShouldBe(OpKind.Create);
+        if (loseAcknowledgement)
+        {
+            (await reopened.ObserveSeedAsync(publication.CaptureId)).Value.Status.ShouldBe("Protected");
+            (await reopened.ContinueSeedDeliveryAsync(publication.CaptureId, publication.Digest)).Value.Status.ShouldBe("Protected");
+        }
+        (await reopened.SaveAsync(selected.Ticket, FieldValues.Empty)).IsSuccess.ShouldBeFalse();
+        fixture.Native.Http.Creates.ShouldBe(1);
+        fixture.Writes.ShouldBe(1);
+    }
+
     [Fact]
     public async Task NativeGitHubHumanEditorSavesScalarsAndExplicitMarkdownClearThroughCore()
     {
@@ -90,8 +137,7 @@ public sealed partial class GitHubCoreSpineTests
                 .Set(form.StateField, FieldValue.String("CLOSED")));
             staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
             (await plan.SaveAsync(form.Ticket, FieldValues.Empty)).Error.Code.ShouldBe(ErrorCode.Conflict);
-            (await plan.CreateSeedAsync(form.Type)).Error.Code.ShouldBe(ErrorCode.Unsupported);
-            (await plan.SelectAsync(ItemKey.Local(Guid.NewGuid()))).Error.Code.ShouldBe(ErrorCode.Unsupported);
+            (await plan.SelectAsync(ItemKey.Local(Guid.NewGuid()))).Error.Code.ShouldBe(ErrorCode.NotFound);
             (await fixture.SnapshotAsync()).Drafts.ShouldBeEmpty();
             fixture.Writes.ShouldBe(0);
         }

@@ -40,10 +40,10 @@ public static partial class NativeBenchHost
     private static void MapSeeds(WebApplication app, NativePanel panel, CatalogChanges updates,
         Func<HttpContext, Guid, Task<ViewSession>> authorize)
     {
-        app.MapGet("/api/v1/views/{id:guid}/benches/{bench:guid}/seeds", async (HttpContext http, Guid id, Guid bench) =>
+        app.MapGet("/api/v1/views/{id:guid}/benches/{bench:guid}/seeds/{sourceId:guid?}", async (HttpContext http, Guid id, Guid bench, Guid? sourceId) =>
         {
             var session = await authorize(http, id);
-            await Bound(http, session, null, bench, async (source, ct) =>
+            await Bound(http, session, sourceId, bench, async (source, ct) =>
             {
                 var seeds = SeedRequired(await panel.ReadSeedsAsync(source, bench, ct));
                 foreach (var seed in seeds.Seeds) SeedDenial(seed.Publication?.Error);
@@ -133,12 +133,13 @@ public static partial class NativeBenchHost
             await state.Gate.WaitAsync(lifetime.Token);
             try
             {
-                var source = Context(session);
-                lock (session)
-                    if (sourceId is { } id && !session.DisplayContexts.Values.Any(value => value.Source.Id == id && value == source))
-                        throw new HttpFailure(409, "ContextRequired", "Use the exact viewing connection to create an item.");
-                if (source.Stamp.Connection.Provider.Value != "ado")
-                    throw new HttpFailure(422, "Unsupported", "Item creation requires the selected ADO connection; GitHub creation is unsupported.");
+                NativePanelContext source;
+                lock (session) source = sourceId is { } id
+                    ? session.DisplayContexts.Values.SingleOrDefault(value => value.Source.Id == id)
+                        ?? throw new HttpFailure(409, "ContextRequired", "Choose an available native connection for this Bench.")
+                    : Context(session);
+                if (source.Stamp.Connection.Provider.Value is not ("ado" or "github" or "twig"))
+                    throw new HttpFailure(422, "Unsupported", "This connection has no qualified native item creation.");
                 if (SeedRequired(await panel.ReadPlanAsync(bench, lifetime.Token)).Enabled
                     || session.CurrentBenchId != bench)
                     throw new HttpFailure(409, "Conflict", "Choose this exact Bench in normal mode before continuing its item creation.");

@@ -16,6 +16,12 @@ public sealed partial class GitHubProvider
                     && discovery.UpdateInputs.Contains(NativeField(field.Reference)))
                     .Select(field => field.Reference).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray()
                 : [];
+            CreationFields = discovery.Mutations.Contains("createIssue")
+                && discovery.CreateInputs.Contains("repositoryId") && discovery.CreateInputs.Contains("title")
+                ? discovery.Schema.Types.SelectMany(type => type.Fields).Where(field => field.Reference is Title or Body or StateField
+                    && !field.ReadOnly && (field.Reference == StateField || discovery.CreateInputs.Contains(NativeField(field.Reference))))
+                    .Select(field => field.Reference).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray()
+                : [];
         }
         internal Discovery Discovery { get; }
         internal GitHubProvider Owner { get; }
@@ -23,6 +29,7 @@ public sealed partial class GitHubProvider
         public ProcessSchema Schema => Discovery.Schema;
         /// <summary>Captured existing-issue scalar input shapes; fresh validation still determines write admission.</summary>
         public ImmutableArray<string> EditableFields { get; }
+        public ImmutableArray<string> CreationFields { get; }
     }
 
     public Task<Result<EditorMetadata>> CaptureEditorMetadataAsync(Connection connection, CancellationToken ct)

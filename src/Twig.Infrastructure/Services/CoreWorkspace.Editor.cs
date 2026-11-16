@@ -10,7 +10,8 @@ namespace Twig.Infrastructure.Services;
 internal sealed record NativeEditorMetadata(ProcessSchema Schema,
     Func<string, string, string, int, CancellationToken, Task<Result<EditorChoices>>> Choices,
     Func<ImmutableArray<ItemKey>, CancellationToken, Task<Result<QueryPage>>> Read,
-    ImmutableArray<string> EditableFields = default);
+    ImmutableArray<string> EditableFields = default,
+    ImmutableArray<string> CreationFields = default);
 
 internal sealed partial class CoreWorkspace
 {
@@ -38,7 +39,8 @@ internal sealed partial class CoreWorkspace
             var capture = await github.CaptureEditorMetadataAsync(connection, ct).ConfigureAwait(false);
             return capture.IsSuccess ? Result<NativeEditorMetadata>.Ok(new(capture.Value.Schema,
                 (type, field, query, limit, token) => github.EditorChoicesAsync(capture.Value, type, field, query, limit, token),
-                (keys, token) => github.ReadEditorAsync(capture.Value, keys, token), capture.Value.EditableFields))
+                (keys, token) => github.ReadEditorAsync(capture.Value, keys, token), capture.Value.EditableFields,
+                capture.Value.CreationFields))
                 : Result<NativeEditorMetadata>.Fail(capture.Error);
         }
         return Result<NativeEditorMetadata>.Fail(ErrorCode.Unsupported, "The selected provider has no native editor capture.");

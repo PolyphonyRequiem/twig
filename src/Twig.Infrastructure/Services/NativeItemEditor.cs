@@ -75,8 +75,6 @@ public sealed partial class NativeItemEditor : IDisposable
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (key.IsLocal && GitHub)
-                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "GitHub authoring here supports existing issues only; local creation intent remains protected.");
             var selected = await editor.SelectAsync(key, ct).ConfigureAwait(false);
             if (!selected.IsSuccess) return Result<NativeEditForm>.Fail(selected.Error);
             var item = selected.Value;
@@ -209,8 +207,8 @@ public sealed partial class NativeItemEditor : IDisposable
             if (!available.IsSuccess) return Result<NativeEditForm>.Fail(available.Error);
             if (HasRelationships(item) || relationshipEndpoints.ContainsKey(ticket))
                 return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Scalar staging cannot replace retained relationship intent.");
-            if (!PlanMode && (!item.Observation.Key.IsLocal || GitHub))
-                return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Normal staging supports owned ADO seeds only; existing scalar edits use Save.");
+            if (!PlanMode && !item.Observation.Key.IsLocal)
+                return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Normal staging supports owned seeds only; existing scalar edits use Save.");
             var evaluated = Form(ticket, item, changes);
             if (!evaluated.IsSuccess) return evaluated;
             var staged = await editor.StageAsync(item, changes, null, null, ct).ConfigureAwait(false);
@@ -228,8 +226,6 @@ public sealed partial class NativeItemEditor : IDisposable
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (GitHub)
-                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "GitHub authoring here supports existing issues only; creation remains in its native workflow.");
             var created = await editor.CreateSeedAsync(type, ct).ConfigureAwait(false);
             if (!created.IsSuccess) return Result<NativeEditForm>.Fail(created.Error);
             items.Clear();
@@ -289,12 +285,13 @@ public sealed partial class NativeItemEditor : IDisposable
             : Model.CloseGates(editor.Metadata.Schema, baseline, draft);
         if (!gates.IsSuccess) return Result<NativeEditForm>.Fail(gates.Error);
         var type = editor.Metadata.Schema.Types.Single(value => value.Reference == item.Observation.Type);
+        var editableFields = baseline.Key.IsLocal ? editor.Metadata.CreationFields : editor.Metadata.EditableFields;
         foreach (var field in changes)
         {
             var definition = evaluated.Value.Fields.SingleOrDefault(value => value.Definition.Reference == field.Key);
             if (GitHub && !GitHubScalar(field.Key))
-                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Only existing GitHub title, Markdown body and discovered state are editable here: " + field.Key);
-            if (definition is null || definition.ReadOnly || GitHub && !editor.Metadata.EditableFields.Contains(field.Key)
+                return Result<NativeEditForm>.Fail(ErrorCode.Unsupported, "Only GitHub title, Markdown body and discovered state are editable here: " + field.Key);
+            if (definition is null || definition.ReadOnly || GitHub && !editableFields.Contains(field.Key)
                 || field.Value.Kind != FieldKind.Null && field.Value.Kind != definition.Definition.Kind
                 || GitHub && field.Value.Kind == FieldKind.Null)
                 return Result<NativeEditForm>.Fail(ErrorCode.InvalidInput, "An edited field is unavailable, read-only or has the wrong native type: " + field.Key);
@@ -302,7 +299,15 @@ public sealed partial class NativeItemEditor : IDisposable
         var evaluation = evaluated.Value with { Fields = evaluated.Value.Fields.Select(field =>
             field with { Required = field.Required || gates.Value.Contains(field.Definition.Reference),
                 ReadOnly = field.ReadOnly || GitHub && (!GitHubScalar(field.Definition.Reference)
-                    || !editor.Metadata.EditableFields.Contains(field.Definition.Reference)) }).ToImmutableArray() };
+                    || !editableFields.Contains(field.Definition.Reference)) }).ToImmutableArray() };
+        if (GitHub && baseline.Key.IsLocal)
+        {
+            evaluation = evaluation with { States = evaluation.States.Where(state => state == "OPEN").ToImmutableArray() };
+            if (draft.TryGetValue(GitHubProvider.StateField, out var initialState)
+                && initialState.Kind != FieldKind.Null && (initialState.Kind != FieldKind.Text || initialState.Text != "OPEN"))
+                evaluation = evaluation with { Errors = evaluation.Errors.Add(new(ErrorCode.InvalidInput,
+                    "GitHub creation can only declare its native OPEN initial state.")) };
+        }
         return Result<NativeEditForm>.Ok(new(ticket, item.Observation.Key, type.Reference, type.StateField,
             baseline.Fields.Overlay(draft), evaluation));
     }

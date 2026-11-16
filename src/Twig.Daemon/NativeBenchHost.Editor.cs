@@ -117,7 +117,7 @@ public static partial class NativeBenchHost
                         state.Native = Require(await panel.OpenExistingEditorAsync(source, body.BenchId, ct));
                         state.Context = source; state.Bench = body.BenchId;
                     }
-                    if (key is null && !plan.Enabled && source.Stamp.Connection.Provider.Value == "ado")
+                    if (key is null && !plan.Enabled)
                         key = Require(await state.Native.ReadOwnedSeedsAsync(ct))
                             .Where(seed => seed.Ready && seed.Draft is not null && seed.Publication is null)
                             .Select(seed => seed.Item).SingleOrDefault(value => ViewMapping.Key(new(source.Source.Id, value)) == body.ItemId);

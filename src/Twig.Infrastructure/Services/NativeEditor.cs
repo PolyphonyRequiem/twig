@@ -118,8 +118,6 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (!valid.IsSuccess) return Result<NativeEditorItem>.Fail(valid.Error);
         if (plan.PlanMode && scope is null || !metadata.Schema.Types.Any(value => value.Reference == type && !value.Hidden))
             return Result<NativeEditorItem>.Fail(ErrorCode.InvalidInput, "Choose an available discovered type in this exact native source.");
-        if (!plan.PlanMode && origin.Connection.Provider.Value != "ado")
-            return Result<NativeEditorItem>.Fail(ErrorCode.Unsupported, "Normal native creation supports an explicit ADO source only.");
         var key = ItemKey.Local(Guid.CreateVersion7());
         if (scope is not null)
         {

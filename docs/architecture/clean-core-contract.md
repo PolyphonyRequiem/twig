@@ -99,9 +99,9 @@ run without an initialized worktree. Selecting a Bench or editing contextual
 pins still requires an admitted Core workspace. This foundation does not claim
 that every retired area/iteration management or graphical surface is restored.
 
-### Normal native ADO seed authoring
+### Normal native seed authoring
 
-`NativeItemEditor.CreateSeedAsync` accepts one explicit discovered ADO type in
+`NativeItemEditor.CreateSeedAsync` accepts one explicit discovered ADO, GitHub or Twig type in
 normal mode as well as the separate Plan path. It reserves a version-7 UUID in
 the native capture before staging that same identity in the original Core store.
 Creation starts with empty fields and no remote baseline; it never copies the
@@ -134,8 +134,11 @@ after readback and pin delivery succeed. Delivery recovery can complete local
 settlement but cannot establish an uncertain remote outcome. Core remains the
 only provider, policy, merge, proposal and journal publisher; there is no new
 Core port, alternate executor, Plan scope for normal writes, or UI/install work.
-GitHub seed creation and type/collection authoring remain unsupported; existing
-scalar editing and isolated Plan review retain their previous boundaries.
+GitHub creation uses captured create-input metadata for title and Markdown body,
+and offers only its native OPEN initial state. Collection editing remains
+unsupported; existing scalar editing and isolated Plan review retain their
+previous boundaries. Hosts choose an admitted destination explicitly rather than
+borrowing the current viewing connection.
 
 ### Normal native existing-item ADO relationships
 

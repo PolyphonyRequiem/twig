@@ -73,14 +73,14 @@ public sealed partial class UserBenchStore
             if (capture.SeedProposal is { } publication)
             {
                 var original = ParseIntent(publication);
-                if (capture.PlanMode || capture.Origin.Connection.Provider.Value != "ado"
+                if (capture.PlanMode || capture.Origin.Connection.Provider.Value is not ("ado" or "github" or "twig")
                     || !capture.Ready || original.Connection != capture.Origin.Connection
                     || original.SchemaFingerprint != proposal.SchemaFingerprint || original.Operations.Length != 1
                     || original.Operations[0] is not { Kind: OpKind.Create, Item.IsLocal: true } effect
                     || effect.Item != proposal.Operations[0].Item || effect.Type != proposal.Operations[0].Type
                     || !effect.Fields.Equals(proposal.Operations[0].Fields) || effect.Other is not null
                     || effect.Relation is not null || effect.Resource is not null || !effect.Links.IsEmpty)
-                    return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "An exact scalar normal ADO creation proposal is required.");
+                    return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "An exact scalar normal creation proposal is required.");
             }
             await EnsureCaptureStorage(db, tx, create: true, ct).ConfigureAwait(false);
             using var command = db.CreateCommand();

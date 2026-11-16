@@ -7,7 +7,6 @@ using Twig.Core;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
-using Twig.Infrastructure.Serialization;
 using Twig.Infrastructure.Services;
 using Twig.Store.Sqlite;
 using Xunit;
@@ -365,13 +364,14 @@ public sealed partial class NativePublicationConsumerTests
         {
             var config = await TwigConfiguration.LoadSplitAsync(paths);
             var origin = await _bindings.ResolveAsync(config, paths);
-            origin.StorageGeneration.ShouldBeNull();
-            var generation = Guid.NewGuid().ToString("N");
-            Directory.CreateDirectory(Path.Combine(paths.TwigDir, "cache"));
-            await File.WriteAllTextAsync(Path.Combine(paths.TwigDir, "cache", MirrorAdmission.MarkerFile),
-                JsonSerializer.Serialize(new MirrorAdmissionDocument(1, _bindings.RegistryPath,
-                    origin.Operation.WorktreeFingerprint, origin.Binding.ConnectionRef, origin.Binding.BindingId,
-                    generation, "admitted-" + generation + ".db"), TwigJsonContext.Default.MirrorAdmissionDocument));
+            origin.StorageGeneration.ShouldBe("core:" + document.DatabaseInstance.ToString("N"));
+            var replacement = await SqliteStore.CreateAsync(Path.Combine(paths.TwigDir, "replacement-core.db"));
+            replacement.IsSuccess.ShouldBeTrue();
+            replacement.Value.InstanceId.ShouldNotBe(store.InstanceId);
+            (await replacement.Value.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
+            (await NativeCoreExecution.RegisterAsync(_bindings.RegistryPath, new(replacement.Value.InstanceId,
+                replacement.Value.DatabasePath, paths.RepoRoot, connection), default)).IsSuccess.ShouldBeTrue();
+            document = document with { DatabasePath = replacement.Value.DatabasePath, DatabaseInstance = replacement.Value.InstanceId };
         }
         else
         {
@@ -382,6 +382,13 @@ public sealed partial class NativePublicationConsumerTests
         }
         await File.WriteAllTextAsync(markerPath, JsonSerializer.Serialize(document,
             CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
+        if (change == "storage-generation")
+        {
+            var config = await TwigConfiguration.LoadSplitAsync(paths);
+            var observed = await _bindings.ResolveAsync(config, paths);
+            observed.StorageGeneration.ShouldBe("core:" + document.DatabaseInstance.ToString("N"));
+            observed.StorageGeneration.ShouldNotBe("core:" + store.InstanceId.ToString("N"));
+        }
         var requests = _transport.TotalRequests;
         var result = await ReadSource(paths, captured.Value.Source, schema: true);
         result.IsSuccess.ShouldBeFalse();

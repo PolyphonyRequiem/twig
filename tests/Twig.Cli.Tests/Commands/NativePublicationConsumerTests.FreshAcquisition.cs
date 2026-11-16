@@ -90,13 +90,19 @@ public sealed partial class NativePublicationConsumerTests
         }
         else if (damage == "generation")
         {
-            original.StorageGeneration.ShouldBeNull();
-            var generation = Guid.NewGuid().ToString("N");
-            Directory.CreateDirectory(Path.Combine(fixture.Paths.TwigDir, "cache"));
-            await File.WriteAllTextAsync(Path.Combine(fixture.Paths.TwigDir, "cache", MirrorAdmission.MarkerFile),
-                JsonSerializer.Serialize(new MirrorAdmissionDocument(1, _bindings.RegistryPath,
-                    original.Operation.WorktreeFingerprint, original.Binding.ConnectionRef, original.Binding.BindingId,
-                    generation, "admitted-" + generation + ".db"), TwigJsonContext.Default.MirrorAdmissionDocument));
+            original.StorageGeneration.ShouldBe("core:" + handle.Document.DatabaseInstance.ToString("N"));
+            var replacement = await Twig.Store.Sqlite.SqliteStore.CreateAsync(Path.Combine(fixture.Paths.TwigDir, "replacement-core.db"));
+            replacement.IsSuccess.ShouldBeTrue();
+            replacement.Value.InstanceId.ShouldNotBe(handle.Document.DatabaseInstance);
+            (await replacement.Value.PinWorkspaceAsync(handle.Workspace.Connection)).IsSuccess.ShouldBeTrue();
+            (await NativeCoreExecution.RegisterAsync(_bindings.RegistryPath, new(replacement.Value.InstanceId,
+                replacement.Value.DatabasePath, fixture.Paths.RepoRoot, handle.Workspace.Connection), default)).IsSuccess.ShouldBeTrue();
+            await File.WriteAllTextAsync(Path.Combine(fixture.Paths.TwigDir, CoreWorkspaceFactory.FileName),
+                JsonSerializer.Serialize(handle.Document with { DatabasePath = replacement.Value.DatabasePath,
+                    DatabaseInstance = replacement.Value.InstanceId }, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
+            var observed = await _bindings.ResolveAsync(fixture.Configuration, fixture.Paths);
+            observed.StorageGeneration.ShouldBe("core:" + replacement.Value.InstanceId.ToString("N"));
+            observed.StorageGeneration.ShouldNotBe(original.StorageGeneration);
         }
         else
         {

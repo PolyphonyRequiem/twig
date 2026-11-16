@@ -7,6 +7,7 @@ using NSubstitute;
 using Shouldly;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services;
 using Twig.Store.Sqlite;
 using Xunit;
@@ -114,11 +115,11 @@ public sealed class FreshAdoInitializationTests : IDisposable
     public async Task CurrentAdmissionRefusesAValidButUnregisteredReplacementStore()
     {
         var (bindings, _, _) = await ArrangeAsync();
-        var initialized = await NativeWorkspaceSetup.InitializeAsync(Arguments(), () => bindings,
+        var initialized = await NativeWorkspaceSetup.InitializeAsync(Arguments(Path.Combine(_temp, "original.db")), () => bindings,
             new NativeSetupEffects(), default, Transport());
         initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
         var original = initialized.Value.Document;
-        var replacement = await SqliteStore.CreateAsync(Path.Combine(TwigDir, "replacement.db"));
+        var replacement = await SqliteStore.CreateAsync(Path.Combine(_temp, "replacement.db"));
         replacement.IsSuccess.ShouldBeTrue();
         (await replacement.Value.PinWorkspaceAsync(original.Connection, default)).IsSuccess.ShouldBeTrue();
         await File.WriteAllTextAsync(Path.Combine(TwigDir, CoreWorkspaceFactory.FileName),
@@ -129,6 +130,11 @@ public sealed class FreshAdoInitializationTests : IDisposable
             }, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
         var paths = TwigPaths.BuildPaths(TwigDir, Root);
         var config = await TwigConfiguration.LoadSplitAsync(paths);
+        paths.DbPath.ShouldBe(replacement.Value.DatabasePath);
+        Directory.GetFiles(TwigDir, "*.db*").ShouldBeEmpty();
+        using var attachment = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System);
+        var attached = await attachment.ReadForBindingAsync(default);
+        attached.IsSuccess.ShouldBeTrue(attached.IsSuccess ? "" : attached.Error.Message);
 
         var refused = await Should.ThrowAsync<InvalidOperationException>(() => bindings.ResolveAsync(config, paths));
 

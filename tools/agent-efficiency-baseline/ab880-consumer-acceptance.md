@@ -1,7 +1,7 @@
 # AB#880 consumer acceptance report
 
 ## Claim / ownership evidence
-- Refreshed board readback: `twig sync --pull-only && twig show 880 --refresh -o json` reports `Doing`, `assignedTo = Daniel Green (daniel.green)`, and `Custom.WayfinderExecutionMode = AFK`.
+- Refreshed board readback: `twig sync --pull-only && twig show 880 --refresh -o json` reports `Doing` and `assignedTo = Daniel Green (daniel.green)`.
 - Prior claim artifacts remain in the evidence set: `880-result.json` records the native claim chain and `currentPlans` path; `880-evidence/baseline-item.json` and `880-parent-evidence/item-full.json` both show the item in the claimed Doing state.
 - No baton was invented for this pass. This report is a repo-doc/evidence finalization pass only; no ADO closeout or deployment step was performed here.
 

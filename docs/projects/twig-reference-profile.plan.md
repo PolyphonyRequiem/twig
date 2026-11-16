@@ -179,7 +179,7 @@ compatibility policy, and **one** version identifier shape that #734 and
 - **NG6** — Claim field bindings — those live with the local-first claim
   spec (AB#728) and its downstream storage designs (AB#736 / AB#737).
 - **NG7** — Any of these types: `Objective, Outcome, Workstream, Spike,
-  Change, Delivery Work, Wayfinder Task, Grilling, Prototype, Research,
+  Change, Delivery Work, Grilling, Prototype, Research,
   Map, Idea, Decision, Spec`. Excluded by #727.
 
 ---

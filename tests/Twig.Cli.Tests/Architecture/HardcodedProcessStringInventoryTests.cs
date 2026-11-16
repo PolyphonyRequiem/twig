@@ -81,7 +81,7 @@ public sealed class HardcodedProcessStringInventoryTests
     private static readonly string[] ForbiddenTypeNames =
     [
         "Initiative", "Investigation", "Feature", "Bug",
-        "Spec", "WayfinderTask",
+        "Spec",
     ];
 
     /// <summary>

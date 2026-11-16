@@ -8,6 +8,8 @@ mutates: local
 
 # `twig bench create`
 
+## Behavior
+
 Create a named, durable Bench in the native user-wide store. It is the same
 definition used by the CLI and panel, independent of a repository/worktree's
 lifetime. No initialized workspace, provider credentials or work HTTP is needed.

@@ -8,6 +8,8 @@ mutates: local
 
 # `twig bench rename`
 
+## Behavior
+
 Rename the native shared definition. Its GUID, connection-qualified pins and
 repository/worktree selections remain unchanged. No initialized workspace,
 provider credentials or work HTTP is required.

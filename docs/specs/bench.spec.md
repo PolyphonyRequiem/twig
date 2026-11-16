@@ -2,8 +2,7 @@
 
 > **Status:** Draft, ready for ticket-breakdown.
 > **Domain:** The Bench — a named, durable, saved backlog of work items.
-> **Settled by:** wayfinder 0022 (what a Bench and a Context each are), 0023 (the two
-> addressing rules that bind here), 1007 (the build brief), `CONTEXT.md` §4 (vocabulary).
+> **Vocabulary:** [`CONTEXT.md`](../../CONTEXT.md).
 > **Deliberately not settled here:** everything about the Context. See *Out of Scope*.
 
 ---
@@ -445,8 +444,8 @@ depends on the name being a bare argument.
 
 The related settled part is the SURFACE PRINCIPLE, which does hold: **human simple, machine
 strict.** A person who names no Bench gets the default; a script must name the Bench every
-time, including the default, and omitting it is a hard error rather than a fallback. That is
-wayfinder 0023's Context addressing rule one level up. 🔴 The output format is **declared** on
+time, including the default, and omitting it is a hard error rather than a fallback.
+The output format is **declared** on
 the command and never inferred from whether a tty is attached — twig does not sniff for a
 terminal, so a command means the same thing in a pipe as at a prompt.
 

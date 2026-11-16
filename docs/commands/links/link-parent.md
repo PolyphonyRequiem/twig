@@ -8,6 +8,8 @@ mutates: ado
 
 # `twig link parent`
 
+## Behavior
+
 Attach a parent to an unparented published item in an explicitly initialized
 Core ADO workspace. Existing parents are never silently replaced.
 

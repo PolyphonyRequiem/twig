@@ -1,87 +1,32 @@
 ---
 command: workspace track-tree
 group: workspace
-summary: Track a work item and its subtree.
+summary: Retain a discovered-hierarchy subtree selector in the selected Bench.
 stability: stable
 mutates: local
 ---
 
 # `twig workspace track-tree`
 
-Pin a work item together with its entire descendant subtree. Reach for it when
-you own an epic or feature and want every child that already exists — and
-every one that gets created later — to appear in the workspace view without
-adding pins one by one.
-
-## Synopsis
-
+```sh
+twig workspace track-tree 12345 -o json
 ```
-twig workspace track-tree <id> [flags]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-| --- | --- | --- |
-|`<id>`|yes|Work item ID to track along with its descendants. Positive integer only.|
-
-## Flags
-
-|Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
-|`--expect-bench`|`string`|unset|Refuse a changed current Bench instead of retargeting.|
-|`--expect-binding`|`string`|unset|Refuse a changed native connection binding; never selects one.|
-|`--expect-identity`|`string`|unset|Refuse a changed authenticated principal; never selects one.|
-|`--expect-settings`|`string`|unset|Compare the captured raw query-settings digest inside the atomic pin transaction.|
 
 ## Behavior
 
-Delegates to `TrackingCommand.TrackTreeAsync`
-(`src/Twig/Commands/TrackingCommand.cs:39-40`), which calls
-`PinWorkflow.PinAsync(id, includeSubtree: true, ct)`
-(`src/Twig/Commands/TrackingCommand.cs:170-201`). The workflow adds a *subtree
-selector* to the current Bench. The subtree is **not** expanded at pin time:
-it is matched live at every workspace evaluation, which is what makes newly
-created children appear automatically
-(`src/Twig/Commands/TrackingCommand.cs:180-183`).
+Adds a subtree selector rather than pre-expanding descendants into individual
+pins. Requires unique actual directed hierarchy metadata. New descendant
+observations participate on later pulls, not through an implicit live request
+on every cached render. GitHub subtree selectors are not qualified.
 
-Non-positive IDs are rejected the same way as `workspace track`: exit code
-`2` with `Cannot track seeds or invalid IDs. Provide a positive work item ID.`
-on stderr.
+Single/subtree pins coexist. Target/admission/capture rules match
+[`workspace track`](track.md).
 
-The human-format output appends ` (tree)` to the confirmation message so it is
-distinct from a single-item pin
-(`src/Twig/Commands/TrackingCommand.cs:186-198`).
+## Effects
 
-A subtree pin and single pin for the same ID are independent and can coexist.
-This command ensures the subtree pin is present without replacing a single pin.
-Remove only this kind with `workspace untrack <id> --mode tree`; omit `--mode`
-only when you intend to remove both explicit kinds.
+Shared selector CAS and possible provider/schema reads; no provider mutations.
 
-## Examples
+## Failure modes
 
-```
-$ twig workspace track-tree 4200
-Tracking #4200: Retry policy epic (tree)
-```
-
-```
-$ twig workspace track-tree 4200 -o json
-{"kind":"tracked","id":4200,"title":"Retry policy epic","mode":"tree","message":"Tracking #4200: Retry policy epic (tree)"}
-```
-
-## Exit codes and failure modes
-
-|Condition|Result|
-| --- | --- |
-|Success|`0`|
-|`id <= 0` (seed or invalid ID)|`2` with error on stderr|
-
-## See also
-
-- [`workspace track`](./track.md)
-- [`workspace untrack`](./untrack.md)
-- [`workspace`](./workspace.md)
+Unavailable target/hierarchy, missing selection, changed Bench or unsupported
+capture refuses without degrading the selector to a single pin.

@@ -105,8 +105,8 @@ steered. Binding the two would let moving a session between panes silently chang
 authorize a mutation from it. Two tests defend this by asserting the gate's decision and the
 fallback's output are unchanged when transport markers are present in the environment.
 
-`authorization_mode` (`human` | `model`) is deliberately **not** the
-`Custom.WayfinderExecutionMode` vocabulary (`HITL` | `AFK`). One is an audit fact about a
+`authorization_mode` (`human` | `model`) is deliberately **not** a
+session's execution-mode vocabulary (`HITL` | `AFK`). One is an audit fact about a
 single apply; the other describes a session, which can change or be resolved late.
 Conflating a session property with an audit fact is how audit trails become
 unreconstructable.

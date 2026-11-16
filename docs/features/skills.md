@@ -3,7 +3,8 @@
 Twig users and agent operators can read the installed command contract without a
 checkout, authentication, workspace, Python or network. Start with `twig --help`,
 select a group with `twig proposal --help`, and then read a leaf such as
-`twig proposal apply --help`. `twig --help-all` retains complete discovery.
+`twig proposal apply --help`. The current admission guard refuses `--help-all`
+even though root help still advertises it; use group/leaf help instead.
 Syntax and defaults come from command declarations; behavioral sections come
 from the embedded canonical command reference, not a second command catalog.
 
@@ -34,27 +35,19 @@ The identity includes the full assembly version/build and a content digest.
 for a matching unedited installation; `update` is the explicit version-change
 path. Neither ordinary Twig use nor `--skill` modifies installed guidance.
 
-## OMP proposal presenter companion
+## OMP proposal presenter boundary
 
-The first-party OMP package exposes the `twig-omp-presenter` companion from its conventional `skills/twig-omp-presenter/SKILL.md` directory (the source checkout path is `integrations/omp/skills/twig-omp-presenter/SKILL.md`). Link the real package through OMP's normal plugin manager; for a local tarball, extract it first and link the package directory. This package is not currently published; use the local link flow only.
+The checked-in `integrations/omp` package and bundled skill references retain
+older presenter designs. Their `proposal preview --interactive`,
+`--include-rendering` and v1/v2 captured-envelope expectations are not supported
+by the current Core CLI. Installing/selecting a companion does not qualify those
+routes. Do not install the package expecting it to make current preview
+interactive.
 
-```sh
-omp plugin link /path/to/twig/integrations/omp
-# after extracting a local tarball:
-omp plugin link /path/to/unpacked/omp-proposal-presenter
-```
-
-Use the first form for a source checkout and the second for an extracted local package directory. Both are ordinary OMP plugin-manager link operations; no npm availability is implied.
-
-After OMP has loaded the package, select its package-discovered companion without copying a second skill:
-
-```sh
-twig skills configure --provider omp --target /path/to/twig-skills \
-  --scenario terminal --companion twig-omp-presenter \
-  --scan-root /path/to/twig/integrations/omp/skills
-```
-
-For an extracted tarball, point `--scan-root` at its `skills` directory. Do not use `twig skills add` for this package: duplicate names can shadow rather than compose. `--scan-root` inspects the package's conventional flat skills directory; OMP plugin discovery remains the loading mechanism. Selection is separate from installation, and Twig does not rewrite host settings. Confirm that OMP loaded the linked package and selected companion before using retained-observation review.
+Use explicit file-scoped [Core proposals](proposals.md) and their ordinary
+plain/structured review path. The current [daemon](../daemon.md) provides a
+separate native host review workflow with human-only Apply. OMP means Oh My Pi;
+the retired Oh My Posh prompt integration is unrelated.
 
 ## Compact consumer guidance
 

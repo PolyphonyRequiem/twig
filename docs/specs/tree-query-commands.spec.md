@@ -12,8 +12,8 @@
    streaming, no async re-render.
 2. **Two-pass rendering is human-only** — only the Spectre TTY path uses the
    render-sync-rerender pattern. Machine formats never see stale data.
-3. **`--refresh` is the opt-in** — reads are cache-only for all formats by default
-   (wayfinder 0004 §3); `--refresh` requests a sync,
+3. **`--refresh` is the opt-in** — reads are cache-only for all formats by default;
+   `--refresh` requests a sync,
    returns cached data immediately.
 4. **`ids` format for all list-like commands** — bare numeric IDs, one per
    line, for shell piping (`twig query -o ids | xargs ...`).
@@ -365,8 +365,8 @@ twig sync [--pull-only] [--output <format>]
 2. **Phase 2: Pull**
    - Build WIQL query for current sprint + area paths
    - Fetch items from ADO
-   - Dirty guard: skip items with local modifications. There is no bypass —
-     wayfinder 0004 slice 5 deleted `--force`; overwriting is a resolution
+   - Dirty guard: skip items with local modifications. There is no `--force`
+     bypass; overwriting is a resolution
      outcome reached through the resolver, never a flag that goes around it
    - Conflict detection: report items with newer remote revisions
    - Post-fetch orchestration: tracked trees, cleanup policy, ancestors, working set
@@ -388,7 +388,7 @@ twig sync [--pull-only] [--output <format>]
 
 `twig refresh` maps to `twig sync --pull-only`.
 
-`--force` no longer exists on either command (wayfinder 0004 slice 5). A caller
+`--force` no longer exists on either command. A caller
 passing it gets a hard `Argument '--force' is not recognized`, deliberately: a
 warning no-op would leave a flag claiming to force something it does not.
 

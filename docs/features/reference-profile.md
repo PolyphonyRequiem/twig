@@ -1,5 +1,12 @@
 # Reference profile
 
+> **Historical design, not current setup.** The current CLI acquires a typed
+> Core schema and explicit known gaps from its pinned provider. It does not
+> require this former released profile or restore the removed Domain graph.
+> See [process discovery](process-description.md) and
+> [current architecture](../architecture/overview.md). The design below is
+> retained as background, not an instruction to install a profile.
+
 The reference profile is the artifact that lets twig know what a particular
 Azure DevOps process *means* without hard-coding a single work-item type,
 state, or link name. It is the seam between "twig core, which is process-

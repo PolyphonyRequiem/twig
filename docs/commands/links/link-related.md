@@ -8,6 +8,8 @@ mutates: ado
 
 # `twig link related`
 
+## Behavior
+
 Add a symmetric association between published items in an explicitly initialized
 Core ADO workspace. The relation reference comes from the discovered schema,
 not a hardcoded process or native name.

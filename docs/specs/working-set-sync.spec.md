@@ -244,10 +244,10 @@ For each dirty item:
 1. Build WIQL query from configured sprints + area paths
 2. Fetch matching items from ADO
 3. **Protected items** (dirty OR have pending changes) are NEVER overwritten.
-   There is no exception and no flag — wayfinder 0004 slice 5 deleted `--force`.
+   There is no exception or `--force` bypass.
 4. Save non-protected items to cache
 5. Hydrate ancestor chain (up to 5 levels). Ancestor writes are protected too:
-   until 0004 slice 5 this step used an unguarded batch save and clobbered
+   before the guard this step used an unguarded batch save and clobbered
    staged edits on parent items on the DEFAULT path, with no flag involved.
 6. Sync tracked trees (re-fetch subtrees)
 7. Apply cleanup policy (auto-untrack completed items if configured)

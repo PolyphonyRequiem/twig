@@ -1,5 +1,10 @@
 # Domain Model Critique — April 2026
 
+> **Historical assessment.** Source paths and resolution statuses below refer
+> to the former Domain/cache architecture, which is removed. Preserve this
+> analysis as engineering history, not a current remediation checklist.
+> See [current architecture](overview.md).
+
 > **Purpose**: Honest architectural assessment of the Twig domain layer,
 > identifying design friction, anti-patterns, and areas for remediation.
 > Each section maps to a tracked Epic in ADO for investigation and resolution.
@@ -198,15 +203,15 @@ and the "where does this go?" problem grows with every addition.
 > updated deliberately. That is the moment to apply this finding's retention criteria; without it
 > the audit degraded into a stale snapshot within a day (`SeedDiscardOrchestrator` was added
 > 2026-04-28, the day after this section was written, and was never assessed).
-> Re-measured on `64ef6d08`, the counts also came back DOWN as 0013/0014/0015 pulled work out:
+> Re-measured on `64ef6d08`, the counts also came back DOWN as responsibilities moved out:
 > `SeedPublishOrchestrator.cs` **527** (was 616 at re-baseline, 245 at audit),
 > `SeedDiscardOrchestrator.cs` 125, `RefreshOrchestrator.cs` 215, `SyncCoordinator.cs` 341.
-> `SeedReconcileOrchestrator` is gone — renamed to `SeedLinkRepair` by wayfinder 0004 slice 1.
+> `SeedReconcileOrchestrator` is gone — renamed to `SeedLinkRepair`.
 > Whether `SeedPublishOrchestrator` at 2.1x its audited size is now too big for one boundary
 > remains open and is NOT settled by the inventory guard.
 >
 > **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY — the April audit's own findings hold,
-> but the count went back up and wayfinder 0004's ruling has not landed.
+> but the count went back up and the proposed named reconciliation module has not landed.
 > Holds: `StatusOrchestrator` is gone (zero hits in `src/`), and the five retained/absorbed verdicts
 > still match the code, though the line counts have drifted —
 > `SyncCoordinator.cs` 281 (was 211), `RefreshOrchestrator.cs` 191 (was 193),
@@ -216,9 +221,8 @@ and the "where does this go?" problem grows with every addition.
 > `src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1` (137 lines), created in `55ad9c2b`
 > on 2026-04-28, the day *after* the audit was written to this document in `f8bee61c`
 > (2026-04-27). Tracked as #318.
-> STILL TRUE: wayfinder ticket 0004 ruled that reconciliation becomes a named module and that
-> `SeedReconcileOrchestrator` be renamed to reflect that it is a seed-link GC
-> (`wayfinder/tickets/0004-does-reconciliation-exist.md:185-192`, scope explicitly "decision only").
+> At that baseline, reconciliation was proposed as a named module and
+> `SeedReconcileOrchestrator` was proposed for renaming to reflect its seed-link GC role.
 > No such module exists — `git grep Reconciliation` in `src/` returns only two display strings
 > (`src/Twig/Commands/SeedReconcileCommand.cs:97`,
 > `src/Twig/Formatters/HumanOutputFormatter.cs:1412`). It is still just a decision.
@@ -478,7 +482,7 @@ methods on a read model. Read models should be inert projections.
 > **Status (2026-07, re-baselined at `55b02d32`)**: mostly obsolete. Items **2, 3, 4, 5, 10** are
 > FIXED and drop off the list entirely. Item **6** is *not* "completed April 2026" as this list's ninth entry claims:
 > the audit completed, but a sixth orchestrator it never covered exists
-> (`src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1`, #318) and wayfinder 0004's named
+> (`src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1`, #318) and the proposed named
 > reconciliation module has not landed (#320). Item **7** is no longer "in progress" — both scheduled
 > migrations shipped (`Services/Workspace/StatusResult.cs:25`,
 > `ValueObjects/BranchLinkResult.cs:32`); only the explicitly deferred seed result types remain.

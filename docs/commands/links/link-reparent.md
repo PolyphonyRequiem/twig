@@ -8,6 +8,8 @@ mutates: none
 
 # `twig link reparent`
 
+## Behavior
+
 The syntax is retained, but parent replacement is **not qualified** by the
 current Core relationship contract. Every invocation refuses before native HTTP.
 No existing parent is removed, no successor request is sent, and no retry is implied.

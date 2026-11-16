@@ -93,6 +93,9 @@ Source baseline: `146387b6a9cd11a6e9dbda413b9ac57b9fcb83fb`. Installed version `
 
 The actual Hermes native consumer is the Python plugin `plugins/twig/{runner,tools,schemas}.py`, **not Twig.Mcp**. The real handler forwards `--refresh` and uses a fixed configured/default workspace; the September 16 handler invocation from OMP reproduced the cache miss but was not a fresh Hermes session. OMP operational calls were shell/eval subprocesses. Runtime binding/provenance and initial output metrics are preserved in `evidence/runtime.json` without personal work-item content or credentials.
 
+The full process-specific schema dump is no longer retained. Historical metrics
+remain measurements from the original run, not reconstructed command output.
+
 A real authorized AB#878 claim failed on the installed gate requiring server-supplied `ActivatedBy`. A **fresh** source-built proposal subsequently verified the claim at revision 2 without staging server-owned fields. This establishes deployed/source behavioral skew for AB#803. The failed original proposal was not retried. Operational claim artifacts remain private workspace evidence, not replay fixtures.
 
 Prior ownership:

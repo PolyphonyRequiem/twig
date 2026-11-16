@@ -8,6 +8,8 @@ mutates: local
 
 # `twig bench delete`
 
+## Behavior
+
 Remove a native user-wide Bench definition. Work items, drafts, proposals,
 journals, workspace exclusions and other Benches are untouched.
 

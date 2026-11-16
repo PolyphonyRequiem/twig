@@ -1,28 +1,18 @@
-# System commands
+# Identity, connection evidence, and version
 
-The `system` group covers commands that manage twig's own installation, its
-Azure DevOps sign-in state, and the release channel it upgrades from. None of
-these commands touch a workspace's SQLite cache or the ADO board directly;
-they operate on the per-user credential stores under `~/.twig/`, the twig
-binary itself, and GitHub Releases.
+| Route | Purpose |
+| --- | --- |
+| [`auth login`, `auth pat`](auth-login.md) | Explicit named enrollment/renewal |
+| [`auth identities`](auth-status.md) | Recorded registered identity metadata |
+| [`connection bind`](auth-login.md) | Explicit ADO endpoint-to-identity binding |
+| [`connection list`](auth-status.md) | Recorded bindings, no selection change |
+| [`auth status`, `connection status`](auth-status.md) | Local recorded selection, not fresh access evidence |
+| [`connection writes`](auth-status.md) | Inspect-only correlated native transport evidence |
+| [`version`](version.md) / `--version` | Offline installed version |
 
-| Command | Summary |
-|---------|---------|
-| [`twig auth login`](auth-login.md) | Sign in to Azure DevOps interactively (loopback PKCE, or device code) and write a refresh token to `~/.twig/.refresh-token`. |
-| [`twig auth status`](auth-status.md) | Inspect the refresh-token store and cached access token: audience, expiry, tenant, and principal. Never prints the token. |
-| [`twig auth clear`](auth-clear.md) | Wipe both the cached access token (`~/.twig/.token-cache`) and the refresh-token store (`~/.twig/.refresh-token`), and invalidate the in-process copy. |
-| [`twig version`](version.md) | Print the installed twig version. |
-| [`twig upgrade`](upgrade.md) | Check GitHub Releases and update twig plus same-image native TUI launch names on Windows/Linux. macOS support is suspended. |
-| [`twig changelog`](changelog.md) | Display recent release notes from GitHub Releases. |
+See [authentication](../../features/authentication.md) for setup and provider
+differences. Tokens and PATs must not be passed in arguments or pasted into logs.
 
-## Group conventions
-
-* All three `auth` verbs (`login`, `status`, `clear`) support `-o, --output`
-  with values `human`, `json`, `minimal`. `auth status` never prints the raw
-  token in any format; it renders decoded JWT diagnostics only.
-* `upgrade` and `changelog` both hit GitHub's public REST API
-  (`api.github.com/repos/<repo>/releases`); no ADO calls are made.
-* `version` is intentionally minimal: it does not take an `--output` flag and
-  prints exactly one line even though the group-level help implies otherwise.
-* None of these commands read or write the workspace SQLite database, so they
-  work outside a twig-initialized directory.
+Identity/target hot-switches, migration, `auth clear/logout`, `upgrade`, and
+`changelog` are retired. Use a fresh workspace for another target and rerun the
+[installer](../../installation.md) to update the CLI.

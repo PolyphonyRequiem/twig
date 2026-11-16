@@ -8,6 +8,8 @@ mutates: local
 
 # `twig workspace exclude`
 
+## Behavior
+
 Save an exclusion for the current initialized workspace and its admitted
 connection. This changes presentation, not shared Bench membership or upstream
 work items. Another worktree using the same Bench retains its own view rules.

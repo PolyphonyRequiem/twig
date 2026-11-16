@@ -8,6 +8,8 @@ mutates: ado
 
 # `twig link successor`
 
+## Behavior
+
 The selected item must complete before the named target. Requires an explicitly
 initialized Core ADO workspace and one discovered directed dependency kind.
 

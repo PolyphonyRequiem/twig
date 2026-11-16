@@ -1,368 +1,66 @@
-# Twig — domain glossary
+# Twig domain glossary
 
-The names twig's code actually uses, and what they mean. Every entry is derived from source,
-not from documentation — `docs/` has known drift, this file is the tiebreaker for *naming*.
+Use the implementation's names consistently in code, documentation and work
+items. Current source is the tiebreaker; a historical plan does not establish
+that a feature shipped.
 
-Use these names in code, docs, issues, and design discussion. When a concept needs a new name,
-add it here first.
+## Connections and views
 
-> Baseline: audited 2026-07-26 against `fix/275-benchmarks-sdk` (985dd439). Findings ledgers in
-> `%TEMP%\twig-review\`.
+| Term | Meaning |
+| --- | --- |
+| **Connection** | A pinned provider source and admitted identity. Repository names, URLs and display names are locators, not substitutes for immutable source/principal identity. |
+| **Workspace** | A Git worktree's initialized Core client store and local context. Also the name of the CLI's static selected-Bench view; qualify the meaning when necessary. |
+| **Bench** | A named, durable, user-wide saved selection of work. CLI and daemon share its definition. Creating a Bench does not select it or claim its work. |
+| **Selector** | Retained membership intent: a single-item pin, hierarchy subtree, or typed query/planning rule. Store the rule, not today's result IDs. |
+| **Active item** | A local focus pointer for human convenience, not assignment, ownership or a work claim. Machine operations name their targets explicitly. |
+| **Exclusion** | A workspace-view rule outside shared Bench membership. It does not delete a provider item or discard protected drafts. |
+| **View profile** | A daemon presentation context with explicit selection and source admission. It is not a second authoritative copy of shared Bench intent. |
 
----
+Independent selectors contribute by union. Conditions within one planning rule
+can narrow each other. Missing sources are unavailable/degraded, not proof of
+empty membership; sources with zero members still remain dependencies.
 
-## Naming rules
+## Items and local intent
 
-1. **A concept has one name.** If two names exist for one thing, one is wrong — fix the code.
-2. **The code is the tiebreaker.** If a doc and a type name disagree, the type name wins and the
-   doc is rot.
-3. **Don't invent a name to avoid a rename.** New synonyms are how `Workspace` got three meanings.
+| Term | Meaning |
+| --- | --- |
+| **WorkItem / ItemKey** | A typed Core item and its connection-qualified identity. A native numeric locator or negative CLI alias is not a universal identity. |
+| **Observation** | Retained provider data with revision/freshness evidence. A cached observation does not prove current access or current remote values. |
+| **Draft** | Typed local intended changes, separate from the provider observation and bound to captured baseline/store evidence. |
+| **Seed** | An unpublished creation draft with an original canonical UUIDv7. Its negative display alias is a convenience, not a sequential allocator or predicted provider ID. |
+| **Publication mapping** | Permanent original-local-to-provider identity evidence after qualified publication. A matching title cannot establish this mapping. |
+| **Planning metadata** | Acquired native areas, iteration paths and the exact team's calendar. Metadata refresh does not replace saved rules or publish items. |
 
----
+Parent/child means decomposition, predecessor/successor means dependency, and
+Related means association. Local-only associations are explicitly distinct from
+native provider relationships.
 
-## 1. Core entities
+## Proposals and outcomes
 
-| Noun | Definition | Defined at |
-|---|---|---|
-| **WorkItem** | Root aggregate for an ADO work item. Mutations (`ChangeState`, `UpdateField`, `AddNote`) take effect immediately and set `IsDirty`. | `src/Twig.Domain/Aggregates/WorkItem.cs:12` |
-| **WorkItemSnapshot** | Immutable primitive-only carrier of raw work-item data, no domain behaviour. The boundary type both the ADO and SQLite mappers produce. | `src/Twig.Domain/ValueObjects/WorkItemSnapshot.cs:8` |
-| **ProcessConfiguration** | Immutable aggregate encoding ADO process rules (states, allowed child types, transitions). | `src/Twig.Domain/Aggregates/ProcessConfiguration.cs:42` |
-| **TypeConfig** | Per-work-item-type slice of a `ProcessConfiguration`. | `src/Twig.Domain/Aggregates/ProcessConfiguration.cs:11` |
+| Term | Meaning |
+| --- | --- |
+| **Proposal** | Immutable typed intended effects bound to connection, schema/store evidence and a canonical digest. |
+| **Preview** | Evaluation of current evidence and blockers, with possible local retention. It does not publish or lease remote state. |
+| **Apply** | Exact-digest execution under current admission, policy, concurrency and journal checks. |
+| **Operation journal** | Core's durable execution authority for original operations, attempts and receipts. Transport sidecars only provide correlated evidence. |
+| **Acknowledgement** | The provider's attributed response to an original attempt; not independent verification. |
+| **Verification** | Independent readback of intended effects. Applied and Verified are distinct outcomes. |
+| **Settlement** | Updating eligible local intent/evidence from original qualified outcomes, never replaying an uncertain write. |
+| **Declared policy** | Explicit configured mechanical rules, not inferred business policy or discovery of external repository automation. |
+| **Close gate** | A field requirement coupled to a completed-category transition. Discover actual requirements and carry coupled fields with the transition in one qualified operation. |
 
-### Declared policy
+Multi-operation execution is not one distributed transaction. Verified, failed,
+partial, indeterminate and unattempted work remain distinct. A lost response,
+local reset or empty search never authorizes replay.
 
-**Policy assessment**: An evidence-backed statement of current compliance with declared
-mechanical rules for an explicitly named scope. Incomplete evidence is unavailable, not
-compliant. _Avoid_: proposal permission, whole-board certification.
+## Implementation ownership
 
-**Policy finding**: A current violation or a gap in the evidence needed to decide compliance.
-A warning-only rule can still have a violation.
+`Twig.Core` owns work-management types and execution contracts.
+`Twig.Store.Sqlite` persists client state; provider adapters own native
+acquisition and effects. `Twig.Infrastructure` binds native identity, stores,
+policy and host APIs. Twig also owns the optional Windows daemon; its separate
+canvas package owns presentation assets.
 
-**Policy repair strategy**: An explicit alternative for improving a finding. Choosing an
-alternative does not authorize its effects or prove that compliance has been achieved.
-_Avoid_: automatic fix, policy bypass.
-
-**Policy reconciliation**: Assessing noncompliance and choosing concrete paths toward
-compliance. It is distinct from local/remote merge reconciliation, dependent field clears,
-and settlement of uncertain proposal outcomes.
-
-## 2. Staged / local-only state
-
-Everything here exists **only in the local SQLite cache** until pushed.
-
-| Noun | Definition | Defined at |
-|---|---|---|
-| **PendingChangeRecord** | A recorded, not-yet-pushed field change. Its `work_item_id` FK to `work_items` is the root cause of #269/#270. | `src/Twig.Domain/Common/PendingChangeRecord.cs:6` |
-| **PendingNote** | An uncommitted comment staged against a work item (`Text`, `CreatedAt`, `IsHtml`). | `src/Twig.Domain/ValueObjects/PendingNote.cs:6` |
-| **FieldChange** | Immutable record of a single field change; values stored as strings for AOT safety (RD-009). | `src/Twig.Domain/ValueObjects/FieldChange.cs:4` |
-| **PublishIdMap** | Persisted seed-ID → published-ADO-ID mapping recorded at publish time; used by reconcile to repair stale negative IDs. | `src/Twig.Domain/Interfaces/IPublishIdMapRepository.cs:6` |
-
-## 3. Seeds
-
-**A seed is not a type.** It is `WorkItem.IsSeed` plus a negative ID — a local-only draft work
-item that has never been pushed to ADO (`src/Twig.Domain/Aggregates/WorkItem.cs:45`).
-
-| Noun | Definition | Defined at |
-|---|---|---|
-| **SeedIdCounter** | Thread-safe `Interlocked` counter producing unique negative sentinel IDs. | `src/Twig.Domain/Services/Seed/SeedIdCounter.cs:9` |
-| **SeedFactory** | Creates seed work items, validating parent/child rules against `ProcessConfiguration` and inheriting area/iteration paths from the parent. | `src/Twig.Domain/Services/Seed/SeedFactory.cs:13` |
-| **SeedLink** | Immutable virtual typed link between two seeds, or a seed and an ADO item — links that cannot yet exist in ADO. | `src/Twig.Domain/ValueObjects/SeedLink.cs:6` |
-| **SeedPublishResult** | Outcome of publishing one seed to ADO, including the remapped real ID. | `src/Twig.Domain/ValueObjects/SeedPublishResult.cs:6` |
-| **SeedValidationResult** | Result of validating one seed against `SeedPublishRules`. | `src/Twig.Domain/ValueObjects/SeedValidationResult.cs:6` |
-| **SeedViewGroup** | Read model grouping a parent work item with its seed children. | `src/Twig.Domain/ReadModels/SeedViewGroup.cs:8` |
-
-## 4. Workspace — ⚠ three unrelated meanings
-
-`Workspace` currently names three different things. This is a known defect in the domain
-language, not a subtlety. Until it is resolved, **always qualify the term**.
-
-> **Decided 2026-07-26 (wayfinder 0001):** `Workspace` is being RETIRED, not disambiguated.
-> Two replacement nouns are agreed:
->
-> - **Connection** — one `{org}/{project}` ADO endpoint with its cache and credentials.
->   Replaces `WorkspaceKey`. Twig will support several. *Not* "Scope" — that collides with
->   ADO auth scopes (`vso.work`). *Not* "Project" — collides with `gitProject` in `init`.
-> - **Bench** — a named, persistent, switchable set of work items the user is working on.
->   Several may exist concurrently; a bench is selected, not derived. From "workbench":
->   what is on your bench right now.
->
-> `Bench` is NOT a rename of `WorkingSet` below. `WorkingSet` is singular, derived, and
-> recomputed on every access with no identity or persistence. A Bench is plural, named,
-> and persistent — a different concept that happens to occupy adjacent ground. Whether
-> `WorkingSet` survives as a Bench's derived projection is an open design question.
->
-> Rejected: Set (collides with the `twig set` command), Focus (implies exactly one),
-> Track (collides with `TrackedItem`/`TrackingMode`), Thread, Branch, Board, Lane.
->
-> **Reserved — `Sprig`.** Considered for Bench and set aside deliberately, not discarded.
-> A sprig is a cluster growing off a twig, which is a closer fit for **planning work over
-> seeds** — a drafted, still-unpublished chain of items — than for a set of items already
-> tracked in ADO. Keep it available for a future planning mode; do not spend it on a
-> synonym. (`CONTEXT.md` rule 3: don't invent a name to avoid a rename — the inverse also
-> holds, don't burn a good name on the wrong concept.)
->
-> ~~Open: whether the pending set is per-Bench or per-Connection; whether a Bench scopes
-> the sync boundary as well as reads; whether benches must be concurrent in one process
-> or merely switchable.~~
->
-> **Resolved 2026-08-06 (wayfinder 0022), except one:**
->
-> - **Does a Bench scope the sync boundary?** **No.** Reconciliation scopes to the pending
->   set, per Connection; a Bench is a view and is never a sync unit (0004 §2).
-> - **Concurrent or merely switchable?** **Benches are switchable; Contexts are concurrent.**
->   Several Contexts may be open at once, each naming which Bench it stands on.
-> - **Does `WorkingSet` survive as a Bench's derived projection?** **Yes — it IS one.**
->   Today's working set is a Bench with one hard-coded query plus hand pins and hand
->   exclusions, computed per access with nowhere to persist the hand edits. 0022 stage 2
->   promotes it rather than replacing it. **Shipped in ADO #144, 2026-08-06** — the view is
->   computed from the default Bench, output-identical against a captured baseline.
-> - **Still open:** whether the pending set is *stored* per-Bench or per-Connection. Only
->   the reconciliation boundary is settled. (Traced during #144: **no ticket in the 144-151
->   set forces this**. Keeping unpushed work visible only needs to READ it; deleting a Bench
->   only needs to leave it alone. A worker that believes this question is blocking it has
->   left its ticket.)
->
-> **Surface principle (Daniel, 2026-08-06) — human simple, machine strict.** A person at a
-> terminal who names no Bench gets the default; a script MUST name the Bench every time,
-> including the default. Omitting it is a hard error, never a fallback, and an unknown name
-> exits non-zero creating nothing. The output format is **declared** on the command and never
-> inferred from whether a tty is attached. This is 0023's Context addressing rule one level up
-> — Benches follow the established pattern rather than inventing one.
->
-> **A Bench holds** pinned items and queries — one mechanism, called **selectors**. It stores
-> the RULE, never the results. Exclusions are **out of the Bench entirely** (decided
-> 2026-08-06): there is no subtracting selector, and the existing exclude commands are
-> untouched. It is a saved backlog — *my sprint*, *the bugs I own*, *release blockers* — named
-> once and returned to. Every Context standing on a Bench sees the same Bench; there are no
-> private pins.
->
-> **Scope update (Daniel, 2026-11-03):** Benches are user-wide, not owned by a
-> Connection, repository or worktree. The CLI and panel use the same definitions.
-> A repository and its worktrees commonly share a Bench, but that association is
-> the user's choice; no Bench is automatically created or derived from a repo.
-> Each repository/worktree context selects independently. Item and subtree pins,
-> query, area and iteration rules retain their established meaning: store the
-> rule, not a result snapshot. Exclusions remain workspace-view rules outside
-> Bench membership. This supersedes older connection-local/default-creation
-> descriptions, not the existing selector and exclusion semantics.
->
-> **Context** (wayfinder 0022) — a **disposable place to stand**, opened by a caller and
-> closed when done, holding only the active item and what derives from it. `tree`, `nav` and
-> an untargeted `set` need one; any command that names its own work item needs a Connection
-> and nothing else. **Being on a Bench means only that you can stand there** — it is a place,
-> not a record of interest. A targeted read neither needs a Bench nor joins one.
->
-> **Addressing a Context** (wayfinder 0023, owner 2026-08-06):
->
-> | Caller | Standing command, no Context named | Non-default Context |
-> |---|---|---|
-> | human format | the default Context for the current Connection | must name it |
-> | machine format | **hard error** | must name it |
->
-> **One default Context per Connection**, and it is the only Context twig creates on its own
-> — so it is never reaped. A machine-format caller names its Context ALWAYS, including the
-> default: that is 0021's rule (every MCP tool names its work item) one level up. The format
-> flag is a **declaration, not an inference** — twig must not sniff for a tty.
->
-> **An unknown or expired Context is a HARD ERROR** — not a fallback, not a warning, not a
-> silent fresh Context. Prior art splits by failure: a *handle* must resolve, so a stale one
-> fails loud (docker, ssh-agent); a *name in a shared file* always resolves, so a stale one
-> acts on the wrong target silently (kubectl, terraform, gh). twig is the second family
-> structurally — a row always resolves — and 0023 moves it to the first.
->
-> **Closing a Context never refuses and never gets a force flag.** The pending set belongs to
-> the Connection, so close structurally cannot discard work; it exits 0 and reports what
-> remains pending. Discard stays a separate explicit verb.
->
-> ⚠ Do **not** say a Bench "reconciles" Contexts. `Reconciliation` is 0004's module
-> (staged → published → reconciled → invalidated against ADO). What a Bench does is **merge
-> views for display**.
->
-> **The four experiences** (owner, 2026-07-26) — supersedes the loose
-> "human/AI/toolchain/TUI" shorthand, which conflated audience with interaction model:
->
-> 1. **Rich CLI** — a human at a terminal; rendered colour/tables/hints/interpretation.
-> 2. **Script CLI** — a script or CI job; machine-readable **stdio AND fileio**, a stable
->    parseable contract. (File output is a contract too, not just stdout.)
-> 3. **MCP** — an LLM controlling the Bench and pending set, and answering questions about
->    **local OR remote** data. Uniquely has REACH: it may be asked about data twig has
->    never cached.
-> 4. **TUI** — a human in a **session launched from the CLI**, with multiple modes and
->    views. Conceptually a CLI thing (same user, same terminal, same mental model), but
->    **may still ship as its own product** — packaging is undecided.
->
-> MCP is an **LLM toolkit, not a CLI proxy** (owner, 2026-07-26): a scripting interface
-> plus high-level tools aimed at what an LLM reasonably wants to do, driving the
-> underlying twig operations itself. Both shapes already exist as one-offs — `twig_batch`
-> (sequence/parallel/step graph) and `twig_find_or_create` (encodes idempotent-creation
-> intent) — while the other ~39 tools are per-command proxies. Consequence: CLI↔MCP
-> **parity is partly the wrong goal**; deliberate divergence is correct for a toolkit.
->
-> See wayfinder ticket 0002.
-
-| Qualified name | Meaning | Defined at |
-|---|---|---|
-| **Workspace (read model)** | Display projection, no identity, no invariants: context item + sprint items + seeds + tracked + excluded. | `src/Twig.Domain/ReadModels/Workspace.cs:10` |
-| **WorkspaceKey** | MCP routing unit — identifies a workspace as `{org}/{project}`. | `src/Twig.Mcp/Services/WorkspaceKey.cs:7` |
-| **`.twig/` directory** | The on-disk workspace root. | `src/Twig.Mcp/WorkspaceGuard.cs`, `src/Twig.Mcp/Program.cs:15` |
-| **WorkspaceContext** (MCP) | Bundle of all per-workspace services for one `(org, project)`; cached for the process lifetime. 27 public service properties. | `src/Twig.Mcp/Services/WorkspaceContext.cs:19` |
-
-Related, unambiguous:
-
-| Noun | Definition | Defined at |
-|---|---|---|
-| **WorkingSet** | The set of work items relevant to the current context; `AllIds` is the union of all ID collections, recomputed on every access. **Since ADO #144 this is the projection of a Bench** — the default one — rather than a separate concept. | `src/Twig.Domain/Services/Workspace/WorkingSet.cs:9` |
-| **Bench** | A named, durable, saved backlog. Holds SELECTORS and nothing else; membership is their order-free union. Lives in the durable store. | `src/Twig.Domain/Aggregates/Bench.cs` |
-| **Selector** | One rule on a Bench answering *is this item on this Bench?* A **pin** matches one item, a **subtree pin** matches an item and its descendants as they are now, a **query** matches a body of work. They are one mechanism differing only in how many items they match. A Bench stores the RULE, never the results. Evaluated against the LOCAL CACHE — a query selector carries an ADO query as a **refresh rule** describing how items reach the cache, never as the thing run when somebody looks at their Bench. | `src/Twig.Domain/ValueObjects/BenchSelector.cs` |
-| **Iteration calendar** | The local mapping from an iteration path to the span of time it covers. A sprint is a NAME (the stable identity) mapped to a date range (a movable attribute), so the Bench stores the rule *"the iteration covering today"* and this answers which one that is — from cached data plus the local clock, never a network call. In the disposable mirror: ADO can rebuild it. | `src/Twig.Domain/Interfaces/IIterationCalendar.cs` |
-| **WorkspaceSection** | A mode-labelled slice of workspace items (Sprint, Area, Recent, Manual). | `src/Twig.Domain/ReadModels/WorkspaceSections.cs:10` |
-| **TrackedItem** | A work item explicitly pinned into a workspace, with a `TrackingMode` (single vs subtree). | `src/Twig.Domain/ValueObjects/TrackedItem.cs:11` |
-| **ExcludedItem** | A work item explicitly removed from a workspace view, with a reason. | `src/Twig.Domain/ValueObjects/ExcludedItem.cs:9` |
-
-## 5. Navigation & hierarchy
-
-| Noun | Definition | Defined at |
-|---|---|---|
-| **WorkTree** | Immutable composite read model for navigating a hierarchy. Navigation methods return **IDs, not mutated trees** — the caller rebuilds at the target ID. Its `FocusedItemLinks` are the edges of the ONE focused item; for a set's edges see `WorkItemGraph`. | `src/Twig.Domain/ReadModels/WorkTree.cs:13` |
-| **WorkItemGraph** | Immutable read model for a **SET** of work items and the non-hierarchy edges among them — the *graph* model, where `WorkTree` is the *hierarchy* model. Exists because **a link is an edge between two items, so it belongs to the SET, not to a member of it** (ADO #154); every read path above the `work_item_links` edge table had repeated the single-focused-item assumption. Edges leaving the set are **retained**, not filtered: a consumer discovering what to fetch next needs precisely those. Widening `WorkTree` was considered and rejected — it would widen the model every single-item consumer uses to serve a consumer that does not want a tree. This is the shape a Bench read should return (wayfinder-1.0 ticket 1006 is its natural consumer), but it deliberately does **not** depend on Bench. | `src/Twig.Domain/ReadModels/WorkItemGraph.cs:36` |
-| **SprintHierarchy** | Inert immutable read model organising sprint items into per-assignee trees; build logic lives in `SprintHierarchyBuilder`. | `src/Twig.Domain/ReadModels/SprintHierarchy.cs:50` |
-| **SprintHierarchyNode** | Node in that tree: a `WorkItem` plus an in-sprint flag, **or** a virtual group header ("Unparented Features") with children but no work item. | `src/Twig.Domain/ReadModels/SprintHierarchy.cs:12` |
-| **NavigationHistoryEntry** | One visited work item in the back/forward stack. | `src/Twig.Domain/ValueObjects/NavigationHistoryEntry.cs:3` |
-| **WorkItemLink** | Immutable **non-hierarchy** link between two work items (related / predecessor / successor). | `src/Twig.Domain/ValueObjects/WorkItemLink.cs:6` |
-| **AreaView** | Read model for the area-filtered view: items matching configured area paths plus hydrated parent context. | `src/Twig.Domain/ReadModels/AreaView.cs:10` |
-| **DescendantVerificationResult** | Result of verifying every descendant of an item is terminal (Completed / Resolved / Removed). | `src/Twig.Domain/ReadModels/DescendantVerificationResult.cs:7` |
-
-## 6. Classification value objects
-
-| Noun | Definition | Defined at |
-|---|---|---|
-| **AreaPath** | Validated area path: non-empty, backslash-separated segments, with ancestor/descendant comparison. | `src/Twig.Domain/ValueObjects/AreaPath.cs:8` |
-| **IterationPath** | Same contract for iteration paths; case-insensitive ordinal descendant check on segment boundaries. | `src/Twig.Domain/ValueObjects/IterationPath.cs:8` |
-| **IterationExpression** | Validated sprint expression — relative (`@current`, `@current±N`) or absolute literal path. | `src/Twig.Domain/ValueObjects/IterationExpression.cs:20` |
-| **TeamIteration** | One team iteration (sprint) from ADO team settings: path + optional dates. | `src/Twig.Domain/ValueObjects/TeamIteration.cs:7` |
-| **WorkItemType** | A known ADO work item type, stored as a string. Well-known constants are **advisory only, not behavioural constraints**. | `src/Twig.Domain/ValueObjects/WorkItemType.cs:9` |
-| **StateEntry** | One state in a type's workflow: name, resolved `StateCategory`, optional hex colour. | `src/Twig.Domain/ValueObjects/StateEntry.cs:9` |
-| **FieldDefinition** | Cached metadata for an ADO field. | `src/Twig.Domain/ValueObjects/FieldDefinition.cs:7` |
-| **FieldProfile** | How often a field is populated across cached work items of a type. | `src/Twig.Domain/ValueObjects/FieldProfile.cs:7` |
-
-## 7. Query, sync, cache
-
-| Noun | Definition | Defined at |
-|---|---|---|
-| **QueryResult** | Immutable read model of WIQL results. `IsTruncated` is a best-effort heuristic (count == requested `$top`). | `src/Twig.Domain/ReadModels/QueryResult.cs:13` |
-| **CacheStatistics** | Freshness stats from the local SQLite store (last sync, pending count, tracked count, oldest age). | `src/Twig.Domain/ReadModels/CacheStatistics.cs:7` |
-| **WorkItemHistory** | Chronologically ordered revision history for one work item; `Complete` flags whether the timeline is exhaustive. | `src/Twig.Domain/ValueObjects/WorkItemHistory.cs:13` |
-| **GitContext** | Best-effort git enrichment (branch, linked PRs); all fields optional, detection failures swallowed. | `src/Twig.Domain/ValueObjects/GitContext.cs:9` |
-| **ExportedWorkItem** | Round-trip carrier between `WorkItemExportFormat.Generate` and `.Parse` (the `$EDITOR` round trip). | `src/Twig.Domain/ValueObjects/ExportedWorkItem.cs:8` |
-| **ProfileMetadata** | Metadata for a global process profile at `~/.twig/profiles/{org}/{process}/profile.json`. | `src/Twig.Domain/ValueObjects/ProfileMetadata.cs:7` |
-
----
-
-## 8. Names the code does NOT use
-
-Reaching for one of these means you're about to name something that already has a name.
-
-| Don't say | Say | Why |
-|---|---|---|
-| `Note` | **PendingNote** (staged) or `WorkItem.AddNote` (the operation) | No `Note` type exists. |
-| `PendingChange` | **PendingChangeRecord** | No `PendingChange` type exists. |
-| `Seed` (as a type) | **`WorkItem.IsSeed`** + negative ID | Seed-ness is a flag, not a class. |
-| bare `Workspace` | one of the four qualified forms in §4 | Three unrelated meanings. |
-
-## 9. Surfaces and composition roots
-
-Twig has **four consumer surfaces** and **three composition roots**. These are domain facts, not
-implementation detail — they shape every naming decision.
-
-| Surface | Project | Consumer | Wants |
-|---|---|---|---|
-| **Human** | `src/Twig` (`twig`) | a person at a terminal | colour, tables, truncation, hints, interpretation |
-| **AI** | `src/Twig.Mcp` (`twig-mcp`) | an agent over MCP | structure + affordances, token-frugal |
-| **Toolchain** | currently flags inside `src/Twig` | scripts, pipes, CI | stable, versioned, parseable; **no** hints or interpretation |
-| **TUI** | `src/Twig.Tui` (`twig-tui`) | a person editing interactively | Terminal.Gui views over the same items |
-
-The toolchain surface has a property the others don't: **it is a contract with a stable shape**.
-Breaking it silently breaks a consumer's script.
-
-**Three composition roots** — `src/Twig` (DI), `src/Twig.Mcp` (`WorkspaceContextFactory`, which
-hand-mirrors CLI DI and says so at `WorkspaceContextFactory.cs:30-33`), and `src/Twig.Tui` (its own
-`Microsoft.Extensions.DependencyInjection` wiring). The obstacle to unifying them is **cardinality**,
-not DI-vs-manual: CLI is one workspace per process, MCP is N keyed by `WorkspaceKey`.
-
-**Only `src/Twig` references `Twig.RenderTree`.** MCP and the TUI each hand-rolled their own output
-stack rather than using the `IRenderer` + `RenderAudience` seam the CLI already has. The same
-divergence, twice, independently.
-
-## 10. Architecture vocabulary
-
-For structural discussion — module, interface, depth, seam, adapter, leverage, locality — twig
-uses the deep-module vocabulary rather than "component / service / API / boundary". Definitions
-live with the design skill, not here; this file names the **domain**, that one names the
-**structure**.
-
-## 11. Connection authentication vocabulary
-
-Approved domain vocabulary for Epic #1100 and Grilling #1101. These definitions
-describe the agreed contract, not a claim that its implementation has shipped.
-
-**Authentication identity**:
-A registered principal whose authority is distinguished by stable principal
-identifiers, not by its display name or the account most recently logged in.
-_Avoid_: auth profile, current account, display-name identity.
-
-**Identity binding**:
-A user-owned association between a Connection, an authentication identity and a
-credential reference. Several identity bindings may belong to the same Connection;
-a binding does not grant permissions.
-
-**Credential reference**:
-An opaque reference to credential material used by an identity binding, not the
-secret itself.
-
-**Binding default**:
-The user's saved identity-binding choice for a Connection, used by an attached
-worktree that has no binding pin.
-
-**Binding pin**:
-An untracked, worktree-local choice of identity binding for the worktree's declared
-Connection. It is not a Bench pin or a reference-profile pin.
-
-**Effective binding**:
-The identity binding selected for an attached worktree from its binding pin or
-binding default. A missing or ambiguous selection is not an effective binding.
-
-**Worktree attachment**:
-A worktree's established association with its portable Connection declaration and
-local work state. Central identity management does not replace this association.
-
-**Outcome receipt**:
-An immutable, evidence-backed record relating a preserved publishing attempt to
-an established outcome or verified replacement. It is not a rewritten journal
-state or permission to replay the attempt.
-
-## 12. Additive clean core
-
-Phase 1 of Epic #1220 introduces `Twig.Core` alongside, not in place of, production
-`Twig.Domain`. These names describe the new contract only; legacy code remains authoritative
-for existing command behavior. See `docs/architecture/clean-core-contract.md`.
-
-**ItemKey**: A durable local UUID or a provider/resource-scope/native-ID tuple. A negative
-seed integer is a display alias, not a third identity form.
-
-**Revision**: An opaque token bound to one exact remote ItemKey. It is not a local store
-version and cannot be incremented, synthesized or carried across provider targets.
-
-**ProcessSchema**: The one discovered core model of types, fields, states, transitions,
-rules and relation semantics, with explicit completeness gaps. It is a model, not a port.
-
-**Draft**: Local intent over a retained revision-bound base; a never-published draft has
-a local ItemKey and no remote base. A seed remains a lifecycle condition, not another type.
-
-**Proposal**: Immutable, digest-bound, ordered mutation intent. A field/state batch is one
-operation; its authored close gates travel with the transition.
-
-**Receipt**: An attempt-bound observation of one core operation's execution or readback.
-An acknowledgement is not verification, and an indeterminate receipt is not replay permission.
-
-**PublishMapping**: Permanent provenance binding a draft's local UUID to its acknowledged
-remote ItemKey and original proposal operation. It survives refresh and later uncertainty.
+See [current architecture](docs/architecture/overview.md),
+[Benches and context](docs/features/workspace-bench-context.md),
+[proposals](docs/features/proposals.md), and [daemon operation](docs/daemon.md).

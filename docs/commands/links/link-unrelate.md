@@ -8,6 +8,8 @@ mutates: ado
 
 # `twig link unrelate`
 
+## Behavior
+
 Remove an existing native association between published Core ADO items.
 [`link unlink related`](./link-unlink.md) uses the same owner and effect.
 

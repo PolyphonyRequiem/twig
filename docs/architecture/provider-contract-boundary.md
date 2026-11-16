@@ -1,5 +1,10 @@
 # Provider contracts in Domain
 
+> **Historical boundary record.** `Twig.Domain` and its compatibility APIs are
+> no longer in the supported source graph. The exceptions below describe the
+> pre-cutover architecture, not contracts to extend or restore. See the
+> [current architecture](overview.md) and [clean-core contract](clean-core-contract.md).
+
 New work-management provider contracts belong in Infrastructure. Shared Domain
 operations use the provider snapshot, identity, capability and execution ports;
 selecting GitHub must not construct an ADO transport. The reflection guards in

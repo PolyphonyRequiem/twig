@@ -1,37 +1,47 @@
-# Twig Documentation
+# Twig documentation
 
-Welcome to the twig documentation. This is the central hub for all technical documentation about the twig CLI, MCP server, and TUI.
+Start with the [README](../README.md) for installation and a short introduction.
+These guides describe the current source tree. An older installed release can
+differ; use its `twig --version` and targeted `--help` to identify its contract.
 
-## Architecture
+## User guides
 
-Comprehensive architecture reference for developers working on or integrating with twig.
+| Guide | Covers |
+| --- | --- |
+| [Installation](installation.md) | Supported platforms, downloads, verification, updates |
+| [Getting started](getting-started.md) | Provider setup, first reads, provider differences |
+| [Command reference](commands/README.md) | Current routes, side effects, retired commands |
+| [Authentication](features/authentication.md) | Named ADO identities and exact GitHub account selection |
+| [Connections, Benches, and context](features/workspace-bench-context.md) | Shared saved selections versus worktree-local context |
+| [Seeds and publishing](features/seeds-and-publishing.md) | Local drafts, durable identity, publication and uncertain outcomes |
+| [Change proposals](features/proposals.md) | Validate, preview, confirm, apply, and inspect |
+| [Process description](features/process-description.md) | Discovered schema, requirements, and known gaps |
+| [Installed help and skills](features/skills.md) | Offline guidance and explicit agent-skill installation |
+| [Windows daemon](daemon.md) | Twig ownership, installation, lifecycle, canvas boundary, read-only MCP |
 
-| Document | Description |
-|----------|-------------|
-| [Architecture Overview](architecture/overview.md) | Layered architecture, project structure, key constraints, technology stack |
-| [Data Layer](architecture/data-layer.md) | SQLite storage, caching strategy, sync coordination, process-agnostic design |
-| [Commands](architecture/commands.md) | CLI framework, command lifecycle, rendering pipeline, telemetry |
-| [ADO Integration](architecture/ado-integration.md) | REST client, authentication, conflict resolution, link management |
-| [MCP Server](architecture/mcp-server.md) | Tool catalog, workspace guard, shared domain layer |
-| [Build & Release](architecture/build-and-release.md) | AOT compilation, versioning, release pipeline, companion binaries |
+## Contributors
 
-## Guides
+Begin with [contributing](contributing.md) and the [architecture overview](architecture/overview.md).
+Detailed references cover [storage](architecture/data-layer.md),
+[CLI composition](architecture/commands.md),
+[ADO integration](architecture/ado-integration.md), and
+[builds and releases](architecture/build-and-release.md).
+The [clean-core contract](architecture/clean-core-contract.md) records detailed
+implementation boundaries, qualification, and cutover decisions; it is not a
+quick-start guide.
 
-| Document | Description |
-|----------|-------------|
-| [Oh My Posh Integration](ohmyposh.md) | Shell prompt integration with Oh My Posh |
+## Design and historical records
 
-## Reference
+Plans, specifications, research, incident reports, handoffs, and captured process
+evidence are engineering records, **not an alternate supported command manual**.
+They may describe removed projects, earlier schemas, or unimplemented proposals.
+Keep their recorded observations distinct from current release claims.
 
-| Document | Description |
-|----------|-------------|
-| [Example OMP Config](examples/twig.omp.json) | Sample Oh My Posh configuration for twig |
+- [Record index](history.md): where design and historical material lives.
+- [Retired commands](commands/README.md#retired-surfaces): replacements and limits.
+- [Old MCP server](architecture/mcp-server.md), [reference profile](features/reference-profile.md),
+  and [shell integration](ohmyposh.md): retirement notices.
 
-## For Contributors
-
-- **Build**: `dotnet build` — builds all projects
-- **Test**: `dotnet test` — runs all ~4,300 tests
-- **Local publish**: `./publish-local.ps1` — builds and deploys to `~/.twig/bin/`
-- **Architecture decisions** are documented in the [architecture docs](architecture/overview.md)
-- **Process-agnostic principle**: see [.github/instructions/process-agnostic.instructions.md](../.github/instructions/process-agnostic.instructions.md)
-- **Telemetry policy**: see [.github/instructions/telemetry.instructions.md](../.github/instructions/telemetry.instructions.md)
+Public documentation is maintained here in the repository. [Home](Home.md) and
+the [sidebar](_Sidebar.md) are navigation entry points, not a separately maintained
+wiki manual.

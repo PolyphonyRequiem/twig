@@ -42,7 +42,7 @@ public sealed class RendererFactory
     /// tree level.
     /// </summary>
     /// <remarks>
-    /// Wayfinder 0019: format membership is decided by
+    /// Format membership is decided by
     /// <see cref="Twig.Formatters.OutputFormats"/>, the single accept-list.
     /// Unknown values are rejected at the entrypoint and cannot reach here
     /// from the CLI.

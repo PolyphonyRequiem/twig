@@ -8,6 +8,8 @@ mutates: none
 
 # `twig bench list`
 
+## Behavior
+
 List the native user-wide Bench definitions shared by the CLI and panel. Listing
 does not create or select a default Bench, evaluate queries, refresh work items
 or acquire provider credentials.

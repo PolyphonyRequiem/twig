@@ -8,6 +8,8 @@ mutates: ado
 
 # `twig link unlink`
 
+## Behavior
+
 Remove a published Core ADO dependency or association using the same discovered
 shape and canonical direction as its corresponding add command.
 

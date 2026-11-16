@@ -4,6 +4,13 @@ Phases 1-4, phase-5 code closure and phase-6 source removal for **Epic #1220, Co
 
 ## Status and scope
 
+This is the detailed implementation/cutover record, not the public CLI catalog.
+Use the [current command reference](../commands/README.md) for executable
+reachability and provider restrictions. In particular, retained declarations
+do not make standalone `save` reachable, and root help's `--help-all`
+advertisement is currently rejected by admission. Historical closure statements
+below do not override those observed routing limitations.
+
 ### Native editor schema evaluation
 
 ADO discovery retains type-local gaps on the exact `ItemType`, separately from

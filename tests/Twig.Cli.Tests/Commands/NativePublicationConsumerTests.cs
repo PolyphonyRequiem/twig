@@ -251,18 +251,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreLinkRouteUsesNativeJournalWithoutLegacyGraph()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        _transport.SetItem(43, "Other endpoint", 7, Actor);
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "relationships-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
@@ -499,19 +488,22 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         }
     }
 
-    private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> RelationshipWorkspaceAsync()
+    private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> RelationshipWorkspaceAsync(bool activate = true)
     {
-        var root = Path.Combine(_temp, "checkout");
+        await EnrollNativeFixtureAsync();
+        _transport.SetItem(43, "Other endpoint", 7, Actor);
+        return await InitializeCurrentWorkspaceFixtureAsync(Path.Combine(_temp, "checkout"), activate);
+    }
+
+    private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> InitializeCurrentWorkspaceFixtureAsync(
+        string root, bool activate = true)
+    {
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse("the fixture must exercise supported fresh initialization");
-        await _bindings.RegisterPatIdentityAsync("actor", "fixture", ActorPat);
-        await _bindings.RegisterPatIdentityAsync("sibling", "fixture", SiblingPat);
-        await _bindings.CreateBindingAsync("fixture", "Project", "actor", true);
         _transport.CoreMetadataEnabled = true;
-        _transport.SetItem(42, "Original actor plan", 1, Actor);
-        _transport.SetItem(43, "Other endpoint", 7, Actor);
-        _transport.SetItem(44, "Sibling private plan", 1, Sibling);
+        var workRequests = _transport.WorkRequests;
+        var writes = _transport.CommittedWrites;
         var initialized = await NativeWorkspaceSetup.InitializeAsync(
             new(root, "fixture", "Project", null, null, "ado", null, null, null, null, null,
                 Path.Combine(Home, "display.json")),
@@ -534,10 +526,14 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         snapshot.Version.ShouldBe(0);
         snapshot.Drafts.ShouldBeEmpty();
         snapshot.Journal.ShouldBeEmpty();
-        await ActivateNativeSafetyFixtureAsync(paths);
-        (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeTrue();
-        _transport.WorkRequests.ShouldBe(0);
-        _transport.CommittedWrites.ShouldBe(0);
+        if (activate)
+        {
+            await ActivateNativeSafetyFixtureAsync(paths);
+            (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeTrue();
+        }
+        else (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeFalse();
+        _transport.WorkRequests.ShouldBe(workRequests);
+        _transport.CommittedWrites.ShouldBe(writes);
         return (paths, connection, created.Value);
     }
 
@@ -551,18 +547,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreProcessInspectionUsesDiscoveredRulesWithoutLegacyCommandsOrWorkReads()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         _transport.CloseGateEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "process-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
         File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
@@ -694,19 +680,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreProposalInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "inspection-core.db");
-        var created = await CleanStore.CreateAsync(database);
-        created.IsSuccess.ShouldBeTrue();
-        var store = created.Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -877,22 +851,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreBenchPullKeepsDraftDebtAndExcludesImplicitMachineActiveContext()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         foreach (var id in new[] { 40, 42, 44, 45, 90, 91 })
             _transport.SetItem(id, "native " + id.ToString(CultureInfo.InvariantCulture), 1, Actor);
         _transport.SetHierarchy(40, 42);
         _transport.SetHierarchy(42, 44);
         _transport.SetHierarchy(90, 91);
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "scoped-pull-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -981,17 +945,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreSyncUsesOneProposalAndOneJsonResultWithSafeOptionalTelemetry()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "sync-save-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1061,17 +1015,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreBenchCrudPreservesSelectorKindsAndNeverResolvesLegacyWriters()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "bench-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1178,17 +1122,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "editor-context-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1312,19 +1246,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreQueryFindsLaterPageMatchesAndPreservesUnpublishedDraftsWithoutWriters()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         for (var id = 1000; id <= 1205; id++)
             _transport.SetItem(id, id == 1205 ? "later page match" : "not selected", 1, Actor);
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "paged-query-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        var initialized = await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default);
-        initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
         var key = CoreModel.ItemKey.Local(Guid.NewGuid());
         var fields = new CoreModel.FieldValues([
             KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("unpublished draft")),
@@ -1375,17 +1299,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreChainAuthoringValidationAndReconciliationRetainOriginalCreationReferences()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "chain-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1487,17 +1401,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreParentedSeedPublishesItsHierarchyInTheCreationCallWithoutAPostCreateWriter()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "parented-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1614,17 +1518,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreSeedPublicationUsesTheRetainedUuidAndPermanentVerifiedMapping()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "seed-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1737,17 +1631,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreSaveUsesDraftJournalInsteadOfResolvingALegacyPendingFlusher()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "save-core.db");
-        var store = (await CleanStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -1830,7 +1714,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     public async Task CoreInitCliCreatesAnAdmittedWorkspaceAndRefusesReinitializationWithoutChangingIt(
         bool explicitStore, string format, bool explicitBinding)
     {
-        await AttachAsync();
+        await EnrollNativeFixtureAsync();
         var root = Path.Combine(_temp, "fresh-core-checkout");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
@@ -1927,14 +1811,19 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreInitializationDerivesNativeIdentityAndNeverReusesAnExistingDatabase()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
+        await EnrollNativeFixtureAsync();
+        var root = Path.Combine(_temp, "fresh-init");
+        Directory.CreateDirectory(root);
+        InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
+        Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
         _transport.CoreMetadataEnabled = true;
-        var database = Path.Combine(paths.TwigDir, "explicit-init-core.db");
-        var initialized = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, _bindings,
-            database, default, new CoreTransportOverride(_transport.NewHandle));
+        var database = Path.Combine(root, "explicit-init-core.db");
+        var initialized = await NativeWorkspaceSetup.InitializeAsync(
+            new(root, "fixture", "Project", null, null, "ado", null, null, null, database, null),
+            () => _bindings, new NativeSetupEffects(), default, new CoreTransportOverride(_transport.NewHandle));
         initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
+        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
+        var config = await TwigConfiguration.LoadSplitAsync(paths);
         await using var marker = File.OpenRead(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName));
         var document = (await JsonSerializer.DeserializeAsync(marker, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument))!;
         initialized.Value.Document.ShouldBe(document);
@@ -1961,7 +1850,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [InlineData("changed-binding")]
     public async Task CoreInitNativeAuthorityFailureNeverCreatesAStoreOrReusesPartialEvidence(string defect)
     {
-        await AttachAsync();
+        await EnrollNativeFixtureAsync();
         var root = Path.Combine(_temp, "refused-native-init");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
@@ -2050,19 +1939,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task ExplicitCoreProductionRootReadsAndUpdatesThroughDraftDigestJournalWithoutLegacyWriters()
     {
-        var native = await AttachAsync();
-        var config = native.GetRequiredService<TwigConfiguration>();
-        var paths = native.GetRequiredService<TwigPaths>();
-        _transport.CoreMetadataEnabled = true;
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var database = Path.Combine(paths.TwigDir, "production-core.db");
-        var created = await CleanStore.CreateAsync(database);
-        created.IsSuccess.ShouldBeTrue();
-        var store = created.Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths);
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var arguments = new[] { "update", "System.Title", "Core production title", "--id", "42", "-o", "json" };
         var originalOut = Console.Out;
         var originalError = Console.Error;
@@ -2244,21 +2121,14 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CleanCoreAdmissionRetainsRealNativeLeaseAndExactDurableAttemptAttribution()
     {
-        var runtime = await AttachAsync();
-        var config = runtime.GetRequiredService<TwigConfiguration>();
-        var paths = runtime.GetRequiredService<TwigPaths>();
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var config = await TwigConfiguration.LoadSplitAsync(paths);
+        var runtime = BuildRuntime(config, paths);
         var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
         var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
         var fields = new CoreModel.FieldValues([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Core reviewed title"))]);
         var proposal = new CoreModel.Proposal(connection, "native-schema", 0,
             [new("edit", CoreModel.OpKind.Batch, key, new(key, "ado-rev:1"), fields)]);
-        var created = await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"));
-        created.IsSuccess.ShouldBeTrue();
-        var store = created.Value;
-        (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths, store, connection);
         var planned = CoreModel.JournalEntry.Planned(proposal.Digest, 0);
         (await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
         var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
@@ -2329,23 +2199,18 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [InlineData("changed")]
     public async Task CleanCoreAdmissionRechecksActualPolicyPresenceAndBytesAfterPreview(string change)
     {
-        var runtime = await AttachAsync();
-        var config = runtime.GetRequiredService<TwigConfiguration>();
-        var paths = runtime.GetRequiredService<TwigPaths>();
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var config = await TwigConfiguration.LoadSplitAsync(paths);
+        var runtime = BuildRuntime(config, paths);
         const string policyText = """{"version":1,"rules":[]}""";
         if (change != "appeared") await File.WriteAllTextAsync(paths.PolicyPath, policyText);
         var observed = (await new ConfiguredPolicyProjectionSource(paths.RepoRoot).ReadAsync(default)).Value;
         var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
         var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
         var proposal = new CoreModel.Proposal(connection, "native-schema", 0,
             [new("edit", CoreModel.OpKind.Batch, key, new(key, "ado-rev:1"),
                 new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("reviewed"))]))],
             observed.Identity, observed.Revision);
-        var store = (await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"))).Value;
-        (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths, store, connection);
         var planned = CoreModel.JournalEntry.Planned(proposal.Digest, 0);
         (await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
         var attempt = Guid.NewGuid();
@@ -2369,15 +2234,10 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CleanCoreAccessRefusesANewSelectedActorBeforeWorkTransport()
     {
-        var runtime = await AttachAsync();
-        var config = runtime.GetRequiredService<TwigConfiguration>();
-        var paths = runtime.GetRequiredService<TwigPaths>();
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var config = await TwigConfiguration.LoadSplitAsync(paths);
+        var runtime = BuildRuntime(config, paths);
         var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
-            "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
-        var store = (await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"))).Value;
-        (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
-        await ActivateNativeSafetyFixtureAsync(paths, store, connection);
         var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
             config, paths, origin, connection, Actor, store);
         var replacement = await _bindings.CreateBindingAsync(config.Organization, config.Project, "sibling", false);
@@ -2406,13 +2266,18 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             (await registry.UpsertConnectionAsync(connection, config.Organization, config.Project, null)).IsSuccess.ShouldBeTrue();
             (await registry.UpsertWorktreeAsync(WorktreeFingerprintProvider.CanonicalJson(anchor), connection, anchor.WorktreeRoot)).IsSuccess.ShouldBeTrue();
         }
-        await _bindings.RegisterPatIdentityAsync("actor", config.Organization, ActorPat);
-        await _bindings.RegisterPatIdentityAsync("sibling", config.Organization, SiblingPat);
-        await _bindings.CreateBindingAsync(config.Organization, config.Project, "actor", true);
+        await EnrollNativeFixtureAsync();
+        return BuildRuntime(config, paths);
+    }
+
+    private async Task EnrollNativeFixtureAsync()
+    {
+        await _bindings.RegisterPatIdentityAsync("actor", "fixture", ActorPat);
+        await _bindings.RegisterPatIdentityAsync("sibling", "fixture", SiblingPat);
+        await _bindings.CreateBindingAsync("fixture", "Project", "actor", true);
         _transport.SetItem(42, "Original actor plan", 1, Actor);
         _transport.SetItem(43, "Another actor plan", 1, Actor);
         _transport.SetItem(44, "Sibling private plan", 1, Sibling);
-        return BuildRuntime(config, paths);
     }
 
     private ServiceProvider BuildRuntime(TwigConfiguration config, TwigPaths paths)

@@ -186,25 +186,17 @@ public sealed partial class NativePublicationConsumerTests
         var root = Path.Combine(_temp, "second-plan-root");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
+        Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
         var config = new TwigConfiguration { Organization = "fixture-two", Project = "Project" };
-        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
-        await config.SaveSplitAsync(paths);
-        using (var attachment = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System))
-            (await attachment.InitializeAsync()).IsSuccess.ShouldBeTrue();
-        var anchor = WorktreeAnchorDetector.Detect(root)!.Value;
-        (await _systemRegistry.UpsertConnectionAsync(ConnectionRefResolver.Compute(config), config.Organization, config.Project, null))
-            .IsSuccess.ShouldBeTrue();
-        (await _systemRegistry.UpsertWorktreeAsync(WorktreeFingerprintProvider.CanonicalJson(anchor),
-            ConnectionRefResolver.Compute(config), root)).IsSuccess.ShouldBeTrue();
         await _bindings.RegisterPatIdentityAsync("actor-two", config.Organization, ActorPat);
         await _bindings.CreateBindingAsync(config.Organization, config.Project, "actor-two", true);
-        var origin = await _bindings.ResolveAsync(config, paths);
-        var connection = new Connection(first.Stamp.Connection.Provider, first.Stamp.Connection.ResourceScope,
-            first.Stamp.Connection.Destination, CleanCoreAdoAccess.Identity(origin, Actor));
+        var initialized = await NativeWorkspaceSetup.InitializeAsync(
+            new(root, config.Organization, config.Project, null, null, "ado", null, null, null, null, null),
+            () => _bindings, new NativeSetupEffects(), default, new CoreTransportOverride(_transport.NewHandle));
+        initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
+        var paths = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), root);
+        var connection = initialized.Value.Source.Connection;
         connection.ShouldNotBe(first.Stamp.Connection);
-        var database = Path.Combine(paths.TwigDir, "core.db");
-        var store = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(database)).Value;
-        (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
         await ActivateNativeSafetyFixtureAsync(paths);
         using var services = EditorServices(root);
         using var second = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;

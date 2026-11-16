@@ -158,7 +158,7 @@ public sealed partial class NativePublicationConsumerTests
 
     private async Task<(NativeConnectionSetup Setup, string Root)> FreshConnectionSetup()
     {
-        await AttachAsync();
+        await EnrollNativeFixtureAsync();
         var root = Path.Combine(_temp, "fresh-setup");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();

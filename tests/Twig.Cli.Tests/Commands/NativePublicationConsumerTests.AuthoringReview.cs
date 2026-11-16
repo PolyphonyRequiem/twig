@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Core;
 using Twig.Infrastructure.Services;
+using Twig.Store.Sqlite;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;

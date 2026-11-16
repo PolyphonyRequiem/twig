@@ -13,15 +13,8 @@ namespace Twig.Infrastructure.Persistence;
 /// WAL mode + <c>BEGIN IMMEDIATE</c> transactions per §6.2.
 /// <para>
 /// Unknown <c>layout_meta.version</c> values fail closed with
-/// <c>system-store-schema-mismatch</c>. Only bounded additive v3/v4/v5/v6/v7/v8→v9
-/// identity/native-migration/transition/remote-write/default-family upgrades followed
-/// by v9→v10 provider-target storage, v10→v11 Core execution references and
-/// v11→v12 independent native capture-generation provenance
-/// are supported; earlier tuple-storage layouts
-/// remain a hard boundary. Existing worktree, claim and credential authority is retained.
-/// Older fresh opens fail closed. Cached handles/in-flight older migrators are not
-/// retroactively fenced: quiesce them before first v12 open. Executable-only rollback
-/// and preactivation database restoration after new effects are unsupported.
+/// <c>system-store-schema-mismatch</c>. Only fresh initialization and exact-current
+/// schema reopen are supported. Unsupported stores are never upgraded or reset.
 /// </para>
 /// <para>
 /// <b>Concurrent open safety.</b> Initialization is serialized across
@@ -40,17 +33,7 @@ namespace Twig.Infrastructure.Persistence;
 /// </summary>
 internal sealed partial class SqliteSystemWorktreeRegistry : IDisposable
 {
-    // AB#739 bump from 1 → 2 for the tuple-storage schema change
-    // (`primary_scope_kind` column + extended partial unique index).
-    // Additive identity migrations: v3→v4 adds AAD bindings; v4→v5 adds
-    // method-specific PAT principal evidence without rewriting AAD authority.
-    // v5→v6 adds native recoverable connection migration intents, without rewriting existing rows.
-    // v6→v7 adds recoverable binding pin/removal authority, retaining all prior ledgers.
-    // v7→v8 adds native remote-write admission/observations/receipts; process death cannot erase uncertainty.
-    // v8→v9 adds all-worktree default families; unfinished families fence every affected generation.
-    // v9→v10 adds provider-neutral target bindings without referencing ADO rows.
-    // v10→v11 adds pending activation and authoritative Core references, never outcome backfill.
-    private const int SchemaVersion = 12;
+    internal const int SchemaVersion = 13;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -250,6 +233,26 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
             {
                 newConnection.Open();
 
+                if (!isNewDb)
+                {
+                    var (present, committedVersion) = WaitForCommittedSchemaVersion(newConnection);
+                    if (!present || committedVersion != SchemaVersion)
+                    {
+                        _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
+                        newConnection.Dispose();
+                        connection = null; failure = _openFailure; return false;
+                    }
+                    using var validation = newConnection.BeginTransaction(deferred: true);
+                    var gate = ReadCoreGate(newConnection, validation, CancellationToken.None).GetAwaiter().GetResult();
+                    if (!gate.IsSuccess)
+                        throw new InvalidDataException(gate.Error.Message);
+                    CheckCaptureReferences(newConnection, validation, CancellationToken.None).GetAwaiter().GetResult();
+                    using var births = newConnection.CreateCommand();
+                    births.Transaction = validation;
+                    births.CommandText = "SELECT id,store_instance,origin,source,ownership,registry_instance,registry_revision,origin_version,parent_digest,covered,born,enlisted FROM core_scope_births LIMIT 0;";
+                    births.ExecuteScalar();
+                }
+
                 // PRAGMAs must run one at a time — Microsoft.Data.Sqlite's
                 // batched PRAGMA path can misbehave under a mid-init race.
                 // Retry SQLITE_BUSY (code 5) so a cross-process peer briefly
@@ -262,29 +265,12 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
                 {
                     EnsureSchema(newConnection);
                 }
-                else
-                {
-                    // Existing DB — could be another peer's in-flight init.
-                    // Wait for a committed layout_meta row, then either accept
-                    // the current version, run a bounded additive migration
-                    // from the previous version, or fail closed.
-                    var (present, committedVersion) = WaitForCommittedSchemaVersion(newConnection);
-                    if (!present)
-                    {
-                        _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
-                        newConnection.Dispose();
-                        connection = null; failure = _openFailure; return false;
-                    }
-                    if (committedVersion != SchemaVersion)
-                    {
-                        if (!TryAdditiveMigrate(newConnection, committedVersion, SchemaVersion))
-                        {
-                            _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
-                            newConnection.Dispose();
-                            connection = null; failure = _openFailure; return false;
-                        }
-                    }
-                }
+            }
+            catch (InvalidDataException)
+            {
+                newConnection.Dispose();
+                _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
+                connection = null; failure = _openFailure; return false;
             }
             catch
             {
@@ -334,134 +320,6 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
         return (false, 0);
     }
 
-    /// <summary>
-    /// Forward-only additive upgrades through v9, then atomic native target/
-    /// execution-reference additions through v11 and authoring provenance through v12. Existing connection/worktree/claim rows
-    /// and credentials are never rewritten.
-    /// </summary>
-    private bool TryAdditiveMigrate(SqliteConnection connection, int fromVersion, int toVersion)
-    {
-        if (toVersion != SchemaVersion)
-            return false;
-
-        if (fromVersion is 3 or 4 or 5 or 6 or 7 or 8)
-        {
-            if (!TryAdditiveMigrateToNine(connection, fromVersion))
-                return false;
-            fromVersion = 9;
-        }
-
-        if (fromVersion is not (9 or 10 or 11))
-            return false;
-
-        using var targetTx = connection.BeginTransaction(deferred: false);
-        try
-        {
-            using (var probe = connection.CreateCommand())
-            {
-                probe.Transaction = targetTx;
-                probe.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
-                fromVersion = Convert.ToInt32(probe.ExecuteScalar());
-            }
-            if (fromVersion == SchemaVersion)
-            {
-                CheckCaptureReferences(connection, targetTx, CancellationToken.None).GetAwaiter().GetResult();
-                targetTx.Commit();
-                return true;
-            }
-            if (fromVersion is not (9 or 10 or 11)) return false;
-            using (var cmd = connection.CreateCommand())
-            {
-                cmd.Transaction = targetTx;
-                if (fromVersion != 11)
-                {
-                    cmd.CommandText = ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql;
-                    cmd.ExecuteNonQuery();
-                }
-                var existing = ReadCoreGate(connection, targetTx, CancellationToken.None, requiredVersion: fromVersion)
-                    .GetAwaiter().GetResult();
-                if (!existing.IsSuccess) return false;
-                cmd.CommandText = """
-                    SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN(
-                        'layout_meta','connections','worktrees','claims','tuple_epochs','profile_cache',
-                        'identities','connection_bindings','connection_defaults','pat_principals','connection_migrations',
-                        'connection_binding_transitions','connection_remote_write_intents','connection_remote_write_observations',
-                        'connection_remote_write_receipts','connection_default_transitions','connection_default_transition_members',
-                        'provider_target_bindings','core_execution_meta','core_store_refs','core_attempt_refs');
-                    """;
-                if (Convert.ToInt32(cmd.ExecuteScalar()) != 21) return false;
-                cmd.CommandText = "SELECT binding_id,provider_kind,resource_scope,descriptor_kind,descriptor_value,locator,display_name,revision,created_at,updated_at FROM provider_target_bindings LIMIT 0;";
-                cmd.ExecuteScalar();
-                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='core_scope_births';";
-                if (Convert.ToInt32(cmd.ExecuteScalar()) != 0)
-                {
-                    cmd.CommandText = "SELECT id,store_instance,origin,source,ownership,registry_instance,registry_revision,origin_version,parent_digest,covered,born,enlisted FROM core_scope_births LIMIT 0;";
-                    cmd.ExecuteScalar();
-                }
-                cmd.CommandText = CaptureSchemaSql;
-                cmd.ExecuteNonQuery();
-            }
-            using (var cmd = connection.CreateCommand())
-            {
-                cmd.Transaction = targetTx;
-                cmd.CommandText = "UPDATE layout_meta SET version = $version WHERE id = 1 AND version=$previous;";
-                cmd.Parameters.AddWithValue("$version", toVersion);
-                cmd.Parameters.AddWithValue("$previous", fromVersion);
-                if (cmd.ExecuteNonQuery() != 1) return false;
-            }
-            targetTx.Commit();
-            return true;
-        }
-        catch
-        {
-            try { targetTx.Rollback(); } catch { /* best effort */ }
-            return false;
-        }
-    }
-
-    private static bool TryAdditiveMigrateToNine(SqliteConnection connection, int fromVersion)
-    {
-        using var tx = connection.BeginTransaction(deferred: false);
-        try
-        {
-            using (var probe = connection.CreateCommand())
-            {
-                probe.Transaction = tx; probe.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
-                fromVersion = Convert.ToInt32(probe.ExecuteScalar());
-                if (fromVersion is >= 9 and <= SchemaVersion) { tx.Commit(); return true; }
-                if (fromVersion is < 3 or > 8) return false;
-            }
-            using (var cmd = connection.CreateCommand())
-            {
-                cmd.Transaction = tx;
-                cmd.CommandText = (fromVersion >= 5 ? string.Empty : IdentitySchemaSql + PatPrincipalSchemaSql)
-                    + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql;
-                cmd.ExecuteNonQuery();
-            }
-            using (var cmd = connection.CreateCommand())
-            {
-                cmd.Transaction = tx;
-                cmd.CommandText = "UPDATE layout_meta SET version = 9 WHERE id = 1 AND version=$previous;";
-                cmd.Parameters.AddWithValue("$previous", fromVersion);
-                if (cmd.ExecuteNonQuery() != 1) return false;
-            }
-            tx.Commit();
-            return true;
-        }
-        catch
-        {
-            try { tx.Rollback(); } catch { /* best effort */ }
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Shared DDL for the Task #1104 identity surface, used both by the
-    /// initial-provision path in <see cref="EnsureSchema"/> and by the
-    /// additive identity migrator. Pure <c>CREATE TABLE IF NOT EXISTS</c> and
-    /// <c>CREATE INDEX IF NOT EXISTS</c> so running it against an
-    /// already-migrated DB is a no-op.
-    /// </summary>
     private const string IdentitySchemaSql = @"
 CREATE TABLE IF NOT EXISTS identities (
     identity_id TEXT PRIMARY KEY,
@@ -582,29 +440,14 @@ CREATE INDEX IF NOT EXISTS idx_claims_state ON claims(state);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_unique_reserved
     ON claims(connection_ref, primary_scope_kind, work_item_id)
     WHERE state IN ('pending', 'active');
-CREATE TABLE IF NOT EXISTS tuple_epochs (
-    connection_ref TEXT NOT NULL,
-    primary_scope_kind TEXT NOT NULL,
-    work_item_id INTEGER NOT NULL,
-    current_epoch INTEGER NOT NULL DEFAULT 0,
-    winning_claim_id TEXT,
-    winning_cas_token TEXT,
-    PRIMARY KEY (connection_ref, primary_scope_kind, work_item_id)
-);
-CREATE TABLE IF NOT EXISTS profile_cache (
-    connection_ref TEXT PRIMARY KEY REFERENCES connections(connection_ref) ON DELETE RESTRICT,
-    profile_identity TEXT NOT NULL,
-    profile_version TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    fetched_at TEXT NOT NULL
-);";
+";
             cmd.ExecuteNonQuery();
         }
-        // Fresh provisioning and additive migration share the same identity DDL.
+        // Provision the complete current schema in the same transaction.
         using (var cmd = connection.CreateCommand())
         {
             cmd.Transaction = tx;
-            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql + ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql + CaptureSchemaSql;
+            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + ActivationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql + ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql + CaptureSchemaSql + ScopeBirthSchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

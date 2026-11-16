@@ -96,15 +96,25 @@ internal sealed class WorktreeLocalAttachmentStore : IDisposable
     {
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
             return NativeResults.Fail(anchorFailure);
-        if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
-            return NativeResults.Fail(AttachmentStorageFailure.LegacyLayoutPresent);
-
+        using var operation = ConnectionOperationGate.Acquire(Path.GetDirectoryName(_paths.TwigDir)!);
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+        FileStream? lockHandle = null;
         try
         {
+            if (!HasCurrentLayoutEntries())
+                return NativeResults.Fail(AttachmentStorageFailure.UnsupportedLayout);
+            lockHandle = await AcquireCrossProcessLockAsync(ct).ConfigureAwait(false);
+            if (lockHandle is null)
+                return NativeResults.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
             var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
             if (_initialBindingPin is not null && File.Exists(attachmentPath))
                 return NativeResults.Fail("binding-initialization-requires-fresh-checkout: use guarded 'twig connection pin' for an existing attachment.");
+            if (File.Exists(Path.Combine(_paths.TwigDir, LayoutFileName))
+                || File.Exists(Path.Combine(_paths.TwigDir, WorktreeFileName)) || File.Exists(attachmentPath))
+            {
+                var existing = await ReadInternalAsync(ct).ConfigureAwait(false);
+                return existing.IsSuccess ? NativeResults.Ok() : NativeResults.Fail(existing.Error);
+            }
             Directory.CreateDirectory(_paths.TwigDir);
             await EnsureLayoutMarkerAsync(ct).ConfigureAwait(false);
             await WriteFingerprintAsync(anchor, ct).ConfigureAwait(false);
@@ -122,6 +132,7 @@ internal sealed class WorktreeLocalAttachmentStore : IDisposable
         catch (UnauthorizedAccessException ex) { return NativeResults.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
         finally
         {
+            lockHandle?.Dispose();
             _writeGate.Release();
         }
     }
@@ -185,8 +196,8 @@ internal sealed class WorktreeLocalAttachmentStore : IDisposable
         ct.ThrowIfCancellationRequested();
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
             return NativeResults.Fail<ReadOutcome>(anchorFailure);
-        if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
-            return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.LegacyLayoutPresent);
+        if (!HasCurrentLayoutEntries())
+            return NativeResults.Fail<ReadOutcome>(AttachmentStorageFailure.UnsupportedLayout);
 
         var layoutPath = Path.Combine(_paths.TwigDir, LayoutFileName);
         if (!File.Exists(layoutPath))
@@ -514,94 +525,26 @@ internal sealed class WorktreeLocalAttachmentStore : IDisposable
     }
 
     public void Dispose() => _writeGate.Dispose();
-}
 
-/// <summary>
-/// Detects the legacy pre-AB#736 layout so runtime storage reads/writes
-/// refuse fail-closed rather than adopt the old tree silently.
-/// </summary>
-internal static class LegacyLayoutDetector
-{
-    /// <summary>
-    /// Returns <c>true</c> when either legacy predicate matches — a nested
-    /// <c>{org}/{project}/twig.db</c> tree OR a flat pre-T1 <c>twig.db</c> at
-    /// the workspace root. Design §7 requires both predicates to be checked
-    /// independently EVEN when the current-shape <c>layout.json</c> marker
-    /// exists; a mixed tree is a corruption signal, not a valid workspace.
-    /// </summary>
-    public static bool IsLegacyLayoutPresent(string? twigDir)
+    private bool HasCurrentLayoutEntries()
     {
-        if (string.IsNullOrEmpty(twigDir) || !Directory.Exists(twigDir))
-            return false;
-        return HasNestedLegacyDb(twigDir) || HasFlatLegacyDb(twigDir);
-    }
-
-    /// <summary>Design §7 predicate #1: any <c>.twig/{org}/{project}/twig.db</c>.</summary>
-    public static bool HasNestedLegacyDb(string twigDir)
-    {
-        try
+        if (!Directory.Exists(_paths.TwigDir)) return true;
+        foreach (var entry in Directory.EnumerateFileSystemEntries(_paths.TwigDir))
         {
-            foreach (var orgDir in Directory.EnumerateDirectories(twigDir))
+            var name = Path.GetFileName(entry);
+            if (Directory.Exists(entry))
             {
-                var name = Path.GetFileName(orgDir);
-                if (string.Equals(name, WorktreeLocalAttachmentStore.TmpDirName, StringComparison.Ordinal)
-                    || string.Equals(name, "cache", StringComparison.Ordinal)
-                    || name.StartsWith('.'))
-                    continue;
-                foreach (var projectDir in Directory.EnumerateDirectories(orgDir))
-                {
-                    if (File.Exists(Path.Combine(projectDir, "twig.db")))
-                        return true;
-                }
+                if (name is not ("cache" or TmpDirName or "core-github-intents")) return false;
             }
+            else if (name is not (LayoutFileName or WorktreeFileName or AttachmentFileName or AttachmentLockFileName
+                or "config" or "core-workspace.json" or "core-context.json" or "core-init.lock" or "EDIT_MSG"
+                or "provider-target.json" or "provider-target.json.lock")
+                && !NativePathComparer.Instance.Equals(Path.GetFullPath(entry), Path.GetFullPath(_paths.DbPath))
+                && !NativePathComparer.Instance.Equals(Path.GetFullPath(entry), Path.GetFullPath(_paths.DbPath + "-wal"))
+                && !NativePathComparer.Instance.Equals(Path.GetFullPath(entry), Path.GetFullPath(_paths.DbPath + "-shm")))
+                return false;
         }
-        catch (IOException) { return false; }
-        catch (UnauthorizedAccessException) { return false; }
-        return false;
-    }
-
-    /// <summary>Design §7 predicate #2: a flat pre-T1 <c>twig.db</c> at the workspace root.</summary>
-    public static bool HasFlatLegacyDb(string twigDir)
-    {
-        try { return File.Exists(Path.Combine(twigDir, "twig.db")); }
-        catch (IOException) { return false; }
-        catch (UnauthorizedAccessException) { return false; }
-    }
-
-    /// <summary>
-    /// Atomically archives <c>.twig/</c> to
-    /// <c>.twig-legacy-&lt;timestamp&gt;/</c> as a whole-tree rename. No
-    /// conversion, no per-file migration — the point is a supported recovery
-    /// path for a legacy-detected checkout, not silent adoption. A rename
-    /// failure leaves the source intact and returns
-    /// <see cref="AttachmentStorageFailure.LegacyLayoutArchiveFailed"/>.
-    /// </summary>
-    public static Twig.Core.Result<string> ArchiveLegacyLayout(string twigDir, TimeProvider clock)
-    {
-        if (string.IsNullOrEmpty(twigDir) || !Directory.Exists(twigDir))
-            return NativeResults.Ok(string.Empty);
-        var parent = Path.GetDirectoryName(twigDir);
-        if (string.IsNullOrEmpty(parent))
-            return NativeResults.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed);
-        var stamp = clock.GetUtcNow().UtcDateTime.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
-        var target = Path.Combine(parent, $".twig-legacy-{stamp}");
-        // Uniqueness under fast-repeat: append a short suffix if the target
-        // exists. Same-second archives get a monotonic disambiguator rather
-        // than colliding.
-        var attempt = 0;
-        while (Directory.Exists(target) || File.Exists(target))
-        {
-            attempt++;
-            target = Path.Combine(parent, $".twig-legacy-{stamp}-{attempt}");
-            if (attempt > 32) return NativeResults.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed);
-        }
-        try
-        {
-            Directory.Move(twigDir, target);
-            return NativeResults.Ok(target);
-        }
-        catch (IOException) { return NativeResults.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed); }
-        catch (UnauthorizedAccessException) { return NativeResults.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed); }
+        return true;
     }
 }
 

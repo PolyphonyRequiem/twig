@@ -15,7 +15,6 @@ internal sealed record NativeCaptureReference(string Path, Guid User, long Gener
     Guid Capture, long Revision, string Document, string Previous, string ExecutionPath, string Root,
     NativeSourceStamp Source, Guid Store, long BeforeVersion, string Before, string Desired)
 {
-    public string Migration { get; init; } = "";
     internal string Head => Convert.ToHexStringLower(SHA256.HashData(
         JsonSerializer.SerializeToUtf8Bytes(this, NativeCaptureReferenceJson.Default.NativeCaptureReference)));
 }
@@ -26,9 +25,9 @@ internal sealed partial class SqliteSystemWorktreeRegistry
     private const string CaptureSchemaSql = """
         CREATE TABLE editor_provenance_meta(id INTEGER PRIMARY KEY CHECK(id=1),ready INTEGER NOT NULL CHECK(ready IN(0,1)),
             users INTEGER NOT NULL,refs INTEGER NOT NULL,seal TEXT NOT NULL);
-        INSERT INTO editor_provenance_meta VALUES(1,0,0,0,'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+        INSERT INTO editor_provenance_meta VALUES(1,1,0,0,'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
         CREATE TABLE editor_user_heads(path TEXT PRIMARY KEY,user_id TEXT NOT NULL UNIQUE,generation INTEGER NOT NULL CHECK(generation>=0),
-            head TEXT NOT NULL,birth TEXT NOT NULL CHECK(birth IN('reserved','born','migrated') OR birth LIKE 'migrating:%'));
+            head TEXT NOT NULL,birth TEXT NOT NULL CHECK(birth IN('reserved','born')));
         CREATE TABLE editor_capture_refs(user_id TEXT NOT NULL,generation INTEGER NOT NULL,head TEXT NOT NULL,
             document TEXT NOT NULL,confirmed INTEGER NOT NULL CHECK(confirmed IN(0,1)),admitted INTEGER NOT NULL CHECK(admitted IN(0,1)),
             actual_version INTEGER,PRIMARY KEY(user_id,generation),FOREIGN KEY(user_id) REFERENCES editor_user_heads(user_id));
@@ -46,41 +45,6 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 : Result<bool>.Fail(ErrorCode.Conflict, "The exact native user-store birth witness changed.");
         }, ct);
 
-    internal Task<Result<bool>> MigrateCaptureUserAsync(string path, Guid user, string proof, CancellationToken ct, string confirmation = "")
-        => CaptureWrite(async (db, tx) =>
-        {
-            using var command = db.CreateCommand(); command.Transaction = tx;
-            if (Encoding.UTF8.GetByteCount(confirmation) > 2 * 1024 * 1024)
-                return Result<bool>.Fail(ErrorCode.InvalidInput, "Initial-authoring proof exceeds its byte bound.");
-            command.CommandText = "PRAGMA table_info(editor_user_heads);";
-            var hasProof = false;
-            using (var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
-                while (await reader.ReadAsync(ct).ConfigureAwait(false)) hasProof |= reader.GetString(1) == "adoption_proof";
-            if (!hasProof)
-            {
-                command.CommandText = "ALTER TABLE editor_user_heads ADD COLUMN adoption_proof TEXT NOT NULL DEFAULT '';";
-                await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            }
-            command.CommandText = "INSERT INTO editor_user_heads(path,user_id,generation,head,birth,adoption_proof) VALUES($path,$user,0,'',$proof,$confirmation);";
-            command.Parameters.AddWithValue("$path", path); command.Parameters.AddWithValue("$user", user.ToString("D"));
-            command.Parameters.AddWithValue("$proof", "migrating:" + proof);
-            command.Parameters.AddWithValue("$confirmation", confirmation);
-            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            return Result<bool>.Ok(true);
-        }, ct);
-
-    internal Task<Result<bool>> CompleteCaptureMigrationAsync(Guid user, string proof, CancellationToken ct)
-        => CaptureWrite(async (db, tx) =>
-        {
-            using var command = db.CreateCommand(); command.Transaction = tx;
-            command.CommandText = "UPDATE editor_user_heads SET birth='migrated' WHERE user_id=$user AND birth=$proof;";
-            command.Parameters.AddWithValue("$user", user.ToString("D")); command.Parameters.AddWithValue("$proof", "migrating:" + proof);
-            if (await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
-                return Result<bool>.Fail(ErrorCode.Conflict, "The exact provenance migration reservation changed.");
-            await CheckCapturePayloads(db, tx, ct).ConfigureAwait(false);
-            return Result<bool>.Ok(true);
-        }, ct);
-
     internal Task<Result<ImmutableArray<NativeCaptureHead>>> CaptureHeadsAsync(CancellationToken ct)
         => CaptureRead(async db =>
         {
@@ -94,16 +58,15 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         {
             var heads = await CaptureHeads(db, tx, ct).ConfigureAwait(false);
             var current = heads.SingleOrDefault(head => head.Path == reference.Path);
-            if (current is null || current.User != reference.User || current.Birth == "reserved"
+            if (current is null || current.User != reference.User || current.Birth != "born"
                 || current.Generation == long.MaxValue || reference.Generation <= 0
                 || current.Generation + 1 != reference.Generation || current.Head != reference.Parent)
                 return Result<NativeCaptureReference>.Fail(ErrorCode.StorageUnavailable, "Native capture generation/birth provenance is missing or changed; no first-use inference.");
             using (var coverage = db.CreateCommand())
             {
                 coverage.Transaction = tx; coverage.CommandText = "SELECT ready FROM editor_provenance_meta WHERE id=1;";
-                if (Convert.ToInt32(await coverage.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 1
-                    && (reference.Migration.Length == 0 || current.Birth != "migrating:" + reference.Migration))
-                    return Result<NativeCaptureReference>.Fail(ErrorCode.PolicyViolation, "Actual complete namespace/source provenance migration is pending.");
+                if (Convert.ToInt32(await coverage.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 1)
+                    return Result<NativeCaptureReference>.Fail(ErrorCode.PolicyViolation, "The current native source inventory requires confirmation.");
             }
             var gate = await ReadCoreGate(db, tx, ct).ConfigureAwait(false);
             if (!gate.IsSuccess) return Result<NativeCaptureReference>.Fail(gate.Error);
@@ -147,7 +110,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             using var command = db.CreateCommand(); command.Transaction = tx;
             command.CommandText = "SELECT ready FROM editor_provenance_meta WHERE id=1;";
             if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 1)
-                return Result<string>.Fail(ErrorCode.PolicyViolation, "The one-time native publishing safety check is pending: actual capture-provenance inventory/quiescence migration is required.");
+                return Result<string>.Fail(ErrorCode.PolicyViolation, "The current native source inventory requires confirmation before publishing.");
             var heads = await CaptureHeads(db, tx, ct).ConfigureAwait(false);
             using var leases = ConnectionOperationGate.AcquireCoreTargets(_dbPath, heads.Select(head => UserBenchStore.CaptureLeaseKey(head.Path)));
             await CheckCapturePayloads(db, tx, ct).ConfigureAwait(false);

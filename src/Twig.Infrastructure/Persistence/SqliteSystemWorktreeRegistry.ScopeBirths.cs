@@ -11,6 +11,14 @@ internal sealed record NativeScopeBirth(Guid Id, NativeCoreStoreReference Origin
 
 internal sealed partial class SqliteSystemWorktreeRegistry
 {
+    private const string ScopeBirthSchemaSql = """
+        CREATE TABLE core_scope_births(
+            id TEXT PRIMARY KEY,store_instance TEXT NOT NULL UNIQUE,origin TEXT NOT NULL,source TEXT NOT NULL,ownership TEXT NOT NULL,
+            registry_instance TEXT NOT NULL,registry_revision INTEGER NOT NULL,origin_version INTEGER NOT NULL,
+            parent_digest TEXT,covered INTEGER NOT NULL CHECK(covered IN(0,1)),born INTEGER NOT NULL CHECK(born IN(0,1)),
+            enlisted INTEGER NOT NULL CHECK(enlisted IN(0,1)));
+        """;
+
     internal async Task<Result<SqliteStore>> CreateCoveredScopeAsync(Guid reservationId, NativeCoreStoreReference origin,
         NativeCoreStoreReference source, string ownershipCapture, CancellationToken ct)
     {
@@ -46,11 +54,6 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             using var command = db.CreateCommand();
             command.Transaction = tx;
             command.CommandText = """
-                CREATE TABLE IF NOT EXISTS core_scope_births(
-                    id TEXT PRIMARY KEY,store_instance TEXT NOT NULL UNIQUE,origin TEXT NOT NULL,source TEXT NOT NULL,ownership TEXT NOT NULL,
-                    registry_instance TEXT NOT NULL,registry_revision INTEGER NOT NULL,origin_version INTEGER NOT NULL,
-                    parent_digest TEXT,covered INTEGER NOT NULL CHECK(covered IN(0,1)),born INTEGER NOT NULL CHECK(born IN(0,1)),
-                    enlisted INTEGER NOT NULL CHECK(enlisted IN(0,1)));
                 INSERT INTO core_scope_births
                 SELECT $id,$store,$origin,$source,$ownership,instance,revision,$version,digest,active,0,0
                 FROM core_execution_meta WHERE id=1;

@@ -16,7 +16,7 @@ internal sealed record ConnectionBindingTransitionRecord(
     string ConfigurationHash, string WorktreeHash, string LayoutHash, string AttachmentHash,
     AttachmentDocument OriginalAttachment, AttachmentDocument DesiredAttachment,
     string Generation, string SourceMirror, string CurrentMirror,
-    ConnectionMigrationRecord OriginalMigration, bool ResetRequired);
+    ConnectionActivationRecord OriginalActivation, bool ResetRequired);
 
 internal sealed partial class SqliteSystemWorktreeRegistry
 {
@@ -52,7 +52,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
     internal Task<Result<bool>> BeginConnectionBindingTransitionAsync(ConnectionBindingTransitionRecord record, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
-            var admission = await ValidateTransitionAuthorityAsync(connection, tx, record, record.OriginalMigration, ct).ConfigureAwait(false);
+            var admission = await ValidateTransitionAuthorityAsync(connection, tx, record, record.OriginalActivation, ct).ConfigureAwait(false);
             if (!admission.IsSuccess) return admission;
             using var cmd = connection.CreateCommand();
             cmd.Transaction = tx;
@@ -70,18 +70,18 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             if (record.State != "preparing") return NativeResults.Fail("binding-transition-state-mismatch");
-            var admission = await ValidateTransitionAuthorityAsync(connection, tx, record, record.OriginalMigration, ct).ConfigureAwait(false);
+            var admission = await ValidateTransitionAuthorityAsync(connection, tx, record, record.OriginalActivation, ct).ConfigureAwait(false);
             if (!admission.IsSuccess) return admission;
-            var migration = TransitionMigration(record);
+            var activation = TransitionActivation(record);
             using (var cmd = connection.CreateCommand())
             {
                 cmd.Transaction = tx;
-                cmd.CommandText = "UPDATE connection_migrations SET generation=$generation,record_json=$json WHERE worktree_fingerprint=$fp AND state='active' AND generation=$old AND record_json=$original;";
-                cmd.Parameters.AddWithValue("$generation", migration.Generation);
-                cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(migration, TwigJsonContext.Default.ConnectionMigrationRecord));
+                cmd.CommandText = "UPDATE connection_activations SET generation=$generation,record_json=$json WHERE worktree_fingerprint=$fp AND state='active' AND generation=$old AND record_json=$original;";
+                cmd.Parameters.AddWithValue("$generation", activation.Generation);
+                cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(activation, TwigJsonContext.Default.ConnectionActivationRecord));
                 cmd.Parameters.AddWithValue("$fp", record.Fingerprint);
-                cmd.Parameters.AddWithValue("$old", record.OriginalMigration.Generation);
-                cmd.Parameters.AddWithValue("$original", JsonSerializer.Serialize(record.OriginalMigration, TwigJsonContext.Default.ConnectionMigrationRecord));
+                cmd.Parameters.AddWithValue("$old", record.OriginalActivation.Generation);
+                cmd.Parameters.AddWithValue("$original", JsonSerializer.Serialize(record.OriginalActivation, TwigJsonContext.Default.ConnectionActivationRecord));
                 if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
                     return NativeResults.Fail("binding-transition-generation-cas-mismatch: original admission changed; retain and recover the original intent.");
             }
@@ -99,13 +99,13 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 _ => null
             };
             if (expected != state) return NativeResults.Fail("binding-transition-state-mismatch: native recovery progress must advance in order.");
-            var admission = await ValidateTransitionAuthorityAsync(connection, tx, record, TransitionMigration(record), ct).ConfigureAwait(false);
+            var admission = await ValidateTransitionAuthorityAsync(connection, tx, record, TransitionActivation(record), ct).ConfigureAwait(false);
             if (!admission.IsSuccess) return admission;
             return await AdvanceTransitionAsync(connection, tx, record, state, ct).ConfigureAwait(false);
         }, ct);
 
-    internal static ConnectionMigrationRecord TransitionMigration(ConnectionBindingTransitionRecord record)
-        => record.OriginalMigration with
+    internal static ConnectionActivationRecord TransitionActivation(ConnectionBindingTransitionRecord record)
+        => record.OriginalActivation with
         {
             Generation = record.Generation,
             BindingId = record.DesiredBinding.Binding.BindingId,
@@ -131,7 +131,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
     }
 
     private static async Task<Result<bool>> ValidateTransitionAuthorityAsync(SqliteConnection connection, SqliteTransaction tx,
-        ConnectionBindingTransitionRecord record, ConnectionMigrationRecord expectedMigration, CancellationToken ct, string? defaultDigest = null)
+        ConnectionBindingTransitionRecord record, ConnectionActivationRecord expectedActivation, CancellationToken ct, string? defaultDigest = null)
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
@@ -175,11 +175,11 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.RemoveAt("$identity");
             cmd.Parameters.RemoveAt("$revision");
         }
-        cmd.CommandText = "SELECT record_json FROM connection_migrations WHERE worktree_fingerprint=$fp AND state=$migrationState AND generation=$generation;";
-        cmd.Parameters.AddWithValue("$generation", expectedMigration.Generation);
-        cmd.Parameters.AddWithValue("$migrationState", expectedMigration.State);
+        cmd.CommandText = "SELECT record_json FROM connection_activations WHERE worktree_fingerprint=$fp AND state=$activationState AND generation=$generation;";
+        cmd.Parameters.AddWithValue("$generation", expectedActivation.Generation);
+        cmd.Parameters.AddWithValue("$activationState", expectedActivation.State);
         var json = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
-        return json == JsonSerializer.Serialize(expectedMigration, TwigJsonContext.Default.ConnectionMigrationRecord) ? NativeResults.Ok()
+        return json == JsonSerializer.Serialize(expectedActivation, TwigJsonContext.Default.ConnectionActivationRecord) ? NativeResults.Ok()
             : NativeResults.Fail("binding-transition-generation-cas-mismatch: original native generation is not the admitted authority.");
     }
 

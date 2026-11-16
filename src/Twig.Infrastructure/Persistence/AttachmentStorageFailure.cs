@@ -20,8 +20,7 @@ internal static class AttachmentStorageFailure
     public const string WorktreeFingerprintDrift = "worktree-fingerprint-drift";
     public const string AttachmentConnectionMismatch = "attachment-connection-mismatch";
     public const string CheckedInConfigInvalid = "checked-in-config-invalid";
-    public const string LegacyLayoutPresent = "legacy-layout-present";
-    public const string LegacyLayoutArchiveFailed = "legacy-layout-archive-failed";
+    public const string UnsupportedLayout = "unsupported-layout";
     public const string SystemStoreLocked = "system-store-locked";
     public const string SystemStoreSchemaMismatch = "system-store-schema-mismatch";
     public const string WorktreeNotRegistered = "worktree-not-registered";
@@ -49,9 +48,6 @@ internal static class AttachmentStorageFailure
     /// fresh read.</summary>
     public const string AttachmentVersionMismatch = "attachment-version-mismatch";
 
-    /// <summary>Tuple-epoch CAS lost: a later reserver raised the
-    /// monotonic per-tuple epoch between our reserve and our commit.
-    /// AB#739 durable epoch protocol \u2014 the losing operation runs
-    /// compensation against the winner recorded in <c>tuple_epochs</c>.</summary>
+    /// <summary>A competing reservation invalidated the caller's tuple authority.</summary>
     public const string ClaimTupleEpochMismatch = "claim-tuple-epoch-mismatch";
 }

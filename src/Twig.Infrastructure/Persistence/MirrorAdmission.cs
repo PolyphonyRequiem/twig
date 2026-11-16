@@ -35,7 +35,7 @@ internal sealed class MirrorAdmission
     internal static string ResolveMirrorPath(string twigDir)
     {
         var marker = Path.Combine(twigDir, "cache", MarkerFile);
-        if (!File.Exists(marker)) return Path.Combine(twigDir, "cache", "twig.db");
+        if (!File.Exists(marker)) return Path.Combine(twigDir, "cache", "mirror-uninitialized.db");
         var document = ReadDocument(marker);
         ValidateDocument(document);
         return Path.Combine(twigDir, "cache", document.MirrorFile);
@@ -43,33 +43,22 @@ internal sealed class MirrorAdmission
 
     // A binding resolution may supply the anchor its attachment read just validated.
     // It is evidence for this call only; every other acquisition discovers it afresh.
-    internal static MirrorAdmission? Acquire(TwigPaths paths, string? registryPath = null,
+    internal static MirrorAdmission Acquire(TwigPaths paths, string? registryPath = null,
         WorktreeAnchor? validatedAttachmentAnchor = null)
     {
         var marker = Path.Combine(paths.TwigDir, "cache", MarkerFile);
         if (!File.Exists(marker))
-        {
-            // Only a real native intent needs the expensive fresh Git fingerprint check.
-            // Absence is not host-quiescence evidence and never activates migration.
-            var registry = registryPath ?? Path.Combine(Auth.ConnectionBindingService.ResolveUserHome(), "system.db");
-            if (!File.Exists(registry) || !HasMigrationIntents(registry)) return null;
-            var anchor = validatedAttachmentAnchor ?? WorktreeAnchorDetector.Detect(paths.StartDir);
-            if (anchor is null)
-                throw new InvalidOperationException("migration-fingerprint-unavailable: native migration intent exists but checkout identity cannot be verified; restore the worktree before access.");
-            if (ReadNativeState(registry, WorktreeFingerprintProvider.CanonicalJson(anchor.Value)) is not null)
-                throw new InvalidOperationException("migration-incomplete: resume 'twig connection migrate' with the original identity; no legacy or partial-generation access is admitted.");
-            return null;
-        }
+            throw new InvalidOperationException("activation-required: initialize the current workspace before cached data or work HTTP access; no unmarked store is admitted.");
         var document = ReadDocument(marker);
         ValidateDocument(document);
         var expectedRegistry = registryPath ?? Path.Combine(Auth.ConnectionBindingService.ResolveUserHome(), "system.db");
         if (!NativePathComparer.Instance.Equals(Path.GetFullPath(document.RegistryPath), Path.GetFullPath(expectedRegistry)))
-            throw new InvalidOperationException("migration-authority-mismatch: the mirror belongs to another metadata home. Reconnect using the original explicit binding authority; no cache or work request is admitted.");
+            throw new InvalidOperationException("activation-authority-mismatch: the mirror belongs to another metadata home. Reconnect using the original explicit binding authority; no cache or work request is admitted.");
         if (!NativePathComparer.Instance.Equals(Path.GetFullPath(paths.DbPath), Path.GetFullPath(Path.Combine(paths.TwigDir, "cache", document.MirrorFile))))
-            throw new InvalidOperationException("legacy-store-retired: reconnect using freshly resolved workspace paths.");
+            throw new InvalidOperationException("activation-store-mismatch: reconnect using freshly resolved workspace paths.");
         var current = validatedAttachmentAnchor ?? WorktreeAnchorDetector.Detect(paths.StartDir);
         if (current is null || document.Fingerprint != WorktreeFingerprintProvider.CanonicalJson(current.Value))
-            throw new InvalidOperationException("migration-fingerprint-mismatch: the admitted store belongs to another checkout.");
+            throw new InvalidOperationException("activation-fingerprint-mismatch: the admitted store belongs to another checkout.");
         var admission = new MirrorAdmission(paths.TwigDir, document);
         // Reuse this discovery for the root only when it is the same canonical root.
         // An aliased or different path still needs its own fresh Git proof.
@@ -102,33 +91,17 @@ internal sealed class MirrorAdmission
             if (anchor is null || WorktreeFingerprintProvider.CanonicalJson(anchor.Value) != _document.Fingerprint)
                 throw new InvalidOperationException("binding-changed: checkout fingerprint changed. Explicitly reconnect before reading or writing cached data.");
         }
-        var paths = TwigPaths.BuildPaths(_twigDir, new TwigConfiguration(), WorktreeRoot);
+        var paths = TwigPaths.BuildPaths(_twigDir, WorktreeRoot);
         if (ConnectionRefResolver.Compute(TwigConfiguration.LoadSplit(paths)) != _document.ConnectionRef)
             throw new InvalidOperationException("binding-changed: declared repository endpoint changed. Explicitly reconnect; cached data remains owned by its original endpoint.");
         var native = ReadNativeState(_document.RegistryPath, _document.Fingerprint);
         if (native is null || native.Version != 1 || native.State != "active"
             || native.Generation != _document.Generation || native.ConnectionRef != _document.ConnectionRef
             || native.BindingId != _document.BindingId || !NativePathComparer.Instance.Equals(Path.GetFullPath(native.CurrentMirror), Path.GetFullPath(MirrorPath)))
-            throw new InvalidOperationException("migration-incomplete: native activation is not complete for this mirror generation. Resume the original migration; no cached/read or work HTTP access is admitted.");
+            throw new InvalidOperationException("activation-incomplete: native activation is not complete for this mirror generation; no cached/read or work HTTP access is admitted.");
     }
 
-    private static bool HasMigrationIntents(string database)
-    {
-        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = database,
-            Mode = SqliteOpenMode.ReadOnly,
-            Pooling = false
-        }.ToString());
-        connection.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connection_migrations';";
-        if (command.ExecuteScalar() is null) return false;
-        command.CommandText = "SELECT 1 FROM connection_migrations LIMIT 1;";
-        return command.ExecuteScalar() is not null;
-    }
-
-    internal static ConnectionMigrationRecord? ReadNativeState(string database, string fingerprint)
+    internal static ConnectionActivationRecord? ReadNativeState(string database, string fingerprint)
     {
         ValidateNoUnfinishedTransition(database, fingerprint);
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -139,16 +112,14 @@ internal sealed class MirrorAdmission
         }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='connection_migrations';";
-        if (Convert.ToInt64(command.ExecuteScalar()) == 0) return null;
-        command.CommandText = "SELECT state, generation, record_json FROM connection_migrations WHERE worktree_fingerprint = $fp;";
+        command.CommandText = "SELECT state, generation, record_json FROM connection_activations WHERE worktree_fingerprint = $fp;";
         command.Parameters.AddWithValue("$fp", fingerprint);
         using var reader = command.ExecuteReader();
         if (!reader.Read()) return null;
-        var record = JsonSerializer.Deserialize(reader.GetString(2), TwigJsonContext.Default.ConnectionMigrationRecord)
-            ?? throw new InvalidOperationException("migration-intent-unreadable: native record is invalid.");
+        var record = JsonSerializer.Deserialize(reader.GetString(2), TwigJsonContext.Default.ConnectionActivationRecord)
+            ?? throw new InvalidOperationException("activation-intent-unreadable: native record is invalid.");
         if (record.State != reader.GetString(0) || record.Generation != reader.GetString(1))
-            throw new InvalidOperationException("migration-intent-inconsistent: native admission metadata disagrees; restore its native record before proceeding.");
+            throw new InvalidOperationException("activation-intent-inconsistent: native admission metadata disagrees; restore its native record before proceeding.");
         reader.Dispose();
         var attachmentPath = Path.Combine(record.WorktreeRoot, ".twig", "attachment.json");
         var attachment = JsonSerializer.Deserialize(File.ReadAllText(attachmentPath), TwigJsonContext.Default.AttachmentDocument)
@@ -172,7 +143,8 @@ internal sealed class MirrorAdmission
 
     internal static void ValidateNoUnfinishedTransition(string database, string fingerprint)
     {
-        if (!File.Exists(database)) return;
+        if (!File.Exists(database))
+            throw new InvalidOperationException("activation-required: the current native registry is missing.");
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = database,
@@ -181,35 +153,30 @@ internal sealed class MirrorAdmission
         }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connection_default_transitions';";
-        if (command.ExecuteScalar() is not null)
-        {
-            command.CommandText = "SELECT 1 FROM connection_default_transition_members m JOIN connection_default_transitions f ON f.digest=m.digest WHERE m.worktree_fingerprint=$fp AND f.state<>'completed' LIMIT 1;";
-            command.Parameters.AddWithValue("$fp", fingerprint);
-            if (command.ExecuteScalar() is not null)
-                throw new InvalidOperationException("binding-changed: binding-default-transition-incomplete. This checkout is fenced until every affected worktree completes the original native default intent. Resume connection default with its original binding and confirmed digest, then explicitly reconnect; no partial cache/read/work HTTP is admitted.");
-            command.Parameters.Clear();
-        }
-        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connection_binding_transitions';";
-        if (command.ExecuteScalar() is null) return;
-        command.CommandText = "SELECT 1 FROM connection_binding_transitions WHERE worktree_fingerprint=$fp AND state <> 'completed' LIMIT 1;";
+        command.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
+        if (Convert.ToInt32(command.ExecuteScalar()) != SqliteSystemWorktreeRegistry.SchemaVersion)
+            throw new InvalidOperationException("activation-schema-unsupported: only the current native registry is admitted.");
+        command.CommandText = "SELECT 1 FROM connection_default_transition_members m JOIN connection_default_transitions f ON f.digest=m.digest WHERE m.worktree_fingerprint=$fp AND f.state<>'completed' LIMIT 1;";
         command.Parameters.AddWithValue("$fp", fingerprint);
+        if (command.ExecuteScalar() is not null)
+            throw new InvalidOperationException("binding-changed: binding-default-transition-incomplete. This checkout is fenced until every affected worktree completes the original native default intent. Resume connection default with its original binding and confirmed digest, then explicitly reconnect; no partial cache/read/work HTTP is admitted.");
+        command.CommandText = "SELECT 1 FROM connection_binding_transitions WHERE worktree_fingerprint=$fp AND state <> 'completed' LIMIT 1;";
         if (command.ExecuteScalar() is not null)
             throw new InvalidOperationException("binding-transition-incomplete: this checkout is fenced by its unfinished native binding intent. Resume the original connection pin/unpin with its confirmed digest, then explicitly reconnect; no read, cache fill or work HTTP is admitted.");
     }
 
     internal static MirrorAdmissionDocument ReadDocument(string path)
         => JsonSerializer.Deserialize(File.ReadAllText(path), TwigJsonContext.Default.MirrorAdmissionDocument)
-            ?? throw new InvalidOperationException("migration-marker-unreadable: restore the native migration record; no fallback is admitted.");
+            ?? throw new InvalidOperationException("activation-marker-unreadable: restore the native activation record; no fallback is admitted.");
 
     private static void ValidateDocument(MirrorAdmissionDocument document)
     {
         if (document.Version != 1 || !Guid.TryParseExact(document.Generation, "N", out _)
-            || document.MirrorFile.Length != 44
-            || !document.MirrorFile.StartsWith("admitted-", StringComparison.Ordinal)
+            || document.MirrorFile.Length != 42
+            || !document.MirrorFile.StartsWith("mirror-", StringComparison.Ordinal)
             || !document.MirrorFile.EndsWith(".db", StringComparison.Ordinal)
-            || !Guid.TryParseExact(document.MirrorFile.AsSpan(9, document.MirrorFile.Length - 12), "N", out _)
+            || !Guid.TryParseExact(document.MirrorFile.AsSpan(7, 32), "N", out _)
             || !Path.IsPathFullyQualified(document.RegistryPath))
-            throw new InvalidOperationException("migration-version-unsupported: unsupported storage admission. Use the compatible Twig version; do not reset or delete durable data.");
+            throw new InvalidOperationException("activation-version-unsupported: unsupported storage admission; initialize a fresh current workspace.");
     }
 }

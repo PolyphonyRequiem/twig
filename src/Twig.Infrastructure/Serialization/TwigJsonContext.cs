@@ -10,7 +10,6 @@ using Twig.Infrastructure.Telemetry;
 
 namespace Twig.Infrastructure.Serialization;
 
-[JsonSerializable(typeof(TwigConfiguration))]
 [JsonSerializable(typeof(TwigRepoConfig))]
 [JsonSerializable(typeof(TwigUserConfig))]
 [JsonSerializable(typeof(GlobalDisplayPreferences))]
@@ -25,7 +24,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(GitHubIssueGraphQlResponse))]
 [JsonSerializable(typeof(AdoConnectionDataResponse))]
 [JsonSerializable(typeof(PatCredentialEntry))]
-[JsonSerializable(typeof(ConnectionMigrationRecord))]
+[JsonSerializable(typeof(ConnectionActivationRecord))]
 [JsonSerializable(typeof(MirrorAdmissionDocument))]
 [JsonSerializable(typeof(ConnectionBindingTransitionRecord))]
 [JsonSerializable(typeof(CoreWriteCorrelation))]
@@ -36,10 +35,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection))]
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection[]))]
 [JsonSerializable(typeof(ConnectionDefaultTransitionRecord))]
-[JsonSerializable(typeof(GitHubRelease))]
-[JsonSerializable(typeof(List<GitHubRelease>))]
 [JsonSerializable(typeof(AppInsightsEnvelope))]
-[JsonSerializable(typeof(MsalTokenCache))]
 [JsonSerializable(typeof(TokenRefreshResponse))]
 [JsonSerializable(typeof(JwtAccessTokenPayload))]
 [JsonSerializable(typeof(TwigRefreshTokenStoreEntry))]
@@ -61,20 +57,12 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 /// </summary>
 [JsonSerializable(typeof(TwigRepoConfig))]
 [JsonSerializable(typeof(DefaultsConfig))]
-[JsonSerializable(typeof(SeedConfig))]
 [JsonSerializable(typeof(GitConfig))]
 [JsonSerializable(typeof(GitHubConfig))]
-[JsonSerializable(typeof(WorkspaceConfig))]
-[JsonSerializable(typeof(AreasConfig))]
 [JsonSerializable(typeof(AreaPathEntry))]
 [JsonSerializable(typeof(List<AreaPathEntry>))]
-[JsonSerializable(typeof(SprintEntry))]
-[JsonSerializable(typeof(List<SprintEntry>))]
-[JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
-[JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
-[JsonSerializable(typeof(Twig.Infrastructure.Config.ProfilePinConfig))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

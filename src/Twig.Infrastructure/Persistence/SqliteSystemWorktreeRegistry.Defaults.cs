@@ -90,9 +90,9 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 cmd.Parameters.AddWithValue("$fp", member.Registration.Fingerprint);
                 await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
                 var local = member.Transition!;
-                cmd.CommandText = "UPDATE connection_migrations SET state='preparing',record_json=$prepared WHERE worktree_fingerprint=$fp AND state='active' AND record_json=$original;";
-                cmd.Parameters.AddWithValue("$prepared", JsonSerializer.Serialize(local.OriginalMigration with { State = "preparing" }, TwigJsonContext.Default.ConnectionMigrationRecord));
-                cmd.Parameters.AddWithValue("$original", JsonSerializer.Serialize(local.OriginalMigration, TwigJsonContext.Default.ConnectionMigrationRecord));
+                cmd.CommandText = "UPDATE connection_activations SET state='preparing',record_json=$prepared WHERE worktree_fingerprint=$fp AND state='active' AND record_json=$original;";
+                cmd.Parameters.AddWithValue("$prepared", JsonSerializer.Serialize(local.OriginalActivation with { State = "preparing" }, TwigJsonContext.Default.ConnectionActivationRecord));
+                cmd.Parameters.AddWithValue("$original", JsonSerializer.Serialize(local.OriginalActivation, TwigJsonContext.Default.ConnectionActivationRecord));
                 if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
                     return NativeResults.Fail("binding-default-preparation-cas-mismatch: no member preparation was committed.");
                 cmd.Parameters.RemoveAt("$fp"); cmd.Parameters.RemoveAt("$prepared"); cmd.Parameters.RemoveAt("$original");
@@ -119,13 +119,13 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             foreach (var member in record.Members)
             {
                 if (member.Transition is not { } local) continue;
-                var migration = TransitionMigration(local);
-                cmd.CommandText = "UPDATE connection_migrations SET state='active',generation=$generation,record_json=$json WHERE worktree_fingerprint=$fp AND state='preparing' AND generation=$prior AND record_json=$priorJson;";
-                cmd.Parameters.AddWithValue("$generation", migration.Generation);
-                cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(migration, TwigJsonContext.Default.ConnectionMigrationRecord));
+                var activation = TransitionActivation(local);
+                cmd.CommandText = "UPDATE connection_activations SET state='active',generation=$generation,record_json=$json WHERE worktree_fingerprint=$fp AND state='preparing' AND generation=$prior AND record_json=$priorJson;";
+                cmd.Parameters.AddWithValue("$generation", activation.Generation);
+                cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(activation, TwigJsonContext.Default.ConnectionActivationRecord));
                 cmd.Parameters.AddWithValue("$fp", local.Fingerprint);
-                cmd.Parameters.AddWithValue("$prior", local.OriginalMigration.Generation);
-                cmd.Parameters.AddWithValue("$priorJson", JsonSerializer.Serialize(local.OriginalMigration with { State = "preparing" }, TwigJsonContext.Default.ConnectionMigrationRecord));
+                cmd.Parameters.AddWithValue("$prior", local.OriginalActivation.Generation);
+                cmd.Parameters.AddWithValue("$priorJson", JsonSerializer.Serialize(local.OriginalActivation with { State = "preparing" }, TwigJsonContext.Default.ConnectionActivationRecord));
                 if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1) return NativeResults.Fail("binding-default-generation-cas-mismatch: no member was admitted.");
                 cmd.Parameters.RemoveAt("$generation"); cmd.Parameters.RemoveAt("$json"); cmd.Parameters.RemoveAt("$fp");
                 cmd.Parameters.RemoveAt("$prior"); cmd.Parameters.RemoveAt("$priorJson");
@@ -203,11 +203,11 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null) return NativeResults.Fail("binding-default-local-intent-unfinished");
             cmd.Parameters.RemoveAt("$fp");
             var authority = local with { DefaultBindingId = expected.BindingId, DefaultRevision = expected.Revision };
-            var expectedMigration = record.State == "preparing"
-                ? preparationRecorded ? local.OriginalMigration with { State = "preparing" } : local.OriginalMigration
-                : TransitionMigration(local);
+            var expectedActivation = record.State == "preparing"
+                ? preparationRecorded ? local.OriginalActivation with { State = "preparing" } : local.OriginalActivation
+                : TransitionActivation(local);
             var result = await ValidateTransitionAuthorityAsync(connection, tx, authority,
-                expectedMigration, ct, record.Digest).ConfigureAwait(false);
+                expectedActivation, ct, record.Digest).ConfigureAwait(false);
             if (!result.IsSuccess) return result;
         }
         return NativeResults.Ok();

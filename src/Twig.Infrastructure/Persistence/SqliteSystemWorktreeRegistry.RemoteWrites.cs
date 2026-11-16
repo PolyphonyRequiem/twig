@@ -16,16 +16,6 @@ internal sealed record ConnectionRemoteWriteReceipt(int Version, string ReceiptI
     ResolvedConnectionBinding AuthorizingOrigin, string? AuthorizerIdentity, string? Rationale, DateTimeOffset RecordedAt);
 internal sealed record ConnectionRemoteWriteHistory(ConnectionRemoteWriteIntent Intent,
     IReadOnlyList<ConnectionRemoteWriteObservation> Observations, ConnectionRemoteWriteReceipt? Receipt);
-internal sealed record ConnectionRemoteWriteSnapshotMember(long Sequence, ConnectionRemoteWriteHistory History);
-internal sealed record ConnectionRemoteWriteFamilySnapshot(string SnapshotId, string Fingerprint,
-    long HighWaterSequence, IReadOnlyList<ConnectionRemoteWriteSnapshotMember> Members);
-internal sealed record RejectedCreateFamilyProof(int Version, string SnapshotId, string Fingerprint,
-    long HighWaterSequence, string PublishIdentity, string PublishIntentRecordedAt,
-    string ExpectedSeedFingerprint, string PublishTitle, string PublishTypeName,
-    IReadOnlyList<RejectedCreateFamilyProofMember> Members);
-internal sealed record RejectedCreateFamilyProofMember(long Sequence, ConnectionRemoteWriteIntent Intent,
-    ConnectionRemoteWriteObservation Observation, ConnectionRemoteWriteReceipt Receipt);
-
 internal sealed partial class SqliteSystemWorktreeRegistry
 {
     private const string RemoteWriteSchemaSql = """
@@ -53,6 +43,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry
     internal Task<Result<bool>> BeginConnectionRemoteWriteAsync(ConnectionRemoteWriteIntent intent, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
+            if (intent.Request.SeedCorrelation is not null)
+                return NativeResults.Fail("remote-write-correlation-retired: seed requests cannot authorize a current native write.");
             using var cmd = connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.Parameters.AddWithValue("$fp", intent.Fingerprint);
@@ -79,34 +71,19 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             }
             if (intent.Origin.StorageGeneration is { } generation)
             {
-                cmd.CommandText = "SELECT record_json FROM connection_migrations WHERE worktree_fingerprint=$fp AND state='active' AND generation=$generation;";
+                cmd.CommandText = "SELECT record_json FROM connection_activations WHERE worktree_fingerprint=$fp AND state='active' AND generation=$generation;";
                 cmd.Parameters.AddWithValue("$generation", generation);
                 var json = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
-                var migration = json is null ? null : JsonSerializer.Deserialize(json, TwigJsonContext.Default.ConnectionMigrationRecord);
-                if (migration is null || migration.BindingId != intent.Origin.Binding.BindingId)
+                var activation = json is null ? null : JsonSerializer.Deserialize(json, TwigJsonContext.Default.ConnectionActivationRecord);
+                if (activation is null || activation.BindingId != intent.Origin.Binding.BindingId)
                     return NativeResults.Fail("remote-write-generation-cas-mismatch: native admitted generation does not own the selected binding.");
             }
             cmd.CommandText = "SELECT 1 FROM connection_binding_transitions WHERE worktree_fingerprint=$fp AND state<>'completed' LIMIT 1;";
             if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
                 return NativeResults.Fail("remote-write-transition-unfinished: native transition fences mutation admission.");
-            cmd.CommandText = "SELECT 1 FROM connection_migrations WHERE worktree_fingerprint=$fp AND state='preparing';";
+            cmd.CommandText = "SELECT 1 FROM connection_activations WHERE worktree_fingerprint=$fp AND state='preparing';";
             if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
-                return NativeResults.Fail("remote-write-migration-unfinished: native activation fences mutation admission.");
-            if (intent.Request.SeedCorrelation is { } seed)
-            {
-                cmd.CommandText = "SELECT i.intent_json FROM connection_remote_write_intents i WHERE i.worktree_fingerprint=$fp AND NOT EXISTS(SELECT 1 FROM connection_remote_write_receipts r WHERE r.intent_id=i.intent_id);";
-                using var prior = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-                while (await prior.ReadAsync(ct).ConfigureAwait(false))
-                {
-                    var admitted = JsonSerializer.Deserialize(prior.GetString(0), TwigJsonContext.Default.ConnectionRemoteWriteIntent);
-                    if (admitted is null)
-                        return NativeResults.Fail("remote-write-native-evidence-unreadable: unsettled original requests cannot be attributed or replayed.");
-                    if (admitted.Request.EffectKind == "workitem-create" && admitted.Request.SeedCorrelation?.Identity == seed.Identity)
-                        return NativeResults.Fail("remote-write-seed-outcome-unknown: this staged identity already has an unsettled native create, even if title/payload/attempt time changed. Recover exact original server correlation; never mint another request/tag.");
-                    if (admitted.Request.EffectKind == "workitem-create" && admitted.Request.SeedCorrelation is null)
-                        return NativeResults.Fail("remote-write-seed-origin-unknown: an unsettled uncorrelated create cannot acquire a new staged identity or exact tag after the fact. Preserve and establish original native evidence before another seed create.");
-                }
-            }
+                return NativeResults.Fail("remote-write-activation-unfinished: native activation fences mutation admission.");
             if (intent.Request.CoreCorrelation is { } core)
             {
                 cmd.CommandText = """
@@ -213,90 +190,6 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             }
             return NativeResults.Ok<IReadOnlyList<ConnectionRemoteWriteHistory>>(histories);
         }, ct);
-
-    internal Task<Result<T>> ExecuteWithConnectionRemoteWriteSnapshotAsync<T>(
-        string fingerprint,
-        Func<ConnectionRemoteWriteFamilySnapshot, Task<Result<T>>> action,
-        CancellationToken ct = default)
-        => ExecuteWriteAsync(async (connection, transaction) =>
-        {
-            var snapshot = await ReadConnectionRemoteWriteSnapshotAsync(connection, transaction, fingerprint, ct)
-                .ConfigureAwait(false);
-            return snapshot.IsSuccess
-                ? await action(snapshot.Value).ConfigureAwait(false)
-                : NativeResults.Fail<T>(snapshot.Error);
-        }, ct);
-
-    private static async Task<Result<ConnectionRemoteWriteFamilySnapshot>> ReadConnectionRemoteWriteSnapshotAsync(
-        SqliteConnection connection, SqliteTransaction transaction, string fingerprint, CancellationToken ct)
-    {
-        var highWater = 0L;
-        using (var highWaterCommand = connection.CreateCommand())
-        {
-            highWaterCommand.Transaction = transaction;
-            highWaterCommand.CommandText = "SELECT COALESCE(MAX(sequence), 0) FROM connection_remote_write_intents;";
-            var value = await highWaterCommand.ExecuteScalarAsync(ct).ConfigureAwait(false);
-            highWater = Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        var intents = new List<(long Sequence, ConnectionRemoteWriteIntent Intent, ConnectionRemoteWriteReceipt? Receipt)>();
-        using (var command = connection.CreateCommand())
-        {
-            command.Transaction = transaction;
-            command.CommandText = """
-                SELECT i.sequence, i.intent_id, i.request_digest, i.intent_json, r.receipt_json
-                FROM connection_remote_write_intents i
-                LEFT JOIN connection_remote_write_receipts r ON r.intent_id=i.intent_id
-                WHERE i.worktree_fingerprint=$fp AND i.sequence<=$highWater
-                ORDER BY i.sequence;
-                """;
-            command.Parameters.AddWithValue("$fp", fingerprint);
-            command.Parameters.AddWithValue("$highWater", highWater);
-            using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                var intent = JsonSerializer.Deserialize(reader.GetString(3), TwigJsonContext.Default.ConnectionRemoteWriteIntent);
-                var receipt = reader.IsDBNull(4) ? null
-                    : JsonSerializer.Deserialize(reader.GetString(4), TwigJsonContext.Default.ConnectionRemoteWriteReceipt);
-                if (intent is null || intent.Version != 1 || intent.IntentId != reader.GetString(1)
-                    || intent.RequestDigest != reader.GetString(2) || intent.Fingerprint != fingerprint
-                    || receipt is not null && (receipt.Version != 1 || receipt.IntentId != intent.IntentId
-                        || receipt.RequestDigest != intent.RequestDigest))
-                    return NativeResults.Fail<ConnectionRemoteWriteFamilySnapshot>(
-                        "remote-write-native-evidence-inconsistent: preserve original records; unknown evidence is not settled.");
-                intents.Add((reader.GetInt64(0), intent, receipt));
-            }
-        }
-
-        var members = new List<ConnectionRemoteWriteSnapshotMember>(intents.Count);
-        foreach (var (sequence, intent, receipt) in intents)
-        {
-            var observations = new List<ConnectionRemoteWriteObservation>();
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                SELECT observation_id, observation_json
-                FROM connection_remote_write_observations
-                WHERE intent_id=$id
-                ORDER BY sequence;
-                """;
-            command.Parameters.AddWithValue("$id", intent.IntentId);
-            using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                var observation = JsonSerializer.Deserialize(reader.GetString(1), TwigJsonContext.Default.ConnectionRemoteWriteObservation);
-                if (observation is null || observation.Version != 1 || observation.ObservationId != reader.GetString(0)
-                    || observation.IntentId != intent.IntentId || observation.RequestDigest != intent.RequestDigest)
-                    return NativeResults.Fail<ConnectionRemoteWriteFamilySnapshot>(
-                        "remote-write-observation-inconsistent: original outcome remains unknown.");
-                observations.Add(observation);
-            }
-            members.Add(new(sequence, new ConnectionRemoteWriteHistory(intent, observations, receipt)));
-        }
-
-        return NativeResults.Ok(new ConnectionRemoteWriteFamilySnapshot(
-            Guid.NewGuid().ToString("N"), fingerprint, highWater, members));
-    }
 
     private static async Task<Result<bool>> ValidateRemoteIntentAsync(SqliteConnection connection, SqliteTransaction tx,
         ConnectionRemoteWriteIntent intent, CancellationToken ct)

@@ -173,7 +173,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             return Result<ImmutableArray<string>>.Ok(roots.ToImmutable());
         }, ct);
 
-    internal Task<Result<ImmutableArray<ConnectionRemoteWriteIntent>>> CoreLegacyIntentsAsync(CancellationToken ct)
+    internal Task<Result<ImmutableArray<ConnectionRemoteWriteIntent>>> CoreRemoteWriteIntentsAsync(CancellationToken ct)
         => ExecuteReadAsync(async db =>
         {
             using var command = db.CreateCommand();
@@ -184,7 +184,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             {
                 var text = reader.GetString(0);
                 if (text.Length > 1024 * 1024 || intents.Count >= 10000)
-                    return Result<ImmutableArray<ConnectionRemoteWriteIntent>>.Fail(ErrorCode.StorageUnavailable, "Native legacy evidence exceeds its inventory bound.");
+                    return Result<ImmutableArray<ConnectionRemoteWriteIntent>>.Fail(ErrorCode.StorageUnavailable, "Native remote-write evidence exceeds its inventory bound.");
                 try
                 {
                     intents.Add(JsonSerializer.Deserialize(text, TwigJsonContext.Default.ConnectionRemoteWriteIntent)
@@ -220,12 +220,12 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         }, ct);
 
     private static async Task<Result<NativeCoreGate>> ReadCoreGate(Microsoft.Data.Sqlite.SqliteConnection db,
-        Microsoft.Data.Sqlite.SqliteTransaction? tx, CancellationToken ct, bool validateReferences = true, int requiredVersion = SchemaVersion)
+        Microsoft.Data.Sqlite.SqliteTransaction? tx, CancellationToken ct, bool validateReferences = true)
     {
         using var command = db.CreateCommand();
         command.Transaction = tx;
         command.CommandText = "SELECT version FROM layout_meta WHERE id=1;";
-        if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != requiredVersion)
+        if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != SchemaVersion)
             return Result<NativeCoreGate>.Fail(ErrorCode.StorageUnavailable, "Native execution requires its exact system registry schema.");
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN('core_execution_meta','core_store_refs','core_attempt_refs');";
         if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 3)
@@ -326,16 +326,12 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 hash.AppendData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
                     Enumerable.Range(0, 6).Select(index => Convert.ToString(reader.GetValue(index), System.Globalization.CultureInfo.InvariantCulture)!).ToArray(),
                     NativeCoreExecutionJson.Default.StringArray)));
-        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='core_scope_births';";
-        if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 0)
-        {
-            command.CommandText = "SELECT id,origin,source,ownership,registry_instance,registry_revision,origin_version,parent_digest,covered,born,enlisted FROM core_scope_births WHERE store_instance=$instance;";
-            using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        command.CommandText = "SELECT id,origin,source,ownership,registry_instance,registry_revision,origin_version,parent_digest,covered,born,enlisted FROM core_scope_births WHERE store_instance=$instance;";
+        using (var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 hash.AppendData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
                     Enumerable.Range(0, 11).Select(index => Convert.ToString(reader.GetValue(index), System.Globalization.CultureInfo.InvariantCulture)!).ToArray(),
                     NativeCoreExecutionJson.Default.StringArray)));
-        }
         return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 }

@@ -8,6 +8,38 @@ namespace Twig.Infrastructure.Tests.Services;
 
 public sealed class NativeConnectionSetupTests
 {
+    [Theory]
+    [InlineData("", "Project", "binding")]
+    [InlineData("fixture", "", "binding")]
+    [InlineData("fixture", "Project", "")]
+    public async Task ManagedAdoRejectsInvalidExplicitTargetsBeforeCreatingPrivateStorage(
+        string organization, string project, string binding)
+    {
+        var home = Path.Combine(Path.GetTempPath(), "twig-managed-ado-" + Guid.NewGuid().ToString("N"));
+        Directory.Exists(home).ShouldBeFalse();
+        var result = await new NativeConnectionSetup(home).InitializeManagedAsync(
+            new NativeAdoSetupTarget(organization, project, binding));
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.InvalidInput);
+        NativeConnectionSetup.ReadFailure(result.Error).Value.Effects.ShouldBeEmpty();
+        Directory.Exists(home).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ManagedAdoCancellationBeforeAdmissionHasNoLocalEffects()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "twig-managed-ado-" + Guid.NewGuid().ToString("N"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var result = await new NativeConnectionSetup(home).InitializeManagedAsync(
+            new NativeAdoSetupTarget("fixture", "Project", "explicit-binding"), cancellation.Token);
+        result.IsSuccess.ShouldBeFalse();
+        var failure = NativeConnectionSetup.ReadFailure(result.Error).Value;
+        failure.Cancelled.ShouldBeTrue();
+        failure.Effects.ShouldBeEmpty();
+        Directory.Exists(home).ShouldBeFalse();
+    }
+
     [Fact]
     public async Task ManagedGitHubSetupPinsTheVerifiedActiveAccountWithoutSwitchingIt()
     {

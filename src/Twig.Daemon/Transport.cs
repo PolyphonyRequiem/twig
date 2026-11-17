@@ -220,6 +220,8 @@ public sealed record SetupDiscoveryBody(Guid EnrollmentOperationId, string Kind,
 public sealed record SetupBindingBody(string Organization, string Project, string IdentityAlias, long Epoch = 0);
 public sealed record SetupAdoBody(string WorkspaceRoot, string Organization, string Project, string BindingId,
     string? Team = null, string? GitProject = null, long Epoch = 0);
+public sealed record SetupManagedAdoBody(string Organization, string Project, string BindingId,
+    string? Team = null, string? GitProject = null, long Epoch = 0);
 public sealed record SetupGitHubBody(string WorkspaceRoot, string Host, string Repository, string Account, long Epoch = 0);
 public sealed record SetupTwigBody(string WorkspaceRoot, long Epoch = 0);
 public sealed record SetupCancelBody(long Epoch);
@@ -270,6 +272,7 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(SetupDiscoveryBody))]
 [JsonSerializable(typeof(SetupBindingBody))]
 [JsonSerializable(typeof(SetupAdoBody))]
+[JsonSerializable(typeof(SetupManagedAdoBody))]
 [JsonSerializable(typeof(SetupGitHubBody))]
 [JsonSerializable(typeof(SetupTwigBody))]
 [JsonSerializable(typeof(SetupCancelBody))]

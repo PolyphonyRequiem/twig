@@ -159,6 +159,57 @@ Old developer-local application data is not automatically migrated or adopted.
 Use explicitly scoped fresh state when needed, but never delete credentials,
 source checkouts, upstream items, or unknown-write evidence as a reset shortcut.
 
+## Managed ADO connection setup
+
+Standalone/global Connections setup does **not** require a source checkout or a
+user-supplied local Git folder. After explicit Microsoft enrollment and native
+ADO binding, hosts can use `NativeConnectionSetup.InitializeManagedAsync` with
+`NativeAdoSetupTarget(organization, project, bindingId, team?, gitProject?)`.
+The existing `INativeConnectionSetupGateway.InitializeManagedAsync` forwards the
+same target. Organization/project and optional team/Git project retain the fresh
+setup semantics; the exact registered binding is mandatory, never an endpoint
+default or permission to switch accounts.
+
+The daemon advertises `managed-ado-setup-v1` in its status capabilities.
+Owner-authenticated views may call:
+
+```http
+POST /api/v1/views/{viewId}/setup/initialize-managed-ado
+X-Twig-Bench: 1
+Authorization: Bearer <this-view-content-capability>
+Content-Type: application/json
+
+{"organization":"example","project":"Project","bindingId":"<exact-native-binding>","team":"Team","gitProject":"Git project","epoch":0}
+```
+
+`SetupManagedAdoBody` contains these fields only; `team` and `gitProject` may be
+omitted/null, and `epoch` defaults to zero. There is no workspace/store path.
+Use the current setup epoch, not a stale navigation value. This is the existing
+bounded `202` setup-operation contract: observe the returned `operationId` at
+`GET /api/v1/views/{viewId}/setup/operations/{operationId}`, or cancel that
+original operation with `DELETE` and `{}`. Observe failures and uncertain effects;
+do not automatically resubmit setup after a lost response.
+
+Native code allocates a private context beneath `<native-metadata-home>\sources`
+with a private Git anchor as an implementation detail. Git must be available.
+`NativeManagedSetupResult.WorkspaceRoot`, and HTTP Ready's
+`SetupOperationDto.Source.WorkspaceRoot`, identify that native-owned context for
+subsequent reads; clients must not invent, relocate or manage it. Initialization
+uses the same exact binding, principal, authority, policy, store creation,
+schema and online-read checks as fresh setup. Ready requires successful readback.
+Cancellation/failure retains typed native effects and possible partial storage,
+with no fallback identity, retry context or tracker publication.
+
+Successful registration appears in the native connection library
+(`UserBenchStore.WorkspacesAsync`, exposed by the view's `GET .../benches`).
+It can be opened through the returned context without any source checkout.
+Registration neither adds Bench membership nor assigns a repository binding,
+changes active context, or grants Save/Apply authority.
+`InitializeFreshAsync(NativeFreshSetupRequest)` and
+`POST .../setup/initialize-ado` remain the separate **repository-scoped** path:
+the caller deliberately supplies an existing fresh Git worktree root.
+Managed setup does not migrate or adopt developer-local data.
+
 ## Read-only MCP
 
 The daemon advertises `mcp-read-v1` on

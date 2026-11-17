@@ -65,13 +65,14 @@ public sealed partial class NativeConnectionSetup
 
     internal NativeConnectionSetup(Func<NativeSetupEffects, IConnectionBindingService> bindings,
         Func<LoopbackPkceFlow>? pkce = null, CoreTransportOverride? transport = null,
-        IBoundedProcessRunner? processes = null, bool ownsBindings = false)
+        IBoundedProcessRunner? processes = null, bool ownsBindings = false, string? managedRoot = null)
     {
         this.bindings = bindings;
         this.pkce = pkce ?? (() => new LoopbackPkceFlow());
         this.transport = transport;
         this.processes = processes;
         this.ownsBindings = ownsBindings;
+        this.managedRoot = managedRoot;
     }
 
     /// <summary>Runs native loopback PKCE for one explicit alias; only the supplied callback presents its URL.</summary>
@@ -118,15 +119,23 @@ public sealed partial class NativeConnectionSetup
         CancellationToken ct = default)
         => await InitializeFreshAsync(request, new NativeSetupEffects(), ct).ConfigureAwait(false);
 
-    /// <summary>Creates a private client context without modifying a source checkout. Native authority remains owner-wide.</summary>
+    /// <summary>Creates a native-owned private client context for an explicit provider target without modifying a source checkout.</summary>
     public async Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target,
         CancellationToken ct = default)
     {
         var effects = new NativeSetupEffects();
         try
         {
-            if (managedRoot is null || target is not (NativeTwigSetupTarget or NativeGitHubSetupTarget))
-                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unsupported, "Managed setup supports explicit Twig and GitHub connections only."));
+            ct.ThrowIfCancellationRequested();
+            if (managedRoot is null || target is not (NativeTwigSetupTarget or NativeGitHubSetupTarget or NativeAdoSetupTarget))
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unsupported, "Managed setup requires an explicit Twig, GitHub or bound ADO connection."));
+            if (target is NativeAdoSetupTarget ado)
+            {
+                if (NativeSetupEnrollment.AdoProblem(ado.Organization, ado.Project) is { } problem)
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, problem));
+                if (!ExplicitBinding(ado.BindingId))
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose an exact native ADO binding; no default was inferred."));
+            }
             if (target is NativeGitHubSetupTarget github)
             {
                 var resolved = await ResolveManagedGitHubAccountAsync(github, processes ?? new BoundedProcessRunner(), ct).ConfigureAwait(false);
@@ -194,8 +203,7 @@ public sealed partial class NativeConnectionSetup
             NativeWorkspaceSetupArguments arguments;
             switch (request.Target)
             {
-                case NativeAdoSetupTarget ado when !string.IsNullOrWhiteSpace(ado.BindingId)
-                    && ado.BindingId == ado.BindingId.Trim() && !ado.BindingId.Any(char.IsWhiteSpace) && !ado.BindingId.Any(char.IsControl):
+                case NativeAdoSetupTarget ado when ExplicitBinding(ado.BindingId):
                     arguments = new(request.WorkspaceRoot, ado.Organization, ado.Project, ado.Team, ado.GitProject,
                         "ado", null, null, ado.BindingId, request.StoreFile, null);
                     break;
@@ -248,6 +256,10 @@ public sealed partial class NativeConnectionSetup
             if (ownsBindings && resolved is IDisposable disposable) disposable.Dispose();
         }
     }
+
+    private static bool ExplicitBinding(string? binding)
+        => !string.IsNullOrWhiteSpace(binding) && binding == binding.Trim()
+            && !binding.Any(char.IsWhiteSpace) && !binding.Any(char.IsControl);
 
     /// <summary>Decodes only native setup diagnostics. Foreign, malformed or unsupported evidence explicitly refuses.</summary>
     public static Result<NativeSetupFailureInfo> ReadFailure(Error error) => NativeSetupEffects.Read(error);

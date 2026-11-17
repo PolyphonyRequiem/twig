@@ -300,6 +300,23 @@ public static partial class NativeBenchHost
                         "Continue only the current page from this enrollment and target in this view.");
             }
         });
+        app.MapPost("/api/v1/views/{id:guid}/setup/initialize-managed-ado", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<SetupManagedAdoBody>(http);
+            RequiredText(body.Organization, "Supply the ADO organization.");
+            RequiredText(body.Project, "Supply the ADO project.");
+            RequiredText(body.BindingId, "Choose an exact native ADO binding.");
+            OptionalText(body.Team, "Supply an explicit team or leave it empty.");
+            OptionalText(body.GitProject, "Supply an explicit Git project or leave it empty.");
+            await Start(http, session, body.Epoch, "Initialization", async (operation, ct) =>
+            {
+                var result = await Gateway().InitializeManagedAsync(new NativeAdoSetupTarget(
+                    body.Organization, body.Project, body.BindingId, body.Team, body.GitProject), ct);
+                if (!result.IsSuccess) return Failed(operation.Current, result.Error);
+                return Initialized(operation.Current, result.Value.WorkspaceRoot, result.Value.Observation);
+            });
+        });
         app.MapPost("/api/v1/views/{id:guid}/setup/initialize-ado", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);
@@ -392,14 +409,17 @@ public static partial class NativeBenchHost
             {
                 var result = await Gateway().InitializeFreshAsync(request, ct);
                 if (!result.IsSuccess) return Failed(operation.Current, result.Error);
-                var observation = result.Value;
-                if (observation.Schema is not { IsSuccess: true } schema
-                    || schema.Value.Connection != observation.Source.Connection)
-                    return operation.Current with { Status = "Failed", Error = new("SetupReadbackUnavailable",
-                        "Native initialization did not return a successful creation-bound schema readback. Possible effects remain; no Ready source was inferred.") };
-                return operation.Current with { Status = "Ready",
-                    Source = new(request.WorkspaceRoot, observation.Source, schema.Value.Connection, observation.SchemaObservedAt) };
+                return Initialized(operation.Current, request.WorkspaceRoot, result.Value);
             });
+        SetupOperationDto Initialized(SetupOperationDto operation, string root, NativeSourceObservation observation)
+        {
+            if (observation.Schema is not { IsSuccess: true } schema
+                || schema.Value.Connection != observation.Source.Connection)
+                return operation with { Status = "Failed", Error = new("SetupReadbackUnavailable",
+                        "Native initialization did not return a successful creation-bound schema readback. Possible effects remain; no Ready source was inferred.") };
+            return operation with { Status = "Ready",
+                Source = new(root, observation.Source, schema.Value.Connection, observation.SchemaObservedAt) };
+        }
         async Task Start(HttpContext http, ViewSession session, long expectedEpoch, string phase,
             Func<NativeSetupOperation, CancellationToken, Task<SetupOperationDto>> work,
             NativeConnectionRequest? request = null, bool requestOnly = false)

@@ -214,6 +214,27 @@ public static partial class NativeBenchHost
                 session.Agent.Gate.Release();
             }
         }
+        app.MapGet("/api/v1/views/{id:guid}/setup/aad-identities", async (HttpContext http, Guid id) =>
+        {
+            _ = await authorize(http, id);
+            await Write(http, Require(await Gateway().ListAadIdentitiesAsync(http.RequestAborted)));
+        });
+        app.MapPost("/api/v1/views/{id:guid}/setup/use-aad-identity", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<SetupIdentityBody>(http);
+            RequiredText(body.Identity.Alias, "Choose a saved AAD identity.", 64);
+            RequiredText(body.Identity.IdentityId, "Choose the exact saved AAD identity.");
+            await Start(http, session, body.Epoch, "Enrollment", async (operation, ct) =>
+            {
+                var identities = await Gateway().ListAadIdentitiesAsync(ct);
+                if (!identities.IsSuccess) return Failed(operation.Current, identities.Error);
+                if (!identities.Value.Contains(body.Identity))
+                    return operation.Current with { Status = "Failed", Error = new("SetupIdentityChanged",
+                        "The saved AAD identity changed or was removed. Choose the account again; no alternate identity was used.") };
+                return operation.Current with { Status = "Enrolled", Enrollment = body.Identity };
+            });
+        });
         app.MapPost("/api/v1/views/{id:guid}/setup/enroll-aad", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);

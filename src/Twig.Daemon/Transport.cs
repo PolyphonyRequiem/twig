@@ -215,6 +215,7 @@ public sealed record SeedPublicationDto(Guid CaptureId, string ItemId, string Lo
 public sealed record OwnedSeedDto(string ItemId, string LocalId, Guid CaptureId, bool Ready, bool HasDraft, SeedPublicationDto? Publication);
 public sealed record NormalSeedViewDto(SourceViewDto Source, SeedTypeDto[] Types, OwnedSeedDto[] Seeds, Guid StoreInstance);
 public sealed record SetupEnrollmentBody(string Alias, string? Tenant = null, long Epoch = 0);
+public sealed record SetupIdentityBody(NativeAadEnrollment Identity, long Epoch = 0);
 public sealed record SetupDiscoveryBody(Guid EnrollmentOperationId, string Kind, string? Organization = null,
     string? Project = null, int Limit = 50, string? Continuation = null, long Epoch = 0);
 public sealed record SetupBindingBody(string Organization, string Project, string IdentityAlias, long Epoch = 0);
@@ -269,6 +270,8 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(AgentDisplayBody))]
 [JsonSerializable(typeof(AgentUiStateDto))]
 [JsonSerializable(typeof(SetupEnrollmentBody))]
+[JsonSerializable(typeof(SetupIdentityBody))]
+[JsonSerializable(typeof(NativeAadEnrollment[]))]
 [JsonSerializable(typeof(SetupDiscoveryBody))]
 [JsonSerializable(typeof(SetupBindingBody))]
 [JsonSerializable(typeof(SetupAdoBody))]

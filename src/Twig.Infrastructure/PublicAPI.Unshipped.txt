@@ -855,6 +855,7 @@ Twig.Infrastructure.Services.NativeAdoSetupTarget.Team.init -> void
 Twig.Infrastructure.Services.NativeConnectionSetup
 Twig.Infrastructure.Services.NativeConnectionSetup.CreateAdoBindingAsync(Twig.Infrastructure.Services.NativeAdoBindingRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAdoBinding!>!>!
 Twig.Infrastructure.Services.NativeConnectionSetup.EnrollAadAsync(Twig.Infrastructure.Services.NativeAadEnrollmentRequest! request, System.Action<System.Uri!>! authorizationUrl, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAadEnrollment!>!>!
+Twig.Infrastructure.Services.NativeConnectionSetup.ListAadIdentitiesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAadEnrollment![]!>!>!
 Twig.Infrastructure.Services.NativeConnectionSetup.InitializeFreshAsync(Twig.Infrastructure.Services.NativeFreshSetupRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 Twig.Infrastructure.Services.NativeConnectionSetup.NativeConnectionSetup(string! metadataHome) -> void
 Twig.Infrastructure.Services.NativeFreshSetupRequest

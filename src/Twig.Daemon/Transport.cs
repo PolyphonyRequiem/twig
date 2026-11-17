@@ -77,13 +77,13 @@ public sealed record AgentPermissionsBody(Guid BenchId, bool Read, bool Draft, b
 public sealed record AgentPermissionsDto(bool Read, bool Draft, bool Membership, Guid? BenchId, DateTimeOffset? ExpiresAt, bool Rules = false);
 public sealed record AgentSelectionBody(Guid BenchId, Guid? SourceId, string? ItemId);
 public sealed record AgentSnapshotBody(Guid SnapshotId);
-public sealed record AgentConnectionRequestBody(Guid SnapshotId, string Provider, string? Repository = null);
-public sealed record ConnectionTargetBody(Guid BenchId, long BenchRevision, string Provider, string? Repository = null);
+public sealed record AgentConnectionRequestBody(Guid SnapshotId, string Provider, string? Repository = null, string? Database = null);
+public sealed record ConnectionTargetBody(Guid BenchId, long BenchRevision, string Provider, string? Repository = null, string? Database = null);
 public sealed record ConnectionRequestBody(Guid RequestId);
 public sealed record ConnectionApprovalBody(Guid RequestId, string? Account = null);
 public sealed record ConnectionAdmissionBody(Guid RequestId, Guid OperationId, bool IncludeAll);
 public sealed record ConnectionRequestDto(Guid RequestId, Guid BenchId, long BenchRevision, string BenchName,
-    string Provider, string? Repository, string State, DateTimeOffset ExpiresAt);
+    string Provider, string? Repository, string State, DateTimeOffset ExpiresAt, string? Database = null);
 public sealed record BenchConnectionsDto(ConnectionRequestDto? Request, SetupOperationDto? Operation);
 public sealed record ConnectionAddedDto(ConnectionRequestDto Request, string Root, bool Changed, bool RemoteWrites = false);
 public sealed record AgentPageBody(Guid SnapshotId, int Offset = 0, int Limit = 50);
@@ -215,11 +215,15 @@ public sealed record SeedPublicationDto(Guid CaptureId, string ItemId, string Lo
 public sealed record OwnedSeedDto(string ItemId, string LocalId, Guid CaptureId, bool Ready, bool HasDraft, SeedPublicationDto? Publication);
 public sealed record NormalSeedViewDto(SourceViewDto Source, SeedTypeDto[] Types, OwnedSeedDto[] Seeds, Guid StoreInstance);
 public sealed record SetupEnrollmentBody(string Alias, string? Tenant = null, long Epoch = 0);
+public sealed record SetupDiscoveryBody(Guid EnrollmentOperationId, string Kind, string? Organization = null,
+    string? Project = null, int Limit = 50, string? Continuation = null, long Epoch = 0);
 public sealed record SetupBindingBody(string Organization, string Project, string IdentityAlias, long Epoch = 0);
 public sealed record SetupAdoBody(string WorkspaceRoot, string Organization, string Project, string BindingId,
     string? Team = null, string? GitProject = null, long Epoch = 0);
+public sealed record SetupManagedAdoBody(string Organization, string Project, string BindingId,
+    string? Team = null, string? GitProject = null, long Epoch = 0);
 public sealed record SetupGitHubBody(string WorkspaceRoot, string Host, string Repository, string Account, long Epoch = 0);
-public sealed record SetupTwigBody(string WorkspaceRoot, long Epoch = 0);
+public sealed record SetupTwigBody(string WorkspaceRoot, string Database, long Epoch = 0);
 public sealed record SetupCancelBody(long Epoch);
 public sealed record SetupEffectDto(string Kind, string State);
 public sealed record SetupFailureDto(string Phase, bool Cancelled, SetupEffectDto[] Effects);
@@ -227,7 +231,8 @@ public sealed record SetupSourceDto(string WorkspaceRoot, NativeSourceStamp Sour
 public sealed record SetupOperationDto(Guid OperationId, string Status, string Phase, string? AuthorizationUrl = null,
     NativeAadEnrollment? Enrollment = null, NativeAdoBinding? Binding = null, SetupSourceDto? Source = null,
     Failure? Error = null, SetupFailureDto? NativeFailure = null, Failure? DiagnosticsError = null, bool Pending = false, long Epoch = 0,
-    Guid? ConnectionRequestId = null);
+    Guid? ConnectionRequestId = null, NativeAdoDiscoveryRequest? DiscoveryRequest = null,
+    NativeAdoDiscoveryPage? Discovery = null);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, MaxDepth = 32,
     GenerationMode = JsonSourceGenerationMode.Metadata, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -264,8 +269,10 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(AgentDisplayBody))]
 [JsonSerializable(typeof(AgentUiStateDto))]
 [JsonSerializable(typeof(SetupEnrollmentBody))]
+[JsonSerializable(typeof(SetupDiscoveryBody))]
 [JsonSerializable(typeof(SetupBindingBody))]
 [JsonSerializable(typeof(SetupAdoBody))]
+[JsonSerializable(typeof(SetupManagedAdoBody))]
 [JsonSerializable(typeof(SetupGitHubBody))]
 [JsonSerializable(typeof(SetupTwigBody))]
 [JsonSerializable(typeof(SetupCancelBody))]

@@ -92,11 +92,11 @@ public static partial class NativeBenchHost
         if (options.WindowsSignIn)
             app.MapGet("/api/v1/owner-status", (HttpContext context) => Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1"])))
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1"])))
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1"])));
+                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1"])));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
             var body = await Body<RegisterCanvasBody>(context);

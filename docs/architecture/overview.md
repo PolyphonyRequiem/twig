@@ -14,7 +14,7 @@ architecture.
 | `Twig.Store.Sqlite` | Core store implementation, transactional state and journal persistence |
 | `Twig.Providers.Ado` | ADO schema discovery, native reads, revision-bound writes and verification |
 | `Twig.Providers.GitHub` | GitHub API adapter, opaque observations, explicit observed-non-atomic effects |
-| `Twig.Providers.Native` | Durable per-user Twig-native authority and explicit native schema |
+| `Twig.Providers.Native` | Isolated named owner-local Twig-native authorities and explicit native schema |
 | `Twig.Infrastructure` | Native authentication/bindings, workspace admission, Core host composition and host-facing APIs |
 | `Twig.RenderTree` | Pure rendering vocabulary shared by consumers |
 | `Twig.Daemon.*` | Windows same-owner service, application/domain/infrastructure, and pure client library |

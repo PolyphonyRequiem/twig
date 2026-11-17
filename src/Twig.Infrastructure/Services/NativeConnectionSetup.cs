@@ -5,6 +5,7 @@ using Twig.Infrastructure.Auth.InteractiveAuth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
+using Twig.Providers.Native;
 
 namespace Twig.Infrastructure.Services;
 
@@ -17,7 +18,7 @@ public abstract record NativeSetupTarget;
 public sealed record NativeAdoSetupTarget(string Organization, string Project, string BindingId,
     string? Team = null, string? GitProject = null) : NativeSetupTarget;
 public sealed record NativeGitHubSetupTarget(string Host, string Repository, string Account) : NativeSetupTarget;
-public sealed record NativeTwigSetupTarget : NativeSetupTarget;
+public sealed record NativeTwigSetupTarget(string Database) : NativeSetupTarget;
 public sealed record NativeFreshSetupRequest(string WorkspaceRoot, NativeSetupTarget Target, string? StoreFile = null);
 public sealed record NativeManagedSetupResult(string WorkspaceRoot, NativeSourceObservation Observation);
 
@@ -40,7 +41,7 @@ public sealed record NativeSetupFailureInfo(NativeSetupPhase Phase, bool Cancell
 /// Explicit human-host setup. Construction is inert; each operation owns its native composition.
 /// Failures remain failures, retain possible local effects, and confer no retry or replay authority.
 /// </summary>
-public sealed class NativeConnectionSetup
+public sealed partial class NativeConnectionSetup
 {
     /// <summary>Resolves the native metadata home without creating directories, opening storage or selecting an account.</summary>
     public static string ResolveUserHome() => ConnectionBindingService.ResolveUserHome();
@@ -65,13 +66,14 @@ public sealed class NativeConnectionSetup
 
     internal NativeConnectionSetup(Func<NativeSetupEffects, IConnectionBindingService> bindings,
         Func<LoopbackPkceFlow>? pkce = null, CoreTransportOverride? transport = null,
-        IBoundedProcessRunner? processes = null, bool ownsBindings = false)
+        IBoundedProcessRunner? processes = null, bool ownsBindings = false, string? managedRoot = null)
     {
         this.bindings = bindings;
         this.pkce = pkce ?? (() => new LoopbackPkceFlow());
         this.transport = transport;
         this.processes = processes;
         this.ownsBindings = ownsBindings;
+        this.managedRoot = managedRoot;
     }
 
     /// <summary>Runs native loopback PKCE for one explicit alias; only the supplied callback presents its URL.</summary>
@@ -118,15 +120,25 @@ public sealed class NativeConnectionSetup
         CancellationToken ct = default)
         => await InitializeFreshAsync(request, new NativeSetupEffects(), ct).ConfigureAwait(false);
 
-    /// <summary>Creates a private client context without modifying a source checkout. Native authority remains owner-wide.</summary>
+    /// <summary>Creates a native-owned private client context for an explicit provider target without modifying a source checkout.</summary>
     public async Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target,
         CancellationToken ct = default)
     {
         var effects = new NativeSetupEffects();
         try
         {
-            if (managedRoot is null || target is not (NativeTwigSetupTarget or NativeGitHubSetupTarget))
-                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unsupported, "Managed setup supports explicit Twig and GitHub connections only."));
+            ct.ThrowIfCancellationRequested();
+            if (managedRoot is null || target is not (NativeTwigSetupTarget or NativeGitHubSetupTarget or NativeAdoSetupTarget))
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unsupported, "Managed setup requires an explicit Twig, GitHub or bound ADO connection."));
+            if (target is NativeAdoSetupTarget ado)
+            {
+                if (NativeSetupEnrollment.AdoProblem(ado.Organization, ado.Project) is { } problem)
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, problem));
+                if (!ExplicitBinding(ado.BindingId))
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose an exact native ADO binding; no default was inferred."));
+            }
+            if (target is NativeTwigSetupTarget native && !NativeDatabaseName.IsValid(native.Database))
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose an explicit native database name: 1-64 lowercase letters, digits or internal hyphens."));
             if (target is NativeGitHubSetupTarget github)
             {
                 var resolved = await ResolveManagedGitHubAccountAsync(github, processes ?? new BoundedProcessRunner(), ct).ConfigureAwait(false);
@@ -194,8 +206,7 @@ public sealed class NativeConnectionSetup
             NativeWorkspaceSetupArguments arguments;
             switch (request.Target)
             {
-                case NativeAdoSetupTarget ado when !string.IsNullOrWhiteSpace(ado.BindingId)
-                    && ado.BindingId == ado.BindingId.Trim() && !ado.BindingId.Any(char.IsWhiteSpace) && !ado.BindingId.Any(char.IsControl):
+                case NativeAdoSetupTarget ado when ExplicitBinding(ado.BindingId):
                     arguments = new(request.WorkspaceRoot, ado.Organization, ado.Project, ado.Team, ado.GitProject,
                         "ado", null, null, ado.BindingId, request.StoreFile, null);
                     break;
@@ -203,12 +214,12 @@ public sealed class NativeConnectionSetup
                     arguments = new(request.WorkspaceRoot, "", "", null, null, "github",
                         github.Host, github.Repository, null, request.StoreFile, github.Account);
                     break;
-                case NativeTwigSetupTarget:
+                case NativeTwigSetupTarget native when NativeDatabaseName.IsValid(native.Database):
                     arguments = new(request.WorkspaceRoot, "", "", null, null, "twig",
-                        null, null, null, request.StoreFile, null);
+                        null, null, null, request.StoreFile, null, Database: native.Database);
                     break;
                 default:
-                    return effects.Fail<NativeSourceObservation>(new(ErrorCode.InvalidInput, "Choose an explicit ADO binding or named GitHub account; no default was inferred."));
+                    return effects.Fail<NativeSourceObservation>(new(ErrorCode.InvalidInput, "Choose an explicit ADO binding, named GitHub account or named Twig database; no default was inferred."));
             }
             var initialized = await NativeWorkspaceSetup.InitializeAsync(arguments,
                 () => resolved ??= bindings(effects), effects, ct, transport, processes).ConfigureAwait(false);
@@ -248,6 +259,10 @@ public sealed class NativeConnectionSetup
             if (ownsBindings && resolved is IDisposable disposable) disposable.Dispose();
         }
     }
+
+    private static bool ExplicitBinding(string? binding)
+        => !string.IsNullOrWhiteSpace(binding) && binding == binding.Trim()
+            && !binding.Any(char.IsWhiteSpace) && !binding.Any(char.IsControl);
 
     /// <summary>Decodes only native setup diagnostics. Foreign, malformed or unsupported evidence explicitly refuses.</summary>
     public static Result<NativeSetupFailureInfo> ReadFailure(Error error) => NativeSetupEffects.Read(error);

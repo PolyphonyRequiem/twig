@@ -14,6 +14,110 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Theory]
+    [InlineData(null)]
+    [InlineData("Team")]
+    public async Task NativeManagedAdoRegistersAnExactPrivateConnectionWithoutASourceCheckout(string? team)
+    {
+        var (setup, binding) = await ManagedConnectionSetup();
+        Directory.GetDirectories(_temp).ShouldBe([Home]);
+        var result = await setup.InitializeManagedAsync(
+            new NativeAdoSetupTarget("fixture", "Project", binding, team, "Git project"));
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        var root = result.Value.WorkspaceRoot;
+        Path.GetDirectoryName(root).ShouldBe(Path.Combine(Home, "sources"));
+        Directory.Exists(Path.Combine(root, ".git")).ShouldBeTrue();
+        var observation = result.Value.Observation;
+        observation.Source.PrincipalId.ShouldBe(Sibling, "the explicitly pinned sibling must win over the actor endpoint default");
+        observation.Source.Connection.Provider.Value.ShouldBe("ado");
+        observation.Schema.ShouldNotBeNull().IsSuccess.ShouldBeTrue();
+        observation.Schema.Value.Connection.ShouldBe(observation.Source.Connection);
+        var config = await TwigConfiguration.LoadSplitAsync(TwigPaths.BuildPaths(Path.Combine(root, ".twig"), new(), root));
+        config.Organization.ShouldBe("fixture");
+        config.Project.ShouldBe("Project");
+        config.Team.ShouldBe(team ?? "");
+        config.Git.Project.ShouldBe("Git project");
+        using (var attachment = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, ".twig", "attachment.json"))))
+            attachment.RootElement.GetProperty("bindingPin").GetString().ShouldBe(binding);
+        var library = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        var registered = (await library.WorkspacesAsync()).Value.Single();
+        registered.Root.ShouldBe(root);
+        registered.Connection.ShouldBe(observation.Source.Connection);
+        registered.StoreInstance.ShouldBe(observation.Source.StoreInstance);
+        var read = await NativeSourceReader.ReadAsync(registered.Root, observation.Source, true, services =>
+        {
+            services.AddSingleton<IConnectionBindingService>(_bindings);
+            services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        }, default);
+        read.IsSuccess.ShouldBeTrue(read.IsSuccess ? "" : read.Error.Message);
+        (await library.ReadAsync()).Value.Benches.ShouldBeEmpty("registration must not invent Bench membership");
+        var exact = (await _bindings.ListBindingsAsync("fixture", "Project")).Single(value => value.BindingId == binding);
+        (await _systemRegistry.FindDefaultBindingAsync(exact.ConnectionRef)).Value.ShouldNotBeNull().BindingId.ShouldNotBe(binding);
+        _transport.WorkRequests.ShouldBe(0);
+        _transport.CommittedWrites.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("wrong-binding")]
+    [InlineData("schema-denied")]
+    [InlineData("cancelled")]
+    public async Task NativeManagedAdoFailurePreservesEffectsWithoutFallbackOrReplay(string defect)
+    {
+        var (setup, binding) = await ManagedConnectionSetup();
+        using var cancellation = new CancellationTokenSource();
+        if (defect == "wrong-binding")
+            binding = (await _bindings.CreateBindingAsync("fixture", "Other project", "sibling", false)).BindingId;
+        if (defect == "schema-denied")
+        {
+            _transport.FailSchema = true;
+            _transport.SchemaFailureStatus = System.Net.HttpStatusCode.Forbidden;
+        }
+        var projectReads = 0;
+        _transport.BeforeProjectMetadata = () =>
+        {
+            if (++projectReads == 2 && defect == "cancelled") cancellation.Cancel();
+            cancellation.Token.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        };
+        var result = await setup.InitializeManagedAsync(
+            new NativeAdoSetupTarget("fixture", "Project", binding), cancellation.Token);
+        result.IsSuccess.ShouldBeFalse();
+        var report = NativeConnectionSetup.ReadFailure(result.Error).Value;
+        report.Cancelled.ShouldBe(defect == "cancelled");
+        report.Effects.ShouldContain(new NativeSetupEffect(NativeSetupEffectKind.ManagedWorkspace, NativeSetupEffectState.Confirmed));
+        var contexts = Directory.GetDirectories(Path.Combine(Home, "sources"));
+        contexts.Length.ShouldBe(1, "an uncertain or failed setup must never allocate a retry context");
+        Directory.Exists(Path.Combine(contexts.Single(), ".git")).ShouldBeTrue();
+        if (defect == "wrong-binding")
+        {
+            projectReads.ShouldBe(0, "an endpoint-mismatched binding must refuse before provider access");
+            report.Effects.ShouldNotContain(effect => effect.Kind == NativeSetupEffectKind.CoreStore);
+            (await UserBenchStore.ForRegistry(_bindings.RegistryPath).WorkspacesAsync()).Value.ShouldBeEmpty();
+        }
+        else
+        {
+            report.Effects.ShouldContain(new NativeSetupEffect(NativeSetupEffectKind.SourceReadback, NativeSetupEffectState.Possible));
+            report.Effects.ShouldContain(new NativeSetupEffect(NativeSetupEffectKind.WorkspaceMarker, NativeSetupEffectState.Confirmed));
+            File.Exists(Path.Combine(contexts.Single(), ".twig", "core-workspace.json")).ShouldBeTrue();
+        }
+        if (defect == "schema-denied") result.Error.Evidence.ShouldContain("http:403");
+        _transport.WorkRequests.ShouldBe(0);
+        _transport.CommittedWrites.ShouldBe(0);
+    }
+
+    private async Task<(NativeConnectionSetup Setup, string Binding)> ManagedConnectionSetup()
+    {
+        Directory.Exists(Path.Combine(_temp, "checkout")).ShouldBeFalse();
+        Directory.Exists(Path.Combine(Home, "sources")).ShouldBeFalse();
+        await _bindings.RegisterPatIdentityAsync("actor", "fixture", ActorPat);
+        await _bindings.RegisterPatIdentityAsync("sibling", "fixture", SiblingPat);
+        await _bindings.CreateBindingAsync("fixture", "Project", "actor", true);
+        var binding = await _bindings.CreateBindingAsync("fixture", "Project", "sibling", false);
+        _transport.CoreMetadataEnabled = true;
+        return (new NativeConnectionSetup(_ => _bindings, transport: new CoreTransportOverride(_transport.NewHandle),
+            managedRoot: Path.Combine(Home, "sources")), binding.BindingId);
+    }
+
+    [Theory]
     [InlineData("partial")]
     [InlineData("relative-store")]
     [InlineData("sidecar")]

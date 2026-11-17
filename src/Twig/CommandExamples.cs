@@ -91,6 +91,8 @@ internal static class CommandExamples
             "twig init contoso Fabrikam --binding <id>                               Pin a registered binding for this fresh checkout only",
             "twig init contoso Fabrikam --core-store C:\\isolated\\core.db             Initialize a fresh isolated ADO checkout with a new explicitly bound Core store",
             "twig init --provider github --host github.com --repository owner/repo --account me   Create .twig/core.db using the exact selected native gh account",
+            "twig init --provider twig --database personal                          Create or select the named native database; keep a separate workspace client store",
+            "twig init --provider twig --database team-work -o json                  Share this owner's named database across explicitly initialized repositories",
             "twig init --org contoso --project Fabrikam --team \"Team A\"             Initialize with an explicit team",
             "twig process --refresh                                                 4) verify remote metadata access without work-item sync",
             "twig connection status                                                 optional: inspect the local binding (no ADO call)",

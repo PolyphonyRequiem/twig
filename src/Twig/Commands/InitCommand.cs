@@ -36,7 +36,7 @@ public sealed class InitCommand
         bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null,
         string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null,
         string? provider = null, string? host = null, string? repository = null, string? binding = null,
-        string? coreStore = null, string? account = null)
+        string? coreStore = null, string? account = null, string? database = null)
     {
         var started = Stopwatch.GetTimestamp();
         var exit = 1;
@@ -48,7 +48,7 @@ public sealed class InitCommand
                 return exit = Fail("Init has no work-item IDs to emit. Use human, json, json-full, json-compact or minimal.", 2);
             var effects = new NativeSetupEffects();
             var result = await NativeWorkspaceSetup.InitializeAsync(new(_paths.StartDir, org, project, team,
-                gitProject, provider, host, repository, binding, coreStore, account, _paths.GlobalDisplayPath),
+                gitProject, provider, host, repository, binding, coreStore, account, _paths.GlobalDisplayPath, database),
                 _bindings, effects, ct, _transport, _githubProcesses);
             if (!result.IsSuccess)
             {
@@ -56,18 +56,20 @@ public sealed class InitCommand
                     throw new OperationCanceledException(ct);
                 return exit = Fail(result.Error.Message, effects.CommandExitCode);
             }
-            var database = result.Value.Document.DatabasePath;
+            var clientDatabase = result.Value.Document.DatabasePath;
             var twigDir = Path.Combine(_paths.StartDir, ".twig");
-            _renderers.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(
-                [new RenderNode.Record("initialized", new Dictionary<string, RenderCell>
-                {
-                    ["coreInitialized"] = RenderCell.Boolean(true),
-                    ["databasePath"] = RenderCell.String(database),
-                    ["message"] = RenderCell.String("Initialized a new natively bound Core workspace; no legacy cache or existing state was adopted."
-                        + (coreStore is not null && !database.StartsWith(twigDir + Path.DirectorySeparatorChar,
-                            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
-                            ? " Custom store files outside .twig are not automatically Git-ignored; protect the database and SQLite sidecars separately." : "")),
-                })]));
+            var fields = new Dictionary<string, RenderCell>
+            {
+                ["coreInitialized"] = RenderCell.Boolean(true),
+                ["databasePath"] = RenderCell.String(clientDatabase),
+                ["message"] = RenderCell.String("Initialized a new natively bound Core workspace; no legacy cache or existing state was adopted."
+                    + (coreStore is not null && !clientDatabase.StartsWith(twigDir + Path.DirectorySeparatorChar,
+                        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                        ? " Custom store files outside .twig are not automatically Git-ignored; protect the database and SQLite sidecars separately." : "")),
+            };
+            if (result.Value.NativeDatabase is { } selectedDatabase)
+                fields["nativeDatabase"] = RenderCell.String(selectedDatabase);
+            _renderers.GetRenderer(outputFormat).Render(new RenderTree.RenderTree([new RenderNode.Record("initialized", fields)]));
             return exit = 0;
         }
         finally

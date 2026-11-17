@@ -60,6 +60,9 @@ public sealed class TwigConfiguration
     /// </summary>
     public string? Provider { get => RepoCoords.Provider; set => RepoCoords.Provider = value; }
 
+    /// <summary>Explicit owner-local named database for the Twig provider.</summary>
+    public string? NativeDatabase { get => RepoCoords.NativeDatabase; set => RepoCoords.NativeDatabase = value; }
+
     /// <summary>The effective provider kind; fails closed on an unrecognized stored token.</summary>
     public string ResolveWorkItemProviderKind() => WorkItemProviderSetting.Resolve(Provider);
 
@@ -524,6 +527,8 @@ public sealed class TwigConfiguration
                 return (ProcessTemplate, true);
             case "provider":
                 return (Provider ?? WorkItemProviderSetting.Default, true);
+            case "nativedatabase":
+                return (NativeDatabase ?? "", true);
             case "auth.method":
                 return (Auth.Method, true);
             case "defaults.areapath":
@@ -900,6 +905,9 @@ public sealed class TwigRepoConfig
     /// omitted from <c>twig.json</c> and means ADO, so existing manifests are unchanged.
     /// </summary>
     public string? Provider { get; set; }
+
+    /// <summary>Named Twig-native authority; required when the provider is twig.</summary>
+    public string? NativeDatabase { get; set; }
 
     /// <summary>
     /// Epic #1167 explicit GitHub scope, read only under <c>provider=github</c>. Null is omitted

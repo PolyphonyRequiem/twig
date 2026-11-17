@@ -1,5 +1,6 @@
 using Bench.Infrastructure;
 using Twig.Core;
+using Twig.Providers.Native;
 using static Bench.Server.BenchHost;
 using NativeBench = Twig.Core.Bench;
 
@@ -24,13 +25,13 @@ internal sealed class NativeConnectionRequest(ConnectionRequestDto value, ViewSe
 public static partial class NativeBenchHost
 {
     private static NativeConnectionRequest PrepareConnectionRequest(ViewSession session, NativeBench bench,
-        string provider, string? repository)
+        string provider, string? repository, string? database)
     {
-        if (provider is not ("twig" or "github") || provider == "twig" && repository is not null
-            || provider == "github" && (repository is null || !System.Text.RegularExpressions.Regex.IsMatch(repository,
+        if (provider is not ("twig" or "github") || provider == "twig" && (repository is not null || !NativeDatabaseName.IsValid(database))
+            || provider == "github" && (database is not null || repository is null || !System.Text.RegularExpressions.Regex.IsMatch(repository,
                 @"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}\z",
                 System.Text.RegularExpressions.RegexOptions.CultureInvariant) || repository.Split('/')[1] is "." or ".."))
-            throw new HttpFailure(400, "InvalidInput", "Choose Twig, or GitHub with an explicit owner/repository on github.com. Storage is managed privately and GitHub uses the signed-in CLI account.");
+            throw new HttpFailure(400, "InvalidInput", "Choose Twig with an explicit database name (1-64 lowercase letters, digits or internal hyphens), or GitHub with an explicit owner/repository on github.com. Storage is managed privately and GitHub uses the signed-in CLI account.");
         repository = repository?.ToLowerInvariant();
         lock (session.Agent)
         lock (session)
@@ -40,7 +41,7 @@ public static partial class NativeBenchHost
                 && !pending.Lifetime.IsCancellationRequested && pending.Value.ExpiresAt > DateTimeOffset.UtcNow)
             {
                 if (pending.Value.BenchId == bench.Id && pending.Value.BenchRevision == bench.Revision
-                    && pending.Value.Provider == provider && pending.Value.Repository == repository)
+                    && pending.Value.Provider == provider && pending.Value.Repository == repository && pending.Value.Database == database)
                     return pending;
                 throw new HttpFailure(409, "ConnectionRequestPending", "Review or dismiss the existing connection request before requesting another.");
             }
@@ -48,7 +49,7 @@ public static partial class NativeBenchHost
                 throw new HttpFailure(422, "Unsupported", "This view has reached its 32-source agent admission limit.");
             var request = new NativeConnectionRequest(new(Guid.NewGuid(), bench.Id, bench.Revision, bench.Name,
                 provider, repository, "Requested", new[] { session.Expires,
-                    DateTimeOffset.UtcNow.AddMinutes(15) }.Min()), session);
+                    DateTimeOffset.UtcNow.AddMinutes(15) }.Min(), database), session);
             session.Agent.ConnectionRequest = request;
             return request;
         }

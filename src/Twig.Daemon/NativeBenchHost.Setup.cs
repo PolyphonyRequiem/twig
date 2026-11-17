@@ -11,11 +11,14 @@ internal sealed class NativeSetupView
 {
     internal long Epoch { get; private set; }
     internal NativeSetupOperation? Operation { get; set; }
+    internal (Guid OperationId, Guid Generation, NativeAadEnrollment Value)? Enrollment { get; set; }
+    internal (Guid EnrollmentId, long Epoch, NativeAdoDiscoveryScope Scope, int Limit, string Token)? DiscoveryContinuation { get; set; }
     internal void Invalidate()
     {
         lock (this)
         {
             Epoch++;
+            DiscoveryContinuation = null;
             if (Operation is { } operation)
             {
                 operation.Current = NativeBenchHost.WithholdSetup(operation.Current) with { Epoch = Epoch };
@@ -38,6 +41,7 @@ public static partial class NativeBenchHost
     internal static SetupOperationDto WithholdSetup(SetupOperationDto result) => result with
     {
         Status = "Cancelled", AuthorizationUrl = null, Enrollment = null, Binding = null, Source = null,
+        Discovery = null, DiscoveryRequest = null,
         Error = result.Error ?? new("SetupCancelled",
             "Setup was cancelled or its view changed. Possible native effects remain; nothing was replayed.")
     };
@@ -68,7 +72,7 @@ public static partial class NativeBenchHost
             if (bench is null || bench.Revision != body.BenchRevision
                 || session.CurrentBenchId != body.BenchId)
                 throw new HttpFailure(409, "BenchChanged", "Choose the current Bench and review its saved revision before adding a connection.");
-            await Write(http, PrepareConnectionRequest(session, bench, body.Provider, body.Repository).Value);
+            await Write(http, PrepareConnectionRequest(session, bench, body.Provider, body.Repository, body.Database).Value);
         });
         app.MapPost("/api/v1/views/{id:guid}/connections/cancel", async (HttpContext http, Guid id) =>
         {
@@ -110,7 +114,7 @@ public static partial class NativeBenchHost
             else
             {
                 if (body.Account is not null) throw new HttpFailure(400, "InvalidInput", "A native Twig connection does not use a GitHub account.");
-                target = new NativeTwigSetupTarget();
+                target = new NativeTwigSetupTarget(request.Value.Database!);
             }
             await Start(http, session, session.Setup.Epoch, "Connection setup", async (operation, ct) =>
             {
@@ -248,6 +252,71 @@ public static partial class NativeBenchHost
                     : Failed(operation.Current, result.Error);
             });
         });
+        app.MapPost("/api/v1/views/{id:guid}/setup/discover-ado", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<SetupDiscoveryBody>(http);
+            NativeAdoDiscoveryRequest request;
+            lock (session.Setup)
+            {
+                CurrentEpoch(session, body.Epoch);
+                if (session.Setup.Enrollment is not { } enrollment
+                    || enrollment.OperationId != body.EnrollmentOperationId
+                    || enrollment.Generation != session.ProfileGeneration)
+                    throw new HttpFailure(409, "SetupEnrollmentChanged",
+                        "Complete explicit named AAD enrollment in this owner view before discovery.");
+                request = new(new(enrollment.Value, body.Kind, body.Organization, body.Project), body.Limit, body.Continuation);
+                CheckContinuation();
+            }
+            await Start(http, session, body.Epoch, "Discovery", async (operation, ct) =>
+            {
+                lock (session.Setup)
+                {
+                    if (session.Setup.Enrollment is not { } current || current.OperationId != body.EnrollmentOperationId
+                        || current.Generation != operation.Generation || current.Value != request.Scope.Enrollment)
+                        throw new HttpFailure(409, "SetupEnrollmentChanged", "The named enrollment changed before discovery admission.");
+                    CheckContinuation();
+                    if (body.Continuation is null) session.Setup.DiscoveryContinuation = null;
+                    operation.Current = operation.Current with { DiscoveryRequest = request };
+                }
+                var result = await Gateway().DiscoverAdoAsync(request, ct);
+                if (result.IsSuccess && result.Value.Scope != request.Scope)
+                    return operation.Current with { Status = "Failed",
+                        Error = new("Conflict", "Discovery returned another enrollment or target; no choices were released.") };
+                if (result.IsSuccess)
+                    return operation.Current with { Status = "Discovered", Discovery = result.Value };
+                var code = result.Error.Evidence.Contains("http:403") ? "Forbidden"
+                    : result.Error.Evidence.Contains("http:401") || result.Error.Evidence.Contains("discovery:unauthenticated")
+                        ? "Unauthenticated" : result.Error.Code.ToString();
+                app.Logger.LogWarning("Native ADO setup discovery refused ({Code}); no alternate choices were used.", code);
+                return operation.Current with { Status = "Failed", Error = new(code, result.Error.Message) };
+            });
+            void CheckContinuation()
+            {
+                if (body.Continuation is not null && (session.Setup.DiscoveryContinuation is not { } retained
+                    || retained.EnrollmentId != body.EnrollmentOperationId || retained.Epoch != body.Epoch
+                    || retained.Scope != request.Scope || retained.Limit != body.Limit || retained.Token != body.Continuation))
+                    throw new HttpFailure(409, "SetupDiscoveryChanged",
+                        "Continue only the current page from this enrollment and target in this view.");
+            }
+        });
+        app.MapPost("/api/v1/views/{id:guid}/setup/initialize-managed-ado", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<SetupManagedAdoBody>(http);
+            RequiredText(body.Organization, "Supply the ADO organization.");
+            RequiredText(body.Project, "Supply the ADO project.");
+            RequiredText(body.BindingId, "Choose an exact native ADO binding.");
+            OptionalText(body.Team, "Supply an explicit team or leave it empty.");
+            OptionalText(body.GitProject, "Supply an explicit Git project or leave it empty.");
+            await Start(http, session, body.Epoch, "Initialization", async (operation, ct) =>
+            {
+                var result = await Gateway().InitializeManagedAsync(new NativeAdoSetupTarget(
+                    body.Organization, body.Project, body.BindingId, body.Team, body.GitProject), ct);
+                if (!result.IsSuccess) return Failed(operation.Current, result.Error);
+                return Initialized(operation.Current, result.Value.WorkspaceRoot, result.Value.Observation);
+            });
+        });
         app.MapPost("/api/v1/views/{id:guid}/setup/initialize-ado", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);
@@ -277,7 +346,8 @@ public static partial class NativeBenchHost
             var session = await authorize(http, id);
             var body = await Body<SetupTwigBody>(http);
             RequiredRoot(body.WorkspaceRoot);
-            await Initialize(http, session, body.Epoch, new(body.WorkspaceRoot, new NativeTwigSetupTarget()));
+            RequiredText(body.Database, "Name the native database.", 64);
+            await Initialize(http, session, body.Epoch, new(body.WorkspaceRoot, new NativeTwigSetupTarget(body.Database)));
         });
         app.MapGet("/api/v1/views/{id:guid}/setup/operation", async (HttpContext http, Guid id) =>
         {
@@ -340,14 +410,17 @@ public static partial class NativeBenchHost
             {
                 var result = await Gateway().InitializeFreshAsync(request, ct);
                 if (!result.IsSuccess) return Failed(operation.Current, result.Error);
-                var observation = result.Value;
-                if (observation.Schema is not { IsSuccess: true } schema
-                    || schema.Value.Connection != observation.Source.Connection)
-                    return operation.Current with { Status = "Failed", Error = new("SetupReadbackUnavailable",
-                        "Native initialization did not return a successful creation-bound schema readback. Possible effects remain; no Ready source was inferred.") };
-                return operation.Current with { Status = "Ready",
-                    Source = new(request.WorkspaceRoot, observation.Source, schema.Value.Connection, observation.SchemaObservedAt) };
+                return Initialized(operation.Current, request.WorkspaceRoot, result.Value);
             });
+        SetupOperationDto Initialized(SetupOperationDto operation, string root, NativeSourceObservation observation)
+        {
+            if (observation.Schema is not { IsSuccess: true } schema
+                || schema.Value.Connection != observation.Source.Connection)
+                return operation with { Status = "Failed", Error = new("SetupReadbackUnavailable",
+                        "Native initialization did not return a successful creation-bound schema readback. Possible effects remain; no Ready source was inferred.") };
+            return operation with { Status = "Ready",
+                Source = new(root, observation.Source, schema.Value.Connection, observation.SchemaObservedAt) };
+        }
         async Task Start(HttpContext http, ViewSession session, long expectedEpoch, string phase,
             Func<NativeSetupOperation, CancellationToken, Task<SetupOperationDto>> work,
             NativeConnectionRequest? request = null, bool requestOnly = false)
@@ -361,6 +434,11 @@ public static partial class NativeBenchHost
                 if (session.Setup.Operation?.Work is { IsCompleted: false })
                     throw new HttpFailure(409, "SetupBusy", "Observe or cancel the original setup operation. It will not be dispatched twice.");
                 session.Setup.Operation?.Lifetime.Dispose();
+                if (phase == "Enrollment")
+                {
+                    session.Setup.Enrollment = null;
+                    session.Setup.DiscoveryContinuation = null;
+                }
                 if (request is not null)
                 {
                     _ = PendingConnectionRequest(session, request.Value.RequestId);
@@ -398,14 +476,14 @@ public static partial class NativeBenchHost
                     _ = sessions.ReadState(session);
                 }
                 catch (HttpFailure error)
-                { result = result with { Status = "Failed", AuthorizationUrl = null, Enrollment = null, Binding = null, Source = null,
+                { result = result with { Status = "Failed", AuthorizationUrl = null, Enrollment = null, Binding = null, Source = null, Discovery = null,
                     Error = result.Error ?? new(error.Code, error.Message) }; }
                 catch (OperationCanceledException)
                 { result = WithholdSetup(result); }
                 catch (Exception error) when (error is IOException or InvalidOperationException or UnauthorizedAccessException)
                 {
                     app.Logger.LogError("Native setup failed ({Type}); possible effects remain; no replay was attempted.", error.GetType().Name);
-                    result = result with { Status = "Failed", AuthorizationUrl = null, Enrollment = null, Binding = null, Source = null,
+                    result = result with { Status = "Failed", AuthorizationUrl = null, Enrollment = null, Binding = null, Source = null, Discovery = null,
                         Error = result.Error ?? new("SetupUnavailable", "Native setup did not complete. Possible effects remain; no alternate path or replay was used.") };
                 }
                 lock (session.Setup)
@@ -413,6 +491,12 @@ public static partial class NativeBenchHost
                     operation.Current = (session.Setup.Epoch != epoch || operation.Lifetime.IsCancellationRequested
                         || session.Revoked || session.ProfileGeneration != operation.Generation
                         ? WithholdSetup(result) : result) with { Pending = false, Epoch = session.Setup.Epoch };
+                    if (operation.Current is { Status: "Enrolled", Enrollment: { } enrollment })
+                        session.Setup.Enrollment = (operation.Current.OperationId, operation.Generation, enrollment);
+                    if (operation.Current is { Status: "Discovered", Discovery: { } page, DiscoveryRequest: { } discovery }
+                        && session.Setup.Enrollment is { } admitted)
+                        session.Setup.DiscoveryContinuation = page.Continuation is { } next
+                            ? (admitted.OperationId, epoch, discovery.Scope, discovery.Limit, next) : null;
                     if (request is not null) request.Value = request.Value with { State = operation.Current.Status };
                 }
                 updates.Publish(0);

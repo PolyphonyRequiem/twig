@@ -365,7 +365,7 @@ public static partial class NativeBenchHost
             try
             {
                 var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted);
-                var request = PrepareConnectionRequest(session, captured.Definition, body.Provider, body.Repository);
+                var request = PrepareConnectionRequest(session, captured.Definition, body.Provider, body.Repository, body.Database);
                 updates.PublishAgent(session.Id);
                 await Write(http, request.Value);
             }

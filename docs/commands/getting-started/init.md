@@ -40,6 +40,7 @@ delete, reauthenticate or rebind, and init refuses existing state.
 twig init <org> <project>
 twig init --org <org> --project <project> --binding <registered-binding-id> -o json
 twig init --provider github --host github.com --repository owner/repo --account selected
+twig init --provider twig --database personal
 twig init <org> <project> --core-store <new-absolute-file>
 ```
 
@@ -72,12 +73,26 @@ the native actor and immutable owner/repository IDs, attaches that actual target
 and pins the new store through the existing native host. It does not enroll
 credentials, query issues, discover process rules or send a remote mutation.
 
+For Twig-native work, `--database <name>` explicitly creates or selects an
+owner-local named database. Each database has its own durable source UUID, items,
+revisions and authority receipts. Multiple fresh repository workspaces can use
+the same name; different names isolate reads and writes even when item numbers
+coincide. Workspace mirrors, drafts and proposal journals remain separate.
+
+Names contain 1-64 lowercase letters, digits or internal hyphens, not paths.
+The name is declared as `nativeDatabase` in `twig.json`; a matching existing
+manifest can supply it without `--database`. There is no implicit default,
+singleton fallback, adoption or migration. Ordinary workspace reopening refuses
+a missing or replaced database or a changed selection. `--core-store` selects
+the separate client database, not the native authority.
+
 ## Arguments and options
 
 | Option | Meaning |
 | --- | --- |
 | `<org> <project>` or `--org` / `--project` | Explicit ADO coordinates. Conflicting positional/named values refuse. Not GitHub coordinates. |
-| `--provider ado\|github` | Explicit provider; defaults to ADO, or the existing manifest's declared provider. Never inferred from Git remotes. |
+| `--provider ado\|github\|twig` | Explicit provider; defaults to ADO, or the existing manifest's declared provider. Never inferred from Git remotes. |
+| `--database` | Explicit named authority for `--provider twig`, or the matching manifest's `nativeDatabase`. Required without a declaration; no default. Creates the named database if absent during fresh init only. |
 | `--host` / `--repository` | Explicit canonical GitHub host and `owner/name`, or matching existing manifest coordinates. |
 | `--account` | Required explicit selected `gh` account for GitHub initialization. |
 | `--binding` | Exact registered ADO binding to pin in this new checkout; otherwise use the endpoint default. |
@@ -100,7 +115,9 @@ partial initialization evidence. Created files are deliberately retained,
 and another init refuses that directory rather than silently reusing it.
 
 Success emits exactly one result, including `coreInitialized: true`, the actual
-`databasePath`, and a message. JSON aliases emit one parseable JSON object;
+`databasePath`, and a message. Twig-native initialization also reports
+`nativeDatabase`, distinguishing the selected authority from the client store.
+JSON aliases emit one parseable JSON object;
 human/minimal output is a static rendering of the same truthful result. Errors
 are format-aware on stderr. No old progress stdout is captured and rewritten.
 

@@ -36,14 +36,20 @@ account happens to be active does not replace that selection.
 ### Twig-native
 
 ```sh
-twig init --provider twig
+twig init --provider twig --database personal
 twig process
 twig seed new --no-parent --type Twig.Item --title "First item"
 twig seed view
 ```
 
-This provider needs no remote tracker credentials. Its durable per-user authority
-is separate from each workspace's client mirror. Its schema has `Twig.Title`,
+This provider needs no remote tracker credentials. Choose a named database
+explicitly; there is no default. Each name identifies an isolated, owner-local
+authority, separate from each workspace's client mirror. Multiple repositories
+can share published items by initializing against the same name. The selection
+is declared as `nativeDatabase` in `twig.json`; changing that declaration cannot
+rebind an initialized workspace to another database.
+
+Its schema has `Twig.Title`,
 Markdown `Twig.Description`, and `Twig.State` with Open, Active, and Closed values.
 These are this provider's explicit schema, not defaults imposed on ADO or GitHub.
 No assignee, comment, or relationship capability is implied.

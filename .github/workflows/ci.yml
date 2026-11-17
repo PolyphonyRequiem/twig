@@ -57,7 +57,11 @@ jobs:
           import subprocess, sys
           groups = [
               ("setup-infrastructure", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeConnectionSetupTests|FullyQualifiedName~NativeSetupBinding|FullyQualifiedName~NativeSetupPkce|FullyQualifiedName~NativeSetupCallback"),
+              ("setup-discovery", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeAdoSetupDiscoveryTests"),
+              ("setup-http", "Twig.Daemon.Tests", "FullyQualifiedName~NativeAdoSetupDiscoveryHttpTests|FullyQualifiedName~ManagedAdoSetupTests"),
               ("setup-cli", "Twig.Cli.Tests", "FullyQualifiedName~NativeConnectionSetupCommandTests|FullyQualifiedName~NativeSetupFullInitPreflight|FullyQualifiedName~NativeSetupAdo|FullyQualifiedName~NativeSetupGitHub"),
+              ("setup-managed-ado", "Twig.Cli.Tests", "FullyQualifiedName~NativeManagedAdo"),
+              ("setup-native-databases", "Twig.Cli.Tests", "FullyQualifiedName~NativeDatabaseTests"),
           ]
           for label, project, selector in groups:
               subprocess.run([sys.executable, "tools/verify-trx.py", "--", "dotnet", "test",
@@ -236,10 +240,9 @@ jobs:
               ("native-plan-definitive-edit", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanDefinitiveNoEffectEditRequiresNewReviewAndFreshRestoredAccess"),
               ("native-plan-refused-seed", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanDefinitivelyRefusedCreationUuidIsNeverRecreated"),
               ("native-plan-same-scope-prefix", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanSameScopePartialPrefixDeliversOnlyVerifiedCaptureAndNeverReplaysIt"),
-              ("native-initial-authoring", "Twig.Cli.Tests", "FullyQualifiedName~InitialReadonlyAuthoringAdoption"),
               ("native-capture-rewind", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureWholeDatabaseRewind"),
               ("native-capture-lifecycle", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureInterruptedBeforeCoreStage|FullyQualifiedName~NativeCaptureUserCommitBeforeRegistryConfirmation|FullyQualifiedName~NativeCaptureReserveAndPostCoreCrash"),
-              ("native-capture-bootstrap", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureLegacyBootstrap|FullyQualifiedName~NativeCaptureMissingBidirectionalHistory"),
+              ("native-capture-bootstrap", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureWithoutCreationWitnessRefusesHistoricalAdoption|FullyQualifiedName~NativeCaptureMissingBidirectionalHistory"),
               ("native-gh-editor", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubEditorCaptures"),
               ("native-gh-human-scalars", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubHumanEditorSavesScalarsAndExplicitMarkdownClearThroughCore|FullyQualifiedName~NativeGitHubHumanEditorOnlyOffersCapturedScalarInputs"),
               ("native-gh-human-plan", "Twig.Cli.Tests", "FullyQualifiedName~NativeGitHubHumanPlanStagesScalarsAndNormalSaveNeverFlushesPlanDebt"),

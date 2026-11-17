@@ -5,6 +5,7 @@ using Twig.Infrastructure.Auth.InteractiveAuth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
+using Twig.Providers.Native;
 
 namespace Twig.Infrastructure.Services;
 
@@ -17,7 +18,7 @@ public abstract record NativeSetupTarget;
 public sealed record NativeAdoSetupTarget(string Organization, string Project, string BindingId,
     string? Team = null, string? GitProject = null) : NativeSetupTarget;
 public sealed record NativeGitHubSetupTarget(string Host, string Repository, string Account) : NativeSetupTarget;
-public sealed record NativeTwigSetupTarget : NativeSetupTarget;
+public sealed record NativeTwigSetupTarget(string Database) : NativeSetupTarget;
 public sealed record NativeFreshSetupRequest(string WorkspaceRoot, NativeSetupTarget Target, string? StoreFile = null);
 public sealed record NativeManagedSetupResult(string WorkspaceRoot, NativeSourceObservation Observation);
 
@@ -136,6 +137,8 @@ public sealed partial class NativeConnectionSetup
                 if (!ExplicitBinding(ado.BindingId))
                     return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose an exact native ADO binding; no default was inferred."));
             }
+            if (target is NativeTwigSetupTarget native && !NativeDatabaseName.IsValid(native.Database))
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose an explicit native database name: 1-64 lowercase letters, digits or internal hyphens."));
             if (target is NativeGitHubSetupTarget github)
             {
                 var resolved = await ResolveManagedGitHubAccountAsync(github, processes ?? new BoundedProcessRunner(), ct).ConfigureAwait(false);
@@ -211,12 +214,12 @@ public sealed partial class NativeConnectionSetup
                     arguments = new(request.WorkspaceRoot, "", "", null, null, "github",
                         github.Host, github.Repository, null, request.StoreFile, github.Account);
                     break;
-                case NativeTwigSetupTarget:
+                case NativeTwigSetupTarget native when NativeDatabaseName.IsValid(native.Database):
                     arguments = new(request.WorkspaceRoot, "", "", null, null, "twig",
-                        null, null, null, request.StoreFile, null);
+                        null, null, null, request.StoreFile, null, Database: native.Database);
                     break;
                 default:
-                    return effects.Fail<NativeSourceObservation>(new(ErrorCode.InvalidInput, "Choose an explicit ADO binding or named GitHub account; no default was inferred."));
+                    return effects.Fail<NativeSourceObservation>(new(ErrorCode.InvalidInput, "Choose an explicit ADO binding, named GitHub account or named Twig database; no default was inferred."));
             }
             var initialized = await NativeWorkspaceSetup.InitializeAsync(arguments,
                 () => resolved ??= bindings(effects), effects, ct, transport, processes).ConfigureAwait(false);

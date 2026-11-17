@@ -29,7 +29,7 @@ internal static class CoreWorkspaceInitializer
             || File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)))
             return Result<NativeCreationReceipt>.Fail(ErrorCode.InvalidInput, "Core initialization requires a genuinely new explicit absolute database file; nothing existing was adopted.");
         if (configuration.ResolveWorkItemProviderKind() == "twig")
-            return await new CoreNativeWorkspaceHost(paths, bindings).InitializeAsync(databasePath, ct, effects).ConfigureAwait(false);
+            return await new CoreNativeWorkspaceHost(paths, bindings, configuration.NativeDatabase).InitializeAsync(databasePath, ct, effects).ConfigureAwait(false);
         if (configuration.ResolveWorkItemProviderKind() != "ado")
             return configuration.ResolveWorkItemProviderKind() == "github"
                 ? await new Twig.Infrastructure.GitHub.CoreGitHubWorkspaceHost(configuration, paths, bindings, transport: transport, processes: githubProcesses)

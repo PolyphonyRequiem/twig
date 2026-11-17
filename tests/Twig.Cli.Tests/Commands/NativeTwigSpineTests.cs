@@ -23,11 +23,11 @@ public sealed class NativeTwigSpineTests
         try
         {
             InitCommandTestFixture.InitTempWorktree(work).ShouldBeTrue();
-            var initialized = await new NativeConnectionSetup(home).InitializeFreshAsync(new(work, new NativeTwigSetupTarget()));
+            var initialized = await new NativeConnectionSetup(home).InitializeFreshAsync(new(work, new NativeTwigSetupTarget("spine")));
             initialized.IsSuccess.ShouldBeTrue(initialized.IsSuccess ? "" : initialized.Error.Message);
             var stamp = initialized.Value.Source;
             stamp.Connection.Provider.Value.ShouldBe("twig");
-            var configuration = new TwigConfiguration { Provider = "twig" };
+            var configuration = new TwigConfiguration { Provider = "twig", NativeDatabase = "spine" };
             var paths = TwigPaths.BuildPaths(Path.Combine(work, ".twig"), configuration, work);
             using var bindings = new ConnectionBindingService(home);
             var inventory = await NativeCoreExecution.InventoryAsync(bindings.RegistryPath);

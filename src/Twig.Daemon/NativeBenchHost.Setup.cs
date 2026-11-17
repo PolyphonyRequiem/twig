@@ -72,7 +72,7 @@ public static partial class NativeBenchHost
             if (bench is null || bench.Revision != body.BenchRevision
                 || session.CurrentBenchId != body.BenchId)
                 throw new HttpFailure(409, "BenchChanged", "Choose the current Bench and review its saved revision before adding a connection.");
-            await Write(http, PrepareConnectionRequest(session, bench, body.Provider, body.Repository).Value);
+            await Write(http, PrepareConnectionRequest(session, bench, body.Provider, body.Repository, body.Database).Value);
         });
         app.MapPost("/api/v1/views/{id:guid}/connections/cancel", async (HttpContext http, Guid id) =>
         {
@@ -114,7 +114,7 @@ public static partial class NativeBenchHost
             else
             {
                 if (body.Account is not null) throw new HttpFailure(400, "InvalidInput", "A native Twig connection does not use a GitHub account.");
-                target = new NativeTwigSetupTarget();
+                target = new NativeTwigSetupTarget(request.Value.Database!);
             }
             await Start(http, session, session.Setup.Epoch, "Connection setup", async (operation, ct) =>
             {
@@ -346,7 +346,8 @@ public static partial class NativeBenchHost
             var session = await authorize(http, id);
             var body = await Body<SetupTwigBody>(http);
             RequiredRoot(body.WorkspaceRoot);
-            await Initialize(http, session, body.Epoch, new(body.WorkspaceRoot, new NativeTwigSetupTarget()));
+            RequiredText(body.Database, "Name the native database.", 64);
+            await Initialize(http, session, body.Epoch, new(body.WorkspaceRoot, new NativeTwigSetupTarget(body.Database)));
         });
         app.MapGet("/api/v1/views/{id:guid}/setup/operation", async (HttpContext http, Guid id) =>
         {

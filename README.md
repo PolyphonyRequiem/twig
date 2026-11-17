@@ -66,13 +66,16 @@ See [provider differences](docs/getting-started.md#provider-differences).
 No ADO or GitHub credentials are needed:
 
 ```sh
-twig init --provider twig
+twig init --provider twig --database personal
 twig seed new --no-parent --type Twig.Item --title "First item"
 twig seed view
 ```
 
-The seed is local and **not yet published**. The native authority lives separately
-from the workspace mirror. See [drafting and publishing](docs/features/seeds-and-publishing.md).
+The seed is local and **not yet published**. Each named native database is an
+isolated authority, separate from the workspace mirror. Initialize another fresh
+repository with the same database name to share its published items; choose a
+different name to keep work separate. There is no implicit default database.
+See [drafting and publishing](docs/features/seeds-and-publishing.md).
 
 ## Everyday use
 

@@ -66,7 +66,7 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var admitted = await store.CheckWorkspaceAsync(document.Connection, ct).ConfigureAwait(false);
         if (!admitted.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(admitted.Error);
         if (document.Connection.Provider.Value == "twig")
-            return await new CoreNativeWorkspaceHost(paths, bindings).OpenAsync(document, store, ct).ConfigureAwait(false);
+            return await new CoreNativeWorkspaceHost(paths, bindings, configuration.NativeDatabase).OpenAsync(document, store, ct).ConfigureAwait(false);
         if (document.Connection.Provider.Value != "ado")
             return document.Connection.Provider.Value == "github" && github is not null
                 ? await github.OpenAsync(document, store, ct).ConfigureAwait(false)
@@ -113,7 +113,7 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         if (!pinned.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(pinned.Error);
         var document = originHandle.Document with { DatabasePath = scope.DatabasePath, DatabaseInstance = scope.StoreInstance };
         if (document.Connection.Provider.Value == "twig")
-            return await new CoreNativeWorkspaceHost(paths, bindings).OpenAsync(document, opened.Value, ct, scoped: true).ConfigureAwait(false);
+            return await new CoreNativeWorkspaceHost(paths, bindings, configuration.NativeDatabase).OpenAsync(document, opened.Value, ct, scoped: true).ConfigureAwait(false);
         if (document.Connection.Provider.Value == "github" && github is not null)
             return await github.OpenAsync(document, opened.Value, ct, scoped: true).ConfigureAwait(false);
         if (document.Connection.Provider.Value != "ado")

@@ -119,8 +119,12 @@ the CLI, not a second initializer or OAuth implementation:
   creation alone is not fresh authentication or workspace readiness.
 - `InitializeFreshAsync(new NativeFreshSetupRequest(root, target, storeFile), ct)`
   requires a canonical fresh Git root and either `NativeAdoSetupTarget` with an
-  explicit existing binding ID, or `NativeGitHubSetupTarget` with explicit host,
-  `owner/repository` and existing named `gh` account. Full filesystem/input
+  explicit existing binding ID, `NativeGitHubSetupTarget` with explicit host,
+  `owner/repository` and existing named `gh` account, or
+  `NativeTwigSetupTarget(database)` with an explicit native database name.
+  `InitializeManagedAsync` accepts the same targets without a source checkout.
+  Native database names are 1-64 lowercase ASCII letters/digits/internal hyphens;
+  there is no unnamed default or database-list API. Full filesystem/input
   preflight precedes lazy native service resolution. GitHub App/PAT enrollment,
   ambient accounts, default selection, reset and repair are not
   exposed. Optional ADO/default/config and device/browser CLI behavior stays in

@@ -127,6 +127,10 @@ public sealed class NativeConnectionSetupTests
         NativeConnectionSetup.ReadFailure(binding.Error).Value.Effects.ShouldBeEmpty();
         var initialized = await setup.InitializeFreshAsync(new(".", new NativeAdoSetupTarget("fixture", "Project", "explicit")));
         initialized.IsSuccess.ShouldBeFalse();
+        var native = await setup.InitializeManagedAsync(new NativeTwigSetupTarget("../invalid"));
+        native.IsSuccess.ShouldBeFalse();
+        native.Error.Code.ShouldBe(ErrorCode.InvalidInput);
+        NativeConnectionSetup.ReadFailure(native.Error).Value.Effects.ShouldBeEmpty();
         Directory.Exists(home).ShouldBeFalse();
     }
 

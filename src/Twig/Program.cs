@@ -489,13 +489,14 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="area">Retired; initialization does not configure or prefill areas.</param>
     /// <param name="reinitialize">Retired; existing or partial workspace state is preserved and refused.</param>
     /// <param name="profile">Retired; no legacy profile selection or materialization.</param>
-    /// <param name="provider">Explicit work-item provider: ado (default) or github. Never inferred from git remotes.</param>
+    /// <param name="provider">Explicit work-item provider: ado (default), github or twig. Never inferred from git remotes.</param>
     /// <param name="host">Explicit lowercase GitHub host, used with --provider github.</param>
     /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Initialization always observes and binds native identity.</param>
     /// <param name="binding">Registered ADO binding ID to pin locally in a fresh checkout (default: endpoint default). Cannot combine with --force/--reinitialize or replace existing local state.</param>
     /// <param name="coreStore">Optional new absolute database file override, with existing parent directory. Default: .twig/core.db. Existing data is never adopted or reset.</param>
     /// <param name="account">Explicit gh account for fresh GitHub Core initialization; never inferred from the active gh account.</param>
-    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null, string? account = null)
+    /// <param name="database">Named Twig-native database to create or open, used with --provider twig. Required unless declared in twig.json; 1-64 lowercase letters, digits or internal hyphens. Separate from --core-store.</param>
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null, string? account = null, string? database = null)
     {
         if (orgArg is not null && org is not null && orgArg != org
             || projectArg is not null && project is not null && projectArg != project)
@@ -505,7 +506,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         }
         var resolvedOrg = org ?? orgArg;
         var resolvedProject = project ?? projectArg;
-        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding, coreStore: coreStore, account: account);
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg ?? "", resolvedProject ?? "", team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile, provider: provider, host: host, repository: repository, binding: binding, coreStore: coreStore, account: account, database: database);
     }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>

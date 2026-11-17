@@ -134,9 +134,15 @@ selection needed by the normal launcher; a downloaded archive alone does not.
 
 The daemon's private data holds durable daemon identity and presentation/native
 evidence. User-wide Benches live separately in `benches.db` beside the native
-registry. Twig-native items live in `native-authority.db` there, not in the
-daemon directory or a workspace mirror. `TWIG_USER_HOME` selects that metadata
-home; changing only `-PrivateDataDir` does not isolate it.
+registry. Twig-native items live in explicitly named databases under
+`native-databases/` there, not in the daemon directory or a workspace mirror.
+Twig connection requests carry a `database` name; `setup/initialize-twig` also
+requires `database`. Names use 1-64 lowercase letters, digits or internal hyphens.
+Two requests for different database names are different connection requests;
+neither an owner-wide default nor the old singleton database is inferred.
+The separately packaged presentation client must supply that name.
+`TWIG_USER_HOME` selects the metadata home; changing only `-PrivateDataDir` does
+not isolate native databases.
 
 Benches retain exact source dependencies, including sources with zero members.
 Missing or ambiguous sources produce a degraded view, not fabricated empty

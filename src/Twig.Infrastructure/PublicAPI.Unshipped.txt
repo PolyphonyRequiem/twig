@@ -106,7 +106,14 @@ static Twig.Infrastructure.Services.NativeManagedSetupResult.operator !=(Twig.In
 static Twig.Infrastructure.Services.NativeManagedSetupResult.operator ==(Twig.Infrastructure.Services.NativeManagedSetupResult? left, Twig.Infrastructure.Services.NativeManagedSetupResult? right) -> bool
 Twig.Infrastructure.Services.NativeSetupEffectKind.NativeAuthority = 20 -> Twig.Infrastructure.Services.NativeSetupEffectKind
 Twig.Infrastructure.Services.NativeTwigSetupTarget
-Twig.Infrastructure.Services.NativeTwigSetupTarget.NativeTwigSetupTarget() -> void
+Twig.Infrastructure.Services.NativeTwigSetupTarget.NativeTwigSetupTarget(string! Database) -> void
+Twig.Infrastructure.Services.NativeTwigSetupTarget.Database.get -> string!
+Twig.Infrastructure.Services.NativeTwigSetupTarget.Database.init -> void
+Twig.Infrastructure.Services.NativeTwigSetupTarget.Deconstruct(out string! Database) -> void
+Twig.Infrastructure.Config.TwigConfiguration.NativeDatabase.get -> string?
+Twig.Infrastructure.Config.TwigConfiguration.NativeDatabase.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.NativeDatabase.get -> string?
+Twig.Infrastructure.Config.TwigRepoConfig.NativeDatabase.set -> void
 Twig.Infrastructure.Services.NativeTwigSetupTarget.Equals(Twig.Infrastructure.Services.NativeTwigSetupTarget? other) -> bool
 override Twig.Infrastructure.Services.NativeTwigSetupTarget.<Clone>$() -> Twig.Infrastructure.Services.NativeTwigSetupTarget!
 override Twig.Infrastructure.Services.NativeTwigSetupTarget.Equals(object? obj) -> bool

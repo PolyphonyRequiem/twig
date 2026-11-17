@@ -4,13 +4,14 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Persistence.ProviderTargets;
+using Twig.Providers.Native;
 
 namespace Twig.Infrastructure.Services;
 
 internal sealed record NativeWorkspaceSetupArguments(string WorkspaceRoot, string Organization, string Project,
     string? Team, string? GitProject, string? Provider, string? Host, string? Repository,
-    string? Binding, string? StoreFile, string? Account, string? GlobalDisplayPath = null);
-internal sealed record NativeCreationReceipt(CoreWorkspaceDocument Document, NativeSourceStamp Source);
+    string? Binding, string? StoreFile, string? Account, string? GlobalDisplayPath = null, string? Database = null);
+internal sealed record NativeCreationReceipt(CoreWorkspaceDocument Document, NativeSourceStamp Source, string? NativeDatabase = null);
 
 internal static class NativeWorkspaceSetup
 {
@@ -53,6 +54,8 @@ internal static class NativeWorkspaceSetup
             if (hasManifest && kind != config.ResolveWorkItemProviderKind())
                 return Fail("Provider conflicts with the existing twig.json declaration; no configuration was changed.", 2);
             config.Provider = kind;
+            if (kind != "twig" && args.Database is not null)
+                return Fail("--database requires --provider twig. --core-store selects the separate client store.", 2);
             if (kind == "github")
             {
                 if (args.Organization.Length != 0 || args.Project.Length != 0 || args.Team is not null
@@ -74,7 +77,13 @@ internal static class NativeWorkspaceSetup
                 if (args.Organization.Length != 0 || args.Project.Length != 0 || args.Team is not null
                     || args.GitProject is not null || args.Binding is not null || args.Host is not null
                     || args.Repository is not null || args.Account is not null)
-                    return Fail("Twig-native init uses this owner's durable native source, not ADO/GitHub coordinates or credentials.", 2);
+                    return Fail("Twig-native init uses --database <name>, not ADO/GitHub coordinates or credentials.", 2);
+                if (hasManifest && args.Database is not null && args.Database != config.NativeDatabase)
+                    return Fail("The native database conflicts with the existing twig.json declaration; no configuration was changed.", 2);
+                var name = args.Database ?? config.NativeDatabase;
+                if (!NativeDatabaseName.IsValid(name))
+                    return Fail("Choose --database <name> (or nativeDatabase in twig.json): 1-64 lowercase letters, digits or internal hyphens. No default database is inferred.", 2);
+                config.NativeDatabase = name;
             }
             else
             {

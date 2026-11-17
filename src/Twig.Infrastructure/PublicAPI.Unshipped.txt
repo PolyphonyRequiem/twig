@@ -1,4 +1,73 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeConnectionSetup.DiscoverAdoAsync(Twig.Infrastructure.Services.NativeAdoDiscoveryRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAdoDiscoveryPage!>!>!
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.NativeAdoDiscoveryScope(Twig.Infrastructure.Services.NativeAadEnrollment! Enrollment, string! Kind, string? Organization = null, string? Project = null) -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Enrollment.get -> Twig.Infrastructure.Services.NativeAadEnrollment!
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Enrollment.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Kind.get -> string!
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Kind.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Organization.get -> string?
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Organization.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Project.get -> string?
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Project.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Deconstruct(out Twig.Infrastructure.Services.NativeAadEnrollment! Enrollment, out string! Kind, out string? Organization, out string? Project) -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Equals(Twig.Infrastructure.Services.NativeAdoDiscoveryScope? other) -> bool
+Twig.Infrastructure.Services.NativeAdoDiscoveryScope.<Clone>$() -> Twig.Infrastructure.Services.NativeAdoDiscoveryScope!
+override Twig.Infrastructure.Services.NativeAdoDiscoveryScope.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAdoDiscoveryScope.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAdoDiscoveryScope.ToString() -> string!
+static Twig.Infrastructure.Services.NativeAdoDiscoveryScope.operator !=(Twig.Infrastructure.Services.NativeAdoDiscoveryScope? left, Twig.Infrastructure.Services.NativeAdoDiscoveryScope? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoDiscoveryScope.operator ==(Twig.Infrastructure.Services.NativeAdoDiscoveryScope? left, Twig.Infrastructure.Services.NativeAdoDiscoveryScope? right) -> bool
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.NativeAdoDiscoveryRequest(Twig.Infrastructure.Services.NativeAdoDiscoveryScope! Scope, int Limit = 50, string? Continuation = null) -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Scope.get -> Twig.Infrastructure.Services.NativeAdoDiscoveryScope!
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Scope.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Limit.get -> int
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Limit.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Continuation.get -> string?
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Continuation.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Deconstruct(out Twig.Infrastructure.Services.NativeAdoDiscoveryScope! Scope, out int Limit, out string? Continuation) -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Equals(Twig.Infrastructure.Services.NativeAdoDiscoveryRequest? other) -> bool
+Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.<Clone>$() -> Twig.Infrastructure.Services.NativeAdoDiscoveryRequest!
+override Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.ToString() -> string!
+static Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.operator !=(Twig.Infrastructure.Services.NativeAdoDiscoveryRequest? left, Twig.Infrastructure.Services.NativeAdoDiscoveryRequest? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoDiscoveryRequest.operator ==(Twig.Infrastructure.Services.NativeAdoDiscoveryRequest? left, Twig.Infrastructure.Services.NativeAdoDiscoveryRequest? right) -> bool
+Twig.Infrastructure.Services.NativeAdoSetupChoice
+Twig.Infrastructure.Services.NativeAdoSetupChoice.NativeAdoSetupChoice(string! Id, string! Name, string! DisplayLabel) -> void
+Twig.Infrastructure.Services.NativeAdoSetupChoice.Id.get -> string!
+Twig.Infrastructure.Services.NativeAdoSetupChoice.Id.init -> void
+Twig.Infrastructure.Services.NativeAdoSetupChoice.Name.get -> string!
+Twig.Infrastructure.Services.NativeAdoSetupChoice.Name.init -> void
+Twig.Infrastructure.Services.NativeAdoSetupChoice.DisplayLabel.get -> string!
+Twig.Infrastructure.Services.NativeAdoSetupChoice.DisplayLabel.init -> void
+Twig.Infrastructure.Services.NativeAdoSetupChoice.Deconstruct(out string! Id, out string! Name, out string! DisplayLabel) -> void
+Twig.Infrastructure.Services.NativeAdoSetupChoice.Equals(Twig.Infrastructure.Services.NativeAdoSetupChoice? other) -> bool
+Twig.Infrastructure.Services.NativeAdoSetupChoice.<Clone>$() -> Twig.Infrastructure.Services.NativeAdoSetupChoice!
+override Twig.Infrastructure.Services.NativeAdoSetupChoice.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAdoSetupChoice.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAdoSetupChoice.ToString() -> string!
+static Twig.Infrastructure.Services.NativeAdoSetupChoice.operator !=(Twig.Infrastructure.Services.NativeAdoSetupChoice? left, Twig.Infrastructure.Services.NativeAdoSetupChoice? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoSetupChoice.operator ==(Twig.Infrastructure.Services.NativeAdoSetupChoice? left, Twig.Infrastructure.Services.NativeAdoSetupChoice? right) -> bool
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.NativeAdoDiscoveryPage(Twig.Infrastructure.Services.NativeAdoDiscoveryScope! Scope, System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeAdoSetupChoice!> Choices, string? Continuation, bool Complete) -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Scope.get -> Twig.Infrastructure.Services.NativeAdoDiscoveryScope!
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Scope.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Choices.get -> System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeAdoSetupChoice!>
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Choices.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Continuation.get -> string?
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Continuation.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Complete.get -> bool
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Complete.init -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Deconstruct(out Twig.Infrastructure.Services.NativeAdoDiscoveryScope! Scope, out System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeAdoSetupChoice!> Choices, out string? Continuation, out bool Complete) -> void
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Equals(Twig.Infrastructure.Services.NativeAdoDiscoveryPage? other) -> bool
+Twig.Infrastructure.Services.NativeAdoDiscoveryPage.<Clone>$() -> Twig.Infrastructure.Services.NativeAdoDiscoveryPage!
+override Twig.Infrastructure.Services.NativeAdoDiscoveryPage.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeAdoDiscoveryPage.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeAdoDiscoveryPage.ToString() -> string!
+static Twig.Infrastructure.Services.NativeAdoDiscoveryPage.operator !=(Twig.Infrastructure.Services.NativeAdoDiscoveryPage? left, Twig.Infrastructure.Services.NativeAdoDiscoveryPage? right) -> bool
+static Twig.Infrastructure.Services.NativeAdoDiscoveryPage.operator ==(Twig.Infrastructure.Services.NativeAdoDiscoveryPage? left, Twig.Infrastructure.Services.NativeAdoDiscoveryPage? right) -> bool
 Twig.Infrastructure.Services.UserRepositoryBindings
 Twig.Infrastructure.Services.UserRepositoryBindings.UserRepositoryBindings(string! RepositoryId, long Revision, System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!> Connections, System.Guid? DefaultBench) -> void
 Twig.Infrastructure.Services.UserRepositoryBindings.RepositoryId.get -> string!

@@ -56,6 +56,13 @@ sources. Existing CLI optional/default/config/device/browser behavior remains in
 its internal adapters. Missing enrollment aliases now refuse before construction
 of the native binding service, including native home/credential-directory effects.
 
+After named enrollment, the read-only `DiscoverAdoAsync` facade/gateway and
+owner-authenticated view-scoped `setup/discover-ado` operation expose bounded
+organization/project/team choices before initialization. Exact enrollment,
+target, continuation and cancellation scope remain native; no binding, default,
+workspace or tracker work is created by discovery. See the
+[native setup choice contract](../../src/Twig.Infrastructure/README.md#pre-workspace-ado-setup-choices).
+
 The internal creation receipt retains the actual recorded document/store,
 connection, principal and frozen native authority while creation leases are held.
 Only schema plus online-access readback against that exact creation stamp can

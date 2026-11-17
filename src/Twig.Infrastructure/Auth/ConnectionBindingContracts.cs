@@ -271,6 +271,10 @@ internal interface IConnectionBindingService
 {
     string RegistryPath { get; }
 
+    Task<IAuthenticationProvider> CreateSetupDiscoveryProviderAsync(
+        Services.NativeAadEnrollment enrollment, CancellationToken ct = default)
+        => throw new NotSupportedException("Named setup discovery is unavailable.");
+
     Task<AuthenticationIdentity> RegisterAadIdentityAsync(
         string name,
         TwigRefreshTokenStoreEntry credential,

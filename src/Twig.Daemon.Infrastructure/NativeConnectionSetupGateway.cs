@@ -5,6 +5,8 @@ namespace Bench.Infrastructure;
 
 public interface INativeConnectionSetupGateway
 {
+    Task<Result<NativeAdoDiscoveryPage>> DiscoverAdoAsync(NativeAdoDiscoveryRequest request, CancellationToken ct)
+        => Task.FromResult(Result<NativeAdoDiscoveryPage>.Fail(ErrorCode.Unsupported, "ADO setup discovery is unavailable."));
     Task<Result<NativeAadEnrollment>> EnrollAadAsync(NativeAadEnrollmentRequest request,
         Action<Uri> authorizationUrl, CancellationToken ct);
     Task<Result<NativeAdoBinding>> CreateAdoBindingAsync(NativeAdoBindingRequest request, CancellationToken ct);
@@ -15,6 +17,8 @@ public interface INativeConnectionSetupGateway
 
 public sealed class NativeConnectionSetupGateway(NativeConnectionSetup setup) : INativeConnectionSetupGateway
 {
+    public Task<Result<NativeAdoDiscoveryPage>> DiscoverAdoAsync(NativeAdoDiscoveryRequest request, CancellationToken ct)
+        => setup.DiscoverAdoAsync(request, ct);
     public Task<Result<NativeAadEnrollment>> EnrollAadAsync(NativeAadEnrollmentRequest request,
         Action<Uri> authorizationUrl, CancellationToken ct) => setup.EnrollAadAsync(request, authorizationUrl, ct);
     public Task<Result<NativeAdoBinding>> CreateAdoBindingAsync(NativeAdoBindingRequest request, CancellationToken ct)

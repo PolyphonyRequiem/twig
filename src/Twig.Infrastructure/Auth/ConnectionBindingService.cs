@@ -525,6 +525,26 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         _ = await provider.GetAccessTokenAsync(ct).ConfigureAwait(false);
     }
 
+    public async Task<IAuthenticationProvider> CreateSetupDiscoveryProviderAsync(
+        NativeAadEnrollment enrollment, CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        var lookup = await _registry.FindIdentityByNameAsync(enrollment.Alias, ct).ConfigureAwait(false);
+        if (!lookup.IsSuccess) throw new NativeSetupException(lookup.Error);
+        if (lookup.Value is not { } row)
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.NotFound,
+                "The named AAD enrollment is unavailable. No default or alternate identity was used."));
+        var identity = ToIdentity(row);
+        if (identity.Method != "aad" || Enrollment(identity) != enrollment)
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.Conflict,
+                "The named AAD enrollment changed. No default or alternate identity was used."));
+        return CreateProvider(identity);
+    }
+
+    internal static NativeAadEnrollment Enrollment(AuthenticationIdentity identity)
+        => new(identity.Name, identity.IdentityId, identity.TenantId, identity.ObjectId, identity.Issuer,
+            identity.AuthorityHost, identity.AccountName);
+
     private IAuthenticationProvider CreateProvider(AuthenticationIdentity identity)
     {
         var credentialPath = ResolveCredentialPath(identity.CredentialRef);

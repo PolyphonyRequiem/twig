@@ -40,7 +40,7 @@ public sealed record NativeSetupFailureInfo(NativeSetupPhase Phase, bool Cancell
 /// Explicit human-host setup. Construction is inert; each operation owns its native composition.
 /// Failures remain failures, retain possible local effects, and confer no retry or replay authority.
 /// </summary>
-public sealed class NativeConnectionSetup
+public sealed partial class NativeConnectionSetup
 {
     /// <summary>Resolves the native metadata home without creating directories, opening storage or selecting an account.</summary>
     public static string ResolveUserHome() => ConnectionBindingService.ResolveUserHome();

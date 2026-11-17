@@ -122,7 +122,7 @@ the CLI, not a second initializer or OAuth implementation:
   explicit existing binding ID, or `NativeGitHubSetupTarget` with explicit host,
   `owner/repository` and existing named `gh` account. Full filesystem/input
   preflight precedes lazy native service resolution. GitHub App/PAT enrollment,
-  picker discovery, ambient accounts, default selection, reset and repair are not
+  ambient accounts, default selection, reset and repair are not
   exposed. Optional ADO/default/config and device/browser CLI behavior stays in
   internal command adapters.
 
@@ -148,6 +148,80 @@ and reported; no facade rollback, repair or automatic retry occurs. Diagnostics
 are request-local reporting, not a journal, replay authority or restart-recovery
 protocol. Private browser callers must enforce owner/content/CSRF admission and
 named human actions. Agent SDK events remain layout-acknowledgement only.
+
+### Pre-workspace ADO setup choices
+
+After explicit named enrollment, a human setup view can call
+`DiscoverAdoAsync(NativeAdoDiscoveryRequest, ct)` through
+`INativeConnectionSetupGateway`. `NativeAdoDiscoveryScope` retains the exact
+`NativeAadEnrollment`, `Kind` (`organizations`, `projects`, or `teams`),
+`Organization` (the selected organization choice's **name**, not a URL) and
+`Project` (the selected project's canonical GUID for team discovery).
+Organizations require neither target; projects require only the organization.
+No Git root, existing binding or initialized workspace is needed.
+
+`NativeAdoDiscoveryPage` returns the exact scope, `Choices` with canonical GUID
+`Id`, provider `Name` and `DisplayLabel`, opaque `Continuation`, and `Complete`.
+Use project/team names when those existing setup operations expect names; retain
+their IDs for discovery and selector identity. Team remains optional: leaving it
+unset means project scope, not an inferred default team. There is no synthetic
+"no team" provider choice.
+
+Each invocation has a 20-second total deadline, a 1 MiB per-response budget, at
+most two provider GETs, and a requested limit of 1-100 (default 50). Organizations
+use the authenticated `profiles/me` ID with the Accounts member listing, which
+has no documented server paging; native pages that bounded listing and detects
+listing changes between local pages. Projects retain server continuations and
+use documented offsets when a full page has no continuation. Teams use
+documented offsets; a full last page requires a final empty read to prove
+completion. Unexpected account/team pagination, oversize responses, malformed
+choices and repeated server continuations fail explicitly instead of truncating.
+Continuations expire after ten minutes and are signed for this native facade
+instance, exact enrollment, target and page size. They are not restart tokens.
+
+Empty success is `Complete=true` with no choices. Failure remains `Result.Fail`:
+HTTP 403 is `PolicyViolation` with `http:403`, HTTP 401 is `Unavailable` with
+`http:401` (a 203 HTML challenge also explicitly requires authentication), missing
+targets are `NotFound`, and incomplete/oversize responses are
+`Partial`. Cancellation and deadline expiry use `Unavailable` with
+`discovery:cancelled` / `discovery:timeout`. Discovery errors are not effectful
+setup diagnostics and must not be interpreted through `ReadFailure`.
+
+The daemon advertises `ado-setup-discovery-v1`. Its owner/content-authenticated
+`POST /api/v1/views/{id}/setup/discover-ado` accepts:
+
+```json
+{
+  "enrollmentOperationId": "<successful enrollment operation in this view>",
+  "kind": "teams",
+  "organization": "<selected organization name>",
+  "project": "<selected project GUID>",
+  "limit": 50,
+  "continuation": null,
+  "epoch": 0
+}
+```
+
+The response is the existing 202 setup-operation envelope. Observe the original
+`GET .../setup/operations/{operationId}` (or current `GET .../setup/operation`).
+A settled `Discovered` operation carries `discoveryRequest` and `discovery`;
+`Failed` carries the exact request and `error` (`Forbidden`, `Unauthenticated`,
+`Partial`, `NotFound`, or the native error code), never fallback choices.
+The presentation capability alone cannot call this route.
+
+Before changing account, organization, project or leaving setup, cancel using
+the existing DELETE setup-operation route, adopt the returned epoch, and discard
+old operation IDs/pages. An organization/project change can reuse the retained
+enrollment operation ID; a new enrollment retires that admission. Match operation
+ID, epoch and complete scope before rendering any response. View close, owner
+revocation/profile generation changes and cancellation withhold late choices.
+The daemon admits only the latest continuation issued in this view for this
+enrollment operation, epoch, scope and limit; a cursor cannot cross views.
+Discovery rechecks enrollment before HTTP and before releasing a page, uses the
+existing principal-checking AAD provider, disables redirects, and never invokes
+interactive sign-in, selects an ambient/default account, creates a binding or
+workspace, changes Bench/item state, or writes tracker work. Normal native
+credential renewal/cache maintenance remains internal.
 
 ## Read-only native source boundary
 

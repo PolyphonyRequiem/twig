@@ -2,8 +2,6 @@ name: Native TUI candidate
 
 on:
   workflow_dispatch:
-  push:
-    branches: [planning/tui-aot-epic]
 
 permissions:
   contents: read

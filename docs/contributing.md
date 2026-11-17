@@ -40,6 +40,29 @@ Complete supported-platform suites are a **release-candidate** gate, not a routi
 draft-PR gate. The workflows and scripts, not historical test counts, define the
 actual checks.
 
+## GitHub Actions budget
+
+Pull requests and branch pushes do not start Actions runners. Run routine builds,
+focused regressions, and the pre-push smoke locally using the commands above.
+Hosted checks outside official releases are opt-in:
+
+```sh
+gh workflow run ci.yml --ref <branch>
+gh workflow run daemon-release.yml --ref <branch>
+```
+
+Manual CI runs the existing Windows/Linux validation matrix; manual daemon
+packaging produces a Windows artifact without publishing a release. A newer
+manual run on the same ref cancels its predecessor. The retired Native TUI
+candidate remains disabled and has no automatic trigger.
+
+Official CLI `v*` tags automatically call the same CI workflow on the tagged
+commit, then run full release-candidate validation, native publishing, Windows
+signing, checksums, and GitHub/NuGet publication. There is no polling runner
+waiting for a separate branch CI run. Official daemon `daemon-v*` tags retain
+their independent package-and-release pipeline. Release runs are not
+automatically cancelled.
+
 ## Local publishing
 
 `publish-local.ps1` provides source-build deployment to the user CLI installation;

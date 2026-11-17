@@ -1,12 +1,13 @@
 name: Daemon package
 on:
-  pull_request:
-    paths: ['src/Twig.Daemon*/**', 'src/Twig.Providers.Native/**', 'tools/daemon-*', '.github/workflows/daemon-release.yml']
   push:
     tags: ['daemon-v*']
   workflow_dispatch: {}
 permissions:
   contents: read
+concurrency:
+  group: daemon-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 jobs:
   package:
     runs-on: windows-latest

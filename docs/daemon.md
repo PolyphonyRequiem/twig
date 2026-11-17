@@ -116,7 +116,9 @@ Packaging verifies the complete runtime inventory without certificate, Startup,
 installation, or process changes.
 
 The [Daemon package workflow](../.github/workflows/daemon-release.yml) packages
-Windows artifacts independently of the CLI. `daemon-v*` tags publish
+Windows artifacts independently of the CLI. Pull requests do not start package
+builds; use a manual workflow run for an optional hosted package check (see
+[Actions budget](contributing.md#github-actions-budget)). `daemon-v*` tags publish
 `twig-daemon-win-x64.zip` and its SHA-256 file. This checksum file contains a bare
 hex digest, unlike the CLI's filename-bearing `.sha256` files.
 Verify the archive before extraction. It contains a runtime directory and the

@@ -25,6 +25,109 @@ public sealed class NativeAdoSetupDiscoveryHttpTests : IAsyncDisposable
     private Guid instance;
     private readonly HttpClient client = new() { Timeout = TimeSpan.FromSeconds(10) };
     private string view = "";
+    private readonly Refresher refresher = new();
+    private int interactiveExchanges;
+
+    [Fact]
+    public async Task SavedIdentityIsOwnerScopedAndDiscoversUsingItsStoredRefreshCredentialWithoutInteractiveSignIn()
+    {
+        await Start((_, _) => Task.FromResult(Json($$"""{"value":[{"id":"{{ProjectId}}","name":"Project"}]}""")));
+        await RegisterSavedIdentity();
+        using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
+        (await anonymous.GetAsync(view + "setup/aad-identities")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        var saved = await SavedIdentity();
+        saved.GetProperty("alias").GetString().ShouldBe("saved");
+        saved.GetRawText().ShouldNotContain("fixture-refresh");
+        saved.TryGetProperty("credentialRef", out _).ShouldBeFalse();
+        var before = refresher.Calls;
+
+        (await Send("setup/use-aad-identity", $$"""{"identity":{{saved.GetRawText()}}}"""))
+            .StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var selected = await Observe();
+        selected.GetProperty("status").GetString().ShouldBe("Enrolled");
+        selected.GetProperty("authorizationUrl").ValueKind.ShouldBe(JsonValueKind.Null);
+        (await Send("setup/discover-ado",
+            $$"""{"enrollmentOperationId":"{{selected.GetProperty("operationId").GetString()}}","kind":"projects","organization":"fixture"}"""))
+            .StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await Observe()).GetProperty("status").GetString().ShouldBe("Discovered");
+        refresher.Calls.ShouldBeGreaterThan(before);
+        interactiveExchanges.ShouldBe(0);
+        (await bindings!.ListIdentitiesAsync()).Count.ShouldBe(1);
+        (await bindings.ListBindingsAsync("fixture", ProjectId)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task SavedIdentitySelectionRefusesChangedMetadataAndStaleEpochWithoutStartingSignIn()
+    {
+        var cloudCalls = 0;
+        await Start((_, _) =>
+        {
+            cloudCalls++;
+            return Task.FromResult(Json("""{"value":[]}"""));
+        });
+        await RegisterSavedIdentity();
+        var saved = await SavedIdentity();
+        var changed = saved.GetRawText().Replace("\"alias\":\"saved\"", "\"alias\":\"removed\"", StringComparison.Ordinal);
+        changed.ShouldNotBe(saved.GetRawText());
+        (await Send("setup/use-aad-identity", $$"""{"identity":{{changed}}}"""))
+            .StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var refused = await Observe();
+        refused.GetProperty("error").GetProperty("code").GetString().ShouldBe("SetupIdentityChanged");
+        refused.GetProperty("enrollment").ValueKind.ShouldBe(JsonValueKind.Null);
+        (await Send("setup/use-aad-identity", $$"""{"identity":{{saved.GetRawText()}},"epoch":-1}"""))
+            .StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        interactiveExchanges.ShouldBe(0);
+        cloudCalls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task RevokedSavedRefreshCredentialFailsDiscoveryWithoutInteractiveFallbackOrAnotherIdentity()
+    {
+        var cloudCalls = 0;
+        await Start((_, _) =>
+        {
+            cloudCalls++;
+            return Task.FromResult(Json("""{"value":[]}"""));
+        });
+        await RegisterSavedIdentity();
+        var saved = await SavedIdentity();
+        refresher.Reject = true;
+        (await Send("setup/use-aad-identity", $$"""{"identity":{{saved.GetRawText()}}}"""))
+            .StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var selected = await Observe();
+        (await Send("setup/discover-ado",
+            $$"""{"enrollmentOperationId":"{{selected.GetProperty("operationId").GetString()}}","kind":"projects","organization":"fixture"}"""))
+            .StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var failed = await Observe();
+        failed.GetProperty("status").GetString().ShouldBe("Failed");
+        failed.GetProperty("error").GetProperty("code").GetString().ShouldBe("PolicyViolation");
+        failed.GetProperty("authorizationUrl").ValueKind.ShouldBe(JsonValueKind.Null);
+        interactiveExchanges.ShouldBe(0);
+        cloudCalls.ShouldBe(0);
+        (await bindings!.ListIdentitiesAsync()).Count.ShouldBe(1);
+    }
+
+    private async Task RegisterSavedIdentity()
+    {
+        await bindings!.RegisterAadIdentityAsync("saved", new()
+        {
+            RefreshToken = "fixture-refresh", ClientId = "fixture-client", TenantId = "tenant",
+            ObjectId = "principal", AuthorityHost = "login.microsoftonline.com",
+        });
+        await bindings.ClearIdentityAccessCacheAsync("saved");
+        var owner = sessions.ConnectOwner(instance, null, Guid.NewGuid());
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", owner.ContentCapability);
+        view = "/api/v1/views/" + owner.ViewId + "/";
+    }
+
+    private async Task<JsonElement> SavedIdentity()
+    {
+        using var response = await client.GetAsync(view + "setup/aad-identities");
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.GetArrayLength().ShouldBe(1);
+        return document.RootElement[0].Clone();
+    }
 
     [Fact]
     public async Task ProductionSetupDiscoversBeforeInitializationAndRequiresItsExactOwnerEnrollment()
@@ -133,10 +236,13 @@ public sealed class NativeAdoSetupDiscoveryHttpTests : IAsyncDisposable
     private async Task Start(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> cloud)
     {
         Directory.CreateDirectory(root);
-        bindings = new(Path.Combine(root, "home"), new Refresher());
+        bindings = new(Path.Combine(root, "home"), refresher);
         var native = new NativeConnectionSetup(_ => bindings, () => new LoopbackPkceFlow(
-            new AuthCodeExchanger(new Handler((_, _) => Task.FromResult(Json(
-                $$"""{"access_token":"{{Refresher.Token}}","refresh_token":"fixture-refresh"}""")))),
+            new AuthCodeExchanger(new Handler((_, _) =>
+            {
+                interactiveExchanges++;
+                return Task.FromResult(Json($$"""{"access_token":"{{Refresher.Token}}","refresh_token":"fixture-refresh"}"""));
+            })),
             () =>
             {
                 using var socket = new TcpListener(IPAddress.Loopback, 0);
@@ -201,12 +307,17 @@ public sealed class NativeAdoSetupDiscoveryHttpTests : IAsyncDisposable
     }
     private sealed class Refresher : ITokenRefresher
     {
+        internal int Calls { get; private set; }
+        internal bool Reject { get; set; }
         internal static readonly string Token = "header." + Convert.ToBase64String(Encoding.UTF8.GetBytes(
             """{"aud":"499b84ac-1321-427f-aa17-267ca6975798","tid":"tenant","oid":"principal","iss":"issuer","exp":4102444800}"""))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_') + ".signature";
         public Task<(string? AccessToken, string? RefreshToken, bool IsInvalidGrant)> TryRefreshAsync(
             string refreshToken, string clientId, string tenantId, string authorityHost, CancellationToken ct = default)
-            => Task.FromResult<(string?, string?, bool)>((Token, null, false));
+        {
+            Calls++;
+            return Task.FromResult<(string?, string?, bool)>(Reject ? (null, null, true) : (Token, null, false));
+        }
     }
     public async ValueTask DisposeAsync()
     {

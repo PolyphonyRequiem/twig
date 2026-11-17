@@ -17,6 +17,18 @@ Normal sign-in uses interactive loopback PKCE. Device code is available only
 where tenant policy permits it. Azure CLI is not required and is not a credential
 fallback for normal work.
 
+Adding another connection does not require enrolling the same account again.
+The native Canvas setup can list saved AAD identities and explicitly select an
+exact identity for discovery, reusing its stored credential without launching
+sign-in. Discovery still verifies the registered principal and provider access;
+a missing, changed or revoked credential never selects another account.
+
+Bound AAD access tokens are cached for up to 50 minutes, with a five-minute
+expiry safety margin. Refresh is demand-driven: a request that cannot use a
+cached token exchanges that identity's stored refresh token silently. There is
+no periodic interactive sign-in timer. AAD rejection, revocation or tenant policy
+can require explicit sign-in again; this renews the same alias, not a new account.
+
 Alternatively, enroll a PAT with a non-echoing prompt:
 
 ```sh

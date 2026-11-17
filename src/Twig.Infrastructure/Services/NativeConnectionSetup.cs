@@ -76,6 +76,25 @@ public sealed partial class NativeConnectionSetup
         this.managedRoot = managedRoot;
     }
 
+    public async Task<Result<NativeAadEnrollment[]>> ListAadIdentitiesAsync(CancellationToken ct = default)
+    {
+        IConnectionBindingService? resolved = null;
+        var effects = new NativeSetupEffects { Phase = NativeSetupPhase.Enrollment };
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            resolved = bindings(effects);
+            var identities = await resolved.ListIdentitiesAsync(ct).ConfigureAwait(false);
+            return Result<NativeAadEnrollment[]>.Ok(identities.Where(identity => identity.Method == "aad")
+                .Select(ConnectionBindingService.Enrollment).ToArray());
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        { return effects.Cancel<NativeAadEnrollment[]>(); }
+        catch (Exception error) when (NativeSetupEffects.IsExpected(error))
+        { return effects.Exception<NativeAadEnrollment[]>(error); }
+        finally { if (ownsBindings && resolved is IDisposable disposable) disposable.Dispose(); }
+    }
+
     /// <summary>Runs native loopback PKCE for one explicit alias; only the supplied callback presents its URL.</summary>
     public async Task<Result<NativeAadEnrollment>> EnrollAadAsync(NativeAadEnrollmentRequest request,
         Action<Uri> authorizationUrl, CancellationToken ct = default)

@@ -37,6 +37,7 @@ delete, reauthenticate or rebind, and init refuses existing state.
 ## Synopsis
 
 ```sh
+twig init
 twig init <org> <project>
 twig init --org <org> --project <project> --binding <registered-binding-id> -o json
 twig init --provider github --host github.com --repository owner/repo --account selected
@@ -46,17 +47,26 @@ twig init <org> <project> --core-store <new-absolute-file>
 
 ## Native authority
 
-For ADO, enroll an identity and register a binding before initialization:
+Connections are registered through the local daemon by portable provider dimensions,
+separately from user-scoped credentials. For an existing `twig.json`, `twig init`
+resolves those dimensions to this device's registration and user binding. A different
+user on a different device enrolls and binds their own credential without changing
+the manifest. Local attachment, binding and observed-principal IDs are never copied
+between devices or written into `twig.json`.
+
+For ADO, register a connection, enroll an identity and bind it before initialization:
 
 ```sh
+twig connection add --provider ado --org contoso --project Fabrikam
 twig auth login --identity work
-twig connection bind --org contoso --project Fabrikam --identity work --default
+twig connection bind --provider ado --org contoso --project Fabrikam --identity work
 twig init contoso Fabrikam
 ```
 
-PAT enrollment is also supported through `twig auth pat`. Init uses the exact
-registered endpoint default, or `--binding` to pin an explicitly selected
-registered binding to this fresh checkout without changing the central default.
+PAT enrollment is also supported through `twig auth pat`. Init uses the credential
+bound to the matching registered connection, not an endpoint default or last login.
+The low-level explicit `--binding` setup override can still pin an existing binding
+to a fresh checkout without changing any central selection.
 Unknown, empty or cross-endpoint bindings refuse before checkout writes or
 metadata HTTP. There is no ambient-token, last-login or Azure CLI fallback.
 
@@ -66,7 +76,10 @@ metadata, creates the new store and records its native connection pin. It writes
 only the worktree attachment/registry metadata required by that binding owner;
 it does not materialize profile, primary-scope or claim business state.
 
-For GitHub, `--account` names an existing `gh` account. The bounded credential
+For GitHub, register the host/repository with `connection add --provider github`,
+then bind your existing `gh` account with the same dimensions and
+`connection bind --account <account>`. `init` resolves this local binding; an
+explicit `--account` is a fresh-setup override. The bounded credential
 source runs `gh auth token --hostname <host> --user <account>` with ambient token
 variables removed. The active `gh` account never supplies authority. Init observes
 the native actor and immutable owner/repository IDs, attaches that actual target
@@ -81,7 +94,8 @@ coincide. Workspace mirrors, drafts and proposal journals remain separate.
 
 Names contain 1-64 lowercase letters, digits or internal hyphens, not paths.
 The name is declared as `nativeDatabase` in `twig.json`; a matching existing
-manifest can supply it without `--database`. There is no implicit default,
+manifest can supply it without `--database` after a matching
+`connection add --provider twig --database <name>`. There is no implicit default,
 singleton fallback, adoption or migration. Ordinary workspace reopening refuses
 a missing or replaced database or a changed selection. `--core-store` selects
 the separate client database, not the native authority.
@@ -90,12 +104,12 @@ the separate client database, not the native authority.
 
 | Option | Meaning |
 | --- | --- |
-| `<org> <project>` or `--org` / `--project` | Explicit ADO coordinates. Conflicting positional/named values refuse. Not GitHub coordinates. |
+| `<org> <project>` or `--org` / `--project` | Explicit ADO coordinates, or omit both to use twig.json unchanged. Conflicting positional/named values refuse. |
 | `--provider ado\|github\|twig` | Explicit provider; defaults to ADO, or the existing manifest's declared provider. Never inferred from Git remotes. |
 | `--database` | Explicit named authority for `--provider twig`, or the matching manifest's `nativeDatabase`. Required without a declaration; no default. Creates the named database if absent during fresh init only. |
 | `--host` / `--repository` | Explicit canonical GitHub host and `owner/name`, or matching existing manifest coordinates. |
-| `--account` | Required explicit selected `gh` account for GitHub initialization. |
-| `--binding` | Exact registered ADO binding to pin in this new checkout; otherwise use the endpoint default. |
+| `--account` | Explicit fresh-setup gh account override; normally omitted in favor of the local connection's user binding. |
+| `--binding` | Explicit fresh-setup ADO binding override; normally omitted in favor of the local connection's user binding. |
 | `--core-store` | Optional **new absolute file** override. Its parent directory must already exist. Default `.twig/core.db` needs no pre-created `.twig` directory. |
 | `--team` / `--git-project` | Optional ADO plain configuration, without discovery or cache prefill. Existing manifest values must match. |
 | `-o`, `--output` | `human`, `json`, `json-full`, `json-compact`, `minimal`. `ids` is refused because initialization has no work-item IDs. |
@@ -132,3 +146,18 @@ identities, accounts, coordinates, paths or work content. Telemetry failure cann
 change initialization's result.
 
 See [getting started](../../getting-started.md) for a complete first read and Bench.
+
+## Second-device acceptance check
+
+On a different device, a different contributor should clone the same commit, start
+their installed daemon, and leave the repository's `twig.json` untouched. Register
+the provider dimensions from that manifest with `connection add`, authenticate as
+their own principal, and use `connection bind` with their own identity/account.
+`connection list` should show the registration even outside the checkout.
+
+At the fresh checkout root, run `twig connection status`, `twig init`, and then
+`twig show <an-item-the-contributor-can-read> --refresh`. Verify the observed
+principal is that contributor, and `git diff --exit-code -- twig.json` succeeds.
+Missing grants must fail rather than trying the original contributor's account.
+This live check needs actual independent devices and provider credentials; the
+isolated-home automated regressions are not a substitute for it.

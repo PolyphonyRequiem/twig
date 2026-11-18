@@ -1,103 +1,34 @@
-using Twig.Formatters;
 using Twig.Infrastructure.Auth;
-using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Services;
 using Twig.RenderTree;
 using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>
-/// Implements <c>twig connection list</c>: lists every binding for the given endpoint
-/// (org/project). When neither <c>--org</c> nor <c>--project</c> is supplied, the current
-/// workspace's checked-in coordinates are used.
-/// </summary>
-internal sealed class ConnectionListCommand
+/// <summary>Lists daemon-owned registrations across all workspaces, without inferring a workspace filter.</summary>
+internal sealed class ConnectionListCommand(IConnectionBindingService bindings, RendererFactory renderers)
 {
-    private readonly IConnectionBindingService _bindingService;
-    private readonly TwigConfiguration _config;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly RendererFactory _rendererFactory;
-
-    public ConnectionListCommand(
-        IConnectionBindingService bindingService,
-        TwigConfiguration config,
-        OutputFormatterFactory formatterFactory,
-        RendererFactory? rendererFactory = null)
+    internal async Task<int> ExecuteAsync(string? provider, string? organization, string? project,
+        string? host, string? repository, string? database, string outputFormat, CancellationToken ct)
     {
-        _bindingService = bindingService;
-        _config = config;
-        _formatterFactory = formatterFactory;
-        _rendererFactory = rendererFactory ?? new RendererFactory();
-    }
-
-    public async Task<int> ExecuteAsync(
-        string? organization,
-        string? project,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
-    {
-        var fmt = _formatterFactory.GetFormatter(outputFormat);
-
-        var orgProvided = !string.IsNullOrWhiteSpace(organization);
-        var projectProvided = !string.IsNullOrWhiteSpace(project);
-        if (orgProvided ^ projectProvided)
-        {
-            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
-                "Pass both --org and --project together, or neither (to use declared ADO workspace coordinates).");
-            return 1;
-        }
-        if (!orgProvided && _config.ResolveWorkItemProviderKind() == "github")
-        {
-            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
-                "ADO binding listing from a GitHub workspace requires explicit --org and --project; no ADO fallback was used.");
-            return 1;
-        }
-
-        var resolvedOrg = orgProvided ? organization!.Trim() : _config.Organization;
-        var resolvedProject = projectProvided ? project!.Trim() : _config.Project;
-
-        if (string.IsNullOrWhiteSpace(resolvedOrg) || string.IsNullOrWhiteSpace(resolvedProject))
-        {
-            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
-                "No ADO endpoint coordinates: pass --org and --project. A GitHub target is not an ADO binding fallback.");
-            return 1;
-        }
-
-        IReadOnlyList<IdentityBinding> bindings;
         try
         {
-            bindings = await _bindingService.ListBindingsAsync(resolvedOrg, resolvedProject, ct);
-        }
-        catch (InvalidOperationException ex)
-        {
-            CommandError.Write(_rendererFactory, Console.Error, outputFormat,
-                $"Could not list bindings for '{resolvedOrg}/{resolvedProject}': {ex.Message}");
-            return 1;
-        }
-
-        var human = ConnectionRenderHelpers.IsHumanFormat(outputFormat);
-        if (bindings.Count == 0)
-        {
-            var empty = human
-                ? (RenderNode)new RenderNode.Section($"No bindings for {resolvedOrg}/{resolvedProject}.", new RenderNode[]
-                {
-                    new RenderNode.Hint($"Create one with 'twig connection bind --org {resolvedOrg} --project {resolvedProject} --identity <alias> --default'."),
-                })
-                : new RenderNode.Record("bindingList", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-                {
-                    ["organization"] = RenderCell.String(resolvedOrg),
-                    ["project"] = RenderCell.String(resolvedProject),
-                    ["count"] = RenderCell.Integer(0),
-                });
-            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { empty }));
+            if (provider is not (null or "ado" or "github" or "twig"))
+                throw new InvalidOperationException("Choose --provider ado, github or twig.");
+            var filter = organization is null && project is null && host is null && repository is null && database is null ? null
+                : ProviderConnectionRequirement.Create(provider, organization, project, host, repository, database);
+            var connections = await new ProviderConnectionRegistry(bindings.RegistryPath).ListAsync(ct);
+            var rows = connections.Where(value => (provider is null || value.Requirement.Provider == provider)
+                    && (filter is null || value.Requirement == filter))
+                .Select(value => new RenderRow("connection", ConnectionRenderHelpers.ConnectionFields(value))).ToList();
+            renderers.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(
+                [new RenderNode.Table("Registered provider connections", ConnectionRenderHelpers.ConnectionColumns, rows)]));
             return 0;
         }
-
-        var rows = bindings
-            .Select(ConnectionRenderHelpers.BindingRow)
-            .ToList();
-        var table = new RenderNode.Table($"{resolvedOrg}/{resolvedProject}", ConnectionRenderHelpers.BindingColumns, rows);
-        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { (RenderNode)table }));
-        return 0;
+        catch (Exception ex) when (ConnectionCommandFailure.IsExpected(ex))
+        {
+            CommandError.Write(renderers, Console.Error, outputFormat, ex.Message);
+            return 1;
+        }
     }
 }

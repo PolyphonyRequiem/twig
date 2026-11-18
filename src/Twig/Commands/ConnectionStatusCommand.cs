@@ -45,12 +45,30 @@ internal sealed class ConnectionStatusCommand
         CancellationToken ct = default)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
-        if (_config.ResolveWorkItemProviderKind() == "github")
+        if (!Directory.Exists(_paths.TwigDir))
+        {
+            try
+            {
+                var required = ProviderConnectionRequirement.FromConfiguration(_config);
+                var registered = await new ProviderConnectionRegistry(_bindingService.RegistryPath).RequireAsync(required, ct);
+                var fields = ConnectionRenderHelpers.ConnectionFields(registered);
+                fields["freshlyAuthenticated"] = RenderCell.Boolean(false);
+                fields["message"] = RenderCell.String("Workspace requirement has a registered connection and local credential selection; run twig init to authenticate and initialize. Recorded metadata is not proof of provider access.");
+                _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree([new RenderNode.Record("connectionStatus", fields)]));
+                return 0;
+            }
+            catch (Exception ex) when (ConnectionCommandFailure.IsExpected(ex))
+            {
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat, ex.Message);
+                return 1;
+            }
+        }
+        if (_config.ResolveWorkItemProviderKind() is "github" or "twig")
         {
             if (_core is null)
             {
                 CommandError.Write(_rendererFactory, Console.Error, outputFormat,
-                    "No pinned GitHub Core target is available; no ADO binding fallback was used.");
+                    "No initialized Core target is available; no ADO binding fallback was used.");
                 return 1;
             }
             var opened = await _core.OpenAsync(ct).ConfigureAwait(false);
@@ -64,7 +82,7 @@ internal sealed class ConnectionStatusCommand
             [
                 new RenderNode.Record("connectionStatus", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
                 {
-                    ["provider"] = RenderCell.String("github"),
+                    ["provider"] = RenderCell.String(_config.ResolveWorkItemProviderKind()),
                     ["resourceScope"] = RenderCell.String(handle.Workspace.Connection.ResourceScope),
                     ["destination"] = RenderCell.String(handle.Workspace.Connection.Destination),
                     ["recordedActor"] = RenderCell.String(handle.Workspace.NativeActor),

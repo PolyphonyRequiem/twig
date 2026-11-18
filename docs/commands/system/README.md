@@ -4,8 +4,9 @@
 | --- | --- |
 | [`auth login`, `auth pat`](auth-login.md) | Explicit named enrollment/renewal |
 | [`auth identities`](auth-status.md) | Recorded registered identity metadata |
-| [`connection bind`](auth-login.md) | Explicit ADO endpoint-to-identity binding |
-| [`connection list`](auth-status.md) | Recorded bindings, no selection change |
+| [`connection add`](auth-login.md) | Register provider dimensions independently of credentials or workspaces |
+| [`connection bind`](auth-login.md) | Bind this user's credential to explicit provider dimensions |
+| [`connection list`](auth-status.md) | All device-local connections and local user bindings, no workspace filter |
 | [`auth status`, `connection status`](auth-status.md) | Local recorded selection, not fresh access evidence |
 | [`connection writes`](auth-status.md) | Inspect-only correlated native transport evidence |
 | [`version`](version.md) / `--version` | Offline installed version |

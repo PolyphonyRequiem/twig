@@ -634,23 +634,28 @@ internal static class CommandExamples
             "twig auth pat --stdin --identity work --org contoso  Read a token from stdin (e.g. a pipe), never argv",
             "twig auth pat --identity work --output json           Renew a registered identity at its saved authority",
         ],
+        ["connection add"] =
+        [
+            "twig connection add --provider ado --org contoso --project web   Register ADO dimensions without selecting credentials",
+            "twig connection add --provider github --host github.com --repository owner/repo   Register a GitHub connection",
+            "twig connection add --provider twig --database personal          Register a named native database",
+        ],
         ["connection bind"] =
         [
-            "twig connection bind --identity work                             Bind the current workspace endpoint to 'work'",
-            "twig connection bind --identity work --default                   Also request it as the initial default (refuses to replace a different one)",
-            "twig connection bind --org contoso --project web --identity work  Bind an explicit endpoint",
-            "twig connection bind --org contoso --project web --identity work --default --output json   Bind and emit the resulting record as JSON",
+            "twig connection bind --provider ado --org contoso --project web --identity work   Bind your registered ADO identity",
+            "twig connection bind --provider github --host github.com --repository owner/repo --account me   Bind your named gh account",
+            "twig connection bind --provider github --host github.com --repository owner/repo --identity me --client-id Iv1.example   Bind a GitHub App identity",
         ],
         ["connection list"] =
         [
-            "twig connection list                                 List bindings for the current workspace endpoint",
-            "twig connection list --org contoso --project web     List bindings for an explicit endpoint",
-            "twig connection list --output json                   Emit bindings as JSON for scripts",
+            "twig connection list                                 List all registered connections across workspaces",
+            "twig connection list --provider ado --org contoso --project web   Filter by explicit provider dimensions",
+            "twig connection list --output json                   Emit connections and user credential selectors as JSON",
         ],
         ["connection status"] =
         [
-            "twig connection status                 Show the identity + binding this worktree resolves to",
-            "twig connection status --output json   Emit the resolved binding and principal metadata as JSON",
+            "twig connection status                 Show this workspace's requirement and local binding readiness",
+            "twig connection status --output json   Emit recorded connection selection, not fresh access evidence",
         ],
         ["connection check"] =
         [

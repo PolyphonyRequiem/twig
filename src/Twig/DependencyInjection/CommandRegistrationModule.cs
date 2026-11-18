@@ -16,9 +16,10 @@ public static class CommandRegistrationModule
         services.AddSingleton<AuthPatCommand>();
         services.AddSingleton<AuthIdentitiesCommand>();
         services.AddSingleton<AuthGitHubCommand>();
+        services.AddSingleton(sp => new ConnectionAddCommand(() => sp.GetRequiredService<IConnectionBindingService>(),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
         services.AddSingleton(sp => new ConnectionBindCommand(() => sp.GetRequiredService<IConnectionBindingService>(),
-            sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>(),
-            sp.GetRequiredService<Twig.Formatters.OutputFormatterFactory>(), sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
         services.AddSingleton<ConnectionListCommand>();
         services.AddSingleton<ConnectionStatusCommand>();
         services.AddSingleton<IConnectionRemoteWriteReconciliationService>(sp =>

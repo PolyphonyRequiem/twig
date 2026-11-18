@@ -61,16 +61,19 @@ internal static class NativeWorkspaceSetup
                 if (args.Organization.Length != 0 || args.Project.Length != 0 || args.Team is not null
                     || args.GitProject is not null || args.Binding is not null)
                     return Fail("GitHub init uses --host, --repository and --account, not ADO coordinates/team/git-project/binding.", 2);
-                if (string.IsNullOrWhiteSpace(args.Account) || args.Account != args.Account.Trim()
-                    || args.Account.Any(char.IsWhiteSpace) || args.Account.Any(char.IsControl) || args.Account.StartsWith('-'))
-                    return Fail("GitHub Core initialization requires --account <gh-account>; the active gh account and ambient tokens are never inferred.", 2);
+                if (args.Account is not null && (string.IsNullOrWhiteSpace(args.Account) || args.Account != args.Account.Trim()
+                    || args.Account.Any(char.IsWhiteSpace) || args.Account.Any(char.IsControl) || args.Account.StartsWith('-')))
+                    return Fail("--account must name an explicit gh account; the active gh account and ambient tokens are never inferred.", 2);
                 if (hasManifest && (args.Host is not null && args.Host != config.GitHub?.Host
                     || args.Repository is not null && args.Repository != config.GitHub?.Repository))
                     return Fail("GitHub coordinates conflict with the existing twig.json declaration.", 2);
                 if (!hasManifest) config.GitHub = new GitHubConfig { Host = args.Host, Repository = args.Repository };
                 if (!GitHubWorkspaceScope.TryCreate(config.GitHub, out _, out var scopeProblem)) return Fail(scopeProblem, 2);
-                config.GitHubAccount = args.Account;
-                config.GitHubCredentialSource = "gh";
+                if (args.Account is not null)
+                {
+                    config.GitHubAccount = args.Account;
+                    config.GitHubCredentialSource = "gh";
+                }
             }
             else if (kind == "twig")
             {
@@ -89,6 +92,8 @@ internal static class NativeWorkspaceSetup
             {
                 if (args.Host is not null || args.Repository is not null || args.Account is not null)
                     return Fail("--host, --repository and --account require --provider github.", 2);
+                if (hasManifest && args.Organization.Length == 0 && args.Project.Length == 0)
+                    args = args with { Organization = config.Organization, Project = config.Project };
                 if (NativeSetupEnrollment.AdoProblem(args.Organization, args.Project) is { } adoProblem) return Fail(adoProblem, 2);
                 if (hasManifest && (!string.Equals(args.Organization, config.Organization, StringComparison.OrdinalIgnoreCase)
                     || !string.Equals(args.Project, config.Project, StringComparison.OrdinalIgnoreCase)
@@ -106,6 +111,34 @@ internal static class NativeWorkspaceSetup
             effects.Phase = NativeSetupPhase.Initialization;
             effects.Before(NativeSetupEffectKind.NativeHome);
             var bindings = lazyBindings();
+            if (kind == "ado" && args.Binding is null || kind == "github" && args.Account is null
+                || kind == "twig" && hasManifest && args.Database is null)
+            {
+                try
+                {
+                    var requirement = ProviderConnectionRequirement.FromConfiguration(config);
+                    var registered = await new ProviderConnectionRegistry(bindings.RegistryPath)
+                        .RequireAsync(requirement, ct).ConfigureAwait(false);
+                    if (kind == "ado")
+                    {
+                        var selected = await bindings.CreateBindingAsync(config.Organization, config.Project,
+                            registered.Credential!.Selector, makeDefault: false, ct).ConfigureAwait(false);
+                        args = args with { Binding = selected.BindingId };
+                    }
+                    else if (kind == "github")
+                    {
+                        var credential = registered.Credential!;
+                        config.GitHubCredentialSource = credential.Kind;
+                        config.GitHubAccount = credential.Kind == "gh" ? credential.Selector : null;
+                        config.GitHubOAuthIdentity = credential.Kind == "github-app" ? credential.Selector : null;
+                        config.GitHubAppClientId = credential.ClientId;
+                    }
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return effects.Fail<NativeCreationReceipt>(new(ErrorCode.Unavailable, ex.Message));
+                }
+            }
             if (kind == "ado")
             {
                 effects.Before(NativeSetupEffectKind.Registry);

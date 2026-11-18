@@ -5,10 +5,14 @@ Command existence does not imply provider parity. Use `twig --version`, then
 `twig <command> --help` for the installed binary's generated arguments/defaults.
 Leaf help also embeds the behavior/effect sections from these pages.
 
-Data operations require an initialized pinned Core workspace; there is no
-legacy cache fallback. The [getting-started guide](../getting-started.md) covers
-provider setup. Data commands run through the selected [daemon](../daemon.md).
-The CLI never retries an uncertain operation against a local writer.
+Work-item and Bench commands require the selected [daemon](../daemon.md) to
+be running. The CLI sends one request over owner-only local IPC, not through the
+browser or MCP. The daemon uses the caller's workspace and the same native
+metadata home; provider, target, policy and journal checks remain authoritative.
+There is no in-process or legacy cache fallback. If the connection is lost
+after dispatch, inspect the original journal before attempting another change:
+the CLI does not replay the request. Help, skills, initialization and identity
+setup are local. The [getting-started guide](../getting-started.md) covers provider setup.
 
 ## Find a task
 

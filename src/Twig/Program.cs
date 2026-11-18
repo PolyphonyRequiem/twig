@@ -52,7 +52,8 @@ var runApp = Twig.TwigConsoleApp.CreateRunner(services =>
         if (ProgressiveHelp.IsHelpRequest(args)
             || (args.Length > 0 && args[0] is "skills" or "--help-all")) return;
 
-        services.AddTwigWorkspaceServices(Directory.GetCurrentDirectory(), args);
+        if (Twig.DaemonCommandWorker.IsHostUtility(args))
+            services.AddTwigWorkspaceServices(Directory.GetCurrentDirectory(), args);
     });
 
 // Offline discovery and smart landing (no arguments).
@@ -170,6 +171,7 @@ if (strayPositionalError is not null)
 // ASSIGNS rather than appends on each occurrence, so without this only the last
 // one survives and `twig new` exits 0 having written one field of N. Runs before
 // -o validation so the rewrite cannot perturb it (neither option is -o).
+var invocationArguments = args;
 args = RepeatableOptionNormalizer.Normalize(args);
 
 // -o is validated ONCE, here, against the single accept-list in
@@ -198,48 +200,15 @@ if (structuredMutationError is not null)
     return;
 }
 
-// Init owns fresh-state preflight and native bootstrap, including existing-marker refusals.
-// It must never enter update cleanup, companion installation or the runtime catalog gate.
-if (args.Length > 0 && args[0] == "init")
+// Only setup, identity and offline discovery execute in this process.
+if (Twig.DaemonCommandWorker.IsHostUtility(args))
 {
-    SQLitePCL.Batteries.Init();
+    if (args[0] is not ("version" or "skills")) SQLitePCL.Batteries.Init();
     runApp(args);
     return;
 }
 
-{
-    var root = WorkspaceDiscovery.FindWorkspaceRoot(Directory.GetCurrentDirectory()) ?? Directory.GetCurrentDirectory();
-    var coreAdmissionError = Twig.CoreMutationAdmissionGuard.Validate(args, Path.Combine(root, ".twig"));
-    if (coreAdmissionError is not null)
-    {
-        CommandError.Write(new RendererFactory(), Console.Error,
-            StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default, coreAdmissionError);
-        Environment.ExitCode = 1;
-        return;
-    }
-}
-
-// Skills are an explicit offline utility: do not resolve workspace/network services
-// or run binary cleanup/companion installation for this command family.
-if (args.Length > 0 && args[0] == "skills")
-{
-    runApp(args);
-    return;
-}
-
-// A validated target-only export is an offline read. Keep update cleanup and
-// companion installation unreachable, including on its first apphost invocation.
-if (args.Length > 0 && args[0] == "show-batch" && args.Contains("--include-fields"))
-{
-    SQLitePCL.Batteries.Init();
-    runApp(args);
-    return;
-}
-
-// Native persistence is needed only for real command execution, never help.
-SQLitePCL.Batteries.Init();
-
-runApp(args);
+Environment.ExitCode = await Twig.DaemonCommandClient.ExecuteAsync(invocationArguments);
 
 
 /// <summary>
@@ -448,6 +417,9 @@ internal static class ExceptionHandler
 /// </summary>
 public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompatibility
 {
+    private string? InvocationFile(string? path) =>
+        string.IsNullOrEmpty(path) || services.GetService<TwigPaths>() is not { } paths
+            ? path : Path.GetFullPath(path, paths.StartDir);
     private static int MissingCore(string output)
     {
         CommandError.Write(new RendererFactory(), Console.Error, output,
@@ -670,7 +642,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="fields">Comma-separated field reference names to select in compact JSON.</param>
     [Command("process description")]
     public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? sections = null, string? fields = null)
-        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct, sections: sections, fields: fields);
+        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, InvocationFile(@out), output, ct, sections: sections, fields: fields);
 
     /// <summary>Human-only alias for the active work item's states; structured callers must use process &lt;type&gt;.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1152,7 +1124,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, string? file = null, bool stdin = false, CancellationToken ct = default)
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
-            return await core.NoteAsync(text ?? textArg, file, stdin, id, output, format, ct);
+            return await core.NoteAsync(text ?? textArg, InvocationFile(file), stdin, id, output, format, ct);
         return MissingCore(output);
     }
 
@@ -1168,7 +1140,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, int? id = null, bool append = false, CancellationToken ct = default)
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
-            return await core.UpdateAsync(field, value, output, format, file, stdin, id, append, ct);
+            return await core.UpdateAsync(field, value, output, format, InvocationFile(file), stdin, id, append, ct);
         return MissingCore(output);
     }
 

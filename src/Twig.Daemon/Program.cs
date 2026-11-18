@@ -9,7 +9,17 @@ using Twig.Infrastructure.Services;
 
 if (args is [CommandWorkerSupervisor.WorkerMode])
 {
-    try { await Twig.DaemonCommandWorker.RunAsync(Console.OpenStandardInput(), Console.OpenStandardOutput()); }
+    try
+    {
+        // Unix ConsolePal tracks the cursor under lock(Console.Out). A worker rendering through
+        // Console.Out already holds that lock when it writes a frame on another thread.
+        // Write the binary protocol directly to the inherited stdout pipe, not to the terminal.
+        using Stream wire = OperatingSystem.IsLinux()
+            ? new FileStream(new Microsoft.Win32.SafeHandles.SafeFileHandle((IntPtr)1, ownsHandle: false),
+                FileAccess.Write, bufferSize: 1)
+            : Console.OpenStandardOutput();
+        await Twig.DaemonCommandWorker.RunAsync(Console.OpenStandardInput(), wire);
+    }
     catch (Exception) { Environment.ExitCode = 1; } // Never log a request or replay a failed worker.
     return;
 }

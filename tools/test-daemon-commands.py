@@ -2,6 +2,7 @@
 """Focused offline regression for the built CLI, owner-only pipe and isolated daemon workers."""
 import json
 import os
+import argparse
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,7 +13,10 @@ CLI = ROOT / "src/Twig/bin/Debug/net11.0/twig.dll"
 DAEMON = ROOT / "src/Twig.Daemon/bin/Debug/net11.0/Bench.Server.dll"
 
 
-def verify(base):
+def verify(base, app_dir=None):
+    extension = ".exe" if os.name == "nt" else ""
+    client = [str(app_dir / ("twig" + extension))] if app_dir else ["dotnet", str(CLI)]
+    host = [str(app_dir / ("Bench.Server" + extension))] if app_dir else ["dotnet", str(DAEMON)]
     install, data, home, work = (base / name for name in ("install", "private", "home", "work"))
     install.mkdir(mode=0o700)
     work.mkdir()
@@ -21,7 +25,7 @@ def verify(base):
     env.pop("TWIG_TELEMETRY_ENDPOINT", None)
 
     def cli(*args, expected=0, cwd=work, metadata=home, body=None):
-        run = subprocess.run(["dotnet", str(CLI), *args], cwd=cwd,
+        run = subprocess.run([*client, *args], cwd=cwd,
                              env=dict(env, TWIG_USER_HOME=str(metadata)), input=body,
                              capture_output=True, encoding="utf-8", timeout=10)
         if run.returncode != expected:
@@ -38,7 +42,7 @@ def verify(base):
     (install / "current.json").write_text('{"privateDataDir":"relative"}', encoding="utf-8")
     assert "No command was dispatched" in json.loads(cli("bench", "list", "-o", "json", expected=1))["error"]
     (install / "current.json").write_text(json.dumps({"privateDataDir": str(data)}), encoding="utf-8")
-    with subprocess.Popen(["dotnet", str(DAEMON), "--commands-only", "--data-dir", str(data)],
+    with subprocess.Popen([*host, "--commands-only", "--data-dir", str(data)],
                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env) as daemon:
         try:
             assert daemon.stdout.readline().strip() == "COMMANDS_READY"
@@ -76,6 +80,9 @@ def verify(base):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--app-dir", type=Path, help="Verify self-contained published Linux or Windows apphosts")
+    args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="twig-command-test-", dir=os.getenv("LOCALAPPDATA")
                                      if os.name == "nt" else None) as directory:
-        verify(Path(directory))
+        verify(Path(directory), args.app_dir.resolve() if args.app_dir else None)

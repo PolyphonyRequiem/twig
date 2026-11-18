@@ -13,7 +13,7 @@
 - [Proposals](features/proposals.md)
 - [Process description](features/process-description.md)
 - [Skills](features/skills.md)
-- [Windows daemon](daemon.md)
+- [Local server](daemon.md)
 
 ## Development
 

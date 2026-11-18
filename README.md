@@ -30,8 +30,8 @@ for manual downloads and checksum verification.
 
 ## Get started
 
-Select an installed [daemon](docs/daemon.md) and run `twig daemon start` before
-working with a provider. `twig daemon status -o json` checks readiness without
+Select an installed [server](docs/daemon.md) and run `twig server start` before
+working with a provider. `twig server status -o json` checks readiness without
 starting anything. Help and version are available without a daemon.
 
 Run initialization at a **fresh Git worktree root**, without an existing `.twig`
@@ -111,11 +111,11 @@ use `sync --pull-only` when you only intend to read. For file-based changes, rev
 the exact proposal before `proposal apply --file ... --confirm <digest>`.
 Unknown write outcomes must be inspected, never blindly retried.
 
-## Daemon and integrations
+## Server and integrations
 
 The [Twig daemon](src/Twig.Daemon) owns work-item operations for the CLI and
-Bench Canvas. It runs as the current user. Use `twig daemon start` to start or
-reuse it and `twig daemon stop` for an explicit shutdown. Clients do not switch
+Bench Canvas. It runs as the current user. Use `twig server start` to start or
+reuse it and `twig server stop` for an explicit shutdown. Clients do not switch
 to direct database or provider access if the daemon is unavailable.
 
 The separate [twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas)
@@ -123,7 +123,10 @@ package owns presentation assets. Closing a Canvas view does not stop the daemon
 Herdr panes and the interactive terminal browser have been removed; static CLI
 output is unchanged. The daemon can run without Canvas assets and
 provides a **read-only MCP bridge**. This is not the retired `twig mcp` server.
-See the [daemon guide](docs/daemon.md) for prerequisites, operation, and MCP setup.
+See the [server command reference](docs/commands/system/server.md) for lifecycle
+syntax and output formats, and the [server guide](docs/daemon.md) for
+prerequisites, installation, and MCP setup. The old `twig daemon` command family
+is not an alias; daemon package names and installation settings are unchanged.
 
 ## Documentation
 
@@ -132,7 +135,7 @@ See the [daemon guide](docs/daemon.md) for prerequisites, operation, and MCP set
 | Setup and first commands | [Getting started](docs/getting-started.md) |
 | Supported commands and limitations | [Command reference](docs/commands/README.md) |
 | Benches, drafts, and proposals | [User guides](docs/README.md#user-guides) |
-| Windows daemon | [Daemon ownership and operations](docs/daemon.md) |
+| Local server | [Server installation and operations](docs/daemon.md) |
 | Agent help | `twig --skill` and [installed skills](docs/features/skills.md) |
 | Build and contribute | [Contributing](docs/contributing.md) |
 | Implementation | [Architecture](docs/architecture/overview.md) |

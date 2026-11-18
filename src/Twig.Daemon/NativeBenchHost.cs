@@ -96,12 +96,12 @@ public static partial class NativeBenchHost
                     context.Response.Headers[DaemonLauncher.InstanceHeader] = options.ProcessInstance.ToString("D");
                 return Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1"]));
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "workspace-read-v1"]));
             })
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1"])));
+                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "workspace-read-v1"])));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
             var body = await Body<RegisterCanvasBody>(context);
@@ -203,6 +203,7 @@ public static partial class NativeBenchHost
                 session.NativeContext = opened;
                 session.DisplayContexts[opened.Stamp.Connection] = opened;
                 session.CurrentBenchId ??= selection.SelectedBenchId;
+                session.ReferencesRestored = true;
             }
             updates.Publish(0);
             await Write(context, new Ack());
@@ -222,6 +223,7 @@ public static partial class NativeBenchHost
                 if (session.CurrentBenchId != body.ExpectedBenchId)
                     throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
                 session.CurrentBenchId = body.BenchId;
+                session.ReferencesRestored = true;
                 session.PopulationContext = null;
                 if (body.BenchId is null)
                 {
@@ -448,7 +450,8 @@ public static partial class NativeBenchHost
                 {
                     await Authorize(context, id);
                     if (change.AgentViewId is { } target && target != id) continue;
-                    await context.Response.WriteAsync(change.AgentViewId is not null
+                    await context.Response.WriteAsync(change.Resync
+                        ? "event: changed\ndata: {\"resync\":true}\n\n" : change.AgentViewId is not null
                         ? "event: agent\ndata: {}\n\n" : change.PresentationOnly
                         ? "event: presentation\ndata: {}\n\n" : "event: changed\ndata: {}\n\n", lifetime.Token);
                     await context.Response.Body.FlushAsync(lifetime.Token);

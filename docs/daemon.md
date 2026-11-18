@@ -77,6 +77,74 @@ diagnostics and serve only verified packages. Normal canvas opens use the separa
 presentation host, which can render before daemon readiness and forwards bounded
 requests from one browser origin. Closing Canvas does not stop the shared daemon.
 
+## Live-client workspace read
+
+The `workspace-read-v1` capability in `/api/v1/status` and the authenticated
+owner status advertises `GET /api/v1/views/{viewId}/workspace`. Use the existing
+owner/profile connection and content bearer; a view ID or presentation capability
+alone grants no content access. Older daemons must be refused explicitly by clients
+requiring this capability, not treated as an empty workspace.
+
+The source-generated `NativeWorkspaceDto` response has these camel-case fields:
+
+| Field | Existing native contract |
+| --- | --- |
+| `viewState` | `NativeViewStateInfo`: store/profile identity, saved choice revision, retained source recovery, current Bench and authority expiry/renewal times |
+| `summary` | `NativePanelSummary`: native catalogue revision and definitions, registered connection labels/availability, selected contexts, repository bindings and verified runtime context |
+| `session` | `NativeSessionInfo`: current Bench and presentation preferences from that same profile observation |
+| `view` | Selected `NativeBenchViewDto`, or `null` when no existing Bench is selected; includes source-qualified items, protected drafts, source stamps/errors and existing Plan status/review digest |
+| `planOperationId` | Original in-memory Plan operation ID for this attachment's selected Bench, if available; observe using the existing `GET /api/v1/views/{viewId}/plan/operations/{operationId}` |
+| `selectionError` | Explicit `Failure` when the selected Bench was deleted; catalogue and saved selection remain readable, with `view: null` |
+| `reconcileAfterSeconds` | `30`: maximum active-client interval between authoritative workspace reads |
+
+This is a bounded projection, not a transaction across providers or a new
+publication authority. It reuses the initial-view assembler and native
+source projection. It restores saved choices on first attachment and when
+another attachment changes the profile's source/Bench choices; ordinary reads
+do not reset an explicitly selected Bench, editor ticket or pending operation.
+Catalogue, registry, repository binding, profile, selection (including a
+switch away and back), local snapshot/selection/exclusion and Plan revisions are
+rechecked. Concurrent changes refuse the read with `409` rather than releasing
+mixed selection/content. Sign-out, capability replacement and expiry still
+refuse content. Failed source reads remain explicit per-source failures, not
+fabricated empty membership; an admission change during final checking can
+refuse the entire read.
+
+Workspace acquisition has a 30-second ceiling, uses existing per-source budgets
+and at most eight concurrent source acquisitions, and performs only local
+snapshot reads under retained exact-source admission. Merely registering a
+source does not authorize it: absent or denied admission cannot trigger schema
+refresh or provider discovery. No saved query is executed upstream. Source
+cache versions, schema fingerprints, observation times, offline limitations and
+partial failures remain visible. Explicit refresh/recheck, lazy details, seed
+publication evidence, discovery and typed mutation endpoints remain unchanged.
+`planOperationId` and `view.plan.lastReviewDigest` are references for observing
+original work, never instructions to replay Save/Apply. Across attachment loss,
+use the existing saved native review/journal/receipt path; no operation replay
+or new durable notification log is introduced.
+
+Connect the authenticated SSE stream **before** the first workspace read. The
+daemon registers its bounded subscriber before flushing `event: ready`. On
+**every** `ready`, including reconnect, clients must read the workspace.
+`changed`, `presentation` and same-view `agent` events are advisory invalidations,
+not patches. A full single-entry subscriber queue coalesces to
+`event: changed` with `data: {"resync":true}`. This unscoped, content-free signal
+invalidates **all** attachment resources, including agent state; it cannot lose
+an earlier resource invalidation when a different resource changes. Existing
+clients still recognize `changed`. Delivery rechecks view authorization, and
+the stream cannot outlive its original authority lease.
+
+Clients should run one dirty/read loop: coalesce invalidations, and if an
+invalidation arrives during a read, read again after it completes. Reject late
+responses after attachment/resource changes. Reconcile at least every 30 seconds
+while active and on activation to cover CLI writers and commit-before-notify
+failure. Activation must check attachment validity and real stream progress;
+replace a stalled stream and refresh. Reconnect read-only streams with bounded
+backoff and jitter; authentication/authorization/protocol refusals require
+explicit recovery. Apply command results or reread immediately without waiting
+for SSE, and never retry an uncertain write automatically. SSE does not observe
+upstream changes until an explicit native refresh has observed them.
+
 ## Windows prerequisites
 
 - 64-bit Windows, running as the intended owner.

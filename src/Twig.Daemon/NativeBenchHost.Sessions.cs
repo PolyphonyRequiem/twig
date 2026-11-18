@@ -41,6 +41,21 @@ public static partial class NativeBenchHost
             var session = await authorize(http, id);
             await Write(http, sessions.ReadState(session));
         });
+        app.MapGet("/api/v1/views/{id:guid}/workspace", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
+            budget.CancelAfter(TimeSpan.FromSeconds(30));
+            await RestoreViewReferences(panel, sessions, session, budget.Token,
+                cachedAdmissionOnly: true, onlyIfNeeded: true);
+            var workspace = await Workspace(panel, sessions, session, source =>
+            {
+                _ = presentSource(source);
+                return source;
+            }, budget.Token);
+            _ = sessions.Content(id, Bearer(http), true);
+            await Write(http, workspace);
+        });
         app.MapPut("/api/v1/views/{id:guid}/view-state", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);
@@ -66,68 +81,130 @@ public static partial class NativeBenchHost
         NativePanel panel, ViewSessions sessions, ViewSession session, Func<SourceViewDto, SourceViewDto> presentSource, CancellationToken ct)
     {
         var observations = new Dictionary<NativePanelContext, SourceObservation>();
-        var state = await RestoreViewReferences(panel, sessions, session, ct, observations);
+        await RestoreViewReferences(panel, sessions, session, ct, observations);
+        var workspace = await Workspace(panel, sessions, session, presentSource, ct, observations);
+        return (workspace.ViewState, new(workspace.Summary, workspace.Session, workspace.View));
+    }
+
+    private static async Task<NativeWorkspaceDto> Workspace(
+        NativePanel panel, ViewSessions sessions, ViewSession session, Func<SourceViewDto, SourceViewDto> presentSource,
+        CancellationToken ct, IReadOnlyDictionary<NativePanelContext, SourceObservation>? observations = null)
+    {
+        long selectionRevision;
+        lock (session) selectionRevision = session.SelectionRevision;
+        var state = sessions.ReadState(session);
         var shared = Require(await panel.ListAsync(ct));
         if (shared.InstanceId != state.StoreId)
-            throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed during initial loading.");
+            throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed during workspace loading.");
+        var selectionExists = state.CurrentBenchId is { } selected && shared.Benches.Any(value => value.Id == selected);
+        if (selectionExists) await ResolveBenchConnections(panel, session, ct, cachedAdmissionOnly: true);
         NativePanelContext? anchor;
         NativePanelContext? population;
         NativePanelContext[] chosen;
-        lock (session) { anchor = session.NativeContext; population = session.PopulationContext; chosen = session.DisplayContexts.Values.ToArray(); }
+        string? repositoryRoot;
+        Twig.Infrastructure.Services.UserRepositoryBindings? repository;
+        lock (session)
+        {
+            anchor = session.NativeContext; population = session.PopulationContext; chosen = session.DisplayContexts.Values.ToArray();
+            repositoryRoot = session.RepositoryRoot; repository = session.RepositoryBindings;
+        }
+        var registry = Require(await panel.WorkspacesAsync(ct));
+        var labels = new List<WorkspaceDto>();
+        var labelBudget = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var registered in registry)
+        {
+            var label = labelBudget.Elapsed < TimeSpan.FromSeconds(2)
+                ? await NativeConnectionLabels.ReadAsync(registered.Root, registered.Connection, ct)
+                : NativeConnectionLabels.Unavailable(registered.Connection);
+            labels.Add(new(registered.Root, registered.Connection.Provider.Value, label.Name, label.Available)
+            {
+                Connection = registered.Connection,
+                Available = repository is null || repository.Connections.Contains(registered.Connection),
+            });
+        }
         var summary = new NativePanelSummary(shared.InstanceId, shared.Revision, shared.Benches.Select(Definition).ToArray(),
-            chosen.Concat(new[] { population }.OfType<NativePanelContext>()).DistinctBy(value => value.Root, ViewSession.PathComparer)
-                .Select(value => ConnectionSummary(value)!).ToArray(),
+            labels.ToArray(),
             anchor?.Root, population?.Root, ConnectionSummary(anchor), ConnectionSummary(population))
-            { RepositoryRoot = session.RepositoryRoot, RepositoryBindings = session.RepositoryBindings,
+            { RepositoryRoot = repositoryRoot, RepositoryBindings = repository,
                 RuntimeContext = session.RuntimeContext };
         NativeBenchViewDto? view = null;
+        NativePanelView? captured = null;
         if (state.CurrentBenchId is { } bench && shared.Benches.Any(value => value.Id == bench))
         {
-            var captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations, AvailableConnections(session)));
+            captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations,
+                repository?.Connections.ToHashSet()));
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
             if (mapped.CatalogId != shared.InstanceId || mapped.CatalogRevision != shared.Revision)
-                throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed during initial loading.");
+                throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed during workspace loading.");
             view = new(mapped.CatalogId, mapped.CatalogRevision, mapped.Id, mapped.Name,
                 mapped.Sources.Select(source => presentSource(source) with {
                     NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId) }).ToArray())
                 { Plan = PlanStatus(session, captured.Plan) };
         }
-        _ = Require(await panel.CheckInitialAsync(observations, ct));
+        if (captured is not null) _ = Require(await panel.CheckWorkspaceAsync(captured, ct));
+        if (!registry.SequenceEqual(Require(await panel.WorkspacesAsync(ct))))
+            throw new HttpFailure(409, "WorkspaceChanged", "The registered connections changed during workspace loading.");
+        if (repositoryRoot is not null && Require(await panel.ReadRepositoryAsync(repositoryRoot, ct)) is { } currentRepository
+            && (currentRepository.RepositoryId != repository?.RepositoryId || currentRepository.Revision != repository?.Revision))
+            throw new HttpFailure(409, "WorkspaceChanged", "The repository bindings changed during workspace loading.");
         if (Require(await panel.ListAsync(ct)) is { } final
             && (final.InstanceId != shared.InstanceId || final.Revision != shared.Revision))
-            throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed before initial loading completed.");
+            throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed before workspace loading completed.");
         var committed = sessions.CommitRestoration(session, state.Revision, () =>
         {
             lock (session)
-                if (!ReferenceEquals(session.NativeContext, anchor) || !ReferenceEquals(session.PopulationContext, population)
+                if (session.SelectionRevision != selectionRevision || session.CurrentBenchId != state.CurrentBenchId
+                    || session.RepositoryRoot != repositoryRoot || !ReferenceEquals(session.RepositoryBindings, repository)
+                    || !ReferenceEquals(session.NativeContext, anchor) || !ReferenceEquals(session.PopulationContext, population)
                     || session.DisplayContexts.Count != chosen.Length
                     || chosen.Any(value => !session.DisplayContexts.TryGetValue(value.Stamp.Connection, out var current)
                         || !ReferenceEquals(current, value)))
-                    throw new HttpFailure(409, "ViewStateConflict", "The connection choices changed during initial loading.");
+                    throw new HttpFailure(409, "ViewStateConflict", "The selection or connection choices changed during workspace loading.");
         });
-        return (committed, new(summary, new(shared.InstanceId, session.NativeContentBlocked,
-            session.Preferences with { BenchId = state.CurrentBenchId }), view));
+        Guid? operationId;
+        lock (session.Plan)
+            operationId = session.Plan.Operation is { } operation && operation.BenchId == state.CurrentBenchId
+                ? operation.Id : null;
+        return new(committed, summary, new(shared.InstanceId, session.NativeContentBlocked,
+            new(committed.Revision, committed.CurrentBenchId, committed.Choices.Layout,
+                committed.Choices.GroupSource, committed.Choices.GroupField)), view)
+        {
+            PlanOperationId = operationId,
+            SelectionError = state.CurrentBenchId is not null && !selectionExists
+                ? new("NotFound", "The selected Bench was deleted. Choose another Bench; retained drafts and operations were not removed.")
+                : null,
+        };
     }
 
     private static async Task<NativeViewStateInfo> RestoreViewReferences(NativePanel panel, ViewSessions sessions,
         ViewSession session, CancellationToken ct,
-        IDictionary<NativePanelContext, SourceObservation>? initialObservations = null)
+        IDictionary<NativePanelContext, SourceObservation>? initialObservations = null,
+        bool cachedAdmissionOnly = false, bool onlyIfNeeded = false)
     {
         await session.RecoveryGate.WaitAsync(ct);
         try
         {
             await SynchronizeRepository(panel, sessions, session, ct);
             var before = sessions.ReadState(session);
+            if (onlyIfNeeded && session.ReferencesRestored && session.AppliedChoices is { } applied
+                && applied.BenchId == before.Choices.BenchId
+                && ViewSession.PathComparer.Equals(applied.ViewingRoot, before.Choices.ViewingRoot)
+                && ViewSession.PathComparer.Equals(applied.AddRoot, before.Choices.AddRoot)
+                && ViewSession.PathComparer.Equals(applied.RepositoryRoot, before.Choices.RepositoryRoot)
+                && applied.DisplayRoots.SequenceEqual(before.Choices.DisplayRoots, ViewSession.PathComparer))
+                return before;
             var available = AvailableConnections(session);
             var registry = Require(await panel.WorkspacesAsync(ct));
             var references = sessions.StateReferences(session);
             NativePanelContext? initialViewing;
             NativePanelContext? initialPopulation;
+            long initialSelectionRevision;
             KeyValuePair<Twig.Core.Connection, NativePanelContext>[] initialDisplay;
             lock (session)
             {
                 initialViewing = session.NativeContext;
                 initialPopulation = session.PopulationContext;
+                initialSelectionRevision = session.SelectionRevision;
                 initialDisplay = session.DisplayContexts.ToArray();
             }
             var opened = new Dictionary<string, NativePanelContext>(ViewSession.PathComparer);
@@ -153,6 +230,8 @@ public static partial class NativeBenchHost
                         try
                         {
                             var result = await panel.OpenAsync(reference.Root, timeout.Token, reference.Binding, observations);
+                            if (cachedAdmissionOnly && !result.IsSuccess && result.Error.Code == Twig.Core.ErrorCode.Conflict)
+                                throw new HttpFailure(409, "SourceChanged", "A retained source binding changed. Choose the exact intended connection explicitly.");
                             if (!result.IsSuccess) state = new(reference.Root, "unavailable", result.Error.Code.ToString());
                             else if (CatalogFingerprint.Binding(result.Value.Source.Binding) != reference.Binding)
                                 state = new(reference.Root, "changed", "SourceChanged");
@@ -182,7 +261,7 @@ public static partial class NativeBenchHost
                 ?? (session.RuntimeContext is null && session.RepositoryBindings is null && shared.Benches.Length == 1
                     ? shared.Benches[0].Id : (Guid?)null);
             var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)
-                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available)).ToArray()
+                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available, cachedAdmissionOnly)).ToArray()
                 : [];
             var instance = shared.InstanceId;
             if (instance != session.CatalogId)
@@ -191,14 +270,17 @@ public static partial class NativeBenchHost
             {
                 lock (session)
                 {
-                    if (!ReferenceEquals(session.NativeContext, initialViewing)
+                    if (session.SelectionRevision != initialSelectionRevision
+                        || !ReferenceEquals(session.NativeContext, initialViewing)
                         || !ReferenceEquals(session.PopulationContext, initialPopulation)
                         || session.DisplayContexts.Count != initialDisplay.Length
                         || initialDisplay.Any(pair => !session.DisplayContexts.TryGetValue(pair.Key, out var current)
                             || !ReferenceEquals(current, pair.Value)))
                         throw new HttpFailure(409, "ViewStateConflict", "A connection choice changed during restoration. Read the current view before restoring.");
                     session.Editor.Invalidate();
-                    session.NativeContext = resolved.FirstOrDefault();
+                    session.NativeContext = before.Choices.ViewingRoot is { } viewing
+                        ? resolved.FirstOrDefault(value => ViewSession.PathComparer.Equals(value.Root, viewing))
+                        : resolved.FirstOrDefault();
                     session.PopulationContext = before.Choices.AddRoot is { } add
                         ? resolved.FirstOrDefault(value => ViewSession.PathComparer.Equals(value.Root, add)) : null;
                     session.DisplayContexts.Clear();
@@ -207,19 +289,22 @@ public static partial class NativeBenchHost
                     session.SourceRecovery.Clear();
                     foreach (var source in recovery) session.SourceRecovery.Add(source.Key, source.Value);
                     session.CurrentBenchId = currentBench;
+                    session.ReferencesRestored = true;
+                    session.AppliedChoices = before.Choices;
                 }
             });
         }
         finally { session.RecoveryGate.Release(); }
     }
 
-    private static async Task ResolveBenchConnections(NativePanel panel, ViewSession session, CancellationToken ct)
+    private static async Task ResolveBenchConnections(NativePanel panel, ViewSession session, CancellationToken ct,
+        bool cachedAdmissionOnly = false)
     {
         Guid? bench;
         NativePanelContext[] previous;
         lock (session) { bench = session.CurrentBenchId; previous = session.DisplayContexts.Values.ToArray(); }
         if (bench is null) return;
-        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct, AvailableConnections(session)));
+        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct, AvailableConnections(session), cachedAdmissionOnly));
         lock (session.Agent)
         lock (session)
         {

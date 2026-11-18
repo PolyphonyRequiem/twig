@@ -30,6 +30,7 @@ internal sealed class NativePlanView
 internal sealed class NativePlanOperation(Guid id, string status, CancellationTokenSource lifetime)
 {
     internal Guid Id { get; } = id;
+    internal Guid BenchId { get; init; }
     internal string Status { get; } = status;
     internal CancellationTokenSource Lifetime { get; } = lifetime;
     internal Task<PlanOperationDto>? Work { get; set; }
@@ -205,7 +206,7 @@ public static partial class NativeBenchHost
                 session.Plan.Invalidate();
                 var epoch = session.Plan.Epoch;
                 var generation = session.ProfileGeneration;
-                Start(session, "Reviewing", async ct =>
+                Start(session, body.BenchId, "Reviewing", async ct =>
                 {
                     await Current(session, body.BenchId, ct);
                     var status = Required(await panel.ReadPlanAsync(body.BenchId, ct));
@@ -258,7 +259,7 @@ public static partial class NativeBenchHost
                 var anchor = Context(session);
                 var epoch = session.Plan.Epoch;
                 session.Plan.ApplyAllowed = false;
-                Start(session, body.DeliveryOnly ? "Delivering" : "Applying", async ct =>
+                Start(session, body.BenchId, body.DeliveryOnly ? "Delivering" : "Applying", async ct =>
                 {
                     await Current(session, body.BenchId, ct);
                     if (session.Plan.Epoch != epoch || !ReferenceEquals(session.NativeContext, anchor) || session.Revoked)
@@ -283,7 +284,7 @@ public static partial class NativeBenchHost
                     session.Plan.Review is { } review ? PlanOutcome(Required(await review.ObserveAsync(http.RequestAborted))) : null, null));
         });
 
-        void Start(ViewSession session, string status, Func<CancellationToken, Task<PlanOperationDto>> work)
+        void Start(ViewSession session, Guid benchId, string status, Func<CancellationToken, Task<PlanOperationDto>> work)
         {
             if (session.Plan.Operation?.Work is { IsCompleted: false })
                 throw new HttpFailure(409, "PlanBusy", "Observe the original Plan operation; it will not be invoked twice.");
@@ -291,7 +292,8 @@ public static partial class NativeBenchHost
             lock (session.Plan)
             {
                 session.Plan.Operation?.Lifetime.Dispose();
-                operation = new(Guid.NewGuid(), status, CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping));
+                operation = new(Guid.NewGuid(), status, CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping))
+                    { BenchId = benchId };
                 session.Plan.Operation = operation;
             }
             operation.Work = Run();

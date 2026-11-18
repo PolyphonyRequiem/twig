@@ -1,4 +1,4 @@
-# Windows daemon
+# Twig daemon
 
 **Twig owns the daemon.** Its source, build, installation tooling, protocol, and
 independently versioned releases live in this repository. The optional
@@ -6,8 +6,10 @@ independently versioned releases live in this repository. The optional
 owns presentation assets and licenses, not the daemon or its durable authority.
 
 The daemon serves same-machine Benches, native item reads, local draft/Plan
-workflows, and human-only Save/Apply. It is an optional **Windows x64**
-application, separate from the Windows/Linux CLI installer.
+workflows, and human-only Canvas Save/Apply. The CLI requires a selected
+daemon for data commands; its offline help does not require one. Windows x64
+supports both CLI and Canvas clients. The HTTPS certificate and Windows
+sign-in requirements below apply to the Windows host.
 
 ## Components and ownership
 

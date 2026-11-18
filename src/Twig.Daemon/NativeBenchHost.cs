@@ -212,10 +212,12 @@ public static partial class NativeBenchHost
             var shared = Require(await panel.ListAsync(context.RequestAborted));
             if (body.BenchId is { } selected && !shared.Benches.Any(value => value.Id == selected))
                 throw new HttpFailure(404, "NotFound", "The selected Bench was deleted.");
+            string? repositoryId;
             lock (session)
             {
                 if (session.CurrentBenchId != body.ExpectedBenchId)
                     throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
+                repositoryId = session.RepositoryBindings?.RepositoryId;
                 session.CurrentBenchId = body.BenchId;
                 session.PopulationContext = null;
                 if (body.BenchId is null)
@@ -225,6 +227,7 @@ public static partial class NativeBenchHost
                 }
             }
             await ResolveBenchConnections(panel, session, context.RequestAborted);
+            sessions.RememberRepositoryBench(session, body.BenchId, repositoryId);
             updates.Publish(0);
             await Write(context, new Ack());
         });

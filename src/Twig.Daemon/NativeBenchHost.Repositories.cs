@@ -28,14 +28,23 @@ public static partial class NativeBenchHost
         var nextRoot = bindings is null ? null : Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         if (!ViewSession.PathComparer.Equals(before.Choices.RepositoryRoot, nextRoot) || before.Revision == 0)
         {
+            var bench = bindings is null ? null : await RepositoryBench(panel, sessions, session, bindings, ct);
             _ = sessions.SaveState(session, new(before.Revision, before.Choices with
             {
-                RepositoryRoot = nextRoot, BenchId = bindings?.DefaultBench,
+                RepositoryRoot = nextRoot, BenchId = bench,
                 ViewingRoot = null, AddRoot = null, DisplayRoots = [], GroupSource = null, GroupField = null,
             }));
-            session.CurrentBenchId = bindings?.DefaultBench;
+            session.CurrentBenchId = bench;
         }
         session.RuntimeRepositoryApplied = true;
+    }
+
+    private static async Task<Guid?> RepositoryBench(NativePanel panel, ViewSessions sessions, ViewSession session,
+        UserRepositoryBindings bindings, CancellationToken ct)
+    {
+        var remembered = sessions.ReadRepositoryBench(session, bindings.RepositoryId);
+        return remembered is { } selected && Require(await panel.ListAsync(ct)).Benches.Any(bench => bench.Id == selected)
+            ? selected : bindings.DefaultBench;
     }
 
     private static HashSet<Connection>? AvailableConnections(ViewSession session)
@@ -110,7 +119,8 @@ public static partial class NativeBenchHost
             var body = await Body<RepositoryContextBody>(http);
             var bindings = body.Root is null ? null : Require(await panel.ReadRepositoryAsync(body.Root, http.RequestAborted));
             var before = sessions.ReadState(session);
-            var selected = body.Root is null ? session.CurrentBenchId : bindings!.DefaultBench;
+            var selected = body.Root is null ? session.CurrentBenchId
+                : await RepositoryBench(panel, sessions, session, bindings!, http.RequestAborted);
             _ = sessions.SaveState(session, new(before.Revision, before.Choices with
             {
                 RepositoryRoot = body.Root is null ? null : Path.TrimEndingDirectorySeparator(Path.GetFullPath(body.Root)),

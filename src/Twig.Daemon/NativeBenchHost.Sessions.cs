@@ -178,7 +178,9 @@ public static partial class NativeBenchHost
                 }
             }
             var shared = Require(await panel.ListAsync(ct));
-            var currentBench = before.Choices.BenchId ?? session.RepositoryBindings?.DefaultBench
+            var currentBench = before.Choices.BenchId
+                ?? (session.RepositoryBindings is { } bindings
+                    ? await RepositoryBench(panel, sessions, session, bindings, ct) : null)
                 ?? (session.RuntimeContext is null && session.RepositoryBindings is null && shared.Benches.Length == 1
                     ? shared.Benches[0].Id : (Guid?)null);
             var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)

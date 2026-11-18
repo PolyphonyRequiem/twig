@@ -7,13 +7,14 @@ Leaf help also embeds the behavior/effect sections from these pages.
 
 Data operations require an initialized pinned Core workspace; there is no
 legacy cache fallback. The [getting-started guide](../getting-started.md) covers
-provider setup. The [daemon](../daemon.md) is a separate application and protocol,
-not a mode of this CLI.
+provider setup. Data commands run through the selected [daemon](../daemon.md).
+The CLI never retries an uncertain operation against a local writer.
 
 ## Find a task
 
 | Task | Commands and effects |
 | --- | --- |
+| [Control the daemon](../daemon.md) | `daemon start` starts or reuses the selected instance; `daemon status` observes without starting; `daemon stop` explicitly shuts it down |
 | [Initialize](getting-started/README.md) | `init` creates fresh local state; `sync` can save drafts before pulling; `refresh` / `sync --pull-only` only pull |
 | [Read and find](context/README.md) | `show`, `show-batch` are cached by default; `show --refresh` and `query` can perform provider reads; `set` changes human active context |
 | [View a hierarchy](views/README.md) | Targeted `tree` / `show --tree`; not GitHub-qualified |

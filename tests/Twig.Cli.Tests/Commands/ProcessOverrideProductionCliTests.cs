@@ -288,6 +288,7 @@ public sealed class ProcessOverrideProductionCliTests : IDisposable
         startInfo.Environment.Remove("all_proxy");
         startInfo.Environment.Remove("TWIG_TELEMETRY_ENDPOINT");
 
+        await using var daemon = await ProductionDaemon.StartAsync(startInfo);
         using var process = System.Diagnostics.Process.Start(startInfo);
         process.ShouldNotBeNull();
         var stdoutTask = process.StandardOutput.ReadToEndAsync();

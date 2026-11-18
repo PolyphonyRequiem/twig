@@ -712,6 +712,30 @@
     "path": "system/auth-status.md"
   },
   {
+    "command": "server start",
+    "group": "system",
+    "summary": "Start or reuse the selected verified local server.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/server.md"
+  },
+  {
+    "command": "server status",
+    "group": "system",
+    "summary": "Inspect the selected local server without starting it.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "system/server.md"
+  },
+  {
+    "command": "server stop",
+    "group": "system",
+    "summary": "Request graceful shutdown of the selected local server.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/server.md"
+  },
+  {
     "command": "version",
     "group": "system",
     "summary": "Print the installed CLI version offline.",

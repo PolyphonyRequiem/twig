@@ -1,4 +1,10 @@
-# Twig daemon
+# Twig server
+
+Use [`twig server start`, `twig server status`, and `twig server stop`](commands/system/server.md)
+to control the local server. The former `twig daemon` command family is not an
+alias. The background runtime is still packaged as the Twig daemon: package
+names, release tags, scripts, installation paths, and
+`TWIG_DAEMON_INSTALL_ROOT` are unchanged.
 
 **Twig owns the daemon.** Its source, build, installation tooling, protocol, and
 independently versioned releases live in this repository. The optional
@@ -25,9 +31,9 @@ mkdir daemon-package &&
 tar -xzf twig-daemon-linux-x64.tar.gz -C daemon-package &&
 cd daemon-package &&
 python3 -I daemon-linux.py install daemon-linux-x64 "$HOME/.local/share/Twig/DaemonData"
-twig daemon start -o json
-twig daemon status -o json
-twig daemon stop -o json
+twig server start -o json
+twig server status -o json
+twig server stop -o json
 ```
 
 The installer selects a hash-verified immutable runtime under
@@ -48,7 +54,7 @@ cd .\daemon-package
 .\daemon-install.ps1 -PackageDirectory (Resolve-Path .\daemon-win-x64).Path `
     -PrivateDataDir 'C:\Users\me\AppData\Local\Twig\DaemonData' `
     -Port 7341 -HttpsCertificateThumbprint '<existing-40-hex-thumbprint>' -PythonExecutable python
-twig daemon start -o json
+twig server start -o json
 ```
 
 Replace the example data directory, port and certificate selection with your
@@ -120,9 +126,9 @@ Foreign installation entries or Startup shortcuts are refused rather than replac
 After installation, run from any directory:
 
 ```powershell
-twig daemon start -o json
-twig daemon status -o json
-twig daemon stop -o json
+twig server start -o json
+twig server status -o json
+twig server stop -o json
 ```
 
 Start returns `{"running":true}` only after the selected daemon passes its

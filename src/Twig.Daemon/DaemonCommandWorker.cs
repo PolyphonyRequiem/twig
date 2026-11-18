@@ -17,7 +17,7 @@ internal static class DaemonCommandWorker
     {
         // Never allow CAF discovery, host utilities or its retired declarations to be called via IPC.
         if (args.Length is 0 or > 1024 || args.Any(a => a == null || a.Contains('\0'))
-            || args[0] is "skills" or "version" or "help" or "daemon" || args.Contains("--help") || args.Contains("-h")
+            || args[0] is "skills" or "version" or "help" or "server" || args.Contains("--help") || args.Contains("-h")
             || !GroupedHelp.IsKnownCommand(args))
             return "Not an admitted daemon command.";
         return CoreMutationAdmissionGuard.ValidateCatalog(args) ?? ShowBatchExportArguments.Validate(args)

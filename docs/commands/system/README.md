@@ -1,7 +1,8 @@
-# Identity, connection evidence, and version
+# Server, identity, connection evidence, and version
 
 | Route | Purpose |
 | --- | --- |
+| [`server start`, `server status`, `server stop`](server.md) | Control the selected local server independently of a workspace |
 | [`auth login`, `auth pat`](auth-login.md) | Explicit named enrollment/renewal |
 | [`auth identities`](auth-status.md) | Recorded registered identity metadata |
 | [`connection bind`](auth-login.md) | Explicit ADO endpoint-to-identity binding |

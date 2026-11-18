@@ -84,7 +84,7 @@ if (args.Length == 0)
     }
 }
 
-if (args is ["daemon", ..])
+if (args is ["server", ..])
 {
     Environment.ExitCode = await DaemonLifecycle.RunAsync(args);
     return;

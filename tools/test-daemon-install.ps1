@@ -14,6 +14,9 @@ $functions = @($ast.FindAll({
 if ($functions.Count -ne 1) { throw 'Expected one owned external-command boundary.' }
 $stub = @'
 function Invoke-BenchCommand([string] $File, [string[]] $Arguments, [int] $Seconds) {
+    if ($global:DaemonFixture.Mode -ceq 'package-only' -and [IO.Path]::GetFileName($File) -cne 'Bench.Server.exe') {
+        throw 'Package installation unexpectedly required source or build tools.'
+    }
     if ($File -ceq 'git') {
         if ($Arguments -contains 'rev-parse') { return $global:DaemonFixture.Version }
         if ($Arguments -contains 'status') { return '' }
@@ -77,6 +80,12 @@ try {
     . (Join-Path $tools 'daemon-launch.ps1')
     $record = Get-Content -LiteralPath (Join-Path $root 'current.json') -Raw | ConvertFrom-Json
     $null = Get-BenchInstallation $root $record
+    $packageArguments = $arguments.Clone()
+    $packageArguments.InstallRoot = Join-Path $fixture 'packaged-install'
+    $packageArguments.PackageDirectory = Join-Path $root ('versions\' + $record.version)
+    $global:DaemonFixture.Mode = 'package-only'
+    & (Join-Path $tools 'daemon-install.ps1') @packageArguments | Out-Null
+    $null = Get-BenchInstallation $packageArguments.InstallRoot
     foreach ($field in @('authority', 'port', 'privateDataDir', 'canvasInstallRoot')) {
         $changed = $record | ConvertTo-Json | ConvertFrom-Json
         $changed.$field = switch ($field) { 'port' { 443 }; 'privateDataDir' { $root }; 'canvasInstallRoot' { $root }; default { 'foreign' } }

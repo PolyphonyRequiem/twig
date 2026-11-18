@@ -16,6 +16,8 @@ internal static class CommandQualificationHost
         {
             using var term = OperatingSystem.IsWindows() ? null : PosixSignalRegistration.Create(
                 PosixSignal.SIGTERM, ctx => { ctx.Cancel = true; stop.TrySetResult(); });
+            await using var control = OperatingSystem.IsLinux()
+                ? LinuxDaemonControl.Start(data, instance.Id, () => stop.TrySetResult()) : null;
             Console.WriteLine("COMMANDS_READY");
             Console.Out.Flush();
             _ = Task.Run(() =>

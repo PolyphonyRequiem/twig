@@ -55,6 +55,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: ./tools/test-daemon-install.ps1
+      - name: Install Linux daemon archive and exercise real headless lifecycle
+        if: runner.os == 'Linux'
+        run: |
+          bash tools/daemon-package-linux.sh
+          python3 tools/run-bounded.py --timeout 60 -- bash tools/test-daemon-linux.sh
 
       - name: Explicit native setup and creation-bound readback
         id: native_setup

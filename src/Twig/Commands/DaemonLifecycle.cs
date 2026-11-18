@@ -59,6 +59,7 @@ internal static class DaemonLifecycle
 
     internal static async Task<bool> RunInstalledAsync(string action)
     {
+        if (OperatingSystem.IsLinux()) return await LinuxDaemonLifecycle.RunInstalledAsync(action);
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("The installed Twig daemon requires Windows same-owner authentication.");
         var root = InstallRoot();

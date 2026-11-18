@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string] $PrivateDataDir,
+    [string] $PackageDirectory,
     [int] $Port = 0,
     [string] $HttpsCertificateThumbprint,
     [string] $InstallRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Twig\Daemon'),
@@ -27,7 +28,7 @@ function Invoke-BenchCommand([string] $File, [string[]] $Arguments, [int] $Secon
     $info = New-Object Diagnostics.ProcessStartInfo
     $python = Get-Command $PythonExecutable -CommandType Application -ErrorAction Stop | Select-Object -First 1
     $info.FileName = $python.Source
-    $info.WorkingDirectory = Split-Path $PSScriptRoot -Parent
+    $info.WorkingDirectory = if ($PackageDirectory) { $PSScriptRoot } else { Split-Path $PSScriptRoot -Parent }
     $info.Arguments = $quoted -join ' '
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
@@ -119,9 +120,19 @@ if (Test-Path -LiteralPath $InstallRoot) {
     }
 }
 $source = Split-Path $PSScriptRoot -Parent
-$version = Invoke-BenchCommand 'git' @('-C', $source, 'rev-parse', 'HEAD') 10
+if ($PackageDirectory) {
+    # The operator verifies the release archive before extraction. Validate its
+    # manifest and closed inventory here and again after copying into staging.
+    $PackageDirectory = Get-BenchLocalPath $PackageDirectory
+    $packageManifest = Get-BenchLocalPath (Join-Path $PackageDirectory 'runtime.json')
+    $packageHash = Get-BenchHash $packageManifest
+    $version = (Get-Content -LiteralPath $packageManifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    $null = Get-BenchRuntime $PackageDirectory $version $packageHash
+} else {
+    $version = Invoke-BenchCommand 'git' @('-C', $source, 'rev-parse', 'HEAD') 10
+}
 if ($version -cnotmatch '^[a-f0-9]{40}$') { throw 'Expected an exact Git source commit.' }
-if (Invoke-BenchCommand 'git' @('-C', $source, 'status', '--porcelain', '--untracked-files=normal') 10) {
+if (-not $PackageDirectory -and (Invoke-BenchCommand 'git' @('-C', $source, 'status', '--porcelain', '--untracked-files=normal') 10)) {
     throw 'Publish requires a clean source checkout, including the pinned native submodule.'
 }
 $versions = Join-Path $InstallRoot 'versions'
@@ -131,6 +142,10 @@ $stagingRoot = (New-Item -ItemType Directory -Path (Join-Path $InstallRoot ('.st
 try {
 $stage = Join-Path $stagingRoot ('versions\' + $version)
 [void][IO.Directory]::CreateDirectory($stage)
+if ($PackageDirectory) {
+    Get-ChildItem -LiteralPath $PackageDirectory -Force | Copy-Item -Destination $stage -Recurse
+    $null = Get-BenchRuntime $stage $version $packageHash
+} else {
 $timer = [Diagnostics.Stopwatch]::StartNew()
 $publishOutput = Invoke-BenchCommand 'dotnet' @('publish', (Join-Path $source 'src\Twig.Daemon\Twig.Daemon.csproj'),
     '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=false',
@@ -143,6 +158,7 @@ $files = @(Get-ChildItem -LiteralPath $stage -File -Recurse -Force | Sort-Object
 $manifest = [ordered]@{ application = 'twig-daemon'; schema = 1; version = $version; rid = 'win-x64';
     protocol = 'twig-bench-service-v1'; files = $files }
 Write-BenchAtomic (Join-Path $stage 'runtime.json') ($manifest | ConvertTo-Json -Depth 5)
+}
 $record = [ordered]@{
     application = 'twig-daemon'; schema = 4; version = $version
     manifestHash = Get-BenchHash (Join-Path $stage 'runtime.json')

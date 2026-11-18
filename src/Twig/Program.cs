@@ -113,6 +113,12 @@ if (ProgressiveHelp.TryShow(args, runApp))
     return;
 
 // Target-only export rejects incompatible/unknown options before DI or repository reads.
+if (args is ["show-batch"])
+{
+    Console.Error.WriteLine("error: Usage: twig show-batch <ids>, or twig show-batch --batch <ids>");
+    Environment.ExitCode = 1;
+    return;
+}
 var showBatchExportError = ShowBatchExportArguments.Validate(args);
 if (showBatchExportError is not null)
 {

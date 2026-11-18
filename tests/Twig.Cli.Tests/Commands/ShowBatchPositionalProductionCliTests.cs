@@ -195,8 +195,8 @@ public sealed class ShowBatchPositionalProductionCliTests : IDisposable
         exitCode.ShouldBe(0);
         var help = stdout + stderr;
         help.ShouldContain("--include-fields");
-        help.ShouldContain("Target-only stored export");
-        help.ShouldContain("exportVersion");
+        help.ShouldContain("no field/section");
+        help.ShouldContain("does not restore the retired target-export envelope");
     }
 
     [Theory]

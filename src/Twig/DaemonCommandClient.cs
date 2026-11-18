@@ -38,7 +38,11 @@ internal static class DaemonCommandClient
                     case FrameKind.Stdout: Console.Out.Write(text); continue;
                     case FrameKind.Stderr: Console.Error.Write(text); continue;
                     case FrameKind.Exit when int.TryParse(text, out var exit): return exit;
-                    case FrameKind.ReadLine when text.Length == 0 && format == OutputFormats.Default:
+                    case FrameKind.ReadPat when !bodyRead && text.Length == 0 && args is ["auth", "pat", ..]:
+                        bodyRead = true;
+                        answer = AuthPatCommand.ReadPatSecret(args.Contains("--stdin"), Spectre.Console.AnsiConsole.Console);
+                        break;
+                    case FrameKind.ReadLine when text.Length == 0 && format == OutputFormats.Default && args[0] != "auth":
                         answer = Console.ReadLine();
                         break;
                     case FrameKind.ReadBody when !bodyRead && text.Length == 0 && args.Contains("--stdin"):
@@ -58,7 +62,7 @@ internal static class DaemonCommandClient
                 await CommandProtocol.WriteAsync(pipe, answer == null ? FrameKind.End : FrameKind.Text, answer ?? "");
             }
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException
+        catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException
             or TimeoutException or JsonException or KeyNotFoundException or ArgumentException or NotSupportedException)
         {
             var message = dispatched

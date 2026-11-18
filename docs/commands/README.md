@@ -5,14 +5,15 @@ Command existence does not imply provider parity. Use `twig --version`, then
 `twig <command> --help` for the installed binary's generated arguments/defaults.
 Leaf help also embeds the behavior/effect sections from these pages.
 
-Work-item and Bench commands require the selected [daemon](../daemon.md) to
+Setup, identity, connection, work-item and Bench commands require the selected [daemon](../daemon.md) to
 be running. The CLI sends one request over owner-only local IPC, not through the
 browser or MCP. The daemon uses the caller's workspace and the same native
 metadata home; provider, target, policy and journal checks remain authoritative.
 There is no in-process or legacy cache fallback. If the connection is lost
 after dispatch, inspect the original journal before attempting another change:
-the CLI does not replay the request. Help, skills, initialization and identity
-setup are local. The [getting-started guide](../getting-started.md) covers provider setup.
+the CLI does not replay the request. Help, version and skills remain offline.
+PAT enrollment reads the secret at the caller's terminal, not from argv.
+The [getting-started guide](../getting-started.md) covers provider setup.
 
 ## Find a task
 

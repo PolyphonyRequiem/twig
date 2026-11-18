@@ -10,7 +10,7 @@ internal sealed record CommandInvocation(int Version, string[] Arguments, string
 [JsonSerializable(typeof(CommandInvocation))]
 internal sealed partial class CommandWireJson : JsonSerializerContext;
 
-internal enum FrameKind : byte { Invocation, Stdout, Stderr, Exit, ReadLine, ReadBody, Edit, Text, End }
+internal enum FrameKind : byte { Invocation, Stdout, Stderr, Exit, ReadLine, ReadBody, Edit, Text, End, ReadPat }
 
 internal static class CommandProtocol
 {
@@ -34,7 +34,7 @@ internal static class CommandProtocol
         var header = new byte[5];
         await stream.ReadExactlyAsync(header, ct).ConfigureAwait(false);
         int length = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(1));
-        if (length is < 0 or > MaximumBytes || header[0] > (byte)FrameKind.End)
+        if (length is < 0 or > MaximumBytes || header[0] > (byte)FrameKind.ReadPat)
             throw new InvalidDataException("Invalid command frame.");
         var buffer = new byte[length];
         await stream.ReadExactlyAsync(buffer, ct).ConfigureAwait(false);

@@ -31,10 +31,20 @@ def verify(base):
     assert "No command was dispatched" in json.loads(
         cli("bench", "create", "unreachable", "-o", "json", expected=1))["error"]
     assert not home.exists(), "Missing daemon must not open the native store"
+    for args in (("init", "--provider", "twig", "--database", "qualification"), ("auth", "identities"),
+                 ("connection", "status")):
+        assert "No command was dispatched" in json.loads(cli(*args, "-o", "json", expected=1))["error"]
+    assert not home.exists() and not (work / ".twig").exists()
+    (install / "current.json").write_text('{"privateDataDir":"relative"}', encoding="utf-8")
+    assert "No command was dispatched" in json.loads(cli("bench", "list", "-o", "json", expected=1))["error"]
+    (install / "current.json").write_text(json.dumps({"privateDataDir": str(data)}), encoding="utf-8")
     with subprocess.Popen(["dotnet", str(DAEMON), "--commands-only", "--data-dir", str(data)],
                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env) as daemon:
         try:
             assert daemon.stdout.readline().strip() == "COMMANDS_READY"
+            cli("auth", "identities", "-o", "json")
+            assert "No PAT provided" in json.loads(cli("auth", "pat", "--identity", "test",
+                "--org", "qualification", "--stdin", "-o", "json", expected=1, body="\n"))["error"]
             created = json.loads(cli("bench", "create", "Boundary", "-o", "json"))
             assert created["id"] in cli("bench", "list", "-o", "ids")
             assert "metadata home" in json.loads(cli("bench", "list", "-o", "json",

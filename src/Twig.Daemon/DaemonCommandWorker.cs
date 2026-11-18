@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using ConsoleAppFramework;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.DependencyInjection;
@@ -12,18 +11,15 @@ using Twig.Rendering;
 namespace Twig;
 
 /// <summary>Single-invocation, process-isolated daemon adapter for the retained command handlers.</summary>
-public static class DaemonCommandWorker
+internal static class DaemonCommandWorker
 {
-    internal static bool IsHostUtility(string[] args) =>
-        args.Length != 0 && args[0] is "init" or "auth" or "connection" or "skills" or "version";
-
     internal static string? Check(string[] args)
     {
         // Never allow CAF discovery, host utilities or its retired declarations to be called via IPC.
         if (args.Length is 0 or > 1024 || args.Any(a => a == null || a.Contains('\0'))
-            || IsHostUtility(args) || args[0] is "help" || args.Contains("--help") || args.Contains("-h")
+            || args[0] is "skills" or "version" or "help" or "daemon" || args.Contains("--help") || args.Contains("-h")
             || !GroupedHelp.IsKnownCommand(args))
-            return "Not an admitted daemon work-item command.";
+            return "Not an admitted daemon command.";
         return CoreMutationAdmissionGuard.ValidateCatalog(args) ?? ShowBatchExportArguments.Validate(args)
             ?? SubcommandGuard.Validate(args) ?? StrayPositionalGuard.Validate(args)
             ?? OutputFormatArgumentValidator.Validate(args) ?? StructuredMutationArgumentValidator.Validate(args);
@@ -37,7 +33,7 @@ public static class DaemonCommandWorker
         if (request is not { Version: 1, Arguments: not null })
             throw new InvalidDataException("Incompatible command protocol.");
         var args = request.Arguments;
-        var channel = new WorkerChannel(input, output, request.OutputRedirected);
+        var channel = new WorkerChannel(input, output, request.OutputRedirected, args is ["auth", "pat", ..]);
         Console.SetOut(new FrameWriter(channel, FrameKind.Stdout));
         Console.SetError(new FrameWriter(channel, FrameKind.Stderr));
         Console.SetIn(channel);
@@ -69,7 +65,6 @@ public static class DaemonCommandWorker
             CommandError.Write(new RendererFactory(), Console.Error, format, error);
         else
         {
-            ConsoleApp.JsonSerializerOptions = new JsonSerializerOptions { TypeInfoResolver = ArgumentBinderJsonContext.Default };
             SQLitePCL.Batteries.Init();
             exit = TwigConsoleApp.Run(RepeatableOptionNormalizer.Normalize(args), services =>
             {
@@ -98,7 +93,7 @@ public static class DaemonCommandWorker
         public override void Write(char[] buffer, int index, int count) => Write(new string(buffer, index, count));
     }
 
-    private sealed class WorkerChannel(Stream input, Stream output, bool redirected) : TextReader, IConsoleInput, IEditorLauncher
+    private sealed class WorkerChannel(Stream input, Stream output, bool redirected, bool patEnrollment) : TextReader, IConsoleInput, IEditorLauncher
     {
         private readonly object gate = new();
         public bool IsOutputRedirected => redirected;
@@ -119,7 +114,7 @@ public static class DaemonCommandWorker
                 };
             }
         }
-        public override string? ReadLine() => Ask(FrameKind.ReadLine);
+        public override string? ReadLine() => Ask(patEnrollment ? FrameKind.ReadPat : FrameKind.ReadLine);
         public override string ReadToEnd() => Ask(FrameKind.ReadBody) ?? "";
         public override Task<string> ReadToEndAsync(CancellationToken ct) => Task.FromResult(ReadToEnd());
         public Task<string?> LaunchAsync(string initialContent, CancellationToken ct = default) =>

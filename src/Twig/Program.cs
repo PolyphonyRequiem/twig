@@ -1,7 +1,6 @@
 using ConsoleAppFramework;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
-using Twig.DependencyInjection;
 using Twig.Formatters;
 using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Ado;
@@ -16,15 +15,6 @@ if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
     Environment.ExitCode = 1;
     return;
 }
-
-// AB#350: the generated argument binder deserializes a JSON-array option value
-// through JsonSerializer. Twig sets JsonSerializerIsReflectionEnabledByDefault=false
-// for AOT, so it must be handed a source-generated resolver or every array-form
-// option fails to parse. RepeatableOptionNormalizer emits exactly that form.
-ConsoleApp.JsonSerializerOptions = new System.Text.Json.JsonSerializerOptions
-{
-    TypeInfoResolver = ArgumentBinderJsonContext.Default,
-};
 
 // Previously shipped UI aliases must refuse, never open an alternate application.
 var nativeTuiPlatform = OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
@@ -45,16 +35,8 @@ catch (Exception)
     // Restricted terminals still receive Unicode bytes.
 }
 
-var runApp = Twig.TwigConsoleApp.CreateRunner(services =>
-    {
-        // CAF resolves services for leaf help too; keep all offline routes independent
-        // of workspace configuration, even when the discovered workspace is invalid.
-        if (ProgressiveHelp.IsHelpRequest(args)
-            || (args.Length > 0 && args[0] is "skills" or "--help-all")) return;
-
-        if (Twig.DaemonCommandWorker.IsHostUtility(args))
-            services.AddTwigWorkspaceServices(Directory.GetCurrentDirectory(), args);
-    });
+// No workspace, registry, credential, provider or command execution services on the client.
+var runApp = Twig.TwigConsoleApp.CreateRunner(static _ => { });
 
 // Offline discovery and smart landing (no arguments).
 if (args.Length == 1 && args[0] == "--version")
@@ -200,10 +182,8 @@ if (structuredMutationError is not null)
     return;
 }
 
-// Only setup, identity and offline discovery execute in this process.
-if (Twig.DaemonCommandWorker.IsHostUtility(args))
+if (args[0] is "skills" or "version")
 {
-    if (args[0] is not ("version" or "skills")) SQLitePCL.Batteries.Init();
     runApp(args);
     return;
 }

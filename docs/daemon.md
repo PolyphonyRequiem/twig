@@ -72,11 +72,35 @@ Foreign installation entries or Startup shortcuts are refused rather than replac
 
 ## Start, reuse, and stop
 
-In PowerShell:
+After installation, run from any directory:
+
+```powershell
+twig daemon start -o json
+twig daemon status -o json
+twig daemon stop -o json
+```
+
+Start returns `{"running":true}` only after the selected daemon passes its
+authenticated readiness check. Status does not start anything; a stopped
+daemon returns `{"running":false}`. A missing installation, an unavailable
+locked instance, or a listener whose identity cannot be verified is an error,
+not a stopped result. Stop requests graceful shutdown through a per-process
+Windows event restricted to the current user, not a PID, HTTP route, or MCP
+tool. It confirms shutdown before returning `{"running":false}`. No command
+installs, upgrades, force-kills, or changes the sign-in startup selection.
+
+The CLI uses `%LOCALAPPDATA%\Twig\Daemon`. To select a custom installation,
+set `TWIG_DAEMON_INSTALL_ROOT` to the same absolute local path under
+LocalApplicationData used for `-InstallRoot`. The verified installation record
+selects the private data directory; it is not inferred from the current workspace.
+
+Equivalent direct invocation in PowerShell:
 
 ```powershell
 $launcher = Join-Path $env:LOCALAPPDATA 'Twig\Daemon\daemon-launch.ps1'
 & $launcher -EnsureRunning
+& $launcher -Status
+& $launcher -Stop
 ```
 
 `-EnsureRunning` verifies the selected runtime, exact Windows owner, trusted TLS,

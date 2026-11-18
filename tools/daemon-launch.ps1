@@ -1,5 +1,9 @@
-[CmdletBinding()]
-param([string] $InstallRoot, [switch] $EnsureRunning, [switch] $Mcp)
+[CmdletBinding(DefaultParameterSetName='Console')]
+param([string] $InstallRoot,
+    [Parameter(ParameterSetName='Start')][switch] $EnsureRunning,
+    [Parameter(ParameterSetName='Status')][switch] $Status,
+    [Parameter(ParameterSetName='Stop')][switch] $Stop,
+    [Parameter(ParameterSetName='Mcp')][switch] $Mcp)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -136,13 +140,15 @@ try {
     if ($null -ne $installation.Certificate) { $arguments += @('--https-certificate', $installation.Certificate) }
     $arguments += @('--canvas-root', $installation.Canvas)
     if ($EnsureRunning) { $arguments += '--ensure-running' }
+    if ($Status) { $arguments += '--status' }
+    if ($Stop) { $arguments += '--stop' }
     if ($Mcp) { $arguments += '--mcp' }
     # Keep the operator console available for explicit stop; native sign-in never uses pairing codes.
     & $installation.Executable @arguments
-    if ($LASTEXITCODE -ne 0) { throw "Twig Bench exited with code $LASTEXITCODE; no existing daemon was stopped." }
+    if ($LASTEXITCODE -ne 0) { throw "Twig daemon exited with code $LASTEXITCODE." }
 } catch {
-    [Console]::Error.WriteLine('Twig Bench could not start: ' + $_.Exception.Message)
-    if (-not $EnsureRunning -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+    [Console]::Error.WriteLine('Twig daemon: ' + $_.Exception.Message)
+    if ($PSCmdlet.ParameterSetName -eq 'Console' -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
         [void](Read-Host 'Press Enter to close this console')
     }
     exit 1

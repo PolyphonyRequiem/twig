@@ -39,6 +39,52 @@ public sealed class DaemonLauncherTests : IDisposable
     }
 
     [Fact]
+    public async Task Status_on_a_closed_port_does_not_create_any_daemon_state()
+    {
+        using var socket = new TcpListener(IPAddress.Loopback, 0);
+        socket.Start();
+        var port = ((IPEndPoint)socket.LocalEndpoint).Port;
+        socket.Stop();
+        using var key = RSA.Create(2048);
+        using var cert = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1).CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(1));
+        (await DaemonLauncher.IsRunningAsync(root, port, cert, default)).ShouldBeFalse();
+        Directory.GetFiles(root).ShouldBeEmpty();
+        using var held = new FileStream(Path.Combine(root, "daemon.lock"), FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+        await Should.ThrowAsync<InvalidOperationException>(() => DaemonLauncher.IsRunningAsync(root, port, cert, default));
+    }
+
+    [Fact]
+    public async Task Stop_signals_only_the_verified_run_and_waits_for_instance_release()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var selected = Guid.NewGuid();
+        using var expected = DaemonLauncher.CreateStopSignal(selected);
+        using var foreign = DaemonLauncher.CreateStopSignal(Guid.NewGuid());
+        using var held = new FileStream(Path.Combine(root, "daemon.lock"), FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var probes = 0;
+        var stop = DaemonLauncher.StopWithProbeAsync(root,
+            () => Task.FromResult<Guid?>(++probes == 1 ? selected : null), timeout.Token);
+        expected.WaitOne(TimeSpan.FromSeconds(1)).ShouldBeTrue();
+        foreign.WaitOne(0).ShouldBeFalse();
+        stop.IsCompleted.ShouldBeFalse();
+        held.Dispose();
+        await stop;
+        probes.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Stop_cannot_signal_any_run_after_failed_identity_verification()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var foreign = DaemonLauncher.CreateStopSignal(Guid.NewGuid());
+        var stop = DaemonLauncher.StopWithProbeAsync(root, () => throw new InvalidOperationException("Wrong listener"), default);
+        await Should.ThrowAsync<InvalidOperationException>(stop);
+        foreign.WaitOne(0).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Concurrent_clients_launch_only_once_and_recheck_after_the_lease()
     {
         var running = false;

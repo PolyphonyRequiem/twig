@@ -39,9 +39,10 @@ internal static class DaemonLifecycle
             return 1;
         }
 
-        private static void Error(string message, bool json) => Console.Error.WriteLine(json
-            ? $"{{\"error\":\"{JsonEncodedText.Encode(message)}\"}}" : $"error: {message}");
     }
+
+    private static void Error(string message, bool json) => Console.Error.WriteLine(json
+        ? $"{{\"error\":\"{JsonEncodedText.Encode(message)}\"}}" : $"error: {message}");
 
     internal static string InstallRoot()
     {

@@ -1,7 +1,8 @@
 # Twig server
 
 Use [`twig server start`, `twig server status`, and `twig server stop`](commands/system/server.md)
-to control the local server. The former `twig daemon` command family is not an
+to control the local server, and `twig server endpoint -o json` for read-only
+Windows HTTPS endpoint discovery, including before startup. The former `twig daemon` command family is not an
 alias. The background runtime is still packaged as the Twig daemon: package
 names, release tags, scripts, installation paths, and
 `TWIG_DAEMON_INSTALL_ROOT` are unchanged.
@@ -115,6 +116,11 @@ The installer publishes only the daemon, untrimmed and self-contained, under
 `current.json` selects that runtime together with private-data, port, certificate
 and canvas-root settings; a replaced selection is retained in `previous.json`.
 Do not hand-edit these records to bypass verification.
+These records are private implementation details, not a consumer discovery API.
+Independent consumers use [`twig server endpoint -o json`](commands/system/server.md#endpoint-discovery)
+for the verified origin, certificate pin, opaque selection change token and
+nullable prestart durable identity. Revalidate after startup and retain the HTTP
+same-owner, TLS, durable identity and protocol checks; discovery alone is not readiness.
 
 Installation starts/stops **no process** and installs no canvas package.
 `-RegisterStartup` is explicit opt-in and creates the user's `Twig Daemon.lnk`

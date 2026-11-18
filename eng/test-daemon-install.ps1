@@ -86,6 +86,67 @@ try {
     $global:DaemonFixture.Mode = 'package-only'
     & (Join-Path $tools 'daemon-install.ps1') @packageArguments | Out-Null
     $null = Get-BenchInstallation $packageArguments.InstallRoot
+    # Only the certificate-store boundary is synthetic; selection/runtime validation remains real.
+    $global:DaemonFixture.CertificateChecks = 0
+    function Assert-BenchEndpointCertificate($Installation) {
+        $global:DaemonFixture.CertificateChecks++
+        if ($Installation.Certificate -cne ('A' * 40) -or
+            [IO.Path]::GetFileName($Installation.Executable) -cne 'Bench.Server.exe') {
+            throw 'Unexpected endpoint certificate selection.'
+        }
+        if ($global:DaemonFixture.Mode -ceq 'certificate-refusal') { throw 'Synthetic certificate refusal.' }
+        if ($global:DaemonFixture.Mode -ceq 'selection-race') {
+            [IO.File]::AppendAllText((Join-Path $root 'current.json'), ' ')
+        }
+    }
+    $selectedEndpoint = Get-BenchEndpoint $root
+    if ($selectedEndpoint.origin -cne 'https://localhost:53219' -or
+        $selectedEndpoint.certificateThumbprint -cne ('A' * 40) -or $null -ne $selectedEndpoint.daemonId -or
+        $selectedEndpoint.selectionId -cnotmatch '^[A-F0-9]{64}$' -or
+        (Get-BenchEndpoint $root).selectionId -cne $selectedEndpoint.selectionId -or
+        (Test-Path -LiteralPath (Join-Path $data 'daemon.id')) -or
+        (Test-Path -LiteralPath (Join-Path $data 'daemon.lock'))) {
+        throw 'Prestart endpoint discovery changed data or returned an unstable binding.'
+    }
+    $identity = [Guid]::NewGuid().ToString('D')
+    [IO.File]::WriteAllText((Join-Path $data 'daemon.id'), $identity)
+    $started = Get-BenchEndpoint $root
+    if ($started.daemonId -cne $identity -or $started.selectionId -cne $selectedEndpoint.selectionId -or
+        [Text.Encoding]::UTF8.GetByteCount(($started | ConvertTo-Json -Compress)) -gt 4096) {
+        throw 'Durable identity was not projected independently of selected installation.'
+    }
+    foreach ($invalid in @('', 'invalid', [Guid]::Empty.ToString('D'), ('a' * 65))) {
+        [IO.File]::WriteAllText((Join-Path $data 'daemon.id'), $invalid)
+        $refused = $false
+        try { Get-BenchEndpoint $root | Out-Null } catch { $refused = $true }
+        if (-not $refused) { throw 'Invalid durable identity was treated as absent.' }
+    }
+    [IO.File]::WriteAllText((Join-Path $data 'daemon.id'), $identity)
+    $selectedText = [IO.File]::ReadAllText((Join-Path $root 'current.json'))
+    foreach ($field in @('port', 'canvasInstallRoot', 'version')) {
+        $changed = $record | ConvertTo-Json | ConvertFrom-Json
+        switch ($field) {
+            'port' { $changed.port = 53220 }
+            'canvasInstallRoot' { $changed.canvasInstallRoot = Join-Path $fixture 'other-canvas' }
+            'version' {
+                $changed.version = '1' * 40
+                $changed.manifestHash = Get-BenchHash (Join-Path $root ('versions\' + $changed.version + '\runtime.json'))
+            }
+        }
+        [IO.File]::WriteAllText((Join-Path $root 'current.json'), ($changed | ConvertTo-Json))
+        if ((Get-BenchEndpoint $root).selectionId -ceq $selectedEndpoint.selectionId) {
+            throw "Selection identity did not change with $field."
+        }
+    }
+    [IO.File]::WriteAllText((Join-Path $root 'current.json'), $selectedText)
+    foreach ($mode in @('certificate-refusal', 'selection-race')) {
+        $global:DaemonFixture.Mode = $mode
+        $refused = $false
+        try { Get-BenchEndpoint $root | Out-Null } catch { $refused = $true }
+        if (-not $refused) { throw "Unverified endpoint was exposed: $mode" }
+        [IO.File]::WriteAllText((Join-Path $root 'current.json'), $selectedText)
+    }
+    $global:DaemonFixture.Mode = 'complete'
     foreach ($field in @('authority', 'port', 'privateDataDir', 'canvasInstallRoot')) {
         $changed = $record | ConvertTo-Json | ConvertFrom-Json
         $changed.$field = switch ($field) { 'port' { 443 }; 'privateDataDir' { $root }; 'canvasInstallRoot' { $root }; default { 'foreign' } }
@@ -98,7 +159,13 @@ try {
     $refused = $false
     try { Get-BenchInstallation $root $record | Out-Null } catch { $refused = $true }
     if (-not $refused) { throw 'Tampered daemon binary was accepted.' }
-    Write-Output 'PASS standalone daemon install: failed-stage retry, missing provider, forbidden UI, certificate refusal, exact previous selection, binding and integrity guards; no real runtime/certificate/Startup operation'
+    $checks = $global:DaemonFixture.CertificateChecks
+    $refused = $false
+    try { Get-BenchEndpoint $root | Out-Null } catch { $refused = $true }
+    if (-not $refused -or $global:DaemonFixture.CertificateChecks -ne $checks) {
+        throw 'Endpoint discovery reached a tampered executable.'
+    }
+    Write-Output 'PASS standalone daemon install and endpoint: prestart/durable identity, stable/changed selection, certificate refusal, selection race, binding and integrity guards; no real runtime/certificate/Startup operation'
 } finally {
     Remove-Variable DaemonFixture -Scope Global
     [IO.Directory]::Delete($fixture, $true)

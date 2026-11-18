@@ -10,6 +10,9 @@ Work-item commands require a separately [installed and selected daemon](daemon.m
 Install the Windows x64 package for Canvas or CLI use; Linux x64 supports
 headless CLI commands only. Neither package needs a developer checkout. The
 CLI installer does not start a daemon, change certificate trust or install Canvas.
+After selecting an installation, use [`twig server start`](commands/system/server.md)
+to start or reuse it. `twig server status -o json` inspects readiness without
+starting anything; `twig server stop` explicitly shuts it down.
 
 ## Install or update the CLI
 

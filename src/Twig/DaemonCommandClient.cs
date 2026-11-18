@@ -67,7 +67,7 @@ internal static class DaemonCommandClient
         {
             var message = dispatched
                 ? "Daemon command interrupted; the outcome may be unknown. Inspect native status or the proposal journal before another change. No request was replayed."
-                : "The selected Twig daemon is unavailable or invalid. Run 'twig daemon status' and 'twig daemon start'. No command was dispatched.";
+                : "The selected Twig daemon is unavailable or invalid. Run 'twig server status' and 'twig server start'. No command was dispatched.";
             CommandError.Write(new RendererFactory(), Console.Error, format, $"{message} {ex.Message}");
             return 1;
         }

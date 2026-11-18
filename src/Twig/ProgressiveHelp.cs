@@ -14,7 +14,7 @@ internal static class ProgressiveHelp
 
 Usage: twig <command> [options]
 
-  Start here:  daemon start, init
+  Start here:  server start, init
   Find work:   show, query, bench
   Draft work:  seed, proposal
 

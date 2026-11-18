@@ -17,7 +17,7 @@ differ; use its `twig --version` and targeted `--help` to identify its contract.
 | [Change proposals](features/proposals.md) | Validate, preview, confirm, apply, and inspect |
 | [Process description](features/process-description.md) | Discovered schema, requirements, and known gaps |
 | [Installed help and skills](features/skills.md) | Offline guidance and explicit agent-skill installation |
-| [Windows daemon](daemon.md) | Twig ownership, installation, lifecycle, canvas boundary, read-only MCP |
+| [Local server](daemon.md) | Windows/Linux installation, `twig server` lifecycle commands, canvas boundary, read-only MCP |
 
 ## Contributors
 

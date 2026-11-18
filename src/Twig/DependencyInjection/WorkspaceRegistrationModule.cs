@@ -33,6 +33,16 @@ internal static class WorkspaceRegistrationModule
                 sp.GetService<Twig.Infrastructure.GitHub.IBoundedProcessRunner>()));
             return services;
         }
+        if (args.Count > 1 && args[0] == "connection" && args[1] is "add" or "bind" or "list")
+        {
+            var directory = Path.Combine(startDir, ".twig");
+            services.AddCoreBootstrapServices(new TwigConfiguration(),
+                new TwigPaths(directory, Path.Combine(directory, "config"), Path.Combine(directory, "core.db"),
+                    startDir, globalDisplayPath));
+            services.AddTwigRenderingServices();
+            services.AddTwigCommands();
+            return services;
+        }
         var workspaceRoot = WorkspaceDiscovery.FindWorkspaceRoot(startDir);
         var twigDir = workspaceRoot is not null
             ? Path.Combine(workspaceRoot, ".twig")

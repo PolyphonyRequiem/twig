@@ -11,7 +11,8 @@ mutates: local
 ```sh
 twig auth login --identity work
 twig auth pat --identity work-pat --org contoso
-twig connection bind --org contoso --project MyProject --identity work --default
+twig connection add --provider ado --org contoso --project MyProject
+twig connection bind --provider ado --org contoso --project MyProject --identity work
 ```
 
 ## Behavior
@@ -25,9 +26,21 @@ attached identity; no Azure CLI, machine-cache, or last-login fallback exists.
 requires explicit identity/organization. There is no secret argument.
 Native principal attestation, not the alias/display name, establishes identity.
 
-`connection bind` joins an already enrolled identity to explicit ADO coordinates.
-Without `--default` it does not select a default. A different existing default
-refuses; fresh `init --binding <id>` can name an existing matching binding.
+`connection add` registers provider dimensions through the local daemon without
+selecting credentials. `connection bind` associates your credential with an
+already registered connection. Both require explicit provider dimensions and work
+outside a repository; neither reads or modifies `twig.json`. A different existing
+credential binding refuses rather than switching an initialized workspace.
+
+For GitHub, use `connection add --provider github --host github.com --repository owner/repo`,
+then the same dimensions with `connection bind --account <gh-user>`. A GitHub App
+binding instead uses `--identity <oauth-alias> --client-id <public-client-id>`.
+Native connections use `connection add --provider twig --database <name>` and need
+no credential binding. `--default` is no longer a connection-bind option.
+
+After cloning a repository with `twig.json`, register its required dimensions and
+bind **your own** credential on this device, then run `twig init` unchanged. The
+manifest contains no credential selectors or local registration IDs.
 
 `auth login --provider github --identity <alias> --client-id <app-client-id>`
 is separate GitHub App device enrollment, not `gh` login or the normal fresh

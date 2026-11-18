@@ -10,6 +10,31 @@ public sealed class ConnectionStatusProductionCliTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"twig-connection-layout-{Guid.NewGuid():N}");
 
+    [Fact]
+    public async Task PortableConnectionInventoryPersistsAcrossDaemonWorkersWithoutWorkspace()
+    {
+        Directory.CreateDirectory(_root);
+        const string manifest = "{broken manifest";
+        await File.WriteAllTextAsync(Path.Combine(_root, "twig.json"), manifest);
+        var home = Path.Combine(_root, "home");
+        var added = await StructuredReadProductionCliTests.RunInWorkspaceAsync(_root, home,
+            "connection", "add", "--provider", "ado", "--org", "fixture", "--project", "Project", "-o", "json");
+        added.Exit.ShouldBe(0, added.Error);
+        var otherDirectory = Path.Combine(_root, "outside-workspace");
+        Directory.CreateDirectory(otherDirectory);
+        var listed = await StructuredReadProductionCliTests.RunInWorkspaceAsync(otherDirectory, home,
+            "connection", "list", "-o", "json");
+        listed.Exit.ShouldBe(0, listed.Error);
+        using var json = JsonDocument.Parse(listed.Out);
+        var connection = json.RootElement.EnumerateArray().ShouldHaveSingleItem();
+        connection.GetProperty("provider").GetString().ShouldBe("ado");
+        connection.GetProperty("scope").GetString().ShouldBe("https://dev.azure.com/fixture");
+        connection.GetProperty("target").GetString().ShouldBe("project");
+        connection.GetProperty("ready").GetBoolean().ShouldBeFalse();
+        Directory.Exists(Path.Combine(_root, ".twig")).ShouldBeFalse();
+        (await File.ReadAllTextAsync(Path.Combine(_root, "twig.json"))).ShouldBe(manifest);
+    }
+
     [Theory]
     [InlineData("json", "missing-marker")]
     [InlineData("human", "missing-marker")]

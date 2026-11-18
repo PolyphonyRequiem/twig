@@ -194,7 +194,7 @@ def install(root, package, data):
         pending.write_text(json.dumps(record), encoding="utf-8")
         staged.rename(dest)
         os.replace(pending, root / "current.json")
-    print(f"Selected daemon {revision}. Run: twig daemon start")
+    print(f"Selected daemon {revision}. Run: twig server start")
 
 
 def main(args):

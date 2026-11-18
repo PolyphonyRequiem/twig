@@ -19,7 +19,7 @@ The [getting-started guide](../getting-started.md) covers provider setup.
 
 | Task | Commands and effects |
 | --- | --- |
-| [Control the daemon](../daemon.md) | `daemon start` starts or reuses the selected instance; `daemon status` observes without starting; `daemon stop` explicitly shuts it down |
+| [Control the server](system/server.md) | `server start` starts or reuses the selected instance; `server status` observes without starting; `server stop` explicitly shuts it down |
 | [Initialize](getting-started/README.md) | `init` creates fresh local state; `sync` can save drafts before pulling; `refresh` / `sync --pull-only` only pull |
 | [Read and find](context/README.md) | `show`, `show-batch` are cached by default; `show --refresh` and `query` can perform provider reads; `set` changes human active context |
 | [View a hierarchy](views/README.md) | Targeted `tree` / `show --tree`; not GitHub-qualified |
@@ -57,6 +57,7 @@ These are not experimental alternatives or compatibility routes:
 
 | Retired | Current direction |
 | --- | --- |
+| `daemon start/status/stop` | Use [`server start/status/stop`](system/server.md); the old command family is not an alias |
 | Quick `new`, bare `seed` | `seed new`, then explicit validation/publication |
 | `delete` | No qualified CLI deletion route |
 | `history`, `tree-set`, `tree --all`, `sprint`, live/full-backlog views | Cached `show`, explicit refresh, bounded queries, static workspace or targeted tree; no equivalent whole-history export |

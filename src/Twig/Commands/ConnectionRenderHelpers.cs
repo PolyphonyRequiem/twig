@@ -1,4 +1,5 @@
 using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Services;
 using Twig.RenderTree;
 
 namespace Twig.Commands;
@@ -26,6 +27,27 @@ namespace Twig.Commands;
 /// </summary>
 internal static class ConnectionRenderHelpers
 {
+    internal static IReadOnlyList<RenderColumn> ConnectionColumns { get; } =
+    [
+        new("provider", "provider"),
+        new("scope", "scope"),
+        new("target", "target"),
+        new("credentialKind", "credential kind"),
+        new("credential", "user credential"),
+        new("ready", "bound"),
+    ];
+
+    internal static Dictionary<string, RenderCell> ConnectionFields(RegisteredProviderConnection connection)
+        => new(StringComparer.Ordinal)
+        {
+            ["provider"] = RenderCell.String(connection.Requirement.Provider),
+            ["scope"] = RenderCell.String(connection.Requirement.Scope),
+            ["target"] = RenderCell.String(connection.Requirement.Target),
+            ["credentialKind"] = RenderCell.String(connection.Credential?.Kind ?? ""),
+            ["credential"] = RenderCell.String(connection.Credential?.Selector ?? ""),
+            ["ready"] = RenderCell.Boolean(connection.Requirement.Provider == "twig" || connection.Credential is not null),
+        };
+
     internal static RenderNode IdentityRecord(string kind, AuthenticationIdentity identity, string? message = null)
     {
         var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)

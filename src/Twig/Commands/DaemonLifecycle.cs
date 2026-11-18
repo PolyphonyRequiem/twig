@@ -6,11 +6,11 @@ namespace Twig.Commands;
 
 internal static class DaemonLifecycle
 {
-    private const string Usage = "Usage: twig daemon <start|status|stop> [-o human|json|minimal]";
+    private const string Usage = "Usage: twig server <start|status|stop> [-o human|json|minimal]";
 
     internal static async Task<int> RunAsync(string[] args)
     {
-        if (args is ["daemon", "-h" or "--help"] or ["daemon", "start" or "stop" or "status", "-h" or "--help"])
+        if (args is ["server", "-h" or "--help"] or ["server", "start" or "stop" or "status", "-h" or "--help"])
         {
             Console.WriteLine(Usage);
             return 0;
@@ -29,7 +29,7 @@ internal static class DaemonLifecycle
             Console.WriteLine(json
                 ? (running ? "{\"running\":true}" : "{\"running\":false}")
                 : format == "minimal" ? (running ? "running" : "stopped")
-                : (running ? "Twig daemon is running." : "Twig daemon is stopped."));
+                : (running ? "Twig server is running." : "Twig server is stopped."));
             return 0;
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or UnauthorizedAccessException

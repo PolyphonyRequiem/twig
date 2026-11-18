@@ -456,9 +456,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="provider">Explicit work-item provider: ado (default), github or twig. Never inferred from git remotes.</param>
     /// <param name="host">Explicit lowercase GitHub host, used with --provider github.</param>
     /// <param name="repository">Explicit GitHub owner/name, used with --provider github. Initialization always observes and binds native identity.</param>
-    /// <param name="binding">Registered ADO binding ID to pin locally in a fresh checkout (default: endpoint default). Cannot combine with --force/--reinitialize or replace existing local state.</param>
+    /// <param name="binding">Explicit local ADO binding override for fresh setup. Normally omitted: resolve the user-bound connection matching twig.json. Never replaces existing state.</param>
     /// <param name="coreStore">Optional new absolute database file override, with existing parent directory. Default: .twig/core.db. Existing data is never adopted or reset.</param>
-    /// <param name="account">Explicit gh account for fresh GitHub Core initialization; never inferred from the active gh account.</param>
+    /// <param name="account">Explicit gh account override for fresh setup. Normally omitted: use the user credential bound to the required connection, never gh's active account.</param>
     /// <param name="database">Named Twig-native database to create or open, used with --provider twig. Required unless declared in twig.json; 1-64 lowercase letters, digits or internal hyphens. Separate from --core-store.</param>
     public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null, string? account = null, string? database = null)
     {
@@ -1871,35 +1871,68 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<AuthPatCommand>().ExecuteAsync(identity, org, stdin, output, ct);
 
-    /// <summary>Bind an endpoint (org/project) to a registered identity. Use --default to request this as the initial default; the service refuses to switch an existing different default.</summary>
-    /// <param name="org">Azure DevOps organization. Falls back to the workspace's checked-in Organization when omitted together with --project.</param>
-    /// <param name="project">Azure DevOps project. Falls back to the workspace's checked-in Project when omitted together with --org.</param>
-    /// <param name="identity">Alias of a registered identity (see 'twig auth identities'). Required.</param>
-    /// <param name="default">Request this binding as the initial default for the endpoint. Refused when a different default is already set.</param>
+    /// <summary>Register a device-local provider connection through the daemon. Does not select credentials or change twig.json.</summary>
+    /// <param name="provider">Required provider: ado, github or twig.</param>
+    /// <param name="org">ADO organization name or secure URL.</param>
+    /// <param name="project">ADO project.</param>
+    /// <param name="host">GitHub host.</param>
+    /// <param name="repository">GitHub owner/repository.</param>
+    /// <param name="database">Twig-native database name.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection add")]
+    public async Task<int> ConnectionAdd(string? provider = null, string? org = null, string? project = null,
+        string? host = null, string? repository = null, string? database = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionAddCommand>().ExecuteAsync(provider, org, project,
+            host, repository, database, output, ct);
+
+    /// <summary>Bind your credential to an explicitly registered provider connection. Never changes repository configuration or another binding.</summary>
+    /// <param name="provider">Required provider: ado or github.</param>
+    /// <param name="org">ADO organization name or secure URL.</param>
+    /// <param name="project">ADO project.</param>
+    /// <param name="host">GitHub host.</param>
+    /// <param name="repository">GitHub owner/repository.</param>
+    /// <param name="identity">Registered ADO identity alias, or GitHub App OAuth identity with --client-id.</param>
+    /// <param name="account">Named gh account; never inferred from gh's active account.</param>
+    /// <param name="clientId">GitHub App public client ID; requires --identity instead of --account.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection bind")]
     public async Task<int> ConnectionBind(
         string? identity = null,
+        string? provider = null,
         string? org = null,
         string? project = null,
-        bool @default = false,
+        string? host = null,
+        string? repository = null,
+        string? account = null,
+        string? clientId = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionBindCommand>().ExecuteAsync(org, project, identity, @default, output, ct);
+        => await services.GetRequiredService<ConnectionBindCommand>().ExecuteAsync(provider, org, project,
+            host, repository, null, identity, account, clientId, output, ct);
 
-    /// <summary>List bindings for an endpoint (org/project). Falls back to the workspace's checked-in coordinates when both --org and --project are omitted.</summary>
-    /// <param name="org">Azure DevOps organization. Falls back to the workspace's checked-in Organization when omitted together with --project.</param>
-    /// <param name="project">Azure DevOps project. Falls back to the workspace's checked-in Project when omitted together with --org.</param>
+    /// <summary>List all device-local provider connections and user credential bindings through the daemon. No implicit workspace filter.</summary>
+    /// <param name="provider">Optional provider filter; dimension filters must be complete.</param>
+    /// <param name="org">Explicit ADO organization filter; requires --provider ado and --project.</param>
+    /// <param name="project">Explicit ADO project filter.</param>
+    /// <param name="host">Explicit GitHub host filter.</param>
+    /// <param name="repository">Explicit GitHub repository filter.</param>
+    /// <param name="database">Explicit native database filter.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection list")]
     public async Task<int> ConnectionList(
+        string? provider = null,
         string? org = null,
         string? project = null,
+        string? host = null,
+        string? repository = null,
+        string? database = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<ConnectionListCommand>().ExecuteAsync(org, project, output, ct);
+        => await services.GetRequiredService<ConnectionListCommand>().ExecuteAsync(provider, org, project,
+            host, repository, database, output, ct);
 
-    /// <summary>Show the identity + binding the current attached worktree resolves to. Fails with setup guidance when there is no attachment or the binding is ambiguous; no fallback.</summary>
+    /// <summary>Show the workspace's required connection and recorded credential selection. Before init, report registration readiness; never claim fresh authenticated access.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection status")]
     public async Task<int> ConnectionStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -2338,6 +2371,7 @@ internal static class GroupedHelp
         "auth identities",
         "auth pat",
         "connection",
+        "connection add",
         "connection bind",
         "connection list",
         "connection status",

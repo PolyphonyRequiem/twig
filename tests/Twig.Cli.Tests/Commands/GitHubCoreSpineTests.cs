@@ -372,18 +372,19 @@ public sealed partial class GitHubCoreSpineTests
         internal int CredentialCalls;
         internal ITelemetryClient? Telemetry;
         internal string Database => _document?.DatabasePath ?? Path.Combine(Root, "core.db");
-        internal Fixture(string? userHome = null)
+        internal Fixture(string? userHome = null, string account = "fixture", string actor = "U_actor")
         {
             InitCommandTestFixture.InitTempWorktree(Root).ShouldBeTrue();
             Directory.Exists(Path.Combine(Root, ".twig")).ShouldBeFalse();
             _bindings = new(userHome ?? Path.Combine(Root, "home"));
             _registry = new(_bindings.RegistryPath, TimeProvider.System);
+            Http.Actor = actor;
             _processes.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(),
                 Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<IReadOnlyList<string>?>()).Returns(call =>
             {
                 CredentialCalls++;
                 call.ArgAt<string>(0).ShouldBe("gh");
-                call.ArgAt<IReadOnlyList<string>>(1).ShouldBe(["auth", "token", "--hostname", "github.com", "--user", "fixture"]);
+                call.ArgAt<IReadOnlyList<string>>(1).ShouldBe(["auth", "token", "--hostname", "github.com", "--user", account]);
                 call.ArgAt<IReadOnlyList<string>>(5).ShouldContain("GH_TOKEN");
                 return Task.FromResult(new BoundedProcessResult(BoundedProcessOutcome.Exited, 0, "synthetic-secret\n"));
             });
@@ -513,6 +514,7 @@ public sealed partial class GitHubCoreSpineTests
 
     internal sealed class NativeHttp : HttpMessageHandler
     {
+        internal string Actor = "U_actor";
         internal int Requests, WorkRequests, Writes, Creates, SchemaRequests, OnlineAccessRequests, HandleCreations;
         internal bool LoseAcknowledgement, MoreCandidates;
         internal HttpStatusCode? RejectNextMutation;
@@ -598,7 +600,7 @@ public sealed partial class GitHubCoreSpineTests
                 var repo = Repository(); repo["nameWithOwner"] = "original/repo"; data = new JsonObject { ["repository"] = repo };
             }
             else if (query.Contains("viewer", StringComparison.Ordinal))
-                data = new JsonObject { ["viewer"] = new JsonObject { ["id"] = Defect == "actor" ? "U_other" : "U_actor", ["login"] = "fixture" },
+                data = new JsonObject { ["viewer"] = new JsonObject { ["id"] = Defect == "actor" ? "U_other" : Actor, ["login"] = "fixture" },
                     ["node"] = Repository() };
             else if (query.Contains("owner { id } url", StringComparison.Ordinal))
             {

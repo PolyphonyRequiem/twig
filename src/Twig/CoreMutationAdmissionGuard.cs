@@ -48,7 +48,7 @@ internal static class CoreMutationAdmissionGuard
     {
         "init" or "skills" or "help" or "version" => true,
         "auth" => args.Count > 1 && args[1] is "login" or "pat" or "identities" or "status",
-        "connection" => args.Count > 1 && args[1] is "bind" or "list" or "status" or "writes",
+        "connection" => args.Count > 1 && args[1] is "add" or "bind" or "list" or "status" or "writes",
         "bench" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "list" or "create" or "rename" or "delete" or "rules"
             || args.Count > 2 && args[1] == "rule" && args[2] == "remove",
         _ => false,

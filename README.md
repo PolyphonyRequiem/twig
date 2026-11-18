@@ -39,11 +39,12 @@ directory. Choose one provider; a Git remote does not select your tracker.
 
 ### Azure DevOps
 
-Enroll a named identity, bind it to your project, then initialize:
+Register the provider connection, enroll your own identity, bind it, then initialize:
 
 ```sh
+twig connection add --provider ado --org contoso --project MyProject
 twig auth login --identity work
-twig connection bind --org contoso --project MyProject --identity work --default
+twig connection bind --provider ado --org contoso --project MyProject --identity work
 twig init contoso MyProject
 twig show 12345 --refresh
 ```
@@ -54,16 +55,24 @@ interactive sign-in. Azure CLI is not required.
 
 ### GitHub
 
-Sign in using `gh` first, then name the exact account:
+Sign in using `gh` first, then bind the exact account to your connection:
 
 ```sh
-twig init --provider github --host github.com --repository owner/repo --account my-account
+twig connection add --provider github --host github.com --repository owner/repo
+twig connection bind --provider github --host github.com --repository owner/repo --account my-account
+twig init --provider github --host github.com --repository owner/repo
 twig show 42 --refresh
 ```
 
 GitHub support is deliberately narrower than ADO: queries are bounded, writes
 are observed-non-atomic, and external workflow rules are not discovered.
 See [provider differences](docs/getting-started.md#provider-differences).
+
+For a repository that already has `twig.json`, run just `twig init` after registering
+and binding the matching connection on your device. Keep the manifest unchanged:
+it declares provider dimensions, not a contributor's credential or a device-local ID.
+`twig connection list` lists all registrations through the daemon, regardless of
+the current directory. Credentials and bindings remain private to the local user.
 
 ### Twig-native
 

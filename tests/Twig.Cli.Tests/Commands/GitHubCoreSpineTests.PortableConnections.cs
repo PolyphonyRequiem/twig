@@ -75,6 +75,10 @@ public sealed partial class GitHubCoreSpineTests
         using var fixture = new Fixture();
         const string manifest = """{"provider":"twig","nativeDatabase":"personal"}""";
         await File.WriteAllTextAsync(Path.Combine(fixture.Root, "twig.json"), manifest);
+        fixture.Run("init", "-o", "json").ShouldNotBe(0);
+        fixture.Error.ShouldContain("not registered");
+        Directory.Exists(Path.Combine(fixture.Root, ".twig")).ShouldBeFalse();
+        (await File.ReadAllTextAsync(Path.Combine(fixture.Root, "twig.json"))).ShouldBe(manifest);
         fixture.Run("connection", "add", "--provider", "twig", "--database", "personal", "-o", "json").ShouldBe(0, fixture.Error);
         fixture.Run("connection", "status", "-o", "json").ShouldBe(0, fixture.Error);
         fixture.Run("init", "-o", "json").ShouldBe(0, fixture.Error);

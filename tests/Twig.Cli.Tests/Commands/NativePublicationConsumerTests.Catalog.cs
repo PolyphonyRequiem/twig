@@ -206,8 +206,6 @@ public sealed partial class NativePublicationConsumerTests
             (await root.New(output: "json")).ShouldBe(1);
             (await root.TreeSet(output: "json")).ShouldBe(1);
             (await root.History(42, output: "json")).ShouldBe(1);
-            (await root.BenchBrowser(output: "json")).ShouldBe(1);
-            (await root.Tui(output: "json")).ShouldBe(1);
             (await root.Mcp()).ShouldBe(1);
             (await root.PlanLatest(output: "json")).ShouldBe(1);
             (await root.ConnectionReconcileWrite(output: "json")).ShouldBe(1);

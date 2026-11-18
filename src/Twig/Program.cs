@@ -1615,25 +1615,6 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string output = OutputFormatterFactory.DefaultFormat, string? recover = null, CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
-    /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
-    /// <param name="view">Initial tree or table view (default tree).</param>
-    /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
-    /// <param name="herdr">Use source-scoped native Herdr action routing instead of a standalone terminal.</param>
-    /// <param name="hostEntry">Manifest-owned native pane entry; requires herdr and admits its source from the private launch ticket, not override arguments.</param>
-    /// <param name="intent">Herdr control: open, status, view, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
-    /// <param name="sourceWorkspace">Captured native Herdr source workspace, validated against the actual socket topology.</param>
-    /// <param name="sourceTab">Captured native Herdr source tab, validated against the actual socket topology.</param>
-    /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
-    /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
-    /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
-    [Command("bench browser")]
-    internal async Task<int> BenchBrowser(string? cwd = null, string view = "tree", string? file = null,
-        bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
-        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
-        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
-
     /// <summary>Read the current Bench configuration and raw settings digest.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
@@ -2083,26 +2064,6 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     internal async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Open the in-process native TUI on Windows/Linux; macOS support is suspended.</summary>
-    /// <param name="cwd">Native source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
-    /// <param name="view">Native initial tree or table view (default tree).</param>
-    /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
-    /// <param name="herdr">Use source-scoped native Herdr action routing instead of a standalone terminal.</param>
-    /// <param name="hostEntry">Manifest-owned native pane entry; requires herdr and admits its source from the private launch ticket, not override arguments.</param>
-    /// <param name="intent">Herdr control: open, status, view, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
-    /// <param name="sourceWorkspace">Captured native Herdr source workspace, validated against the actual socket topology.</param>
-    /// <param name="sourceTab">Captured native Herdr source tab, validated against the actual socket topology.</param>
-    /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
-    /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
-    /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
-    internal Task<int> Tui(string? cwd = null, string view = "tree", string? file = null,
-        bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
-        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
-        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-    {
-        return Task.FromResult(Unsupported(output));
-    }
-
     /// <summary>Launch the MCP server (requires twig-mcp binary).</summary>
     /// <param name="toolProfile">Advertised tool profile: compact (default) or full.</param>
     internal Task<int> Mcp(string? toolProfile = null)
@@ -2335,7 +2296,6 @@ internal static class GroupedHelp
         "draft save",
         "draft review",
         "draft capture",
-        "bench browser",
         "bench configuration",
         "bench configuration area candidates",
         "bench configuration area add",
@@ -2513,102 +2473,4 @@ internal static class GroupedHelp
     public static bool IsKnownCommand(string[] args)
         => args.Length > 0 && KnownCommands.Contains(args[0]);
 
-}
-
-/// <summary>
-/// Locates and launches a companion binary (e.g. <c>twig-tui</c>, <c>twig-mcp</c>).
-/// Searches the directory containing the running <c>twig</c> binary first, then falls back to PATH.
-/// Stdin/stdout are inherited for MCP stdio transport.
-/// </summary>
-internal static class BinaryLauncher
-{
-    internal static int Launch(
-        string binaryName,
-        string projectName,
-        TextWriter? stderr = null,
-        IReadOnlyList<string>? arguments = null)
-    {
-        stderr ??= Console.Error;
-        var exeName = OperatingSystem.IsWindows() ? $"{binaryName}.exe" : binaryName;
-
-        var binaryPath = FindAdjacentBinary(exeName) ?? FindInPath(exeName);
-
-        if (binaryPath is null)
-        {
-            stderr.WriteLine($"error: '{binaryName}' not found. Ensure the {projectName} project is built and on PATH or in the same directory as 'twig'.");
-            return 1;
-        }
-
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = binaryPath,
-                UseShellExecute = false,
-            };
-
-            if (arguments is not null)
-            {
-                foreach (var argument in arguments)
-                    psi.ArgumentList.Add(argument);
-            }
-
-            using var process = System.Diagnostics.Process.Start(psi);
-            if (process is null)
-            {
-                stderr.WriteLine($"error: Failed to start '{binaryName}'.");
-                return 1;
-            }
-
-            process.WaitForExit();
-            Environment.Exit(process.ExitCode);
-            return process.ExitCode; // unreachable, but satisfies compiler
-        }
-        catch (Exception ex)
-        {
-            stderr.WriteLine($"error: Failed to launch '{binaryName}': {ex.Message}");
-            return 1;
-        }
-    }
-
-    private static string? FindAdjacentBinary(string exeName)
-    {
-        var baseDir = AppContext.BaseDirectory;
-        if (!string.IsNullOrEmpty(baseDir))
-        {
-            var candidate = Path.Combine(baseDir, exeName);
-            if (File.Exists(candidate))
-                return candidate;
-        }
-
-        var processPath = Environment.ProcessPath;
-        if (processPath is not null)
-        {
-            var dir = Path.GetDirectoryName(processPath);
-            if (dir is not null)
-            {
-                var candidate = Path.Combine(dir, exeName);
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-        }
-
-        return null;
-    }
-
-    private static string? FindInPath(string exeName)
-    {
-        var pathVar = Environment.GetEnvironmentVariable("PATH");
-        if (pathVar is null) return null;
-
-        var separator = OperatingSystem.IsWindows() ? ';' : ':';
-        foreach (var dir in pathVar.Split(separator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var candidate = Path.Combine(dir.Trim(), exeName);
-            if (File.Exists(candidate))
-                return candidate;
-        }
-
-        return null;
-    }
 }

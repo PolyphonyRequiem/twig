@@ -7,6 +7,28 @@ using Bench.Infrastructure;
 using Bench.Server;
 using Twig.Infrastructure.Services;
 
+if (args is [CommandWorkerSupervisor.WorkerMode])
+{
+    try
+    {
+        // Unix ConsolePal tracks the cursor under lock(Console.Out). A worker rendering through
+        // Console.Out already holds that lock when it writes a frame on another thread.
+        // Write the binary protocol directly to the inherited stdout pipe, not to the terminal.
+        using Stream wire = OperatingSystem.IsLinux()
+            ? new FileStream(new Microsoft.Win32.SafeHandles.SafeFileHandle((IntPtr)1, ownsHandle: false),
+                FileAccess.Write, bufferSize: 1)
+            : Console.OpenStandardOutput();
+        await Twig.DaemonCommandWorker.RunAsync(Console.OpenStandardInput(), wire);
+    }
+    catch (Exception) { Environment.ExitCode = 1; } // Never log a request or replay a failed worker.
+    return;
+}
+if (args is ["--commands-only", "--data-dir", var privateData])
+{
+    await CommandQualificationHost.RunAsync(privateData);
+    return;
+}
+
 if (args is ["--check-certificate", var selectedCertificate])
 {
     try
@@ -24,7 +46,7 @@ if (args is ["--check-certificate", var selectedCertificate])
 
 var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "DaemonData");
 var port = 0;
-var ensureRunning = false;
+string? lifecycle = null;
 var mcp = false;
 string? certificateThumbprint = null;
 var canvasRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "Canvas");
@@ -36,7 +58,7 @@ for (var index = 0; index < args.Length; index++)
         case "--port" when ++index < args.Length && int.TryParse(args[index], out var value) && value is >= 0 and <= 65535: port = value; break;
         case "--https-certificate" when ++index < args.Length: certificateThumbprint = args[index]; break;
         case "--canvas-root" when ++index < args.Length: canvasRoot = args[index]; break;
-        case "--ensure-running": ensureRunning = true; break;
+        case "--ensure-running" or "--status" or "--stop" when lifecycle is null: lifecycle = args[index]; break;
         case "--mcp": mcp = true; break;
         default: throw new ArgumentException("Options: --data-dir <private absolute directory> --port <stable localhost port> --https-certificate <existing trusted localhost certificate thumbprint> [--canvas-root <verified canvas installation root>] [--mcp]. --mcp is a read-only stdio bridge to the already-running selected daemon. Benches use the native per-user store.");
     }
@@ -61,11 +83,11 @@ catch (Exception error) when (error is ArgumentException or InvalidOperationExce
 using var certificateLease = certificate;
 if (mcp)
 {
-    if (ensureRunning) throw new ArgumentException("Run --ensure-running separately from the stdio MCP transport.");
+    if (lifecycle != null) throw new ArgumentException("Run daemon lifecycle operations separately from the stdio MCP transport.");
     try
     {
-        await DaemonLauncher.EnsureRunningAsync(data, port, certificate,
-            () => throw new InvalidOperationException("Start the selected daemon with its supported launcher before connecting MCP."), default);
+        if (!await DaemonLauncher.IsRunningAsync(data, port, certificate, default))
+            throw new InvalidOperationException("Start the selected daemon with its supported launcher before connecting MCP.");
         HttpClient Client(bool credentials) => new(new HttpClientHandler
         {
             UseDefaultCredentials = credentials, UseCookies = false, UseProxy = false, AllowAutoRedirect = false,
@@ -85,19 +107,32 @@ if (mcp)
     }
     return;
 }
-if (ensureRunning)
+if (lifecycle != null)
 {
     try
     {
-        await DaemonLauncher.EnsureRunningAsync(data, port, certificate, () =>
-            DaemonLauncher.StartInstalled(Environment.ProcessPath ?? throw new InvalidOperationException("Missing installed executable."),
-                args.Where(argument => argument != "--ensure-running")), default);
-        Console.WriteLine("{\"running\":true}");
+        bool running;
+        if (lifecycle == "--ensure-running")
+        {
+            await DaemonLauncher.EnsureRunningAsync(data, port, certificate, () =>
+                DaemonLauncher.StartInstalled(Environment.ProcessPath ?? throw new InvalidOperationException("Missing installed executable."),
+                    args.Where(argument => argument != "--ensure-running")), default);
+            running = true;
+        }
+        else if (lifecycle == "--status")
+            running = await DaemonLauncher.IsRunningAsync(data, port, certificate, default);
+        else
+        {
+            await DaemonLauncher.StopAsync(data, port, certificate, default);
+            running = false;
+        }
+        Console.WriteLine(running ? "{\"running\":true}" : "{\"running\":false}");
     }
     catch (Exception error) when (error is IOException or InvalidOperationException or HttpRequestException
-        or OperationCanceledException or JsonException or KeyNotFoundException)
+        or OperationCanceledException or JsonException or KeyNotFoundException or WaitHandleCannotBeOpenedException
+        or UnauthorizedAccessException or FormatException or System.Net.Sockets.SocketException or System.ComponentModel.Win32Exception)
     {
-        Console.Error.WriteLine("The selected daemon could not be verified or started. No install, upgrade or restart occurred. " + error.Message);
+        Console.Error.WriteLine("The requested daemon state could not be confirmed. " + error.Message);
         Environment.ExitCode = 1;
     }
     return;
@@ -111,28 +146,20 @@ catch (Exception error) when (error is ArgumentException or InvalidOperationExce
     return;
 }
 Directory.CreateDirectory(data);
-using var instance = new FileStream(Path.Combine(data, "daemon.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-var identityPath = Path.Combine(data, "daemon.id");
-Guid daemonId;
-if (File.Exists(identityPath))
-{
-    if (!Guid.TryParseExact(await File.ReadAllTextAsync(identityPath), "D", out daemonId) || daemonId == Guid.Empty)
-        throw new InvalidDataException("Invalid daemon identity; no replacement was generated.");
-}
-else
-{
-    daemonId = Guid.NewGuid();
-    await using var identity = new FileStream(identityPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-    await identity.WriteAsync(System.Text.Encoding.ASCII.GetBytes(daemonId.ToString("D")));
-    identity.Flush(true);
-}
+using var instance = DaemonInstance.Acquire(data);
+var daemonId = instance.Id;
 var definitions = UserBenchStore.ForCurrentUser();
 var changes = new CatalogChanges();
 var native = new NativeSourceAdapter(Path.Combine(data, "native-evidence"), new NativeSourceGateway(), changes);
 var panel = new NativePanel(definitions, new NativeSourceGateway(), native);
 var sessions = new ViewSessions(Path.Combine(data, "presentation"));
+var processInstance = Guid.NewGuid();
+using var stopSignal = DaemonLauncher.CreateStopSignal(processInstance);
 await using var app = NativeBenchHost.Build(new(port, data, Certificate: certificate, WindowsSignIn: true,
-    CanvasInstallRoot: canvasRoot, DaemonId: daemonId), panel, sessions, changes, setup);
+    CanvasInstallRoot: canvasRoot, DaemonId: daemonId, ProcessInstance: processInstance), panel, sessions, changes, setup);
+var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.Lifetime.StopApplication(),
+    null, Timeout.Infinite, executeOnlyOnce: true);
+await using var commands = new CommandListener(data, daemonId, app.Lifetime.ApplicationStopping);
 await app.StartAsync();
 var endpoint = $"https://localhost:{port}";
 await File.WriteAllTextAsync(Path.Combine(data, "endpoint.json"),
@@ -152,7 +179,11 @@ _ = Task.Run(() =>
         Console.WriteLine("Command: stop");
     }
 });
-await app.WaitForShutdownAsync();
+var shutdown = app.WaitForShutdownAsync();
+if (await Task.WhenAny(shutdown, commands.Completion) == commands.Completion)
+    app.Lifetime.StopApplication();
+await shutdown;
+stopWait.Unregister(null);
 
 static X509Certificate2 LocalCertificate(string thumbprint)
 {

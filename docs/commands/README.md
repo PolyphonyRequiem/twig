@@ -5,15 +5,21 @@ Command existence does not imply provider parity. Use `twig --version`, then
 `twig <command> --help` for the installed binary's generated arguments/defaults.
 Leaf help also embeds the behavior/effect sections from these pages.
 
-Data operations require an initialized pinned Core workspace; there is no
-legacy cache fallback. The [getting-started guide](../getting-started.md) covers
-provider setup. The [daemon](../daemon.md) is a separate application and protocol,
-not a mode of this CLI.
+Setup, identity, connection, work-item and Bench commands require the selected [daemon](../daemon.md) to
+be running. The CLI sends one request over owner-only local IPC, not through the
+browser or MCP. The daemon uses the caller's workspace and the same native
+metadata home; provider, target, policy and journal checks remain authoritative.
+There is no in-process or legacy cache fallback. If the connection is lost
+after dispatch, inspect the original journal before attempting another change:
+the CLI does not replay the request. Help, version and skills remain offline.
+PAT enrollment reads the secret at the caller's terminal, not from argv.
+The [getting-started guide](../getting-started.md) covers provider setup.
 
 ## Find a task
 
 | Task | Commands and effects |
 | --- | --- |
+| [Control the daemon](../daemon.md) | `daemon start` starts or reuses the selected instance; `daemon status` observes without starting; `daemon stop` explicitly shuts it down |
 | [Initialize](getting-started/README.md) | `init` creates fresh local state; `sync` can save drafts before pulling; `refresh` / `sync --pull-only` only pull |
 | [Read and find](context/README.md) | `show`, `show-batch` are cached by default; `show --refresh` and `query` can perform provider reads; `set` changes human active context |
 | [View a hierarchy](views/README.md) | Targeted `tree` / `show --tree`; not GitHub-qualified |

@@ -1,4 +1,4 @@
-# Windows daemon
+# Twig daemon
 
 **Twig owns the daemon.** Its source, build, installation tooling, protocol, and
 independently versioned releases live in this repository. The optional
@@ -6,8 +6,53 @@ independently versioned releases live in this repository. The optional
 owns presentation assets and licenses, not the daemon or its durable authority.
 
 The daemon serves same-machine Benches, native item reads, local draft/Plan
-workflows, and human-only Save/Apply. It is an optional **Windows x64**
-application, separate from the Windows/Linux CLI installer.
+workflows, and human-only Canvas Save/Apply on Windows x64. Linux x64 supports the
+headless command host only; there is no HTTP listener or Canvas fallback.
+Install the daemon separately from the CLI before running work-item commands.
+
+## Install the release package
+
+From [GitHub Releases](https://github.com/PolyphonyRequiem/twig/releases),
+choose a `daemon-v*` release supporting command IPC and download **both** your
+platform's archive and its `.sha256` from that release. A CLI `v*` archive
+does not contain a daemon. Use your normal user account, not sudo.
+
+**Linux x64** (glibc, `/usr/bin/python3` 3.9+, and a mounted `/proc`):
+
+```bash
+sha256sum -c twig-daemon-linux-x64.tar.gz.sha256 &&
+mkdir daemon-package &&
+tar -xzf twig-daemon-linux-x64.tar.gz -C daemon-package &&
+cd daemon-package &&
+python3 -I daemon-linux.py install daemon-linux-x64 "$HOME/.local/share/Twig/DaemonData"
+twig daemon start -o json
+twig daemon status -o json
+twig daemon stop -o json
+```
+
+The installer selects a hash-verified immutable runtime under
+`${XDG_DATA_HOME:-$HOME/.local/share}/Twig/Daemon`. The data and installation
+directories must be separate, owner-only (0700), and free of symlinks.
+`TWIG_DAEMON_INSTALL_ROOT` can select an alternative private root; use the same
+value for setup and CLI operations. Stop before updating. Start, status and
+stop serialize with installation and authenticate the selected executable,
+peer UID, control protocol and durable identity over a Linux Unix socket.
+No PID file, certificate, system service, or network listener is required.
+
+**Windows x64** (PowerShell, Python 3.12+ on PATH, and the Windows prerequisites below):
+
+```powershell
+if ((Get-FileHash .\twig-daemon-win-x64.zip).Hash -ine (Get-Content .\twig-daemon-win-x64.zip.sha256 -Raw).Trim()) { throw 'Checksum mismatch' }
+Expand-Archive .\twig-daemon-win-x64.zip .\daemon-package
+cd .\daemon-package
+.\daemon-install.ps1 -PackageDirectory (Resolve-Path .\daemon-win-x64).Path `
+    -PrivateDataDir 'C:\Users\me\AppData\Local\Twig\DaemonData' `
+    -Port 7341 -HttpsCertificateThumbprint '<existing-40-hex-thumbprint>' -PythonExecutable python
+twig daemon start -o json
+```
+
+Replace the example data directory, port and certificate selection with your
+own. Neither package installation nor the CLI creates or trusts certificates.
 
 ## Components and ownership
 
@@ -26,7 +71,7 @@ diagnostics and serve only verified packages. Normal canvas opens use the separa
 presentation host, which can render before daemon readiness and forwards bounded
 requests from one browser origin. Closing Canvas does not stop the shared daemon.
 
-## Prerequisites
+## Windows prerequisites
 
 - 64-bit Windows, running as the intended owner.
 - An existing dedicated **private data directory**, separate from the installation.
@@ -72,11 +117,35 @@ Foreign installation entries or Startup shortcuts are refused rather than replac
 
 ## Start, reuse, and stop
 
-In PowerShell:
+After installation, run from any directory:
+
+```powershell
+twig daemon start -o json
+twig daemon status -o json
+twig daemon stop -o json
+```
+
+Start returns `{"running":true}` only after the selected daemon passes its
+authenticated readiness check. Status does not start anything; a stopped
+daemon returns `{"running":false}`. A missing installation, an unavailable
+locked instance, or a listener whose identity cannot be verified is an error,
+not a stopped result. Stop requests graceful shutdown through a per-process
+Windows event restricted to the current user, not a PID, HTTP route, or MCP
+tool. It confirms shutdown before returning `{"running":false}`. No command
+installs, upgrades, force-kills, or changes the sign-in startup selection.
+
+The CLI uses `%LOCALAPPDATA%\Twig\Daemon`. To select a custom installation,
+set `TWIG_DAEMON_INSTALL_ROOT` to the same absolute local path under
+LocalApplicationData used for `-InstallRoot`. The verified installation record
+selects the private data directory; it is not inferred from the current workspace.
+
+Equivalent direct invocation in PowerShell:
 
 ```powershell
 $launcher = Join-Path $env:LOCALAPPDATA 'Twig\Daemon\daemon-launch.ps1'
 & $launcher -EnsureRunning
+& $launcher -Status
+& $launcher -Stop
 ```
 
 `-EnsureRunning` verifies the selected runtime, exact Windows owner, trusted TLS,
@@ -116,21 +185,13 @@ Packaging verifies the complete runtime inventory without certificate, Startup,
 installation, or process changes.
 
 The [Daemon package workflow](../.github/workflows/daemon-release.yml) packages
-Windows artifacts independently of the CLI. Pull requests do not start package
+Windows and Linux artifacts independently of the CLI. Pull requests do not start package
 builds; use a manual workflow run for an optional hosted package check (see
 [Actions budget](contributing.md#github-actions-budget)). `daemon-v*` tags publish
-`twig-daemon-win-x64.zip` and its SHA-256 file. This checksum file contains a bare
-hex digest, unlike the CLI's filename-bearing `.sha256` files.
-Verify the archive before extraction. It contains a runtime directory and the
-launcher; it does not invent an operator `current.json`, local data path, or
-certificate selection.
-
-For direct package operation, dot-source the included launcher and verify
-`runtime.json` and all files with `Get-BenchRuntime`, supplying the exact source
-version and the trusted manifest hash from the verified package. Run only the
-returned executable with explicit `--data-dir`, `--port`, `--https-certificate`
-and optional `--canvas-root`. The supported source installer creates the operator
-selection needed by the normal launcher; a downloaded archive alone does not.
+`twig-daemon-win-x64.zip` and `twig-daemon-linux-x64.tar.gz`, each with a
+SHA-256 file. The Windows checksum is a bare hex digest; the Linux checksum
+is `sha256sum -c` compatible. Both archives include operator installation
+tooling; see [Install the release package](#install-the-release-package).
 
 ## Security and data ownership
 

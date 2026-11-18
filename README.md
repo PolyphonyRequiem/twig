@@ -30,6 +30,10 @@ for manual downloads and checksum verification.
 
 ## Get started
 
+Select an installed [daemon](docs/daemon.md) and run `twig daemon start` before
+working with a provider. `twig daemon status -o json` checks readiness without
+starting anything. Help and version are available without a daemon.
+
 Run initialization at a **fresh Git worktree root**, without an existing `.twig`
 directory. Choose one provider; a Git remote does not select your tracker.
 
@@ -109,13 +113,15 @@ Unknown write outcomes must be inspected, never blindly retried.
 
 ## Daemon and integrations
 
-Twig owns the Windows daemon in [`src/Twig.Daemon`](src/Twig.Daemon).
-It shares native connections and user-wide Benches, serves scoped reads and
-local drafting, and keeps Save/Apply human-only. It has its own installer,
-launcher, and `daemon-v*` releases; installing the CLI does not install it.
+The [Twig daemon](src/Twig.Daemon) owns work-item operations for the CLI and
+Bench Canvas. It runs as the current user. Use `twig daemon start` to start or
+reuse it and `twig daemon stop` for an explicit shutdown. Clients do not switch
+to direct database or provider access if the daemon is unavailable.
 
 The separate [twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas)
-package owns presentation assets. The daemon can run without those assets and
+package owns presentation assets. Closing a Canvas view does not stop the daemon.
+Herdr panes and the interactive terminal browser have been removed; static CLI
+output is unchanged. The daemon can run without Canvas assets and
 provides a **read-only MCP bridge**. This is not the retired `twig mcp` server.
 See the [daemon guide](docs/daemon.md) for prerequisites, operation, and MCP setup.
 

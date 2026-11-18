@@ -10,6 +10,11 @@ internal static class TwigConsoleApp
 {
     internal static Action<string[]> CreateRunner(Action<IServiceCollection> configureServices)
     {
+        // CAF's generated argument binder needs this resolver for repeatable options under AOT.
+        ConsoleApp.JsonSerializerOptions = new System.Text.Json.JsonSerializerOptions
+        {
+            TypeInfoResolver = ArgumentBinderJsonContext.Default
+        };
         string? compositionError = null;
         var app = ConsoleApp.Create().ConfigureServices(services =>
         {

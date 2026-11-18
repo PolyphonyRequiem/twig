@@ -2,6 +2,7 @@
 """Validate an already-built CLI offline in at most 15 seconds; never build or run test hosts."""
 import argparse
 import base64
+import contextlib
 import importlib.util
 import json
 import os
@@ -19,7 +20,8 @@ class SmokeTrace:
     """Optional safe boundary records, written outside the captured worker pipes."""
     PHASES = {'supervisor', 'worker', 'version', 'help', 'auth-help', 'connection-help',
               'configure', 'fixture', 'identity', 'preview', 'wrong-account', 'journal',
-              'git-init', 'git-common', 'git-dir', 'git-root', 'fixture-identities'}
+              'git-init', 'git-common', 'git-dir', 'git-root', 'fixture-identities',
+              'daemon', 'disconnected'}
     EVENTS = {'start', 'end', 'error', 'timeout'}
 
     def __init__(self, path):
@@ -76,6 +78,14 @@ def worker(binary, directory, trace):
     for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
         env[key] = 'http://127.0.0.1:1'
     env['NO_PROXY'] = env['no_proxy'] = ''
+    root = directory / 'installation'
+    data = directory / 'private-data'
+    root.mkdir(mode=0o700)
+    env['TWIG_DAEMON_INSTALL_ROOT'] = str(root)
+    (root / 'current.json').write_text(json.dumps({'privateDataDir': str(data)}))
+    for key in ('LOCALAPPDATA', 'SystemRoot'):
+        if os.name == 'nt' and key in os.environ:
+            env[key] = os.environ[key]
     def run(label, *arguments, expected=0):
         trace.write(label, 'start')
         result = subprocess.run(command + list(arguments), cwd=workspace, env=env, capture_output=True, text=True)
@@ -87,6 +97,41 @@ def worker(binary, directory, trace):
     for label, arguments in (('help', ('--help',)), ('auth-help', ('auth', '--help')),
                              ('connection-help', ('connection', 'status', '--help'))):
         run(label, *arguments)
+    with headless_daemon(data, env, trace):
+        check_operations(command, workspace, home, env, trace, run)
+    refused = run('disconnected', 'proposal', 'preview', '--file', 'smoke.json', '-o', 'json', expected=1)
+    if 'daemon' not in json.loads(refused.stderr)['error'].lower():
+        raise RuntimeError('Disconnected CLI did not report daemon unavailability')
+    trace.write('worker', 'end', 0)
+    print('SMOKE PASSED: offline help; daemon-backed binding, proposal preview and wrong-account refusal; no direct fallback or apply')
+    return 0
+
+
+@contextlib.contextmanager
+def headless_daemon(data, env, trace):
+    executable = ROOT / 'src/Twig.Daemon/bin/Debug/net11.0/Bench.Server.dll'
+    trace.write('daemon', 'start')
+    with subprocess.Popen(['dotnet', str(executable), '--commands-only', '--data-dir', str(data)],
+                          cwd=data.parent, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                          text=True) as host:
+        try:
+            if host.stdout.readline().strip() != 'COMMANDS_READY':
+                raise RuntimeError('Fixture daemon exited before readiness')
+            yield
+        finally:
+            if host.poll() is None:
+                try:
+                    host.communicate('stop\n', timeout=2)
+                except subprocess.TimeoutExpired:
+                    host.kill()
+                    host.wait()
+                    raise RuntimeError('Fixture daemon did not stop gracefully')
+            trace.write('daemon', 'end', host.returncode)
+            if host.returncode:
+                raise RuntimeError(f'Fixture daemon exited with {host.returncode}')
+
+
+def check_operations(command, workspace, home, env, trace, run):
     spec = importlib.util.spec_from_file_location('presenter_fixture', ROOT / 'tools/verify-proposal-presenters.py')
     fixture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixture)
@@ -161,9 +206,6 @@ def worker(binary, directory, trace):
     trace.write('journal', 'end')
     if (workspace / '.twig/cache').exists():
         raise RuntimeError('Native host/Core smoke must not materialize a legacy cache')
-    trace.write('worker', 'end', 0)
-    print('SMOKE PASSED: retained startup/help, native binding, Core-only offline fail-closed proposal preview, wrong-account refusal; no legacy cache, work HTTP or apply')
-    return 0
 
 
 def main():
@@ -186,7 +228,8 @@ def main():
             trace.write('worker', 'error')
             raise
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix='twig-build-smoke-') as directory:
+    with tempfile.TemporaryDirectory(prefix='twig-build-smoke-',
+                                     dir=os.environ['LOCALAPPDATA'] if os.name == 'nt' else None) as directory:
         command = [sys.executable, str(Path(__file__).resolve()), '--binary', str(binary), '--worker', directory]
         if trace.path is not None:
             command.extend(['--trace', str(trace.path)])

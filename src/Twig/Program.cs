@@ -1,7 +1,6 @@
 using ConsoleAppFramework;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
-using Twig.DependencyInjection;
 using Twig.Formatters;
 using Twig.Infrastructure.Persistence.ProviderTargets;
 using Twig.Infrastructure.Ado;
@@ -16,15 +15,6 @@ if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
     Environment.ExitCode = 1;
     return;
 }
-
-// AB#350: the generated argument binder deserializes a JSON-array option value
-// through JsonSerializer. Twig sets JsonSerializerIsReflectionEnabledByDefault=false
-// for AOT, so it must be handed a source-generated resolver or every array-form
-// option fails to parse. RepeatableOptionNormalizer emits exactly that form.
-ConsoleApp.JsonSerializerOptions = new System.Text.Json.JsonSerializerOptions
-{
-    TypeInfoResolver = ArgumentBinderJsonContext.Default,
-};
 
 // Previously shipped UI aliases must refuse, never open an alternate application.
 var nativeTuiPlatform = OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
@@ -45,15 +35,8 @@ catch (Exception)
     // Restricted terminals still receive Unicode bytes.
 }
 
-var runApp = Twig.TwigConsoleApp.CreateRunner(services =>
-    {
-        // CAF resolves services for leaf help too; keep all offline routes independent
-        // of workspace configuration, even when the discovered workspace is invalid.
-        if (ProgressiveHelp.IsHelpRequest(args)
-            || (args.Length > 0 && args[0] is "skills" or "--help-all")) return;
-
-        services.AddTwigWorkspaceServices(Directory.GetCurrentDirectory(), args);
-    });
+// No workspace, registry, credential, provider or command execution services on the client.
+var runApp = Twig.TwigConsoleApp.CreateRunner(static _ => { });
 
 // Offline discovery and smart landing (no arguments).
 if (args.Length == 1 && args[0] == "--version")
@@ -101,6 +84,12 @@ if (args.Length == 0)
     }
 }
 
+if (args is ["daemon", ..])
+{
+    Environment.ExitCode = await DaemonLifecycle.RunAsync(args);
+    return;
+}
+
 // Retired surfaces fail before workspace discovery, provider composition or input reads.
 if (Twig.CoreMutationAdmissionGuard.ValidateCatalog(args) is { } retiredError)
 {
@@ -124,6 +113,12 @@ if (ProgressiveHelp.TryShow(args, runApp))
     return;
 
 // Target-only export rejects incompatible/unknown options before DI or repository reads.
+if (args is ["show-batch"])
+{
+    Console.Error.WriteLine("error: Usage: twig show-batch <ids>, or twig show-batch --batch <ids>");
+    Environment.ExitCode = 1;
+    return;
+}
 var showBatchExportError = ShowBatchExportArguments.Validate(args);
 if (showBatchExportError is not null)
 {
@@ -164,6 +159,7 @@ if (strayPositionalError is not null)
 // ASSIGNS rather than appends on each occurrence, so without this only the last
 // one survives and `twig new` exits 0 having written one field of N. Runs before
 // -o validation so the rewrite cannot perturb it (neither option is -o).
+var invocationArguments = args;
 args = RepeatableOptionNormalizer.Normalize(args);
 
 // -o is validated ONCE, here, against the single accept-list in
@@ -192,48 +188,13 @@ if (structuredMutationError is not null)
     return;
 }
 
-// Init owns fresh-state preflight and native bootstrap, including existing-marker refusals.
-// It must never enter update cleanup, companion installation or the runtime catalog gate.
-if (args.Length > 0 && args[0] == "init")
-{
-    SQLitePCL.Batteries.Init();
-    runApp(args);
-    return;
-}
-
-{
-    var root = WorkspaceDiscovery.FindWorkspaceRoot(Directory.GetCurrentDirectory()) ?? Directory.GetCurrentDirectory();
-    var coreAdmissionError = Twig.CoreMutationAdmissionGuard.Validate(args, Path.Combine(root, ".twig"));
-    if (coreAdmissionError is not null)
-    {
-        CommandError.Write(new RendererFactory(), Console.Error,
-            StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default, coreAdmissionError);
-        Environment.ExitCode = 1;
-        return;
-    }
-}
-
-// Skills are an explicit offline utility: do not resolve workspace/network services
-// or run binary cleanup/companion installation for this command family.
-if (args.Length > 0 && args[0] == "skills")
+if (args[0] is "skills" or "version")
 {
     runApp(args);
     return;
 }
 
-// A validated target-only export is an offline read. Keep update cleanup and
-// companion installation unreachable, including on its first apphost invocation.
-if (args.Length > 0 && args[0] == "show-batch" && args.Contains("--include-fields"))
-{
-    SQLitePCL.Batteries.Init();
-    runApp(args);
-    return;
-}
-
-// Native persistence is needed only for real command execution, never help.
-SQLitePCL.Batteries.Init();
-
-runApp(args);
+Environment.ExitCode = await Twig.DaemonCommandClient.ExecuteAsync(invocationArguments);
 
 
 /// <summary>
@@ -442,6 +403,9 @@ internal static class ExceptionHandler
 /// </summary>
 public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompatibility
 {
+    private string? InvocationFile(string? path) =>
+        string.IsNullOrEmpty(path) || services.GetService<TwigPaths>() is not { } paths
+            ? path : Path.GetFullPath(path, paths.StartDir);
     private static int MissingCore(string output)
     {
         CommandError.Write(new RendererFactory(), Console.Error, output,
@@ -664,7 +628,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="fields">Comma-separated field reference names to select in compact JSON.</param>
     [Command("process description")]
     public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? sections = null, string? fields = null)
-        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct, sections: sections, fields: fields);
+        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, InvocationFile(@out), output, ct, sections: sections, fields: fields);
 
     /// <summary>Human-only alias for the active work item's states; structured callers must use process &lt;type&gt;.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1146,7 +1110,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, string? file = null, bool stdin = false, CancellationToken ct = default)
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
-            return await core.NoteAsync(text ?? textArg, file, stdin, id, output, format, ct);
+            return await core.NoteAsync(text ?? textArg, InvocationFile(file), stdin, id, output, format, ct);
         return MissingCore(output);
     }
 
@@ -1162,7 +1126,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, int? id = null, bool append = false, CancellationToken ct = default)
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
-            return await core.UpdateAsync(field, value, output, format, file, stdin, id, append, ct);
+            return await core.UpdateAsync(field, value, output, format, InvocationFile(file), stdin, id, append, ct);
         return MissingCore(output);
     }
 
@@ -1615,25 +1579,6 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string output = OutputFormatterFactory.DefaultFormat, string? recover = null, CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
-    /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
-    /// <param name="view">Initial tree or table view (default tree).</param>
-    /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
-    /// <param name="herdr">Use source-scoped native Herdr action routing instead of a standalone terminal.</param>
-    /// <param name="hostEntry">Manifest-owned native pane entry; requires herdr and admits its source from the private launch ticket, not override arguments.</param>
-    /// <param name="intent">Herdr control: open, status, view, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
-    /// <param name="sourceWorkspace">Captured native Herdr source workspace, validated against the actual socket topology.</param>
-    /// <param name="sourceTab">Captured native Herdr source tab, validated against the actual socket topology.</param>
-    /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
-    /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
-    /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
-    [Command("bench browser")]
-    internal async Task<int> BenchBrowser(string? cwd = null, string view = "tree", string? file = null,
-        bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
-        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
-        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
-
     /// <summary>Read the current Bench configuration and raw settings digest.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
@@ -2083,26 +2028,6 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     internal async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Open the in-process native TUI on Windows/Linux; macOS support is suspended.</summary>
-    /// <param name="cwd">Native source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
-    /// <param name="view">Native initial tree or table view (default tree).</param>
-    /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
-    /// <param name="herdr">Use source-scoped native Herdr action routing instead of a standalone terminal.</param>
-    /// <param name="hostEntry">Manifest-owned native pane entry; requires herdr and admits its source from the private launch ticket, not override arguments.</param>
-    /// <param name="intent">Herdr control: open, status, view, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
-    /// <param name="sourceWorkspace">Captured native Herdr source workspace, validated against the actual socket topology.</param>
-    /// <param name="sourceTab">Captured native Herdr source tab, validated against the actual socket topology.</param>
-    /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
-    /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
-    /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
-    internal Task<int> Tui(string? cwd = null, string view = "tree", string? file = null,
-        bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
-        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
-        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-    {
-        return Task.FromResult(Unsupported(output));
-    }
-
     /// <summary>Launch the MCP server (requires twig-mcp binary).</summary>
     /// <param name="toolProfile">Advertised tool profile: compact (default) or full.</param>
     internal Task<int> Mcp(string? toolProfile = null)
@@ -2335,7 +2260,6 @@ internal static class GroupedHelp
         "draft save",
         "draft review",
         "draft capture",
-        "bench browser",
         "bench configuration",
         "bench configuration area candidates",
         "bench configuration area add",
@@ -2513,102 +2437,4 @@ internal static class GroupedHelp
     public static bool IsKnownCommand(string[] args)
         => args.Length > 0 && KnownCommands.Contains(args[0]);
 
-}
-
-/// <summary>
-/// Locates and launches a companion binary (e.g. <c>twig-tui</c>, <c>twig-mcp</c>).
-/// Searches the directory containing the running <c>twig</c> binary first, then falls back to PATH.
-/// Stdin/stdout are inherited for MCP stdio transport.
-/// </summary>
-internal static class BinaryLauncher
-{
-    internal static int Launch(
-        string binaryName,
-        string projectName,
-        TextWriter? stderr = null,
-        IReadOnlyList<string>? arguments = null)
-    {
-        stderr ??= Console.Error;
-        var exeName = OperatingSystem.IsWindows() ? $"{binaryName}.exe" : binaryName;
-
-        var binaryPath = FindAdjacentBinary(exeName) ?? FindInPath(exeName);
-
-        if (binaryPath is null)
-        {
-            stderr.WriteLine($"error: '{binaryName}' not found. Ensure the {projectName} project is built and on PATH or in the same directory as 'twig'.");
-            return 1;
-        }
-
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = binaryPath,
-                UseShellExecute = false,
-            };
-
-            if (arguments is not null)
-            {
-                foreach (var argument in arguments)
-                    psi.ArgumentList.Add(argument);
-            }
-
-            using var process = System.Diagnostics.Process.Start(psi);
-            if (process is null)
-            {
-                stderr.WriteLine($"error: Failed to start '{binaryName}'.");
-                return 1;
-            }
-
-            process.WaitForExit();
-            Environment.Exit(process.ExitCode);
-            return process.ExitCode; // unreachable, but satisfies compiler
-        }
-        catch (Exception ex)
-        {
-            stderr.WriteLine($"error: Failed to launch '{binaryName}': {ex.Message}");
-            return 1;
-        }
-    }
-
-    private static string? FindAdjacentBinary(string exeName)
-    {
-        var baseDir = AppContext.BaseDirectory;
-        if (!string.IsNullOrEmpty(baseDir))
-        {
-            var candidate = Path.Combine(baseDir, exeName);
-            if (File.Exists(candidate))
-                return candidate;
-        }
-
-        var processPath = Environment.ProcessPath;
-        if (processPath is not null)
-        {
-            var dir = Path.GetDirectoryName(processPath);
-            if (dir is not null)
-            {
-                var candidate = Path.Combine(dir, exeName);
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-        }
-
-        return null;
-    }
-
-    private static string? FindInPath(string exeName)
-    {
-        var pathVar = Environment.GetEnvironmentVariable("PATH");
-        if (pathVar is null) return null;
-
-        var separator = OperatingSystem.IsWindows() ? ';' : ':';
-        foreach (var dir in pathVar.Split(separator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var candidate = Path.Combine(dir.Trim(), exeName);
-            if (File.Exists(candidate))
-                return candidate;
-        }
-
-        return null;
-    }
 }

@@ -1,7 +1,5 @@
 """Offline platform suspension regressions; no network or installed Twig needed."""
 import os
-import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import shutil
@@ -9,7 +7,6 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 BASH = r"C:\Program Files\Git\bin\bash.exe" if os.name == "nt" else shutil.which("bash")
@@ -47,17 +44,6 @@ source ./install.sh
             for name in ("twig-tui", "twig-bench-tui", "twig-mcp"):
                 self.assertFalse((root / ".twig" / "bin" / name).exists(), name)
 
-    def test_candidate_tool_refuses_macos_before_arguments_or_files(self):
-        spec = importlib.util.spec_from_file_location("candidate", ROOT / "tools" / "tui-candidate.py")
-        candidate = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(candidate)
-        self.assertEqual(set(candidate.RIDS), {"win-x64", "linux-x64"})
-        with patch.object(candidate.platform, "system", return_value="Darwin"), \
-                patch.object(candidate, "build", side_effect=AssertionError("unexpected build")), \
-                contextlib.redirect_stderr(io.StringIO()) as stderr:
-            self.assertEqual(candidate.main(), 1)
-            self.assertIn("macOS support is temporarily suspended", stderr.getvalue())
-
     def test_macos_installer_refuses_both_architectures_before_network_or_writes(self):
         for arch in ("arm64", "x86_64"):
             with self.subTest(arch=arch), tempfile.TemporaryDirectory() as temporary:
@@ -77,7 +63,7 @@ source ./install.sh
                 self.assertFalse((Path(temporary) / ".twig").exists())
 
     def test_active_workflows_never_qualify_or_publish_macos(self):
-        for name in ("ci.yml", "release.yml", "tui-candidate.yml"):
+        for name in ("ci.yml", "release.yml"):
             with self.subTest(workflow=name):
                 text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
                 self.assertNotIn("os: macos-", text)

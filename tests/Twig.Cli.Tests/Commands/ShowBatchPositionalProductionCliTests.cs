@@ -195,8 +195,8 @@ public sealed class ShowBatchPositionalProductionCliTests : IDisposable
         exitCode.ShouldBe(0);
         var help = stdout + stderr;
         help.ShouldContain("--include-fields");
-        help.ShouldContain("Target-only stored export");
-        help.ShouldContain("exportVersion");
+        help.ShouldContain("no field/section");
+        help.ShouldContain("does not restore the retired target-export envelope");
     }
 
     [Theory]
@@ -309,6 +309,7 @@ public sealed class ShowBatchPositionalProductionCliTests : IDisposable
         startInfo.Environment.Remove("all_proxy");
         startInfo.Environment.Remove("TWIG_TELEMETRY_ENDPOINT");
 
+        await using var daemon = await ProductionDaemon.StartAsync(startInfo);
         using var process = System.Diagnostics.Process.Start(startInfo);
         process.ShouldNotBeNull();
         var stdoutTask = process.StandardOutput.ReadToEndAsync();

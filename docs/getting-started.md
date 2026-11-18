@@ -3,6 +3,9 @@
 Twig separates a provider connection, a local workspace mirror, and user-wide
 saved Benches. Initialization does not import your backlog or choose a Bench.
 Run at a fresh Git worktree root with no `.twig` directory.
+First select an installed [daemon](daemon.md) and run `twig daemon start`.
+Closing a CLI command or Canvas view leaves the shared daemon running;
+use `twig daemon stop` when you intend to shut it down.
 
 ## Choose a provider
 

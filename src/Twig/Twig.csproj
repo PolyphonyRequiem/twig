@@ -37,9 +37,11 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Twig.Cli.Tests" />
+    <InternalsVisibleTo Include="Bench.Server" />
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="../../tools/daemon-linux.py" LogicalName="Twig.LinuxDaemonOperator" />
     <EmbeddedResource Include="../../.github/skills/twig/SKILL.md" LogicalName="Twig.Skills.Package.twig/SKILL.md" />
     <EmbeddedResource Include="../../.github/skills/twig/references/*.md">
       <LogicalName>Twig.Skills.Package.twig/references/%(Filename)%(Extension)</LogicalName>

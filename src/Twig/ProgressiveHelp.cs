@@ -15,7 +15,7 @@ internal static class ProgressiveHelp
 Usage: twig [command] [-h|--help] [--help-all] [--skill [operations|changes|presentation]] [--version]
 
 Choose a task:
-  Get started       init, auth --help, connection --help
+  Get started       daemon start, init, auth --help, connection --help
   Read and find     show, show-batch, query
   Explore work      workspace --help, bench --help, nav --help
   Understand types  process --help

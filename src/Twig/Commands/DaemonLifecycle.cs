@@ -1,11 +1,12 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Twig.Commands;
 
 internal static class DaemonLifecycle
 {
-    private const string Usage = "Usage: twig daemon <start|status|stop> [-o json]";
+    private const string Usage = "Usage: twig daemon <start|status|stop> [-o human|json|minimal]";
 
     internal static async Task<int> RunAsync(string[] args)
     {
@@ -14,10 +15,12 @@ internal static class DaemonLifecycle
             Console.WriteLine(Usage);
             return 0;
         }
-        bool json = args is [_, _, "-o" or "--output", "json"];
-        if (args.Length < 2 || args[1] is not ("start" or "status" or "stop") || (args.Length != 2 && !json))
+        var format = args is [_, _, "-o" or "--output", var value] ? value : "human";
+        bool json = format == "json";
+        if (args.Length < 2 || args[1] is not ("start" or "status" or "stop")
+            || !(args.Length == 2 || args is [_, _, "-o" or "--output", "json" or "human" or "minimal"]))
         {
-            Console.Error.WriteLine(Usage);
+            Error(Usage, json);
             return 2;
         }
         try
@@ -25,15 +28,19 @@ internal static class DaemonLifecycle
             var running = await RunInstalledAsync(args[1]);
             Console.WriteLine(json
                 ? (running ? "{\"running\":true}" : "{\"running\":false}")
+                : format == "minimal" ? (running ? "running" : "stopped")
                 : (running ? "Twig daemon is running." : "Twig daemon is stopped."));
             return 0;
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or UnauthorizedAccessException
             or ArgumentException or NotSupportedException or Win32Exception)
         {
-            Console.Error.WriteLine("error: " + error.Message);
+            Error(error.Message, json);
             return 1;
         }
+
+        private static void Error(string message, bool json) => Console.Error.WriteLine(json
+            ? $"{{\"error\":\"{JsonEncodedText.Encode(message)}\"}}" : $"error: {message}");
     }
 
     internal static string InstallRoot()
@@ -63,17 +70,18 @@ internal static class DaemonLifecycle
 
         var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
         {
-            UseShellExecute = false, RedirectStandardOutput = true, WorkingDirectory = root,
+            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = root,
         };
         foreach (var arg in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-File", launcher,
             action switch { "start" => "-EnsureRunning", "status" => "-Status", "stop" => "-Stop",
                 _ => throw new ArgumentException("Unknown lifecycle operation.") } })
             start.ArgumentList.Add(arg);
         using var process = Process.Start(start) ?? throw new IOException("The installed daemon launcher did not run.");
+        var errors = process.StandardError.ReadToEndAsync();
         var output = (await process.StandardOutput.ReadToEndAsync()).Trim();
         await process.WaitForExitAsync();
         if (process.ExitCode != 0)
-            throw new InvalidOperationException($"The daemon launcher exited with code {process.ExitCode}.");
+            throw new InvalidOperationException($"The daemon launcher exited with code {process.ExitCode}: {(await errors).Trim()}");
         return output switch
         {
             "{\"running\":true}" when action != "stop" => true,

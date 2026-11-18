@@ -89,8 +89,8 @@ The supported solution builds this project and `Twig.Store.Sqlite.Tests`. Both
 Linux and Windows CI run the real-SQLite boundary cases through the TRX reconciler:
 
 ```powershell
-python tools\run-bounded.py --timeout 120 -- dotnet build "-m:1"
-python tools\run-bounded.py --timeout 60 -- python tools\verify-trx.py -- dotnet test tests\Twig.Store.Sqlite.Tests\Twig.Store.Sqlite.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Store.Sqlite.Tests" --logger "trx;LogFileName=store.trx" --results-directory artifacts\test-logs\core-store
+python eng\run-bounded.py --timeout 120 -- dotnet build "-m:1"
+python eng\run-bounded.py --timeout 60 -- python eng\verify-trx.py -- dotnet test tests\Twig.Store.Sqlite.Tests\Twig.Store.Sqlite.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Store.Sqlite.Tests" --logger "trx;LogFileName=store.trx" --results-directory artifacts\test-logs\core-store
 ```
 
 Tests use unique disposable temporary files, not user workspaces. They exercise

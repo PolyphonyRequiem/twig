@@ -94,7 +94,7 @@ replays, adopts, rewrites a digest, clears a fence or deletes evidence.
 
 The retained production CLI and real HTTP/SQLite boundary tests qualify the current
 composition. Compiled PE regressions verify that CLI and Infrastructure have no
-Domain dependency; `tools/verify-domain-cut.py` separately checks source/project
+Domain dependency; `eng/verify-domain-cut.py` separately checks source/project
 absence. The public, I/O-free rendering boundary and its external .NET 10 consumer
 belong to `Twig.RenderTree`, not this library.
 

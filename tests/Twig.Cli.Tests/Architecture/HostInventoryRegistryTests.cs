@@ -6,7 +6,7 @@ using Xunit;
 namespace Twig.Cli.Tests.Architecture;
 
 /// <summary>
-/// <c>tools/run-ci-tests.py</c> isolates every <c>Category=HostInventory</c> class in its own
+/// <c>eng/run-ci-tests.py</c> isolates every <c>Category=HostInventory</c> class in its own
 /// session and refuses to run the Cli suite when its <c>HOST_CLASSES</c> registry disagrees
 /// with the traited classes. That guard only runs in the release-candidate workflow, so a new
 /// traited class could merge unregistered and fail every platform later. This test pins the
@@ -27,7 +27,7 @@ public sealed class HostInventoryRegistryTests
         registry.Except(traited).OrderBy(x => x, StringComparer.Ordinal)
             .ShouldBeEmpty("HOST_CLASSES names classes without a class-level HostInventory trait");
         traited.Except(registry).OrderBy(x => x, StringComparer.Ordinal)
-            .ShouldBeEmpty("HostInventory classes are missing from HOST_CLASSES in tools/run-ci-tests.py");
+            .ShouldBeEmpty("HostInventory classes are missing from HOST_CLASSES in eng/run-ci-tests.py");
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public sealed class HostInventoryRegistryTests
             .Select(method => $"{method.DeclaringType!.FullName}.{method.Name}")
             .ToList();
 
-        methodLevel.ShouldBeEmpty("tools/run-ci-tests.py partitions HostInventory by class");
+        methodLevel.ShouldBeEmpty("eng/run-ci-tests.py partitions HostInventory by class");
     }
 
     private static bool IsHostInventoryTrait(CustomAttributeData attribute) =>
@@ -51,7 +51,7 @@ public sealed class HostInventoryRegistryTests
 
     private static HashSet<string> ReadHostClassesRegistry()
     {
-        var script = File.ReadAllText(Path.Combine(FindRepoRoot(), "tools", "run-ci-tests.py"));
+        var script = File.ReadAllText(Path.Combine(FindRepoRoot(), "eng", "run-ci-tests.py"));
         var block = Regex.Match(script, @"^HOST_CLASSES = \{(?<body>.*?)^\}", RegexOptions.Multiline | RegexOptions.Singleline);
         block.Success.ShouldBeTrue("HOST_CLASSES registry block not found");
         var lines = block.Groups["body"].Value.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);

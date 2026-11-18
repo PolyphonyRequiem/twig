@@ -21,26 +21,19 @@ differ; use its `twig --version` and targeted `--help` to identify its contract.
 
 ## Contributors
 
-Begin with [contributing](contributing.md) and the [architecture overview](architecture/overview.md).
+Begin with [builds and releases](architecture/build-and-release.md) and the
+[architecture overview](architecture/overview.md).
 Detailed references cover [storage](architecture/data-layer.md),
-[CLI composition](architecture/commands.md),
-[ADO integration](architecture/ado-integration.md), and
-[builds and releases](architecture/build-and-release.md).
+[CLI composition](architecture/commands.md), and
+[ADO integration](architecture/ado-integration.md).
 The [clean-core contract](architecture/clean-core-contract.md) records detailed
 implementation boundaries, qualification, and cutover decisions; it is not a
 quick-start guide.
 
-## Design and historical records
+## Retirement notices
 
-Plans, specifications, research, incident reports, handoffs, and captured process
-evidence are engineering records, **not an alternate supported command manual**.
-They may describe removed projects, earlier schemas, or unimplemented proposals.
-Keep their recorded observations distinct from current release claims.
-
-- [Record index](history.md): where design and historical material lives.
 - [Retired commands](commands/README.md#retired-surfaces): replacements and limits.
-- [Old MCP server](architecture/mcp-server.md), [reference profile](features/reference-profile.md),
-  and [shell integration](ohmyposh.md): retirement notices.
+- [Old MCP server](architecture/mcp-server.md) and [reference profile](features/reference-profile.md).
 
 Public documentation is maintained here in the repository. [Home](Home.md) and
 the [sidebar](_Sidebar.md) are navigation entry points, not a separately maintained

@@ -61,5 +61,5 @@ directory on PATH. Do not copy just the executable or assume obsolete TUI aliase
 are part of the current package. Checksums detect corruption or mismatched
 downloads; obtain them from the trusted release, not an unrelated source.
 
-For source builds and local publishing, see [contributing](contributing.md).
+For source builds and local publishing, see [build and release](architecture/build-and-release.md).
 For first use after installation, see [getting started](getting-started.md).

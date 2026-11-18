@@ -33,9 +33,8 @@ JSON, and documented minimal/ID output. Formats are explicit and validated;
 support varies by command. Static views are not the retired live browser/TUI.
 
 `ProgressiveHelp` provides offline task/group/leaf discovery. Syntax comes from
-generated declarations. `CommandHelpReference` embeds the indexed Markdown pages
-and extracts their behavior, effects, exit, and failure sections.
-Those pages are product content, not an independent old implementation manual.
+generated declarations. The [command reference](../commands/README.md) documents
+behavior, effects, and failures separately from the short command-line help.
 Skills are embedded separately from `.github/skills/twig` and are explicitly
 installed or updated. See [help and skills](../features/skills.md).
 
@@ -49,4 +48,4 @@ and provider verification.
 Optional telemetry uses command metadata, generic counts/booleans, duration and
 platform/version only. It must not contain work content, identities, provider
 coordinates or process vocabulary, and it must not affect command outcomes.
-See the [telemetry rules](../../.github/instructions/telemetry.instructions.md).
+See the telemetry rules in the [repository instructions](../../.github/copilot-instructions.md#telemetry--data-privacy).

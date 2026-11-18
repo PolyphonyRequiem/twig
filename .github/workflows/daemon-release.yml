@@ -20,11 +20,11 @@ jobs:
           global-json-file: global.json
       - name: Standalone daemon package (no canvas or installation)
         shell: pwsh
-        run: ./tools/daemon-package.ps1 -Output "$PWD\artifacts\daemon-win-x64" -PythonExecutable python
+        run: ./eng/daemon-package.ps1 -Output "$PWD\artifacts\daemon-win-x64" -PythonExecutable python
       - name: Include independent operator tooling
         shell: pwsh
         run: |
-          Copy-Item tools\daemon-launch.ps1,tools\daemon-install.ps1,tools\daemon-run-owned.py artifacts\
+          Copy-Item eng\daemon-launch.ps1,eng\daemon-install.ps1,eng\daemon-run-owned.py artifacts\
           Compress-Archive -LiteralPath artifacts\daemon-win-x64,artifacts\daemon-launch.ps1,artifacts\daemon-install.ps1,artifacts\daemon-run-owned.py -DestinationPath artifacts\twig-daemon-win-x64.zip
           (Get-FileHash artifacts\twig-daemon-win-x64.zip).Hash | Set-Content artifacts\twig-daemon-win-x64.zip.sha256
       - uses: actions/upload-artifact@v4
@@ -43,9 +43,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - run: bash tools/daemon-package-linux.sh
+      - run: bash eng/daemon-package-linux.sh
       - run: dotnet build src/Twig/Twig.csproj -m:1
-      - run: python3 tools/run-bounded.py --timeout 60 -- bash tools/test-daemon-linux.sh
+      - run: python3 eng/run-bounded.py --timeout 60 -- bash eng/test-daemon-linux.sh
       - uses: actions/upload-artifact@v4
         with:
           name: twig-daemon-linux-x64

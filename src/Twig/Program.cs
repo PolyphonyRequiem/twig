@@ -68,6 +68,11 @@ if (args.Length == 1 && args[0] is "-h" or "--help" or "help")
     ProgressiveHelp.ShowRoot();
     return;
 }
+if (args is ["--help-all"])
+{
+    ProgressiveHelp.TryShow(args, runApp);
+    return;
+}
 if (args.Length == 0)
 {
     // Smart landing: route to show if workspace is initialized, otherwise show help

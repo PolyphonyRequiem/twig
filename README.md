@@ -146,12 +146,11 @@ is not an alias; daemon package names and installation settings are unchanged.
 | Benches, drafts, and proposals | [User guides](docs/README.md#user-guides) |
 | Local server | [Server installation and operations](docs/daemon.md) |
 | Agent help | `twig --skill` and [installed skills](docs/features/skills.md) |
-| Build and contribute | [Contributing](docs/contributing.md) |
+| Build and contribute | [Build and release](docs/architecture/build-and-release.md) |
 | Implementation | [Architecture](docs/architecture/overview.md) |
 
 Use `twig --help`, then `twig <command> --help` for executable-matched syntax.
-The [documentation index](docs/README.md) separates current guidance from design
-and historical records.
+The [documentation index](docs/README.md) lists the maintained guides.
 
 ## License
 

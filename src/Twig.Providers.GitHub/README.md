@@ -160,9 +160,9 @@ or automatic recovery from an external host's otherwise unimported response.
 Serial repository gates (system SDK, synthetic boundaries and fresh SQLite only):
 
 ```powershell
-python tools\run-bounded.py --timeout 120 -- dotnet build "-m:1"
-python tools\run-bounded.py --timeout 60 -- python tools\verify-trx.py -- dotnet test tests\Twig.Providers.GitHub.Tests\Twig.Providers.GitHub.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.GitHub.Tests" --logger "trx;LogFileName=github.trx" --results-directory artifacts\test-logs\core-github
-python tools\run-bounded.py --timeout 30 -- "C:\Program Files\Git\bin\bash.exe" tools/run-tests.sh --pre-push
+python eng\run-bounded.py --timeout 120 -- dotnet build "-m:1"
+python eng\run-bounded.py --timeout 60 -- python eng\verify-trx.py -- dotnet test tests\Twig.Providers.GitHub.Tests\Twig.Providers.GitHub.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.GitHub.Tests" --logger "trx;LogFileName=github.trx" --results-directory artifacts\test-logs\core-github
+& "C:\Program Files\Git\bin\bash.exe" eng/run-tests.sh --pre-push
 ```
 
 The focused HTTP/real-SQLite regression also runs on Linux and Windows CI.

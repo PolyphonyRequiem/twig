@@ -67,9 +67,9 @@ own. Neither package installation nor the CLI creates or trusts certificates.
 | `src/Twig.Daemon` | Twig's executable host; retained assembly/executable name `Bench.Server.exe` |
 | `src/Twig.Daemon.Domain` / `.Application` / `.Infrastructure` | Daemon model, use cases, native source/session/transport implementation; retained `Bench.*` assembly names |
 | `src/Twig.Daemon.Client` | Pure client library for package verification and same-machine startup, without daemon/provider composition |
-| `tools/daemon-package.ps1` | Standalone, verified self-contained runtime packaging |
-| `tools/daemon-install.ps1` | Source installation and explicit operator selection; optional sign-in startup |
-| `tools/daemon-launch.ps1` | Runtime inventory verification, launch/reuse, and read-only stdio MCP |
+| `eng/daemon-package.ps1` | Standalone, verified self-contained runtime packaging |
+| `eng/daemon-install.ps1` | Source installation and explicit operator selection; optional sign-in startup |
+| `eng/daemon-launch.ps1` | Runtime inventory verification, launch/reuse, and read-only stdio MCP |
 | `twig-bench-canvas` | Independently installed presentation package/host/assets |
 
 The daemon can run without canvas assets. Direct static asset routes are optional
@@ -98,7 +98,7 @@ From a **clean** checkout, using an already prepared private directory and
 certificate (replace these example values):
 
 ```powershell
-.\tools\daemon-install.ps1 `
+.\eng\daemon-install.ps1 `
     -PrivateDataDir 'C:\Users\me\AppData\Local\Twig\DaemonData' `
     -Port 7341 `
     -HttpsCertificateThumbprint '<existing-40-hex-thumbprint>' `
@@ -183,7 +183,7 @@ compatible sessions.
 To produce an uninstalled package from a clean checkout:
 
 ```powershell
-.\tools\daemon-package.ps1 -Output "$PWD\artifacts\daemon-win-x64" -PythonExecutable python
+.\eng\daemon-package.ps1 -Output "$PWD\artifacts\daemon-win-x64" -PythonExecutable python
 ```
 
 The output directory must be new and beneath this checkout's `artifacts`.
@@ -193,7 +193,7 @@ installation, or process changes.
 The [Daemon package workflow](../.github/workflows/daemon-release.yml) packages
 Windows and Linux artifacts independently of the CLI. Pull requests do not start package
 builds; use a manual workflow run for an optional hosted package check (see
-[Actions budget](contributing.md#github-actions-budget)). `daemon-v*` tags publish
+[GitHub Actions](architecture/build-and-release.md#github-actions)). `daemon-v*` tags publish
 `twig-daemon-win-x64.zip` and `twig-daemon-linux-x64.tar.gz`, each with a
 SHA-256 file. The Windows checksum is a bare hex digest; the Linux checksum
 is `sha256sum -c` compatible. Both archives include operator installation

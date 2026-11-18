@@ -1,15 +1,45 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Twig.Core;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Services;
 using Twig.Providers.Native;
 
 namespace Bench.Infrastructure;
 
 public sealed record NativeConnectionDisplay(string Name, bool Available);
+public sealed record NativeConnectionAccount(string Name, string Kind);
 
 /// <summary>Local presentation metadata only; never admission, credentials, or provider acquisition.</summary>
 public static partial class NativeConnectionLabels
 {
+    public static NativeConnectionAccount? Account(Connection connection, IReadOnlyList<NativeAadEnrollment> identities)
+    {
+        if (connection.Provider.Value is not ("ado" or "github") || connection.IdentityRef.Length > 16384) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(connection.IdentityRef);
+            var value = document.RootElement;
+            if (value.ValueKind != JsonValueKind.Array
+                || value.EnumerateArray().Any(part => part.ValueKind != JsonValueKind.String)) return null;
+            if (connection.Provider.Value == "github")
+                return value.GetArrayLength() == 9 && value[4].GetString() == "gh" && DisplayAccount(value[5].GetString())
+                    ? new(value[5].GetString()!, "github") : null;
+            if (value.GetArrayLength() != 4) return null;
+            if (value[2].GetString() == "pat") return new("Personal access token", "pat");
+            if (value[2].GetString() != "aad") return null;
+            var identity = identities.FirstOrDefault(identity => identity.IdentityId == value[1].GetString());
+            if (identity is null || !DisplayAccount(identity.AccountName) || !Guid.TryParse(identity.TenantId, out var tenant)
+                || tenant == Guid.Empty) return null;
+            // Consumer accounts can use custom email domains; the domain is not account-type evidence.
+            return new(identity.AccountName!, tenant == new Guid("9188040d-6c67-4c5b-b112-36a304b66dad") ? "msa" : "orgid");
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static bool DisplayAccount(string? value)
+        => !string.IsNullOrWhiteSpace(value) && value.Length <= 512 && !value.Any(char.IsControl);
+
     public static NativeConnectionDisplay Unavailable(Connection connection) => new(connection.Provider.Value switch
     {
         "ado" => "Azure DevOps connection",

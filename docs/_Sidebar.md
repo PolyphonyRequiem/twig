@@ -17,7 +17,5 @@
 
 ## Development
 
-- [Contributing](contributing.md)
 - [Architecture](architecture/overview.md)
 - [Build and release](architecture/build-and-release.md)
-- [Historical records](history.md)

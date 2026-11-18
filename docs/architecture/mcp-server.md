@@ -2,8 +2,7 @@
 
 The old standalone **`twig-mcp`** server and **`twig mcp`** launcher are retired.
 Their Domain/cache mutation catalog is not part of the supported solution,
-installer, or companion downloads. Older plans describing that server are
-[historical records](../history.md), not current integration instructions.
+installer, or companion downloads.
 
 The Windows daemon now has a separate **read-only MCP interface**, capability
 `mcp-read-v1`, on its existing authenticated localhost origin. Its stdio bridge

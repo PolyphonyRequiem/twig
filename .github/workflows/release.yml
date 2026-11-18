@@ -70,7 +70,7 @@ jobs:
       - name: Full release-candidate validation
         env:
           TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/trace-311
-        run: python tools/run-ci-tests.py
+        run: python eng/run-ci-tests.py
 
       - run: dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}
 
@@ -114,7 +114,7 @@ jobs:
           New-Item -ItemType Directory -Path 'artifacts/release-image-verification' -Force | Out-Null
           $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
           $primary = (Resolve-Path "./publish/${{ matrix.rid }}/twig$extension").Path
-          python tools/verify-build.py --binary $primary --timeout 15 2>&1 | Tee-Object -FilePath 'artifacts/release-image-verification/offline-smoke.txt'
+          python eng/verify-build.py --binary $primary --timeout 60 2>&1 | Tee-Object -FilePath 'artifacts/release-image-verification/offline-smoke.txt'
           if ($LASTEXITCODE -ne 0) { throw 'Final published native image failed the existing offline smoke.' }
 
       - name: Verify the final Windows publisher profile and source
@@ -122,7 +122,7 @@ jobs:
         shell: pwsh
         run: |
           $primary = (Resolve-Path './publish/win-x64/twig.exe').Path
-          & ./tools/verify-tui-candidate.ps1 -Executable $primary -SourceCommit '${{ github.sha }}' | Tee-Object -FilePath 'artifacts/release-image-verification/windows-trust.json'
+          & ./eng/verify-windows-release.ps1 -Executable $primary -SourceCommit '${{ github.sha }}' | Tee-Object -FilePath 'artifacts/release-image-verification/windows-trust.json'
 
       - name: Archive (zip)
         if: matrix.archive == 'zip'

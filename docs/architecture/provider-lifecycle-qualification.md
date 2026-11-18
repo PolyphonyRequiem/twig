@@ -10,7 +10,7 @@ The `ADO shared lifecycle qualification` and `GitHub shared lifecycle
 qualification` CI steps exercise production DI, SQLite repositories, provider
 adapters, declared-policy loading/evaluation, capability admission and the shared
 proposal lifecycle. Only credentials and external work HTTP use synthetic
-transports. Every selected test must execute and pass; `tools/verify-trx.py`
+transports. Every selected test must execute and pass; `eng/verify-trx.py`
 rejects missing selectors, skipped cases, incomplete runs and inconsistent
 counters. Each command retains the existing external 60-second deadline and
 uploads its TRX on Linux and Windows. macOS qualification is temporarily suspended.

@@ -12,24 +12,15 @@ internal static class ProgressiveHelp
         output.WriteLine($"twig {VersionHelper.GetVersion()}");
         output.WriteLine("""
 
-Usage: twig [command] [-h|--help] [--help-all] [--skill [operations|changes|presentation]] [--version]
+Usage: twig <command> [options]
 
-Choose a task:
-  Get started       daemon start, init, auth --help, connection --help
-  Read and find     show, show-batch, query
-  Explore work      workspace --help, bench --help, nav --help
-  Understand types  process --help
-  Draft work        seed --help
-  Review and apply  proposal --help, pending
-  Change an item    state, batch, note, update, patch, link --help
-  Native evidence   connection status, connection writes (read-only)
-  Agent guidance    --skill, skills --help
+  Start here:  daemon start, init
+  Find work:   show, query, bench
+  Draft work:  seed, proposal
 
-Help is offline; it does not initialize a workspace or sign in.
-Data commands require a fresh pinned Core workspace. No legacy runtime fallback.
-Browser/TUI/MCP, quick new, history, migration/reset and captured UI envelopes are retired.
-Run 'twig <command> --help' for options, defaults, examples, effects and failures.
-Run 'twig --help-all' for the complete command catalog.
+  twig <command> --help   Options and examples
+  twig --help-all         Command catalog
+  twig --skill            Agent guidance
 """);
     }
 
@@ -44,7 +35,7 @@ Run 'twig --help-all' for the complete command catalog.
             Console.WriteLine("Commands (retained Core and native host):");
             foreach (var row in ReadCatalog(CaptureGeneratedHelp(generatedHelp, ["--help"])))
                 Console.WriteLine($"  {string.Join('|', row.Names),-34} {row.Description}");
-            Console.WriteLine("Run 'twig <command> --help' for detailed usage, examples, effects and failures.");
+            Console.WriteLine("Run 'twig <command> --help' for options and examples.");
             return true;
         }
 
@@ -90,7 +81,6 @@ Run 'twig --help-all' for the complete command catalog.
             generatedHelp([.. command.Split(' '), "--help"]);
             var canonical = leaf?.Names[0] ?? command;
             CommandExamples.ShowIfPresent(canonical.Split(' '));
-            CommandHelpReference.ShowIfPresent(canonical);
         }
         else
         {

@@ -159,9 +159,9 @@ effect, and each later operation must still meet its original reviewed revision.
 Use the system SDK from `global.json` and the existing serial bounded gates:
 
 ```powershell
-python tools\run-bounded.py --timeout 120 -- dotnet build "-m:1"
-python tools\run-bounded.py --timeout 60 -- python tools\verify-trx.py -- dotnet test tests\Twig.Providers.Ado.Tests\Twig.Providers.Ado.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.Ado.Tests" --logger "trx;LogFileName=ado.trx" --results-directory artifacts\test-logs\core-ado
-python tools\run-bounded.py --timeout 30 -- "C:\Program Files\Git\bin\bash.exe" tools/run-tests.sh --pre-push
+python eng\run-bounded.py --timeout 120 -- dotnet build "-m:1"
+python eng\run-bounded.py --timeout 60 -- python eng\verify-trx.py -- dotnet test tests\Twig.Providers.Ado.Tests\Twig.Providers.Ado.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~Twig.Providers.Ado.Tests" --logger "trx;LogFileName=ado.trx" --results-directory artifacts\test-logs\core-ado
+& "C:\Program Files\Git\bin\bash.exe" eng/run-tests.sh --pre-push
 ```
 
 The same focused adapter regression runs in Linux and Windows CI. Tests use

@@ -2,8 +2,8 @@
 
 This reference covers the current **Core CLI and native host utilities**.
 Command existence does not imply provider parity. Use `twig --version`, then
-`twig <command> --help` for the installed binary's generated arguments/defaults.
-Leaf help also embeds the behavior/effect sections from these pages.
+`twig --help-all` for the installed command catalog or `twig <command> --help`
+for arguments, defaults, and examples. Use these pages for behavior and effects.
 
 Setup, identity, connection, work-item and Bench commands require the selected [daemon](../daemon.md) to
 be running. The CLI sends one request over owner-only local IPC, not through the
@@ -73,12 +73,6 @@ Retirement pages remain at old documentation URLs to avoid turning existing
 links into runnable obsolete recipes.
 
 ## Known discovery limitation
-
-This source build currently refuses `twig --help-all` in early catalog admission,
-although root help advertises it. Use `twig --help` and targeted group/leaf help
-instead. This audit documents the product discrepancy; it does not change routing.
-Some embedded generic skills/optional presenter packages also retain pre-cutover
-recipes. They do not override the catalog or restore retired envelopes.
 
 The hidden `save` handler also remains declared but is rejected by top-level
 command discovery, including `save --help`. It is not a usable standalone CLI

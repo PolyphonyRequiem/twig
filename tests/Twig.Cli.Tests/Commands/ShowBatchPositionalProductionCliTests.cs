@@ -195,8 +195,8 @@ public sealed class ShowBatchPositionalProductionCliTests : IDisposable
         exitCode.ShouldBe(0);
         var help = stdout + stderr;
         help.ShouldContain("--include-fields");
-        help.ShouldContain("no field/section");
-        help.ShouldContain("does not restore the retired target-export envelope");
+        help.ShouldContain("requires -o json, no fields/sections/refresh");
+        help.ShouldContain("twig show-batch --batch 42,-1 --include-fields -o json");
     }
 
     [Theory]

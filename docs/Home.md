@@ -6,6 +6,5 @@ The [documentation index](README.md) is the maintained entry point.
 - [Get started](getting-started.md)
 - [Command reference](commands/README.md)
 - [Windows daemon](daemon.md)
-- [Contribute](contributing.md)
+- [Build and release](architecture/build-and-release.md)
 - [Architecture](architecture/overview.md)
-- [Design and historical records](history.md)

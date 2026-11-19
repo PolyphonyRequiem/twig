@@ -34,6 +34,7 @@ public sealed class SessionInvariantTests
     [InlineData("owner-lifetime")]
     [InlineData("owner-session")]
     [InlineData("default-display")]
+    [InlineData("default-layout")]
     public async Task PersistentOwnerAndProfileInvariants(string scenario)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
@@ -49,6 +50,7 @@ public sealed class SessionInvariantTests
                 case "owner-lifetime": SessionTests.OwnerLifetime(root); break;
                 case "owner-session": await SessionTests.Run(root, deadline.Token); break;
                 case "default-display": await SessionTests.DefaultDisplay(root, deadline.Token); break;
+                case "default-layout": SessionTests.DefaultLayout(root); break;
                 default: throw new ArgumentOutOfRangeException(nameof(scenario));
             }
         }
@@ -64,6 +66,23 @@ public sealed class SessionInvariantTests
 internal static class SessionTests
 {
     internal static int AssertionsPassed { get; private set; }
+
+    internal static void DefaultLayout(string root)
+    {
+        var sessions = new ViewSessions(root);
+        var store = Guid.NewGuid();
+        var profile = Guid.NewGuid();
+        var owner = sessions.ConnectOwner(store, null, profile);
+        var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
+        var state = sessions.ReadState(session);
+        Check(state.Choices.Layout == "tree", "New owner profiles default to Tree.");
+        sessions.SaveState(session, new(state.Revision, state.Choices with { Layout = "list" }));
+        sessions = new ViewSessions(root);
+        owner = sessions.ConnectOwner(store, null, profile);
+        session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
+        Check(sessions.ReadState(session).Choices.Layout == "list",
+            "An explicitly saved List choice survives reopening.");
+    }
 
     internal static async Task RepositorySelection(string root, CancellationToken ct)
     {

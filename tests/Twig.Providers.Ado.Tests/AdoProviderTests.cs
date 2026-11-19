@@ -1343,6 +1343,8 @@ public sealed partial class AdoProviderTests
         internal string Type;
         internal string? AdditionalType;
         internal string? MissingTransitionsType;
+        internal string? ProjectTypesJson;
+        internal string? ProcessTypesJson;
         internal string? NativeRulesJson;
         internal bool IncludeDateField;
         internal string Initial;
@@ -1649,13 +1651,13 @@ public sealed partial class AdoProviderTests
             }
             else if (path.EndsWith("/workitemtypecategories")) response = Rows("");
             else if (path.EndsWith("/workitemtypes", StringComparison.OrdinalIgnoreCase) && query.Contains("$expand=all"))
-                response = Defect == "missing-transitions" ? Rows("") : Rows(string.Join(",",
+                response = ProjectTypesJson is not null ? Rows(ProjectTypesJson) : Defect == "missing-transitions" ? Rows("") : Rows(string.Join(",",
                     NativeTypes().Where(reference => reference != MissingTransitionsType)
                     .Concat(DivergentProjectType ? ["System.Parent"] : []).Select(reference => $$"""
                     {"referenceName":"{{reference}}","transitions":{"":[{"to":"{{Initial}}"}],"{{Initial}}":[{"to":"{{Completed}}"}],"{{Completed}}":[{"to":"{{Initial}}"}]} }
                     """)));
             else if (path.EndsWith("/workItemTypes"))
-                response = Rows(string.Join(",", NativeTypes().Select(reference =>
+                response = Rows(ProcessTypesJson ?? string.Join(",", NativeTypes().Select(reference =>
                     $$"""{"referenceName":"{{reference}}","name":"{{reference}}","isDisabled":false,"color":"B4009E"{{(IconJson == "missing" ? "" : ",\"icon\":" + IconJson)}} }""")));
             else if (path.EndsWith("/states"))
                 response = Rows($$"""{"name":"{{Initial}}","stateCategory":"Proposed"},{"name":"{{Completed}}","stateCategory":"{{(Defect == "unknown-category" ? "Alien" : "Completed")}}"}""");

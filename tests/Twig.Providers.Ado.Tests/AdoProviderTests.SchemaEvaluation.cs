@@ -38,6 +38,71 @@ public sealed partial class AdoProviderTests
     }
 
     [Fact]
+    public async Task InheritedProjectTransitionsOpenAndPublishUnderTheChildReference()
+    {
+        using var f = await Fixture.Create();
+        InheritedTransitions(f);
+        var metadata = (await f.Provider.CaptureEditorMetadataAsync(f.Connection, default)).Value;
+        var type = metadata.Schema.Types.Single();
+        type.Reference.ShouldBe(f.Http.Type);
+        type.Gaps.ShouldBeEmpty();
+        type.Rules.ShouldContain(rule => rule.Field == "System.State" && rule.Action == RuleAction.Allowed
+            && rule.Values.Contains(FieldValue.String(f.Http.Initial)));
+        var source = (await f.Provider.ReadEditorAsync(metadata, [f.Key(1)], default)).Value.Items.Single();
+        source.Type.ShouldBe(f.Http.Type);
+        var opened = Core.Core.EvaluateEditorFields(metadata.Schema, source, FieldValues.Empty, true);
+        opened.IsSuccess.ShouldBeTrue(opened.IsSuccess ? "" : opened.Error.Message);
+        opened.Value.States.ShouldContain(f.Http.Completed);
+        f.Http.Writes.ShouldBe(0);
+
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, [source]), default)).IsSuccess.ShouldBeTrue();
+        var proposal = new Proposal(f.Connection, metadata.Schema.Fingerprint, 1,
+            [new("edit", OpKind.Batch, source.Key, source.Revision,
+                FieldValues.Empty.Set("Custom.Empty", FieldValue.String("edit")))]);
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var applied = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        applied.Status.ShouldBe(OpStatus.Applied);
+        (await f.Provider.VerifyAsync(proposal, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        f.Http.Items[1]["fields"]!["Custom.Empty"]!.GetValue<string>().ShouldBe("edit");
+        f.Http.Writes.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("ambiguous")]
+    [InlineData("conflicting-state")]
+    [InlineData("conflicting-initial")]
+    [InlineData("missing-inheritance")]
+    public async Task InheritedTransitionsWithoutMatchingEvidenceKeepTheEditorClosed(string defect)
+    {
+        using var f = await Fixture.Create();
+        InheritedTransitions(f, defect);
+        var metadata = (await f.Provider.CaptureEditorMetadataAsync(f.Connection, default)).Value;
+        var source = (await f.Provider.ReadEditorAsync(metadata, [f.Key(1)], default)).Value.Items.Single();
+        var opened = Core.Core.EvaluateEditorFields(metadata.Schema, source, FieldValues.Empty, true);
+        opened.IsSuccess.ShouldBeFalse();
+        opened.Error.Evidence.ShouldContain(value => value.Contains("exact type transitions unavailable"));
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    private static void InheritedTransitions(Fixture f, string? defect = null)
+    {
+        const string parent = "Microsoft.VSTS.WorkItemTypes.Issue";
+        var inheritance = defect == "missing-inheritance" ? "" : $",\"inherits\":\"{parent}\"";
+        f.Http.ProcessTypesJson = $$"""
+            {"referenceName":"{{f.Http.Type}}","name":"{{f.Http.Type}}","isDisabled":false{{inheritance}}}
+            """;
+        var listedState = defect == "conflicting-state" ? "Not a child state" : f.Http.Completed;
+        var initial = defect == "conflicting-initial" ? "Not a child state" : f.Http.Initial;
+        f.Http.ProjectTypesJson = $$"""
+            {"referenceName":"{{parent}}","name":"{{f.Http.Type}}",
+             "states":[{"name":"{{f.Http.Initial}}"},{"name":"{{listedState}}"}],
+             "transitions":{"":[{"to":"{{initial}}"}],"{{f.Http.Initial}}":[{"to":"{{f.Http.Completed}}"}]} }
+            """;
+        if (defect == "ambiguous")
+            f.Http.ProjectTypesJson += $",{f.Http.ProjectTypesJson.Replace(parent, "Fixture.Other", StringComparison.Ordinal)}";
+    }
+
+    [Fact]
     public async Task NativeEditorExactTypeCanPublishDespiteAnotherTypesMissingTransitions()
     {
         using var f = await Fixture.Create();

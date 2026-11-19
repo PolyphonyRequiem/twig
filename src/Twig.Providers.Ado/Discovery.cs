@@ -26,6 +26,43 @@ public sealed partial class AdoProvider
     public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
         => Guard(() => WithSession(connection, async (bound, token) => (await Discover(bound, token, includePresentation)).Schema, ct));
 
+    private static bool TryInheritedTransitions(JsonElement child, string name, State[] states, JsonElement[] processTypes,
+        Dictionary<string, JsonElement> projectTypes, out JsonElement projectType)
+    {
+        projectType = default;
+        if (!child.TryGetProperty("inherits", out var parent) || parent.ValueKind != JsonValueKind.String
+            || parent.GetString() is not { Length: > 0 } parentReference
+            || !projectTypes.TryGetValue(parentReference, out var candidate)
+            || Name(candidate) != name || processTypes.Count(type => Name(type) == name) != 1
+            || projectTypes.Values.Count(type => Name(type) == name) != 1
+            || !candidate.TryGetProperty("states", out var listedStates) || listedStates.ValueKind != JsonValueKind.Array
+            || !candidate.TryGetProperty("transitions", out var transitions) || transitions.ValueKind != JsonValueKind.Object)
+            return false;
+
+        var known = states.Select(state => state.Name).ToHashSet(StringComparer.Ordinal);
+        var listed = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var state in listedStates.EnumerateArray())
+            if (Name(state) is not { } stateName || !listed.Add(stateName)) return false;
+        if (known.Count != states.Length || !known.SetEquals(listed)) return false;
+
+        foreach (var edge in transitions.EnumerateObject())
+        {
+            if ((edge.Name.Length > 0 && !known.Contains(edge.Name)) || edge.Value.ValueKind != JsonValueKind.Array)
+                return false;
+            var destinations = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var destination in edge.Value.EnumerateArray())
+                if (Text(destination, "to") is not { } to || !known.Contains(to) || !destinations.Add(to)) return false;
+        }
+        if (!transitions.TryGetProperty("", out var initial) || initial.GetArrayLength() == 0) return false;
+        projectType = candidate;
+        return true;
+
+        static string? Name(JsonElement row) => Text(row, "name");
+        static string? Text(JsonElement row, string key) =>
+            row.ValueKind == JsonValueKind.Object && row.TryGetProperty(key, out var value)
+                && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+
     private async Task<Discovery> Discover(Bound bound, CancellationToken ct, bool includePresentation = false)
     {
         var fields = Wire.Rows(await Get(bound, $"_apis/wit/fields?api-version={Api}", ct))
@@ -43,7 +80,8 @@ public sealed partial class AdoProvider
         var names = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         var definitions = ImmutableDictionary.CreateBuilder<string, FieldDef>(StringComparer.Ordinal);
         var processRoute = $"_apis/work/processes/{Wire.Escape(bound.ProcessId)}/workItemTypes";
-        foreach (var row in Wire.Rows(await Get(bound, $"{processRoute}?api-version=7.1-preview.2", ct)))
+        var processTypes = Wire.Rows(await Get(bound, $"{processRoute}?api-version=7.1-preview.2", ct));
+        foreach (var row in processTypes)
         {
             var gaps = new List<string>();
             var reference = Wire.Text(row, "referenceName");
@@ -168,7 +206,8 @@ public sealed partial class AdoProvider
                 }, includePresentation ? PresentationText(s, "color") : null)).ToArray();
             var edges = new List<Transition>();
             var initialStates = new List<FieldValue>();
-            if (!transitions.TryGetValue(reference, out var classic))
+            if (!transitions.TryGetValue(reference, out var classic)
+                && !TryInheritedTransitions(row, name, states, processTypes, transitions, out classic))
                 gaps.Add($"{reference}: exact type transitions unavailable; no parent/all-pairs fallback.");
             else
                 foreach (var edge in classic.GetProperty("transitions").EnumerateObject())

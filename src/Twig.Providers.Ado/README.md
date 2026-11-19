@@ -52,10 +52,14 @@ written into receipts.
 ## Discovery, queries and reads
 
 Discovery reads the project process identity, process-scoped types, per-type
-fields, requiredness, states and rules, classic exact-reference transitions,
+fields, requiredness, states and rules, project-scoped transitions,
 global field typing/read-only/picklist metadata, individual picklists, hidden
-categories and native relation topology/direction. It never borrows a parent's
-transitions or fabricates all-pairs transitions. Native protocol field references
+categories and native relation topology/direction. Exact references take
+precedence. Azure DevOps can label the project's effective inherited transition
+table with the parent reference. Twig accepts that table only with an explicit
+inheritance link, a unique matching name in both responses, and matching state
+and transition evidence. It never uses the parent process's transition table
+or fabricates transitions. Native protocol field references
 (`System.State`, `System.WorkItemType`, etc.) are ADO adapter details, not a
 process-template or custom-field vocabulary in Core.
 

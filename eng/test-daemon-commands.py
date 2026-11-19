@@ -34,14 +34,14 @@ def verify(base, app_dir=None):
 
     assert "server start" in cli("--help")
     assert "Unknown command: 'daemon'" in cli("daemon", "--help", expected=1)
-    for action in (None, "start", "status", "stop"):
+    for action in (None, "start", "status", "stop", "endpoint"):
         command = ("server",) if action is None else ("server", action)
         for flag in ("-h", "--help"):
-            assert "Usage: twig server <start|status|stop>" in cli(*command, flag)
+            assert "Usage: twig server <start|status|stop|endpoint>" in cli(*command, flag)
     assert "Usage: twig server" in cli("server", expected=2)
     assert "Usage: twig server" in json.loads(
         cli("server", "unknown", "-o", "json", expected=2))["error"]
-    for action in ("start", "status", "stop"):
+    for action in ("start", "status", "stop", "endpoint"):
         error = json.loads(cli("server", action, "-o", "json", expected=1))["error"]
         assert "Usage:" not in error and "No command was dispatched" not in error, error
     assert not data.exists() and not home.exists() and not (work / ".twig").exists()

@@ -2,7 +2,7 @@
 
 | Route | Purpose |
 | --- | --- |
-| [`server start`, `server status`, `server stop`](server.md) | Control the selected local server independently of a workspace |
+| [`server start`, `server status`, `server stop`, `server endpoint`](server.md) | Control the selected local server or discover its Windows HTTPS binding independently of a workspace |
 | [`auth login`, `auth pat`](auth-login.md) | Explicit named enrollment/renewal |
 | [`auth identities`](auth-status.md) | Recorded registered identity metadata |
 | [`connection add`](auth-login.md) | Register provider dimensions independently of credentials or workspaces |

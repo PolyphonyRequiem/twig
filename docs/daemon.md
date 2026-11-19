@@ -96,6 +96,21 @@ The console prints the localhost endpoint and accepts **`stop`** for explicit
 shutdown. Do not start a second console against a running instance's data.
 Canvas clients and MCP EOF close their view/session, not this shared process.
 
+The daemon refreshes process/type metadata for already-admitted registered
+connections every **15 minutes**, including overdue metadata after startup,
+without requiring an open Canvas. A one-minute sweep checks each connection's
+last successful schema observation; failed attempts are spaced at least 15
+minutes apart during that daemon run. Successful discovery atomically replaces
+the retained definitions and notifies open views. Ordinary Bench reads do not
+perform metadata discovery.
+
+This is provider-read-only: it does not migrate work-item types, change Bench
+membership, or authorize new connections. Temporary provider unavailability
+keeps the previous definitions and their original observation time. Access
+denials, changed authority and interrupted/uncertain checks remain blocked until
+an explicit successful connection recheck. Background discovery uses the same
+per-source coordination and bounded native operations as foreground requests.
+
 To select a newer source build, run the installer from a different clean commit.
 Version directories are immutable; reinstalling the same selected SHA is refused.
 Selecting new files does not replace a running instance. Coordinate explicit

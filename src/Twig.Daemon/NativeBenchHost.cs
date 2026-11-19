@@ -26,7 +26,9 @@ public static partial class NativeBenchHost
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
         builder.Logging.AddFilter((category, level) =>
-            (category is "Bench.Server.NativeBenchHost" or "Bench.SourceDiagnostics") && level >= LogLevel.Warning);
+            (category is "Bench.Server.NativeBenchHost" or "Bench.SourceDiagnostics" or "Bench.Server.NativeMetadataSync") && level >= LogLevel.Warning);
+        builder.Services.AddHostedService(services =>
+            new NativeMetadataSync(panel, services.GetRequiredService<ILogger<NativeMetadataSync>>()));
         if (options.WindowsSignIn)
         {
             var owner = WindowsOwner();

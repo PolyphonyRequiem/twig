@@ -80,6 +80,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         return Result<bool>.Ok(true);
     }
     public Task<Result<ImmutableArray<UserBenchWorkspace>>> WorkspacesAsync(CancellationToken ct) => definitions.WorkspacesAsync(ct);
+    public Task<Result<bool>> RefreshMetadataAsync(UserBenchWorkspace workspace, DateTimeOffset now, CancellationToken ct)
+        => sources.RefreshMetadataAsync(workspace, now, ct);
     public Task<Result<UserRepositoryBindings>> ReadRepositoryAsync(string root, CancellationToken ct)
         => definitions.ReadRepositoryAsync(root, ct);
     public Task<Result<UserRepositoryBindings>> SaveRepositoryAsync(string root, long revision,

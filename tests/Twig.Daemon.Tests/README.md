@@ -30,6 +30,8 @@ the new tests use `Twig.Daemon.Tests`. No production API was made public for tes
 | `GitHubEditorTests.cs` `plan` and `apply` (2 variants) | `Twig.Cli.Tests/Commands/GitHubCoreSpineTests.ScalarHttp.cs`, `NativeGitHubScalarHttpUsesQualifiedNativeAuthority` | Shared native guards, isolated Stage and normal Save, retained Plan/scope identities, exact whole review/digest/apply/delivery and no replay |
 | `NormalSeedTests.cs` (all 7 variants) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.SeedHttp.cs`, `NativeAdoSeedHttpKeepsExactAuthority` | Actual owned seed projection, empty-field authoring, exact UUID/source/owner/Plan isolation, native create/receipts/cache/pin delivery, lost-response protection, original-reference continuation without replay, SDK/owner/CSRF/ticket/definition/actor guards |
 | `EditorChoiceFixture.cs` Core evaluator primitives only | `Twig.Core.Tests/CompoundLinkContractTests.cs`, `EvaluatedEditorOverlayReplacesConditionalChoicesAndStatesAndRejectsObsoleteValues` and `EvaluatedEditorOverlayWithoutMatchingAllowedRuleRemovesTheConstraint` | Conditional choice/state replacement, obsolete-value errors and actual effect refusal until both values are corrected; no matching Allowed rule is unconstrained, not constrained-empty |
+| `RelationshipTests.cs` (6 HTTP scenarios) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.RelationshipHttp.cs`, `NativeAdoLinkHttpKeepsExactAuthority` | Qualified native pair evaluation, local staging/reopen, atomic add/remove, strict input/SDK/CSRF/ticket guards and protected lost acknowledgement with exact capture/proposal/journal retention |
+| `GitHubLocalRelationshipTests.cs` (5 HTTP feature scenarios and 9 binding scenarios) | `Twig.Cli.Tests/Commands/GitHubCoreSpineTests.RelationshipHttp.cs`, `NativeGitHubLinkHttpKeepsExactAuthority` | Real two-issue LOCAL qualification, nonpublishing review/CAS/tombstone lifecycle, all local-route guards, original Applying protection, actual SQLite Applied receipt continuation, and changed-binding refusals |
 
 The original assertions are retained. The Sessions and adapter executable
 dispatchers become xUnit cases; each Sessions case owns a fresh directory and
@@ -49,6 +51,7 @@ python eng\verify-trx.py -- dotnet test tests\Twig.Cli.Tests\Twig.Cli.Tests.cspr
 python eng\ci-checks.py native-scalar-http
 python eng\ci-checks.py native-plan-http
 python eng\ci-checks.py native-seed-http
+python eng\ci-checks.py native-relationship-http
 ```
 
 The presentation case reuses the existing provider-owned CLI fixture directly,
@@ -389,6 +392,149 @@ No native assertion from the original seven-scenario suite is intentionally
 unported. Its serve/stdin/static-asset branches are consumer protocols, not
 native invariants, and remain unported along with browser interaction/geometry.
 
+## Native relationship HTTP ownership
+
+Source was fetched independently from `PolyphonyRequiem/twig-bench-canvas` main
+`73d10b2033367e3c90780f5c8464993c7830c8bd` (original reference
+`f154a3502f2458cd328e51b71802ae108bbfa12d`). Exact source blobs:
+
+| Source | Blob |
+| --- | --- |
+| `tests/Bench.Service.Tests/RelationshipTests.cs` | `b22838d9fd7f3b5e46c3f584123d93f85b771d20` |
+| `tests/Bench.Service.Tests/GitHubLocalRelationshipTests.cs` | `2a4abd2ae29a4758d9330e58538c674a63170a64` |
+| `tests/Bench.NativeFixtures/RelationshipHostFixture.cs` | `00694c774213a48733c2dbe4dd494697b059e57e` |
+| `tests/Bench.NativeFixtures/GitHubLocalHostFixture.cs` | `5d46dbea52102e01c6f9bbe2e51a65c7bce09d0d` |
+| `tests/Bench.Service.Tests/Program.cs` | `41502ce0612003f28de009b0b79ccad29ec3bb30` |
+| `.github/workflows/ci.yml` | `640141388829e2b75b91b1949181bf62956e824c` |
+
+Program dispatch and both original CI LOCAL lists establish **20 new cases**:
+six ADO cases plus five GitHub LOCAL feature cases plus nine `binding-*` cases.
+The three `native-*` LOCAL dispatches and eight ADO `RunContract` dispatches
+already call provider-owned tests; they are mapped below, not copied or counted
+as new HTTP tests.
+
+The new group uses `FullyQualifiedName=Twig.Cli.Tests.Commands.` followed by
+the method below and `&DisplayName~<scenario>`. Every invocation must produce
+exactly one passed result with zero skips, checked after the unchanged
+`eng/verify-trx.py` 60-second owned-process wrapper. CI uploads all per-case
+TRXs from `artifacts/test-logs/ci/relationship-http/`, including on failure.
+Both methods own 55-second cancellation covering initialization and requests.
+The original request timeout was 60 seconds; these requests instead have a
+55-second ceiling and use the case token. An initially added 10-second cap was
+removed after it interrupted genuine acquisition/SQLite writer-fence work on
+the shared host. There are no timeout catches, retries or accepted partial runs.
+
+| Method | Original scenarios | Retained native assertions |
+| --- | --- | --- |
+| `NativePublicationConsumerTests.NativeAdoLinkHttpKeepsExactAuthority` | association, outgoing, incoming, hierarchy | Actual source/endpoint projection; prospective Done close gate without state/capture changes; scalar Save refusal of pair ticket; owned local Stage with title and one delta; scalar debt disclosure; original capture on reopen; empty-new-fields Save; one target PATCH per add/remove including incoming direction, real target/endpoint revisions, canonical Batch proposal, original digest/journal/receipt and settled capture |
+| same | guards, protected | SDK and CSRF gates before provider acquisition; unknown/null/missing input 400; stale endpoint and closed ticket 409; protected committed effect after lost acknowledgement; no restage/replay; exact drafts, canonical proposal bytes, all original journal/receipt evidence and capture `SameAs` readback |
+| `GitHubCoreSpineTests.NativeGitHubLinkHttpKeepsExactAuthority` | counterfactual, guards | Qualified two-published-issue projection, `localOnly`, exactly one undirected Association and readonly scalar fields; all five LOCAL SDK routes 403, owner CSRF 403, self/unknown endpoint 404, strict null/missing/unknown body 400, combined scalar/ADO refusal; wrong digest/attempt 409, noncanonical ordinal 400, consumed pair/closed ticket 409; unchanged pristine/original evidence |
+| same | lifecycle | Close plus HTTP rediscovery of original canonical proposal/digest, first local CAS Verified/settled, repeat Apply 409, read-only observation, reverse pair version 1, canonical removal expected version 1, tombstone version 2; no provider mutations |
+| same | protected | Genuine endpoint change after durable Applying: original nonempty attempt, no receipts and no LOCAL edge; byte-exact rediscovery; Apply 409; observation preserves original Core/capture/provenance evidence |
+| same | delivery | Real SQLite writer fence after local CAS leaves Applied plus `canContinue`/no `canApply`; explicit HTTP rediscovery and Continue verify/settle the same original digest/ordinal/attempt, retain the first receipt byte-for-byte, append only verification; no replacement/replay |
+| same | binding-actor, binding-repository, binding-schema, binding-endpoint, binding-mode, binding-store, binding-bench, binding-denied | Actual respective provider/normal-mode/store-version/Bench evidence changes; cannot verify any effect, exact original capture/proposal/journal/provenance remains, zero local CAS and zero provider writes |
+| same | binding-generation | Public profile retirement adaptation described below; fresh valid owner still cannot apply the exact retired original ticket/capture/digest |
+
+All HTTP paths compose production `NativeBenchHost`, `NativePanel`,
+`NativeSourceAdapter`, and canonical `UserBenchStore.ForRegistry`, with the
+existing native CLI fixtures' real SQLite and synthetic provider HTTP. ADO
+reuses `NativeHttpGateway`; GitHub reuses `GitHubScalarHttpGateway`. The small
+private `LocalHttpFixture` reuses `InitializeLocalPair`, `LocalPairOther`,
+`JournalBytes`, `ReceiptBytes` and `LocalCaptureProof` from its existing partial
+class. No shared fixture, production API, friend identity or test reference
+changed. There are no source links, reflection, Canvas assembly identities,
+static assets or fabricated compiled-native stamps.
+
+The redundant direct prequalification open was removed: the actual HTTP pair
+must prove the same qualification/shape/direction/readonly assertions. HTTP
+`/editor/local/reviews` still exercises the production native canonical reader
+and compares its returned bytes/digest with the original. Instead of opening a
+second native editor solely to repeat that lookup, additional durable readback
+compares the real capture `IntentJson` and Core `ProposalBytes`. Preservation
+checks compare the complete native state and capture `SameAs`; once a capture
+exists they also compare actual SQLite capture/history/registry provenance
+rows through the existing helper. Pristine state has no capture or initialized
+capture-history generation to inspect, and must remain pristine. The SQLite
+writer and provider callback are released in `finally`, as are the owner,
+listener and fixture-owned stores/homes.
+
+### Public profile-generation adaptation
+
+The original writes daemon-internal `owned.ProfileGeneration = Guid.NewGuid()`.
+That private-field mutation is **not literally ported or claimed**. The public
+boundary test instead creates an actual original Planned capture/review,
+performs HTTP `DELETE /session` (real durable generation rotation and revoke),
+explicitly reconnects the same profile through public `ConnectOwner`, and
+restores the same exact source and Bench. A successful authenticated session
+GET proves the new owner capability is valid. Applying the exact *old*
+ticket/capture/digest/ordinal/attempt must then return **409**, not a stale-token
+401/403. Core state, canonical capture/proposal/journal and provenance remain
+unchanged, with no LOCAL CAS or provider write. This covers real public
+profile-retirement authority; it does not isolate a forged in-memory generation
+while deliberately holding every other internal field constant.
+
+### Existing native dispatches, not new wrappers
+
+All following methods have the same `Twig.Cli.Tests.Commands.` prefix. Existing
+CI selectors are in `eng/ci-checks.py`, `user-benches` for ADO and `github-root`
+for GitHub. They remain unchanged.
+
+| Original dispatch | Existing method | Existing CI result label |
+| --- | --- | --- |
+| ADO parents-and-cycles | `NativePublicationConsumerTests.NativePublicRelationshipsRefuseParentReplacementAndDependencyCycleThroughCore` | `native-public-relationships-policy` |
+| ADO ownership | `NativePublicationConsumerTests.NativePublicRelationshipsDoNotAdoptCliDebtPlanSeedsOrAnotherBench` | `native-public-relationships-isolation` |
+| ADO store, source, witness | `NativePublicationConsumerTests.NativePublicRelationshipsChangedEvidenceRefusesWithoutReplacingCapture` with respective `DisplayName` | `native-public-relationships-capture` |
+| ADO bench, mode | same method, respective `DisplayName` | `native-public-relationships-authority` |
+| ADO incident-debt | same method, `DisplayName~incident-debt` | `native-public-relationships-debt` |
+| ADO protected's extra original-receipts postcondition | `NativePublicationConsumerTests.NativePublicRelationshipsOriginalUncertainReceiptIsProtectedWithoutReplay`, `DisplayName~True` | `native-public-relationships-uncertain` (already runs both bool rows) |
+| LOCAL native-mapped | `GitHubCoreSpineTests.NativeGitHubLocalReverseOrderRetainsOriginalUuidAndTombstoneAbaCas` | `native-local-uuid-cas` |
+| LOCAL native-applied | `GitHubCoreSpineTests.NativeGitHubLocalAppliedReceiptReopensAndVerifiesWithoutReplay` | `native-local-applied-recovery` |
+| LOCAL native-reader | `GitHubCoreSpineTests.NativeGitHubLocalReaderIncludesProtectedOriginalAttemptWithoutReplay` | `native-local-read-protected` |
+
+The extra ADO protected `True` postcondition is independently executable as
+`FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativePublicRelationshipsOriginalUncertainReceiptIsProtectedWithoutReplay&DisplayName~True`.
+It verifies original title debt, exact receipts/proposal and reopen/scalar/pair
+refusals after a committed uncertain effect, not merely the new HTTP guard.
+All twelve mapped original dispatches in the table were also executed
+individually with the unchanged bounded verifier, exactly one passed result
+each, in `artifacts/test-logs/ci/relationship-existing/`. Four focused shared
+composition checks passed individually in `relationship-shared/`: GitHub scalar
+`guards` and Plan `apply` from `NativeGitHubScalarHttpUsesQualifiedNativeAuthority`,
+ADO seed `guards` from `NativeAdoSeedHttpKeepsExactAuthority`, and Agent
+`rule-guards` from `NativeAgentHttpPreservesScopedNativeAuthorityWithoutProviderWrites`.
+Together with the twenty new cases this is 36 passed, zero skipped. The CLI
+project build used SDK `11.0.100-rc.3.26522.148`, `--no-restore -f net11.0 -m:1
+--verbosity quiet`, with zero warnings/errors; restore was performed only after
+the initial missing-assets failure. This session resolved `python3` with no
+prefix arguments through the Python runtime skill.
+
+Final complete 20-case execution produced the following actual synthetic
+transport/durable counters (not gateway admission counts). GitHub provider
+mutation count is **zero in every row**; LOCAL versions are native SQLite CAS,
+never publication. ADO creates are zero.
+
+| Case | Provider HTTP | PATCH / committed | LOCAL version | Captures / proposals / journal | Receipts |
+| --- | ---: | --- | ---: | --- | --- |
+| ADO association/outgoing/incoming/hierarchy (each) | 480 | 2 / 2 | - | 2 / 2 / 2 | 4 |
+| ADO guards | 90 | 0 / 0 | - | 1 / 0 / 0 | 0 |
+| ADO protected | 185 | 1 / 1 | - | 1 / 1 / 1 | 1 (Indeterminate) |
+| LOCAL counterfactual | 64 | 0 / 0 | 0 | 0 / 0 / 0 | 0 |
+| LOCAL guards | 96 | 0 / 0 | 0 | 1 / 1 / 1 | 0 |
+| LOCAL lifecycle | 224 | 0 / 0 | 2 | 2 / 2 / 2 | 4 |
+| LOCAL protected | 128 | 0 / 0 | 0 | 1 / 1 / 1 | 0 |
+| LOCAL delivery | 147 | 0 / 0 | 1 | 1 / 1 / 1 | 2 |
+| LOCAL binding actor/repository (each) | 97 | 0 / 0 | 0 | 1 / 1 / 1 | 0 |
+| LOCAL binding schema/store (each) | 99 | 0 / 0 | 0 | 1 / 1 / 1 | 0 |
+| LOCAL binding endpoint | 106 | 0 / 0 | 0 | 1 / 1 / 1 | 0 |
+| LOCAL binding mode/bench (each) | 96 | 0 / 0 | 0 | 1 / 1 / 1 | 0 |
+| LOCAL binding denied/generation (each) | 98 | 0 / 0 | 0 | 1 / 1 / 1 | 0 |
+
+No native assertion in the six original ADO or fourteen LOCAL HTTP scenarios
+is intentionally omitted other than the explicitly replaced private-generation
+mutation above. Serve/stdin/iframe/browser/compiled-artifact qualification is
+not adopted. All consumer source deletion remains gated on independent
+comparison of the committed provider gates; this PR deletes no consumer source.
+
 ## Not adopted or qualified here
 
 This is not permission to delete the whole Canvas native integration lane:
@@ -405,9 +551,10 @@ This is not permission to delete the whole Canvas native integration lane:
   enforcement remain consumer-owned. Original consumer tests remain retained
   until an independent comparison of the committed provider gates authorizes
   their removal; these two cases do not dispose of the whole native suite.
-- The scalar, Plan and normal-seed cases above do not adopt the `PlanTests` or
-  `NormalSeedTests` serving loops or external-edit stdin commands, `RelationshipTests`,
-  `GitHubLocalRelationshipTests`, the remaining `EditorChoiceFixture` HTTP/browser
+- The scalar, Plan, normal-seed and relationship cases above do not adopt the
+  `PlanTests`, `NormalSeedTests`, `RelationshipTests` or
+  `GitHubLocalRelationshipTests` serving loops or external-edit stdin commands,
+  the remaining `EditorChoiceFixture` HTTP/browser
   behavior or their remaining
   `Bench.NativeFixtures/*.cs` dependencies. These sources remain upstream;
   neither whole editor file is declared deletable here. Existing CLI/Core

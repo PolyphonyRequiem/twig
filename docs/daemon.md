@@ -451,6 +451,14 @@ a daemon. See the [paired publication gate](architecture/build-and-release.md#pa
 
 ## Security and data ownership
 
+On Windows, command-pipe access allows only the daemon's token user and explicitly
+denies network logons. Pipe owner metadata uses `Token.Owner` for .NET
+`CurrentUserOnly` compatibility; the DACL still allows only `Token.User`.
+The client retains `CurrentUserOnly` and identification-level access, and verifies
+the connected server process's `Token.User` against its own before writing any
+Invocation bytes. An unavailable PID, token or user fails closed without dispatch.
+Private-directory ownership and endpoint selection checks remain user-scoped.
+
 The daemon's private data holds durable daemon identity and presentation/native
 evidence. User-wide Benches live separately in `benches.db` beside the native
 registry. Twig-native items live in explicitly named databases under

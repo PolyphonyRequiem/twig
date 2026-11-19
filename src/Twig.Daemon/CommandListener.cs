@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.IO.Pipes;
+using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
@@ -64,7 +65,7 @@ internal sealed class CommandListener : IAsyncDisposable
         }
     }
 
-    private static NamedPipeServerStream Open(string name, bool first)
+    internal static NamedPipeServerStream Open(string name, bool first)
     {
         var options = PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : 0);
         if (!OperatingSystem.IsWindows())
@@ -74,15 +75,23 @@ internal sealed class CommandListener : IAsyncDisposable
         // CurrentUserOnly alone admits an SMB network logon for the same SID. The Windows
         // CurrentUserOnly constructor ignores custom ACLs, so express both rules in the DACL.
         using var identity = WindowsIdentity.GetCurrent();
-        var owner = identity.User ?? throw new InvalidOperationException("Missing daemon owner.");
+        var user = identity.User ?? throw new InvalidOperationException("Missing daemon user.");
+        var owner = identity.Owner ?? throw new InvalidOperationException("Missing daemon owner.");
+        return NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, Workers + 1,
+            PipeTransmissionMode.Byte, options, 0, 0, WindowsSecurity(user, owner));
+    }
+
+    [SupportedOSPlatform("windows")]
+    internal static PipeSecurity WindowsSecurity(SecurityIdentifier user, SecurityIdentifier owner)
+    {
         var acl = new PipeSecurity();
         acl.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        // .NET's client CurrentUserOnly compares Token.Owner; access remains Token.User-only.
         acl.SetOwner(owner);
         acl.AddAccessRule(new(new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
             PipeAccessRights.FullControl, AccessControlType.Deny));
-        acl.AddAccessRule(new(owner, PipeAccessRights.FullControl, AccessControlType.Allow));
-        return NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, Workers + 1,
-            PipeTransmissionMode.Byte, options, 0, 0, acl);
+        acl.AddAccessRule(new(user, PipeAccessRights.FullControl, AccessControlType.Allow));
+        return acl;
     }
 
     public async ValueTask DisposeAsync()

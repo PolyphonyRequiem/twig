@@ -13,6 +13,11 @@ def native_authority():
         ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests|FullyQualifiedName~DaemonLauncherTests|FullyQualifiedName~NativeMetadata"),
         ("Twig.Cli.Tests", "FullyQualifiedName~NativeTwigSpineTests"),
     ]:
+        if os.name == "nt":
+            if project == "Twig.Daemon.Tests":
+                selector += "|FullyQualifiedName~CommandPipeSecurityTests"
+            elif project == "Twig.Cli.Tests":
+                selector += "|FullyQualifiedName~CommandPipeClientTests"
         subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
                         f"tests/{project}/{project}.csproj", "--no-build", "--no-restore", "-f", "net11.0",
                         "--filter", selector, "--logger", f"trx;LogFileName={project}.trx",

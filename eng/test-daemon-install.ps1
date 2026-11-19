@@ -1,10 +1,14 @@
+param(
+    [string] $OperatorDirectory = $PSScriptRoot,
+    [string] $RuntimeDirectory
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $fixture = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('Temp\twig-daemon-install-' + [Guid]::NewGuid().ToString('N'))
 $tools = Join-Path $fixture 'source\tools'
 [void][IO.Directory]::CreateDirectory($tools)
 $tokens = $null; $errors = $null
-$original = Join-Path $PSScriptRoot 'daemon-install.ps1'
+$original = Join-Path $OperatorDirectory 'daemon-install.ps1'
 $ast = [Management.Automation.Language.Parser]::ParseFile($original, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw 'Daemon installer parse failed.' }
 $functions = @($ast.FindAll({
@@ -35,6 +39,9 @@ function Invoke-BenchCommand([string] $File, [string[]] $Arguments, [int] $Secon
             [void][IO.Directory]::CreateDirectory((Join-Path $output 'wwwroot'))
             [IO.File]::WriteAllText((Join-Path $output 'wwwroot\app.js'), 'Forbidden bundled UI.')
         }
+        if ($global:DaemonFixture.Mode -ceq 'bundled-cli') {
+            [IO.File]::WriteAllText((Join-Path $output 'twig.exe'), 'Forbidden independent CLI.')
+        }
         return 'Synthetic daemon publish.'
     } elseif ([IO.Path]::GetFileName($File) -ceq 'Bench.Server.exe' -and
         $Arguments.Count -eq 2 -and $Arguments[0] -ceq '--check-certificate') {
@@ -48,14 +55,14 @@ $function = $functions[0].Extent
 $text = [IO.File]::ReadAllText($original)
 $text = $text.Substring(0, $function.StartOffset) + $stub + $text.Substring($function.EndOffset)
 [IO.File]::WriteAllText((Join-Path $tools 'daemon-install.ps1'), $text)
-[IO.File]::Copy((Join-Path $PSScriptRoot 'daemon-launch.ps1'), (Join-Path $tools 'daemon-launch.ps1'))
+[IO.File]::Copy((Join-Path $OperatorDirectory 'daemon-launch.ps1'), (Join-Path $tools 'daemon-launch.ps1'))
 $data = Join-Path $fixture 'data'
 [void][IO.Directory]::CreateDirectory($data)
 $global:DaemonFixture = @{ Version = '1' * 40; Mode = '';
     Names = @('Bench.Server.exe', 'Bench.Server.dll', 'coreclr.dll', 'hostfxr.dll',
         'Twig.Providers.Native.dll', 'Twig.Infrastructure.dll', 'Twig.Store.Sqlite.dll') }
 try {
-    foreach ($mode in @('publish-failure', 'missing-native-provider', 'bundled-ui', 'certificate-refusal')) {
+    foreach ($mode in @('publish-failure', 'missing-native-provider', 'bundled-ui', 'bundled-cli', 'certificate-refusal')) {
         $root = Join-Path $fixture $mode
         $arguments = @{ PrivateDataDir = $data; InstallRoot = $root; Port = 53219;
             HttpsCertificateThumbprint = 'A' * 40; CanvasInstallRoot = Join-Path $fixture 'not-installed-canvas' }
@@ -80,12 +87,39 @@ try {
     . (Join-Path $tools 'daemon-launch.ps1')
     $record = Get-Content -LiteralPath (Join-Path $root 'current.json') -Raw | ConvertFrom-Json
     $null = Get-BenchInstallation $root $record
+    $currentText = [IO.File]::ReadAllText((Join-Path $root 'current.json'))
+    $global:DaemonFixture.Version = '3' * 40
+    $global:DaemonFixture.Mode = 'certificate-refusal'
+    $refused = $false
+    try { & (Join-Path $tools 'daemon-install.ps1') @arguments | Out-Null } catch { $refused = $true }
+    if (-not $refused -or [IO.File]::ReadAllText((Join-Path $root 'current.json')) -cne $currentText -or
+        [IO.File]::ReadAllText((Join-Path $root 'previous.json')) -cne $retained) {
+        throw 'A refused upgrade changed the current or rollback selection.'
+    }
+    $null = Get-BenchInstallation $root ($retained | ConvertFrom-Json)
+    $global:DaemonFixture.Version = '2' * 40
     $packageArguments = $arguments.Clone()
     $packageArguments.InstallRoot = Join-Path $fixture 'packaged-install'
     $packageArguments.PackageDirectory = Join-Path $root ('versions\' + $record.version)
     $global:DaemonFixture.Mode = 'package-only'
     & (Join-Path $tools 'daemon-install.ps1') @packageArguments | Out-Null
     $null = Get-BenchInstallation $packageArguments.InstallRoot
+    if ($RuntimeDirectory) {
+        $actualArguments = $packageArguments.Clone()
+        $actualArguments.PackageDirectory = (Resolve-Path -LiteralPath $RuntimeDirectory).Path
+        $actualArguments.InstallRoot = Join-Path $fixture 'actual-release-install'
+        & (Join-Path $tools 'daemon-install.ps1') @actualArguments | Out-Null
+        $installed = Get-BenchInstallation $actualArguments.InstallRoot
+        if ([IO.File]::ReadAllText((Join-Path $actualArguments.InstallRoot 'daemon-launch.ps1')) -cne
+            [IO.File]::ReadAllText((Join-Path $OperatorDirectory 'daemon-launch.ps1')) -or
+            (Get-BenchHash $installed.Executable) -cne
+            (Get-BenchHash (Join-Path $actualArguments.PackageDirectory 'Bench.Server.exe'))) {
+            throw 'The extracted runtime and launcher were not installed intact.'
+        }
+        $refused = $false
+        try { & (Join-Path $tools 'daemon-install.ps1') @actualArguments | Out-Null } catch { $refused = $true }
+        if (-not $refused) { throw 'Immutable release reinstall was not refused.' }
+    }
     # Only the certificate-store boundary is synthetic; selection/runtime validation remains real.
     $global:DaemonFixture.CertificateChecks = 0
     function Assert-BenchEndpointCertificate($Installation) {

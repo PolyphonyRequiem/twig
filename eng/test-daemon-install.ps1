@@ -4,6 +4,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+& (Join-Path $PSScriptRoot 'test-daemon-paths.ps1') -OperatorDirectory $OperatorDirectory
 $fixture = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('Temp\twig-daemon-install-' + [Guid]::NewGuid().ToString('N'))
 $tools = Join-Path $fixture 'source\tools'
 [void][IO.Directory]::CreateDirectory($tools)

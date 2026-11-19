@@ -19,10 +19,15 @@ function Get-BenchLocalPath([string] $Path) {
     if ($full.Length -le 3) { throw 'A dedicated directory or file path is required, not a drive root.' }
     $cursor = $full
     while ($cursor) {
-        if (Test-Path -LiteralPath $cursor) {
-            if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                throw 'Reparse-point paths are not supported.'
-            }
+        try {
+            $attributes = [IO.File]::GetAttributes($cursor)
+        } catch [IO.FileNotFoundException] {
+            $attributes = 0
+        } catch [IO.DirectoryNotFoundException] {
+            $attributes = 0
+        }
+        if ($attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw 'Reparse-point paths are not supported.'
         }
         $parent = [IO.Path]::GetDirectoryName($cursor)
         if ($parent -eq $cursor) { break }

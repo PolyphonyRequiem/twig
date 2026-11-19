@@ -21,8 +21,21 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal bool Revoked { get; set; }
     internal Guid ProfileGeneration { get; set; }
     internal SemaphoreSlim RecoveryGate { get; } = new(1, 1);
+    internal bool ReferencesRestored { get; set; }
+    internal NativeViewChoices? AppliedChoices { get; set; }
     internal Dictionary<string, NativeSourceRecovery> SourceRecovery { get; } = new(PathComparer);
-    internal Guid? CurrentBenchId { get; set; }
+    private Guid? currentBenchId;
+    internal long SelectionRevision { get; private set; }
+    internal Guid? CurrentBenchId
+    {
+        get => currentBenchId;
+        set
+        {
+            if (currentBenchId == value) return;
+            currentBenchId = value;
+            SelectionRevision++;
+        }
+    }
     internal string? RepositoryRoot { get; set; }
     internal Twig.Infrastructure.Services.UserRepositoryBindings? RepositoryBindings { get; set; }
     internal CanvasRuntimeContext? RuntimeContext { get; set; }
@@ -46,7 +59,7 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal NativeAgentView Agent { get; } = new();
 }
 
-public sealed class ViewSessions(string preferencesDirectory, TimeProvider? timeProvider = null)
+public sealed partial class ViewSessions(string preferencesDirectory, TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
@@ -180,6 +193,7 @@ public sealed class ViewSessions(string preferencesDirectory, TimeProvider? time
                 else if (!File.Exists(NativePath(session))) WriteDocument(session, document);
                 session.ProfileGeneration = document.Generation;
                 ApplyPreferences(session, document);
+                session.AppliedChoices = document.Choices;
             }
             session.Revoked = false;
             session.Expires = time.GetUtcNow() + OwnerLifetime;
@@ -419,7 +433,6 @@ public sealed class ViewSessions(string preferencesDirectory, TimeProvider? time
             RequireProfile(session, document);
             return document.Sources;
         }
-
     }
 
     internal Guid? ReadRepositoryBench(ViewSession session, string repositoryId)
@@ -464,8 +477,11 @@ public sealed class ViewSessions(string preferencesDirectory, TimeProvider? time
             var document = ReadDocument(session);
             RequireProfile(session, document);
             if (document.Revision != revision) throw StateConflict();
-            apply();
-            return StateInfo(session, document);
+            lock (session)
+            {
+                apply();
+                return StateInfo(session, document);
+            }
         }
     }
 

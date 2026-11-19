@@ -26,7 +26,9 @@ public static partial class NativeBenchHost
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
         builder.Logging.AddFilter((category, level) =>
-            (category is "Bench.Server.NativeBenchHost" or "Bench.SourceDiagnostics") && level >= LogLevel.Warning);
+            (category is "Bench.Server.NativeBenchHost" or "Bench.SourceDiagnostics" or "Bench.Server.NativeMetadataSync") && level >= LogLevel.Warning);
+        builder.Services.AddHostedService(services =>
+            new NativeMetadataSync(panel, services.GetRequiredService<ILogger<NativeMetadataSync>>()));
         if (options.WindowsSignIn)
         {
             var owner = WindowsOwner();
@@ -96,12 +98,12 @@ public static partial class NativeBenchHost
                     context.Response.Headers[DaemonLauncher.InstanceHeader] = options.ProcessInstance.ToString("D");
                 return Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1"]));
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "workspace-read-v1", "private-editor-inputs-v1"]));
             })
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1"])));
+                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "workspace-read-v1", "private-editor-inputs-v1"])));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
             var body = await Body<RegisterCanvasBody>(context);
@@ -172,9 +174,7 @@ public static partial class NativeBenchHost
             NativeAadEnrollment[] identities = [];
             if (connectionSetup is not null && workspaces.Any(workspace => workspace.Connection.Provider.Value == "ado"))
             {
-                var accounts = await connectionSetup.ListAadIdentitiesAsync(context.RequestAborted);
-                if (accounts.IsSuccess) identities = accounts.Value;
-                else app.Logger.LogWarning("Attached connection account metadata is unavailable: {Code}", accounts.Error.Code);
+                identities = await ReadAccounts(context.RequestAborted);
             }
             var labels = new List<WorkspaceDto>();
             var labelBudget = System.Diagnostics.Stopwatch.StartNew();
@@ -211,6 +211,7 @@ public static partial class NativeBenchHost
                 session.NativeContext = opened;
                 session.DisplayContexts[opened.Stamp.Connection] = opened;
                 session.CurrentBenchId ??= selection.SelectedBenchId;
+                session.ReferencesRestored = true;
             }
             updates.Publish(0);
             await Write(context, new Ack());
@@ -232,6 +233,7 @@ public static partial class NativeBenchHost
                     throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
                 repositoryId = session.RepositoryBindings?.RepositoryId;
                 session.CurrentBenchId = body.BenchId;
+                session.ReferencesRestored = true;
                 session.PopulationContext = null;
                 if (body.BenchId is null)
                 {
@@ -459,7 +461,8 @@ public static partial class NativeBenchHost
                 {
                     await Authorize(context, id);
                     if (change.AgentViewId is { } target && target != id) continue;
-                    await context.Response.WriteAsync(change.AgentViewId is not null
+                    await context.Response.WriteAsync(change.Resync
+                        ? "event: changed\ndata: {\"resync\":true}\n\n" : change.AgentViewId is not null
                         ? "event: agent\ndata: {}\n\n" : change.PresentationOnly
                         ? "event: presentation\ndata: {}\n\n" : "event: changed\ndata: {}\n\n", lifetime.Token);
                     await context.Response.Body.FlushAsync(lifetime.Token);
@@ -522,10 +525,10 @@ public static partial class NativeBenchHost
             await Write(context, new PlanningRuleDto(BenchCodec.SerializeSelectors(
                 [new(SelectorKind.Query, query: query, connection: capture.Context.Stamp.Connection)])));
         });
-        MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource);
-        MapEditor(app, panel, updates, (context, id) => Authorize(context, id, true));
-        MapSeeds(app, panel, updates, (context, id) => Authorize(context, id, true));
-        MapPlan(app, panel, updates, (context, id) => Authorize(context, id, true));
+        MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource, ReadAccounts);
+        MapEditor(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
+        MapSeeds(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
+        MapPlan(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapAgent(app, panel, sessions, updates, (context, id) => Authorize(context, id, true), options);
         MapSetup(app, connectionSetup, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapRepositories(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
@@ -577,6 +580,15 @@ public static partial class NativeBenchHost
                     ? "text/javascript" : route.EndsWith(".css", StringComparison.Ordinal) ? "text/css" : "text/html";
             });
         return app;
+
+        async Task<NativeAadEnrollment[]> ReadAccounts(CancellationToken ct)
+        {
+            if (connectionSetup is null) return [];
+            var accounts = await connectionSetup.ListAadIdentitiesAsync(ct);
+            if (accounts.IsSuccess) return accounts.Value;
+            app.Logger.LogWarning("Attached connection account metadata is unavailable: {Code}", accounts.Error.Code);
+            return [];
+        }
 
         SourceViewDto PresentSource(SourceViewDto source)
         {

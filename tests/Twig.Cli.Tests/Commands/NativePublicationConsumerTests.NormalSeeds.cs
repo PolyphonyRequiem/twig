@@ -20,6 +20,7 @@ public sealed partial class NativePublicationConsumerTests
         var type = observation.Schema.Value.Types.Single(value => value.Reference == "Fixture.Task");
         _transport.PostCount.ShouldBe(0);
         ItemKey seed;
+        string stagedBaseline;
         using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
         {
             editor.PlanMode.ShouldBeFalse();
@@ -37,6 +38,8 @@ public sealed partial class NativePublicationConsumerTests
                 FieldValues.Empty.Set("System.Title", FieldValue.String("Explicit native seed"))
                     .Set(type.StateField, FieldValue.String(type.States.Single(value => value.Category == StateCategory.Proposed).Name)));
             staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
+            stagedBaseline = staged.Value.InputBaseline;
+            stagedBaseline.ShouldNotBe(created.Value.InputBaseline);
             (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldBe(before.Benches.Single().Selectors,
                 "An owned temporary seed must never become a permanent local-UUID Bench pin.");
             _transport.PostCount.ShouldBe(0);
@@ -46,6 +49,7 @@ public sealed partial class NativePublicationConsumerTests
             var selected = await reopened.SelectAsync(seed);
             selected.IsSuccess.ShouldBeTrue(selected.IsSuccess ? "" : selected.Error.Message);
             selected.Value.Item.ShouldBe(seed);
+            selected.Value.InputBaseline.ShouldBe(stagedBaseline);
             selected.Value.Values["System.Title"].Text.ShouldBe("Explicit native seed");
             var saved = await reopened.SaveAsync(selected.Value.Ticket, FieldValues.Empty);
             saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);

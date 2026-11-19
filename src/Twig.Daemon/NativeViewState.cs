@@ -29,6 +29,12 @@ public sealed record NativeOwnerSession(Guid ViewId, string ContentCapability, b
     public NativeInitialView? InitialView { get; init; }
 }
 public sealed record NativeInitialView(NativePanelSummary Summary, NativeSessionInfo Session, NativeBenchViewDto? View);
+public sealed record NativeWorkspaceDto(NativeViewStateInfo ViewState, NativePanelSummary Summary,
+    NativeSessionInfo Session, NativeBenchViewDto? View, int ReconcileAfterSeconds = 30)
+{
+    public Guid? PlanOperationId { get; init; }
+    public Failure? SelectionError { get; init; }
+}
 
 internal sealed record NativeSourceReference(string Root, string Binding);
 internal sealed record NativeViewDocument(int Version, Guid StoreId, Guid ProfileId, long Revision, Guid Generation,
@@ -42,5 +48,6 @@ internal sealed record NativeViewDocument(int Version, Guid StoreId, Guid Profil
 [JsonSerializable(typeof(NativeViewStateInfo))]
 [JsonSerializable(typeof(NativeOwnerSession))]
 [JsonSerializable(typeof(NativeInitialView))]
+[JsonSerializable(typeof(NativeWorkspaceDto))]
 [JsonSerializable(typeof(NativeViewDocument))]
 internal sealed partial class TransportJson;

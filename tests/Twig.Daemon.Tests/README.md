@@ -38,12 +38,22 @@ dispatchers become xUnit cases; each Sessions case owns a fresh directory and
 55-second cancellation budget. The Catalog executable is deliberate: one case
 starts its own child, commits, exits without a response, and verifies durable
 receipt recovery. The projects build with the solution and run in the Windows
-and Linux CI matrix under the existing 60-second owned-process wrapper.
+and Linux CI matrix with a 60-second process timing warning and a separate
+300-second owned-tree safety timeout. The solution build's timing target is
+120 seconds, also with a 300-second safety timeout. Slow completion warns without
+changing the child exit code; safety cancellation still fails and reaps the
+owned tree. TRX checks still require every selected result to pass with no skips.
+Behavioral HTTP assertions and causal/liveness checks remain correctness guards;
+the adopted HTTP timing policy below separates their generic elapsed targets
+from case runaway cancellation.
+The offline smoke supervisor uses the same warning/safety split; its command
+outcomes, no-network isolation, trace and two-second graceful daemon shutdown
+check remain unchanged.
 
 Run after building the solution:
 
 ```powershell
-python eng\run-bounded.py --timeout 60 -- dotnet tests\Twig.Daemon.Catalog.Tests\bin\Debug\net11.0\Twig.Daemon.Catalog.Tests.dll
+python eng\run-bounded.py --warn-after 60 --timeout 300 -- dotnet tests\Twig.Daemon.Catalog.Tests\bin\Debug\net11.0\Twig.Daemon.Catalog.Tests.dll
 python eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SessionInvariantTests|FullyQualifiedName~NativeHttpInvariantTests|FullyQualifiedName~NativeSourceAdapterInvariantTests|FullyQualifiedName~NativeAccountLabelInvariantTests|FullyQualifiedName~CatalogChangesTests" --logger "trx;LogFileName=daemon-invariants.trx" --results-directory artifacts\test-logs\ci\daemon-invariants
 python eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RedactsDiagnosticsThroughNativeHostAndLoggingFilter|FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RetainsSchemaUntilExplicitNativeRecheck" --logger "trx;LogFileName=read-composition.trx" --results-directory artifacts\test-logs\ci\read-composition
 python eng\verify-trx.py -- dotnet test tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativePresentationHttpPersistsWithoutAcquisitionAndPreservesContentPriority" --logger "trx;LogFileName=presentation-http.trx" --results-directory artifacts\test-logs\ci\presentation-http
@@ -61,6 +71,13 @@ No source links, new friend identities or production hooks are needed. The
 original complete-choice comparison uses the public `view-state` JSON response
 instead of the daemon's internal serializer; the second view uses the same
 explicit store/profile pair. These are runner adaptations, not reduced assertions.
+
+The retained GitHub root phase (`python eng\ci-checks.py github-root`) follows
+the portable connection contract: its init group runs six rows, including two
+distinct missing-registration/credential refusals (exit 1) and one malformed
+explicit-account refusal (exit 2). Each refusal checks the structured cause and
+zero credential/HTTP calls, workspace creation, database or SQLite sidecars.
+An omitted `--account` is not a usage error when a matching local binding exists.
 
 ## Diagnostic and schema read composition
 
@@ -197,9 +214,9 @@ operation. The HTTP client adds no shorter independent cancellation.
 The Panel case and its two read-composition controls share this private fixture
 policy and output plumbing. No production timeout is changed.
 
-The external verifier's coordinated timing-warning/runaway change is owned by
-the parent CI update; until that parent is integrated, its old process bound
-still limits execution. A canceled or unexecuted case never counts as passed.
+The integrated external verifier warns after 60 seconds and retains a separate
+300-second owned-tree safety timeout, with strict actual-TRX validation.
+A canceled or unexecuted case never counts as passed.
 Status, authority, provider/write counts, ordering and evidence assertions are
 unchanged. In particular, Plan's held-provider response/liveness assertions,
 five-second callback-entry waits, injected 36-second delay and minimum elapsed
@@ -709,7 +726,7 @@ Missing assets (`NETSDK1004`) required a targeted `dotnet restore <project>
 passed; existing MSBuild Git/SourceLink warnings reported "Repository has no
 commit" and empty source-link information (not suppressed). The three isolated
 TRX runs passed 6, 9 and 1 cases respectively, with zero skips and every selector
-covered, through the unchanged 60-second owned-tree wrapper.
+covered, through the then-current 60-second owned-tree wrapper.
 
 The exact four-selector CI command shown above was also executed with `python3`:
 37 passed, zero skipped, every selector covered, at
@@ -718,7 +735,9 @@ Windows/Linux `daemon_invariants` step and `twig-daemon-invariants-${rid}` TRX
 artifact already include all six Sessions cases, so no duplicate CI job or
 selector was added. Canvas's original CI runs the Sessions executable as a whole
 with a 60-second external bound and 55-second internal cancellation; this
-adoption retains those bounds per xUnit case. Only Windows execution is claimed
+historical execution retained those bounds per xUnit case. Current generic
+process timing targets warn, as described above; the internal 55-second
+cancellation remains unchanged. Only Windows execution is claimed
 here, not live-provider, trusted HTTPS or browser qualification.
 
 ## Not adopted or qualified here

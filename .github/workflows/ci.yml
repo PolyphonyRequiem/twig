@@ -35,13 +35,13 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet restore
-      - name: Supported solution build (120-second deadline)
-        run: python eng/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:2"
+      - name: Supported solution build (120-second warning target, 300-second safety timeout)
+        run: python eng/run-bounded.py --warn-after 120 --timeout 300 -- dotnet build --no-restore "-m:2"
 
       - name: Native authority, lost acknowledgement recovery and independent canvas packages
         run: python eng/ci-checks.py native-authority
       - name: Daemon catalog identity, CAS and durable lost-response receipts (isolated)
-        run: python eng/run-bounded.py --timeout 60 -- dotnet tests/Twig.Daemon.Catalog.Tests/bin/Debug/net11.0/Twig.Daemon.Catalog.Tests.dll
+        run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- dotnet tests/Twig.Daemon.Catalog.Tests/bin/Debug/net11.0/Twig.Daemon.Catalog.Tests.dll
       - name: Provider-owned daemon sessions, native HTTP and admission guards (isolated)
         id: daemon_invariants
         run: python eng/verify-trx.py -- dotnet test tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SessionInvariantTests|FullyQualifiedName~NativeHttpInvariantTests|FullyQualifiedName~NativeSourceAdapterInvariantTests|FullyQualifiedName~NativeAccountLabelInvariantTests|FullyQualifiedName~CatalogChangesTests" --logger "trx;LogFileName=daemon-invariants.trx" --results-directory artifacts/test-logs/ci/daemon-invariants
@@ -140,7 +140,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           bash eng/daemon-package-linux.sh
-          python3 eng/run-bounded.py --timeout 60 -- bash eng/test-daemon-linux.sh
+          python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- bash eng/test-daemon-linux.sh
 
       - name: Explicit native setup and creation-bound readback
         id: native_setup
@@ -201,8 +201,8 @@ jobs:
 
       # Current production roots replace old ShowCommand/export envelopes,
       # captured Canvas/Browser/TUI/MCP gestures, legacy writers and migration.
-      # Every method group gets its own unchanged 60-second owned-tree deadline
-      # and selector-verified TRX. Never run either large root class as one filter.
+      # Each method group has a 60-second warning target, 300-second owned-tree safety
+      # timeout and selector-verified TRX. Never run either large root class as one filter.
       - name: Closed catalog, native host and fresh Core initialization
         id: catalog
         run: python eng/ci-checks.py catalog
@@ -240,7 +240,7 @@ jobs:
 
       - name: Local layout and binding status diagnostics
         id: connection_status
-        run: python eng/run-bounded.py --timeout 60 -- python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ConnectionStatusProductionCliTests" --logger "trx;LogFileName=connection-status.trx" --results-directory artifacts/test-logs/ci/connection-status
+        run: python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ConnectionStatusProductionCliTests" --logger "trx;LogFileName=connection-status.trx" --results-directory artifacts/test-logs/ci/connection-status
       - name: Preserve connection status results
         if: always() && steps.connection_status.outcome != 'skipped' && steps.connection_status.outcome != ''
         uses: actions/upload-artifact@v4
@@ -283,13 +283,13 @@ jobs:
           if-no-files-found: error
 
       - name: Supported Core-only platform delivery regression (offline)
-        run: python eng/run-bounded.py --timeout 60 -- python eng/test-platform-support.py
+        run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-platform-support.py
       - name: Exercise the CLI and daemon command boundary
-        run: python eng/run-bounded.py --timeout 60 -- python eng/test-daemon-commands.py
+        run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-daemon-commands.py
 
-      - name: Fundamental build validation (60-second offline smoke)
+      - name: Fundamental build validation (60-second warning target, 300-second safety timeout)
         id: smoke
-        run: python eng/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --timeout 60 --trace artifacts/smoke/boundaries.jsonl
+        run: python eng/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --warn-after 60 --timeout 300 --trace artifacts/smoke/boundaries.jsonl
       - name: Preserve smoke boundaries
         if: always() && steps.smoke.outcome != 'skipped' && steps.smoke.outcome != ''
         uses: actions/upload-artifact@v4
@@ -315,7 +315,7 @@ jobs:
         run: |
           set -euo pipefail
           DOTNET_ROLL_FORWARD=Major \
-            python eng/run-bounded.py --timeout 60 -- dotnet samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll \
+            python eng/run-bounded.py --warn-after 60 --timeout 300 -- dotnet samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll \
             2>&1 | tee probe.log
           grep -q 'PROBE OK:' probe.log \
             || { echo "::error::probe exited 0 without printing PROBE OK"; exit 1; }

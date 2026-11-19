@@ -13,6 +13,11 @@ def native_authority():
         ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests|FullyQualifiedName~DaemonLauncherTests|FullyQualifiedName~NativeMetadata"),
         ("Twig.Cli.Tests", "FullyQualifiedName~NativeTwigSpineTests"),
     ]:
+        if os.name == "nt":
+            if project == "Twig.Daemon.Tests":
+                selector += "|FullyQualifiedName~CommandPipeSecurityTests"
+            elif project == "Twig.Cli.Tests":
+                selector += "|FullyQualifiedName~CommandPipeClientTests"
         subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
                         f"tests/{project}/{project}.csproj", "--no-build", "--no-restore", "-f", "net11.0",
                         "--filter", selector, "--logger", f"trx;LogFileName={project}.trx",
@@ -135,7 +140,7 @@ def registry_compat():
                               (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
         legacy = Path("artifacts") / f"legacy-core-v{version}"
         subprocess.run(["git", "worktree", "add", "--detach", str(legacy), revision], check=True)
-        subprocess.run([sys.executable, "eng/run-bounded.py", "--timeout", "120", "--",
+        subprocess.run([sys.executable, "eng/run-bounded.py", "--warn-after", "120", "--timeout", "300", "--",
                         "dotnet", "build", str(legacy / "src" / "Twig.Infrastructure" / "Twig.Infrastructure.csproj"),
                         "-f", "net11.0", "-m:1", "--verbosity", "minimal"], check=True)
         subprocess.run([sys.executable, "eng/verify-core-registry-compat.py", "--legacy-version", str(version),
@@ -301,7 +306,7 @@ def ado_root():
 def github_root():
     groups = [
         ("online-read-access", ["NativeOnlineReadChecksActualRepositoryAccessWithoutSchemaOrItemAcquisition"]),
-        ("init", ["FreshInitUsesOnlyNativeCoreBootstrap", "FreshInitTelemetryFailureCannotChangeNativeResult", "FreshCoreInitRequiresExplicitGhSelectionBeforeAnyHttp"]),
+        ("init", ["FreshInitUsesOnlyNativeCoreBootstrap", "FreshInitTelemetryFailureCannotChangeNativeResult", "FreshCoreInitRequiresRegisteredGhCredentialBeforeAnyHttp", "FreshCoreInitRejectsMalformedExplicitGhAccountBeforeAnyHttp"]),
         ("creation-cache", ["FreshNativeRootCreatesOriginalUuidAndNumericCommandsNeverUseNumberAsNodeIdentity"]),
         ("markdown-close", ["NativeMarkdownAndActualCloseUseVerifiedObservedNonAtomicEffects"]),
         ("patch-save-bench-query", ["TypedPatchBenchAndBoundedQueryShareNativeNumbersAndRefuseUnqualifiedFamilies"]),

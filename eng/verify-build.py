@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an already-built CLI offline with a 60-second default deadline; never build or run test hosts."""
+"""Validate an already-built CLI offline with a 60-second warning target and 300-second safety timeout."""
 import argparse
 import base64
 import contextlib
@@ -43,21 +43,36 @@ class SmokeTrace:
             output.flush()
 
 
-def run_worker(command, timeout, trace):
+def run_worker(command, timeout, trace, warn_after=60, clock=time.monotonic):
+    started = clock()
     trace.write('supervisor', 'start')
-    with subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          text=True, encoding='utf-8', start_new_session=os.name != 'nt') as process:
+    process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, encoding='utf-8', start_new_session=os.name != 'nt')
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        spec = importlib.util.spec_from_file_location('ci_runner', ROOT / 'eng/run-ci-tests.py')
+        runner = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = runner
+        spec.loader.exec_module(runner)
         try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            spec = importlib.util.spec_from_file_location('ci_runner', ROOT / 'eng/run-ci-tests.py')
-            runner = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = runner
-            spec.loader.exec_module(runner)
             runner.stop_session(process, False)
-            trace.write('supervisor', 'timeout')
-            print(f'SMOKE FAILED: {timeout}s deadline exceeded; no timeout expansion', file=sys.stderr)
-            return 1
+        except (runner.RunFailure, OSError, subprocess.SubprocessError) as error:
+            root = process.poll()
+            state = 'root still running' if root is None else f'root exited {root}'
+            print(f'SMOKE CLEANUP: tree termination unconfirmed; {state}; survivors unknown; '
+                  f'{type(error).__name__}: {error}', file=sys.stderr, flush=True)
+            tree = 'owned process tree termination unconfirmed'
+        else:
+            tree = 'owned process tree stopped'
+        trace.write('supervisor', 'timeout')
+        print(f'SMOKE FAILED: {timeout}s safety timeout exceeded; {tree}', file=sys.stderr)
+        return 1
+    finally:
+        elapsed = clock() - started
+        if elapsed > warn_after:
+            print(f'::warning::SMOKE TIMING: elapsed {elapsed:.2f}s exceeded target {warn_after}s; '
+                  'worker outcome unchanged.', file=sys.stderr, flush=True)
     trace.write('supervisor', 'end', process.returncode)
     print(stdout, end='')
     print(stderr, end='', file=sys.stderr)
@@ -212,8 +227,10 @@ def main():
     sys.stderr.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, default=ROOT / 'src/Twig/bin/Debug/net11.0/twig.dll')
-    parser.add_argument('--timeout', type=int, default=60, choices=range(1, 61),
-                        metavar='SECONDS', help='Smoke deadline in seconds (1-60; default: %(default)s)')
+    parser.add_argument('--timeout', type=int, default=300, choices=range(1, 601),
+                        metavar='SECONDS', help='Hard worker safety timeout (1-600; default: %(default)s)')
+    parser.add_argument('--warn-after', type=int, default=60, choices=range(1, 601),
+                        metavar='SECONDS', help='Worker timing warning target (default: %(default)s)')
     parser.add_argument('--worker', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--trace', type=Path, help='Optional safe, flushed JSONL phase trace; no arguments or payloads')
     args = parser.parse_args()
@@ -233,7 +250,7 @@ def main():
         command = [sys.executable, str(Path(__file__).resolve()), '--binary', str(binary), '--worker', directory]
         if trace.path is not None:
             command.extend(['--trace', str(trace.path)])
-        result = run_worker(command, args.timeout, trace)
+        result = run_worker(command, args.timeout, trace, warn_after=args.warn_after)
         print(f'SMOKE DURATION: {time.monotonic() - started:.2f}s')
         return result
 

@@ -23,6 +23,7 @@ internal sealed class NativeEditorView
     internal ImmutableArray<ItemKey> EndpointCandidates { get; set; } = [];
     internal long Epoch { get; set; }
     internal bool LocalOnly { get; set; }
+    internal EditorInputCapture? Inputs { get; set; }
     internal Dictionary<Guid, NativeLocalRelationshipReview> LocalReviews { get; } = [];
     internal HashSet<Guid> LocalApplyAllowed { get; } = [];
     internal bool Retired { get; set; }
@@ -34,6 +35,7 @@ internal sealed class NativeEditorView
             Navigation = new();
             Epoch++;
             Ticket = Guid.Empty;
+            Inputs = null;
             LocalOnly = false;
             LocalReviews.Clear(); LocalApplyAllowed.Clear();
             Item = Endpoint = null;
@@ -56,7 +58,7 @@ public static partial class NativeBenchHost
         session.Plan.Invalidate();
     }
 
-    private static void MapEditor(WebApplication app, NativePanel panel, CatalogChanges updates, Func<HttpContext, Guid, Task<ViewSession>> authorize)
+    private static void MapEditor(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates, Func<HttpContext, Guid, Task<ViewSession>> authorize)
     {
         static T Require<T>(Result<T> result) => result.IsSuccess ? result.Value : throw new HttpFailure(result.Error.Code switch
         {
@@ -108,15 +110,10 @@ public static partial class NativeBenchHost
                 {
                     if (session.CurrentBenchId != body.BenchId)
                         throw new HttpFailure(409, "Conflict", "The selected Bench changed. Reopen its item before editing.");
-                    // Cached key guidance cannot renew an older editor's metadata authority.
-                    if (source.Source.AllowOffline || state.Native is null || state.Context != source || state.Bench != body.BenchId
-                        || state.Native.PlanMode != plan.Enabled || state.Native.PlanId != plan.PlanId
-                        || state.Native.PlanRevision != plan.Revision)
-                    {
-                        state.Native?.Dispose(); state.Native = null;
-                        state.Native = Require(await panel.OpenExistingEditorAsync(source, body.BenchId, ct));
-                        state.Context = source; state.Bench = body.BenchId;
-                    }
+                    // Recovery always captures fresh native metadata; a retained input is never a ticket.
+                    state.Native?.Dispose(); state.Native = null;
+                    state.Native = Require(await panel.OpenExistingEditorAsync(source, body.BenchId, ct));
+                    state.Context = source; state.Bench = body.BenchId;
                     if (key is null && !plan.Enabled && source.Stamp.Connection.Provider.Value == "ado")
                         key = Require(await state.Native.ReadOwnedSeedsAsync(ct))
                             .Where(seed => seed.Ready && seed.Draft is not null && seed.Publication is null)
@@ -128,7 +125,13 @@ public static partial class NativeBenchHost
                 lock (state) { state.Ticket = form.Ticket; state.Type = form.Type; state.NormalSeed = form.Item.IsLocal && !plan.Enabled;
                     state.Item = form.Item; state.Endpoint = null;
                     state.EndpointCandidates = capture.Observation.Snapshot.Items.Select(item => item.Key).Where(item => !item.IsLocal).ToImmutableArray(); }
-                await Write(http, BoundEditorForm(form, source, state.Native!));
+                _ = Require(await panel.EditorOperationAsync(source, async ct =>
+                {
+                    _ = await authorize(http, id);
+                    ct.ThrowIfCancellationRequested();
+                    await Write(http, CaptureInputs(sessions, session, BoundEditorForm(form, source, state.Native!)));
+                    return true;
+                }, lifetime.Token));
             }
             finally
             {
@@ -150,9 +153,12 @@ public static partial class NativeBenchHost
             var body = await Body<EditorChangeBody>(http);
             await Edit(http, session, body.Ticket, async (editor, ct) =>
             {
+                var inputs = session.Editor.Inputs;
+                sessions.RequireInputs(session, inputs, body.Inputs, new(body.Fields));
                 var staged = FieldRequired(await editor.StageAsync(body.Ticket, EditFields(body), ct), session.Editor);
+                sessions.ConsumeInputs(session, inputs, body.Inputs);
                 session.Plan.Invalidate();
-                await Write(http, BoundEditorForm(staged, session.Editor.Context!, editor));
+                await Write(http, CaptureInputs(sessions, session, BoundEditorForm(staged, session.Editor.Context!, editor)));
             });
         });
         app.MapPost("/api/v1/views/{id:guid}/editor/save", async (HttpContext http, Guid id) =>
@@ -161,6 +167,8 @@ public static partial class NativeBenchHost
             var body = await Body<EditorChangeBody>(http);
             await Edit(http, session, body.Ticket, async (editor, ct) =>
             {
+                var inputs = session.Editor.Inputs;
+                sessions.RequireInputs(session, inputs, body.Inputs, new(body.Fields));
                 var saved = await editor.SaveAsync(body.Ticket, EditFields(body), ct);
                 if (!saved.IsSuccess && saved.Error.Code == ErrorCode.SchemaChanged)
                 {
@@ -170,6 +178,12 @@ public static partial class NativeBenchHost
                 if (result.SeedPublication is not null && result.Error?.Code == ErrorCode.Conflict)
                     using (SeedEditor(await panel.OpenEditorAsync(session.Editor.Context!, session.Editor.Bench, ct))) { }
                 SeedDenial(result.Error);
+                if (result.Verified && !result.DraftRetained)
+                {
+                    sessions.ConsumeInputs(session, inputs, body.Inputs);
+                    session.Editor.Ticket = Guid.Empty;
+                    session.Editor.Inputs = null;
+                }
                 var response = new EditorSavedDto(result.Verified, result.DraftRetained, result.Error?.Message)
                 { SeedPublication = result.SeedPublication is null ? null : SeedPublication(result.SeedPublication, session.Editor.Context!) };
                 if (result.SeedPublication is not null)
@@ -233,7 +247,8 @@ public static partial class NativeBenchHost
                         throw new HttpFailure(409, "Conflict", "The original item ticket changed during endpoint selection.");
                     state.Ticket = form.Fields.Ticket; state.Endpoint = endpoint; state.LocalOnly = form.LocalOnly;
                 }
-                await Write(http, BoundRelationshipForm(form, source, editor));
+                _ = await authorize(http, id);
+                await Write(http, CaptureRelationshipInputs(sessions, session, BoundRelationshipForm(form, source, editor)));
             });
         });
         app.MapPost("/api/v1/views/{id:guid}/editor/relationships/stage", async (HttpContext http, Guid id) =>
@@ -244,11 +259,14 @@ public static partial class NativeBenchHost
             {
                 if (session.Editor.LocalOnly || session.Editor.Context!.Stamp.Connection.Provider.Value != "ado")
                     throw new HttpFailure(422, "Unsupported", "ADO relationship Stage cannot adopt LOCAL GitHub effects.");
+                var inputs = session.Editor.Inputs;
+                sessions.RequireInputs(session, inputs, body.Inputs, new(body.Fields, body.Intent));
                 var form = RelationshipRequired(await editor.StageRelationshipsAsync(body.Ticket,
                     EditFields(new(body.Ticket, body.Fields)), RelationshipChanges(body, session.Editor), ct), session.Editor);
+                sessions.ConsumeInputs(session, inputs, body.Inputs);
                 ct.ThrowIfCancellationRequested();
                 session.Plan.Invalidate();
-                await Write(http, BoundRelationshipForm(form, session.Editor.Context!, editor));
+                await Write(http, CaptureRelationshipInputs(sessions, session, BoundRelationshipForm(form, session.Editor.Context!, editor)));
             });
         });
         app.MapPost("/api/v1/views/{id:guid}/editor/relationships/save", async (HttpContext http, Guid id) =>
@@ -259,13 +277,18 @@ public static partial class NativeBenchHost
             {
                 if (session.Editor.LocalOnly || session.Editor.Context!.Stamp.Connection.Provider.Value != "ado")
                     throw new HttpFailure(422, "Unsupported", "ADO relationship Save cannot adopt LOCAL GitHub effects.");
+                var inputs = session.Editor.Inputs;
+                sessions.RequireInputs(session, inputs, body.Inputs, new(body.Fields, body.Intent));
                 var saved = RelationshipRequired(await editor.SaveRelationshipsAsync(body.Ticket,
                     EditFields(new(body.Ticket, body.Fields)), RelationshipChanges(body, session.Editor), ct), session.Editor);
                 if (saved.Error?.Code == ErrorCode.PolicyViolation)
                     throw new HttpFailure(403, "PolicyViolation", "This source cannot release relationship editor content.");
+                if (saved.Verified && !saved.DraftRetained)
+                    sessions.ConsumeInputs(session, inputs, body.Inputs);
                 var message = saved.Verified && !saved.DraftRetained ? saved.Error?.Message
                     : "The original native relationship outcome is protected. Native reconciliation is required; do not restage or retry. " + saved.Error?.Message;
                 session.Editor.Ticket = Guid.Empty;
+                session.Editor.Inputs = null;
                 session.Plan.Invalidate();
                 await Write(http, new EditorSavedDto(saved.Verified, saved.DraftRetained, message));
             });
@@ -278,7 +301,8 @@ public static partial class NativeBenchHost
                 if (body.Ticket == session.Editor.Ticket) CancelEditor(session);
             await Write(http, new Ack());
         });
-        MapLocalRelationships(app, panel, updates, authorize, Edit);
+        MapLocalRelationships(app, panel, sessions, updates, authorize, Edit);
+        MapEditorInputs(app, sessions, authorize, Edit);
 
         async Task Edit(HttpContext http, ViewSession session, Guid ticket,
             Func<NativeItemEditor, CancellationToken, Task> action)

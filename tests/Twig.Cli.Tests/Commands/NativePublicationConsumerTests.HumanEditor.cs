@@ -11,6 +11,47 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Fact]
+    public async Task NativeHumanInputBaselinesSurviveFreshHandlesButChangeWithOwnedStagingAndEndpointDebt()
+    {
+        var host = await CreateHumanHostAsync();
+        var target = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "42");
+        var endpoint = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "43");
+        string scalarBaseline, pairBaseline;
+        using (var first = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+        {
+            scalarBaseline = (await first.SelectAsync(target)).Value.InputBaseline;
+            pairBaseline = (await first.SelectRelationshipsAsync(target, endpoint)).Value.Fields.InputBaseline;
+        }
+        using (var reopened = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+        {
+            (await reopened.SelectAsync(target)).Value.InputBaseline.ShouldBe(scalarBaseline);
+            (await reopened.SelectRelationshipsAsync(target, endpoint)).Value.Fields.InputBaseline.ShouldBe(pairBaseline);
+        }
+        using var services = EditorServices(host.Root);
+        using var native = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+        (await native.Workspace.StageEditAsync(endpoint,
+            FieldValues.Empty.Set("System.Title", FieldValue.String("independent endpoint debt")), default)).IsSuccess.ShouldBeTrue();
+        using (var changed = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+        {
+            (await changed.SelectRelationshipsAsync(target, endpoint)).Value.Fields.InputBaseline.ShouldNotBe(pairBaseline);
+        }
+        var user = UserBenchStore.ForRegistry(host.Registry);
+        var status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        (await user.ChangePlanModeAsync(status.UserInstance, host.Bench, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+        string stagedBaseline;
+        using (var planned = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+        {
+            var form = (await planned.SelectAsync(target)).Value;
+            stagedBaseline = (await planned.StageAsync(form.Ticket,
+                FieldValues.Empty.Set("System.Title", FieldValue.String("owned native staged input")))).Value.InputBaseline;
+            stagedBaseline.ShouldNotBe(form.InputBaseline);
+        }
+        using var restored = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value;
+        (await restored.SelectAsync(target)).Value.InputBaseline.ShouldBe(stagedBaseline);
+        HumanPatchAttempts.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task NativeHumanPlanEditorOpensOwnedScopeWithoutPublishingOrTouchingNormalDraft()
     {
         var host = await CreateHumanHostAsync();

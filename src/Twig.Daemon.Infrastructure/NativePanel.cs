@@ -21,6 +21,8 @@ public sealed record NativePanelSeeds(NativePanelCapture Capture, SourceView Vie
 public sealed record NativePanelView(BenchView View, ImmutableDictionary<Guid, string> Labels, NativePlanStatus Plan)
 {
     public ImmutableDictionary<Guid, int> NormalDraftCounts { get; init; } = ImmutableDictionary<Guid, int>.Empty;
+    public ImmutableDictionary<NativePanelContext, SourceObservation> Observations { get; init; }
+        = ImmutableDictionary<NativePanelContext, SourceObservation>.Empty;
 }
 
 /// <summary>Native definitions are authoritative. Projection descriptors below are request-local, never persisted owners.</summary>
@@ -80,13 +82,16 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         return Result<bool>.Ok(true);
     }
     public Task<Result<ImmutableArray<UserBenchWorkspace>>> WorkspacesAsync(CancellationToken ct) => definitions.WorkspacesAsync(ct);
+    public Task<Result<bool>> RefreshMetadataAsync(UserBenchWorkspace workspace, DateTimeOffset now, CancellationToken ct)
+        => sources.RefreshMetadataAsync(workspace, now, ct);
     public Task<Result<UserRepositoryBindings>> ReadRepositoryAsync(string root, CancellationToken ct)
         => definitions.ReadRepositoryAsync(root, ct);
     public Task<Result<UserRepositoryBindings>> SaveRepositoryAsync(string root, long revision,
         IEnumerable<Connection> connections, Guid? defaultBench, CancellationToken ct)
         => definitions.SaveRepositoryAsync(root, revision, connections, defaultBench, ct);
     public async Task<Result<ImmutableArray<NativePanelContext>>> ResolveConnectionsAsync(Guid benchId,
-        IEnumerable<NativePanelContext> retained, CancellationToken ct, IReadOnlySet<Connection>? available = null)
+        IEnumerable<NativePanelContext> retained, CancellationToken ct, IReadOnlySet<Connection>? available = null,
+        bool cachedAdmissionOnly = false)
     {
         var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
         if (!shared.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(shared.Error);
@@ -109,7 +114,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             budget.CancelAfter(TimeSpan.FromSeconds(5));
             try
             {
-                var opened = await OpenAsync(registered[0].Root, budget.Token).ConfigureAwait(false);
+                var opened = await OpenAsync(registered[0].Root, budget.Token, cachedAdmissionOnly: cachedAdmissionOnly).ConfigureAwait(false);
                 if (opened.IsSuccess && opened.Value.Stamp.Connection == connection
                     && opened.Value.Stamp.StoreInstance == registered[0].StoreInstance)
                     return opened.Value;
@@ -144,13 +149,15 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             ? review.ContinueDeliveryAsync(digest, token) : review.ApplyAsync(digest, token), ct);
 
     public async Task<Result<NativePanelContext>> OpenAsync(string root, CancellationToken ct, string? expectedBinding = null,
-        IDictionary<NativePanelContext, SourceObservation>? initialObservations = null)
+        IDictionary<NativePanelContext, SourceObservation>? initialObservations = null, bool cachedAdmissionOnly = false)
     {
         if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root))
             return Result<NativePanelContext>.Fail(ErrorCode.InvalidInput, "Choose an existing native connection or an initialized workspace in Advanced.");
         root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         var local = await sources.NativeAsync(root, token => gateway.ReadAsync(root, null, false, token), ct).ConfigureAwait(false);
         if (!local.IsSuccess) return Result<NativePanelContext>.Fail(local.Error);
+        if (cachedAdmissionOnly)
+            expectedBinding ??= CatalogFingerprint.Binding(NativeSourceAdapter.Binding(local.Value.Source));
         var observed = expectedBinding is null
             ? await sources.AdmitAsync(root, local.Value, ct).ConfigureAwait(false)
             : await sources.ReadCachedAdmissionAsync(root, local.Value, expectedBinding, ct,
@@ -230,6 +237,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         var views = ImmutableArray.CreateBuilder<SourceView>();
         var labels = ImmutableDictionary.CreateBuilder<Guid, string>();
         var normalDraftCounts = ImmutableDictionary.CreateBuilder<Guid, int>();
+        var observations = new ConcurrentDictionary<NativePanelContext, SourceObservation>();
         using var concurrency = new SemaphoreSlim(8);
         var results = await Task.WhenAll(bench.Connections.Select(ReadConnection)).ConfigureAwait(false);
         foreach (var acquired in results)
@@ -263,6 +271,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                     ? await sources.CheckInitialAsync(context, initial, timeout.Token).ConfigureAwait(false)
                     : await sources.ReadAsync(context.Source, timeout.Token).ConfigureAwait(false);
                 if (!observed.IsSuccess) return Failed(observed.Error);
+                observations[context] = observed.Value;
                 var intent = bench.Selectors.Where(selector => selector.Connection == connection).ToImmutableArray();
                 var observation = observed.Value;
                 var normalDebt = 0;
@@ -323,7 +332,23 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         var result = new BenchView(projectedDefinition, shared.Value.InstanceId, current.Value.Revision,
             views.Select(view => view with { RequiredConnection = view.RequiredConnection
                 ?? contexts.Values.SingleOrDefault(context => context.Source.Id == view.SourceId)?.Stamp.Connection }).ToImmutableArray());
-        return Result<NativePanelView>.Ok(new(result, labels.ToImmutable(), plan.Value) { NormalDraftCounts = normalDraftCounts.ToImmutable() });
+        return Result<NativePanelView>.Ok(new(result, labels.ToImmutable(), plan.Value)
+        { NormalDraftCounts = normalDraftCounts.ToImmutable(), Observations = observations.ToImmutableDictionary() });
+    }
+
+    public async Task<Result<bool>> CheckWorkspaceAsync(NativePanelView view, CancellationToken ct,
+        bool recheckLocalSnapshot = true)
+    {
+        foreach (var (context, observation) in view.Observations)
+        {
+            var checkedSource = await sources.CheckWorkspaceAsync(context, observation, ct, recheckLocalSnapshot).ConfigureAwait(false);
+            if (!checkedSource.IsSuccess) return Result<bool>.Fail(checkedSource.Error);
+        }
+        var plan = await definitions.ReadPlanStatusAsync(view.View.Definition.Id, ct).ConfigureAwait(false);
+        if (!plan.IsSuccess) return Result<bool>.Fail(plan.Error);
+        return plan.Value.PlanId == view.Plan.PlanId && plan.Value.Revision == view.Plan.Revision
+            ? Result<bool>.Ok(true)
+            : Result<bool>.Fail(ErrorCode.Conflict, "The Plan changed during workspace loading. Read the workspace again.");
     }
 
     public async Task<Result<NativeBench>> SaveAsync(NativeBench definition, long expectedRevision, CancellationToken ct)

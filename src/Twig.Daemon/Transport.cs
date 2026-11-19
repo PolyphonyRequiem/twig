@@ -151,11 +151,11 @@ public sealed record PlanningBrowseBody(PlanningSourceKind Kind, string Id, stri
 public sealed record NativePlanningResultDto(NativePickerDto Picker, PlanningSource Definition, string? Team,
     string Selectors, DateTimeOffset MembershipObservedAt);
 public sealed record EditorOpenBody(Guid SourceId, string ItemId, Guid BenchId, bool PlanMode = false);
-public sealed record EditorChangeBody(Guid Ticket, FieldDto[] Fields);
+public sealed record EditorChangeBody(Guid Ticket, FieldDto[] Fields, EditorInputReference? Inputs = null);
 public sealed record EditorChoiceBody(Guid Ticket, string Field, string Query);
 public sealed record EditorCloseBody(Guid Ticket);
 public sealed record RelationshipOpenBody(Guid Ticket, string EndpointId);
-public sealed record RelationshipChangeBody(Guid Ticket, FieldDto[] Fields, RelationshipIntentDto[] Intent);
+public sealed record RelationshipChangeBody(Guid Ticket, FieldDto[] Fields, RelationshipIntentDto[] Intent, EditorInputReference? Inputs = null);
 public sealed record RelationshipIntentDto(string EndpointId, string Relation, bool Outgoing, bool Remove);
 public sealed record RelationshipKindDto(string Reference, string Shape, bool Directed);
 public sealed record RelationshipEndpointDto(string ItemId, string Locator, string Type, string Revision, FieldDto[] Fields);
@@ -166,7 +166,7 @@ public sealed record RelationshipFormDto(EditorFormDto Fields, RelationshipEndpo
     public string? Verification { get; init; }
 }
 public sealed record LocalRelationshipReadBody(Guid SourceId, Guid BenchId, string ItemId);
-public sealed record LocalRelationshipReviewBody(Guid Ticket, bool Adding);
+public sealed record LocalRelationshipReviewBody(Guid Ticket, bool Adding, EditorInputReference? Inputs = null);
 public sealed record LocalRelationshipReferenceBody(Guid Ticket, Guid CaptureId, string Digest, int Operation, Guid Attempt);
 public sealed record LocalRelationshipEffectDto(string Kind, RelationshipEndpointDto Target, RelationshipEndpointDto Endpoint,
     string Relation, long? ExpectedLocalVersion, long ExpectedStoreVersion, string SchemaFingerprint);
@@ -181,6 +181,8 @@ public sealed record EditorFieldDto(string Reference, string Kind, string Name, 
 public sealed record EditorFormDto(Guid Ticket, string Authority, string Type, string StateField, EditorFieldDto[] Fields,
     string[] States, string[] Messages)
 {
+    public EditorInputRecoveryDto? Inputs { get; init; }
+    public string InputBaseline { get; init; } = "";
     public EditorBindingDto? Binding { get; init; }
     public string? ItemId { get; init; }
     public string? Notice { get; init; }

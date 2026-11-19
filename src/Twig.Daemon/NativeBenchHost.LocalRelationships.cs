@@ -11,7 +11,7 @@ public static partial class NativeBenchHost
 {
     private const string LocalVerification = "LOCAL store CAS only; no native tracker mutation or tracker publication.";
 
-    private static void MapLocalRelationships(WebApplication app, NativePanel panel, CatalogChanges updates,
+    private static void MapLocalRelationships(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates,
         Func<HttpContext, Guid, Task<ViewSession>> authorize,
         Func<HttpContext, ViewSession, Guid, Func<NativeItemEditor, CancellationToken, Task>, Task> edit)
     {
@@ -115,7 +115,11 @@ public static partial class NativeBenchHost
                 if (!state.LocalOnly || state.Endpoint is null || state.LocalReviews.Count != 0)
                     throw new HttpFailure(409, "Conflict", "Choose the exact qualified LOCAL pair; original reviews cannot be replaced.");
                 await Current(http, id, session, source, epoch, profile, ct);
+                var inputs = state.Inputs;
+                sessions.RequireInputs(session, inputs, body.Inputs, new([], Adding: body.Adding));
                 var review = Required(await editor.ReviewLocalRelationshipAsync(body.Ticket, body.Adding, ct));
+                sessions.ConsumeInputs(session, inputs, body.Inputs);
+                state.Inputs = null;
                 state.LocalReviews[review.CaptureId] = review;
                 state.Ticket = Guid.NewGuid();
                 var original = Required(await editor.ReadLocalRelationshipReviewsAsync(ct))

@@ -106,6 +106,12 @@ public static partial class NativeBenchHost
             var body = await Body<ReadRepositoryBindingsBody>(http);
             await Write(http, Require(await panel.ReadRepositoryAsync(body.Root, http.RequestAborted)));
         });
+        app.MapPost("/api/v1/views/{id:guid}/repository-bindings", async (HttpContext http, Guid id) =>
+        {
+            _ = await authorize(http, id);
+            var body = await Body<ReadRepositoryBindingsBody>(http);
+            await Write(http, Require(await panel.ReadRepositoryAsync(body.Root, http.RequestAborted)));
+        });
         app.MapPut("/api/v1/views/{id:guid}/repository-bindings", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);

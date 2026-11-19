@@ -44,6 +44,62 @@ selection remains bound to store and verified repository identity, preserves
 session choice/default precedence and never selects a CLI workspace. Account
 metadata uses the exact local binding; it does not acquire credentials.
 
+## Sessions canonical-root adoption delta
+
+The additional assertions are independently fetched from Canvas commit
+`73d10b2033367e3c90780f5c8464993c7830c8bd`, complete Sessions Program blob
+`98d716ac80dcf363a2de3c1a7ee02c31d06fa94e` (60,974 bytes). Its lines
+130-138 map to the linked-owner `ReadState` canonical-root and real production
+HTTP POST binding-read assertions in `SessionTests.RepositorySelection`.
+Lines 163-185 map to explicit linked repository-context selection and the
+independent repository/worktree/nested-directory fixture with spaces, including
+direct store and initial-owner canonical roots and fallback Bench. The existing
+lines 186-187 zero-Gateway-read/selection guard still covers every operation.
+These 32 added source lines were not part of the original adoption above.
+
+The self-contained production behavior is restored from Canvas's pinned Twig
+dependency `8a1b8a62547583fd419677a493f4f6df36cb9995`: verify Git's main checkout
+using NUL-delimited worktree porcelain, return its root alongside the unchanged
+repository identity, and retain that root in runtime and explicit contexts.
+The existing Infrastructure public API catalog records the DTO shape; the POST
+body is registered in the existing source-generated transport JSON context.
+There are no migration, identity redesign, friend-access or public test hooks.
+
+Unlike the pin, this delta leaves the existing GET route registered. Its
+query-string form already returns `403 InvalidTransport` under the global
+no-query rule; the added regression preserves that refusal, rather than opening
+a new query transport. The added POST performs the same authorized repository
+read using bounded JSON and retains SDK-presentation and missing-CSRF refusals.
+The fixture Git helper kills its owned process tree on cancellation.
+
+Executed on Windows with SDK `11.0.100-rc.3.26522.148`, warnings-as-errors
+unchanged, and resolved Python invocation `python3`:
+
+```powershell
+dotnet build tests\Twig.Daemon.Tests\Twig.Daemon.Tests.csproj --no-restore -f net11.0 "-m:1" --verbosity quiet
+python3 eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SessionInvariantTests" --logger "trx;LogFileName=sessions-canonical-root.trx" --results-directory artifacts\test-logs\sessions-canonical-root
+python3 eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeHttpInvariantTests" --logger "trx;LogFileName=sessions-native-http.trx" --results-directory artifacts\test-logs\sessions-native-http
+dotnet build tests\Twig.Infrastructure.Tests\Twig.Infrastructure.Tests.csproj --no-restore -f net11.0 "-m:1" --verbosity quiet
+python3 eng\verify-trx.py -- dotnet test tests\Twig.Infrastructure.Tests\Twig.Infrastructure.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName=Twig.Infrastructure.Tests.Services.UserBenchStoreTests.RepositoryBindingsAreUserLocalReusableAndIndependentOfSavedBenchIntent" --logger "trx;LogFileName=repository-bindings.trx" --results-directory artifacts\test-logs\repository-bindings
+```
+
+Missing assets (`NETSDK1004`) required a targeted `dotnet restore <project>
+--verbosity quiet` for each of those two projects before rebuilding. Both builds
+passed; existing MSBuild Git/SourceLink warnings reported "Repository has no
+commit" and empty source-link information (not suppressed). The three isolated
+TRX runs passed 6, 9 and 1 cases respectively, with zero skips and every selector
+covered, through the unchanged 60-second owned-tree wrapper.
+
+The exact four-selector CI command shown above was also executed with `python3`:
+37 passed, zero skipped, every selector covered, at
+`artifacts\test-logs\ci\daemon-invariants\daemon-invariants.trx`. The existing
+Windows/Linux `daemon_invariants` step and `twig-daemon-invariants-${rid}` TRX
+artifact already include all six Sessions cases, so no duplicate CI job or
+selector was added. Canvas's original CI runs the Sessions executable as a whole
+with a 60-second external bound and 55-second internal cancellation; this
+adoption retains those bounds per xUnit case. Only Windows execution is claimed
+here, not live-provider, trusted HTTPS or browser qualification.
+
 ## Not adopted or qualified here
 
 This is not permission to delete the whole Canvas native integration lane:

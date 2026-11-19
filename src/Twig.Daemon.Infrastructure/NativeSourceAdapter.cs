@@ -442,6 +442,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
                 // Only a positively classified temporary failure may retain an existing grant.
                 // Denials, changed authority, cancellation and uncertain outcomes stay latched.
                 if (observed.Error.Code == ErrorCode.Unavailable
+                    && observed.Error.Evidence.Any(value => value is "http:429" or "http:500" or "http:502" or "http:503" or "http:504")
                     && !observed.Error.Evidence.Any(value => value is "http:401" or "http:403"))
                     check.Complete(ct);
                 return Result<bool>.Fail(observed.Error);

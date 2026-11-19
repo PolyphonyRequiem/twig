@@ -28,7 +28,7 @@ public sealed class NativeMetadataRefreshTests
     {
         var start = DateTimeOffset.UtcNow;
         await using var fixture = await MetadataFixture.Start(start);
-        fixture.Gateway.Failure = new(ErrorCode.Unavailable, "Fixture provider temporarily unavailable.");
+        fixture.Gateway.Failure = new(ErrorCode.Unavailable, "Fixture provider temporarily unavailable.") { Evidence = ["http:503"] };
         var failed = await fixture.Adapter.RefreshMetadataAsync(fixture.Workspace, start.AddMinutes(15), default);
         failed.IsSuccess.ShouldBeFalse();
         failed.Error.Code.ShouldBe(ErrorCode.Unavailable);
@@ -53,6 +53,7 @@ public sealed class NativeMetadataRefreshTests
     [InlineData(ErrorCode.PolicyViolation, "")]
     [InlineData(ErrorCode.Unavailable, "http:401")]
     [InlineData(ErrorCode.Unavailable, "http:403")]
+    [InlineData(ErrorCode.Unavailable, "")]
     [InlineData(ErrorCode.Conflict, "")]
     public async Task DeniedOrChangedSourceCannotBeReauthorizedByLaterScheduledSuccess(ErrorCode code, string evidence)
     {

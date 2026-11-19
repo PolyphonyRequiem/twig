@@ -1,6 +1,7 @@
 using Bench.Domain;
 using Bench.Application;
 using Bench.Infrastructure;
+using Twig.Infrastructure.Services;
 using static Bench.Server.BenchHost;
 
 namespace Bench.Server;
@@ -9,7 +10,8 @@ public static partial class NativeBenchHost
 {
     public static void MapPersistentSessions(WebApplication app, NativePanel panel, ViewSessions sessions,
         Func<HttpContext, Guid, Task<ViewSession>> authorize, bool windowsSignIn,
-        Func<SourceViewDto, SourceViewDto> presentSource)
+        Func<SourceViewDto, SourceViewDto> presentSource,
+        Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts = null)
     {
         if (windowsSignIn)
             app.MapPost("/api/v1/windows-profile", async (HttpContext http) =>
@@ -29,7 +31,7 @@ public static partial class NativeBenchHost
                 var renewed = sessions.RenewOwner(store, body, content.Count == 1 ? content[0] : null);
                 var session = sessions.Content(renewed.Connection.ViewId, renewed.Connection.ContentCapability, true);
                 (NativeViewStateInfo State, NativeInitialView View)? initial = renewed.Recovered && body.InitialView
-                    ? await InitialView(panel, sessions, session, presentSource, http.RequestAborted) : null;
+                    ? await InitialView(panel, sessions, session, presentSource, http.RequestAborted, readAccounts) : null;
                 var state = initial?.State ?? (renewed.Recovered
                     ? await RestoreViewReferences(panel, sessions, session, http.RequestAborted)
                     : sessions.ReadState(session));
@@ -52,7 +54,7 @@ public static partial class NativeBenchHost
             {
                 _ = presentSource(source);
                 return source;
-            }, budget.Token);
+            }, budget.Token, readAccounts: readAccounts);
             _ = sessions.Content(id, Bearer(http), true);
             await Write(http, workspace);
         });
@@ -72,23 +74,25 @@ public static partial class NativeBenchHost
         {
             var session = await authorize(http, id);
             _ = await Body<EmptyBody>(http);
-            var initial = await InitialView(panel, sessions, session, presentSource, http.RequestAborted);
+            var initial = await InitialView(panel, sessions, session, presentSource, http.RequestAborted, readAccounts);
             await Write(http, new NativeOwnerSession(id, Bearer(http), true, initial.State) { InitialView = initial.View });
         });
     }
 
     private static async Task<(NativeViewStateInfo State, NativeInitialView View)> InitialView(
-        NativePanel panel, ViewSessions sessions, ViewSession session, Func<SourceViewDto, SourceViewDto> presentSource, CancellationToken ct)
+        NativePanel panel, ViewSessions sessions, ViewSession session, Func<SourceViewDto, SourceViewDto> presentSource, CancellationToken ct,
+        Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts)
     {
         var observations = new Dictionary<NativePanelContext, SourceObservation>();
         await RestoreViewReferences(panel, sessions, session, ct, observations);
-        var workspace = await Workspace(panel, sessions, session, presentSource, ct, observations);
+        var workspace = await Workspace(panel, sessions, session, presentSource, ct, observations, readAccounts);
         return (workspace.ViewState, new(workspace.Summary, workspace.Session, workspace.View));
     }
 
     private static async Task<NativeWorkspaceDto> Workspace(
         NativePanel panel, ViewSessions sessions, ViewSession session, Func<SourceViewDto, SourceViewDto> presentSource,
-        CancellationToken ct, IReadOnlyDictionary<NativePanelContext, SourceObservation>? observations = null)
+        CancellationToken ct, IReadOnlyDictionary<NativePanelContext, SourceObservation>? observations = null,
+        Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts = null)
     {
         long selectionRevision;
         lock (session) selectionRevision = session.SelectionRevision;
@@ -109,6 +113,8 @@ public static partial class NativeBenchHost
             repositoryRoot = session.RepositoryRoot; repository = session.RepositoryBindings;
         }
         var registry = Require(await panel.WorkspacesAsync(ct));
+        var accounts = readAccounts is not null && registry.Any(workspace => workspace.Connection.Provider.Value == "ado")
+            ? await readAccounts(ct) : [];
         var labels = new List<WorkspaceDto>();
         var labelBudget = System.Diagnostics.Stopwatch.StartNew();
         foreach (var registered in registry)
@@ -119,6 +125,7 @@ public static partial class NativeBenchHost
             labels.Add(new(registered.Root, registered.Connection.Provider.Value, label.Name, label.Available)
             {
                 Connection = registered.Connection,
+                Account = NativeConnectionLabels.Account(registered.Connection, accounts),
                 Available = repository is null || repository.Connections.Contains(registered.Connection),
             });
         }

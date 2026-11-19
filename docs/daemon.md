@@ -392,7 +392,9 @@ perform metadata discovery.
 
 This is provider-read-only: it does not migrate work-item types, change Bench
 membership, or authorize new connections. Temporary provider unavailability
-keeps the previous definitions and their original observation time. Access
+with explicit HTTP 429/500/502/503/504 evidence keeps the previous definitions
+and their original observation time. An unclassified `Unavailable` result,
+including an internal deadline or admission failure, is not that evidence. Access
 denials, changed authority and interrupted/uncertain checks remain blocked until
 an explicit successful connection recheck. Background discovery uses the same
 per-source coordination and bounded native operations as foreground requests.

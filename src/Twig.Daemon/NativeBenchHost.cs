@@ -174,9 +174,7 @@ public static partial class NativeBenchHost
             NativeAadEnrollment[] identities = [];
             if (connectionSetup is not null && workspaces.Any(workspace => workspace.Connection.Provider.Value == "ado"))
             {
-                var accounts = await connectionSetup.ListAadIdentitiesAsync(context.RequestAborted);
-                if (accounts.IsSuccess) identities = accounts.Value;
-                else app.Logger.LogWarning("Attached connection account metadata is unavailable: {Code}", accounts.Error.Code);
+                identities = await ReadAccounts(context.RequestAborted);
             }
             var labels = new List<WorkspaceDto>();
             var labelBudget = System.Diagnostics.Stopwatch.StartNew();
@@ -527,7 +525,7 @@ public static partial class NativeBenchHost
             await Write(context, new PlanningRuleDto(BenchCodec.SerializeSelectors(
                 [new(SelectorKind.Query, query: query, connection: capture.Context.Stamp.Connection)])));
         });
-        MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource);
+        MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource, ReadAccounts);
         MapEditor(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapSeeds(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapPlan(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
@@ -582,6 +580,15 @@ public static partial class NativeBenchHost
                     ? "text/javascript" : route.EndsWith(".css", StringComparison.Ordinal) ? "text/css" : "text/html";
             });
         return app;
+
+        async Task<NativeAadEnrollment[]> ReadAccounts(CancellationToken ct)
+        {
+            if (connectionSetup is null) return [];
+            var accounts = await connectionSetup.ListAadIdentitiesAsync(ct);
+            if (accounts.IsSuccess) return accounts.Value;
+            app.Logger.LogWarning("Attached connection account metadata is unavailable: {Code}", accounts.Error.Code);
+            return [];
+        }
 
         SourceViewDto PresentSource(SourceViewDto source)
         {

@@ -70,6 +70,25 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task WorkspaceAndInitialViewPreserveLocalAccountDisplayWithoutProviderAcquisition()
+    {
+        await Start();
+        await Source("account", identity: """["fixture","identity","pat","fixture"]""");
+        var workspace = await Workspace();
+        var account = workspace.GetProperty("summary").GetProperty("workspaces")[0].GetProperty("account");
+        account.GetProperty("name").GetString().ShouldBe("Personal access token");
+        account.GetProperty("kind").GetString().ShouldBe("pat");
+        using var response = await client.PostAsync(View + "initial-view",
+            new StringContent("{}", Encoding.UTF8, "application/json"));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        using var initial = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        initial.RootElement.GetProperty("initialView").GetProperty("summary").GetProperty("workspaces")[0]
+            .GetProperty("account").GetProperty("kind").GetString().ShouldBe("pat");
+        gateway.SchemaReads.ShouldBe(1);
+        gateway.OnlineReads.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task DeniedSourceIsExplicitAndWithheldWhileOtherSourcesRemainAdmitted()
     {
         await Start();
@@ -379,12 +398,12 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
     }
 
-    private async Task<NativePanelContext> Source(string name, bool admit = true)
+    private async Task<NativePanelContext> Source(string name, bool admit = true, string identity = "fixture-identity")
     {
         var path = Path.Combine(root, name);
         Directory.CreateDirectory(Path.Combine(path, ".twig"));
         var store = (await SqliteStore.CreateAsync(Path.Combine(path, ".twig", "core.db"))).Value;
-        var connection = new Connection(new("ado"), "fixture-collection", name, "fixture-identity");
+        var connection = new Connection(new("ado"), "fixture-collection", name, identity);
         (await definitions.View(store, path, store.InstanceId).ReadAsync(connection, default)).IsSuccess.ShouldBeTrue();
         gateway.Stamps[path] = new(connection, store.InstanceId, "fixture-principal", "fixture-authority");
         gateway.Snapshots[path] = new(1);

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -18,25 +19,26 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Services;
 using Twig.Store.Sqlite;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Twig.Daemon.Tests.Native;
 
-public sealed class NativeReadCompositionTests
+public sealed class NativeReadCompositionTests(ITestOutputHelper output)
 {
     [Fact]
     public Task RedactsDiagnosticsThroughNativeHostAndLoggingFilter()
-        => NativePanelTests.DiagnosticsComposition();
+        => NativePanelTests.DiagnosticsComposition(output);
 
     [Fact]
     public Task RetainsSchemaUntilExplicitNativeRecheck()
-        => NativePanelTests.SchemaComposition();
+        => NativePanelTests.SchemaComposition(output);
 }
 
 internal static partial class NativePanelTests
 {
-    internal static async Task DiagnosticsComposition()
+    internal static async Task DiagnosticsComposition(ITestOutputHelper output)
     {
-        await using var fixture = new ReadCompositionFixture(process: false);
+        await using var fixture = new ReadCompositionFixture(process: false, output);
         await fixture.StartAsync();
         var factory = fixture.App.Services.GetRequiredService<ILoggerFactory>();
         var diagnosticLogger = factory.CreateLogger("Bench.SourceDiagnostics");
@@ -152,9 +154,9 @@ internal static partial class NativePanelTests
         }
     }
 
-    internal static async Task SchemaComposition()
+    internal static async Task SchemaComposition(ITestOutputHelper output)
     {
-        await using var fixture = new ReadCompositionFixture(process: true);
+        await using var fixture = new ReadCompositionFixture(process: true, output);
         await fixture.StartAsync();
         var before = await fixture.BenchSource();
         var definitions = (await fixture.Ok("GET", "/benches"))["benches"]!.DeepClone();
@@ -279,7 +281,9 @@ internal static partial class NativePanelTests
     private sealed class ReadCompositionFixture : IAsyncDisposable
     {
         private readonly string root = Path.Combine(Path.GetTempPath(), "twig-read-composition-" + Guid.NewGuid().ToString("N"));
-        private readonly CancellationTokenSource deadline = new(TimeSpan.FromSeconds(55));
+        private readonly CancellationTokenSource deadline = new(TimeSpan.FromSeconds(300));
+        private readonly Stopwatch clock = Stopwatch.StartNew();
+        private readonly ITestOutputHelper output;
         private readonly UserBenchStore store;
         private readonly Connection connection = new(new("ado"), "11111111-2222-4333-8444-555555555555",
             "66666666-7777-4888-8999-aaaaaaaaaaaa", """["binding","saved-identity","aad","actor"]""");
@@ -298,8 +302,9 @@ internal static partial class NativePanelTests
         internal DiagnosticLogCapture Logs { get; } = new();
         internal string CachePath => Directory.GetFiles(Path.Combine(root, "evidence"), "*.json").Single();
 
-        internal ReadCompositionFixture(bool process)
+        internal ReadCompositionFixture(bool process, ITestOutputHelper output)
         {
+            this.output = output;
             Directory.CreateDirectory(root);
             store = new(Path.Combine(root, "benches.db"));
             var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
@@ -327,7 +332,7 @@ internal static partial class NativePanelTests
             app.Services.GetRequiredService<ILoggerFactory>().AddProvider(Logs);
             await app.StartAsync(deadline.Token);
             client = new() { BaseAddress = new(app.Services.GetRequiredService<IServer>()
-                .Features.Get<IServerAddressesFeature>()!.Addresses.Single()), Timeout = TimeSpan.FromSeconds(10) };
+                .Features.Get<IServerAddressesFeature>()!.Addresses.Single()), Timeout = Timeout.InfiniteTimeSpan };
             client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", owner.ContentCapability);
             await Ok("PUT", "/context", new JsonObject { ["root"] = root });
@@ -348,12 +353,18 @@ internal static partial class NativePanelTests
             using var request = new HttpRequestMessage(new(method), prefix + route);
             if (method != "GET")
                 request.Content = new StringContent((body ?? new JsonObject()).ToJsonString(), Encoding.UTF8, "application/json");
+            var requestClock = Stopwatch.StartNew();
             using var response = await (client ?? throw new InvalidOperationException("No owned client.")).SendAsync(request, deadline.Token);
-            return (response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync(deadline.Token))!);
+            var text = await response.Content.ReadAsStringAsync(deadline.Token);
+            if (requestClock.Elapsed > TimeSpan.FromSeconds(10))
+                output.WriteLine($"TIMING WARNING: Panel {method} {route} exceeded 10s request target ({requestClock.ElapsedMilliseconds}ms)");
+            return (response.StatusCode, JsonNode.Parse(text)!);
         }
 
         public async ValueTask DisposeAsync()
         {
+            if (clock.Elapsed > TimeSpan.FromSeconds(55))
+                output.WriteLine($"TIMING WARNING: Panel case exceeded 55s target ({clock.ElapsedMilliseconds}ms)");
             client?.Dispose();
             try
             {

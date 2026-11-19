@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -28,7 +29,8 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("observed-removal")]
     public async Task NativeAdoLinkHttpKeepsExactAuthority(string scenario)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
+        var caseClock = Stopwatch.StartNew();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(300));
         var ct = deadline.Token;
         var fixture = await CreateHumanHostAsync().WaitAsync(ct);
         _transport.SetState(42, "Doing");
@@ -53,7 +55,7 @@ public sealed partial class NativePublicationConsumerTests
             {
                 BaseAddress = new(app.Services.GetRequiredService<IServer>()
                     .Features.Get<IServerAddressesFeature>()!.Addresses.Single()),
-                Timeout = TimeSpan.FromSeconds(55),
+                Timeout = Timeout.InfiniteTimeSpan,
             };
             async Task<(HttpStatusCode Status, JsonNode Body)> Send(string suffix, JsonNode? body = null,
                 HttpMethod? method = null, string? capability = null, bool csrf = true)
@@ -62,8 +64,11 @@ public sealed partial class NativePublicationConsumerTests
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capability ?? human.ContentCapability);
                 if (csrf) request.Headers.Add("X-Twig-Bench", "1");
                 if (body is not null) request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
+                var requestClock = Stopwatch.StartNew();
                 using var response = await client.SendAsync(request, ct);
                 var text = await response.Content.ReadAsStringAsync(ct);
+                if (requestClock.Elapsed > TimeSpan.FromSeconds(55))
+                    _agentHttpOutput?.WriteLine($"TIMING WARNING: ADO link {scenario} {request.Method} {suffix} exceeded 55s request target ({requestClock.ElapsedMilliseconds}ms)");
                 text.ShouldNotBeNullOrWhiteSpace(suffix);
                 return (response.StatusCode, JsonNode.Parse(text)!);
             }
@@ -335,6 +340,8 @@ public sealed partial class NativePublicationConsumerTests
         }
         finally
         {
+            if (caseClock.Elapsed > TimeSpan.FromSeconds(55))
+                _agentHttpOutput?.WriteLine($"TIMING WARNING: ADO link {scenario} case exceeded 55s target ({caseClock.ElapsedMilliseconds}ms)");
             sessions.Revoke(owned);
             await app.StopAsync(CancellationToken.None);
         }

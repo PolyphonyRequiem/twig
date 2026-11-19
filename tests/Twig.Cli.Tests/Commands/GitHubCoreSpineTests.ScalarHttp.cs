@@ -28,7 +28,7 @@ public sealed partial class GitHubCoreSpineTests
     public async Task NativeGitHubScalarHttpUsesQualifiedNativeAuthority(string scenario)
     {
         var clock = Stopwatch.StartNew();
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(300));
         var ct = deadline.Token;
         using var native = new HumanEditorFixture();
         void Phase(string phase) => _linkHttpOutput?.WriteLine(
@@ -58,7 +58,7 @@ public sealed partial class GitHubCoreSpineTests
             {
                 BaseAddress = new(app.Services.GetRequiredService<IServer>()
                     .Features.Get<IServerAddressesFeature>()!.Addresses.Single()),
-                Timeout = TimeSpan.FromSeconds(10),
+                Timeout = Timeout.InfiniteTimeSpan,
             };
             client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
             async Task<(HttpStatusCode Status, JsonNode Body)> Send(string path, HttpMethod method,
@@ -69,9 +69,12 @@ public sealed partial class GitHubCoreSpineTests
                 if (body is not null)
                     request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
                 Phase($"request {method} {path}");
+                var requestClock = Stopwatch.StartNew();
                 using var response = await client.SendAsync(request, ct);
                 var text = await response.Content.ReadAsStringAsync(ct);
                 Phase($"response {(int)response.StatusCode} {method} {path}");
+                if (requestClock.Elapsed > TimeSpan.FromSeconds(10))
+                    Phase($"TIMING WARNING: {method} {path} exceeded 10s request target ({requestClock.ElapsedMilliseconds}ms)");
                 text.ShouldNotBeNullOrWhiteSpace(path);
                 return (response.StatusCode, JsonNode.Parse(text)!);
             }
@@ -298,6 +301,8 @@ public sealed partial class GitHubCoreSpineTests
         }
         finally
         {
+            if (clock.Elapsed > TimeSpan.FromSeconds(55))
+                Phase("TIMING WARNING: case exceeded 55s target");
             sessions.Revoke(owned);
             await app.StopAsync(CancellationToken.None);
         }

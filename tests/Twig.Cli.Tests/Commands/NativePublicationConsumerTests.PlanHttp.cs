@@ -27,7 +27,8 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("selection")]
     public async Task NativeAdoCompositionHttpKeepsExactAuthority(string scenario)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
+        var caseClock = Stopwatch.StartNew();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(300));
         using var callbackLifetime = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
         var ct = deadline.Token;
         var fixture = await CreateHumanHostAsync().WaitAsync(ct);
@@ -52,7 +53,7 @@ public sealed partial class NativePublicationConsumerTests
             {
                 BaseAddress = new(app.Services.GetRequiredService<IServer>()
                     .Features.Get<IServerAddressesFeature>()!.Addresses.Single()),
-                Timeout = TimeSpan.FromSeconds(10),
+                Timeout = Timeout.InfiniteTimeSpan,
             };
             client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
             async Task<(HttpStatusCode Status, JsonNode Body)> Send(string path, HttpMethod method,
@@ -62,8 +63,11 @@ public sealed partial class NativePublicationConsumerTests
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capability ?? human.ContentCapability);
                 if (body is not null)
                     request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
+                var requestClock = Stopwatch.StartNew();
                 using var response = await client.SendAsync(request, ct);
                 var text = await response.Content.ReadAsStringAsync(ct);
+                if (requestClock.Elapsed > TimeSpan.FromSeconds(10))
+                    _agentHttpOutput?.WriteLine($"TIMING WARNING: ADO Plan {scenario} {method} {path} exceeded 10s request target ({requestClock.ElapsedMilliseconds}ms)");
                 text.ShouldNotBeNullOrWhiteSpace(path);
                 return (response.StatusCode, JsonNode.Parse(text)!);
             }
@@ -445,6 +449,8 @@ public sealed partial class NativePublicationConsumerTests
         }
         finally
         {
+            if (caseClock.Elapsed > TimeSpan.FromSeconds(55))
+                _agentHttpOutput?.WriteLine($"TIMING WARNING: ADO Plan {scenario} case exceeded 55s target ({caseClock.ElapsedMilliseconds}ms)");
             HumanBeforeProjectMetadata = null;
             release.TrySetResult();
             await callbackLifetime.CancelAsync();

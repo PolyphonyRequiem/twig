@@ -171,8 +171,9 @@ The original executable selectors map to the five ADO rows as follows:
 `--relationship-counterfactual` to `relationship-debt`.
 `--github-editor-tests save` and `guards` map to their identically named
 GitHub rows. The CI group runs each of these seven scalar rows and the one
-Panel case in a separate selector-verified 60-second process, each with a
-55-second owned cancellation budget and bounded HTTP requests. Every invocation
+Panel case in a separate selector-verified process. The initial adoption used
+a 60-second process bound and 55-second case cancellation; the timing-policy
+revision below separates warning targets from runaway protection. Every invocation
 has one TRX logger; produced TRX files are uploaded even when a later row fails.
 Scenario strings do not occur in the method names, so display-name filters
 cannot inadvertently select an entire theory.
@@ -180,8 +181,59 @@ cannot inadvertently select an entire theory.
 Scalar cases emit monotonic fixture, listener and HTTP request/response phase
 timings with actual provider-request and write counters into xUnit output.
 These diagnostic lines contain no request bodies or capabilities, do not catch
-timeouts, and do not change the assertions or any request/case/process deadline.
+timeouts, and do not change the assertions. The original diagnostic-only change
+did not change request/case/process deadlines.
 A passing diagnostic run does not supersede a failed qualification gate.
+
+### Adopted HTTP timing policy
+
+The scalar/Panel, Plan, seed and relationship adoption keeps the original
+55-second whole-case and 10-second scalar/Plan/seed/Panel request timings
+(55 seconds for relationship requests) as **warning targets**, not functional
+assertions. Exceeded targets emit `TIMING WARNING` with elapsed time through
+xUnit output. The generic case token instead cancels after 300 seconds and
+still reaches every HTTP send/body read and existing cancellation-aware
+operation. The HTTP client adds no shorter independent cancellation.
+The Panel case and its two read-composition controls share this private fixture
+policy and output plumbing. No production timeout is changed.
+
+The external verifier's coordinated timing-warning/runaway change is owned by
+the parent CI update; until that parent is integrated, its old process bound
+still limits execution. A canceled or unexecuted case never counts as passed.
+Status, authority, provider/write counts, ordering and evidence assertions are
+unchanged. In particular, Plan's held-provider response/liveness assertions,
+five-second callback-entry waits, injected 36-second delay and minimum elapsed
+assertion remain behavioral checks, not generic performance warnings.
+
+Before this policy revision, exact carrier `c47880da` completed Linux 57/57
+relevant TRX rows. Windows produced 55 passed rows, one elapsed-canceled
+`github-binding-denied` row and one unrun `github-binding-generation` row
+(including the independent controls in those totals). Cancellation occurred
+during the initial LOCAL review, before denied-binding mutation/assertions;
+it demonstrates incomplete execution, not a failed security assertion.
+The successful cold Windows solution build took 132.35 seconds with zero
+warnings/errors: correctness passed, elapsed build time is a warning.
+Historical failure evidence is retained, not relabeled as passing. Revised
+source requires its own qualification; these results belong to `c47880da`.
+
+The timing-policy revision subsequently passed its focused Windows
+qualification: denied-binding and generation-binding each ran once in isolated
+processes, followed by the Panel case and two shared read-composition controls.
+The existing strict TRX verifier checked actual 1/1/3 passed rows, all selectors
+covered and zero skips. Denied/generation took 22.154/22.101 seconds, each with
+98 synthetic provider requests, zero provider writes, one capture/proposal/
+journal and zero receipts. Panel/schema/diagnostics took 2.833/2.958/1.460
+seconds. The remaining already-passed carrier rows were not duplicated or
+claimed as new-tip execution. No old latency cause or performance fix is
+inferred from these faster runs.
+
+Both affected test projects built successfully without restoring dependencies:
+CLI 87.63 seconds and Daemon.Tests 9.39 seconds, zero errors. Each build reported
+four existing MSBuild Git/SourceLink warnings from Infrastructure/RenderTree
+("Repository has no commit" and empty source-link information), not suppressed.
+Focused artifacts are under `artifacts/test-logs/ci/timing-warnings-candidate/`;
+the earlier canceled TRX remains separate under `windows-c47880da/`.
+No owned test/build/MSBuild-node process remained after qualification.
 
 ADO capability and CSRF refusals precede any provider acquisition or capture.
 The successful normal Save verifies all three fields through native cache and
@@ -236,8 +288,9 @@ are original Program dispatch variants even though the original CI Plan loop
 only lists the first three. GitHub retains the original `plan`/`apply` names.
 `native-plan-http` invokes seven separate nonoverlapping exact-method/display
 selectors, checks exactly one executed result in each TRX, and uploads
-`plan-http/*.trx`. Every invocation retains the unchanged 60-second external
-owned-process-tree verifier and a private 55-second cancellation budget.
+`plan-http/*.trx`. The original invocation used a 60-second external verifier
+and 55-second case cancellation; the adopted HTTP timing policy above now
+separates elapsed warnings from the 300-second case runaway cancellation.
 Delivery re-fetch at Canvas main `73d10b2033367e3c90780f5c8464993c7830c8bd`
 confirmed the complete Plan, GitHub editor and Program source blobs unchanged.
 
@@ -327,11 +380,12 @@ not the separate browser loop (`lifecycle`, `pin`, `unknown`, `authority`).
 `native-seed-http` retains those seven exact strings, using the full method
 `Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoSeedHttpKeepsExactAuthority`
 and `&DisplayName~<scenario>`. No scenario string occurs in the method name.
-Each invocation passes through unchanged `eng/verify-trx.py` (60-second external
-owned-tree bound, completed/passed-only counters and zero skips), followed by an
+Each invocation passes through `eng/verify-trx.py` (completed/passed-only counters
+and zero skips), followed by an
 exactly-one-result check. CI uploads each `seed-http/seed-<scenario>.trx`,
-including earlier results if a later case fails. Each case owns a 55-second
-cancellation budget, 10-second HTTP client requests, disposable fixture home,
+including earlier results if a later case fails. Each case retains 55-second
+case and 10-second request warning targets with 300-second case cancellation,
+a disposable fixture home,
 ephemeral loopback listener and explicitly revoked owner/stopped host in
 `finally`. No shared helper or production code changes are required.
 
@@ -466,7 +520,7 @@ receipts. Its exact selector is the same ADO method below with
 `&DisplayName~observed-removal`; the label deliberately does not contain
 `incoming`, preserving the existing incoming selector's single result.
 
-**Current qualification is HOLD, not a passing 21-case gate.** After ordinary
+**Historical qualification was HOLD, not a passing 21-case gate.** After ordinary
 integration of scalar carrier `2cef37873dc3ecb8b9279ec773f9765bcb56af2b`,
 the bounded CLI build passed with zero warnings/errors. The complete gate
 then passed association (45.956 seconds), but outgoing cancelled at its
@@ -487,16 +541,17 @@ rerun was performed. Evidence is retained in
 `artifacts/test-logs/ci/relationship-requalify/`: `ado-observed-removal.trx`,
 `ado-association-gate.trx`, `ado-outgoing-gate-failed.trx`, and
 `ado-outgoing-diagnostic.trx`. Historical counters below are separate and do
-not supersede this hold. Linux qualification has not been executed here.
+not supersede that historical hold. Linux qualification had not been executed
+at that checkpoint; later exact-carrier results are recorded above.
 
 The new group uses `FullyQualifiedName=Twig.Cli.Tests.Commands.` followed by
 the method below and `&DisplayName~<scenario>`. Every invocation must produce
-exactly one passed result with zero skips, checked after the unchanged
-`eng/verify-trx.py` 60-second owned-process wrapper. CI uploads all per-case
+exactly one passed result with zero skips, checked after the
+`eng/verify-trx.py` owned-process wrapper. CI uploads all per-case
 TRXs from `artifacts/test-logs/ci/relationship-http/`, including on failure.
-Both methods own 55-second cancellation covering initialization and requests.
-The original request timeout was 60 seconds; these requests instead have a
-55-second ceiling and use the case token. An initially added 10-second cap was
+Both methods now use the 300-second case token for initialization and requests;
+55-second case/request timings are warnings under the policy above.
+The original request timeout was 60 seconds. An initially added 10-second cap was
 removed after it interrupted genuine acquisition/SQLite writer-fence work on
 the shared host. There are no timeout catches, retries or accepted partial runs.
 

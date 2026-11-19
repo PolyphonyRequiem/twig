@@ -4,22 +4,23 @@ using Shouldly;
 using Twig.Core;
 using Twig.Store.Sqlite;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Twig.Daemon.Tests.Native;
 
-public sealed class NativePanelScalarBoundaryTests
+public sealed class NativePanelScalarBoundaryTests(ITestOutputHelper output)
 {
     [Fact]
     public Task NativePanelUnpinRetainsOrderedQueryAndOtherPinAndExactTypedStateColors()
-        => NativePanelTests.ScalarBoundaryComposition();
+        => NativePanelTests.ScalarBoundaryComposition(output);
 }
 
 internal static partial class NativePanelTests
 {
     // native-process-browser.mjs, Canvas blob 768e815154034bddffec38a24f4f93cbffea8fa6, 242-282 and 316-318.
-    internal static async Task ScalarBoundaryComposition()
+    internal static async Task ScalarBoundaryComposition(ITestOutputHelper output)
     {
-        await using var fixture = new ReadCompositionFixture(process: true);
+        await using var fixture = new ReadCompositionFixture(process: true, output);
         await fixture.StartAsync();
         var source = await fixture.BenchSource();
         var initialKeys = ItemKeys(source);

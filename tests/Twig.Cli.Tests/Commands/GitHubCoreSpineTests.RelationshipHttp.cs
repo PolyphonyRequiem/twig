@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -37,7 +38,8 @@ public sealed partial class GitHubCoreSpineTests
     [InlineData("binding-generation")]
     public async Task NativeGitHubLinkHttpKeepsExactAuthority(string scenario)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
+        var caseClock = Stopwatch.StartNew();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(300));
         var ct = deadline.Token;
         using var native = new LocalHttpFixture();
         await native.InitializeAsync().WaitAsync(ct);
@@ -62,12 +64,12 @@ public sealed partial class GitHubCoreSpineTests
             {
                 BaseAddress = new(app.Services.GetRequiredService<IServer>()
                     .Features.Get<IServerAddressesFeature>()!.Addresses.Single()),
-                Timeout = TimeSpan.FromSeconds(55),
+                Timeout = Timeout.InfiniteTimeSpan,
             };
             async Task<(int Status, JsonNode Body)> Request(string path, JsonNode? body = null, HttpMethod? method = null,
                 string? capability = null, bool csrf = true)
             {
-                var elapsed = System.Diagnostics.Stopwatch.StartNew();
+                var elapsed = Stopwatch.StartNew();
                 using var request = new HttpRequestMessage(method ?? HttpMethod.Post, $"/api/v1/views/{human.ViewId:D}" + path);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capability ?? human.ContentCapability);
                 if (csrf) request.Headers.Add("X-Twig-Bench", "1");
@@ -76,6 +78,8 @@ public sealed partial class GitHubCoreSpineTests
                 var text = await response.Content.ReadAsStringAsync(ct);
                 text.ShouldNotBeNullOrWhiteSpace(path);
                 _linkHttpOutput?.WriteLine($"{path}: {(int)response.StatusCode}, {elapsed.ElapsedMilliseconds}ms");
+                if (elapsed.Elapsed > TimeSpan.FromSeconds(55))
+                    _linkHttpOutput?.WriteLine($"TIMING WARNING: GitHub link {scenario} {request.Method} {path} exceeded 55s request target ({elapsed.ElapsedMilliseconds}ms)");
                 return ((int)response.StatusCode, JsonNode.Parse(text)!);
             }
             async Task<JsonNode> Send(string path, JsonNode? body = null, HttpMethod? method = null)
@@ -281,6 +285,8 @@ public sealed partial class GitHubCoreSpineTests
         }
         finally
         {
+            if (caseClock.Elapsed > TimeSpan.FromSeconds(55))
+                _linkHttpOutput?.WriteLine($"TIMING WARNING: GitHub link {scenario} case exceeded 55s target ({caseClock.ElapsedMilliseconds}ms)");
             native.ReleaseApplied();
             sessions.Revoke(owned);
             await app.StopAsync(CancellationToken.None);

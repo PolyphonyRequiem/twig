@@ -8,6 +8,7 @@ using static Bench.Server.BenchHost;
 namespace Bench.Server;
 
 public sealed record RepositoryContextBody(string? Root);
+public sealed record ReadRepositoryBindingsBody(string Root);
 public sealed record RepositoryBindingsBody(string Root, long ExpectedRevision, Connection[] Connections, Guid? DefaultBench);
 public sealed record AttachBenchConnectionBody(long ExpectedRevision, Connection Connection);
 
@@ -25,7 +26,7 @@ public static partial class NativeBenchHost
         if (!observed.IsSuccess && observed.Error.Code != ErrorCode.InvalidInput) _ = Require(observed);
         var bindings = observed.IsSuccess ? observed.Value : null;
         var before = sessions.ReadState(session);
-        var nextRoot = bindings is null ? null : Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        var nextRoot = bindings?.RepositoryRoot;
         if (!ViewSession.PathComparer.Equals(before.Choices.RepositoryRoot, nextRoot) || before.Revision == 0)
         {
             var bench = bindings is null ? null : await RepositoryBench(panel, sessions, session, bindings, ct);
@@ -98,10 +99,11 @@ public static partial class NativeBenchHost
     private static void MapRepositories(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates,
         Func<HttpContext, Guid, Task<ViewSession>> authorize)
     {
-        app.MapGet("/api/v1/views/{id:guid}/repository-bindings", async (HttpContext http, Guid id, string root) =>
+        app.MapPost("/api/v1/views/{id:guid}/repository-bindings", async (HttpContext http, Guid id) =>
         {
             _ = await authorize(http, id);
-            await Write(http, Require(await panel.ReadRepositoryAsync(root, http.RequestAborted)));
+            var body = await Body<ReadRepositoryBindingsBody>(http);
+            await Write(http, Require(await panel.ReadRepositoryAsync(body.Root, http.RequestAborted)));
         });
         app.MapPut("/api/v1/views/{id:guid}/repository-bindings", async (HttpContext http, Guid id) =>
         {
@@ -123,7 +125,7 @@ public static partial class NativeBenchHost
                 : await RepositoryBench(panel, sessions, session, bindings!, http.RequestAborted);
             _ = sessions.SaveState(session, new(before.Revision, before.Choices with
             {
-                RepositoryRoot = body.Root is null ? null : Path.TrimEndingDirectorySeparator(Path.GetFullPath(body.Root)),
+                RepositoryRoot = bindings?.RepositoryRoot,
                 BenchId = selected, ViewingRoot = null, AddRoot = null, DisplayRoots = [],
                 GroupSource = null, GroupField = null,
             }));
@@ -156,6 +158,7 @@ public static partial class NativeBenchHost
 }
 
 [JsonSerializable(typeof(RepositoryContextBody))]
+[JsonSerializable(typeof(ReadRepositoryBindingsBody))]
 [JsonSerializable(typeof(RepositoryBindingsBody))]
 [JsonSerializable(typeof(AttachBenchConnectionBody))]
 [JsonSerializable(typeof(UserRepositoryBindings))]

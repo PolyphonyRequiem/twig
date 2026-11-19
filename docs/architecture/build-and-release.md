@@ -70,12 +70,12 @@ For an uninstalled Windows candidate pair, from a clean commit:
 
 ```powershell
 .\eng\daemon-package.ps1 -Output "$PWD\artifacts\candidate\daemon-win-x64" -PythonExecutable python
-python eng\run-bounded.py --timeout 120 -- dotnet publish src\Twig\Twig.csproj -c Release -r win-x64 --self-contained true "-m:1" --verbosity minimal -o artifacts\candidate\cli-win-x64
+python eng\run-bounded.py --warn-after 120 --timeout 300 -- dotnet publish src\Twig\Twig.csproj -c Release -r win-x64 --self-contained true "-m:1" --verbosity minimal -o artifacts\candidate\cli-win-x64
 if ($LASTEXITCODE -ne 0) { throw 'CLI candidate publish failed' }
 Compress-Archive -Path artifacts\candidate\cli-win-x64\* -DestinationPath artifacts\candidate\twig-win-x64.zip
 $hash = (Get-FileHash artifacts\candidate\twig-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  twig-win-x64.zip" | Set-Content -Encoding ascii artifacts\candidate\twig-win-x64.zip.sha256
-.\eng\test-daemon-package.ps1 -Archive artifacts\candidate\twig-daemon-win-x64.zip -CliArchive artifacts\candidate\twig-win-x64.zip -PythonExecutable python
+python eng\run-bounded.py --warn-after 60 --timeout 300 -- powershell.exe -NoProfile -File eng\test-daemon-package.ps1 -Archive artifacts\candidate\twig-daemon-win-x64.zip -CliArchive artifacts\candidate\twig-win-x64.zip -PythonExecutable python
 ```
 
 The verifier extracts both archives into disposable, explicit test roots. The
@@ -119,10 +119,13 @@ operator-approved checks; never infer them from these build-only tests.
 
 Run builds and tests serially to avoid collisions over build output. From the
 repository root, build, run focused regressions for the changed behavior, and
-run the offline smoke against the built CLI (60-second default deadline):
+run the offline smoke against the built CLI. Generic builds/publishes warn after
+120 seconds and generic verification warns after 60 seconds; both retain a
+300-second hard runaway limit. Protocol, authentication, readiness and owned
+shutdown deadlines remain strict and unchanged.
 
 ```sh
-python eng/run-bounded.py --timeout 120 -- dotnet build "-m:1"
+python eng/run-bounded.py --warn-after 120 --timeout 300 -- dotnet build "-m:1"
 python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SpecificTestClass" --logger "trx;LogFileName=focused.trx" --results-directory artifacts/test-logs/focused
 python eng/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll
 ```

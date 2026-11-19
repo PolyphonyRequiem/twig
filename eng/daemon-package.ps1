@@ -20,7 +20,7 @@ $version = (& git -C $source rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $version -cnotmatch '^[a-f0-9]{40}$') { throw 'Exact source revision required.' }
 $dirty = & git -C $source status --porcelain --untracked-files=normal
 if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Daemon packaging requires a clean source checkout.' }
-& $PythonExecutable (Join-Path $source 'eng\run-bounded.py') --timeout 120 -- dotnet publish `
+& $PythonExecutable (Join-Path $source 'eng\run-bounded.py') --warn-after 120 --timeout 300 -- dotnet publish `
     (Join-Path $source 'src\Twig.Daemon\Twig.Daemon.csproj') -c Release -r win-x64 --self-contained true `
     -p:PublishSingleFile=false -p:PublishTrimmed=false "-p:DaemonSourceRevisionId=$version" '-m:1' --verbosity minimal -o $Output
 if ($LASTEXITCODE -ne 0) { throw 'Daemon publish failed; no package was selected or installed.' }

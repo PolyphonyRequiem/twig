@@ -26,6 +26,10 @@ the new tests use `Twig.Daemon.Tests`. No production API was made public for tes
 | `AdoEditorTests.cs` scalar variants (5 cases) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.ScalarHttp.cs`, `NativeAdoScalarHttpUsesQualifiedNativeAuthority` | One title/HTML/discovered-state PATCH, closed-ticket refusal, relevant/unrelated incomplete policy scope, fresh admission despite cached guidance, scalar withholding and disclosure for owned relationship debt |
 | `GitHubEditorTests.cs` `save` and `guards` only (2 cases) | `Twig.Cli.Tests/Commands/GitHubCoreSpineTests.ScalarHttp.cs`, `NativeGitHubScalarHttpUsesQualifiedNativeAuthority` | Full shared provider/locator/field/notice/SDK/CSRF checks; exact Markdown including literal script text, explicit empty clear, HTML/ADO-alias/stale-ticket/actor refusals and actual mutation counts |
 | `native-process-browser.mjs` lines 242-282 and 316-318 (2 assertions, 1 case) | `NativePanelTests.ScalarBoundary.cs`, `NativePanelUnpinRetainsOrderedQueryAndOtherPinAndExactTypedStateColors` | Actual DTO-qualified pin PUT/unpin, exact ordered query/other-pin SQLite readback, unchanged three query members, fresh-revision restoration; exact type-qualified state colors from genuine two-type native metadata |
+| `PlanTests.cs` (5 variants) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.PlanHttp.cs`, `NativeAdoCompositionHttpKeepsExactAuthority` | Full native Plan/normal/seed/review/apply composition, actual 36-second metadata delay, navigation-invalidated durable review, committed enable/preparation failure and exact non-preparatory item selection |
+| `GitHubEditorTests.cs` `plan` and `apply` (2 variants) | `Twig.Cli.Tests/Commands/GitHubCoreSpineTests.ScalarHttp.cs`, `NativeGitHubScalarHttpUsesQualifiedNativeAuthority` | Shared native guards, isolated Stage and normal Save, retained Plan/scope identities, exact whole review/digest/apply/delivery and no replay |
+| `NormalSeedTests.cs` (all 7 variants) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.SeedHttp.cs`, `NativeAdoSeedHttpKeepsExactAuthority` | Actual owned seed projection, empty-field authoring, exact UUID/source/owner/Plan isolation, native create/receipts/cache/pin delivery, lost-response protection, original-reference continuation without replay, SDK/owner/CSRF/ticket/definition/actor guards |
+| `EditorChoiceFixture.cs` Core evaluator primitives only | `Twig.Core.Tests/CompoundLinkContractTests.cs`, `EvaluatedEditorOverlayReplacesConditionalChoicesAndStatesAndRejectsObsoleteValues` and `EvaluatedEditorOverlayWithoutMatchingAllowedRuleRemovesTheConstraint` | Conditional choice/state replacement, obsolete-value errors and actual effect refusal until both values are corrected; no matching Allowed rule is unconstrained, not constrained-empty |
 
 The original assertions are retained. The Sessions and adapter executable
 dispatchers become xUnit cases; each Sessions case owns a fresh directory and
@@ -43,6 +47,8 @@ python eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Test
 python eng\verify-trx.py -- dotnet test tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativePresentationHttpPersistsWithoutAcquisitionAndPreservesContentPriority" --logger "trx;LogFileName=presentation-http.trx" --results-directory artifacts\test-logs\ci\presentation-http
 python eng\verify-trx.py -- dotnet test tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeInitialViewHttpRestoresWithOneLocalObservationAndNoProviderWork" --logger "trx;LogFileName=initial-view-http.trx" --results-directory artifacts\test-logs\ci\initial-view-http
 python eng\ci-checks.py native-scalar-http
+python eng\ci-checks.py native-plan-http
+python eng\ci-checks.py native-seed-http
 ```
 
 The presentation case reuses the existing provider-owned CLI fixture directly,
@@ -194,6 +200,195 @@ metadata, first establishing its same-name/distinct-color counterfactual.
 It proves projection fidelity, not a general rule requiring different colors
 for every pair of native types.
 
+## Plan HTTP composition
+
+The seven Plan cases independently fetch their source of truth from Canvas main
+`f154a3502f2458cd328e51b71802ae108bbfa12d`: `PlanTests.cs` blob
+`ee4b11096ba08cdbe6709f747e5ed387f6d750d6` and `GitHubEditorTests.cs` blob
+`a3ca89da602a9e6f13e0362a952482a79c5bb13a`. Original dispatch was checked in
+`tests/Bench.Service.Tests/Program.cs` blob
+`41502ce0612003f28de009b0b79ccad29ec3bb30` and `.github/workflows/ci.yml` blob
+`640141388829e2b75b91b1949181bf62956e824c`. The five original Plan variants map
+to `full`, `delayed`, `navigation`, `preparation`, and `selection`; the last two
+are original Program dispatch variants even though the original CI Plan loop
+only lists the first three. GitHub retains the original `plan`/`apply` names.
+`native-plan-http` invokes seven separate nonoverlapping exact-method/display
+selectors, checks exactly one executed result in each TRX, and uploads
+`plan-http/*.trx`. Every invocation retains the unchanged 60-second external
+owned-process-tree verifier and a private 55-second cancellation budget.
+Delivery re-fetch at Canvas main `73d10b2033367e3c90780f5c8464993c7830c8bd`
+confirmed the complete Plan, GitHub editor and Program source blobs unchanged.
+
+The real ADO and GitHub native fixtures, canonical `ForRegistry` user store,
+native panel/adapter, production host and ephemeral owner-connected loopback
+listeners are reused. The historical standalone `benches.db` is deliberately
+not used: mode, native editor and HTTP must share one canonical owner store.
+Existing `NativeItemEditor.OpenAsync(..., prepareScope: false)` replaces the
+absent old fixture wrapper. Test gateways count actual preparation/editor and
+review calls; they delegate native operations, never return canned Plan data.
+All callbacks are cleared, held metadata released/cancelled, owner sessions
+revoked and listeners stopped in `finally`. No new production API, friend,
+reflection, source link, assembly identity or test-to-test reference is added.
+
+ADO explicit enable prepares exactly one current-source/root scope in a
+separate Plan store. Each subsequent item selection leaves the exact
+Plan/Bench revision and source tuple unchanged and never prepares again.
+SDK review/seed/stage/apply refusals have no HTTP/capture delta; old normal
+tickets are fenced. Full flow stages exact titles for items 42/43 with zero
+writes and exact two-row draft overlays. A genuine public
+`NativePanel.OpenAsync` context and `ReadViewAsync` typed composition retain
+their enabled/draft labels across a later actual mode transition; this is not
+a JSON clone compared with itself. Independent normal Save publishes only
+description (one PATCH and original native cache/journal evidence), then both
+Plan titles remain. The intrinsic owned Plan seed is staged with discovered
+type/state, has no invented URL, and makes three overlay members/effects.
+Wrong digest dispatches nothing. Exact apply verifies three operations and
+delivers one scope: total three PATCHes (including normal Save), one synthetic
+create, four committed synthetic mutations. Native SQLite binds the owned seed
+UUID to its remote mapping, retains both Applied and Verified receipts per
+operation, settles captures and additively pins/caches delivery. Repeated HTTP
+Apply is 409 with unchanged counts and all three final members are remote.
+This intrinsic Plan seed does not adopt or expand the separate NormalSeed suite.
+
+The delayed case stages exactly one actual isolated native draft via the
+existing fixture API, then delays exactly one real project-metadata callback
+by 36000ms. Review POST returns routing in under two seconds; the original
+operation is observed Reviewing without a review and eventually Reviewed
+beyond 36 seconds, with one gateway Review, no replay and no provider mutation.
+The navigation case first acquires a genuine reviewed grant, then starts a
+second Review and holds its actual metadata boundary while closing the real
+HTTP editor. The first grant's exact ticket/digest refuses while blocked,
+after close and after release (two intended Reviews, no replay); the same
+operation ends with `PlanNavigationChanged` and no review, while native
+`LastReviewDigest` survives. Observing that exact durable review produces a
+real observation-only ticket (`canApply: false`); even that exact ticket/digest
+cannot dispatch a non-delivery Apply (`409 PlanAlreadyStarted`). This maps the
+original private `Plan.Ticket`/`ApplyAllowed` safety assertion to meaningful
+existing public authority boundaries. Literal private empty-ticket equality
+is not inspected: Review itself already clears that ticket before metadata,
+so its early equality alone does not distinguish editor close. No private-state
+gap is hidden as a literal port. Preparation failure throws a real metadata
+`IOException`: 503 explicitly says mode was enabled and durable/public mode
+remains enabled without rollback or writes. Enable-only performs both guarded
+selections without staging or provider writes.
+
+GitHub shares its original provider/locator/native fields, SDK/CSRF, Markdown,
+read-only collection and non-atomic/undiscoverable-automation notices. Stage
+captures three scalar fields locally, blocks normal Save and reviews exactly
+one effect without writes. Plan-only verifies an independent body-only normal
+Save (original title/state unchanged), then the same exact Plan/scope identity
+and staged title return with exactly one updateIssue total. Apply refuses the
+wrong digest without dispatch, completes the exact one-operation/one-scope
+review with one updateIssue, settles captures, and delivers exact title,
+Markdown and CLOSED state without drafts to the original native cache and
+synthetic remote. Repeated Apply remains 409 with one write. Creates/comments
+remain zero. No TLS/Negotiate/Windows-owner or live provider claim is made.
+
+## Normal-seed HTTP and two Core authoring-rule residuals
+
+This slice independently fetched Canvas main
+`73d10b2033367e3c90780f5c8464993c7830c8bd` (the initial adoption source was
+`f154a3502f2458cd328e51b71802ae108bbfa12d`). Exact source identities:
+`tests/Bench.Service.Tests/NormalSeedTests.cs` blob
+`6c46022a2061f910ef68e0151ea057faef5ca5ea`,
+`tests/Bench.NativeFixtures/NormalSeedFixture.cs` blob
+`1617746c46b40e5a4bbbc61cee2ec4821756f9d8`,
+`tests/Bench.Service.Tests/EditorChoiceFixture.cs` blob
+`de2a4745618fddc48d8295268c3156154c2e1d5f`.
+The original Program blob `41502ce0612003f28de009b0b79ccad29ec3bb30`
+dispatches `--normal-seed-tests <scenario>`; CI blob
+`640141388829e2b75b91b1949181bf62956e824c` explicitly runs
+`projection`, `lifecycle`, `pin`, `origin`, `unknown`, `guards`, `ownership`
+under its 60-second owned-tree wrapper. These are all seven native cases,
+not the separate browser loop (`lifecycle`, `pin`, `unknown`, `authority`).
+
+`native-seed-http` retains those seven exact strings, using the full method
+`Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoSeedHttpKeepsExactAuthority`
+and `&DisplayName~<scenario>`. No scenario string occurs in the method name.
+Each invocation passes through unchanged `eng/verify-trx.py` (60-second external
+owned-tree bound, completed/passed-only counters and zero skips), followed by an
+exactly-one-result check. CI uploads each `seed-http/seed-<scenario>.trx`,
+including earlier results if a later case fails. Each case owns a 55-second
+cancellation budget, 10-second HTTP client requests, disposable fixture home,
+ephemeral loopback listener and explicitly revoked owner/stopped host in
+`finally`. No shared helper or production code changes are required.
+
+| Original scenario/assertion | Provider-native proof and adaptation |
+| --- | --- |
+| `projection` | Stage a real owned native seed first; ready capture, UUIDv7 and null baseline; existing `/editor` opens the same qualified ID; `/seeds` projects temporary membership and the same UUID/source; permanent Bench revision/connections/selectors unchanged; zero creates/PATCHes/journal |
+| `lifecycle` | Discover exact connected type/state; all creation fields Null; incomplete Save is 400; Stage/reopen keeps UUID and capture; one actual synthetic ADO POST/commit, no PATCH; canonical SQLite proposal/create operation/digest, mapping and Applied plus Verified receipts; settled capture and permanent source-qualified remote pin; exact cached title and HTTP member, no stale local row |
+| `pin` | Real SQLite pin-update failure after actual remote commit yields VerifiedDeliveryPending; Core draft is gone, original capture remains; restore, add unrelated uncached pin 44, enumerate/observe original reference, wrong digest 409, continue twice; same proposal/attempt/receipts/mapping and one POST; both pins survive; uncached 44 explicitly makes HTTP projection Unavailable, never a false empty-success or failed delivery |
+| `origin` | Real synthetic provider current-item read failure only after two verification readbacks; verified journal but pending delivery/no pin; restore and enumerate the original capture without a Core draft, observe/wrong-digest/continue twice; exact native cache/pin delivery and no new create/journal/receipt |
+| `unknown` | Actual synthetic remote commit followed by lost response; Indeterminate journal with original receipt, no mapping/pin, original UUID draft and unsettled capture retained; enumerate/observe original reference, wrong digest refused, repeated delivery stays Protected; receipt content/attempt/proposal/UUID unchanged and no replay |
+| `guards` (shared preconditions also run in all non-projection cases) | SDK cannot enumerate/create/observe/deliver; invalid owner capability and missing CSRF refuse before any provider HTTP/capture; invalid connected type is 400; unselected source is 409 and retires old ticket; real Bench definition revision advance rejects the next ticket; changed actual provider principal rejects Save and withholds seed content; zero provider mutations and no settled capture |
+| `ownership` | Real CLI draft, different-Bench seed and isolated-Plan seed have distinct keys; exact original capture binds user instance, Bench, root, source/store and normal scope; only the normal seed is owned/member; both visible unowned drafts are HTTP NotFound for edit and nonmembers, Plan seed stays outside the normal store and is Unsupported through native selection; normal publication preserves foreign debt and Plan owner |
+
+The original fixture's `SeedCreateAttempts` is mapped directly to the existing
+synthetic provider HTTP handler's `_transport.PostCount`, not a gateway claim.
+`FailSeedDelivery`/restore reuse the existing private transport callbacks and
+`SeedPinFailureAsync`; no public test hooks are added. Foreign-debt setup uses
+the existing actual CLI workspace/native editor/Plan store APIs in the same
+partial class. All native enumeration/editor/HTTP paths use canonical
+`UserBenchStore.ForRegistry`, not the original standalone store constructor.
+An empty Bench retains its explicit connection while clearing selectors:
+current native Bench source selection is connection-owned. Its initial HTTP
+rows are empty while the native item cache still contains both original items.
+This is an explicit fixture/API adaptation, not treating an unselected source
+as an empty source or weakening owned-seed membership.
+
+Existing direct native tests in `NativePublicationConsumerTests.NormalSeeds.cs`
+already own lifecycle, verified origin/pin continuation, unknown creation,
+CLI/other-Bench/Plan isolation, actor/mode/schema/Bench/ticket guards and
+creation-requiredness. They are mapped, not copied into new contract wrappers.
+The new seven cases supply the missing actual production HTTP composition and
+canonical capture/journal assertions. `NativeHttpGateway` is reused unchanged;
+its existing non-preparatory `NativeItemEditor.OpenAsync(..., prepareScope: false)`
+replaces the removed consumer `OpenExistingHumanHostForPanelAsync` wrapper.
+
+Two Core Facts fill only the missing primitives behind `EditorChoiceFixture`
+lines 39-49 and 73-79. Title overlays replace severity A/obsolete with B and
+state Start with Finish. Current obsolete values remain invalid; correcting
+only one leaves errors, while Finish/B removes them. Actual
+`Core.EvaluateEditorFields` errors are compared with `Core.ValidateEffect`
+refusals for the retained proposal/journal; no synthetic fixture Save is used.
+The second Fact changes a matching condition to no matching Allowed rule and
+asserts `HasAllowedConstraint: false`, an empty suggestion list and a genuinely
+valid unlisted value. Existing
+`SupplierProjectionPreservesActualReadOnlyRequiredAmbiguityAndConstraintSemantics`
+(`constrained-empty`) already proves true plus empty; existing
+`EvaluatedEditorFieldsReuseConditionalRequiredAllowedAndReadOnlyRules` covers
+required/read-only primitives, so neither is duplicated.
+The unchanged CI Core selector `FullyQualifiedName~Twig.Core.Tests` includes
+both new Facts and preserves its `core/core.trx` upload. Focused local evidence
+also includes both existing comparator cases in `seed-http/core-authoring.trx`.
+DOM current-value retention, select/input switching, focus and all choices
+fixture HTTP/browser transport remain consumer-owned. These Core Facts do not
+claim native conditional-metadata Save HTTP or browser equivalence.
+
+The per-case `SEED HTTP` TRX output records actual synthetic provider HTTP,
+connectionData admission probes, POST/PATCH attempts, committed writes and
+readbacks; canonical SQLite captures, journal rows and receipts; and separate
+gateway prepared/existing-editor counts. Projection/guards have zero mutations
+and journal rows; the other five cases each have one actual create/commit and
+zero PATCHes. Unknown has one Indeterminate receipt; verified cases have two
+separate Applied/Verified receipts. No real external provider writes occur.
+Observed local Windows counters (HTTP totals describe this fixture run, not a
+new production request-count contract):
+
+| Case | Provider HTTP | Admission probes | Captures | Create / PATCH / committed | Readbacks | Journal / receipts | Prepared / existing editor |
+| --- | ---: | ---: | ---: | --- | ---: | --- | --- |
+| projection | 89 | 17 | 1 | 0 / 0 / 0 | 0 | 0 / 0 | 1 / 1 |
+| lifecycle | 201 | 31 | 1 | 1 / 0 / 1 | 3 | 1 / 2 | 4 / 1 |
+| pin | 288 | 46 | 1 | 1 / 0 / 1 | 4 | 1 / 2 | 10 / 1 |
+| origin | 276 | 44 | 1 | 1 / 0 / 1 | 3 | 1 / 2 | 9 / 1 |
+| unknown | 242 | 41 | 1 | 1 / 0 / 1 | 0 | 1 / 1 | 9 / 1 |
+| guards | 143 | 29 | 1 | 0 / 0 / 0 | 0 | 0 / 0 | 4 / 3 |
+| ownership | 273 | 43 | 3 | 1 / 0 / 1 | 3 | 1 / 2 | 4 / 3 |
+
+No native assertion from the original seven-scenario suite is intentionally
+unported. Its serve/stdin/static-asset branches are consumer protocols, not
+native invariants, and remain unported along with browser interaction/geometry.
+
 ## Not adopted or qualified here
 
 This is not permission to delete the whole Canvas native integration lane:
@@ -210,9 +405,10 @@ This is not permission to delete the whole Canvas native integration lane:
   enforcement remain consumer-owned. Original consumer tests remain retained
   until an independent comparison of the committed provider gates authorizes
   their removal; these two cases do not dispose of the whole native suite.
-- The seven scalar cases above do not adopt `GitHubEditorTests` `plan`/`apply`,
-  dedicated `PlanTests`, `NormalSeedTests`, `RelationshipTests`,
-  `GitHubLocalRelationshipTests`, `EditorChoiceFixture` or their remaining
+- The scalar, Plan and normal-seed cases above do not adopt the `PlanTests` or
+  `NormalSeedTests` serving loops or external-edit stdin commands, `RelationshipTests`,
+  `GitHubLocalRelationshipTests`, the remaining `EditorChoiceFixture` HTTP/browser
+  behavior or their remaining
   `Bench.NativeFixtures/*.cs` dependencies. These sources remain upstream;
   neither whole editor file is declared deletable here. Existing CLI/Core
   family coverage is not HTTP composition equivalence. Removal remains gated

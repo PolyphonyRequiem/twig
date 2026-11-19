@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -21,6 +22,8 @@ public sealed partial class GitHubCoreSpineTests
     [Theory]
     [InlineData("save")]
     [InlineData("guards")]
+    [InlineData("plan")]
+    [InlineData("apply")]
     public async Task NativeGitHubScalarHttpUsesQualifiedNativeAuthority(string scenario)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
@@ -66,8 +69,31 @@ public sealed partial class GitHubCoreSpineTests
             async Task<JsonNode> Ok(string path, HttpMethod method, JsonNode? body = null)
             {
                 var response = await Send(path, method, body);
-                response.Status.ShouldBe(HttpStatusCode.OK, path + ": " + response.Body.ToJsonString());
+                response.Status.ShouldBe(path is "/plan/review" or "/plan/apply"
+                    ? HttpStatusCode.Accepted : HttpStatusCode.OK, path + ": " + response.Body.ToJsonString());
                 return response.Body;
+            }
+            async Task<JsonNode> Mode(bool enabled)
+            {
+                var status = await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get);
+                return await Ok("/plan/mode", HttpMethod.Put, new JsonObject
+                {
+                    ["benchId"] = fixture.Bench.ToString("D"), ["storeId"] = status["storeId"]!.DeepClone(),
+                    ["benchRevision"] = status["benchRevision"]!.DeepClone(),
+                    ["planRevision"] = status["revision"]!.DeepClone(), ["enabled"] = enabled,
+                });
+            }
+            async Task<JsonNode> Wait(JsonNode operation)
+            {
+                var id = operation["operationId"]!.GetValue<string>();
+                while (operation["status"]!.GetValue<string>() is "Reviewing" or "Applying" or "Delivering")
+                {
+                    await Task.Delay(100, ct);
+                    operation = await Ok("/plan/operations/" + id, HttpMethod.Get);
+                    operation["operationId"]!.GetValue<string>().ShouldBe(id);
+                }
+                operation["error"].ShouldBeNull(operation.ToJsonString());
+                return operation;
             }
             static JsonObject Field(string reference, string kind, string value) => new()
             {
@@ -150,6 +176,95 @@ public sealed partial class GitHubCoreSpineTests
                 snapshot.Journal.Count().ShouldBe(2);
                 snapshot.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified);
             }
+            else if (scenario is "plan" or "apply")
+            {
+                var capturesBefore = (await store.ReadEditorCapturesAsync(ct)).Value.Length;
+                await Mode(true);
+                (await Send("/editor/save", HttpMethod.Post, Change(form, Field("github.title", "Text", "stale mode"))))
+                    .Status.ShouldBe(HttpStatusCode.Conflict);
+                open["planMode"] = true;
+                form = await Ok("/editor", HttpMethod.Post, open);
+                form["binding"]!["storeInstance"]!.GetValue<string>().ShouldNotBe(fixture.Stamp.StoreInstance.ToString("D"));
+                var staged = await Ok("/editor/stage", HttpMethod.Post, Change(form,
+                    Field("github.title", "Text", "Planned HTTP title"),
+                    Field("github.body", "Markdown", "**planned Markdown**"), Field("github.state", "Text", "CLOSED")));
+                staged["binding"]!["planMode"]!.GetValue<bool>().ShouldBeTrue();
+                var planId = staged["binding"]!["planId"]!.GetValue<string>();
+                var scopeId = staged["binding"]!["scopeId"]!.GetValue<string>();
+                Guid.Parse(planId).ShouldNotBe(Guid.Empty);
+                Guid.Parse(scopeId).ShouldNotBe(Guid.Empty);
+                native.Writes.ShouldBe(0);
+                (await store.ReadEditorCapturesAsync(ct)).Value.Length.ShouldBeGreaterThan(capturesBefore);
+                (await Send("/editor/save", HttpMethod.Post, Change(staged, Field("github.title", "Text", "must not save"))))
+                    .Status.ShouldBe(HttpStatusCode.Conflict);
+                var review = await Wait(await Ok("/plan/review", HttpMethod.Post,
+                    new JsonObject { ["benchId"] = fixture.Bench.ToString("D") }));
+                review["status"]!.GetValue<string>().ShouldBe("Reviewed");
+                var exact = review["review"]!;
+                exact["effects"]!.AsArray().Count.ShouldBe(1);
+                exact["notice"]!.GetValue<string>().ShouldContain("observed-non-atomic");
+                native.Writes.ShouldBe(0);
+                gateway.PlanReviews.ShouldBe(1);
+                if (scenario == "apply")
+                {
+                    var apply = new JsonObject
+                    {
+                        ["benchId"] = fixture.Bench.ToString("D"), ["ticket"] = exact["ticket"]!.DeepClone(),
+                        ["digest"] = new string('0', 64), ["deliveryOnly"] = false,
+                    };
+                    (await Send("/plan/apply", HttpMethod.Post, apply)).Status.ShouldBe(HttpStatusCode.Conflict);
+                    native.Writes.ShouldBe(0);
+                    apply["digest"] = exact["digest"]!.DeepClone();
+                    var operation = await Wait(await Ok("/plan/apply", HttpMethod.Post, apply));
+                    operation["outcome"]!["status"]!.GetValue<string>().ShouldBe("Complete");
+                    operation["outcome"]!["verifiedOperations"]!.GetValue<int>().ShouldBe(1);
+                    operation["outcome"]!["deliveredScopes"]!.GetValue<int>().ShouldBe(1);
+                    native.Writes.ShouldBe(1);
+                    (await Send("/plan/apply", HttpMethod.Post, apply)).Status.ShouldBe(HttpStatusCode.Conflict);
+                    var delivered = await native.SnapshotAsync().WaitAsync(ct);
+                    delivered.Drafts.ShouldBeEmpty();
+                    var fieldsAfter = delivered.Items.Single().Fields;
+                    fieldsAfter["github.title"].Text.ShouldBe("Planned HTTP title");
+                    fieldsAfter["github.body"].ShouldBe(FieldValue.RichText("**planned Markdown**", FieldKind.Markdown));
+                    fieldsAfter["github.state"].Text.ShouldBe("CLOSED");
+                    native.Native.Http.Issue["title"]!.GetValue<string>().ShouldBe("Planned HTTP title");
+                    native.Native.Http.Issue["body"]!.GetValue<string>().ShouldBe("**planned Markdown**");
+                    native.Native.Http.Issue["state"]!.GetValue<string>().ShouldBe("CLOSED");
+                    (await store.ReadEditorCapturesAsync(ct)).Value.ShouldAllBe(value => value.Settled);
+                }
+                else
+                {
+                    await Mode(false);
+                    open["planMode"] = false;
+                    form = await Ok("/editor", HttpMethod.Post, open);
+                    var saved = await Ok("/editor/save", HttpMethod.Post,
+                        Change(form, Field("github.body", "Markdown", "Normal-only body")));
+                    saved["verified"]!.GetValue<bool>().ShouldBeTrue();
+                    saved["draftRetained"]!.GetValue<bool>().ShouldBeFalse();
+                    var original = await native.SnapshotAsync().WaitAsync(ct);
+                    original.Items.Single().Fields["github.title"].Text.ShouldBe("original");
+                    original.Items.Single().Fields["github.body"].ShouldBe(FieldValue.RichText("Normal-only body", FieldKind.Markdown));
+                    original.Items.Single().Fields["github.state"].Text.ShouldBe("OPEN");
+                    original.Drafts.ShouldBeEmpty();
+                    original.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
+                    original.Proposals.Single().Operations.Single().Fields.Keys.ShouldBe(new[] { "github.body" });
+                    native.Writes.ShouldBe(1);
+                    await Mode(true);
+                    open["planMode"] = true;
+                    form = await Ok("/editor", HttpMethod.Post, open);
+                    form["binding"]!["planId"]!.GetValue<string>().ShouldBe(planId);
+                    form["binding"]!["scopeId"]!.GetValue<string>().ShouldBe(scopeId);
+                    form["fields"]!.AsArray().Single(field => field!["reference"]!.GetValue<string>() == "github.title")!
+                        ["value"]!["value"]!.GetValue<string>().ShouldBe("Planned HTTP title");
+                    native.Native.Http.Issue["title"]!.GetValue<string>().ShouldBe("original");
+                    native.Native.Http.Issue["body"]!.GetValue<string>().ShouldBe("Normal-only body");
+                    native.Native.Http.Issue["state"]!.GetValue<string>().ShouldBe("OPEN");
+                }
+                native.Writes.ShouldBe(1, "Delivery, reopen and refused repeated Apply cannot replay any effect.");
+                native.Native.Http.Creates.ShouldBe(0);
+                native.Native.Http.Comment.ShouldBeNull();
+                native.Native.Http.Requests.ShouldBeGreaterThan(http);
+            }
             else
             {
                 scenario.ShouldBe("guards");
@@ -181,6 +296,8 @@ public sealed partial class GitHubCoreSpineTests
 
     private sealed class GitHubScalarHttpGateway(HumanEditorFixture fixture) : INativeSourceGateway
     {
+        internal int PlanReviews { get; private set; }
+
         public Task<Result<NativeSourceObservation>> ReadAsync(string root, NativeSourceStamp? expected,
             bool observeSchema, CancellationToken ct) => fixture.ReadAsync(root, expected, observeSchema, ct);
 
@@ -196,5 +313,15 @@ public sealed partial class GitHubCoreSpineTests
         public Task<Result<NativeItemEditor>> OpenExistingEditorAsync(string root, Guid bench,
             NativeSourceStamp expected, CancellationToken ct)
             => NativeItemEditor.OpenAsync(root, bench, expected, fixture.Configure, ct, prepareScope: false);
+
+        public Task<Result<NativePlanReview>> ReviewPlanAsync(string root, Guid bench,
+            ImmutableArray<NativePlanSource> sources, CancellationToken ct)
+        {
+            PlanReviews++;
+            return fixture.ReviewAsync(root, bench, sources, ct);
+        }
+
+        public Task<Result<NativePlanReview>> OpenPlanReviewAsync(string root, string digest, CancellationToken ct)
+            => fixture.OpenReviewAsync(root, digest, ct);
     }
 }

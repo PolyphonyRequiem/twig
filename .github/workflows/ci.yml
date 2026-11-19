@@ -82,6 +82,26 @@ jobs:
           name: twig-native-scalar-http-${{ matrix.rid }}
           path: artifacts/test-logs/ci/scalar-http/*.trx
           if-no-files-found: error
+      - name: Native Plan HTTP composition (seven isolated cases)
+        id: native_plan_http
+        run: python eng/ci-checks.py native-plan-http
+      - name: Preserve native Plan HTTP results
+        if: always() && steps.native_plan_http.outcome != 'skipped' && steps.native_plan_http.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-native-plan-http-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/plan-http/*.trx
+          if-no-files-found: error
+      - name: Native normal-seed HTTP composition (seven isolated cases)
+        id: native_seed_http
+        run: python eng/ci-checks.py native-seed-http
+      - name: Preserve native normal-seed HTTP results
+        if: always() && steps.native_seed_http.outcome != 'skipped' && steps.native_seed_http.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-native-seed-http-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/seed-http/*.trx
+          if-no-files-found: error
       - name: Native diagnostic and schema read composition (isolated)
         id: native_read_composition
         run: python eng/verify-trx.py -- dotnet test tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RedactsDiagnosticsThroughNativeHostAndLoggingFilter|FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RetainsSchemaUntilExplicitNativeRecheck" --logger "trx;LogFileName=read-composition.trx" --results-directory artifacts/test-logs/ci/read-composition

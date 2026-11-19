@@ -106,6 +106,30 @@ def native_seed_http():
             raise ValueError(f"{selector}: expected exactly one executed case, got {len(results)}")
 
 
+def native_relationship_http():
+    import xml.etree.ElementTree as ET
+
+    cases = [
+        ("ado", "NativePublicationConsumerTests.NativeAdoLinkHttpKeepsExactAuthority",
+         ("association", "outgoing", "incoming", "hierarchy", "guards", "protected", "observed-removal")),
+        ("github", "GitHubCoreSpineTests.NativeGitHubLinkHttpKeepsExactAuthority",
+         ("counterfactual", "guards", "lifecycle", "protected", "delivery",
+          "binding-actor", "binding-repository", "binding-schema", "binding-endpoint",
+          "binding-mode", "binding-store", "binding-bench", "binding-denied", "binding-generation")),
+    ]
+    for provider, method, scenarios in cases:
+        for scenario in scenarios:
+            selector = f"FullyQualifiedName=Twig.Cli.Tests.Commands.{method}&DisplayName~{scenario}"
+            subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                            "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                            "--filter", selector, "--logger", f"trx;LogFileName={provider}-{scenario}.trx",
+                            "--results-directory", "artifacts/test-logs/ci/relationship-http"], check=True)
+            path = Path("artifacts/test-logs/ci/relationship-http") / f"{provider}-{scenario}.trx"
+            results = ET.parse(path).findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}UnitTestResult")
+            if len(results) != 1:
+                raise ValueError(f"{selector}: expected exactly one executed case, got {len(results)}")
+
+
 def registry_compat():
     for version, revision in [(10, "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"),
                               (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
@@ -359,6 +383,7 @@ CHECKS = {
     'native-scalar-http': native_scalar_http,
     'native-plan-http': native_plan_http,
     'native-seed-http': native_seed_http,
+    'native-relationship-http': native_relationship_http,
     'registry-compat': registry_compat,
     'catalog': catalog,
     'user-benches': user_benches,

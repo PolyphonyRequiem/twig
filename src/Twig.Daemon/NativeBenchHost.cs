@@ -581,7 +581,8 @@ public static partial class NativeBenchHost
         SourceViewDto PresentSource(SourceViewDto source)
         {
             diagnostics.Report(source.SourceId, NativeDiagnosticArea.Items, source.Limitations.Concat(source.TreeLimitations),
-                source.ErrorCode is null ? null : Enum.Parse<ErrorCode>(source.ErrorCode));
+                source.ErrorCode is null ? null : Enum.Parse<ErrorCode>(source.ErrorCode),
+                source.Mode is null ? null : Enum.Parse<ObservationMode>(source.Mode));
             return source with { Limitations = [], TreeLimitations = [] };
         }
         NativePickerDto PresentPicker(NativePickerDto picker) => picker with { Source = PresentSource(picker.Source) };

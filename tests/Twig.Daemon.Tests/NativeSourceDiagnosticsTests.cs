@@ -1,3 +1,4 @@
+using Bench.Application;
 using Bench.Server;
 using Microsoft.Extensions.Logging;
 using Twig.Core;
@@ -44,7 +45,54 @@ internal static class NativeSourceDiagnosticsTests
         var concurrent = new NativeSourceDiagnostics(concurrentLogger);
         Parallel.For(0, 20, _ => concurrent.Report(source, NativeDiagnosticArea.Items, values));
         Check(concurrentLogger.Messages.Count == 1, "Concurrent identical reads must produce one summary.");
+        ContextPartitioning();
         Console.WriteLine("PASS native summary-only diagnostics: per-source/set dedup, changes, safe counts, truncation, bounded memory/entries and concurrency");
+    }
+
+    private static void ContextPartitioning()
+    {
+        var logger = new Capture();
+        var diagnostics = new NativeSourceDiagnostics(logger);
+        var source = Guid.NewGuid();
+        ObservationMode?[] modes = [null, .. Enum.GetValues<ObservationMode>().Select(mode => (ObservationMode?)mode)];
+        var areas = Enum.GetValues<NativeDiagnosticArea>();
+        foreach (var mode in modes)
+        foreach (var area in areas)
+            diagnostics.Report(source, area, ["set A"], mode: mode);
+        var contexts = modes.Length * areas.Length;
+        Check(logger.Messages.Count == contexts, "Each finite observation context must retain its own latest set.");
+        foreach (var mode in modes)
+        foreach (var area in areas)
+            diagnostics.Report(source, area, ["set A"], mode: mode);
+        Check(logger.Messages.Count == contexts, "Alternating contexts must not replace each other's latest fingerprint.");
+        foreach (var mode in modes)
+        {
+            diagnostics.Report(source, NativeDiagnosticArea.Items, ["set B"], mode: mode);
+            diagnostics.Report(source, NativeDiagnosticArea.Items, ["set A"], mode: mode);
+        }
+        Check(logger.Messages.Count == contexts + 2 * modes.Length, "A to B to A must report both changes independently per context.");
+        var previous = logger.Messages.Count;
+        diagnostics.Report(source, NativeDiagnosticArea.Items, ["set A"], ErrorCode.Unavailable, ObservationMode.OnlineValidatedCache);
+        diagnostics.Report(source, NativeDiagnosticArea.Items, ["set A"], ErrorCode.Conflict, ObservationMode.OnlineValidatedCache);
+        diagnostics.Report(source, NativeDiagnosticArea.Items, ["set A"], ErrorCode.PolicyViolation, ObservationMode.OnlineValidatedCache);
+        diagnostics.Report(source, NativeDiagnosticArea.Items, ["set A"], mode: ObservationMode.OnlineValidatedCache);
+        Check(logger.Messages.Count == previous + 4, "Changed errors, source-authority conflict and recovery must remain observable.");
+        foreach (var mode in modes)
+        foreach (var area in areas)
+            diagnostics.Report(source, area, ["set A"], mode: mode);
+        Check(logger.Messages.Count == previous + 4, "Error recovery must not invalidate unrelated contexts.");
+        for (var index = 0; index < 100; index++)
+        {
+            var other = Guid.NewGuid();
+            foreach (var mode in modes)
+            foreach (var area in areas)
+                diagnostics.Report(other, area, ["set " + index], mode: mode);
+        }
+        Check(diagnostics.RetainedSources == NativeSourceDiagnostics.MaximumSources,
+            "All mode/area slots must be evicted with their source; source retention remains bounded.");
+        Check(logger.Messages.Count == NativeSourceDiagnostics.MaximumEntries
+            && logger.Messages[^1].Contains("limit reached", StringComparison.Ordinal),
+            "Partitioning must preserve the shared summary limit, not grant a separate log budget per context.");
     }
 
     private static void Check(bool condition, string message)

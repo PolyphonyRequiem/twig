@@ -85,6 +85,29 @@ internal static class WorktreeAnchorDetector
         return true;
     }
 
+    internal static bool TryRepositoryRoot(WorktreeAnchor anchor, out string root)
+    {
+        root = string.Empty;
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        if (comparer.Equals(anchor.WorktreeGitDir, anchor.GitCommonDir))
+        {
+            root = anchor.WorktreeRoot;
+            return true;
+        }
+        // Verify Git's first (main) checkout instead of inferring it from a worktree path.
+        if (!TryRunGit(anchor.WorktreeRoot, "worktree list --porcelain -z", out var listing)
+            || !listing.StartsWith("worktree ", StringComparison.Ordinal))
+            return false;
+        var end = listing.IndexOf('\0');
+        if (end < "worktree ".Length
+            || !TryDetect(listing["worktree ".Length..end], out var main, out _)
+            || !comparer.Equals(main.GitCommonDir, anchor.GitCommonDir)
+            || !comparer.Equals(main.WorktreeGitDir, main.GitCommonDir))
+            return false;
+        root = main.WorktreeRoot;
+        return true;
+    }
+
     /// <summary>Canonicalise a path returned by git: resolve to an absolute
     /// path anchored at <paramref name="startDir"/>, then let the runtime
     /// resolve symlinks and normalise separators. Idempotent on a canonical

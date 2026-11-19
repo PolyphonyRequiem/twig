@@ -10,7 +10,7 @@ import sys
 def native_authority():
     for project, selector in [
         ("Twig.Providers.Native.Tests", "FullyQualifiedName~NativeProviderTests"),
-        ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests|FullyQualifiedName~DaemonLauncherTests"),
+        ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests|FullyQualifiedName~DaemonLauncherTests|FullyQualifiedName~NativeMetadata"),
         ("Twig.Cli.Tests", "FullyQualifiedName~NativeTwigSpineTests"),
     ]:
         subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
 using Bench.Application;
+using Bench.Infrastructure;
 using Twig.Core;
 using Twig.Infrastructure.Services;
 
@@ -56,6 +57,7 @@ public sealed record WorkspaceDto(string Root, string Provider, string DisplayNa
 {
     public Connection? Connection { get; init; }
     public bool Available { get; init; } = true;
+    public NativeConnectionAccount? Account { get; init; }
 }
 public sealed record NativePanelSummary(Guid StoreId, long Revision, NativeBenchDto[] Benches, WorkspaceDto[] Workspaces,
     string? ContextRoot, string? PopulationRoot, WorkspaceDto? ContextConnection = null, WorkspaceDto? PopulationConnection = null)

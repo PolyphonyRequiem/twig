@@ -102,12 +102,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
     [Fact]
     public async Task ClosePreservesRawInputsAndDiscardAfterStagePreservesNativeStagedDebt()
     {
-        await Start();
-        var plan = (await definitions.ReadPlanStatusAsync(bench)).Value;
-        (await definitions.ChangePlanModeAsync(plan.UserInstance, bench, plan.BenchRevision, plan.Revision, true))
-            .IsSuccess.ShouldBeTrue();
-        using (var prepared = (await NativeItemEditor.OpenAsync(Work, bench, source.Stamp, gateway.Configure, default)).Value)
-            prepared.PlanMode.ShouldBeTrue();
+        await Start(planMode: true);
         var first = await Open(planMode: true);
         var fields = Values("stage this title").Fields;
         var retained = (await Send(HttpMethod.Put, "editor/inputs",
@@ -206,7 +201,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         refused.GetRawText().ShouldNotContain("private secret");
     }
 
-    private async Task Start()
+    private async Task Start(bool planMode = false)
     {
         Directory.CreateDirectory(Work);
         using (var git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git")
@@ -238,6 +233,14 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         definitions = UserBenchStore.ForRegistry(bindings.RegistryPath);
         bench = (await definitions.SaveAsync(new(Guid.NewGuid(), "Fixture",
             [new(SelectorKind.Pin, item, connection: handle.Source.Connection)]), 0)).Value.Id;
+        if (planMode)
+        {
+            var plan = (await definitions.ReadPlanStatusAsync(bench)).Value;
+            (await definitions.ChangePlanModeAsync(plan.UserInstance, bench, plan.BenchRevision, plan.Revision, true))
+                .IsSuccess.ShouldBeTrue();
+            using var prepared = (await NativeItemEditor.OpenAsync(Work, bench, handle.Source, gateway.Configure, default)).Value;
+            prepared.PlanMode.ShouldBeTrue();
+        }
         await StartApp();
     }
 

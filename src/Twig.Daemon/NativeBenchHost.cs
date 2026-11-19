@@ -26,7 +26,9 @@ public static partial class NativeBenchHost
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
         builder.Logging.AddFilter((category, level) =>
-            (category is "Bench.Server.NativeBenchHost" or "Bench.SourceDiagnostics") && level >= LogLevel.Warning);
+            (category is "Bench.Server.NativeBenchHost" or "Bench.SourceDiagnostics" or "Bench.Server.NativeMetadataSync") && level >= LogLevel.Warning);
+        builder.Services.AddHostedService(services =>
+            new NativeMetadataSync(panel, services.GetRequiredService<ILogger<NativeMetadataSync>>()));
         if (options.WindowsSignIn)
         {
             var owner = WindowsOwner();
@@ -169,6 +171,13 @@ public static partial class NativeBenchHost
             await ResolveBenchConnections(panel, session, context.RequestAborted);
             var shared = Require(await panel.ListAsync(context.RequestAborted));
             var workspaces = Require(await panel.WorkspacesAsync(context.RequestAborted));
+            NativeAadEnrollment[] identities = [];
+            if (connectionSetup is not null && workspaces.Any(workspace => workspace.Connection.Provider.Value == "ado"))
+            {
+                var accounts = await connectionSetup.ListAadIdentitiesAsync(context.RequestAborted);
+                if (accounts.IsSuccess) identities = accounts.Value;
+                else app.Logger.LogWarning("Attached connection account metadata is unavailable: {Code}", accounts.Error.Code);
+            }
             var labels = new List<WorkspaceDto>();
             var labelBudget = System.Diagnostics.Stopwatch.StartNew();
             foreach (var workspace in workspaces)
@@ -177,7 +186,8 @@ public static partial class NativeBenchHost
                     ? await NativeConnectionLabels.ReadAsync(workspace.Root, workspace.Connection, context.RequestAborted)
                     : NativeConnectionLabels.Unavailable(workspace.Connection);
                 labels.Add(new(workspace.Root, workspace.Connection.Provider.Value, display.Name, display.Available)
-                    { Connection = workspace.Connection, Available = session.RepositoryBindings is null
+                    { Connection = workspace.Connection, Account = NativeConnectionLabels.Account(workspace.Connection, identities),
+                        Available = session.RepositoryBindings is null
                         || session.RepositoryBindings.Connections.Contains(workspace.Connection) });
             }
             await Write(context, new NativePanelSummary(shared.InstanceId, shared.Revision,
@@ -218,10 +228,12 @@ public static partial class NativeBenchHost
             var shared = Require(await panel.ListAsync(context.RequestAborted));
             if (body.BenchId is { } selected && !shared.Benches.Any(value => value.Id == selected))
                 throw new HttpFailure(404, "NotFound", "The selected Bench was deleted.");
+            string? repositoryId;
             lock (session)
             {
                 if (session.CurrentBenchId != body.ExpectedBenchId)
                     throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
+                repositoryId = session.RepositoryBindings?.RepositoryId;
                 session.CurrentBenchId = body.BenchId;
                 session.ReferencesRestored = true;
                 session.PopulationContext = null;
@@ -232,6 +244,7 @@ public static partial class NativeBenchHost
                 }
             }
             await ResolveBenchConnections(panel, session, context.RequestAborted);
+            sessions.RememberRepositoryBench(session, body.BenchId, repositoryId);
             updates.Publish(0);
             await Write(context, new Ack());
         });

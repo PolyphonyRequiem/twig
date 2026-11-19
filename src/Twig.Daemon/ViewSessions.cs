@@ -433,7 +433,39 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             RequireProfile(session, document);
             return document.Sources;
         }
+    }
 
+    internal Guid? ReadRepositoryBench(ViewSession session, string repositoryId)
+    {
+        lock (gate)
+        {
+            RequireOwner(session);
+            var path = RepositoryBenchPath(session.CatalogId, repositoryId);
+            if (!File.Exists(path)) return null;
+            if (new FileInfo(path).Length != 36 || !Guid.TryParseExact(File.ReadAllText(path), "D", out var bench)
+                || bench == Guid.Empty)
+                throw new InvalidDataException("The retained repository Bench selection is invalid.");
+            return bench;
+        }
+    }
+
+    internal void RememberRepositoryBench(ViewSession session, Guid? bench, string? repositoryId)
+    {
+        lock (gate)
+        {
+            RequireOwner(session);
+            using var lease = ProfileLease(session);
+            RequireProfile(session, ReadDocument(session));
+            lock (session)
+            {
+                if (session.CurrentBenchId != bench || session.RepositoryBindings?.RepositoryId != repositoryId)
+                    throw new HttpFailure(409, "BenchViewChanged", "The selected Bench or repository changed before it could be remembered.");
+                if (repositoryId is null) return;
+                var path = RepositoryBenchPath(session.CatalogId, repositoryId);
+                if (bench is { } selected) WriteAtomic(path, selected.ToString("D"));
+                else File.Delete(path);
+            }
+        }
     }
 
     internal NativeViewStateInfo CommitRestoration(ViewSession session, long revision, Action apply)
@@ -501,6 +533,8 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         => Path.Combine(preferencesDirectory, $"native-{session.CatalogId:D}-{session.ProfileId:D}.json");
     private string DefaultProfilePath(Guid instance)
         => Path.Combine(preferencesDirectory, $"default-profile-{instance:D}");
+    private string RepositoryBenchPath(Guid instance, string repositoryId)
+        => Path.Combine(preferencesDirectory, $"repository-bench-{instance:D}-{Hash(repositoryId)}");
     private FileStream ProfileLease(ViewSession session)
     {
         Directory.CreateDirectory(preferencesDirectory);

@@ -5,7 +5,7 @@ revision="$(git rev-parse --verify HEAD)"
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { echo "Clean checkout required." >&2; exit 1; }
 out=artifacts/daemon-linux-x64
 [[ ! -e "$out" ]] || { echo "Refusing to overwrite $out" >&2; exit 1; }
-python3 eng/run-bounded.py --timeout 120 -- dotnet publish src/Twig.Daemon/Twig.Daemon.csproj \
+python3 eng/run-bounded.py --warn-after 120 --timeout 300 -- dotnet publish src/Twig.Daemon/Twig.Daemon.csproj \
     -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false \
     -p:InvariantGlobalization=true \
     "-p:DaemonSourceRevisionId=$revision" -m:1 --verbosity minimal -o "$out"

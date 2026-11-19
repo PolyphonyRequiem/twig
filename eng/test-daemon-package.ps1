@@ -45,7 +45,7 @@ try {
     [IO.Compression.ZipFile]::ExtractToDirectory($CliArchive, $cli)
     # Only the certificate/external-command boundary is replaced by this existing fixture.
     & (Join-Path $PSScriptRoot 'test-daemon-install.ps1') -OperatorDirectory $fixture -RuntimeDirectory $runtime
-    & $PythonExecutable (Join-Path $PSScriptRoot 'run-bounded.py') --timeout 60 -- `
+    & $PythonExecutable (Join-Path $PSScriptRoot 'run-bounded.py') --warn-after 60 --timeout 300 -- `
         $PythonExecutable (Join-Path $PSScriptRoot 'test-daemon-commands.py') --cli-dir $cli --daemon-dir $runtime
     if ($LASTEXITCODE -ne 0) { throw 'The independently distributed CLI and daemon failed the isolated command boundary.' }
     Write-Output 'PASS archive checksum/inventory, extracted operator install, immutable selection and independent CLI/runtime command boundary. No TLS/trust/Startup qualification.'

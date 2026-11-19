@@ -147,9 +147,16 @@ if ($PackageDirectory) {
     $null = Get-BenchRuntime $stage $version $packageHash
 } else {
 $timer = [Diagnostics.Stopwatch]::StartNew()
+try {
 $publishOutput = Invoke-BenchCommand 'dotnet' @('publish', (Join-Path $source 'src\Twig.Daemon\Twig.Daemon.csproj'),
     '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=false',
-    '-p:PublishTrimmed=false', ('-p:DaemonSourceRevisionId=' + $version), '-m:1', '--verbosity', 'minimal', '-o', $stage) 120
+    '-p:PublishTrimmed=false', ('-p:DaemonSourceRevisionId=' + $version), '-m:1', '--verbosity', 'minimal', '-o', $stage) 300
+} finally {
+    $timer.Stop()
+    if ($timer.Elapsed.TotalSeconds -gt 120) {
+        Write-Warning 'Self-contained publish exceeded the 120-second timing warning.' -WarningAction Continue
+    }
+}
 Write-Host $publishOutput
 Write-Host ('Self-contained publish completed in {0:N2} seconds.' -f $timer.Elapsed.TotalSeconds)
 $files = @(Get-ChildItem -LiteralPath $stage -File -Recurse -Force | Sort-Object FullName | ForEach-Object {

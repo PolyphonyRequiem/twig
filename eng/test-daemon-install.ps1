@@ -4,6 +4,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+& (Join-Path $PSScriptRoot 'test-daemon-paths.ps1') -OperatorDirectory $OperatorDirectory
 $fixture = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('Temp\twig-daemon-install-' + [Guid]::NewGuid().ToString('N'))
 $tools = Join-Path $fixture 'source\tools'
 [void][IO.Directory]::CreateDirectory($tools)
@@ -25,7 +26,7 @@ function Invoke-BenchCommand([string] $File, [string[]] $Arguments, [int] $Secon
         if ($Arguments -contains 'rev-parse') { return $global:DaemonFixture.Version }
         if ($Arguments -contains 'status') { return '' }
     } elseif ($File -ceq 'dotnet' -and $Arguments[0] -ceq 'publish') {
-        if ($Arguments -cnotcontains ('-p:DaemonSourceRevisionId=' + $global:DaemonFixture.Version) -or $Seconds -ne 120) {
+        if ($Arguments -cnotcontains ('-p:DaemonSourceRevisionId=' + $global:DaemonFixture.Version) -or $Seconds -ne 300) {
             throw 'The daemon publish boundary lost its exact source stamp or deadline.'
         }
         $output = $Arguments[[Array]::IndexOf($Arguments, '-o') + 1]

@@ -240,7 +240,9 @@ public sealed partial class NativePublicationConsumerTests
             _transport.WorkRequests.ShouldBe(0, "PAT enrollment attests the native principal but does not read work");
             var requests = _transport.TotalRequests;
             Run("auth", "identities", "-o", "json").ShouldBe(0, stderr.ToString());
-            Run("connection", "bind", "--org", "contoso", "--project", "project", "--identity", "host", "--default", "-o", "json")
+            Run("connection", "add", "--org", "contoso", "--project", "project", "-o", "json")
+                .ShouldBe(0, stderr.ToString());
+            Run("connection", "bind", "--org", "contoso", "--project", "project", "--identity", "host", "-o", "json")
                 .ShouldBe(0, stderr.ToString());
             Run("connection", "list", "--org", "contoso", "--project", "project", "-o", "json")
                 .ShouldBe(0, stderr.ToString());

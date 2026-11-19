@@ -80,6 +80,213 @@ diagnostics and serve only verified packages. Normal canvas opens use the separa
 presentation host, which can render before daemon readiness and forwards bounded
 requests from one browser origin. Closing Canvas does not stop the shared daemon.
 
+## Live-client workspace read
+
+The `workspace-read-v1` capability in `/api/v1/status` and the authenticated
+owner status advertises `GET /api/v1/views/{viewId}/workspace`. Use the existing
+owner/profile connection and content bearer; a view ID or presentation capability
+alone grants no content access. Older daemons must be refused explicitly by clients
+requiring this capability, not treated as an empty workspace.
+
+The source-generated `NativeWorkspaceDto` response has these camel-case fields:
+
+| Field | Existing native contract |
+| --- | --- |
+| `viewState` | `NativeViewStateInfo`: store/profile identity, saved choice revision, retained source recovery, current Bench and authority expiry/renewal times |
+| `summary` | `NativePanelSummary`: native catalogue revision and definitions, registered connection labels/availability, selected contexts, repository bindings and verified runtime context |
+| `session` | `NativeSessionInfo`: current Bench and presentation preferences from that same profile observation |
+| `view` | Selected `NativeBenchViewDto`, or `null` when no existing Bench is selected; includes source-qualified items, protected drafts, source stamps/errors and existing Plan status/review digest |
+| `planOperationId` | Original in-memory Plan operation ID for this attachment's selected Bench, if available; observe using the existing `GET /api/v1/views/{viewId}/plan/operations/{operationId}` |
+| `selectionError` | Explicit `Failure` when the selected Bench was deleted; catalogue and saved selection remain readable, with `view: null` |
+| `reconcileAfterSeconds` | `30`: maximum active-client interval between authoritative workspace reads |
+
+This is a bounded projection, not a transaction across providers or a new
+publication authority. It reuses the initial-view assembler and native
+source projection. It restores saved choices on first attachment and when
+another attachment changes the profile's source/Bench choices; ordinary reads
+do not reset an explicitly selected Bench, editor ticket or pending operation.
+Catalogue, registry, repository binding, profile, selection (including a
+switch away and back), local snapshot/selection/exclusion and Plan revisions are
+rechecked. Concurrent changes refuse the read with `409` rather than releasing
+mixed selection/content. Sign-out, capability replacement and expiry still
+refuse content. Failed source reads remain explicit per-source failures, not
+fabricated empty membership; an admission change during final checking can
+refuse the entire read.
+
+Initial-view loading retains its single full local observation per restored
+source and final admission/profile/Plan checks. Only the authoritative workspace
+read adds the final local snapshot/selection/exclusion reread.
+
+Workspace acquisition has a 30-second ceiling, uses existing per-source budgets
+and at most eight concurrent source acquisitions, and performs only local
+snapshot reads under retained exact-source admission. Merely registering a
+source does not authorize it: absent or denied admission cannot trigger schema
+refresh or provider discovery. No saved query is executed upstream. Source
+cache versions, schema fingerprints, observation times, offline limitations and
+partial failures remain visible. Explicit refresh/recheck, lazy details, seed
+publication evidence, discovery and typed mutation endpoints remain unchanged.
+`planOperationId` and `view.plan.lastReviewDigest` are references for observing
+original work, never instructions to replay Save/Apply. Across attachment loss,
+use the existing saved native review/journal/receipt path; no operation replay
+or new durable notification log is introduced.
+
+Connect the authenticated SSE stream **before** the first workspace read. The
+daemon registers its bounded subscriber before flushing `event: ready`. On
+**every** `ready`, including reconnect, clients must read the workspace.
+`changed`, `presentation` and same-view `agent` events are advisory invalidations,
+not patches. A full single-entry subscriber queue coalesces to
+`event: changed` with `data: {"resync":true}`. This unscoped, content-free signal
+invalidates **all** attachment resources, including agent state; it cannot lose
+an earlier resource invalidation when a different resource changes. Existing
+clients still recognize `changed`. Delivery rechecks view authorization, and
+the stream cannot outlive its original authority lease.
+
+Clients should run one dirty/read loop: coalesce invalidations, and if an
+invalidation arrives during a read, read again after it completes. Reject late
+responses after attachment/resource changes. Reconcile at least every 30 seconds
+while active and on activation to cover CLI writers and commit-before-notify
+failure. Activation must check attachment validity and real stream progress;
+replace a stalled stream and refresh. Reconnect read-only streams with bounded
+backoff and jitter; authentication/authorization/protocol refusals require
+explicit recovery. Apply command results or reread immediately without waiting
+for SSE, and never retry an uncertain write automatically. SSE does not observe
+upstream changes until an explicit native refresh has observed them.
+
+## Private recoverable editor inputs
+
+`private-editor-inputs-v1` advertises the following **human owner-only** contract.
+It does not change `workspace-read-v1`, `planOperationId`, native publication,
+or the meaning of Save, Stage, Create, Review or Apply. Clients requiring input
+recovery must explicitly refuse older daemons, not fall back to browser storage.
+The canvas switch is a separate delivery phase; no browser inputs are imported.
+
+Fresh `POST editor` responses contain `EditorFormDto.inputs`.
+`POST editor/relationships` returns it at `fields.inputs`, after selecting the
+explicit endpoint through the existing native route. New seed and successful
+Stage responses also carry this projection. Evaluation responses do not replace
+the input acknowledgement. All paths below are relative to
+`/api/v1/views/{viewId}/`, use the existing owner content bearer and
+`X-Twig-Bench: 1`, and require the current native ticket:
+
+| Method and route | Source-generated request DTO |
+| --- | --- |
+| `PUT editor/inputs` | `EditorInputWriteBody { ticket, key, expectedRevision, writeId, values }` |
+| `POST editor/inputs/observe` | `EditorInputObserveBody { ticket, key }` |
+| `POST editor/inputs/discard` | `EditorInputDiscardBody { ticket, key, expectedRevision, writeId }` |
+
+These return `EditorInputRecoveryDto { key, revision, writeId, status, values }`.
+`key` is server-derived, not client-created authority. `writeId` is the UUID of
+the last accepted PUT/discard for this buffer (preserved on consumption), or
+`null` for an absent/reclaimed buffer. Status is `Empty`, `Restored`, `Conflict`,
+`Discarded` or `Consumed`. Only `Restored` releases `values`; `Conflict` retains
+the inputs privately but withholds them from restoration until explicitly
+discarded. A fresh scalar opening restores only its scalar/seed buffer; pair
+recovery requires choosing the exact endpoint again. There is no cross-client
+resume inventory or implicit selection of another buffer.
+
+`EditorInputValues` is `{ fields, links?, adding? }`:
+
+- `fields`: the existing `FieldDto[]` shape, `{ reference, value: { kind, value,
+  dataType } }`. Numeric and instant `value`s remain strings, including incomplete
+  `""`, `"-"` and `"12."`; persistence checks shape/size, **not** native evaluation
+  or required/allowed/read-only policy. Native submission still converts and
+  validates them normally. Raw fields are unsupported.
+- `links`: for normal ADO pairs only, an optional array of existing
+  `RelationshipIntentDto { endpointId, relation, outgoing, remove }` choices
+  from that exact pair. Empty/incomplete selection is retainable, not staged
+  debt. Scalar buffers omit `links`. No relationship is inferred.
+- `adding`: optional boolean for a qualified LOCAL-only pair; fields must be
+  empty and links absent. It is not a review, digest or permission to Apply.
+
+Records are isolated by the owner-local profile/catalogue store, exact native
+source binding/root (including principal/authority), repository context, Bench,
+source-qualified item, execution store, Plan identity/scope, scalar/normal-seed/
+ADO-pair/LOCAL-pair mode and explicit endpoint. Tickets and views are not part
+of durable identity. Independent live buffers cannot silently merge: the
+conditional input revision must match. Revisions are opaque monotonic numbers,
+not per-buffer consecutive counters; use the returned revision even for `Empty`.
+An absent buffer uses the document's current revision floor, so simultaneous
+first writes can conflict rather than overwrite. Never adopt the newest revision
+and retry automatically. Input CAS failures use `InputRevisionConflict`; a
+baseline change refuses replacement with `InputBaselineConflict`. Existing
+profile-lease contention can return `ViewStateBusy`. Observe/reconcile rather
+than treating any of these as permission to overwrite.
+
+The existing profile lease and flushed atomic writer persist at most 64 buffer
+slots and 1 MiB UTF-8 per profile. Each value payload is at most 256 KiB UTF-8,
+with 64 unique fields, strings of at most 65,536 characters, string lists of at
+most 256 elements, and 128 explicit links. The PUT transport bound is 256 KiB
+plus 16 KiB framing; existing native command body bounds remain unchanged.
+Discard/consume clear values, retaining bounded acknowledgement tombstones.
+When allocating a slot, the oldest cleared slot can be reclaimed; the revision
+floor prevents delayed initial writes from recreating discarded values.
+No acknowledged live inputs are evicted. `InputLimit` is an explicit refusal.
+
+Recovery always authenticates/admit-checks the exact source and acquires a fresh
+native editor. The daemon compares native schema/field metadata, observation
+revisions/values, owned draft/capture fingerprints and revisions, Plan binding,
+and, for pairs, endpoint draft evidence, relation choices, intent and incident
+edges. LOCAL edge versions detect ABA. Cache-read-only version increments do
+not conflict with input recovery; the newly captured native LOCAL ticket still
+enforces its own fresh store CAS. `inputBaseline` on a form is opaque native
+evidence, not client comparison logic, a write precondition or publication
+authority. No old ticket, grant, review or digest is restored.
+
+Autosave performs no provider write, native field evaluation, staging, review
+or publication. Raw records never appear in workspace, generic agent or MCP
+reads, nor SSE. Denial, sign-out, expiry and source/context changes withhold
+them. They are local recovery data, not a second domain store or outbox.
+
+### Canvas usage example
+
+Keep typing in memory and debounce a **single outstanding conditional PUT**:
+
+```javascript
+const form = await api("/editor", "POST", { sourceId, itemId, benchId, planMode: false });
+let acknowledged = form.inputs; // Conflict: stop; offer explicit discard, not JS rebasing.
+const values = { fields: [
+  { reference, value: { kind: "Integer", value: "-", dataType: null } }
+] };
+const pending = { ticket: form.ticket, key: acknowledged.key,
+  expectedRevision: acknowledged.revision, writeId: crypto.randomUUID(), values };
+acknowledged = await api("/editor/inputs", "PUT", pending);
+// Only now show "Inputs saved locally". Newer keystrokes are still memory-only.
+```
+
+If PUT/discard times out, retain its original `{ key, writeId, expectedRevision }`
+and observe `POST editor/inputs/observe` with the current ticket/key **before any
+further attempt**. After view/daemon loss, authenticate and open the exact editor
+and endpoint afresh first. Match the returned `writeId` to acknowledge the
+original write; a different ID/newer revision is explicit concurrent conflict,
+not permission to replay or overwrite. An unchanged observation is not a
+guarantee that a late request cannot arrive: any deliberate subsequent write
+uses a new UUID and a condition, never a blind replay. Retain unsaved memory
+visibly until its own acknowledgement. No shutdown or `beforeunload` write is
+required for correctness.
+
+Save/Stage first flushes the intended revision, then submits **exactly** its
+payload through the existing typed native operation, adding
+`inputs: { key: acknowledged.key, revision: acknowledged.revision }` to
+`EditorChangeBody` (`editor/save`, `editor/stage`) or `RelationshipChangeBody`
+(`editor/relationships/save`, `editor/relationships/stage`). The latter keeps
+existing `intent: acknowledged.values.links`, not a new command shape.
+LOCAL `editor/local/review` accepts the same optional reference on
+`LocalRelationshipReviewBody`, alongside the exact `adding` boolean.
+The daemon rejects payload/reference mismatch with `InputRevisionConflict`
+before the native operation. Successful Stage or LOCAL Review consumes only
+that revision; Save consumes it only when verified with no retained draft.
+Newer concurrent revisions survive. References remain optional for existing
+native clients and never bypass native guards. Apply and original journal/
+receipt/seed-publication observation routes are unchanged.
+
+A lost native Save/Stage/Review/Apply response must be resolved through original
+native work/evidence, not by resubmitting raw inputs. A consumed input is not
+proof that a provider write occurred. For Cancel, conditionally discard the
+applicable unsubmitted buffer, observe any uncertain discard, then close the
+current transient ticket with `editor/close`. Close alone preserves recovery
+inputs (for navigation). Neither route deletes native drafts, staged debt,
+captures, attempted effects, journals, reviews or receipts.
+
 ## Windows prerequisites
 
 - 64-bit Windows, running as the intended owner.
@@ -178,6 +385,23 @@ For an operator console instead:
 The console prints the localhost endpoint and accepts **`stop`** for explicit
 shutdown. Do not start a second console against a running instance's data.
 Canvas clients and MCP EOF close their view/session, not this shared process.
+
+The daemon refreshes process/type metadata for already-admitted registered
+connections every **15 minutes**, including overdue metadata after startup,
+without requiring an open Canvas. A one-minute sweep checks each connection's
+last successful schema observation; failed attempts are spaced at least 15
+minutes apart during that daemon run. Successful discovery atomically replaces
+the retained definitions and notifies open views. Ordinary Bench reads do not
+perform metadata discovery.
+
+This is provider-read-only: it does not migrate work-item types, change Bench
+membership, or authorize new connections. Temporary provider unavailability
+with explicit HTTP 429/500/502/503/504 evidence keeps the previous definitions
+and their original observation time. An unclassified `Unavailable` result,
+including an internal deadline or admission failure, is not that evidence. Access
+denials, changed authority and interrupted/uncertain checks remain blocked until
+an explicit successful connection recheck. Background discovery uses the same
+per-source coordination and bounded native operations as foreground requests.
 
 To select a newer source build, run the installer from a different clean commit.
 Version directories are immutable; reinstalling the same selected SHA is refused.

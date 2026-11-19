@@ -439,6 +439,7 @@ public static class NativeSourceReader
     private static Result<NativeSourceObservation> Refuse(Error error, string message)
         => Result<NativeSourceObservation>.Fail(new Error(error.Code, message)
         {
-            Evidence = error.Evidence.Where(value => value is "http:401" or "http:403").ToImmutableArray(),
+            Evidence = error.Evidence.Where(value => value is "http:401" or "http:403" or "http:429"
+                or "http:500" or "http:502" or "http:503" or "http:504").ToImmutableArray(),
         });
 }

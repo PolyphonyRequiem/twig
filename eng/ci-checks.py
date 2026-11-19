@@ -111,7 +111,7 @@ def native_relationship_http():
 
     cases = [
         ("ado", "NativePublicationConsumerTests.NativeAdoLinkHttpKeepsExactAuthority",
-         ("association", "outgoing", "incoming", "hierarchy", "guards", "protected")),
+         ("association", "outgoing", "incoming", "hierarchy", "guards", "protected", "observed-removal")),
         ("github", "GitHubCoreSpineTests.NativeGitHubLinkHttpKeepsExactAuthority",
          ("counterfactual", "guards", "lifecycle", "protected", "delivery",
           "binding-actor", "binding-repository", "binding-schema", "binding-endpoint",

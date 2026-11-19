@@ -102,7 +102,7 @@ jobs:
           name: twig-native-seed-http-${{ matrix.rid }}
           path: artifacts/test-logs/ci/seed-http/*.trx
           if-no-files-found: error
-      - name: Native relationship HTTP composition (twenty isolated cases)
+      - name: Native relationship HTTP composition (twenty-one isolated cases)
         id: native_relationship_http
         run: python eng/ci-checks.py native-relationship-http
       - name: Preserve native relationship HTTP results

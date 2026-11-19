@@ -25,12 +25,15 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("hierarchy")]
     [InlineData("guards")]
     [InlineData("protected")]
+    [InlineData("observed-removal")]
     public async Task NativeAdoLinkHttpKeepsExactAuthority(string scenario)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
         var ct = deadline.Token;
         var fixture = await CreateHumanHostAsync().WaitAsync(ct);
         _transport.SetState(42, "Doing");
+        if (scenario == "observed-removal")
+            _transport.SetNativeRelationship(43, 42, "Native.DependencyForward");
         var directory = Path.GetDirectoryName(fixture.Registry)!;
         var store = UserBenchStore.ForRegistry(fixture.Registry);
         var changes = new CatalogChanges();
@@ -166,7 +169,65 @@ public sealed partial class NativePublicationConsumerTests
                 snapshot.Journal.Last().Receipts.Last().Revision.ShouldNotBeNull().Item.ShouldBe(item.Key);
                 (await store.ReadEditorCapturesAsync(ct)).Value.ShouldAllBe(capture => capture.Settled);
             }
-            if (scenario is "association" or "outgoing" or "incoming" or "hierarchy")
+            if (scenario == "observed-removal")
+            {
+                var targetRevision = _transport.RevisionOf(42);
+                var endpointRevision = _transport.RevisionOf(43);
+                var pair = await Pair();
+                var removal = Choice(pair, "Dependency", false, true);
+                var relation = removal["relation"]!.GetValue<string>();
+                var staged = await Ok("/editor/relationships/stage", Change(pair, removal));
+                staged["intent"]!.AsArray().Count.ShouldBe(1);
+                var capture = (await store.ReadEditorCapturesAsync(ct)).Value.ShouldHaveSingleItem();
+                capture.Ready.ShouldBeTrue();
+                capture.Settled.ShouldBeFalse();
+                var operation = UserBenchStore.ParseIntent(capture.IntentJson).Operations.ShouldHaveSingleItem();
+                operation.Fields.Count.ShouldBe(0);
+                var before = await Snapshot();
+                var target = before.Items.Single(item => item.Key.NativeId == "42");
+                var other = before.Items.Single(item => item.Key.NativeId == "43");
+                operation.Item.ShouldBe(target.Key);
+                operation.Links.ShouldBe([new(other.Key, relation, false, true)]);
+                before.Drafts.ShouldHaveSingleItem().Changes.Count.ShouldBe(0);
+                before.Drafts.Single().Links.ShouldBeEmpty();
+                before.Proposals.ShouldBeEmpty();
+                before.Journal.ShouldBeEmpty();
+                before.Relationships.ShouldContain(new(other.Key, target.Key, relation, RelationshipOrigin.Provider));
+                HumanPatchAttempts.ShouldBe(0);
+                _transport.CommittedWrites.ShouldBe(0);
+                var scalar = await Ok("/editor", open);
+                scalar["relationshipsReadOnly"]!.GetValue<bool>().ShouldBeTrue();
+                scalar["relationshipIntent"]!.AsArray().Count.ShouldBe(1);
+                pair = await Pair();
+                JsonNode.DeepEquals(pair["intent"], staged["intent"]).ShouldBeTrue();
+                pair["incident"]!.AsArray().ShouldContain(edge =>
+                    edge!["relation"]!.GetValue<string>() == relation
+                    && edge["from"]!.GetValue<string>() == pair["endpoint"]!["itemId"]!.GetValue<string>()
+                    && edge["to"]!.GetValue<string>() == pair["target"]!["itemId"]!.GetValue<string>());
+                (await store.ReadEditorCapturesAsync(ct)).Value.ShouldHaveSingleItem().SameAs(capture).ShouldBeTrue();
+                var body = Change(pair, pair["intent"]![0]!);
+                body["fields"]!.AsArray().ShouldBeEmpty();
+                var saved = await Ok("/editor/relationships/save", body);
+                saved["verified"]!.GetValue<bool>().ShouldBeTrue();
+                saved["draftRetained"]!.GetValue<bool>().ShouldBeFalse();
+                await AssertEffect(1, relation, false, true);
+                var after = await Snapshot();
+                after.Proposals.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem().Fields.Count.ShouldBe(0);
+                var journal = after.Journal.ShouldHaveSingleItem();
+                journal.Receipts.Length.ShouldBe(2);
+                journal.Receipts.ShouldAllBe(receipt => receipt.Attempt == journal.Attempt
+                    && receipt.Digest == journal.Digest && receipt.Operation == journal.Operation);
+                var settled = (await store.ReadEditorCapturesAsync(ct)).Value.ShouldHaveSingleItem();
+                settled.Id.ShouldBe(capture.Id);
+                settled.Endpoints.ShouldBe(capture.Endpoints);
+                var retained = UserBenchStore.ParseIntent(settled.IntentJson).Operations.ShouldHaveSingleItem();
+                retained.ExpectedRevision.ShouldBe(operation.ExpectedRevision);
+                retained.Fields.Count.ShouldBe(0);
+                retained.Links.ShouldBe(operation.Links);
+                _transport.RevisionOf(42).ShouldBe(targetRevision + 1);
+                _transport.RevisionOf(43).ShouldBe(endpointRevision + 1);
+            }
+            else if (scenario is "association" or "outgoing" or "incoming" or "hierarchy")
             {
                 var (shape, outgoing) = scenario switch
                 {

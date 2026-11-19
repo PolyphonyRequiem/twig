@@ -413,6 +413,36 @@ The three `native-*` LOCAL dispatches and eight ADO `RunContract` dispatches
 already call provider-owned tests; they are mapped below, not copied or counted
 as new HTTP tests.
 
+An additional `observed-removal` ADO row preserves a distinct native invariant
+from the original browser fixture, bringing the gate to **21 cases** without
+changing the original twenty rows or their budgets. It is not equivalent to
+`incoming`, which starts without an edge and performs add then remove (two
+effects). The added row starts with a real synthetic provider edge 43 -> 42,
+stages incoming removal with empty fields through HTTP, and checks one ready,
+unsettled canonical capture, zero-field intent/draft, no proposal/journal or
+provider write, and the still-observed provider edge. HTTP scalar/pair reopen
+retains that original removal and incident evidence; empty-fields Save must
+settle the same capture with exactly one revision-guarded target-42 PATCH,
+one canonical removal proposal/journal, original attempt-bound receipts,
+no creates, and both endpoint revisions advanced once.
+
+This additional source-only comparison used Canvas commit
+`6841cc9e955d51bbe1b583572303dafda4e89c5a`: `RelationshipTests.cs` blob
+`ee1a69a2121e37f89faef030a34881de7acdd693` lines 22-33 and 59;
+`RelationshipHostFixture.cs` blob `ec4072f2156c290ad82dc19d3aa2c86672ec94f1`
+lines 14-35 and 65-88; `Program.cs` blob
+`54d03e671595385cd22b6a98b65fb0a22abae033` lines 75-77;
+`tests/relationship-browser.mjs` blob
+`78f007dd112f151eac4dbe3e5345d49f9f9991cd` lines 104-120; and CI blob
+`cf2fc530ea01f235a97bbf30702abc2d29d0824c` lines 157-161.
+The original relationship/helper blobs above already contained this fixture
+branch. This is additional browser-server native invariant preservation, not
+a retroactive failure of the original finite twenty-case HTTP scope. Browser
+DOM, request construction by the UI and Edit-mode readback remain unqualified.
+The new row is prepared but not yet executed; complete-gate requalification
+is pending after review-time association timeouts. Historical passing evidence
+below does not qualify this addition or supersede that hold.
+
 The new group uses `FullyQualifiedName=Twig.Cli.Tests.Commands.` followed by
 the method below and `&DisplayName~<scenario>`. Every invocation must produce
 exactly one passed result with zero skips, checked after the unchanged
@@ -508,7 +538,7 @@ project build used SDK `11.0.100-rc.3.26522.148`, `--no-restore -f net11.0 -m:1
 the initial missing-assets failure. This session resolved `python3` with no
 prefix arguments through the Python runtime skill.
 
-Final complete 20-case execution produced the following actual synthetic
+The historical complete 20-case execution produced the following actual synthetic
 transport/durable counters (not gateway admission counts). GitHub provider
 mutation count is **zero in every row**; LOCAL versions are native SQLite CAS,
 never publication. ADO creates are zero.

@@ -24,7 +24,7 @@ public sealed partial class NativePublicationConsumerTests
         var ct = deadline.Token;
         var fixture = await CreateHumanHostAsync();
         var directory = Path.GetDirectoryName(fixture.Registry)!;
-        var gateway = new PresentationGateway(this);
+        var gateway = new NativeHttpGateway(this);
         var changes = new CatalogChanges();
         var store = UserBenchStore.ForRegistry(fixture.Registry);
         var panel = new NativePanel(store, gateway,
@@ -146,8 +146,10 @@ public sealed partial class NativePublicationConsumerTests
         finally { await app.StopAsync(CancellationToken.None); }
     }
 
-    private sealed class PresentationGateway(NativePublicationConsumerTests fixture) : INativeSourceGateway
+    private sealed class NativeHttpGateway(NativePublicationConsumerTests fixture) : INativeSourceGateway
     {
+        internal int LocalReads { get; private set; }
+        internal int SchemaReads { get; private set; }
         internal int OnlineReads { get; private set; }
         internal int SelectionWrites { get; private set; }
         private TaskCompletionSource? onlineGate;
@@ -156,7 +158,11 @@ public sealed partial class NativePublicationConsumerTests
         internal void ReleaseOnline() { onlineGate?.TrySetResult(); onlineGate = null; }
 
         public Task<Result<NativeSourceObservation>> ReadAsync(string root, NativeSourceStamp? expected,
-            bool observeSchema, CancellationToken ct) => fixture.ReadHumanHostAsync(root, expected, observeSchema, ct);
+            bool observeSchema, CancellationToken ct)
+        {
+            if (observeSchema) SchemaReads++; else LocalReads++;
+            return fixture.ReadHumanHostAsync(root, expected, observeSchema, ct);
+        }
 
         public async Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected,
             CancellationToken ct)

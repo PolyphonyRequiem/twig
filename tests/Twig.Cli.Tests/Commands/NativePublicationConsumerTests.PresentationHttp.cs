@@ -135,12 +135,16 @@ public sealed partial class NativePublicationConsumerTests
                 changes.PublishPresentation();
                 reader.TryRead(out var content).ShouldBeTrue();
                 content!.PresentationOnly.ShouldBeFalse("Presentation cannot evict a pending content invalidation.");
-                content.Revision.ShouldBe(5);
+                content.Resync.ShouldBeTrue("Overflow preserves content invalidation through an all-resource resync.");
+                content.AgentViewId.ShouldBeNull();
+                reader.TryRead(out _).ShouldBeFalse();
                 changes.PublishPresentation();
                 changes.Publish(6);
                 reader.TryRead(out content).ShouldBeTrue();
                 content!.PresentationOnly.ShouldBeFalse("Content takes priority over a queued presentation event.");
-                content.Revision.ShouldBe(6);
+                content.Resync.ShouldBeTrue("Overflow preserves content invalidation through an all-resource resync.");
+                content.AgentViewId.ShouldBeNull();
+                reader.TryRead(out _).ShouldBeFalse();
             }
             finally { gateway.ReleaseOnline(); }
         }

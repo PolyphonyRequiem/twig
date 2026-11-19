@@ -13,10 +13,10 @@ CLI = ROOT / "src/Twig/bin/Debug/net11.0/twig.dll"
 DAEMON = ROOT / "src/Twig.Daemon/bin/Debug/net11.0/Bench.Server.dll"
 
 
-def verify(base, app_dir=None):
+def verify(base, cli_dir=None, daemon_dir=None):
     extension = ".exe" if os.name == "nt" else ""
-    client = [str(app_dir / ("twig" + extension))] if app_dir else ["dotnet", str(CLI)]
-    host = [str(app_dir / ("Bench.Server" + extension))] if app_dir else ["dotnet", str(DAEMON)]
+    client = [str(cli_dir / ("twig" + extension))] if cli_dir else ["dotnet", str(CLI)]
+    host = [str(daemon_dir / ("Bench.Server" + extension))] if daemon_dir else ["dotnet", str(DAEMON)]
     install, data, home, work = (base / name for name in ("install", "private", "home", "work"))
     install.mkdir(mode=0o700)
     work.mkdir()
@@ -34,14 +34,14 @@ def verify(base, app_dir=None):
 
     assert "server start" in cli("--help")
     assert "Unknown command: 'daemon'" in cli("daemon", "--help", expected=1)
-    for action in (None, "start", "status", "stop"):
+    for action in (None, "start", "status", "stop", "endpoint"):
         command = ("server",) if action is None else ("server", action)
         for flag in ("-h", "--help"):
-            assert "Usage: twig server <start|status|stop>" in cli(*command, flag)
+            assert "Usage: twig server <start|status|stop|endpoint>" in cli(*command, flag)
     assert "Usage: twig server" in cli("server", expected=2)
     assert "Usage: twig server" in json.loads(
         cli("server", "unknown", "-o", "json", expected=2))["error"]
-    for action in ("start", "status", "stop"):
+    for action in ("start", "status", "stop", "endpoint"):
         error = json.loads(cli("server", action, "-o", "json", expected=1))["error"]
         assert "Usage:" not in error and "No command was dispatched" not in error, error
     assert not data.exists() and not home.exists() and not (work / ".twig").exists()
@@ -98,7 +98,19 @@ def verify(base, app_dir=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app-dir", type=Path, help="Verify self-contained published Linux or Windows apphosts")
+    parser.add_argument("--cli-dir", type=Path, help="Independently published CLI directory")
+    parser.add_argument("--daemon-dir", type=Path, help="Independently published daemon runtime directory")
     args = parser.parse_args()
+    if args.app_dir and (args.cli_dir or args.daemon_dir):
+        parser.error("--app-dir cannot be combined with separate distribution directories")
+    if bool(args.cli_dir) != bool(args.daemon_dir):
+        parser.error("--cli-dir and --daemon-dir must be supplied together")
+    cli_dir = args.cli_dir or args.app_dir
+    daemon_dir = args.daemon_dir or args.app_dir
+    if args.cli_dir:
+        assert cli_dir.resolve() != daemon_dir.resolve(), "CLI and daemon must be independently distributed"
+        assert not (daemon_dir / ("twig.exe" if os.name == "nt" else "twig")).exists()
+        assert not (cli_dir / ("Bench.Server.exe" if os.name == "nt" else "Bench.Server")).exists()
     with tempfile.TemporaryDirectory(prefix="twig-command-test-", dir=os.getenv("LOCALAPPDATA")
                                      if os.name == "nt" else None) as directory:
-        verify(Path(directory), args.app_dir.resolve() if args.app_dir else None)
+        verify(Path(directory), cli_dir.resolve() if cli_dir else None, daemon_dir.resolve() if daemon_dir else None)

@@ -3,6 +3,7 @@ param([string] $InstallRoot,
     [Parameter(ParameterSetName='Start')][switch] $EnsureRunning,
     [Parameter(ParameterSetName='Status')][switch] $Status,
     [Parameter(ParameterSetName='Stop')][switch] $Stop,
+    [Parameter(ParameterSetName='Endpoint')][switch] $Endpoint,
     [Parameter(ParameterSetName='Mcp')][switch] $Mcp)
 
 Set-StrictMode -Version Latest
@@ -124,6 +125,9 @@ function Get-BenchRuntime([string] $VersionRoot, [string] $Version, [string] $Ma
     if ($actual.Count -ne $listed.Count + 1) { throw 'Runtime contains unlisted files.' }
     $requiredFiles = @('Bench.Server.exe', 'Bench.Server.dll', 'coreclr.dll', 'hostfxr.dll',
         'Twig.Providers.Native.dll', 'Twig.Infrastructure.dll', 'Twig.Store.Sqlite.dll')
+    if ($listed.ContainsKey('twig.exe') -or $listed.ContainsKey('twig')) {
+        throw 'A daemon package must not bundle the independent CLI executable.'
+    }
     if (@($listed.Keys | Where-Object { $_ -like 'wwwroot\*' }).Count) {
         throw 'A daemon package must not bundle presentation assets.'
     }
@@ -133,8 +137,69 @@ function Get-BenchRuntime([string] $VersionRoot, [string] $Version, [string] $Ma
     return (Join-Path $versionRoot 'Bench.Server.exe')
 }
 
+function Read-BenchSmallText([string] $Path, [int] $Maximum) {
+    $Path = Get-BenchLocalPath $Path
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        if ($stream.Length -gt $Maximum) { throw 'Oversized daemon selection or identity record.' }
+        $bytes = New-Object byte[] ($Maximum + 1)
+        $count = 0
+        while ($count -le $Maximum) {
+            $read = $stream.Read($bytes, $count, $bytes.Length - $count)
+            if ($read -eq 0) { break }
+            $count += $read
+        }
+        if ($count -gt $Maximum) { throw 'Oversized daemon selection or identity record.' }
+        $encoding = New-Object Text.UTF8Encoding($false, $true)
+        return $encoding.GetString($bytes, 0, $count).TrimStart([char]0xfeff)
+    } finally { $stream.Dispose() }
+}
+
+function Assert-BenchEndpointCertificate($Installation) {
+    $null = & $Installation.Executable '--check-certificate' $Installation.Certificate
+    if ($LASTEXITCODE -ne 0) { throw 'The selected localhost HTTPS certificate could not be verified.' }
+}
+
+function Get-BenchEndpoint([string] $Root) {
+    $Root = Get-BenchLocalPath $Root
+    $recordPath = Join-Path $Root 'current.json'
+    $selection = Read-BenchSmallText $recordPath 16384
+    $installation = Get-BenchInstallation $Root ($selection | ConvertFrom-Json)
+    # Reuse the selected runtime's full localhost trust/private-key check, without launching a listener.
+    Assert-BenchEndpointCertificate $installation
+    $identityPath = Get-BenchLocalPath (Join-Path $installation.Data 'daemon.id')
+    $identity = $null
+    try { $text = Read-BenchSmallText $identityPath 64 }
+    catch [IO.FileNotFoundException] { $text = $null }
+    if ($null -ne $text) {
+        $id = [Guid]::Empty
+        if (-not [Guid]::TryParseExact($text, 'D', [ref]$id) -or $id -eq [Guid]::Empty) {
+            throw 'Invalid selected daemon identity; no replacement was generated.'
+        }
+        $identity = $id.ToString('D')
+    }
+    if ((Read-BenchSmallText $recordPath 16384) -cne $selection) {
+        throw 'The selected daemon changed during endpoint discovery; read the selection again.'
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $selectionId = [BitConverter]::ToString($hash.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($Root.ToUpperInvariant() + "`n" + $selection))).Replace('-', '')
+    } finally { $hash.Dispose() }
+    return [ordered]@{
+        origin = 'https://localhost:' + $installation.Port
+        certificateThumbprint = $installation.Certificate.ToUpperInvariant()
+        selectionId = $selectionId
+        daemonId = $identity
+    }
+}
+
 if ($MyInvocation.InvocationName -eq '.') { return }
 try {
+    if ($Endpoint) {
+        Get-BenchEndpoint $InstallRoot | ConvertTo-Json -Compress
+        exit 0
+    }
     $installation = Get-BenchInstallation $InstallRoot
     $arguments = @('--data-dir', $installation.Data, '--port', [string]$installation.Port)
     if ($null -ne $installation.Certificate) { $arguments += @('--https-certificate', $installation.Certificate) }

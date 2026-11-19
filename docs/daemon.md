@@ -1,7 +1,8 @@
 # Twig server
 
 Use [`twig server start`, `twig server status`, and `twig server stop`](commands/system/server.md)
-to control the local server. The former `twig daemon` command family is not an
+to control the local server, and `twig server endpoint -o json` for read-only
+Windows HTTPS endpoint discovery, including before startup. The former `twig daemon` command family is not an
 alias. The background runtime is still packaged as the Twig daemon: package
 names, release tags, scripts, installation paths, and
 `TWIG_DAEMON_INSTALL_ROOT` are unchanged.
@@ -48,7 +49,9 @@ No PID file, certificate, system service, or network listener is required.
 **Windows x64** (PowerShell, Python 3.12+ on PATH, and the Windows prerequisites below):
 
 ```powershell
-if ((Get-FileHash .\twig-daemon-win-x64.zip).Hash -ine (Get-Content .\twig-daemon-win-x64.zip.sha256 -Raw).Trim()) { throw 'Checksum mismatch' }
+$checksum = Get-Content .\twig-daemon-win-x64.zip.sha256 -Raw
+if ($checksum -cnotmatch '\A([a-f0-9]{64})  twig-daemon-win-x64\.zip\r?\n\z' -or
+    (Get-FileHash .\twig-daemon-win-x64.zip -Algorithm SHA256).Hash -ine $Matches[1]) { throw 'Checksum mismatch' }
 Expand-Archive .\twig-daemon-win-x64.zip .\daemon-package
 cd .\daemon-package
 .\daemon-install.ps1 -PackageDirectory (Resolve-Path .\daemon-win-x64).Path `
@@ -318,6 +321,11 @@ The installer publishes only the daemon, untrimmed and self-contained, under
 `current.json` selects that runtime together with private-data, port, certificate
 and canvas-root settings; a replaced selection is retained in `previous.json`.
 Do not hand-edit these records to bypass verification.
+These records are private implementation details, not a consumer discovery API.
+Independent consumers use [`twig server endpoint -o json`](commands/system/server.md#endpoint-discovery)
+for the verified origin, certificate pin, opaque selection change token and
+nullable prestart durable identity. Revalidate after startup and retain the HTTP
+same-owner, TLS, durable identity and protocol checks; discovery alone is not readiness.
 
 Installation starts/stops **no process** and installs no canvas package.
 `-RegisterStartup` is explicit opt-in and creates the user's `Twig Daemon.lnk`
@@ -390,17 +398,35 @@ To produce an uninstalled package from a clean checkout:
 ```
 
 The output directory must be new and beneath this checkout's `artifacts`.
-Packaging verifies the complete runtime inventory without certificate, Startup,
-installation, or process changes.
+Its final directory name must be `daemon-win-x64`. The command also writes
+`twig-daemon-win-x64.zip` and its `.sha256` beside that directory, including the
+independent launcher, installer and owned-process supervisor. It refuses to
+overwrite an existing runtime or archive. Packaging verifies the complete runtime
+inventory without certificate, Startup, installation, or process changes.
 
 The [Daemon package workflow](../.github/workflows/daemon-release.yml) packages
 Windows and Linux artifacts independently of the CLI. Pull requests do not start package
 builds; use a manual workflow run for an optional hosted package check (see
 [GitHub Actions](architecture/build-and-release.md#github-actions)). `daemon-v*` tags publish
 `twig-daemon-win-x64.zip` and `twig-daemon-linux-x64.tar.gz`, each with a
-SHA-256 file. The Windows checksum is a bare hex digest; the Linux checksum
-is `sha256sum -c` compatible. Both archives include operator installation
+SHA-256 file. Both checksum files use the `sha256sum -c` compatible
+`<lowercase-sha256>  <archive-filename>` format. Both archives include operator installation
 tooling; see [Install the release package](#install-the-release-package).
+
+Each daemon workflow build also produces a **separate, unsigned CLI candidate**
+from the same source commit. The gate extracts both archives, verifies their
+checksums, and exercises isolated command IPC without source imports or an SDK
+at runtime. Windows additionally exercises the extracted installer with only its
+external-command/certificate boundary replaced by a synthetic fixture. It checks
+fresh installation, immutable reinstall refusal, upgrade selection, retained
+rollback-record validity, refused upgrades and endpoint/inventory guards.
+This is not a trusted HTTPS, certificate-store, Windows owner-authentication,
+Startup or hosted Canvas qualification. No live rollback is performed.
+
+The CLI candidate is an Actions artifact, **not** a CLI release. The daemon
+release job downloads only `twig-daemon-*` artifacts, never the CLI candidates.
+Releasing the daemon does not update the CLI; releasing the CLI does not install
+a daemon. See the [paired publication gate](architecture/build-and-release.md#paired-distribution-readiness).
 
 ## Security and data ownership
 

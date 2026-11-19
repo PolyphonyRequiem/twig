@@ -22,6 +22,10 @@ the new tests use `Twig.Daemon.Tests`. No production API was made public for tes
 | `McpBridgeTests.cs` | `NativeHttpInvariantTests.ScopesMcpBridgeAuthorityAndReleasesItsView` | Exact owner bootstrap, view-scoped forwarding, protocol-only stdout, notification suppression and EOF cleanup |
 | `PresentationRouteTests.cs` | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.PresentationHttp.cs`, `NativePresentationHttpPersistsWithoutAcquisitionAndPreservesContentPriority` | Real native transport/capture counters; held-provider response under two seconds; complete persisted choices; genuine cross-view CAS/reconciliation; SDK attachment/layout authority; zero publication/selection writes; content-priority invalidation in both queue orders |
 | `AdoEditorTests.cs` startup instrumentation used by `bench-startup-browser.mjs` | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.InitialViewHttp.cs`, `NativeInitialViewHttpRestoresWithOneLocalObservationAndNoProviderWork` | Configured profile recovery through real native stores/transport: exactly one full local observation, zero schema/online/HTTP/capture/PATCH/selection work while provider is held; exact cached rows and unchanged choices |
+| `AgentRouteTests.cs` (10 scenarios) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.AgentHttp.cs`, `NativeAgentHttpPreservesScopedNativeAuthorityWithoutProviderWrites` | Provider-owned HTTP composition for diagnostics, access, membership, rules/guards, drafts, connections/guards, automatic access and MCP; actual native capture/provider counters |
+| `AdoEditorTests.cs` scalar variants (5 cases) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.ScalarHttp.cs`, `NativeAdoScalarHttpUsesQualifiedNativeAuthority` | One title/HTML/discovered-state PATCH, closed-ticket refusal, relevant/unrelated incomplete policy scope, fresh admission despite cached guidance, scalar withholding and disclosure for owned relationship debt |
+| `GitHubEditorTests.cs` `save` and `guards` only (2 cases) | `Twig.Cli.Tests/Commands/GitHubCoreSpineTests.ScalarHttp.cs`, `NativeGitHubScalarHttpUsesQualifiedNativeAuthority` | Full shared provider/locator/field/notice/SDK/CSRF checks; exact Markdown including literal script text, explicit empty clear, HTML/ADO-alias/stale-ticket/actor refusals and actual mutation counts |
+| `native-process-browser.mjs` lines 242-282 and 316-318 (2 assertions, 1 case) | `NativePanelTests.ScalarBoundary.cs`, `NativePanelUnpinRetainsOrderedQueryAndOtherPinAndExactTypedStateColors` | Actual DTO-qualified pin PUT/unpin, exact ordered query/other-pin SQLite readback, unchanged three query members, fresh-revision restoration; exact type-qualified state colors from genuine two-type native metadata |
 
 The original assertions are retained. The Sessions and adapter executable
 dispatchers become xUnit cases; each Sessions case owns a fresh directory and
@@ -38,6 +42,7 @@ python eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Test
 python eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RedactsDiagnosticsThroughNativeHostAndLoggingFilter|FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RetainsSchemaUntilExplicitNativeRecheck" --logger "trx;LogFileName=read-composition.trx" --results-directory artifacts\test-logs\ci\read-composition
 python eng\verify-trx.py -- dotnet test tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativePresentationHttpPersistsWithoutAcquisitionAndPreservesContentPriority" --logger "trx;LogFileName=presentation-http.trx" --results-directory artifacts\test-logs\ci\presentation-http
 python eng\verify-trx.py -- dotnet test tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeInitialViewHttpRestoresWithOneLocalObservationAndNoProviderWork" --logger "trx;LogFileName=initial-view-http.trx" --results-directory artifacts\test-logs\ci\initial-view-http
+python eng\ci-checks.py native-scalar-http
 ```
 
 The presentation case reuses the existing provider-owned CLI fixture directly,
@@ -121,6 +126,74 @@ selection remains bound to store and verified repository identity, preserves
 session choice/default precedence and never selects a CLI workspace. Account
 metadata uses the exact local binding; it does not acquire credentials.
 
+## Scalar-editor HTTP and two residual Panel assertions
+
+The scalar slice fetches the original sources directly from the same Canvas
+main above: `AdoEditorTests.cs` blob
+`50f1725ea608afb476dc0532851493410df814f7`, `GitHubEditorTests.cs` blob
+`a3ca89da602a9e6f13e0362a952482a79c5bb13a`, and the small preconditions in
+`tests/Bench.NativeFixtures/NormalSeedFixture.cs` blob
+`1617746c46b40e5a4bbbc61cee2ec4821756f9d8`. No complete NormalSeed or
+Relationship fixture is copied. Both scalar suites compose the real
+`NativePanel`, `NativeSourceAdapter`, `NativeBenchHost` and canonical
+`UserBenchStore.ForRegistry`, reusing the existing CLI provider fixtures'
+real SQLite stores and synthetic provider HTTP transports. The ADO gateway
+is the existing presentation/Agent gateway; GitHub uses its existing native
+fixture methods and a small source gateway. There are no production changes,
+public wrappers, friend identities, reflection or test-project references.
+
+The original executable selectors map to the five ADO rows as follows:
+`--ado-editor-tests` to `save`, `--ado-editor-schema-tests relevant` and
+`unrelated` to `policy-relevant` and `policy-unrelated`,
+`--cached-editor-guidance-tests` to `cached-guidance`, and
+`--relationship-counterfactual` to `relationship-debt`.
+`--github-editor-tests save` and `guards` map to their identically named
+GitHub rows. The CI group runs each of these seven scalar rows and the one
+Panel case in a separate selector-verified 60-second process, each with a
+55-second owned cancellation budget and bounded HTTP requests. Every invocation
+has one TRX logger; produced TRX files are uploaded even when a later row fails.
+Scenario strings do not occur in the method names, so display-name filters
+cannot inadvertently select an entire theory.
+
+ADO capability and CSRF refusals precede any provider acquisition or capture.
+The successful normal Save verifies all three fields through native cache and
+journal readback and dispatches exactly one PATCH; closing a freshly opened
+handle makes its subsequent Save conflict without another PATCH. The scoped
+policy variants retain `Fixture.Other` and its actual gaps on the wire. An
+incomplete relevant dependency endpoint refuses with 503 before any PATCH or
+journal attempt; an unrelated incomplete visible type allows one verified
+title Save, retaining the full wire schema fingerprint and a nonempty policy
+revision. Cached guidance performs zero preliminary online gateway reads but
+positive actual metadata and item transport; an explicitly qualified endpoint
+whose real revision changes refuses Stage with 409 and no capture/write delta.
+Missing cached identity, unreadable remote item and changed actor withhold
+forms without switching the selected context. Relationship debt is genuinely
+staged locally before HTTP; the scalar form withholds every field, evaluation
+returns 422/Unsupported, and the wire explicitly discloses the one retained
+intent. This is not adoption of the full relationship route suite.
+
+GitHub shared checks retain its provider, displayed locator, native title/state
+fields, Markdown body, read-only collection and both limitation notices.
+The first Save changes title, exact literal Markdown and CLOSED state in one
+actual updateIssue, with native cache/journal evidence; explicit empty Markdown
+clears in a second verified write and leaves no draft. HTML coercion (400), an
+ADO alias (422), a closed ticket (409) and a changed actor (403/409) all refuse
+with zero provider mutations. SDK denial includes the original evaluate,
+stage, review and apply routes without adopting their Plan behavior.
+
+The Panel case reuses the compact three-item/two-custom-type gateway, native
+adapter and production HTTP host in `ReadCompositionFixture`. It adds direct
+pins from the actual source DTOs alongside the original query, removes only
+the first pin, and compares the exact ordered `[original query, other pin]`
+definition through GET and the real native store. All three query members
+remain projected, then the original definition is restored with a fresh
+revision. The added stale PUT is a genuine native 409 preserving the exact
+stored definition, not the browser's intercepted canned response. The color
+assertion derives expected names/colors by type reference from actual fixture
+metadata, first establishing its same-name/distinct-color counterfactual.
+It proves projection fidelity, not a general rule requiring different colors
+for every pair of native types.
+
 ## Not adopted or qualified here
 
 This is not permission to delete the whole Canvas native integration lane:
@@ -137,23 +210,23 @@ This is not permission to delete the whole Canvas native integration lane:
   enforcement remain consumer-owned. Original consumer tests remain retained
   until an independent comparison of the committed provider gates authorizes
   their removal; these two cases do not dispose of the whole native suite.
-- `AgentRouteTests` scenarios (`diagnostics`, `access`, `membership`, `rules`,
-  `rule-guards`, `draft`, `connections`, `connection-guards`, `owner-automatic`,
-  `mcp`) remain coupled to the ADO editor fixture. Their HTTP composition and
-  real native capture/provider-call assertions are **not replaced** by either
-  the synthetic gateway suites or the distinct presentation HTTP case.
-- `AdoEditorTests`, `EditorChoiceFixture`, `GitHubEditorTests`,
-  `GitHubLocalRelationshipTests`, `NormalSeedTests`, `PlanTests`,
-  `RelationshipTests` and `Bench.NativeFixtures/*.cs` remain upstream.
-  Existing CLI/Core coverage does not by itself establish equivalence for their
-  HTTP/browser composition, ticket/digest/journal/uncertain-delivery assertions.
+- The seven scalar cases above do not adopt `GitHubEditorTests` `plan`/`apply`,
+  dedicated `PlanTests`, `NormalSeedTests`, `RelationshipTests`,
+  `GitHubLocalRelationshipTests`, `EditorChoiceFixture` or their remaining
+  `Bench.NativeFixtures/*.cs` dependencies. These sources remain upstream;
+  neither whole editor file is declared deletable here. Existing CLI/Core
+  family coverage is not HTTP composition equivalence. Removal remains gated
+  on the consumer peer's independent comparison of committed provider gates.
+- All other process-browser geometry, icon rendering, layout, filtering,
+  storage, marquee, clipboard and intercepted-response assertions remain
+  consumer-owned. Only the two precise Panel assertions above move here.
 - Source/artifact stamp suites are source-pairing checks, not adopted provider
   behavior.
 - Startup and warm-first-paint browser timing/DOM assertions stay consumer-owned.
   The native initial-view HTTP case proves acquisition counts, not a browser's
   under-1000ms startup or under-250ms warm paint with a delayed provider.
 - Canvas's pinned `e65c659` periodic metadata lifecycle is not restored here:
-  the 15-minute admission-bound discovery/retry schedule, startup sweep,
+  all nine cases for the 15-minute admission-bound discovery/retry schedule, startup sweep,
   failure continuation and durable denial/cancellation fencing remain a
   separate existing-behavior disposition. Ordinary-read cache retention and
   explicit recheck tests do not establish that background lifecycle.

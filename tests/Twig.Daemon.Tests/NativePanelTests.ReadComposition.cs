@@ -285,9 +285,15 @@ internal static partial class NativePanelTests
             "66666666-7777-4888-8999-aaaaaaaaaaaa", """["binding","saved-identity","aad","actor"]""");
         private WebApplication? app;
         private HttpClient? client;
+        private ViewSessions? sessions;
+        private ViewSession? owned;
         private string prefix = "";
         private Guid benchId;
         internal WebApplication App => app ?? throw new InvalidOperationException("The owned host has not started.");
+        internal string Root => root;
+        internal UserBenchStore Store => store;
+        internal Guid BenchId => benchId;
+        internal CancellationToken Token => deadline.Token;
         internal Gateway Gateway { get; }
         internal DiagnosticLogCapture Logs { get; } = new();
         internal string CachePath => Directory.GetFiles(Path.Combine(root, "evidence"), "*.json").Single();
@@ -312,9 +318,10 @@ internal static partial class NativePanelTests
             await ObserveWorkspace(Path.Combine(root, "benches.db"), root, connection, stamp.StoreInstance);
             var changes = new CatalogChanges();
             var panel = new NativePanel(store, Gateway, new NativeSourceAdapter(Path.Combine(root, "evidence"), Gateway, changes));
-            var sessions = new ViewSessions(Path.Combine(root, "presentation"));
+            sessions = new ViewSessions(Path.Combine(root, "presentation"));
             var registered = sessions.RegisterNativeCanvas(shared.InstanceId);
             var owner = sessions.ConnectOwner(shared.InstanceId, registered.ViewId, Guid.NewGuid());
+            owned = sessions.Content(owner.ViewId, owner.ContentCapability, true);
             prefix = $"/api/v1/views/{owner.ViewId:D}";
             app = NativeBenchHost.Build(new(0, root), panel, sessions, changes);
             app.Services.GetRequiredService<ILoggerFactory>().AddProvider(Logs);
@@ -348,7 +355,15 @@ internal static partial class NativePanelTests
         public async ValueTask DisposeAsync()
         {
             client?.Dispose();
-            try { if (app is not null) await app.DisposeAsync(); }
+            try
+            {
+                if (sessions is not null && owned is not null) sessions.Revoke(owned);
+                if (app is not null)
+                {
+                    try { await app.StopAsync(CancellationToken.None); }
+                    finally { await app.DisposeAsync(); }
+                }
+            }
             finally { deadline.Dispose(); Directory.Delete(root, recursive: true); }
         }
     }

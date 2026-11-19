@@ -47,6 +47,27 @@ def native_agent_http():
                         "--results-directory", "artifacts/test-logs/ci/agent-http"], check=True)
 
 
+def native_scalar_http():
+    cases = [
+        ("ado-save", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "save"),
+        ("ado-policy-relevant", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "policy-relevant"),
+        ("ado-policy-unrelated", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "policy-unrelated"),
+        ("ado-cached-guidance", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "cached-guidance"),
+        ("ado-relationship-debt", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "relationship-debt"),
+        ("github-save", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeGitHubScalarHttpUsesQualifiedNativeAuthority", "save"),
+        ("github-guards", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeGitHubScalarHttpUsesQualifiedNativeAuthority", "guards"),
+        ("panel-scalar-boundary", "Twig.Daemon.Tests", "Twig.Daemon.Tests.Native.NativePanelScalarBoundaryTests.NativePanelUnpinRetainsOrderedQueryAndOtherPinAndExactTypedStateColors", None),
+    ]
+    for label, project, method, scenario in cases:
+        selector = f"FullyQualifiedName={method}"
+        if scenario is not None:
+            selector += f"&DisplayName~{scenario}"
+        subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                        f"tests/{project}/{project}.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                        "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
+                        "--results-directory", "artifacts/test-logs/ci/scalar-http"], check=True)
+
+
 def registry_compat():
     for version, revision in [(10, "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"),
                               (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
@@ -297,6 +318,7 @@ CHECKS = {
     'native-authority': native_authority,
     'native-setup': native_setup,
     'native-agent-http': native_agent_http,
+    'native-scalar-http': native_scalar_http,
     'registry-compat': registry_compat,
     'catalog': catalog,
     'user-benches': user_benches,

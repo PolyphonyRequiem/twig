@@ -62,6 +62,16 @@ jobs:
           name: twig-native-presentation-${{ matrix.rid }}
           path: artifacts/test-logs/ci/presentation-http/*.trx
           if-no-files-found: error
+      - name: Native Agent HTTP ten-scenario composition (isolated per case)
+        id: native_agent_http
+        run: python eng/ci-checks.py native-agent-http
+      - name: Preserve native Agent HTTP results
+        if: always() && steps.native_agent_http.outcome != 'skipped' && steps.native_agent_http.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-native-agent-http-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/agent-http/*.trx
+          if-no-files-found: error
       - name: Native diagnostic and schema read composition (isolated)
         id: native_read_composition
         run: python eng/verify-trx.py -- dotnet test tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RedactsDiagnosticsThroughNativeHostAndLoggingFilter|FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RetainsSchemaUntilExplicitNativeRecheck" --logger "trx;LogFileName=read-composition.trx" --results-directory artifacts/test-logs/ci/read-composition

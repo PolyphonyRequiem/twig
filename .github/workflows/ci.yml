@@ -36,7 +36,7 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore
       - name: Supported solution build (120-second deadline)
-        run: python eng/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:1"
+        run: python eng/run-bounded.py --timeout 120 -- dotnet build --no-restore "-m:2"
 
       - name: Native authority, lost acknowledgement recovery and independent canvas packages
         run: python eng/ci-checks.py native-authority

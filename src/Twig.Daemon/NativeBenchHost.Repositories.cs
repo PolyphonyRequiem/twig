@@ -88,6 +88,7 @@ public static partial class NativeBenchHost
                 session.Plan.Invalidate();
                 session.Setup.Invalidate();
                 session.NativeContext = session.PopulationContext = null;
+                session.ReferencesRestored = false;
                 session.DisplayContexts.Clear();
                 session.RepositoryRoot = root;
                 session.RepositoryBindings = next;

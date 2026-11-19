@@ -30,16 +30,21 @@ for manual downloads and checksum verification.
 
 ## Get started
 
+Select an installed [server](docs/daemon.md) and run `twig server start` before
+working with a provider. `twig server status -o json` checks readiness without
+starting anything. Help and version are available without a daemon.
+
 Run initialization at a **fresh Git worktree root**, without an existing `.twig`
 directory. Choose one provider; a Git remote does not select your tracker.
 
 ### Azure DevOps
 
-Enroll a named identity, bind it to your project, then initialize:
+Register the provider connection, enroll your own identity, bind it, then initialize:
 
 ```sh
+twig connection add --provider ado --org contoso --project MyProject
 twig auth login --identity work
-twig connection bind --org contoso --project MyProject --identity work --default
+twig connection bind --provider ado --org contoso --project MyProject --identity work
 twig init contoso MyProject
 twig show 12345 --refresh
 ```
@@ -50,16 +55,24 @@ interactive sign-in. Azure CLI is not required.
 
 ### GitHub
 
-Sign in using `gh` first, then name the exact account:
+Sign in using `gh` first, then bind the exact account to your connection:
 
 ```sh
-twig init --provider github --host github.com --repository owner/repo --account my-account
+twig connection add --provider github --host github.com --repository owner/repo
+twig connection bind --provider github --host github.com --repository owner/repo --account my-account
+twig init --provider github --host github.com --repository owner/repo
 twig show 42 --refresh
 ```
 
 GitHub support is deliberately narrower than ADO: queries are bounded, writes
 are observed-non-atomic, and external workflow rules are not discovered.
 See [provider differences](docs/getting-started.md#provider-differences).
+
+For a repository that already has `twig.json`, run just `twig init` after registering
+and binding the matching connection on your device. Keep the manifest unchanged:
+it declares provider dimensions, not a contributor's credential or a device-local ID.
+`twig connection list` lists all registrations through the daemon, regardless of
+the current directory. Credentials and bindings remain private to the local user.
 
 ### Twig-native
 
@@ -107,17 +120,22 @@ use `sync --pull-only` when you only intend to read. For file-based changes, rev
 the exact proposal before `proposal apply --file ... --confirm <digest>`.
 Unknown write outcomes must be inspected, never blindly retried.
 
-## Daemon and integrations
+## Server and integrations
 
-Twig owns the Windows daemon in [`src/Twig.Daemon`](src/Twig.Daemon).
-It shares native connections and user-wide Benches, serves scoped reads and
-local drafting, and keeps Save/Apply human-only. It has its own installer,
-launcher, and `daemon-v*` releases; installing the CLI does not install it.
+The [Twig daemon](src/Twig.Daemon) owns work-item operations for the CLI and
+Bench Canvas. It runs as the current user. Use `twig server start` to start or
+reuse it and `twig server stop` for an explicit shutdown. Clients do not switch
+to direct database or provider access if the daemon is unavailable.
 
 The separate [twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas)
-package owns presentation assets. The daemon can run without those assets and
+package owns presentation assets. Closing a Canvas view does not stop the daemon.
+Herdr panes and the interactive terminal browser have been removed; static CLI
+output is unchanged. The daemon can run without Canvas assets and
 provides a **read-only MCP bridge**. This is not the retired `twig mcp` server.
-See the [daemon guide](docs/daemon.md) for prerequisites, operation, and MCP setup.
+See the [server command reference](docs/commands/system/server.md) for lifecycle
+syntax and output formats, and the [server guide](docs/daemon.md) for
+prerequisites, installation, and MCP setup. The old `twig daemon` command family
+is not an alias; daemon package names and installation settings are unchanged.
 
 ## Documentation
 
@@ -126,14 +144,13 @@ See the [daemon guide](docs/daemon.md) for prerequisites, operation, and MCP set
 | Setup and first commands | [Getting started](docs/getting-started.md) |
 | Supported commands and limitations | [Command reference](docs/commands/README.md) |
 | Benches, drafts, and proposals | [User guides](docs/README.md#user-guides) |
-| Windows daemon | [Daemon ownership and operations](docs/daemon.md) |
+| Local server | [Server installation and operations](docs/daemon.md) |
 | Agent help | `twig --skill` and [installed skills](docs/features/skills.md) |
-| Build and contribute | [Contributing](docs/contributing.md) |
+| Build and contribute | [Build and release](docs/architecture/build-and-release.md) |
 | Implementation | [Architecture](docs/architecture/overview.md) |
 
 Use `twig --help`, then `twig <command> --help` for executable-matched syntax.
-The [documentation index](docs/README.md) separates current guidance from design
-and historical records.
+The [documentation index](docs/README.md) lists the maintained guides.
 
 ## License
 

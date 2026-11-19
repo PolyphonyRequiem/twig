@@ -95,7 +95,7 @@ internal sealed class AuthPatCommand(
             string? pat;
             try
             {
-                pat = ReadPatSecret(stdin);
+                pat = ReadPatSecret(stdin, ansiConsole);
             }
             catch (Exception ex) when (ex is InvalidOperationException or IOException or NotSupportedException)
             {
@@ -132,7 +132,7 @@ internal sealed class AuthPatCommand(
         return null;
     }
 
-    private string? ReadPatSecret(bool stdin)
+    internal static string? ReadPatSecret(bool stdin, IAnsiConsole ansiConsole)
     {
         if (stdin || Console.IsInputRedirected)
         {

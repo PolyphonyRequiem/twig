@@ -37,17 +37,14 @@ path. Neither ordinary Twig use nor `--skill` modifies installed guidance.
 
 ## OMP proposal presenter boundary
 
-The checked-in `integrations/omp` package and bundled skill references retain
-older presenter designs. Their `proposal preview --interactive`,
-`--include-rendering` and v1/v2 captured-envelope expectations are not supported
-by the current Core CLI. Installing/selecting a companion does not qualify those
-routes. Do not install the package expecting it to make current preview
-interactive.
+Older presenter designs relied on `proposal preview --interactive`,
+`--include-rendering`, or v1/v2 captured envelopes. The current CLI does not
+support those routes, even when a companion is installed.
 
 Use explicit file-scoped [Core proposals](proposals.md) and their ordinary
-plain/structured review path. The current [daemon](../daemon.md) provides a
-separate native host review workflow with human-only Apply. OMP means Oh My Pi;
-the retired Oh My Posh prompt integration is unrelated.
+plain/structured review path. The [daemon](../daemon.md) and separately delivered
+[twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas) provide a
+review workflow with human-only Apply. OMP means Oh My Pi, not Oh My Posh.
 
 ## Compact consumer guidance
 

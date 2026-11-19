@@ -1,4 +1,11 @@
-# Windows daemon
+# Twig server
+
+Use [`twig server start`, `twig server status`, and `twig server stop`](commands/system/server.md)
+to control the local server, and `twig server endpoint -o json` for read-only
+Windows HTTPS endpoint discovery, including before startup. The former `twig daemon` command family is not an
+alias. The background runtime is still packaged as the Twig daemon: package
+names, release tags, scripts, installation paths, and
+`TWIG_DAEMON_INSTALL_ROOT` are unchanged.
 
 **Twig owns the daemon.** Its source, build, installation tooling, protocol, and
 independently versioned releases live in this repository. The optional
@@ -6,8 +13,55 @@ independently versioned releases live in this repository. The optional
 owns presentation assets and licenses, not the daemon or its durable authority.
 
 The daemon serves same-machine Benches, native item reads, local draft/Plan
-workflows, and human-only Save/Apply. It is an optional **Windows x64**
-application, separate from the Windows/Linux CLI installer.
+workflows, and human-only Canvas Save/Apply on Windows x64. Linux x64 supports the
+headless command host only; there is no HTTP listener or Canvas fallback.
+Install the daemon separately from the CLI before running work-item commands.
+
+## Install the release package
+
+From [GitHub Releases](https://github.com/PolyphonyRequiem/twig/releases),
+choose a `daemon-v*` release supporting command IPC and download **both** your
+platform's archive and its `.sha256` from that release. A CLI `v*` archive
+does not contain a daemon. Use your normal user account, not sudo.
+
+**Linux x64** (glibc, `/usr/bin/python3` 3.9+, and a mounted `/proc`):
+
+```bash
+sha256sum -c twig-daemon-linux-x64.tar.gz.sha256 &&
+mkdir daemon-package &&
+tar -xzf twig-daemon-linux-x64.tar.gz -C daemon-package &&
+cd daemon-package &&
+python3 -I daemon-linux.py install daemon-linux-x64 "$HOME/.local/share/Twig/DaemonData"
+twig server start -o json
+twig server status -o json
+twig server stop -o json
+```
+
+The installer selects a hash-verified immutable runtime under
+`${XDG_DATA_HOME:-$HOME/.local/share}/Twig/Daemon`. The data and installation
+directories must be separate, owner-only (0700), and free of symlinks.
+`TWIG_DAEMON_INSTALL_ROOT` can select an alternative private root; use the same
+value for setup and CLI operations. Stop before updating. Start, status and
+stop serialize with installation and authenticate the selected executable,
+peer UID, control protocol and durable identity over a Linux Unix socket.
+No PID file, certificate, system service, or network listener is required.
+
+**Windows x64** (PowerShell, Python 3.12+ on PATH, and the Windows prerequisites below):
+
+```powershell
+$checksum = Get-Content .\twig-daemon-win-x64.zip.sha256 -Raw
+if ($checksum -cnotmatch '\A([a-f0-9]{64})  twig-daemon-win-x64\.zip\r?\n\z' -or
+    (Get-FileHash .\twig-daemon-win-x64.zip -Algorithm SHA256).Hash -ine $Matches[1]) { throw 'Checksum mismatch' }
+Expand-Archive .\twig-daemon-win-x64.zip .\daemon-package
+cd .\daemon-package
+.\daemon-install.ps1 -PackageDirectory (Resolve-Path .\daemon-win-x64).Path `
+    -PrivateDataDir 'C:\Users\me\AppData\Local\Twig\DaemonData' `
+    -Port 7341 -HttpsCertificateThumbprint '<existing-40-hex-thumbprint>' -PythonExecutable python
+twig server start -o json
+```
+
+Replace the example data directory, port and certificate selection with your
+own. Neither package installation nor the CLI creates or trusts certificates.
 
 ## Components and ownership
 
@@ -16,9 +70,9 @@ application, separate from the Windows/Linux CLI installer.
 | `src/Twig.Daemon` | Twig's executable host; retained assembly/executable name `Bench.Server.exe` |
 | `src/Twig.Daemon.Domain` / `.Application` / `.Infrastructure` | Daemon model, use cases, native source/session/transport implementation; retained `Bench.*` assembly names |
 | `src/Twig.Daemon.Client` | Pure client library for package verification and same-machine startup, without daemon/provider composition |
-| `tools/daemon-package.ps1` | Standalone, verified self-contained runtime packaging |
-| `tools/daemon-install.ps1` | Source installation and explicit operator selection; optional sign-in startup |
-| `tools/daemon-launch.ps1` | Runtime inventory verification, launch/reuse, and read-only stdio MCP |
+| `eng/daemon-package.ps1` | Standalone, verified self-contained runtime packaging |
+| `eng/daemon-install.ps1` | Source installation and explicit operator selection; optional sign-in startup |
+| `eng/daemon-launch.ps1` | Runtime inventory verification, launch/reuse, and read-only stdio MCP |
 | `twig-bench-canvas` | Independently installed presentation package/host/assets |
 
 The daemon can run without canvas assets. Direct static asset routes are optional
@@ -26,7 +80,214 @@ diagnostics and serve only verified packages. Normal canvas opens use the separa
 presentation host, which can render before daemon readiness and forwards bounded
 requests from one browser origin. Closing Canvas does not stop the shared daemon.
 
-## Prerequisites
+## Live-client workspace read
+
+The `workspace-read-v1` capability in `/api/v1/status` and the authenticated
+owner status advertises `GET /api/v1/views/{viewId}/workspace`. Use the existing
+owner/profile connection and content bearer; a view ID or presentation capability
+alone grants no content access. Older daemons must be refused explicitly by clients
+requiring this capability, not treated as an empty workspace.
+
+The source-generated `NativeWorkspaceDto` response has these camel-case fields:
+
+| Field | Existing native contract |
+| --- | --- |
+| `viewState` | `NativeViewStateInfo`: store/profile identity, saved choice revision, retained source recovery, current Bench and authority expiry/renewal times |
+| `summary` | `NativePanelSummary`: native catalogue revision and definitions, registered connection labels/availability, selected contexts, repository bindings and verified runtime context |
+| `session` | `NativeSessionInfo`: current Bench and presentation preferences from that same profile observation |
+| `view` | Selected `NativeBenchViewDto`, or `null` when no existing Bench is selected; includes source-qualified items, protected drafts, source stamps/errors and existing Plan status/review digest |
+| `planOperationId` | Original in-memory Plan operation ID for this attachment's selected Bench, if available; observe using the existing `GET /api/v1/views/{viewId}/plan/operations/{operationId}` |
+| `selectionError` | Explicit `Failure` when the selected Bench was deleted; catalogue and saved selection remain readable, with `view: null` |
+| `reconcileAfterSeconds` | `30`: maximum active-client interval between authoritative workspace reads |
+
+This is a bounded projection, not a transaction across providers or a new
+publication authority. It reuses the initial-view assembler and native
+source projection. It restores saved choices on first attachment and when
+another attachment changes the profile's source/Bench choices; ordinary reads
+do not reset an explicitly selected Bench, editor ticket or pending operation.
+Catalogue, registry, repository binding, profile, selection (including a
+switch away and back), local snapshot/selection/exclusion and Plan revisions are
+rechecked. Concurrent changes refuse the read with `409` rather than releasing
+mixed selection/content. Sign-out, capability replacement and expiry still
+refuse content. Failed source reads remain explicit per-source failures, not
+fabricated empty membership; an admission change during final checking can
+refuse the entire read.
+
+Initial-view loading retains its single full local observation per restored
+source and final admission/profile/Plan checks. Only the authoritative workspace
+read adds the final local snapshot/selection/exclusion reread.
+
+Workspace acquisition has a 30-second ceiling, uses existing per-source budgets
+and at most eight concurrent source acquisitions, and performs only local
+snapshot reads under retained exact-source admission. Merely registering a
+source does not authorize it: absent or denied admission cannot trigger schema
+refresh or provider discovery. No saved query is executed upstream. Source
+cache versions, schema fingerprints, observation times, offline limitations and
+partial failures remain visible. Explicit refresh/recheck, lazy details, seed
+publication evidence, discovery and typed mutation endpoints remain unchanged.
+`planOperationId` and `view.plan.lastReviewDigest` are references for observing
+original work, never instructions to replay Save/Apply. Across attachment loss,
+use the existing saved native review/journal/receipt path; no operation replay
+or new durable notification log is introduced.
+
+Connect the authenticated SSE stream **before** the first workspace read. The
+daemon registers its bounded subscriber before flushing `event: ready`. On
+**every** `ready`, including reconnect, clients must read the workspace.
+`changed`, `presentation` and same-view `agent` events are advisory invalidations,
+not patches. A full single-entry subscriber queue coalesces to
+`event: changed` with `data: {"resync":true}`. This unscoped, content-free signal
+invalidates **all** attachment resources, including agent state; it cannot lose
+an earlier resource invalidation when a different resource changes. Existing
+clients still recognize `changed`. Delivery rechecks view authorization, and
+the stream cannot outlive its original authority lease.
+
+Clients should run one dirty/read loop: coalesce invalidations, and if an
+invalidation arrives during a read, read again after it completes. Reject late
+responses after attachment/resource changes. Reconcile at least every 30 seconds
+while active and on activation to cover CLI writers and commit-before-notify
+failure. Activation must check attachment validity and real stream progress;
+replace a stalled stream and refresh. Reconnect read-only streams with bounded
+backoff and jitter; authentication/authorization/protocol refusals require
+explicit recovery. Apply command results or reread immediately without waiting
+for SSE, and never retry an uncertain write automatically. SSE does not observe
+upstream changes until an explicit native refresh has observed them.
+
+## Private recoverable editor inputs
+
+`private-editor-inputs-v1` advertises the following **human owner-only** contract.
+It does not change `workspace-read-v1`, `planOperationId`, native publication,
+or the meaning of Save, Stage, Create, Review or Apply. Clients requiring input
+recovery must explicitly refuse older daemons, not fall back to browser storage.
+The canvas switch is a separate delivery phase; no browser inputs are imported.
+
+Fresh `POST editor` responses contain `EditorFormDto.inputs`.
+`POST editor/relationships` returns it at `fields.inputs`, after selecting the
+explicit endpoint through the existing native route. New seed and successful
+Stage responses also carry this projection. Evaluation responses do not replace
+the input acknowledgement. All paths below are relative to
+`/api/v1/views/{viewId}/`, use the existing owner content bearer and
+`X-Twig-Bench: 1`, and require the current native ticket:
+
+| Method and route | Source-generated request DTO |
+| --- | --- |
+| `PUT editor/inputs` | `EditorInputWriteBody { ticket, key, expectedRevision, writeId, values }` |
+| `POST editor/inputs/observe` | `EditorInputObserveBody { ticket, key }` |
+| `POST editor/inputs/discard` | `EditorInputDiscardBody { ticket, key, expectedRevision, writeId }` |
+
+These return `EditorInputRecoveryDto { key, revision, writeId, status, values }`.
+`key` is server-derived, not client-created authority. `writeId` is the UUID of
+the last accepted PUT/discard for this buffer (preserved on consumption), or
+`null` for an absent/reclaimed buffer. Status is `Empty`, `Restored`, `Conflict`,
+`Discarded` or `Consumed`. Only `Restored` releases `values`; `Conflict` retains
+the inputs privately but withholds them from restoration until explicitly
+discarded. A fresh scalar opening restores only its scalar/seed buffer; pair
+recovery requires choosing the exact endpoint again. There is no cross-client
+resume inventory or implicit selection of another buffer.
+
+`EditorInputValues` is `{ fields, links?, adding? }`:
+
+- `fields`: the existing `FieldDto[]` shape, `{ reference, value: { kind, value,
+  dataType } }`. Numeric and instant `value`s remain strings, including incomplete
+  `""`, `"-"` and `"12."`; persistence checks shape/size, **not** native evaluation
+  or required/allowed/read-only policy. Native submission still converts and
+  validates them normally. Raw fields are unsupported.
+- `links`: for normal ADO pairs only, an optional array of existing
+  `RelationshipIntentDto { endpointId, relation, outgoing, remove }` choices
+  from that exact pair. Empty/incomplete selection is retainable, not staged
+  debt. Scalar buffers omit `links`. No relationship is inferred.
+- `adding`: optional boolean for a qualified LOCAL-only pair; fields must be
+  empty and links absent. It is not a review, digest or permission to Apply.
+
+Records are isolated by the owner-local profile/catalogue store, exact native
+source binding/root (including principal/authority), repository context, Bench,
+source-qualified item, execution store, Plan identity/scope, scalar/normal-seed/
+ADO-pair/LOCAL-pair mode and explicit endpoint. Tickets and views are not part
+of durable identity. Independent live buffers cannot silently merge: the
+conditional input revision must match. Revisions are opaque monotonic numbers,
+not per-buffer consecutive counters; use the returned revision even for `Empty`.
+An absent buffer uses the document's current revision floor, so simultaneous
+first writes can conflict rather than overwrite. Never adopt the newest revision
+and retry automatically. Input CAS failures use `InputRevisionConflict`; a
+baseline change refuses replacement with `InputBaselineConflict`. Existing
+profile-lease contention can return `ViewStateBusy`. Observe/reconcile rather
+than treating any of these as permission to overwrite.
+
+The existing profile lease and flushed atomic writer persist at most 64 buffer
+slots and 1 MiB UTF-8 per profile. Each value payload is at most 256 KiB UTF-8,
+with 64 unique fields, strings of at most 65,536 characters, string lists of at
+most 256 elements, and 128 explicit links. The PUT transport bound is 256 KiB
+plus 16 KiB framing; existing native command body bounds remain unchanged.
+Discard/consume clear values, retaining bounded acknowledgement tombstones.
+When allocating a slot, the oldest cleared slot can be reclaimed; the revision
+floor prevents delayed initial writes from recreating discarded values.
+No acknowledged live inputs are evicted. `InputLimit` is an explicit refusal.
+
+Recovery always authenticates/admit-checks the exact source and acquires a fresh
+native editor. The daemon compares native schema/field metadata, observation
+revisions/values, owned draft/capture fingerprints and revisions, Plan binding,
+and, for pairs, endpoint draft evidence, relation choices, intent and incident
+edges. LOCAL edge versions detect ABA. Cache-read-only version increments do
+not conflict with input recovery; the newly captured native LOCAL ticket still
+enforces its own fresh store CAS. `inputBaseline` on a form is opaque native
+evidence, not client comparison logic, a write precondition or publication
+authority. No old ticket, grant, review or digest is restored.
+
+Autosave performs no provider write, native field evaluation, staging, review
+or publication. Raw records never appear in workspace, generic agent or MCP
+reads, nor SSE. Denial, sign-out, expiry and source/context changes withhold
+them. They are local recovery data, not a second domain store or outbox.
+
+### Canvas usage example
+
+Keep typing in memory and debounce a **single outstanding conditional PUT**:
+
+```javascript
+const form = await api("/editor", "POST", { sourceId, itemId, benchId, planMode: false });
+let acknowledged = form.inputs; // Conflict: stop; offer explicit discard, not JS rebasing.
+const values = { fields: [
+  { reference, value: { kind: "Integer", value: "-", dataType: null } }
+] };
+const pending = { ticket: form.ticket, key: acknowledged.key,
+  expectedRevision: acknowledged.revision, writeId: crypto.randomUUID(), values };
+acknowledged = await api("/editor/inputs", "PUT", pending);
+// Only now show "Inputs saved locally". Newer keystrokes are still memory-only.
+```
+
+If PUT/discard times out, retain its original `{ key, writeId, expectedRevision }`
+and observe `POST editor/inputs/observe` with the current ticket/key **before any
+further attempt**. After view/daemon loss, authenticate and open the exact editor
+and endpoint afresh first. Match the returned `writeId` to acknowledge the
+original write; a different ID/newer revision is explicit concurrent conflict,
+not permission to replay or overwrite. An unchanged observation is not a
+guarantee that a late request cannot arrive: any deliberate subsequent write
+uses a new UUID and a condition, never a blind replay. Retain unsaved memory
+visibly until its own acknowledgement. No shutdown or `beforeunload` write is
+required for correctness.
+
+Save/Stage first flushes the intended revision, then submits **exactly** its
+payload through the existing typed native operation, adding
+`inputs: { key: acknowledged.key, revision: acknowledged.revision }` to
+`EditorChangeBody` (`editor/save`, `editor/stage`) or `RelationshipChangeBody`
+(`editor/relationships/save`, `editor/relationships/stage`). The latter keeps
+existing `intent: acknowledged.values.links`, not a new command shape.
+LOCAL `editor/local/review` accepts the same optional reference on
+`LocalRelationshipReviewBody`, alongside the exact `adding` boolean.
+The daemon rejects payload/reference mismatch with `InputRevisionConflict`
+before the native operation. Successful Stage or LOCAL Review consumes only
+that revision; Save consumes it only when verified with no retained draft.
+Newer concurrent revisions survive. References remain optional for existing
+native clients and never bypass native guards. Apply and original journal/
+receipt/seed-publication observation routes are unchanged.
+
+A lost native Save/Stage/Review/Apply response must be resolved through original
+native work/evidence, not by resubmitting raw inputs. A consumed input is not
+proof that a provider write occurred. For Cancel, conditionally discard the
+applicable unsubmitted buffer, observe any uncertain discard, then close the
+current transient ticket with `editor/close`. Close alone preserves recovery
+inputs (for navigation). Neither route deletes native drafts, staged debt,
+captures, attempted effects, journals, reviews or receipts.
+
+## Windows prerequisites
 
 - 64-bit Windows, running as the intended owner.
 - An existing dedicated **private data directory**, separate from the installation.
@@ -47,7 +308,7 @@ From a **clean** checkout, using an already prepared private directory and
 certificate (replace these example values):
 
 ```powershell
-.\tools\daemon-install.ps1 `
+.\eng\daemon-install.ps1 `
     -PrivateDataDir 'C:\Users\me\AppData\Local\Twig\DaemonData' `
     -Port 7341 `
     -HttpsCertificateThumbprint '<existing-40-hex-thumbprint>' `
@@ -64,6 +325,11 @@ The installer publishes only the daemon, untrimmed and self-contained, under
 `current.json` selects that runtime together with private-data, port, certificate
 and canvas-root settings; a replaced selection is retained in `previous.json`.
 Do not hand-edit these records to bypass verification.
+These records are private implementation details, not a consumer discovery API.
+Independent consumers use [`twig server endpoint -o json`](commands/system/server.md#endpoint-discovery)
+for the verified origin, certificate pin, opaque selection change token and
+nullable prestart durable identity. Revalidate after startup and retain the HTTP
+same-owner, TLS, durable identity and protocol checks; discovery alone is not readiness.
 
 Installation starts/stops **no process** and installs no canvas package.
 `-RegisterStartup` is explicit opt-in and creates the user's `Twig Daemon.lnk`
@@ -75,9 +341,9 @@ Foreign installation entries or Startup shortcuts are refused rather than replac
 After installation, run from any directory:
 
 ```powershell
-twig daemon start -o json
-twig daemon status -o json
-twig daemon stop -o json
+twig server start -o json
+twig server status -o json
+twig server stop -o json
 ```
 
 Start returns `{"running":true}` only after the selected daemon passes its
@@ -130,7 +396,9 @@ perform metadata discovery.
 
 This is provider-read-only: it does not migrate work-item types, change Bench
 membership, or authorize new connections. Temporary provider unavailability
-keeps the previous definitions and their original observation time. Access
+with explicit HTTP 429/500/502/503/504 evidence keeps the previous definitions
+and their original observation time. An unclassified `Unavailable` result,
+including an internal deadline or admission failure, is not that evidence. Access
 denials, changed authority and interrupted/uncertain checks remain blocked until
 an explicit successful connection recheck. Background discovery uses the same
 per-source coordination and bounded native operations as foreground requests.
@@ -147,27 +415,39 @@ compatible sessions.
 To produce an uninstalled package from a clean checkout:
 
 ```powershell
-.\tools\daemon-package.ps1 -Output "$PWD\artifacts\daemon-win-x64" -PythonExecutable python
+.\eng\daemon-package.ps1 -Output "$PWD\artifacts\daemon-win-x64" -PythonExecutable python
 ```
 
 The output directory must be new and beneath this checkout's `artifacts`.
-Packaging verifies the complete runtime inventory without certificate, Startup,
-installation, or process changes.
+Its final directory name must be `daemon-win-x64`. The command also writes
+`twig-daemon-win-x64.zip` and its `.sha256` beside that directory, including the
+independent launcher, installer and owned-process supervisor. It refuses to
+overwrite an existing runtime or archive. Packaging verifies the complete runtime
+inventory without certificate, Startup, installation, or process changes.
 
 The [Daemon package workflow](../.github/workflows/daemon-release.yml) packages
-Windows artifacts independently of the CLI. `daemon-v*` tags publish
-`twig-daemon-win-x64.zip` and its SHA-256 file. This checksum file contains a bare
-hex digest, unlike the CLI's filename-bearing `.sha256` files.
-Verify the archive before extraction. It contains a runtime directory and the
-launcher; it does not invent an operator `current.json`, local data path, or
-certificate selection.
+Windows and Linux artifacts independently of the CLI. Pull requests do not start package
+builds; use a manual workflow run for an optional hosted package check (see
+[GitHub Actions](architecture/build-and-release.md#github-actions)). `daemon-v*` tags publish
+`twig-daemon-win-x64.zip` and `twig-daemon-linux-x64.tar.gz`, each with a
+SHA-256 file. Both checksum files use the `sha256sum -c` compatible
+`<lowercase-sha256>  <archive-filename>` format. Both archives include operator installation
+tooling; see [Install the release package](#install-the-release-package).
 
-For direct package operation, dot-source the included launcher and verify
-`runtime.json` and all files with `Get-BenchRuntime`, supplying the exact source
-version and the trusted manifest hash from the verified package. Run only the
-returned executable with explicit `--data-dir`, `--port`, `--https-certificate`
-and optional `--canvas-root`. The supported source installer creates the operator
-selection needed by the normal launcher; a downloaded archive alone does not.
+Each daemon workflow build also produces a **separate, unsigned CLI candidate**
+from the same source commit. The gate extracts both archives, verifies their
+checksums, and exercises isolated command IPC without source imports or an SDK
+at runtime. Windows additionally exercises the extracted installer with only its
+external-command/certificate boundary replaced by a synthetic fixture. It checks
+fresh installation, immutable reinstall refusal, upgrade selection, retained
+rollback-record validity, refused upgrades and endpoint/inventory guards.
+This is not a trusted HTTPS, certificate-store, Windows owner-authentication,
+Startup or hosted Canvas qualification. No live rollback is performed.
+
+The CLI candidate is an Actions artifact, **not** a CLI release. The daemon
+release job downloads only `twig-daemon-*` artifacts, never the CLI candidates.
+Releasing the daemon does not update the CLI; releasing the CLI does not install
+a daemon. See the [paired publication gate](architecture/build-and-release.md#paired-distribution-readiness).
 
 ## Security and data ownership
 

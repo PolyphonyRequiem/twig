@@ -27,7 +27,6 @@ esac
 ARCH="$(uname -m)"
 case "$ARCH" in
     x86_64|amd64)  arch="x64" ;;
-    arm64|aarch64) arch="arm64" ;;
     *)
         echo "Error: Unsupported architecture: $ARCH" >&2
         exit 1
@@ -136,7 +135,8 @@ fi
 # Make executable
 chmod +x "${INSTALL_DIR}/twig"
 
-echo "  Core CLI only; legacy Browser/TUI/MCP delivery is retired."
+echo "  To use work-item commands, install and select the separate Linux x64 daemon:"
+echo "  https://github.com/${REPO}/blob/main/docs/daemon.md#install-the-release-package"
 
 # Add to PATH via shell profile if not already present
 PATH_EXPORT="export PATH=\"\$HOME/.twig/bin:\$PATH\""

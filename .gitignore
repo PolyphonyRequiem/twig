@@ -6,6 +6,7 @@ obj/
 
 # Artifacts directory (AOT publish output, etc.)
 artifacts/
+__pycache__/
 publish-out/
 
 # NuGet packages

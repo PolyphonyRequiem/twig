@@ -68,15 +68,7 @@ These rules are **non-negotiable** for ALL code that emits, collects, or transmi
 
 Twig development is tracked in `dangreen-msft/Twig` (Basic process: Epic → Issue → Task).
 Plan documents map to ADO: one Epic per plan, one Issue per plan epic, optionally one Task per
-task row. The mapping is stored in `tools/plan-ado-map.json`.
-
-### Seeding conventions
-- `tools/seed-from-plan.ps1` creates the ADO hierarchy from a plan document
-- Plan-level Epic gets the Introduction section as its description
-- Each Issue gets its epic's description text from the plan
-- All items are assigned to the `-AssignedTo` param (default: "Daniel Green")
-- Per-epic effort in hours can be passed via `-EpicEffortHours @{"Epic 1"=8; "Epic 2"=4}`
-- After seeding, the plan Epic is transitioned to "Doing"
+task row.
 
 ### Creating work items via twig CLI
 - Use the `twig` skill for shared work-item guidance and exact command references
@@ -94,7 +86,7 @@ task row. The mapping is stored in `tools/plan-ado-map.json`.
 
 ### Commit conventions
 When committing code that implements plan work:
-- Include `AB#<id>` in the commit message (the Issue ID from the mapping file)
+- Include `AB#<id>` in the commit message (the associated Issue ID)
 - After committing, close the ADO item through the plan path described in
   *Work Item Lifecycle Protocol* below. `twig state Done` is **not** the close mechanism
 - When all epics complete, also close the plan-level Epic — any close-gate fields its
@@ -113,8 +105,6 @@ Key heuristics:
   justify reaching for 3, don't default to it.
 - **Sizing guardrails**: ≤2,000 LoC and ≤50 files per PG.
 - **Deep vs Wide**: Classify each PG to set reviewer expectations.
-
-See `.github/instructions/pr-grouping.instructions.md` for the full guide.
 
 ## Work Item Lifecycle Protocol
 

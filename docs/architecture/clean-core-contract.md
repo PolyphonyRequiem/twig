@@ -514,7 +514,7 @@ semantics stay unchanged, with one result/error family and digest-bound journal.
 
 Real compiled CLI and Infrastructure PE regressions independently inspect assembly
 and type references, including an exact phase-5 binary red fixture. The separate
-`tools/verify-domain-cut.py` check inspects current source, project/build references
+`eng/verify-domain-cut.py` check inspects current source, project/build references
 and public APIs; source absence alone is not binary/runtime proof. All existing
 retained CI method groups remain required. The external .NET 10 sample now directly
 uses the public RenderTree boundary and preserves typed, null, absent and complete
@@ -1327,7 +1327,7 @@ validation, Bench and evidence-backed policy. There are no fake provider/store a
 masquerading as production integration coverage.
 
 Routine gates remain the supported bounded solution build, focused Core and real-SQLite tests through
-the repository TRX reconciler, and the 15-second offline pre-push smoke. Core tests run in
+the repository TRX reconciler, and the offline pre-push smoke. Core tests run in
 both supported CI platform jobs, as do the phase-2 store tests. These phases make no native publish or release-candidate
 qualification claim; AOT compatibility is enforced by shared-library analyzers and the
 existing application composition remains unchanged.

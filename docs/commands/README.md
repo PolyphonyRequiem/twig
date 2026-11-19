@@ -2,18 +2,24 @@
 
 This reference covers the current **Core CLI and native host utilities**.
 Command existence does not imply provider parity. Use `twig --version`, then
-`twig <command> --help` for the installed binary's generated arguments/defaults.
-Leaf help also embeds the behavior/effect sections from these pages.
+`twig --help-all` for the installed command catalog or `twig <command> --help`
+for arguments, defaults, and examples. Use these pages for behavior and effects.
 
-Data operations require an initialized pinned Core workspace; there is no
-legacy cache fallback. The [getting-started guide](../getting-started.md) covers
-provider setup. The [daemon](../daemon.md) is a separate application and protocol,
-not a mode of this CLI.
+Setup, identity, connection, work-item and Bench commands require the selected [daemon](../daemon.md) to
+be running. The CLI sends one request over owner-only local IPC, not through the
+browser or MCP. The daemon uses the caller's workspace and the same native
+metadata home; provider, target, policy and journal checks remain authoritative.
+There is no in-process or legacy cache fallback. If the connection is lost
+after dispatch, inspect the original journal before attempting another change:
+the CLI does not replay the request. Help, version and skills remain offline.
+PAT enrollment reads the secret at the caller's terminal, not from argv.
+The [getting-started guide](../getting-started.md) covers provider setup.
 
 ## Find a task
 
 | Task | Commands and effects |
 | --- | --- |
+| [Control the server](system/server.md) | `server start` starts or reuses the selected instance; `server status` observes without starting; `server stop` explicitly shuts it down |
 | [Initialize](getting-started/README.md) | `init` creates fresh local state; `sync` can save drafts before pulling; `refresh` / `sync --pull-only` only pull |
 | [Read and find](context/README.md) | `show`, `show-batch` are cached by default; `show --refresh` and `query` can perform provider reads; `set` changes human active context |
 | [View a hierarchy](views/README.md) | Targeted `tree` / `show --tree`; not GitHub-qualified |
@@ -51,6 +57,7 @@ These are not experimental alternatives or compatibility routes:
 
 | Retired | Current direction |
 | --- | --- |
+| `daemon start/status/stop` | Use [`server start/status/stop`](system/server.md); the old command family is not an alias |
 | Quick `new`, bare `seed` | `seed new`, then explicit validation/publication |
 | `delete` | No qualified CLI deletion route |
 | `history`, `tree-set`, `tree --all`, `sprint`, live/full-backlog views | Cached `show`, explicit refresh, bounded queries, static workspace or targeted tree; no equivalent whole-history export |
@@ -67,12 +74,6 @@ Retirement pages remain at old documentation URLs to avoid turning existing
 links into runnable obsolete recipes.
 
 ## Known discovery limitation
-
-This source build currently refuses `twig --help-all` in early catalog admission,
-although root help advertises it. Use `twig --help` and targeted group/leaf help
-instead. This audit documents the product discrepancy; it does not change routing.
-Some embedded generic skills/optional presenter packages also retain pre-cutover
-recipes. They do not override the catalog or restore retired envelopes.
 
 The hidden `save` handler also remains declared but is rejected by top-level
 command discovery, including `save --help`. It is not a usable standalone CLI

@@ -22,7 +22,7 @@ public sealed class NativeMetadataSyncTests
         (await first.Adapter.AdmitAsync(second.Root, default)).IsSuccess.ShouldBeTrue();
         (await first.Definitions.ObserveAsync(second.Root, second.Gateway.Stamp.Connection,
             second.Gateway.Stamp.StoreInstance, [], default)).IsSuccess.ShouldBeTrue();
-        first.Gateway.Failure = new(ErrorCode.Unavailable, "Fixture provider temporarily unavailable.");
+        first.Gateway.Failure = new(ErrorCode.Unavailable, "Fixture provider temporarily unavailable.") { Evidence = ["http:503"] };
         second.Gateway.Type = "TwigDelivery.Epic";
         second.Gateway.ObservedAt = DateTimeOffset.UtcNow;
         using var sync = new NativeMetadataSync(first.Panel, NullLogger<NativeMetadataSync>.Instance);

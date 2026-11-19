@@ -6,9 +6,13 @@ The CLI is released for **Windows x64** and **Linux x64** as a self-contained
 NativeAOT application. A .NET SDK is needed to build from source, not to run a
 release binary. macOS support is suspended on both Intel and Apple Silicon.
 
-The [Windows daemon](daemon.md) is a separate self-contained application with
-its own package and setup. The CLI installer does not install a daemon, canvas,
-TUI, or the retired `twig-mcp` companion.
+Work-item commands require a separately [installed and selected daemon](daemon.md#install-the-release-package).
+Install the Windows x64 package for Canvas or CLI use; Linux x64 supports
+headless CLI commands only. Neither package needs a developer checkout. The
+CLI installer does not start a daemon, change certificate trust or install Canvas.
+After selecting an installation, use [`twig server start`](commands/system/server.md)
+to start or reuse it. `twig server status -o json` inspects readiness without
+starting anything; `twig server stop` explicitly shuts it down.
 
 ## Install or update the CLI
 
@@ -57,5 +61,5 @@ directory on PATH. Do not copy just the executable or assume obsolete TUI aliase
 are part of the current package. Checksums detect corruption or mismatched
 downloads; obtain them from the trusted release, not an unrelated source.
 
-For source builds and local publishing, see [contributing](contributing.md).
+For source builds and local publishing, see [build and release](architecture/build-and-release.md).
 For first use after installation, see [getting started](getting-started.md).

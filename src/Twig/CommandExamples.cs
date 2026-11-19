@@ -516,13 +516,6 @@ internal static class CommandExamples
             "twig bench detail 42 --document -o json  Read semantic fields and form metadata; no edit authority",
             "twig bench detail 42 --bench Sprint --document -o json --expect-bench 7  Cache-only explicit Bench read; usage error without --document/-o json or with --sync",
         ],
-        ["bench browser"] =
-        [
-            "twig bench browser                    Open the native Bench Tree view (same application as Windows/Linux twig tui)",
-            "twig bench browser --cwd C:\\work\\twig --view table  Use the captured source workspace in a standalone terminal",
-            "twig bench browser --file .twig/proposals/review.json  Open read-only proposal Review; no authorization or apply",
-            "twig bench browser --herdr --intent tree -o json  Open or reuse the source-scoped native Herdr browser pane",
-        ],
         ["bench configuration area candidates"] =
         [
             "twig bench configuration area candidates   List the configured team's official area paths",
@@ -641,23 +634,28 @@ internal static class CommandExamples
             "twig auth pat --stdin --identity work --org contoso  Read a token from stdin (e.g. a pipe), never argv",
             "twig auth pat --identity work --output json           Renew a registered identity at its saved authority",
         ],
+        ["connection add"] =
+        [
+            "twig connection add --provider ado --org contoso --project web   Register ADO dimensions without selecting credentials",
+            "twig connection add --provider github --host github.com --repository owner/repo   Register a GitHub connection",
+            "twig connection add --provider twig --database personal          Register a named native database",
+        ],
         ["connection bind"] =
         [
-            "twig connection bind --identity work                             Bind the current workspace endpoint to 'work'",
-            "twig connection bind --identity work --default                   Also request it as the initial default (refuses to replace a different one)",
-            "twig connection bind --org contoso --project web --identity work  Bind an explicit endpoint",
-            "twig connection bind --org contoso --project web --identity work --default --output json   Bind and emit the resulting record as JSON",
+            "twig connection bind --provider ado --org contoso --project web --identity work   Bind your registered ADO identity",
+            "twig connection bind --provider github --host github.com --repository owner/repo --account me   Bind your named gh account",
+            "twig connection bind --provider github --host github.com --repository owner/repo --identity me --client-id Iv1.example   Bind a GitHub App identity",
         ],
         ["connection list"] =
         [
-            "twig connection list                                 List bindings for the current workspace endpoint",
-            "twig connection list --org contoso --project web     List bindings for an explicit endpoint",
-            "twig connection list --output json                   Emit bindings as JSON for scripts",
+            "twig connection list                                 List all registered connections across workspaces",
+            "twig connection list --provider ado --org contoso --project web   Filter by explicit provider dimensions",
+            "twig connection list --output json                   Emit connections and user credential selectors as JSON",
         ],
         ["connection status"] =
         [
-            "twig connection status                 Show the identity + binding this worktree resolves to",
-            "twig connection status --output json   Emit the resolved binding and principal metadata as JSON",
+            "twig connection status                 Show this workspace's requirement and local binding readiness",
+            "twig connection status --output json   Emit recorded connection selection, not fresh access evidence",
         ],
         ["connection check"] =
         [
@@ -724,13 +722,6 @@ internal static class CommandExamples
         [
             "twig changelog             Show the twig release changelog",
             "twig changelog --output json  Output changelog as JSON",
-        ],
-        ["tui"] =
-        [
-            "twig tui                   Open the native Tree view on Windows/Linux; macOS support suspended",
-            "twig tui --cwd C:\\work\\twig --view table  Open the native Table view from this source workspace",
-            "twig tui --file .twig/proposals/review.json  Open read-only proposal Review; no authorization or apply",
-            "twig tui --herdr --intent tree -o json  Open or reuse the source-scoped native Herdr browser pane",
         ],
         ["mcp"] =
         [

@@ -1,40 +1,56 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Twig.Commands;
 
 internal static class DaemonLifecycle
 {
-    private const string Usage = "Usage: twig daemon <start|status|stop> [-o json]";
+    private const string Usage = "Usage: twig server <start|status|stop|endpoint> [-o human|json|minimal]";
 
     internal static async Task<int> RunAsync(string[] args)
     {
-        if (args is ["daemon", "-h" or "--help"] or ["daemon", "start" or "stop" or "status", "-h" or "--help"])
+        if (args is ["server", "-h" or "--help"] or ["server", "start" or "stop" or "status" or "endpoint", "-h" or "--help"])
         {
             Console.WriteLine(Usage);
             return 0;
         }
-        bool json = args is [_, _, "-o" or "--output", "json"];
-        if (args.Length < 2 || args[1] is not ("start" or "status" or "stop") || (args.Length != 2 && !json))
+        var format = args is [_, _, "-o" or "--output", var value] ? value : "human";
+        bool json = format == "json";
+        if (args.Length < 2 || args[1] is not ("start" or "status" or "stop" or "endpoint")
+            || !(args.Length == 2 || args is [_, _, "-o" or "--output", "json" or "human" or "minimal"]))
         {
-            Console.Error.WriteLine(Usage);
+            Error(Usage, json);
             return 2;
         }
         try
         {
+            if (args[1] == "endpoint")
+            {
+                var endpoint = await ReadInstalledEndpointAsync();
+                var origin = ValidateEndpoint(endpoint);
+                Console.WriteLine(json ? endpoint : format == "minimal" ? origin : $"Twig server endpoint is {origin}.");
+                return 0;
+            }
             var running = await RunInstalledAsync(args[1]);
             Console.WriteLine(json
                 ? (running ? "{\"running\":true}" : "{\"running\":false}")
-                : (running ? "Twig daemon is running." : "Twig daemon is stopped."));
+                : format == "minimal" ? (running ? "running" : "stopped")
+                : (running ? "Twig server is running." : "Twig server is stopped."));
             return 0;
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or UnauthorizedAccessException
-            or ArgumentException or NotSupportedException or Win32Exception)
+            or ArgumentException or NotSupportedException or Win32Exception or JsonException or InvalidDataException
+            or OperationCanceledException)
         {
-            Console.Error.WriteLine("error: " + error.Message);
+            Error(error.Message, json);
             return 1;
         }
+
     }
+
+    private static void Error(string message, bool json) => Console.Error.WriteLine(json
+        ? $"{{\"error\":\"{JsonEncodedText.Encode(message)}\"}}" : $"error: {message}");
 
     internal static string InstallRoot()
     {
@@ -51,8 +67,56 @@ internal static class DaemonLifecycle
 
     internal static async Task<bool> RunInstalledAsync(string action)
     {
+        if (OperatingSystem.IsLinux()) return await LinuxDaemonLifecycle.RunInstalledAsync(action);
+        var output = await RunWindowsOperatorAsync(action);
+        return output switch
+        {
+            "{\"running\":true}" when action != "stop" => true,
+            "{\"running\":false}" when action != "start" => false,
+            _ => throw new InvalidOperationException("The daemon launcher did not confirm the requested state."),
+        };
+    }
+
+    private static Task<string> ReadInstalledEndpointAsync() => RunWindowsOperatorAsync("endpoint");
+
+    internal static async Task<string> ReadEndpointOutputAsync(TextReader reader, CancellationToken token = default)
+    {
+        var buffer = new char[4097];
+        var count = await reader.ReadBlockAsync(buffer.AsMemory(), token);
+        var output = new string(buffer, 0, count);
+        if (System.Text.Encoding.UTF8.GetByteCount(output) > 4096)
+            throw new InvalidDataException("Oversized daemon endpoint response.");
+        return output.Trim();
+    }
+
+    internal static string ValidateEndpoint(string output)
+    {
+        if (System.Text.Encoding.UTF8.GetByteCount(output)
+            + System.Text.Encoding.UTF8.GetByteCount(Environment.NewLine) > 4096)
+            throw new InvalidDataException("Oversized daemon endpoint response.");
+        using var document = JsonDocument.Parse(output);
+        var endpoint = document.RootElement;
+        string? Text(string name) => endpoint.ValueKind == JsonValueKind.Object
+            && endpoint.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString() : null;
+        var origin = Text("origin");
+        var certificate = Text("certificateThumbprint");
+        var selection = Text("selectionId");
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) || uri.Scheme != "https"
+            || origin != $"https://localhost:{uri.Port}" || uri.Port is < 1 or > 65535 or 443
+            || certificate is not { Length: 40 } || !certificate.All(char.IsAsciiHexDigit)
+            || selection is not { Length: 64 } || !selection.All(char.IsAsciiHexDigit)
+            || !endpoint.TryGetProperty("daemonId", out var daemon)
+            || !(daemon.ValueKind == JsonValueKind.Null || daemon.ValueKind == JsonValueKind.String
+                && Guid.TryParseExact(daemon.GetString(), "D", out var id) && id != Guid.Empty))
+            throw new InvalidDataException("The daemon launcher returned an invalid endpoint binding.");
+        return origin;
+    }
+
+    private static async Task<string> RunWindowsOperatorAsync(string action)
+    {
         if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException("The installed Twig daemon requires Windows same-owner authentication.");
+            throw new PlatformNotSupportedException("The HTTPS daemon endpoint requires Windows same-owner authentication; Linux supports the headless command host only.");
         var root = InstallRoot();
         var launcher = Path.Combine(root, "daemon-launch.ps1");
         if (!File.Exists(launcher))
@@ -61,24 +125,21 @@ internal static class DaemonLifecycle
             if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidOperationException("A daemon installation cannot use reparse-point paths.");
 
+        if (action == "endpoint") return await DaemonEndpointProcess.RunAsync(launcher, root);
         var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
         {
-            UseShellExecute = false, RedirectStandardOutput = true, WorkingDirectory = root,
+            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = root,
         };
         foreach (var arg in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-File", launcher,
             action switch { "start" => "-EnsureRunning", "status" => "-Status", "stop" => "-Stop",
                 _ => throw new ArgumentException("Unknown lifecycle operation.") } })
             start.ArgumentList.Add(arg);
         using var process = Process.Start(start) ?? throw new IOException("The installed daemon launcher did not run.");
+        var errors = process.StandardError.ReadToEndAsync();
         var output = (await process.StandardOutput.ReadToEndAsync()).Trim();
         await process.WaitForExitAsync();
         if (process.ExitCode != 0)
-            throw new InvalidOperationException($"The daemon launcher exited with code {process.ExitCode}.");
-        return output switch
-        {
-            "{\"running\":true}" when action != "stop" => true,
-            "{\"running\":false}" when action != "start" => false,
-            _ => throw new InvalidOperationException("The daemon launcher did not confirm the requested state."),
-        };
+            throw new InvalidOperationException($"The daemon launcher exited with code {process.ExitCode}: {(await errors).Trim()}");
+        return output;
     }
 }

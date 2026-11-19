@@ -11,6 +11,7 @@ namespace Twig.Infrastructure.Services;
 public sealed record NativeEditForm(Guid Ticket, ItemKey Item, string Type, string StateField,
     FieldValues Values, EditorEvaluation Evaluation)
 {
+    public string InputBaseline { get; init; } = "";
     public bool RelationshipsReadOnly { get; init; }
     public ImmutableArray<CreationLink> RelationshipIntent { get; init; } = [];
 }
@@ -304,8 +305,14 @@ public sealed partial class NativeItemEditor : IDisposable
                 ReadOnly = field.ReadOnly || GitHub && (!GitHubScalar(field.Definition.Reference)
                     || !editor.Metadata.EditableFields.Contains(field.Definition.Reference)) }).ToImmutableArray() };
         return Result<NativeEditForm>.Ok(new(ticket, item.Observation.Key, type.Reference, type.StateField,
-            baseline.Fields.Overlay(draft), evaluation));
+            baseline.Fields.Overlay(draft), evaluation) { InputBaseline = InputBaseline(item) });
     }
+
+    private string InputBaseline(NativeEditorItem item)
+        => new Proposal(editor.Origin.Connection, editor.Metadata.Schema.Fingerprint, 0,
+            [new("observation", OpKind.Batch, item.Observation.Key, item.Observation.Revision, item.Observation.Fields,
+                item.Observation.Type)]).Digest + ":" + editor.Workspace.DraftFingerprint(item.Draft)
+            + ":" + item.Capture?.Id.ToString("D") + ":" + item.Capture?.Revision;
 
     private static bool GitHubScalar(string reference)
         => reference is GitHubProvider.Title or GitHubProvider.Body or GitHubProvider.StateField;

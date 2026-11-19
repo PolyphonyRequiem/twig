@@ -250,6 +250,8 @@ public sealed class NativeDatabaseTests : IDisposable
         InitCommandTestFixture.InitTempWorktree(work).ShouldBeTrue();
         await File.WriteAllTextAsync(Path.Combine(work, "twig.json"),
             $$"""{"provider":"twig","nativeDatabase":"{{database}}"}""");
+        await new ProviderConnectionRegistry(bindings.RegistryPath).AddAsync(
+            ProviderConnectionRequirement.Create("twig", database: database));
         var paths = Paths(work);
         var command = new InitCommand(paths, new RendererFactory(), () => bindings);
         var initialized = await StdoutCapture.RunAsync(() => command.ExecuteAsync("", "", outputFormat: "json", provider: "twig"));

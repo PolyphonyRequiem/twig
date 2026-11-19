@@ -68,6 +68,7 @@ public sealed class StructuredReadProductionCliTests : IDisposable
         start.Environment["HTTP_PROXY"] = "http://127.0.0.1:1";
         start.Environment["HTTPS_PROXY"] = "http://127.0.0.1:1";
         start.Environment["ALL_PROXY"] = "http://127.0.0.1:1";
+        await using var daemon = await ProductionDaemon.StartAsync(start);
         using var process = Process.Start(start) ?? throw new InvalidOperationException("The built CLI did not start.");
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var output = process.StandardOutput.ReadToEndAsync(deadline.Token);

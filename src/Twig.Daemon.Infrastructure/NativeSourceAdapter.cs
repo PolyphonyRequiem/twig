@@ -7,6 +7,7 @@ using Bench.Application;
 using Bench.Domain;
 using Twig.Core;
 using Twig.Infrastructure.Services;
+using Twig.Store.Sqlite;
 
 namespace Bench.Infrastructure;
 
@@ -343,6 +344,24 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         finally { gate.Release(); }
     }
 
+    internal async Task<Result<bool>> CheckWorkspaceAsync(NativePanelContext context, SourceObservation observation, CancellationToken ct,
+        bool recheckLocalSnapshot = true)
+    {
+        if (recheckLocalSnapshot)
+        {
+            var local = await NativeAsync(context.Root,
+                token => gateway.ReadAsync(context.Root, context.Stamp, false, token), ct).ConfigureAwait(false);
+            if (!local.IsSuccess) return Result<bool>.Fail(local.Error);
+            if (local.Value.Source != context.Stamp || local.Value.Snapshot.Version != observation.Snapshot.Version
+                || local.Value.SelectedBenchId != observation.SelectedBenchId
+                || BenchCodec.SerializeSelectors(local.Value.WorkspaceExclusions)
+                    != BenchCodec.SerializeSelectors(observation.WorkspaceExclusions))
+                return Result<bool>.Fail(ErrorCode.Conflict, "Local source state changed during workspace loading. Read the workspace again.");
+        }
+        var admission = await CheckInitialAsync(context, observation, ct).ConfigureAwait(false);
+        return admission.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(admission.Error);
+    }
+
     internal Task<Result<SourceObservation>> ReadEditorSourceAsync(RegisteredSource source, CancellationToken ct)
         => editorLease.Value is { Active: true } lease && lease.Binding == source.Binding
             ? ReadAsync(source, (expected, token) => gateway.ReadOnlineAsync(source.NativeLocator, expected, token),
@@ -427,6 +446,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
                 // Only a positively classified temporary failure may retain an existing grant.
                 // Denials, changed authority, cancellation and uncertain outcomes stay latched.
                 if (observed.Error.Code == ErrorCode.Unavailable
+                    && observed.Error.Evidence.Any(value => value is "http:429" or "http:500" or "http:502" or "http:503" or "http:504")
                     && !observed.Error.Evidence.Any(value => value is "http:401" or "http:403"))
                     check.Complete(ct);
                 return Result<bool>.Fail(observed.Error);

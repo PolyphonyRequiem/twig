@@ -30,6 +30,7 @@ internal sealed class NativePlanView
 internal sealed class NativePlanOperation(Guid id, string status, CancellationTokenSource lifetime)
 {
     internal Guid Id { get; } = id;
+    internal Guid BenchId { get; init; }
     internal string Status { get; } = status;
     internal CancellationTokenSource Lifetime { get; } = lifetime;
     internal Task<PlanOperationDto>? Work { get; set; }
@@ -57,7 +58,7 @@ public static partial class NativeBenchHost
         result.DeliveredScopes, result.RemainingScopes, result.VerifiedOperations, result.RemainingOperations,
         result.Error is null ? null : PlanMessage(result.Error));
 
-    private static void MapPlan(WebApplication app, NativePanel panel, CatalogChanges updates,
+    private static void MapPlan(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates,
         Func<HttpContext, Guid, Task<ViewSession>> authorize)
     {
         static T Required<T>(Result<T> result) => result.IsSuccess ? result.Value : throw new HttpFailure(
@@ -189,8 +190,9 @@ public static partial class NativeBenchHost
                     return Required(await session.Editor.Native.CreateSeedAsync(body.Type, ct));
                 }, http.RequestAborted));
                 session.Editor.Ticket = form.Ticket; session.Editor.Type = form.Type;
+                session.Editor.Item = form.Item; session.Editor.NormalSeed = false;
                 session.Plan.Invalidate(); updates.Publish(0);
-                await Write(http, BoundEditorForm(form, source, session.Editor.Native!));
+                await Write(http, CaptureInputs(sessions, session, BoundEditorForm(form, source, session.Editor.Native!)));
             }
             finally { session.Editor.Gate.Release(); }
         });
@@ -205,7 +207,7 @@ public static partial class NativeBenchHost
                 session.Plan.Invalidate();
                 var epoch = session.Plan.Epoch;
                 var generation = session.ProfileGeneration;
-                Start(session, "Reviewing", async ct =>
+                Start(session, body.BenchId, "Reviewing", async ct =>
                 {
                     await Current(session, body.BenchId, ct);
                     var status = Required(await panel.ReadPlanAsync(body.BenchId, ct));
@@ -258,7 +260,7 @@ public static partial class NativeBenchHost
                 var anchor = Context(session);
                 var epoch = session.Plan.Epoch;
                 session.Plan.ApplyAllowed = false;
-                Start(session, body.DeliveryOnly ? "Delivering" : "Applying", async ct =>
+                Start(session, body.BenchId, body.DeliveryOnly ? "Delivering" : "Applying", async ct =>
                 {
                     await Current(session, body.BenchId, ct);
                     if (session.Plan.Epoch != epoch || !ReferenceEquals(session.NativeContext, anchor) || session.Revoked)
@@ -283,7 +285,7 @@ public static partial class NativeBenchHost
                     session.Plan.Review is { } review ? PlanOutcome(Required(await review.ObserveAsync(http.RequestAborted))) : null, null));
         });
 
-        void Start(ViewSession session, string status, Func<CancellationToken, Task<PlanOperationDto>> work)
+        void Start(ViewSession session, Guid benchId, string status, Func<CancellationToken, Task<PlanOperationDto>> work)
         {
             if (session.Plan.Operation?.Work is { IsCompleted: false })
                 throw new HttpFailure(409, "PlanBusy", "Observe the original Plan operation; it will not be invoked twice.");
@@ -291,7 +293,8 @@ public static partial class NativeBenchHost
             lock (session.Plan)
             {
                 session.Plan.Operation?.Lifetime.Dispose();
-                operation = new(Guid.NewGuid(), status, CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping));
+                operation = new(Guid.NewGuid(), status, CancellationTokenSource.CreateLinkedTokenSource(app.Lifetime.ApplicationStopping))
+                    { BenchId = benchId };
                 session.Plan.Operation = operation;
             }
             operation.Work = Run();
@@ -314,6 +317,7 @@ public static partial class NativeBenchHost
     private static EditorFormDto BoundEditorForm(NativeEditForm form, NativePanelContext source, NativeItemEditor editor)
         => EditorForm(form, source.Stamp.AuthorityStamp) with
         {
+            InputBaseline = form.InputBaseline,
             ItemId = ViewMapping.Key(new(source.Source.Id, form.Item)),
             RelationshipsReadOnly = form.RelationshipsReadOnly,
             RelationshipIntent = form.RelationshipIntent.Select(link => RelationshipIntent(link, source)).ToArray(),

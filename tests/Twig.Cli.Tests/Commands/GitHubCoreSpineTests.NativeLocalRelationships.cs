@@ -22,6 +22,12 @@ public sealed partial class GitHubCoreSpineTests
         selected.LocalOnly.ShouldBeTrue();
         selected.Verification.ShouldContain("no native tracker mutation");
         selected.Choices.ShouldBeEmpty();
+        using (var fresh = (await fixture.OpenAsync()).Value)
+        {
+            var samePair = (await fresh.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).Value;
+            samePair.Fields.InputBaseline.ShouldBe(selected.Fields.InputBaseline);
+        }
+        selected = (await editor.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).Value;
         (await editor.EvaluateAsync(selected.Fields.Ticket, FieldValues.Empty)).IsSuccess.ShouldBeFalse();
         (await editor.SaveAsync(selected.Fields.Ticket, FieldValues.Empty.Set(GitHubProvider.Title, FieldValue.String("do not adopt"))))
             .IsSuccess.ShouldBeFalse();

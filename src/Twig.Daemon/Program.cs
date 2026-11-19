@@ -7,6 +7,28 @@ using Bench.Infrastructure;
 using Bench.Server;
 using Twig.Infrastructure.Services;
 
+if (args is [CommandWorkerSupervisor.WorkerMode])
+{
+    try
+    {
+        // Unix ConsolePal tracks the cursor under lock(Console.Out). A worker rendering through
+        // Console.Out already holds that lock when it writes a frame on another thread.
+        // Write the binary protocol directly to the inherited stdout pipe, not to the terminal.
+        using Stream wire = OperatingSystem.IsLinux()
+            ? new FileStream(new Microsoft.Win32.SafeHandles.SafeFileHandle((IntPtr)1, ownsHandle: false),
+                FileAccess.Write, bufferSize: 1)
+            : Console.OpenStandardOutput();
+        await Twig.DaemonCommandWorker.RunAsync(Console.OpenStandardInput(), wire);
+    }
+    catch (Exception) { Environment.ExitCode = 1; } // Never log a request or replay a failed worker.
+    return;
+}
+if (args is ["--commands-only", "--data-dir", var privateData])
+{
+    await CommandQualificationHost.RunAsync(privateData);
+    return;
+}
+
 if (args is ["--check-certificate", var selectedCertificate])
 {
     try
@@ -124,21 +146,8 @@ catch (Exception error) when (error is ArgumentException or InvalidOperationExce
     return;
 }
 Directory.CreateDirectory(data);
-using var instance = new FileStream(Path.Combine(data, "daemon.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-var identityPath = Path.Combine(data, "daemon.id");
-Guid daemonId;
-if (File.Exists(identityPath))
-{
-    if (!Guid.TryParseExact(await File.ReadAllTextAsync(identityPath), "D", out daemonId) || daemonId == Guid.Empty)
-        throw new InvalidDataException("Invalid daemon identity; no replacement was generated.");
-}
-else
-{
-    daemonId = Guid.NewGuid();
-    await using var identity = new FileStream(identityPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-    await identity.WriteAsync(System.Text.Encoding.ASCII.GetBytes(daemonId.ToString("D")));
-    identity.Flush(true);
-}
+using var instance = DaemonInstance.Acquire(data);
+var daemonId = instance.Id;
 var definitions = UserBenchStore.ForCurrentUser();
 var changes = new CatalogChanges();
 var native = new NativeSourceAdapter(Path.Combine(data, "native-evidence"), new NativeSourceGateway(), changes);
@@ -150,6 +159,7 @@ await using var app = NativeBenchHost.Build(new(port, data, Certificate: certifi
     CanvasInstallRoot: canvasRoot, DaemonId: daemonId, ProcessInstance: processInstance), panel, sessions, changes, setup);
 var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.Lifetime.StopApplication(),
     null, Timeout.Infinite, executeOnlyOnce: true);
+await using var commands = new CommandListener(data, daemonId, app.Lifetime.ApplicationStopping);
 await app.StartAsync();
 var endpoint = $"https://localhost:{port}";
 await File.WriteAllTextAsync(Path.Combine(data, "endpoint.json"),
@@ -169,7 +179,10 @@ _ = Task.Run(() =>
         Console.WriteLine("Command: stop");
     }
 });
-await app.WaitForShutdownAsync();
+var shutdown = app.WaitForShutdownAsync();
+if (await Task.WhenAny(shutdown, commands.Completion) == commands.Completion)
+    app.Lifetime.StopApplication();
+await shutdown;
 stopWait.Unregister(null);
 
 static X509Certificate2 LocalCertificate(string thumbprint)

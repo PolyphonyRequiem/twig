@@ -125,6 +125,9 @@ function Get-BenchRuntime([string] $VersionRoot, [string] $Version, [string] $Ma
     if ($actual.Count -ne $listed.Count + 1) { throw 'Runtime contains unlisted files.' }
     $requiredFiles = @('Bench.Server.exe', 'Bench.Server.dll', 'coreclr.dll', 'hostfxr.dll',
         'Twig.Providers.Native.dll', 'Twig.Infrastructure.dll', 'Twig.Store.Sqlite.dll')
+    if ($listed.ContainsKey('twig.exe') -or $listed.ContainsKey('twig')) {
+        throw 'A daemon package must not bundle the independent CLI executable.'
+    }
     if (@($listed.Keys | Where-Object { $_ -like 'wwwroot\*' }).Count) {
         throw 'A daemon package must not bundle presentation assets.'
     }

@@ -181,16 +181,49 @@ public sealed partial class GitHubCoreSpineTests
         f.Http.Writes.ShouldBe(0);
     }
 
-    [Fact]
-    public void FreshCoreInitRequiresExplicitGhSelectionBeforeAnyHttp()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FreshCoreInitRequiresRegisteredGhCredentialBeforeAnyHttp(bool registered)
     {
         using var f = new Fixture();
+        if (registered)
+        {
+            var registry = new ProviderConnectionRegistry(f._bindings.RegistryPath);
+            await registry.AddAsync(ProviderConnectionRequirement.Create("github",
+                host: "github.com", repository: "original/repo"));
+        }
+        var database = Path.Combine(f.Root, "new.db");
         f.Run("init", "--provider", "github", "--host", "github.com", "--repository", "original/repo",
-            "--core-store", Path.Combine(f.Root, "new.db"), "-o", "json").ShouldBe(2);
-        f.Error.ShouldContain("--account");
+            "--core-store", database, "-o", "json").ShouldBe(1);
+        f.Output.ShouldBeEmpty();
+        using var error = JsonDocument.Parse(f.Error);
+        error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain(registered
+            ? "Connection has no credential binding for this user."
+            : "Required connection is not registered on this device.");
         f.Http.Requests.ShouldBe(0);
         f.CredentialCalls.ShouldBe(0);
         Directory.Exists(Path.Combine(f.Root, ".twig")).ShouldBeFalse();
+        foreach (var path in new[] { database, database + "-wal", database + "-shm" })
+            File.Exists(path).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FreshCoreInitRejectsMalformedExplicitGhAccountBeforeAnyHttp()
+    {
+        using var f = new Fixture();
+        var database = Path.Combine(f.Root, "new.db");
+        f.Run("init", "--provider", "github", "--host", "github.com", "--repository", "original/repo",
+            "--account", "invalid account", "--core-store", database, "-o", "json").ShouldBe(2);
+        f.Output.ShouldBeEmpty();
+        using var error = JsonDocument.Parse(f.Error);
+        error.RootElement.GetProperty("error").GetString().ShouldNotBeNull()
+            .ShouldContain("--account must name an explicit gh account");
+        f.Http.Requests.ShouldBe(0);
+        f.CredentialCalls.ShouldBe(0);
+        Directory.Exists(Path.Combine(f.Root, ".twig")).ShouldBeFalse();
+        foreach (var path in new[] { database, database + "-wal", database + "-shm" })
+            File.Exists(path).ShouldBeFalse();
     }
 
     [Fact]
@@ -486,7 +519,7 @@ public sealed partial class GitHubCoreSpineTests
             using var handle = opened.Value;
             await action(handle.Workspace);
         }
-        internal async Task UseEditor(bool plan, Func<NativeEditor, UserBenchStore, Bench, Task> action)
+        internal async Task UseEditor(bool plan, Func<NativeEditor, UserBenchStore, Twig.Core.Bench, Task> action)
         {
             var services = new ServiceCollection();
             services.AddSingleton<IConnectionBindingService>(_bindings);

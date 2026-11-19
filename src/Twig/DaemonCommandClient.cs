@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.IO.Pipes;
+using System.Security;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
@@ -7,12 +9,14 @@ using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Services;
 using Twig.Rendering;
+using Microsoft.Win32.SafeHandles;
 
 namespace Twig;
 
 internal static class DaemonCommandClient
 {
-    internal static async Task<int> ExecuteAsync(string[] args)
+    internal static async Task<int> ExecuteAsync(string[] args,
+        Func<SafePipeHandle, SecurityIdentifier?>? readWindowsServerUser = null)
     {
         var format = StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default;
         var dispatched = false;
@@ -22,6 +26,8 @@ internal static class DaemonCommandClient
             using var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut,
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, TokenImpersonationLevel.Identification);
             await pipe.ConnectAsync(1500);
+            if (OperatingSystem.IsWindows())
+                WindowsCommandPeer.Verify(pipe.SafePipeHandle, readWindowsServerUser);
             var request = new CommandInvocation(1, args, Directory.GetCurrentDirectory(),
                 NativeConnectionSetup.ResolveUserHome(), Console.IsOutputRedirected);
             dispatched = true;
@@ -63,7 +69,8 @@ internal static class DaemonCommandClient
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException
-            or TimeoutException or JsonException or KeyNotFoundException or ArgumentException or NotSupportedException)
+            or TimeoutException or JsonException or KeyNotFoundException or ArgumentException or NotSupportedException
+            or Win32Exception or SecurityException)
         {
             var message = dispatched
                 ? "Daemon command interrupted; the outcome may be unknown. Inspect native status or the proposal journal before another change. No request was replayed."

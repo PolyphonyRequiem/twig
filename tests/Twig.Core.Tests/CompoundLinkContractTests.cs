@@ -156,6 +156,90 @@ public sealed class CompoundLinkContractTests
         closed.Fields.Single(field => field.Definition.Reference == "title").ReadOnly.ShouldBeTrue();
         closed.States.ShouldBe(["Open", "Closed"]);
     }
+    [Fact]
+    public void EvaluatedEditorOverlayReplacesConditionalChoicesAndStatesAndRejectsObsoleteValues()
+    {
+        var type = new ItemType("type", "state",
+            [new("title", FieldKind.Text), new("state", FieldKind.Text), new("severity", FieldKind.Text)],
+            [new("Start", StateCategory.InProgress), new("Finish", StateCategory.InProgress)],
+            [new("Start", "Finish")],
+            [new("severity", RuleAction.Allowed, [new(ConditionKind.Equal, "title", FieldValue.String("initial"))],
+                [FieldValue.String("A"), FieldValue.String("obsolete")]),
+             new("severity", RuleAction.Allowed, [new(ConditionKind.Equal, "title", FieldValue.String("phase-two"))],
+                [FieldValue.String("B")]),
+             new("state", RuleAction.Allowed, [new(ConditionKind.Equal, "title", FieldValue.String("initial"))],
+                [FieldValue.String("Start")]),
+             new("state", RuleAction.Allowed, [new(ConditionKind.Equal, "title", FieldValue.String("phase-two"))],
+                [FieldValue.String("Finish")])]);
+        var schema = new ProcessSchema(Connection, [type], []);
+        var source = new WorkItem(Item, type.Reference,
+            FieldValues.Empty.Set("title", FieldValue.String("initial"))
+                .Set("state", FieldValue.String("Start")).Set("severity", FieldValue.String("A")),
+            new(Item, "1"), true);
+        var initial = Model.EvaluateEditorFields(schema, source, FieldValues.Empty, true).Value;
+        initial.Fields.Single(field => field.Definition.Reference == "severity").Allowed
+            .ShouldBe([FieldValue.String("A"), FieldValue.String("obsolete")]);
+        initial.States.ShouldBe(["Start"]);
+        initial.Errors.ShouldBeEmpty();
+
+        var changes = FieldValues.Empty.Set("title", FieldValue.String("phase-two"));
+        var changed = Model.EvaluateEditorFields(schema, source, changes, true).Value;
+        var severity = changed.Fields.Single(field => field.Definition.Reference == "severity");
+        severity.HasAllowedConstraint.ShouldBeTrue();
+        severity.Allowed.ShouldBe([FieldValue.String("B")]);
+        changed.Fields.Single(field => field.Definition.Reference == "state").Allowed.ShouldBe([FieldValue.String("Finish")]);
+        changed.States.ShouldBe(["Finish"], "The obsolete current state must not be reinserted into the permitted states.");
+        changed.Errors.Select(error => error.Message).Order()
+            .ShouldBe(new[] { "Field 'severity' is outside its allowed values.", "Field 'state' is outside its allowed values." }.Order());
+        source.Fields["severity"].Text.ShouldBe("A");
+        source.Fields["state"].Text.ShouldBe("Start");
+        foreach (var fields in new[]
+        {
+            changes,
+            changes.Set("state", FieldValue.String("Finish")),
+            changes.Set("severity", FieldValue.String("B")),
+            changes.Set("state", FieldValue.String("Finish")).Set("severity", FieldValue.String("B")),
+        })
+        {
+            var evaluation = Model.EvaluateEditorFields(schema, source, fields, true).Value;
+            var valid = fields.ContainsKey("state") && fields.ContainsKey("severity");
+            evaluation.Errors.IsEmpty.ShouldBe(valid, "Neither replacing just state nor just severity can authorize the effect.");
+            var proposal = new Proposal(Connection, schema.Fingerprint, 0,
+                [new("edit", OpKind.Batch, Item, source.Revision, fields)]);
+            var snapshot = new StoreSnapshot(0, [source], proposals: [proposal],
+                journal: [JournalEntry.Planned(proposal.Digest, 0)]);
+            var errors = Model.ValidateEffect(proposal, 0, schema, snapshot, new([OpKind.Batch], [], [], true, true));
+            errors.Select(error => (error.Code, error.Message))
+                .ShouldBe(evaluation.Errors.Select(error => (error.Code, "edit: " + error.Message)));
+        }
+    }
+
+    [Fact]
+    public void EvaluatedEditorOverlayWithoutMatchingAllowedRuleRemovesTheConstraint()
+    {
+        var type = new ItemType("type", "state", Schema.Types[0].Fields,
+            [new("Open", StateCategory.Proposed), new("Next", StateCategory.InProgress)],
+            [new("Open", "Next")],
+            [new("title", RuleAction.Allowed, [new(ConditionKind.Equal, "state", FieldValue.String("Open"))],
+                [FieldValue.String("old")])]);
+        var schema = new ProcessSchema(Connection, [type], []);
+        var source = new WorkItem(Item, type.Reference, Fields, new(Item, "1"), true);
+        var matched = Model.EvaluateEditorFields(schema, source, FieldValues.Empty, true).Value;
+        matched.Fields.Single(field => field.Definition.Reference == "title").HasAllowedConstraint.ShouldBeTrue();
+        matched.Fields.Single(field => field.Definition.Reference == "title").Allowed.ShouldBe([FieldValue.String("old")]);
+        var changes = FieldValues.Empty.Set("state", FieldValue.String("Next")).Set("title", FieldValue.String("unlisted"));
+        var evaluation = Model.EvaluateEditorFields(schema, source, changes, true).Value;
+        var field = evaluation.Fields.Single(field => field.Definition.Reference == "title");
+        field.HasAllowedConstraint.ShouldBeFalse("No active Allowed rule is unconstrained, not a constrained empty intersection.");
+        field.Allowed.ShouldBeEmpty();
+        evaluation.Errors.ShouldBeEmpty();
+        var proposal = new Proposal(Connection, schema.Fingerprint, 0,
+            [new("edit", OpKind.Batch, Item, source.Revision, changes)]);
+        Model.ValidateEffect(proposal, 0, schema,
+            new(0, [source], proposals: [proposal], journal: [JournalEntry.Planned(proposal.Digest, 0)]),
+            new([OpKind.Batch], [], [], true, true)).ShouldBeEmpty();
+    }
+
     private static readonly Connection Connection = new(new("ado"), "collection", "project", "actor");
     private static readonly ItemKey Item = ItemKey.Remote(Connection.Provider, Connection.ResourceScope, "42");
     private static readonly ItemKey Other = ItemKey.Remote(Connection.Provider, Connection.ResourceScope, "43");

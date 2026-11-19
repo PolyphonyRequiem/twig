@@ -13,6 +13,11 @@ def native_authority():
         ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests|FullyQualifiedName~DaemonLauncherTests|FullyQualifiedName~NativeMetadata"),
         ("Twig.Cli.Tests", "FullyQualifiedName~NativeTwigSpineTests"),
     ]:
+        if os.name == "nt":
+            if project == "Twig.Daemon.Tests":
+                selector += "|FullyQualifiedName~CommandPipeSecurityTests"
+            elif project == "Twig.Cli.Tests":
+                selector += "|FullyQualifiedName~CommandPipeClientTests"
         subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
                         f"tests/{project}/{project}.csproj", "--no-build", "--no-restore", "-f", "net11.0",
                         "--filter", selector, "--logger", f"trx;LogFileName={project}.trx",
@@ -35,12 +40,107 @@ def native_setup():
                         "--results-directory", "artifacts/test-logs/ci/native-setup"], check=True)
 
 
+def native_agent_http():
+    for scenario in ("diagnostics", "access", "membership", "rules", "rule-guards",
+                     "draft", "connections", "connection-guards", "owner-automatic", "mcp"):
+        selector = ("FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests."
+                    "NativeAgentHttpPreservesScopedNativeAuthorityWithoutProviderWrites"
+                    f"&DisplayName~{scenario}")
+        subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                        "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                        "--filter", selector, "--logger", f"trx;LogFileName=agent-{scenario}.trx",
+                        "--results-directory", "artifacts/test-logs/ci/agent-http"], check=True)
+
+
+def native_scalar_http():
+    cases = [
+        ("ado-save", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "save"),
+        ("ado-policy-relevant", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "policy-relevant"),
+        ("ado-policy-unrelated", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "policy-unrelated"),
+        ("ado-cached-guidance", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "cached-guidance"),
+        ("ado-relationship-debt", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "relationship-debt"),
+        ("github-save", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeGitHubScalarHttpUsesQualifiedNativeAuthority", "save"),
+        ("github-guards", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeGitHubScalarHttpUsesQualifiedNativeAuthority", "guards"),
+        ("panel-scalar-boundary", "Twig.Daemon.Tests", "Twig.Daemon.Tests.Native.NativePanelScalarBoundaryTests.NativePanelUnpinRetainsOrderedQueryAndOtherPinAndExactTypedStateColors", None),
+    ]
+    for label, project, method, scenario in cases:
+        selector = f"FullyQualifiedName={method}"
+        if scenario is not None:
+            selector += f"&DisplayName~{scenario}"
+        subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                        f"tests/{project}/{project}.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                        "--filter", selector, "--logger", f"trx;LogFileName={label}.trx",
+                        "--results-directory", "artifacts/test-logs/ci/scalar-http"], check=True)
+
+
+def native_plan_http():
+    import xml.etree.ElementTree as ET
+
+    cases = [
+        ("ado", "NativePublicationConsumerTests.NativeAdoCompositionHttpKeepsExactAuthority",
+         ("full", "delayed", "navigation", "preparation", "selection")),
+        ("github", "GitHubCoreSpineTests.NativeGitHubScalarHttpUsesQualifiedNativeAuthority",
+         ("plan", "apply")),
+    ]
+    for provider, method, scenarios in cases:
+        for scenario in scenarios:
+            selector = f"FullyQualifiedName=Twig.Cli.Tests.Commands.{method}&DisplayName~{scenario}"
+            subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                            "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                            "--filter", selector, "--logger", f"trx;LogFileName={provider}-{scenario}.trx",
+                            "--results-directory", "artifacts/test-logs/ci/plan-http"], check=True)
+            path = Path("artifacts/test-logs/ci/plan-http") / f"{provider}-{scenario}.trx"
+            results = ET.parse(path).findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}UnitTestResult")
+            if len(results) != 1:
+                raise ValueError(f"{selector}: expected exactly one executed case, got {len(results)}")
+
+
+def native_seed_http():
+    import xml.etree.ElementTree as ET
+
+    for scenario in ("projection", "lifecycle", "pin", "origin", "unknown", "guards", "ownership"):
+        selector = ("FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests."
+                    f"NativeAdoSeedHttpKeepsExactAuthority&DisplayName~{scenario}")
+        subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                        "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                        "--filter", selector, "--logger", f"trx;LogFileName=seed-{scenario}.trx",
+                        "--results-directory", "artifacts/test-logs/ci/seed-http"], check=True)
+        path = Path("artifacts/test-logs/ci/seed-http") / f"seed-{scenario}.trx"
+        results = ET.parse(path).findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}UnitTestResult")
+        if len(results) != 1:
+            raise ValueError(f"{selector}: expected exactly one executed case, got {len(results)}")
+
+
+def native_relationship_http():
+    import xml.etree.ElementTree as ET
+
+    cases = [
+        ("ado", "NativePublicationConsumerTests.NativeAdoLinkHttpKeepsExactAuthority",
+         ("association", "outgoing", "incoming", "hierarchy", "guards", "protected", "observed-removal")),
+        ("github", "GitHubCoreSpineTests.NativeGitHubLinkHttpKeepsExactAuthority",
+         ("counterfactual", "guards", "lifecycle", "protected", "delivery",
+          "binding-actor", "binding-repository", "binding-schema", "binding-endpoint",
+          "binding-mode", "binding-store", "binding-bench", "binding-denied", "binding-generation")),
+    ]
+    for provider, method, scenarios in cases:
+        for scenario in scenarios:
+            selector = f"FullyQualifiedName=Twig.Cli.Tests.Commands.{method}&DisplayName~{scenario}"
+            subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                            "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                            "--filter", selector, "--logger", f"trx;LogFileName={provider}-{scenario}.trx",
+                            "--results-directory", "artifacts/test-logs/ci/relationship-http"], check=True)
+            path = Path("artifacts/test-logs/ci/relationship-http") / f"{provider}-{scenario}.trx"
+            results = ET.parse(path).findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}UnitTestResult")
+            if len(results) != 1:
+                raise ValueError(f"{selector}: expected exactly one executed case, got {len(results)}")
+
+
 def registry_compat():
     for version, revision in [(10, "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"),
                               (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
         legacy = Path("artifacts") / f"legacy-core-v{version}"
         subprocess.run(["git", "worktree", "add", "--detach", str(legacy), revision], check=True)
-        subprocess.run([sys.executable, "eng/run-bounded.py", "--timeout", "120", "--",
+        subprocess.run([sys.executable, "eng/run-bounded.py", "--warn-after", "120", "--timeout", "300", "--",
                         "dotnet", "build", str(legacy / "src" / "Twig.Infrastructure" / "Twig.Infrastructure.csproj"),
                         "-f", "net11.0", "-m:1", "--verbosity", "minimal"], check=True)
         subprocess.run([sys.executable, "eng/verify-core-registry-compat.py", "--legacy-version", str(version),
@@ -206,7 +306,7 @@ def ado_root():
 def github_root():
     groups = [
         ("online-read-access", ["NativeOnlineReadChecksActualRepositoryAccessWithoutSchemaOrItemAcquisition"]),
-        ("init", ["FreshInitUsesOnlyNativeCoreBootstrap", "FreshInitTelemetryFailureCannotChangeNativeResult", "FreshCoreInitRequiresExplicitGhSelectionBeforeAnyHttp"]),
+        ("init", ["FreshInitUsesOnlyNativeCoreBootstrap", "FreshInitTelemetryFailureCannotChangeNativeResult", "FreshCoreInitRequiresRegisteredGhCredentialBeforeAnyHttp", "FreshCoreInitRejectsMalformedExplicitGhAccountBeforeAnyHttp"]),
         ("creation-cache", ["FreshNativeRootCreatesOriginalUuidAndNumericCommandsNeverUseNumberAsNodeIdentity"]),
         ("markdown-close", ["NativeMarkdownAndActualCloseUseVerifiedObservedNonAtomicEffects"]),
         ("patch-save-bench-query", ["TypedPatchBenchAndBoundedQueryShareNativeNumbersAndRefuseUnqualifiedFamilies"]),
@@ -284,6 +384,11 @@ def native_auth():
 CHECKS = {
     'native-authority': native_authority,
     'native-setup': native_setup,
+    'native-agent-http': native_agent_http,
+    'native-scalar-http': native_scalar_http,
+    'native-plan-http': native_plan_http,
+    'native-seed-http': native_seed_http,
+    'native-relationship-http': native_relationship_http,
     'registry-compat': registry_compat,
     'catalog': catalog,
     'user-benches': user_benches,

@@ -137,6 +137,32 @@ syntax and output formats, and the [server guide](docs/daemon.md) for
 prerequisites, installation, and MCP setup. The old `twig daemon` command family
 is not an alias; daemon package names and installation settings are unchanged.
 
+### Native Agent HTTP regression ownership
+
+`python eng/ci-checks.py native-agent-http` runs ten individually isolated,
+60-second TRX-verified scenarios: diagnostics, access, membership, rules,
+rule-guards, draft, connections, connection-guards, owner-automatic and MCP.
+`NativePublicationConsumerTests.AgentHttp.cs` composes the production daemon
+with real native bindings, SQLite, captures and the owned synthetic provider
+transport; every scenario requires zero provider PATCH attempts. Owner APIs
+are synthetic admission, **not** Windows Negotiate, hosted trust or live-provider
+qualification. Only private managed Twig setup is started; GitHub requests are
+never approved and no shared installation or credentials are changed.
+
+The scenarios preserve `twig-bench-canvas`'s `AgentRouteTests.cs` at
+`f154a3502f2458cd328e51b71802ae108bbfa12d`
+(blob `f7a6d4fcba2e67bb253a1c7e807613b99ee3c259`), using the canonical registry
+Bench store and existing native editor APIs rather than consumer fixture links.
+Twig setup requests supply the explicit private database name required since
+`2b49ef36` (#655); the original consumer bodies omit that required field.
+MCP exercises the actual resource-serving route with exact finite fixture bytes,
+MIME, CSP and authorization; it does **not** qualify assembled HTML. The explanation
+text, absent vendor placeholder and bundled DOMPurify assertions remain on actual
+`buildMcpApp()` output in consumer `tests/mcp-details-browser.mjs`, introduced by
+`d81feac9ca21aef2ea5606c592695943a04bb3dc`. Separate editor, seed, Plan and
+relationship HTTP suites, browser rendering and periodic metadata scheduling
+are not adopted by this Agent-only gate.
+
 ## Documentation
 
 | Need | Start here |

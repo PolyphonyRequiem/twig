@@ -222,7 +222,7 @@ public sealed partial class NativePublicationConsumerTests
     public async Task NativePanelSelectionSharesCliContextPreservesHistoryAndRejectsStaleOrReplacedAuthority()
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
-        var bench = new Bench(Guid.NewGuid(), "Selected by panel", []);
+        var bench = new Twig.Core.Bench(Guid.NewGuid(), "Selected by panel", []);
         (await store.CommitAsync(connection, 0, new(1, benches: [bench]), default)).IsSuccess.ShouldBeTrue();
         var capture = (await ReadSource(paths)).Value;
         var context = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
@@ -261,7 +261,7 @@ public sealed partial class NativePublicationConsumerTests
             new(key, "1"), relationshipsComplete: true, resourcesComplete: true);
         var edge = new Relationship(key, other, "Native.ParentForward", RelationshipOrigin.Provider);
         var draft = new Draft(ItemKey.Local(Guid.NewGuid()), item.Type, null, item.Fields);
-        var bench = new Bench(Guid.NewGuid(), "Copy this scope", [new(SelectorKind.Pin, key)]);
+        var bench = new Twig.Core.Bench(Guid.NewGuid(), "Copy this scope", [new(SelectorKind.Pin, key)]);
         var proposal = new Proposal(connection, "retained-schema", 0,
             [new("keep", OpKind.Batch, key, item.Revision, item.Fields)]);
         var journal = JournalEntry.Planned(proposal.Digest, 0);

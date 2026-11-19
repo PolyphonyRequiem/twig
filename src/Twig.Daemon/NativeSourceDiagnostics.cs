@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using Bench.Application;
 using Twig.Core;
 
 namespace Bench.Server;
@@ -11,13 +12,14 @@ internal sealed class NativeSourceDiagnostics(ILogger logger)
     internal const int MaximumSources = 64;
     internal const int MaximumEntries = 256;
     internal const int MaximumDiagnosticCount = 128;
-    private readonly Dictionary<Guid, Dictionary<NativeDiagnosticArea, string>> fingerprints = [];
+    private readonly Dictionary<Guid, string?[,]> fingerprints = [];
     private readonly Queue<Guid> sourceOrder = [];
     private int entries;
 
     internal int RetainedSources { get { lock (fingerprints) return fingerprints.Count; } }
 
-    internal void Report(Guid source, NativeDiagnosticArea area, IEnumerable<string> diagnostics, ErrorCode? errorCode = null)
+    internal void Report(Guid source, NativeDiagnosticArea area, IEnumerable<string> diagnostics, ErrorCode? errorCode = null,
+        ObservationMode? mode = null)
     {
         var values = diagnostics.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var code = errorCode?.ToString() ?? "None";
@@ -29,11 +31,13 @@ internal sealed class NativeSourceDiagnostics(ILogger logger)
             {
                 if (values.Length == 0 && errorCode is null) return;
                 if (fingerprints.Count == MaximumSources) fingerprints.Remove(sourceOrder.Dequeue());
-                fingerprints.Add(source, previous = []);
+                fingerprints.Add(source, previous = new string?[Enum.GetValues<NativeDiagnosticArea>().Length,
+                    Enum.GetValues<ObservationMode>().Length + 1]);
                 sourceOrder.Enqueue(source);
             }
-            if (previous.GetValueOrDefault(area) == fingerprint) return;
-            previous[area] = fingerprint;
+            var context = mode is { } observedMode ? (int)observedMode + 1 : 0;
+            if (previous[(int)area, context] == fingerprint) return;
+            previous[(int)area, context] = fingerprint;
             if (values.Length == 0 && errorCode is null || entries == MaximumEntries) return;
             entries++;
             if (entries == MaximumEntries)

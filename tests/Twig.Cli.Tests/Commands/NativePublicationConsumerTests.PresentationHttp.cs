@@ -24,7 +24,7 @@ public sealed partial class NativePublicationConsumerTests
         var ct = deadline.Token;
         var fixture = await CreateHumanHostAsync();
         var directory = Path.GetDirectoryName(fixture.Registry)!;
-        var gateway = new PresentationGateway(this);
+        var gateway = new NativeHttpGateway(this);
         var changes = new CatalogChanges();
         var store = UserBenchStore.ForRegistry(fixture.Registry);
         var panel = new NativePanel(store, gateway,
@@ -150,22 +150,40 @@ public sealed partial class NativePublicationConsumerTests
         finally { await app.StopAsync(CancellationToken.None); }
     }
 
-    private sealed class PresentationGateway(NativePublicationConsumerTests fixture) : INativeSourceGateway
+    private sealed class NativeHttpGateway(NativePublicationConsumerTests fixture) : INativeSourceGateway
     {
+        internal int LocalReads { get; private set; }
+        internal int SchemaReads { get; private set; }
         internal int OnlineReads { get; private set; }
         internal int SelectionWrites { get; private set; }
+        internal Action<string>? Trace { get; set; }
         private TaskCompletionSource? onlineGate;
 
         internal void HoldOnline() => onlineGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal void ReleaseOnline() { onlineGate?.TrySetResult(); onlineGate = null; }
 
         public Task<Result<NativeSourceObservation>> ReadAsync(string root, NativeSourceStamp? expected,
-            bool observeSchema, CancellationToken ct) => fixture.ReadHumanHostAsync(root, expected, observeSchema, ct);
+            bool observeSchema, CancellationToken ct)
+        {
+            if (observeSchema) SchemaReads++; else LocalReads++;
+            var trace = Trace;
+            trace?.Invoke(observeSchema ? "schema read started" : "local read started");
+            var pending = fixture.ReadHumanHostAsync(root, expected, observeSchema, ct);
+            return trace is null ? pending : Observe(pending, trace, observeSchema);
+
+            static async Task<Result<NativeSourceObservation>> Observe(Task<Result<NativeSourceObservation>> pending,
+                Action<string> trace, bool schema)
+            {
+                try { return await pending.ConfigureAwait(false); }
+                finally { trace(schema ? "schema read completed" : "local read completed"); }
+            }
+        }
 
         public async Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected,
             CancellationToken ct)
         {
             OnlineReads++;
+            Trace?.Invoke("online gateway entered");
             if (onlineGate is { } held) await held.Task.WaitAsync(ct);
             return await fixture.ReadHumanOnlineAsync(root, expected, ct);
         }

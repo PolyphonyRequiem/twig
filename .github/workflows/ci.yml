@@ -62,6 +62,16 @@ jobs:
           name: twig-native-presentation-${{ matrix.rid }}
           path: artifacts/test-logs/ci/presentation-http/*.trx
           if-no-files-found: error
+      - name: Native initial-view HTTP acquisition boundary (isolated)
+        id: native_initial_view
+        run: python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeInitialViewHttpRestoresWithOneLocalObservationAndNoProviderWork" --logger "trx;LogFileName=initial-view-http.trx" --results-directory artifacts/test-logs/ci/initial-view-http
+      - name: Preserve native initial-view HTTP results
+        if: always() && steps.native_initial_view.outcome != 'skipped' && steps.native_initial_view.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-native-initial-view-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/initial-view-http/*.trx
+          if-no-files-found: error
       - name: Standalone daemon installer orchestration (synthetic only)
         if: runner.os == 'Windows'
         shell: powershell

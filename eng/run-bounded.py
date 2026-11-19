@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run one owned command with an external deadline; reap its process tree on timeout.
+"""Run one owned command with a hard safety timeout and an optional timing warning.
 
-Usage: python eng/run-bounded.py [--timeout SECONDS] -- <command...>
+Usage: python eng/run-bounded.py [--warn-after SECONDS] [--timeout SECONDS] -- <command...>
        python eng/run-bounded.py --selftest
 """
 import argparse
@@ -12,7 +12,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import unittest
+from unittest import mock
 
 
 def load_runner():
@@ -41,8 +43,9 @@ def _stop_owned_tree(process, runner):
         return False
 
 
-def run_bounded(command, timeout, runner, popen=subprocess.Popen):
+def run_bounded(command, timeout, runner, popen=subprocess.Popen, warn_after=None, clock=time.monotonic):
     # No Popen context manager: its __exit__ makes an untimed wait, which must not follow failed cleanup.
+    started = clock()
     process = popen(command, start_new_session=os.name != 'nt')
     try:
         return process.wait(timeout=timeout)
@@ -56,6 +59,12 @@ def run_bounded(command, timeout, runner, popen=subprocess.Popen):
         tree = 'owned process tree stopped' if stopped else 'owned process tree termination unconfirmed'
         print(f'BOUNDED-VERDICT: INTERRUPTED ({tree})', file=sys.stderr, flush=True)
         return 130
+    finally:
+        if warn_after is not None:
+            elapsed = clock() - started
+            if elapsed > warn_after:
+                print(f'::warning::BOUNDED-TIMING: elapsed {elapsed:.2f}s exceeded target {warn_after}s; '
+                      'command outcome unchanged.', file=sys.stderr, flush=True)
 
 
 class _FakeProcess:
@@ -107,11 +116,84 @@ class RunBoundedSelfTests(unittest.TestCase):
     def setUpClass(cls):
         cls.RunFailure = load_runner().RunFailure
 
-    def invoke(self, process, runner):
+    def invoke(self, process, runner, warn_after=None, elapsed=0):
         stderr = io.StringIO()
+        ticks = iter((0, elapsed))
         with contextlib.redirect_stderr(stderr):
-            code = run_bounded(['owned'], 7, runner, popen=lambda *args, **kwargs: process)
+            code = run_bounded(['owned'], 7, runner, popen=lambda *args, **kwargs: process,
+                               warn_after=warn_after, clock=lambda: next(ticks))
         return code, stderr.getvalue()
+
+    def test_slow_success_warns_without_cleanup_or_failure(self):
+        runner = _FakeRunner(self.RunFailure)
+        code, stderr = self.invoke(_FakeProcess(0, poll_result=0), runner, warn_after=3, elapsed=4)
+        self.assertEqual(0, code)
+        self.assertIn('::warning::BOUNDED-TIMING: elapsed 4.00s exceeded target 3s', stderr)
+        self.assertEqual([], runner.calls)
+
+    def test_slow_failure_warns_and_preserves_child_exit(self):
+        runner = _FakeRunner(self.RunFailure)
+        code, stderr = self.invoke(_FakeProcess(5, poll_result=5), runner, warn_after=3, elapsed=4)
+        self.assertEqual(5, code)
+        self.assertIn('::warning::BOUNDED-TIMING:', stderr)
+        self.assertEqual([], runner.calls)
+
+    def test_at_or_below_target_does_not_warn(self):
+        for elapsed in (2, 3):
+            with self.subTest(elapsed=elapsed):
+                code, stderr = self.invoke(_FakeProcess(0, poll_result=0),
+                                           _FakeRunner(self.RunFailure), warn_after=3, elapsed=elapsed)
+                self.assertEqual(0, code)
+                self.assertEqual('', stderr)
+
+    def test_smoke_supervisor_warning_preserves_worker_outcome(self):
+        spec = importlib.util.spec_from_file_location('smoke_supervisor', Path(__file__).with_name('verify-build.py'))
+        smoke = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(smoke)
+        for elapsed, exit_code in ((61, 0), (61, 5), (30, 0)):
+            with self.subTest(elapsed=elapsed, exit_code=exit_code):
+                process = mock.MagicMock()
+                process.communicate.return_value = ('worker output', 'worker error')
+                process.returncode = exit_code
+                ticks = iter((0, elapsed))
+                stderr = io.StringIO()
+                trace = mock.Mock()
+                with mock.patch.object(smoke.subprocess, 'Popen') as popen, \
+                        contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+                    popen.return_value = process
+                    result = smoke.run_worker(['owned'], 300, trace, clock=lambda: next(ticks))
+                self.assertEqual(exit_code, result)
+                self.assertEqual(elapsed > 60, '::warning::SMOKE TIMING:' in stderr.getvalue())
+                self.assertIn('worker error', stderr.getvalue())
+                process.communicate.assert_called_once_with(timeout=300)
+                self.assertEqual([mock.call('supervisor', 'start'), mock.call('supervisor', 'end', exit_code)],
+                                 trace.write.call_args_list)
+
+    def test_smoke_cleanup_failure_never_enters_context_or_waits_without_bound(self):
+        spec = importlib.util.spec_from_file_location('smoke_cleanup', Path(__file__).with_name('verify-build.py'))
+        smoke = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(smoke)
+        process = mock.MagicMock()
+        process.communicate.side_effect = subprocess.TimeoutExpired(['owned'], 300)
+        process.poll.return_value = None
+        runner = _FakeRunner(self.RunFailure, self.RunFailure('synthetic cleanup failure'))
+        runner_spec = mock.Mock()
+        runner_spec.name = 'ci_runner'
+        ticks = iter((0, 301))
+        stderr = io.StringIO()
+        with mock.patch.object(smoke.subprocess, 'Popen', return_value=process), \
+                mock.patch.object(smoke.importlib.util, 'spec_from_file_location', return_value=runner_spec), \
+                mock.patch.object(smoke.importlib.util, 'module_from_spec', return_value=runner), \
+                mock.patch.dict(smoke.sys.modules), \
+                contextlib.redirect_stderr(stderr):
+            code = smoke.run_worker(['owned'], 300, mock.Mock(), clock=lambda: next(ticks))
+        self.assertEqual(1, code)
+        self.assertEqual([(process.pid, False)], runner.calls)
+        self.assertIn('tree termination unconfirmed; root still running; survivors unknown', stderr.getvalue())
+        self.assertNotIn('owned process tree stopped', stderr.getvalue())
+        process.__enter__.assert_not_called()
+        process.__exit__.assert_not_called()
+        process.wait.assert_not_called()
 
     def test_deadline_cleanup_failure_keeps_124_and_reports_unconfirmed_tree(self):
         process = _FakeProcess(subprocess.TimeoutExpired(['owned'], 7), poll_result=None)
@@ -198,7 +280,9 @@ class RunBoundedSelfTests(unittest.TestCase):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--timeout', type=int, default=60, choices=range(1, 601),
-                        metavar='SECONDS', help='wall-clock deadline, 1-600 seconds (default: 60)')
+                        metavar='SECONDS', help='hard safety timeout, 1-600 seconds (default: 60)')
+    parser.add_argument('--warn-after', type=int, choices=range(1, 601), metavar='SECONDS',
+                        help='elapsed-time warning target; never changes the command exit code')
     parser.add_argument('--selftest', action='store_true', help='check cleanup verdicts with synthetic processes only')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -213,7 +297,7 @@ def main():
         return 0 if result.wasSuccessful() else 1
     if not command:
         parser.error('provide a command after --')
-    return run_bounded(command, args.timeout, load_runner())
+    return run_bounded(command, args.timeout, load_runner(), warn_after=args.warn_after)
 
 
 if __name__ == '__main__':

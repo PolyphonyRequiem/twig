@@ -8,8 +8,12 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'daemon-launch.ps1')
 $source = Split-Path $PSScriptRoot -Parent
 $Output = Get-BenchLocalPath $Output
+$archive = Join-Path (Split-Path $Output -Parent) 'twig-daemon-win-x64.zip'
 $artifacts = (Get-BenchLocalPath (Join-Path $source 'artifacts')) + '\'
-if (-not $Output.StartsWith($artifacts, [StringComparison]::OrdinalIgnoreCase) -or (Test-Path -LiteralPath $Output)) {
+if (-not $Output.StartsWith($artifacts, [StringComparison]::OrdinalIgnoreCase) -or
+    (Split-Path $Output -Leaf) -cne 'daemon-win-x64' -or
+    (Test-Path -LiteralPath $Output) -or (Test-Path -LiteralPath $archive) -or
+    (Test-Path -LiteralPath ($archive + '.sha256'))) {
     throw 'Packaging requires a new owned output directory beneath this checkout''s artifacts directory.'
 }
 $version = (& git -C $source rev-parse HEAD).Trim()
@@ -27,4 +31,10 @@ $manifest = [ordered]@{ application = 'twig-daemon'; schema = 1; version = $vers
     protocol = 'twig-bench-service-v1'; files = $files }
 [IO.File]::WriteAllText((Join-Path $Output 'runtime.json'), ($manifest | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
 $null = Get-BenchRuntime $Output $version (Get-BenchHash (Join-Path $Output 'runtime.json'))
+$tools = @('daemon-launch.ps1', 'daemon-install.ps1', 'daemon-run-owned.py') |
+    ForEach-Object { Join-Path $PSScriptRoot $_ }
+Compress-Archive -LiteralPath (@($Output) + @($tools)) -DestinationPath $archive
+[IO.File]::WriteAllText(($archive + '.sha256'),
+    (Get-BenchHash $archive).ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($archive) + "`n",
+    [Text.Encoding]::ASCII)
 Write-Output "Packaged verified daemon $version. No installation, certificate, Startup or process state was changed."

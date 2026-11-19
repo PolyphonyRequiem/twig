@@ -81,7 +81,7 @@ public sealed partial class NativePublicationConsumerTests
             PlanningCalendars = RequiredPlanning(await shared.ReadPlanningCalendarsAsync(foreign, default)) };
         RequiredPlanning(Twig.Core.Core.ResolveBench(bench, new(0, [foreignItem]), foreignSchema, DateTimeOffset.UtcNow))
             .ShouldBe([foreignKey]);
-        var references = new Bench(Guid.NewGuid(), "Own-team memberships", [new(SelectorKind.Query,
+        var references = new Twig.Core.Bench(Guid.NewGuid(), "Own-team memberships", [new(SelectorKind.Query,
             query: new(QueryKind.And, children: [Current(PrincipalTransport.TeamB), new(QueryKind.SavedQuery,
                 value: FieldValue.String(PrincipalTransport.SavedQuery), planningTeam: PrincipalTransport.TeamB)]), connection: connection)]);
         RequiredPlanning(Twig.Core.Core.ResolveBench(references, observed.Snapshot, observed.Schema.Value, DateTimeOffset.UtcNow))
@@ -120,7 +120,7 @@ public sealed partial class NativePublicationConsumerTests
         observed.ShouldNotBeNull();
         observed.Memberships.Count(value => value.Kind == PlanningSourceKind.Backlog).ShouldBe(2);
         Query Backlog(string team) => new(QueryKind.Backlog, value: FieldValue.String("Fixture.Requirements"), planningTeam: team);
-        var both = new Bench(Guid.NewGuid(), "Two team backlogs", [new(SelectorKind.Query,
+        var both = new Twig.Core.Bench(Guid.NewGuid(), "Two team backlogs", [new(SelectorKind.Query,
             query: new(QueryKind.Or, children: [Backlog(PrincipalTransport.TeamA), Backlog(PrincipalTransport.TeamB)]), connection: connection)]);
         observed.Schema.ShouldBeNull();
         var retainedSchema = initial.Schema!.Value with { Memberships = observed.Memberships };

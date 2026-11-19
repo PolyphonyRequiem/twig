@@ -486,7 +486,7 @@ public sealed partial class GitHubCoreSpineTests
             using var handle = opened.Value;
             await action(handle.Workspace);
         }
-        internal async Task UseEditor(bool plan, Func<NativeEditor, UserBenchStore, Bench, Task> action)
+        internal async Task UseEditor(bool plan, Func<NativeEditor, UserBenchStore, Twig.Core.Bench, Task> action)
         {
             var services = new ServiceCollection();
             services.AddSingleton<IConnectionBindingService>(_bindings);

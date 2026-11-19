@@ -7,6 +7,8 @@ namespace Twig.Daemon.Tests;
 public sealed class CatalogChangesTests
 {
     [Theory]
+    [InlineData("content", "presentation")]
+    [InlineData("presentation", "content")]
     [InlineData("content", "agent")]
     [InlineData("agent", "content")]
     [InlineData("presentation", "agent")]

@@ -19,20 +19,43 @@ the new tests use `Twig.Daemon.Tests`. No production API was made public for tes
 | `NativeConnectionLabelTests.cs` | `NativeAccountLabelInvariantTests.LabelsOnlyTheExactLocallyBoundAccount` | Exact bound AAD/GitHub identity, tenant-based account kind, no cross-account substitution; local-only label lookup and GUID/path/credential/provider/input bounds |
 | `NativeSourceDiagnosticsTests.cs` | `NativeHttpInvariantTests.BoundsAndRedactsSourceDiagnostics` | Per-source/set deduplication, safe counts, truncation, bounded memory/log entries and concurrency |
 | `McpBridgeTests.cs` | `NativeHttpInvariantTests.ScopesMcpBridgeAuthorityAndReleasesItsView` | Exact owner bootstrap, view-scoped forwarding, protocol-only stdout, notification suppression and EOF cleanup |
+| `PresentationRouteTests.cs` | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.PresentationHttp.cs`, `NativePresentationHttpPersistsWithoutAcquisitionAndPreservesContentPriority` | Real native transport/capture counters; held-provider response under two seconds; complete persisted choices; genuine cross-view CAS/reconciliation; SDK attachment/layout authority; zero publication/selection writes; content-priority invalidation in both queue orders |
 
-The original assertion bodies are retained. The Sessions and adapter executable
+The original assertions are retained. The Sessions and adapter executable
 dispatchers become xUnit cases; each Sessions case owns a fresh directory and
 55-second cancellation budget. The Catalog executable is deliberate: one case
 starts its own child, commits, exits without a response, and verifies durable
-receipt recovery. Both projects build with the solution and run in the Windows
+receipt recovery. The projects build with the solution and run in the Windows
 and Linux CI matrix under the existing 60-second owned-process wrapper.
 
 Run after building the solution:
 
 ```powershell
 python eng\run-bounded.py --timeout 60 -- dotnet tests\Twig.Daemon.Catalog.Tests\bin\Debug\net11.0\Twig.Daemon.Catalog.Tests.dll
-python eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SessionInvariantTests|FullyQualifiedName~NativeHttpInvariantTests|FullyQualifiedName~NativeSourceAdapterInvariantTests|FullyQualifiedName~NativeAccountLabelInvariantTests" --logger "trx;LogFileName=daemon-invariants.trx" --results-directory artifacts\test-logs\ci\daemon-invariants
+python eng\verify-trx.py -- dotnet test tests\Twig.Daemon.Tests\Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SessionInvariantTests|FullyQualifiedName~NativeHttpInvariantTests|FullyQualifiedName~NativeSourceAdapterInvariantTests|FullyQualifiedName~NativeAccountLabelInvariantTests|FullyQualifiedName~CatalogChangesTests" --logger "trx;LogFileName=daemon-invariants.trx" --results-directory artifacts\test-logs\ci\daemon-invariants
+python eng\verify-trx.py -- dotnet test tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativePresentationHttpPersistsWithoutAcquisitionAndPreservesContentPriority" --logger "trx;LogFileName=presentation-http.trx" --results-directory artifacts\test-logs\ci\presentation-http
 ```
+
+The presentation case reuses the existing provider-owned CLI fixture directly,
+including its real native SQLite stores and synthetic provider HTTP transport.
+The CLI test project references the production daemon, not another test project.
+No source links, new friend identities or production hooks are needed. The
+original complete-choice comparison uses the public `view-state` JSON response
+instead of the daemon's internal serializer; the second view uses the same
+explicit store/profile pair. These are runner adaptations, not reduced assertions.
+
+Current-main advisory queue overflow uses an all-resource `Resync` signal instead
+of retaining the original literal content revision. Both content/presentation
+queue orders assert this stronger invalidation: `Resync` is true, the signal is
+neither presentation-only nor agent-scoped, and exactly one signal remains
+buffered. The standalone overflow theory covers both orders as well. This
+preserves content invalidation without narrowing the current multi-resource
+notification contract.
+
+The existing host-utility and fresh-init fixtures explicitly register their
+provider connection and named credential before exercising implicit registered
+connection selection. They do not rely on retired `--default` flags or legacy
+default-binding fallback; explicit-binding initialization remains a separate case.
 
 ## Narrow supported-behavior restorations
 
@@ -113,10 +136,9 @@ This is not permission to delete the whole Canvas native integration lane:
   not copied. Default native HTTP assertions are unchanged.
 - `AgentRouteTests` scenarios (`diagnostics`, `access`, `membership`, `rules`,
   `rule-guards`, `draft`, `connections`, `connection-guards`, `owner-automatic`,
-  `mcp`) and `PresentationRouteTests` remain coupled to the ADO editor fixture.
-  Their HTTP composition, real native capture/provider-call counters and
-  presentation-only zero-acquisition assertions are **not replaced** by these
-  synthetic gateway tests.
+  `mcp`) remain coupled to the ADO editor fixture. Their HTTP composition and
+  real native capture/provider-call assertions are **not replaced** by either
+  the synthetic gateway suites or the distinct presentation HTTP case.
 - `AdoEditorTests`, `EditorChoiceFixture`, `GitHubEditorTests`,
   `GitHubLocalRelationshipTests`, `NormalSeedTests`, `PlanTests`,
   `RelationshipTests` and `Bench.NativeFixtures/*.cs` remain upstream.
@@ -124,6 +146,11 @@ This is not permission to delete the whole Canvas native integration lane:
   HTTP/browser composition, ticket/digest/journal/uncertain-delivery assertions.
 - Source/artifact stamp suites are source-pairing checks, not adopted provider
   behavior.
+- Canvas's pinned `e65c659` periodic metadata lifecycle is not restored here:
+  the 15-minute admission-bound discovery/retry schedule, startup sweep,
+  failure continuation and durable denial/cancellation fencing remain a
+  separate existing-behavior disposition. Ordinary-read cache retention and
+  explicit recheck tests do not establish that background lifecycle.
 
 All executed HTTP tests use owned ephemeral loopback listeners and synthetic
 provider/owner seams, or the real reader's uninitialized-directory refusal.

@@ -31,7 +31,7 @@ public sealed class NativeSourceAdapterInvariantTests
     public Task RetainsAdmissionAndCacheGuards(string scenario)
         => cases.Single(test => test.Name == scenario).Run();
 
-private static readonly (string Name, Func<Task> Run)[] cases = 
+private static readonly (string Name, Func<Task> Run)[] cases =
 {
     ("reselecting an admitted connection revalidates online without rediscovering its full schema", async () =>
     {

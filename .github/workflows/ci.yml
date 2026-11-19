@@ -40,6 +40,18 @@ jobs:
 
       - name: Native authority, lost acknowledgement recovery and independent canvas packages
         run: python eng/ci-checks.py native-authority
+      - name: Daemon catalog identity, CAS and durable lost-response receipts (isolated)
+        run: python eng/run-bounded.py --timeout 60 -- dotnet tests/Twig.Daemon.Catalog.Tests/bin/Debug/net11.0/Twig.Daemon.Catalog.Tests.dll
+      - name: Provider-owned daemon sessions, native HTTP and admission guards (isolated)
+        id: daemon_invariants
+        run: python eng/verify-trx.py -- dotnet test tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SessionInvariantTests|FullyQualifiedName~NativeHttpInvariantTests|FullyQualifiedName~NativeSourceAdapterInvariantTests|FullyQualifiedName~NativeAccountLabelInvariantTests" --logger "trx;LogFileName=daemon-invariants.trx" --results-directory artifacts/test-logs/ci/daemon-invariants
+      - name: Preserve provider-owned daemon invariant results
+        if: always() && steps.daemon_invariants.outcome != 'skipped' && steps.daemon_invariants.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-daemon-invariants-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/daemon-invariants/*.trx
+          if-no-files-found: error
       - name: Standalone daemon installer orchestration (synthetic only)
         if: runner.os == 'Windows'
         shell: powershell

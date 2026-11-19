@@ -9,7 +9,7 @@ public sealed record NativeViewChoices(string? ViewingRoot, string? AddRoot, str
     string? TeamId, string Mode, string? QueryId, string? BacklogId, Guid? BenchId, string Layout,
     Guid? GroupSource, string? GroupField, string? RepositoryRoot = null)
 {
-    public static NativeViewChoices Empty => new(null, null, [], null, "items", null, null, null, "list", null, null);
+    public static NativeViewChoices Empty => new(null, null, [], null, "items", null, null, null, "tree", null, null);
 }
 
 public sealed record NativeViewStateBody(long ExpectedRevision, NativeViewChoices Choices);

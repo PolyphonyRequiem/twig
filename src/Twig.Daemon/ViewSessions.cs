@@ -39,7 +39,7 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal string? ContentHash { get; set; }
     internal bool Attached { get; set; }
     internal Guid ProfileId { get; set; }
-    internal ViewPreferences Preferences { get; set; } = new(0, null, "list", null, null);
+    internal ViewPreferences Preferences { get; set; } = new(0, null, "tree", null, null);
     internal NativeEditorView Editor { get; } = new();
     internal NativePlanView Plan { get; } = new();
     internal NativeSetupView Setup { get; } = new();

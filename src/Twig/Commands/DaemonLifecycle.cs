@@ -40,7 +40,8 @@ internal static class DaemonLifecycle
             return 0;
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or UnauthorizedAccessException
-            or ArgumentException or NotSupportedException or Win32Exception or JsonException or InvalidDataException)
+            or ArgumentException or NotSupportedException or Win32Exception or JsonException or InvalidDataException
+            or OperationCanceledException)
         {
             Error(error.Message, json);
             return 1;
@@ -78,10 +79,10 @@ internal static class DaemonLifecycle
 
     private static Task<string> ReadInstalledEndpointAsync() => RunWindowsOperatorAsync("endpoint");
 
-    internal static async Task<string> ReadEndpointOutputAsync(TextReader reader)
+    internal static async Task<string> ReadEndpointOutputAsync(TextReader reader, CancellationToken token = default)
     {
         var buffer = new char[4097];
-        var count = await reader.ReadBlockAsync(buffer, 0, buffer.Length);
+        var count = await reader.ReadBlockAsync(buffer.AsMemory(), token);
         var output = new string(buffer, 0, count);
         if (System.Text.Encoding.UTF8.GetByteCount(output) > 4096)
             throw new InvalidDataException("Oversized daemon endpoint response.");
@@ -124,19 +125,18 @@ internal static class DaemonLifecycle
             if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidOperationException("A daemon installation cannot use reparse-point paths.");
 
+        if (action == "endpoint") return await DaemonEndpointProcess.RunAsync(launcher, root);
         var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
         {
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = root,
         };
         foreach (var arg in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-File", launcher,
             action switch { "start" => "-EnsureRunning", "status" => "-Status", "stop" => "-Stop",
-                "endpoint" => "-Endpoint",
                 _ => throw new ArgumentException("Unknown lifecycle operation.") } })
             start.ArgumentList.Add(arg);
         using var process = Process.Start(start) ?? throw new IOException("The installed daemon launcher did not run.");
         var errors = process.StandardError.ReadToEndAsync();
-        var output = action == "endpoint" ? await ReadEndpointOutputAsync(process.StandardOutput)
-            : (await process.StandardOutput.ReadToEndAsync()).Trim();
+        var output = (await process.StandardOutput.ReadToEndAsync()).Trim();
         await process.WaitForExitAsync();
         if (process.ExitCode != 0)
             throw new InvalidOperationException($"The daemon launcher exited with code {process.ExitCode}: {(await errors).Trim()}");

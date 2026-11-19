@@ -80,6 +80,13 @@ A selection change observed during discovery is also an error. Linux's headless
 command host has no HTTPS/Canvas endpoint, so `endpoint` fails explicitly there.
 Human output is `Twig server endpoint is <origin>.`; minimal output is the origin.
 Neither includes a readiness assertion. Future optional JSON members may be added.
+Discovery has a 20-second deadline, bounds operator stdout and stderr separately
+to 4096 UTF-8 bytes, and owns its Windows operator process tree. Oversized output,
+read failure, cancellation, timeout or operator exit terminates residual discovery
+children; abrupt CLI termination closes a kill-on-close job. The selected launcher
+cannot execute until assigned to that job. Cleanup has a two-second confirmation
+budget and reports an error if termination cannot be confirmed. This ownership
+applies only to read-only endpoint discovery, not the shared daemon's lifecycle.
 
 Consumers should discover before launching their presentation host, use
 `twig server start` for authenticated readiness, and discover again afterward

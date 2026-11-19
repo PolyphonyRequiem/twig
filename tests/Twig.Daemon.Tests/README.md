@@ -119,6 +119,11 @@ buffered. The standalone overflow theory covers both orders as well. This
 preserves content invalidation without narrowing the current multi-resource
 notification contract.
 
+The existing host-utility and fresh-init fixtures explicitly register their
+provider connection and named credential before exercising implicit registered
+connection selection. They do not rely on retired `--default` flags or legacy
+default-binding fallback; explicit-binding initialization remains a separate case.
+
 ## Narrow supported-behavior restorations
 
 The original tests exposed two behaviors present in Canvas's pinned provider

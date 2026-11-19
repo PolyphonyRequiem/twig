@@ -1942,6 +1942,13 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     public async Task CoreInitNativeAuthorityFailureNeverCreatesAStoreOrReusesPartialEvidence(string defect)
     {
         await AttachAsync();
+        if (defect is "wrong-principal" or "changed-binding")
+        {
+            var registry = new ProviderConnectionRegistry(_bindings.RegistryPath);
+            var requirement = ProviderConnectionRequirement.Create("ado", "fixture", "Project");
+            await registry.AddAsync(requirement);
+            await registry.BindAsync(requirement, new("ado", "actor"));
+        }
         var root = Path.Combine(_temp, "refused-native-init");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
@@ -1954,6 +1961,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 : Array.Empty<string>()).ToArray();
         _transport.CoreMetadataEnabled = true;
         if (defect == "wrong-principal") _transport.ObservedPrincipalOverride = Sibling;
+        var bindingChanged = false;
         if (defect == "changed-binding")
             _transport.BeforeProjectMetadata = async () =>
             {
@@ -1961,6 +1969,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 var json = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(attachment))!;
                 json["bindingPin"] = sibling.BindingId;
                 await File.WriteAllTextAsync(attachment, json.ToJsonString());
+                bindingChanged = true;
             };
         var workRequests = _transport.WorkRequests;
         var requests = _transport.TotalRequests;
@@ -1994,6 +2003,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             }
             else
             {
+                _transport.TotalRequests.ShouldBeGreaterThan(requests);
+                if (defect == "changed-binding") bindingChanged.ShouldBeTrue();
+                else error.RootElement.GetProperty("error").GetString()!.ShouldContain(nameof(ConnectionIdentityMismatchException));
                 File.Exists(Path.Combine(root, ".twig", "attachment.json")).ShouldBeTrue();
                 var files = Directory.GetFiles(Path.Combine(root, ".twig"), "*", SearchOption.AllDirectories)
                     .ToDictionary(file => file, File.ReadAllBytes);

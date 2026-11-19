@@ -1808,6 +1808,13 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         bool explicitStore, string format, bool explicitBinding)
     {
         await AttachAsync();
+        if (!explicitBinding)
+        {
+            var registry = new ProviderConnectionRegistry(_bindings.RegistryPath);
+            var requirement = ProviderConnectionRequirement.Create("ado", "fixture", "Project");
+            await registry.AddAsync(requirement);
+            await registry.BindAsync(requirement, new("ado", "actor"));
+        }
         var root = Path.Combine(_temp, "fresh-core-checkout");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();

@@ -184,15 +184,15 @@ public sealed partial class NativePublicationConsumerTests
                 var operation = UserBenchStore.ParseIntent(capture.IntentJson).Operations.ShouldHaveSingleItem();
                 operation.Fields.Count.ShouldBe(0);
                 var before = await Snapshot();
-                var target = before.Items.Single(item => item.Key.NativeId == "42");
+                var item = before.Items.Single(item => item.Key.NativeId == "42");
                 var other = before.Items.Single(item => item.Key.NativeId == "43");
-                operation.Item.ShouldBe(target.Key);
+                operation.Item.ShouldBe(item.Key);
                 operation.Links.ShouldBe([new(other.Key, relation, false, true)]);
                 before.Drafts.ShouldHaveSingleItem().Changes.Count.ShouldBe(0);
                 before.Drafts.Single().Links.ShouldBeEmpty();
                 before.Proposals.ShouldBeEmpty();
                 before.Journal.ShouldBeEmpty();
-                before.Relationships.ShouldContain(new(other.Key, target.Key, relation, RelationshipOrigin.Provider));
+                before.Relationships.ShouldContain(new Relationship(other.Key, item.Key, relation, RelationshipOrigin.Provider));
                 HumanPatchAttempts.ShouldBe(0);
                 _transport.CommittedWrites.ShouldBe(0);
                 var scalar = await Ok("/editor", open);

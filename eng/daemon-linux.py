@@ -71,6 +71,7 @@ def inventory(package):
     require({"Bench.Server", "Bench.Server.dll", "libcoreclr.so", "libhostfxr.so",
              "Twig.Providers.Native.dll", "Twig.Store.Sqlite.dll"} <= files.keys(),
             "Incomplete Linux x64 daemon package.")
+    require(not {"twig", "twig.exe"} & files.keys(), "A daemon package must not bundle the independent CLI executable.")
     require(os.access(package / "Bench.Server", os.X_OK), "Bench.Server is not executable.")
     return files
 

@@ -18,6 +18,7 @@
     <Project Path="samples/Twig.DetailHost/Twig.DetailHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Twig.Daemon.Catalog.Tests/Twig.Daemon.Catalog.Tests.csproj" />
     <Project Path="tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj" />
     <Project Path="tests/Twig.Core.Tests/Twig.Core.Tests.csproj" />
     <Project Path="tests/Twig.Providers.Ado.Tests/Twig.Providers.Ado.Tests.csproj" />

@@ -18,7 +18,7 @@ using Twig.Store.Sqlite;
 
 namespace Twig.Daemon.Tests.Native;
 
-internal static class NativePanelTests
+internal static partial class NativePanelTests
 {
     private sealed class SavedAccountGateway : INativeConnectionSetupGateway
     {
@@ -428,6 +428,19 @@ internal static class NativePanelTests
         internal bool AuthorityChanged { get; set; }
         internal TimeSpan OnlineDelay { get; set; }
         internal int OnlineReads { get; private set; }
+        internal int SchemaReads { get; private set; }
+        internal bool SchemaUnavailable { get; set; }
+        internal bool DiagnosticFixture { get; init; }
+        internal bool ProcessFixture { get; init; }
+        internal bool MissingProcessMetadata { get; set; }
+        internal bool ProcessChanged { get; set; }
+        internal int DiagnosticRevision { get; set; } = 1;
+        internal int DiagnosticCount { get; set; } = 111;
+        private ImmutableArray<string> DiagnosticMessages => DiagnosticFixture
+            ? Enumerable.Range(1, DiagnosticCount).Select(index =>
+                $"SYNTHETIC_DIAGNOSTIC_{index:D3} revision {DiagnosticRevision}: unsupported native process metadata should remain in local logs, never above the work table. " +
+                """{"authorization":"Bearer SYNTHETIC_SECRET_MUST_NOT_LOG","value":"SYNTHETIC_ITEM_CONTENT_MUST_NOT_LOG"}""").ToImmutableArray()
+            : [];
         internal List<string> ReadRoots { get; } = [];
         private readonly Dictionary<string, Guid?> selections = new(StringComparer.Ordinal);
         internal void SeedSelection(string root, Guid id) => selections[root] = id;
@@ -460,6 +473,12 @@ internal static class NativePanelTests
         public Task<Result<NativeSourceObservation>> ReadAsync(string root, NativeSourceStamp? expected, bool observeSchema, CancellationToken ct)
         {
             ReadRoots.Add(root);
+            if (observeSchema)
+            {
+                SchemaReads++;
+                if (SchemaUnavailable) return Task.FromResult(Result<NativeSourceObservation>.Fail(
+                    ErrorCode.Unavailable, "Synthetic schema discovery unavailable."));
+            }
             if (ReadConflict) return Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic definition/context changed during read."));
             if (PolicyDenied) return Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.PolicyViolation, "Synthetic native selection-read denial."));
             if (AuthorityChanged && expected is not null) return Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic native authority changed."));
@@ -475,13 +494,39 @@ internal static class NativePanelTests
                     new("System.Description", FieldKind.Text)], [], [], []);
             var item = new WorkItem(key, type.Reference, fields, new(key, "1"), true);
             var items = new List<WorkItem> { item };
+            if (DiagnosticFixture) foreach (var number in Enumerable.Range(43, 2))
+            {
+                var extra = ItemKey.Remote(connection.Provider, connection.ResourceScope, number.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                items.Add(new(extra, type.Reference, fields.Set("System.Title", FieldValue.String("Synthetic cached item " + number)), new(extra, "1"), true));
+            }
             ItemType[] types = [type];
-            var drafts = new[] { new Draft(key, type.Reference, item, fields), new Draft(local, type.Reference, null, fields) };
+            if (ProcessFixture)
+            {
+                var unit = new ItemType(ProcessChanged ? "Orion.Decision" : "Nebula.CustomUnit", "Custom.UnitPhase",
+                    type.Fields.Append(new("Custom.UnitPhase", FieldKind.Text, Name: "Decision phase")),
+                    [new("Waiting for quorum", StateCategory.InProgress, "7ECAF5")], [], [],
+                    presentation: new("Decision unit", "DA7C3A", "custom_observed_prism", IconSvg:
+                        """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#DA7C3A" d="M8 1 15 14H1Z"/></svg>"""));
+                var signal = new ItemType(ProcessChanged ? "Orion.Signal" : "Nebula.SignalUnit", "Custom.SignalPhase",
+                    type.Fields.Append(new("Custom.SignalPhase", FieldKind.Text, Name: "Signal phase")),
+                    [new("Waiting for quorum", StateCategory.InProgress, "F8BD78")], [], [],
+                    presentation: new("Signal unit", "50C7A7", "custom_observed_diamond", IconSvg:
+                        """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#50C7A7" d="m8 1 7 7-7 7-7-7Z"/></svg>"""));
+                types = MissingProcessMetadata ? [unit] : [unit, signal];
+                items = items.Select((current, index) =>
+                {
+                    var observedType = index == 1 ? signal : unit;
+                    var observedFields = current.Fields.Set(observedType.StateField,
+                        FieldValue.String(index == 2 ? "Not in roster" : "Waiting for quorum"));
+                    return new WorkItem(current.Key, observedType.Reference, observedFields, current.Revision, true);
+                }).ToList();
+            }
+            var drafts = DiagnosticFixture ? [] : new[] { new Draft(key, type.Reference, item, fields), new Draft(local, type.Reference, null, fields) };
             return Task.FromResult(Result<NativeSourceObservation>.Ok(new(stamp, new(1, items, drafts: drafts),
                 DateTimeOffset.UtcNow, observeSchema ? Result<ProcessSchema>.Ok(new(connection, types,
-                    [new("Synthetic.Hierarchy", RelationShape.Hierarchy, true)], [], webUrl: "https://dev.azure.com/synthetic/project/")
+                    [new("Synthetic.Hierarchy", RelationShape.Hierarchy, true)], DiagnosticMessages, webUrl: "https://dev.azure.com/synthetic/project/")
                     { Planning = planning, PlanningCalendars = calendars.Values.ToImmutableArray(), Memberships = memberships.ToImmutableArray() }) : null,
-                observeSchema ? DateTimeOffset.UtcNow : null) { WorkspaceExclusions = [new(SelectorKind.Pin, key, connection: connection)],
+                observeSchema ? DateTimeOffset.UtcNow : null) { WorkspaceExclusions = DiagnosticFixture ? [] : [new(SelectorKind.Pin, key, connection: connection)],
                     SelectedBenchId = selections.GetValueOrDefault(root), Planning = planning,
                     PlanningCalendars = calendars.Values.ToImmutableArray(), Memberships = memberships.ToImmutableArray() }));
         }
@@ -498,7 +543,7 @@ internal static class NativePanelTests
             var now = DateTimeOffset.UtcNow;
             planning = new(now, ["Synthetic\\Area"],
                 [new("Synthetic\\Current", now.AddDays(-1), now.AddDays(1)), new("Synthetic\\Next", now.AddDays(2), now.AddDays(3))],
-                [], TeamA);
+                DiagnosticMessages, TeamA);
             calendars[TeamA] = planning;
             return ReadAsync(root, expected, true, ct);
         }
@@ -525,7 +570,7 @@ internal static class NativePanelTests
             var now = DateTimeOffset.UtcNow;
             var metadata = new PlanningMetadata(now, ["Synthetic\\Area", "Synthetic\\Area\\Child"],
                 [new(team == TeamB ? "Synthetic\\OtherCurrent" : "Synthetic\\Current", now.AddDays(-1), now.AddDays(1), team is not null),
-                    new(team == TeamB ? "Synthetic\\OtherNext" : "Synthetic\\Next", now.AddDays(2), now.AddDays(3), team is not null)], [], team);
+                    new(team == TeamB ? "Synthetic\\OtherNext" : "Synthetic\\Next", now.AddDays(2), now.AddDays(3), team is not null)], DiagnosticMessages, team);
             calendars[team ?? ""] = metadata;
             var saved = await store.SavePlanningAsync(connection, team ?? "", metadata, ct);
             if (!saved.IsSuccess) return Result<NativeSourceObservation>.Fail(saved.Error);

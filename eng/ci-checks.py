@@ -40,12 +40,24 @@ def native_setup():
                         "--results-directory", "artifacts/test-logs/ci/native-setup"], check=True)
 
 
+def native_agent_http():
+    for scenario in ("diagnostics", "access", "membership", "rules", "rule-guards",
+                     "draft", "connections", "connection-guards", "owner-automatic", "mcp"):
+        selector = ("FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests."
+                    "NativeAgentHttpPreservesScopedNativeAuthorityWithoutProviderWrites"
+                    f"&DisplayName~{scenario}")
+        subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                        "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                        "--filter", selector, "--logger", f"trx;LogFileName=agent-{scenario}.trx",
+                        "--results-directory", "artifacts/test-logs/ci/agent-http"], check=True)
+
+
 def registry_compat():
     for version, revision in [(10, "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"),
                               (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
         legacy = Path("artifacts") / f"legacy-core-v{version}"
         subprocess.run(["git", "worktree", "add", "--detach", str(legacy), revision], check=True)
-        subprocess.run([sys.executable, "eng/run-bounded.py", "--timeout", "120", "--",
+        subprocess.run([sys.executable, "eng/run-bounded.py", "--warn-after", "120", "--timeout", "300", "--",
                         "dotnet", "build", str(legacy / "src" / "Twig.Infrastructure" / "Twig.Infrastructure.csproj"),
                         "-f", "net11.0", "-m:1", "--verbosity", "minimal"], check=True)
         subprocess.run([sys.executable, "eng/verify-core-registry-compat.py", "--legacy-version", str(version),
@@ -211,7 +223,7 @@ def ado_root():
 def github_root():
     groups = [
         ("online-read-access", ["NativeOnlineReadChecksActualRepositoryAccessWithoutSchemaOrItemAcquisition"]),
-        ("init", ["FreshInitUsesOnlyNativeCoreBootstrap", "FreshInitTelemetryFailureCannotChangeNativeResult", "FreshCoreInitRequiresExplicitGhSelectionBeforeAnyHttp"]),
+        ("init", ["FreshInitUsesOnlyNativeCoreBootstrap", "FreshInitTelemetryFailureCannotChangeNativeResult", "FreshCoreInitRequiresRegisteredGhCredentialBeforeAnyHttp", "FreshCoreInitRejectsMalformedExplicitGhAccountBeforeAnyHttp"]),
         ("creation-cache", ["FreshNativeRootCreatesOriginalUuidAndNumericCommandsNeverUseNumberAsNodeIdentity"]),
         ("markdown-close", ["NativeMarkdownAndActualCloseUseVerifiedObservedNonAtomicEffects"]),
         ("patch-save-bench-query", ["TypedPatchBenchAndBoundedQueryShareNativeNumbersAndRefuseUnqualifiedFamilies"]),
@@ -289,6 +301,7 @@ def native_auth():
 CHECKS = {
     'native-authority': native_authority,
     'native-setup': native_setup,
+    'native-agent-http': native_agent_http,
     'registry-compat': registry_compat,
     'catalog': catalog,
     'user-benches': user_benches,

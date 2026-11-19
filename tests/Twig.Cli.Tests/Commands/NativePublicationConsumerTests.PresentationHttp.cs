@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -156,6 +157,9 @@ public sealed partial class NativePublicationConsumerTests
         internal int SchemaReads { get; private set; }
         internal int OnlineReads { get; private set; }
         internal int SelectionWrites { get; private set; }
+        internal bool RefuseEditor { get; set; }
+        internal int ProfileReads { get; private set; }
+        internal ImmutableArray<string> ProfileIdentities { get; private set; } = [];
         internal Action<string>? Trace { get; set; }
         private TaskCompletionSource? onlineGate;
 
@@ -193,6 +197,36 @@ public sealed partial class NativePublicationConsumerTests
         {
             SelectionWrites++;
             return fixture.SelectHumanBenchAsync(root, expected, previous, next, ct);
+        }
+
+        public Task<Result<NativeItemEditor>> OpenEditorAsync(string root, Guid bench,
+            NativeSourceStamp expected, CancellationToken ct)
+            => RefuseEditor
+                ? Task.FromResult(Result<NativeItemEditor>.Fail(ErrorCode.Unavailable, "Synthetic native editor refusal."))
+                : fixture.OpenHumanHostAsync(root, bench, expected, ct);
+
+        public Task<Result<NativeItemEditor>> OpenExistingEditorAsync(string root, Guid bench,
+            NativeSourceStamp expected, CancellationToken ct)
+            => NativeItemEditor.OpenAsync(root, bench, expected, fixture.ConfigureHumanEditor, ct, prepareScope: false);
+
+        public Task<Result<NativePlanReview>> ReviewPlanAsync(string root, Guid bench,
+            ImmutableArray<NativePlanSource> sources, CancellationToken ct)
+            => fixture.ReviewHumanPlanAsync(root, bench, sources, ct);
+
+        public Task<Result<NativePlanReview>> OpenPlanReviewAsync(string root, string digest, CancellationToken ct)
+            => fixture.OpenHumanPlanReviewAsync(root, digest, ct);
+
+        public async Task<Result<NativeSourceObservation>> ReadIdentityProfilesAsync(string root,
+            NativeSourceStamp expected, ImmutableArray<string> identities, CancellationToken ct)
+        {
+            ProfileReads++;
+            ProfileIdentities = identities;
+            var observed = await ReadOnlineAsync(root, expected, ct);
+            return observed.IsSuccess ? Result<NativeSourceObservation>.Ok(observed.Value with
+            {
+                IdentityProfiles = identities.Select(identity => new IdentityProfile(identity,
+                    "Synthetic Full Name", null, "Synthetic photo unavailable")).ToImmutableArray(),
+            }) : observed;
         }
     }
 }

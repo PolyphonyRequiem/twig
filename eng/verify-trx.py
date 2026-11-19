@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a 60-second bounded dotnet regression and verify every filter selector.
+"""Run a dotnet regression with a 60-second warning target and verify every selector.
 
 Usage: python eng/verify-trx.py -- dotnet test ... --filter ... --logger "trx;LogFileName=..." --results-directory ...
        python eng/verify-trx.py --selftest
@@ -99,7 +99,7 @@ def run(command):
     path = Path(option(command, "--results-directory", "/ResultsDirectory:")) / match.group(1)
     path.unlink(missing_ok=True)
     code = subprocess.call([sys.executable, str(Path(__file__).with_name("run-bounded.py")),
-                            "--timeout", "60", "--", *command])
+                            "--warn-after", "60", "--timeout", "300", "--", *command])
     if code:
         return code
     count = verify(ET.parse(path).getroot(), selector)

@@ -164,6 +164,12 @@ has one TRX logger; produced TRX files are uploaded even when a later row fails.
 Scenario strings do not occur in the method names, so display-name filters
 cannot inadvertently select an entire theory.
 
+Scalar cases emit monotonic fixture, listener and HTTP request/response phase
+timings with actual provider-request and write counters into xUnit output.
+These diagnostic lines contain no request bodies or capabilities, do not catch
+timeouts, and do not change the assertions or any request/case/process deadline.
+A passing diagnostic run does not supersede a failed qualification gate.
+
 ADO capability and CSRF refusals precede any provider acquisition or capture.
 The successful normal Save verifies all three fields through native cache and
 journal readback and dispatches exactly one PATCH; closing a freshly opened

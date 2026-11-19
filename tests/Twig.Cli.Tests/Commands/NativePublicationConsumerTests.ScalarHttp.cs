@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -26,9 +27,14 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("relationship-debt")]
     public async Task NativeAdoScalarHttpUsesQualifiedNativeAuthority(string scenario)
     {
+        var clock = Stopwatch.StartNew();
+        void Phase(string phase) => _agentHttpOutput?.WriteLine(
+            $"ADO scalar {scenario} {clock.Elapsed.TotalMilliseconds:F0}ms: {phase}; providerRequests={_transport.TotalRequests}, patches={HumanPatchAttempts}");
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
         var ct = deadline.Token;
+        Phase("initializing fixture");
         var fixture = await CreateHumanHostAsync().WaitAsync(ct);
+        Phase("fixture ready");
         var store = UserBenchStore.ForRegistry(fixture.Registry);
         if (scenario.StartsWith("policy-", StringComparison.Ordinal))
         {
@@ -69,6 +75,7 @@ public sealed partial class NativePublicationConsumerTests
         var owned = sessions.Content(human.ViewId, human.ContentCapability, true);
         await using var app = NativeBenchHost.Build(new(0, directory), panel, sessions, changes);
         await app.StartAsync(ct);
+        Phase("host listening");
         try
         {
             using var client = new HttpClient
@@ -85,8 +92,10 @@ public sealed partial class NativePublicationConsumerTests
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capability ?? human.ContentCapability);
                 if (body is not null)
                     request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
+                Phase($"request {method} {path}");
                 using var response = await client.SendAsync(request, ct);
                 var text = await response.Content.ReadAsStringAsync(ct);
+                Phase($"response {(int)response.StatusCode} {method} {path}");
                 text.ShouldNotBeNullOrWhiteSpace(path);
                 return (response.StatusCode, JsonNode.Parse(text)!);
             }

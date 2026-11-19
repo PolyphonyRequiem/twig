@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -26,10 +27,15 @@ public sealed partial class GitHubCoreSpineTests
     [InlineData("apply")]
     public async Task NativeGitHubScalarHttpUsesQualifiedNativeAuthority(string scenario)
     {
+        var clock = Stopwatch.StartNew();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
         var ct = deadline.Token;
         using var native = new HumanEditorFixture();
+        void Phase(string phase) => _linkHttpOutput?.WriteLine(
+            $"GitHub scalar {scenario} {clock.Elapsed.TotalMilliseconds:F0}ms: {phase}; providerRequests={native.Native.Http.Requests}, writes={native.Writes}");
+        Phase("initializing fixture");
         var fixture = await native.InitializeAsync().WaitAsync(ct);
+        Phase("fixture ready");
         fixture.Stamp.Connection.Provider.Value.ShouldBe("github");
         native.Writes.ShouldBe(0);
         var directory = Path.GetDirectoryName(fixture.Registry)!;
@@ -45,6 +51,7 @@ public sealed partial class GitHubCoreSpineTests
         var owned = sessions.Content(human.ViewId, human.ContentCapability, true);
         await using var app = NativeBenchHost.Build(new(0, directory), panel, sessions, changes);
         await app.StartAsync(ct);
+        Phase("host listening");
         try
         {
             using var client = new HttpClient
@@ -61,8 +68,10 @@ public sealed partial class GitHubCoreSpineTests
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capability ?? human.ContentCapability);
                 if (body is not null)
                     request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
+                Phase($"request {method} {path}");
                 using var response = await client.SendAsync(request, ct);
                 var text = await response.Content.ReadAsStringAsync(ct);
+                Phase($"response {(int)response.StatusCode} {method} {path}");
                 text.ShouldNotBeNullOrWhiteSpace(path);
                 return (response.StatusCode, JsonNode.Parse(text)!);
             }

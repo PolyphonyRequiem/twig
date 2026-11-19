@@ -28,7 +28,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSEMBLIES = ("Cli", "Core", "Store.Sqlite", "Providers.Ado", "Providers.GitHub",
-              "Infrastructure", "RenderTree")
+              "Providers.Native", "Daemon", "Infrastructure", "RenderTree")
 HOST_CLASSES = {
 }
 HOST_CLASSES = set(HOST_CLASSES)

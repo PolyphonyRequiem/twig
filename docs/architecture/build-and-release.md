@@ -46,6 +46,75 @@ The separately maintained `twig-bench-canvas` package owns presentation delivery
 See [daemon operations](../daemon.md) for prerequisites, selection records,
 launching, and upgrades.
 
+### Paired distribution readiness
+
+Source-free Windows Canvas operation needs **both** an endpoint-aware CLI and
+the independent Windows daemon archive. CLI endpoint discovery first entered
+source in `afbd71e212d0b24be21f92861d2b1e9ea31004f4`; a release number alone
+is not evidence that it contains that commit. Check the actual release tag and
+assets before claiming an available compatible pair.
+
+| Boundary | Supported contract |
+| --- | --- |
+| Windows CLI | `twig server endpoint -o json`; bounded origin, certificateThumbprint, selectionId and nullable daemonId; `server start/status/stop` for lifecycle |
+| Windows daemon | Self-contained `win-x64`; `twig-bench-service-v1`; runtime manifest schema 1 and operator selection schema 4 |
+| Linux CLI/daemon | Self-contained `linux-x64`; headless `twig-command-v1`, owner-only IPC/control; no Canvas HTTPS endpoint |
+| Version binding | CLI MinVer `v*` tags; independent daemon `daemon-v*` tags; daemon runtime version is an exact source SHA with a closed file-hash inventory |
+
+Process/type/field/state models remain data, not compatibility version numbers.
+No CLI executable is permitted in a daemon runtime; its managed `twig.dll`
+dependency is currently required by the daemon command worker and is not an
+independently installed CLI. Neither archive supplies Canvas assets.
+
+For an uninstalled Windows candidate pair, from a clean commit:
+
+```powershell
+.\eng\daemon-package.ps1 -Output "$PWD\artifacts\candidate\daemon-win-x64" -PythonExecutable python
+python eng\run-bounded.py --timeout 120 -- dotnet publish src\Twig\Twig.csproj -c Release -r win-x64 --self-contained true "-m:1" --verbosity minimal -o artifacts\candidate\cli-win-x64
+if ($LASTEXITCODE -ne 0) { throw 'CLI candidate publish failed' }
+Compress-Archive -Path artifacts\candidate\cli-win-x64\* -DestinationPath artifacts\candidate\twig-win-x64.zip
+$hash = (Get-FileHash artifacts\candidate\twig-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$hash  twig-win-x64.zip" | Set-Content -Encoding ascii artifacts\candidate\twig-win-x64.zip.sha256
+.\eng\test-daemon-package.ps1 -Archive artifacts\candidate\twig-daemon-win-x64.zip -CliArchive artifacts\candidate\twig-win-x64.zip -PythonExecutable python
+```
+
+The verifier extracts both archives into disposable, explicit test roots. The
+installer fixture substitutes the external-command boundary before invocation:
+no certificate lookup, trust change, shared installation or Startup entry occurs.
+The actual apphosts communicate through an isolated commands-only daemon worker
+with a private metadata home; only local synthetic work items are changed.
+This covers package/IPC compatibility, not positive Windows TLS/owner trust.
+Existing `DaemonLauncherTests` cover mocked cold/warm readiness, concurrency,
+identity refusal, no-replay cancellation and selected-process stop. Synthetic
+upgrade/previous-record checks are not a live installed upgrade or rollback.
+
+The daemon workflow builds and retains both candidate archives separately on
+each platform and runs this gate before daemon publication. Linux additionally
+tests extracted-package installation and isolated headless lifecycle.
+Do not treat unrun platform jobs, synthetic certificate checks or a candidate
+artifact as a released/trusted installation.
+
+**Publication is a separate, explicitly authorized operation.** After review,
+merge and release approval, choose unused versions and an exact reviewed commit.
+The operator commands are:
+
+```powershell
+git tag "v$ApprovedCliVersion" $ReviewedCommit
+git tag "daemon-v$ApprovedDaemonVersion" $ReviewedCommit
+git push origin "refs/tags/v$ApprovedCliVersion" "refs/tags/daemon-v$ApprovedDaemonVersion"
+```
+
+These commands publish via the existing tag workflows; do not run them for
+build-only validation. They require repository tag-write permission and enabled
+Actions; release jobs require `contents: write`. CLI release also requires the
+`release` environment approval/configuration, approved Azure Trusted Signing
+OIDC access (`id-token: write` and the three `AZURE_SIGNING_*` variables), and
+`NUGET_API_KEY` for its library publication job. A successful daemon release
+alone does not satisfy CLI signing or publish the candidate CLI. Verify both
+releases' checksums, source commits and assets afterward. Trusted Windows
+endpoint/owner qualification and real install/upgrade/rollback remain separate
+operator-approved checks; never infer them from these build-only tests.
+
 ## Validation
 
 Run builds and tests serially to avoid collisions over build output. From the

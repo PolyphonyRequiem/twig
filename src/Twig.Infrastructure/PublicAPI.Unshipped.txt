@@ -1,4 +1,6 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeEditForm.InputBaseline.get -> string!
+Twig.Infrastructure.Services.NativeEditForm.InputBaseline.init -> void
 Twig.Infrastructure.Services.NativeConnectionSetup.DiscoverAdoAsync(Twig.Infrastructure.Services.NativeAdoDiscoveryRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAdoDiscoveryPage!>!>!
 Twig.Infrastructure.Services.NativeAdoDiscoveryScope
 Twig.Infrastructure.Services.NativeAdoDiscoveryScope.NativeAdoDiscoveryScope(Twig.Infrastructure.Services.NativeAadEnrollment! Enrollment, string! Kind, string? Organization = null, string? Project = null) -> void
@@ -69,7 +71,7 @@ override Twig.Infrastructure.Services.NativeAdoDiscoveryPage.ToString() -> strin
 static Twig.Infrastructure.Services.NativeAdoDiscoveryPage.operator !=(Twig.Infrastructure.Services.NativeAdoDiscoveryPage? left, Twig.Infrastructure.Services.NativeAdoDiscoveryPage? right) -> bool
 static Twig.Infrastructure.Services.NativeAdoDiscoveryPage.operator ==(Twig.Infrastructure.Services.NativeAdoDiscoveryPage? left, Twig.Infrastructure.Services.NativeAdoDiscoveryPage? right) -> bool
 Twig.Infrastructure.Services.UserRepositoryBindings
-Twig.Infrastructure.Services.UserRepositoryBindings.UserRepositoryBindings(string! RepositoryId, long Revision, System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!> Connections, System.Guid? DefaultBench) -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.UserRepositoryBindings(string! RepositoryId, long Revision, System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!> Connections, System.Guid? DefaultBench, string! RepositoryRoot) -> void
 Twig.Infrastructure.Services.UserRepositoryBindings.RepositoryId.get -> string!
 Twig.Infrastructure.Services.UserRepositoryBindings.RepositoryId.init -> void
 Twig.Infrastructure.Services.UserRepositoryBindings.Revision.get -> long
@@ -78,7 +80,9 @@ Twig.Infrastructure.Services.UserRepositoryBindings.Connections.get -> System.Co
 Twig.Infrastructure.Services.UserRepositoryBindings.Connections.init -> void
 Twig.Infrastructure.Services.UserRepositoryBindings.DefaultBench.get -> System.Guid?
 Twig.Infrastructure.Services.UserRepositoryBindings.DefaultBench.init -> void
-Twig.Infrastructure.Services.UserRepositoryBindings.Deconstruct(out string! RepositoryId, out long Revision, out System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!> Connections, out System.Guid? DefaultBench) -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.RepositoryRoot.get -> string!
+Twig.Infrastructure.Services.UserRepositoryBindings.RepositoryRoot.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.Deconstruct(out string! RepositoryId, out long Revision, out System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!> Connections, out System.Guid? DefaultBench, out string! RepositoryRoot) -> void
 Twig.Infrastructure.Services.UserRepositoryBindings.Equals(Twig.Infrastructure.Services.UserRepositoryBindings? other) -> bool
 Twig.Infrastructure.Services.UserRepositoryBindings.<Clone>$() -> Twig.Infrastructure.Services.UserRepositoryBindings!
 override Twig.Infrastructure.Services.UserRepositoryBindings.Equals(object? obj) -> bool

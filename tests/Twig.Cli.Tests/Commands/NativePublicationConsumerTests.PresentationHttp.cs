@@ -156,6 +156,7 @@ public sealed partial class NativePublicationConsumerTests
         internal bool RefuseEditor { get; set; }
         internal int ProfileReads { get; private set; }
         internal ImmutableArray<string> ProfileIdentities { get; private set; } = [];
+        internal Action<string>? Trace { get; set; }
         private TaskCompletionSource? onlineGate;
 
         internal void HoldOnline() => onlineGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -165,13 +166,24 @@ public sealed partial class NativePublicationConsumerTests
             bool observeSchema, CancellationToken ct)
         {
             if (observeSchema) SchemaReads++; else LocalReads++;
-            return fixture.ReadHumanHostAsync(root, expected, observeSchema, ct);
+            var trace = Trace;
+            trace?.Invoke(observeSchema ? "schema read started" : "local read started");
+            var pending = fixture.ReadHumanHostAsync(root, expected, observeSchema, ct);
+            return trace is null ? pending : Observe(pending, trace, observeSchema);
+
+            static async Task<Result<NativeSourceObservation>> Observe(Task<Result<NativeSourceObservation>> pending,
+                Action<string> trace, bool schema)
+            {
+                try { return await pending.ConfigureAwait(false); }
+                finally { trace(schema ? "schema read completed" : "local read completed"); }
+            }
         }
 
         public async Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected,
             CancellationToken ct)
         {
             OnlineReads++;
+            Trace?.Invoke("online gateway entered");
             if (onlineGate is { } held) await held.Task.WaitAsync(ct);
             return await fixture.ReadHumanOnlineAsync(root, expected, ct);
         }

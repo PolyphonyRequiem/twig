@@ -185,7 +185,11 @@ public sealed partial class NativeItemEditor
                     if (Model.Validate(candidate, candidate.Digest, schema, snapshot.Value, capabilities).IsEmpty) choices.Add(link);
                 }
         var intent = item.Capture is { } capture ? UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Links : [];
-        return Result<NativeRelationshipForm>.Ok(new(form.Value, item.Observation, endpoint, relations, choices.ToImmutable(), intent,
+        return Result<NativeRelationshipForm>.Ok(new(form.Value with
+        {
+            InputBaseline = form.Value.InputBaseline + ":" + editor.Workspace.DraftFingerprint(
+                snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint.Key)),
+        }, item.Observation, endpoint, relations, choices.ToImmutable(), intent,
             snapshot.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Provider && !edge.Deleted
                 && (edge.From == item.Observation.Key || edge.To == item.Observation.Key || edge.From == endpoint.Key || edge.To == endpoint.Key)).ToImmutableArray()));
     }

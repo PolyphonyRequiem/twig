@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -5,6 +7,7 @@ using System.Text.Json.Nodes;
 using Bench.Application;
 using Bench.Infrastructure;
 using Bench.Server;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,9 +24,14 @@ public sealed partial class NativePublicationConsumerTests
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
         var ct = deadline.Token;
+        var clock = Stopwatch.StartNew();
+        var phases = new ConcurrentQueue<(long Milliseconds, string Phase)>();
+        void Record(string phase) => phases.Enqueue((clock.ElapsedMilliseconds, phase));
         var fixture = await CreateHumanHostAsync();
+        Record("fixture created");
         var directory = Path.GetDirectoryName(fixture.Registry)!;
         var gateway = new NativeHttpGateway(this);
+        gateway.Trace = Record;
         var changes = new CatalogChanges();
         var store = UserBenchStore.ForRegistry(fixture.Registry);
         var panel = new NativePanel(store, gateway,
@@ -34,7 +42,19 @@ public sealed partial class NativePublicationConsumerTests
         var canvas = sessions.RegisterNativeCanvas(instance);
         var human = sessions.ConnectOwner(instance, canvas.ViewId, profile);
         await using var app = NativeBenchHost.Build(new(0, directory), panel, sessions, changes);
+        app.Use(async (http, next) =>
+        {
+            if (!http.Request.Path.Value!.EndsWith("/initial-view", StringComparison.Ordinal))
+            {
+                await next(http);
+                return;
+            }
+            Record("initial-view server entered");
+            try { await next(http); }
+            finally { Record("initial-view server exited"); }
+        });
         await app.StartAsync(ct);
+        Record("server started");
         try
         {
             using var client = new HttpClient
@@ -50,7 +70,12 @@ public sealed partial class NativePublicationConsumerTests
                 if (body is not null)
                     request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
                 using var response = await client.SendAsync(request, ct);
-                return (response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!);
+                Record("response buffered");
+                var content = await response.Content.ReadAsStringAsync(ct);
+                Record("response decoded");
+                var parsed = JsonNode.Parse(content)!;
+                Record("response parsed");
+                return (response.StatusCode, parsed);
             }
             var admitted = await Send("/context", HttpMethod.Put, new JsonObject { ["root"] = fixture.Root });
             admitted.Status.ShouldBe(HttpStatusCode.OK, admitted.Body.ToJsonString());
@@ -76,8 +101,28 @@ public sealed partial class NativePublicationConsumerTests
             gateway.HoldOnline();
             try
             {
-                var initial = await Send("/initial-view", HttpMethod.Post, new JsonObject())
-                    .WaitAsync(TimeSpan.FromSeconds(2), ct);
+                using var process = Process.GetCurrentProcess();
+                var cpuBefore = process.TotalProcessorTime;
+                ThreadPool.GetAvailableThreads(out var workersBefore, out var ioBefore);
+                Record("initial-view client sending");
+                var pending = Send("/initial-view", HttpMethod.Post, new JsonObject());
+                (HttpStatusCode Status, JsonNode Body) initial;
+                try { initial = await pending.WaitAsync(TimeSpan.FromSeconds(2), ct); }
+                catch (Exception error)
+                {
+                    ThreadPool.GetAvailableThreads(out var workersAfter, out var ioAfter);
+                    throw new InvalidOperationException(
+                        $"Initial-view failed without relaxing its two-second deadline. Task={pending.Status}; "
+                        + $"local={gateway.LocalReads - beforeLocal}, schema={gateway.SchemaReads - beforeSchema}, "
+                        + $"online={gateway.OnlineReads - beforeOnline}, http={_transport.TotalRequests - beforeHttp}, "
+                        + $"selection={gateway.SelectionWrites - beforeSelections}, PATCH={HumanPatchAttempts}; "
+                        + $"process CPU delta={(process.TotalProcessorTime - cpuBefore).TotalMilliseconds}ms; "
+                        + $"available workers={workersBefore}->{workersAfter}, IO={ioBefore}->{ioAfter}. "
+                        + "Recorder callbacks and response decoding/parsing are included in the original deadline."
+                        + Environment.NewLine
+                        + string.Join(Environment.NewLine, phases.Select(value => $"{value.Milliseconds}ms: {value.Phase}")),
+                        error);
+                }
                 initial.Status.ShouldBe(HttpStatusCode.OK, initial.Body.ToJsonString());
                 var view = initial.Body["initialView"]!["view"]!;
                 view["id"]!.GetValue<string>().ShouldBe(fixture.Bench.ToString("D"));

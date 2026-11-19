@@ -113,6 +113,10 @@ refuse content. Failed source reads remain explicit per-source failures, not
 fabricated empty membership; an admission change during final checking can
 refuse the entire read.
 
+Initial-view loading retains its single full local observation per restored
+source and final admission/profile/Plan checks. Only the authoritative workspace
+read adds the final local snapshot/selection/exclusion reread.
+
 Workspace acquisition has a 30-second ceiling, uses existing per-source budgets
 and at most eight concurrent source acquisitions, and performs only local
 snapshot reads under retained exact-source admission. Merely registering a

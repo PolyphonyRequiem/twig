@@ -344,16 +344,20 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         finally { gate.Release(); }
     }
 
-    internal async Task<Result<bool>> CheckWorkspaceAsync(NativePanelContext context, SourceObservation observation, CancellationToken ct)
+    internal async Task<Result<bool>> CheckWorkspaceAsync(NativePanelContext context, SourceObservation observation, CancellationToken ct,
+        bool recheckLocalSnapshot = true)
     {
-        var local = await NativeAsync(context.Root,
-            token => gateway.ReadAsync(context.Root, context.Stamp, false, token), ct).ConfigureAwait(false);
-        if (!local.IsSuccess) return Result<bool>.Fail(local.Error);
-        if (local.Value.Source != context.Stamp || local.Value.Snapshot.Version != observation.Snapshot.Version
-            || local.Value.SelectedBenchId != observation.SelectedBenchId
-            || BenchCodec.SerializeSelectors(local.Value.WorkspaceExclusions)
-                != BenchCodec.SerializeSelectors(observation.WorkspaceExclusions))
-            return Result<bool>.Fail(ErrorCode.Conflict, "Local source state changed during workspace loading. Read the workspace again.");
+        if (recheckLocalSnapshot)
+        {
+            var local = await NativeAsync(context.Root,
+                token => gateway.ReadAsync(context.Root, context.Stamp, false, token), ct).ConfigureAwait(false);
+            if (!local.IsSuccess) return Result<bool>.Fail(local.Error);
+            if (local.Value.Source != context.Stamp || local.Value.Snapshot.Version != observation.Snapshot.Version
+                || local.Value.SelectedBenchId != observation.SelectedBenchId
+                || BenchCodec.SerializeSelectors(local.Value.WorkspaceExclusions)
+                    != BenchCodec.SerializeSelectors(observation.WorkspaceExclusions))
+                return Result<bool>.Fail(ErrorCode.Conflict, "Local source state changed during workspace loading. Read the workspace again.");
+        }
         var admission = await CheckInitialAsync(context, observation, ct).ConfigureAwait(false);
         return admission.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(admission.Error);
     }

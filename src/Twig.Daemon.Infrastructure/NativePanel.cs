@@ -336,11 +336,12 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         { NormalDraftCounts = normalDraftCounts.ToImmutable(), Observations = observations.ToImmutableDictionary() });
     }
 
-    public async Task<Result<bool>> CheckWorkspaceAsync(NativePanelView view, CancellationToken ct)
+    public async Task<Result<bool>> CheckWorkspaceAsync(NativePanelView view, CancellationToken ct,
+        bool recheckLocalSnapshot = true)
     {
         foreach (var (context, observation) in view.Observations)
         {
-            var checkedSource = await sources.CheckWorkspaceAsync(context, observation, ct).ConfigureAwait(false);
+            var checkedSource = await sources.CheckWorkspaceAsync(context, observation, ct, recheckLocalSnapshot).ConfigureAwait(false);
             if (!checkedSource.IsSuccess) return Result<bool>.Fail(checkedSource.Error);
         }
         var plan = await definitions.ReadPlanStatusAsync(view.View.Definition.Id, ct).ConfigureAwait(false);

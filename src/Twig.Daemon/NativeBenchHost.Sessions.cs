@@ -148,7 +148,8 @@ public static partial class NativeBenchHost
                     NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId) }).ToArray())
                 { Plan = PlanStatus(session, captured.Plan) };
         }
-        if (captured is not null) _ = Require(await panel.CheckWorkspaceAsync(captured, ct));
+        if (captured is not null)
+            _ = Require(await panel.CheckWorkspaceAsync(captured, ct, recheckLocalSnapshot: observations is null));
         if (!registry.SequenceEqual(Require(await panel.WorkspacesAsync(ct))))
             throw new HttpFailure(409, "WorkspaceChanged", "The registered connections changed during workspace loading.");
         if (repositoryRoot is not null && Require(await panel.ReadRepositoryAsync(repositoryRoot, ct)) is { } currentRepository

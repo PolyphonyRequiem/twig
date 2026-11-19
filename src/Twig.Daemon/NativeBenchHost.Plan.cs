@@ -58,7 +58,7 @@ public static partial class NativeBenchHost
         result.DeliveredScopes, result.RemainingScopes, result.VerifiedOperations, result.RemainingOperations,
         result.Error is null ? null : PlanMessage(result.Error));
 
-    private static void MapPlan(WebApplication app, NativePanel panel, CatalogChanges updates,
+    private static void MapPlan(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates,
         Func<HttpContext, Guid, Task<ViewSession>> authorize)
     {
         static T Required<T>(Result<T> result) => result.IsSuccess ? result.Value : throw new HttpFailure(
@@ -190,8 +190,9 @@ public static partial class NativeBenchHost
                     return Required(await session.Editor.Native.CreateSeedAsync(body.Type, ct));
                 }, http.RequestAborted));
                 session.Editor.Ticket = form.Ticket; session.Editor.Type = form.Type;
+                session.Editor.Item = form.Item; session.Editor.NormalSeed = false;
                 session.Plan.Invalidate(); updates.Publish(0);
-                await Write(http, BoundEditorForm(form, source, session.Editor.Native!));
+                await Write(http, CaptureInputs(sessions, session, BoundEditorForm(form, source, session.Editor.Native!)));
             }
             finally { session.Editor.Gate.Release(); }
         });
@@ -316,6 +317,7 @@ public static partial class NativeBenchHost
     private static EditorFormDto BoundEditorForm(NativeEditForm form, NativePanelContext source, NativeItemEditor editor)
         => EditorForm(form, source.Stamp.AuthorityStamp) with
         {
+            InputBaseline = form.InputBaseline,
             ItemId = ViewMapping.Key(new(source.Source.Id, form.Item)),
             RelationshipsReadOnly = form.RelationshipsReadOnly,
             RelationshipIntent = form.RelationshipIntent.Select(link => RelationshipIntent(link, source)).ToArray(),

@@ -52,6 +52,8 @@ public sealed partial class NativeItemEditor
         localPairs[ticket] = selected.Value;
         return Result<NativeRelationshipForm>.Ok(new(form.Value with
         {
+            InputBaseline = form.Value.InputBaseline + ":" + InputBaseline(selected.Value.Endpoint)
+                + ":" + CoreWorkspace.LocalEdgeFingerprint(editor.Origin.Connection, selected.Value.Local.Edge),
             RelationshipsReadOnly = true,
             Evaluation = form.Value.Evaluation with
             {

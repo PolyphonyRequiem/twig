@@ -1,4 +1,6 @@
 #nullable enable
+Twig.Infrastructure.Services.NativeEditForm.InputBaseline.get -> string!
+Twig.Infrastructure.Services.NativeEditForm.InputBaseline.init -> void
 Twig.Infrastructure.Services.NativeConnectionSetup.DiscoverAdoAsync(Twig.Infrastructure.Services.NativeAdoDiscoveryRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAdoDiscoveryPage!>!>!
 Twig.Infrastructure.Services.NativeAdoDiscoveryScope
 Twig.Infrastructure.Services.NativeAdoDiscoveryScope.NativeAdoDiscoveryScope(Twig.Infrastructure.Services.NativeAadEnrollment! Enrollment, string! Kind, string? Organization = null, string? Project = null) -> void

@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Bench.Service.Tests" />
+    <InternalsVisibleTo Include="Twig.Daemon.Tests" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
     <ProjectReference Include="..\Twig\Twig.csproj" />
     <ProjectReference Include="..\Twig.Daemon.Client\Twig.Daemon.Client.csproj" />

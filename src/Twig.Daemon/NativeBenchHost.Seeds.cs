@@ -37,7 +37,7 @@ public static partial class NativeBenchHost
             publication.Item.LocalId.ToString("D"), publication.Digest, publication.Status,
             publication.Error is null ? null : new(publication.Error.Code.ToString(), publication.Error.Message));
 
-    private static void MapSeeds(WebApplication app, NativePanel panel, CatalogChanges updates,
+    private static void MapSeeds(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates,
         Func<HttpContext, Guid, Task<ViewSession>> authorize)
     {
         app.MapGet("/api/v1/views/{id:guid}/benches/{bench:guid}/seeds", async (HttpContext http, Guid id, Guid bench) =>
@@ -81,9 +81,10 @@ public static partial class NativeBenchHost
                     return SeedRequired(await state.Native.CreateSeedAsync(body.Type, token));
                 }, ct));
                 session.Editor.Ticket = form.Ticket; session.Editor.Type = form.Type; session.Editor.NormalSeed = true;
+                session.Editor.Item = form.Item;
                 updates.Publish(0);
                 ct.ThrowIfCancellationRequested();
-                await Write(http, BoundEditorForm(form, source, session.Editor.Native!));
+                await Write(http, CaptureInputs(sessions, session, BoundEditorForm(form, source, session.Editor.Native!)));
             });
         });
         app.MapPost("/api/v1/views/{id:guid}/seeds/observe", async (HttpContext http, Guid id) =>

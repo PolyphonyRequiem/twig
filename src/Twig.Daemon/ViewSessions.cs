@@ -59,7 +59,7 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal NativeAgentView Agent { get; } = new();
 }
 
-public sealed class ViewSessions(string preferencesDirectory, TimeProvider? timeProvider = null)
+public sealed partial class ViewSessions(string preferencesDirectory, TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);

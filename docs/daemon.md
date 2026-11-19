@@ -145,6 +145,141 @@ explicit recovery. Apply command results or reread immediately without waiting
 for SSE, and never retry an uncertain write automatically. SSE does not observe
 upstream changes until an explicit native refresh has observed them.
 
+## Private recoverable editor inputs
+
+`private-editor-inputs-v1` advertises the following **human owner-only** contract.
+It does not change `workspace-read-v1`, `planOperationId`, native publication,
+or the meaning of Save, Stage, Create, Review or Apply. Clients requiring input
+recovery must explicitly refuse older daemons, not fall back to browser storage.
+The canvas switch is a separate delivery phase; no browser inputs are imported.
+
+Fresh `POST editor` responses contain `EditorFormDto.inputs`.
+`POST editor/relationships` returns it at `fields.inputs`, after selecting the
+explicit endpoint through the existing native route. New seed and successful
+Stage responses also carry this projection. Evaluation responses do not replace
+the input acknowledgement. All paths below are relative to
+`/api/v1/views/{viewId}/`, use the existing owner content bearer and
+`X-Twig-Bench: 1`, and require the current native ticket:
+
+| Method and route | Source-generated request DTO |
+| --- | --- |
+| `PUT editor/inputs` | `EditorInputWriteBody { ticket, key, expectedRevision, writeId, values }` |
+| `POST editor/inputs/observe` | `EditorInputObserveBody { ticket, key }` |
+| `POST editor/inputs/discard` | `EditorInputDiscardBody { ticket, key, expectedRevision, writeId }` |
+
+These return `EditorInputRecoveryDto { key, revision, writeId, status, values }`.
+`key` is server-derived, not client-created authority. `writeId` is the UUID of
+the last accepted PUT/discard for this buffer (preserved on consumption), or
+`null` for an absent/reclaimed buffer. Status is `Empty`, `Restored`, `Conflict`,
+`Discarded` or `Consumed`. Only `Restored` releases `values`; `Conflict` retains
+the inputs privately but withholds them from restoration until explicitly
+discarded. A fresh scalar opening restores only its scalar/seed buffer; pair
+recovery requires choosing the exact endpoint again. There is no cross-client
+resume inventory or implicit selection of another buffer.
+
+`EditorInputValues` is `{ fields, links?, adding? }`:
+
+- `fields`: the existing `FieldDto[]` shape, `{ reference, value: { kind, value,
+  dataType } }`. Numeric and instant `value`s remain strings, including incomplete
+  `""`, `"-"` and `"12."`; persistence checks shape/size, **not** native evaluation
+  or required/allowed/read-only policy. Native submission still converts and
+  validates them normally. Raw fields are unsupported.
+- `links`: for normal ADO pairs only, an optional array of existing
+  `RelationshipIntentDto { endpointId, relation, outgoing, remove }` choices
+  from that exact pair. Empty/incomplete selection is retainable, not staged
+  debt. Scalar buffers omit `links`. No relationship is inferred.
+- `adding`: optional boolean for a qualified LOCAL-only pair; fields must be
+  empty and links absent. It is not a review, digest or permission to Apply.
+
+Records are isolated by the owner-local profile/catalogue store, exact native
+source binding/root (including principal/authority), repository context, Bench,
+source-qualified item, execution store, Plan identity/scope, scalar/normal-seed/
+ADO-pair/LOCAL-pair mode and explicit endpoint. Tickets and views are not part
+of durable identity. Independent live buffers cannot silently merge: the
+conditional input revision must match. Revisions are opaque monotonic numbers,
+not per-buffer consecutive counters; use the returned revision even for `Empty`.
+An absent buffer uses the document's current revision floor, so simultaneous
+first writes can conflict rather than overwrite. Never adopt the newest revision
+and retry automatically. Input CAS failures use `InputRevisionConflict`; a
+baseline change refuses replacement with `InputBaselineConflict`. Existing
+profile-lease contention can return `ViewStateBusy`. Observe/reconcile rather
+than treating any of these as permission to overwrite.
+
+The existing profile lease and flushed atomic writer persist at most 64 buffer
+slots and 1 MiB UTF-8 per profile. Each value payload is at most 256 KiB UTF-8,
+with 64 unique fields, strings of at most 65,536 characters, string lists of at
+most 256 elements, and 128 explicit links. The PUT transport bound is 256 KiB
+plus 16 KiB framing; existing native command body bounds remain unchanged.
+Discard/consume clear values, retaining bounded acknowledgement tombstones.
+When allocating a slot, the oldest cleared slot can be reclaimed; the revision
+floor prevents delayed initial writes from recreating discarded values.
+No acknowledged live inputs are evicted. `InputLimit` is an explicit refusal.
+
+Recovery always authenticates/admit-checks the exact source and acquires a fresh
+native editor. The daemon compares native schema/field metadata, observation
+revisions/values, owned draft/capture fingerprints and revisions, Plan binding,
+and, for pairs, endpoint draft evidence, relation choices, intent and incident
+edges. LOCAL edge versions detect ABA. Cache-read-only version increments do
+not conflict with input recovery; the newly captured native LOCAL ticket still
+enforces its own fresh store CAS. `inputBaseline` on a form is opaque native
+evidence, not client comparison logic, a write precondition or publication
+authority. No old ticket, grant, review or digest is restored.
+
+Autosave performs no provider write, native field evaluation, staging, review
+or publication. Raw records never appear in workspace, generic agent or MCP
+reads, nor SSE. Denial, sign-out, expiry and source/context changes withhold
+them. They are local recovery data, not a second domain store or outbox.
+
+### Canvas usage example
+
+Keep typing in memory and debounce a **single outstanding conditional PUT**:
+
+```javascript
+const form = await api("/editor", "POST", { sourceId, itemId, benchId, planMode: false });
+let acknowledged = form.inputs; // Conflict: stop; offer explicit discard, not JS rebasing.
+const values = { fields: [
+  { reference, value: { kind: "Integer", value: "-", dataType: null } }
+] };
+const pending = { ticket: form.ticket, key: acknowledged.key,
+  expectedRevision: acknowledged.revision, writeId: crypto.randomUUID(), values };
+acknowledged = await api("/editor/inputs", "PUT", pending);
+// Only now show "Inputs saved locally". Newer keystrokes are still memory-only.
+```
+
+If PUT/discard times out, retain its original `{ key, writeId, expectedRevision }`
+and observe `POST editor/inputs/observe` with the current ticket/key **before any
+further attempt**. After view/daemon loss, authenticate and open the exact editor
+and endpoint afresh first. Match the returned `writeId` to acknowledge the
+original write; a different ID/newer revision is explicit concurrent conflict,
+not permission to replay or overwrite. An unchanged observation is not a
+guarantee that a late request cannot arrive: any deliberate subsequent write
+uses a new UUID and a condition, never a blind replay. Retain unsaved memory
+visibly until its own acknowledgement. No shutdown or `beforeunload` write is
+required for correctness.
+
+Save/Stage first flushes the intended revision, then submits **exactly** its
+payload through the existing typed native operation, adding
+`inputs: { key: acknowledged.key, revision: acknowledged.revision }` to
+`EditorChangeBody` (`editor/save`, `editor/stage`) or `RelationshipChangeBody`
+(`editor/relationships/save`, `editor/relationships/stage`). The latter keeps
+existing `intent: acknowledged.values.links`, not a new command shape.
+LOCAL `editor/local/review` accepts the same optional reference on
+`LocalRelationshipReviewBody`, alongside the exact `adding` boolean.
+The daemon rejects payload/reference mismatch with `InputRevisionConflict`
+before the native operation. Successful Stage or LOCAL Review consumes only
+that revision; Save consumes it only when verified with no retained draft.
+Newer concurrent revisions survive. References remain optional for existing
+native clients and never bypass native guards. Apply and original journal/
+receipt/seed-publication observation routes are unchanged.
+
+A lost native Save/Stage/Review/Apply response must be resolved through original
+native work/evidence, not by resubmitting raw inputs. A consumed input is not
+proof that a provider write occurred. For Cancel, conditionally discard the
+applicable unsubmitted buffer, observe any uncertain discard, then close the
+current transient ticket with `editor/close`. Close alone preserves recovery
+inputs (for navigation). Neither route deletes native drafts, staged debt,
+captures, attempted effects, journals, reviews or receipts.
+
 ## Windows prerequisites
 
 - 64-bit Windows, running as the intended owner.

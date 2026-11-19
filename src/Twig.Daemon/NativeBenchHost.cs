@@ -96,12 +96,12 @@ public static partial class NativeBenchHost
                     context.Response.Headers[DaemonLauncher.InstanceHeader] = options.ProcessInstance.ToString("D");
                 return Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "workspace-read-v1"]));
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "workspace-read-v1", "private-editor-inputs-v1"]));
             })
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "workspace-read-v1"])));
+                CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "workspace-read-v1", "private-editor-inputs-v1"])));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
             var body = await Body<RegisterCanvasBody>(context);
@@ -515,9 +515,9 @@ public static partial class NativeBenchHost
                 [new(SelectorKind.Query, query: query, connection: capture.Context.Stamp.Connection)])));
         });
         MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource);
-        MapEditor(app, panel, updates, (context, id) => Authorize(context, id, true));
-        MapSeeds(app, panel, updates, (context, id) => Authorize(context, id, true));
-        MapPlan(app, panel, updates, (context, id) => Authorize(context, id, true));
+        MapEditor(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
+        MapSeeds(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
+        MapPlan(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapAgent(app, panel, sessions, updates, (context, id) => Authorize(context, id, true), options);
         MapSetup(app, connectionSetup, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapRepositories(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));

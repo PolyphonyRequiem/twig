@@ -75,7 +75,13 @@ internal static class SessionTests
             using var process = System.Diagnostics.Process.Start(start)!;
             var output = process.StandardOutput.ReadToEndAsync(ct);
             var error = process.StandardError.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
+            try { await process.WaitForExitAsync(ct); }
+            catch (OperationCanceledException)
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
+                throw;
+            }
             Check(process.ExitCode == 0, $"Git fixture failed: {await output} {await error}");
         }
         var repository = Path.Combine(root, "repository");
@@ -102,9 +108,11 @@ internal static class SessionTests
         var panel = new NativePanel(store, gateway, new NativeSourceAdapter(Path.Combine(root, "evidence"), gateway, new()));
         var profiles = Path.Combine(root, "profiles");
         var sessions = new ViewSessions(profiles);
+        var presentations = new Dictionary<Guid, string>();
         PairResult Open(ViewSessions owner, string sessionId, string directory)
         {
             var canvas = owner.RegisterNativeCanvas(storeId, new(sessionId, directory));
+            presentations[canvas.ViewId] = canvas.PresentationCapability;
             var profile = owner.ResolveOwnerProfile(storeId, new(null, null, canvas.ViewId));
             return owner.ConnectOwner(storeId, canvas.ViewId, profile.ProfileId);
         }
@@ -136,6 +144,26 @@ internal static class SessionTests
         {
             Check(await Initial(host, next) == selected,
                 "A new session in a linked worktree must auto-load the repository's last-selected Bench after restart.");
+            var linkedState = restarted.ReadState(restarted.Content(next.ViewId, next.ContentCapability, true));
+            Check(linkedState.Choices.RepositoryRoot == repository,
+                "A linked worktree must manage the main repository, not require a separate worktree binding.");
+            var linkedRoute = $"/api/v1/views/{next.ViewId:D}/repository-bindings";
+            var linkedBindings = await host.Send("POST", linkedRoute,
+                new ReadRepositoryBindingsBody(linked), next.ContentCapability, null, ct);
+            Check(linkedBindings.Status == 200
+                && linkedBindings.Body!["repositoryRoot"]?.GetValue<string>() == repository,
+                $"Observing bindings through a worktree must return the main repository path: {linkedBindings.Status} {linkedBindings.Body}");
+            var legacyBindings = await host.Send("GET", linkedRoute + "?root=" + Uri.EscapeDataString(linked),
+                null, next.ContentCapability, null, ct);
+            Check(legacyBindings.Status == 403
+                && legacyBindings.Body!["code"]?.GetValue<string>() == "InvalidTransport",
+                "The retained GET must still refuse query-string transport; POST must not weaken that boundary.");
+            var deniedBindings = await host.Send("POST", linkedRoute,
+                new ReadRepositoryBindingsBody(linked), presentations[next.ViewId], null, ct);
+            Check(deniedBindings.Status == 403, "SDK presentation authority cannot read owner repository bindings.");
+            deniedBindings = await host.Send("POST", linkedRoute,
+                new ReadRepositoryBindingsBody(linked), next.ContentCapability, null, ct, csrf: false);
+            Check(deniedBindings.Status == 403, "Repository binding POST reads require the owner CSRF header.");
             Check(await Initial(host, Open(restarted, "other-repo", unrelated)) == fallback,
                 "A different repository must not inherit that selection.");
             Check(Required(await store.ReadRepositoryAsync(repository, ct)).DefaultBench == fallback,
@@ -160,6 +188,29 @@ internal static class SessionTests
                 new RepositoryContextBody(repository), explicitContext.ContentCapability, null, ct);
             Check(response.Status == 200 && await Initial(host, explicitContext) == fallback,
                 "Explicit repository selection without SDK context must use the same validated fallback.");
+            response = await host.Send("PUT", $"/api/v1/views/{explicitContext.ViewId:D}/repository-context",
+                new RepositoryContextBody(linked), explicitContext.ContentCapability, null, ct);
+            Check(response.Status == 200
+                && restarted.ReadState(restarted.Content(explicitContext.ViewId, explicitContext.ContentCapability, true))
+                    .Choices.RepositoryRoot == repository,
+                "Explicit worktree selection must retain only the main repository as the managed context.");
+            var separate = Path.Combine(root, "separate repository");
+            var separateLinked = Path.Combine(root, "separate linked");
+            Directory.CreateDirectory(separate);
+            await Git(separate, "init", "--quiet");
+            await Git(separate, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                "commit", "--quiet", "--allow-empty", "-m", "Fixture");
+            await Git(separate, "worktree", "add", "--quiet", "-b", "separate-linked", separateLinked);
+            _ = Required(await store.SaveRepositoryAsync(separate, 0, [], fallback, ct));
+            var nested = Path.Combine(separateLinked, "nested");
+            Directory.CreateDirectory(nested);
+            Check(Required(await store.ReadRepositoryAsync(nested, ct)).RepositoryRoot == separate,
+                "A nested worktree directory must resolve to its own main repository, including paths with spaces.");
+            var separateOwner = Open(restarted, "separate", nested);
+            Check(await Initial(host, separateOwner) == fallback
+                && restarted.ReadState(restarted.Content(separateOwner.ViewId, separateOwner.ContentCapability, true))
+                    .Choices.RepositoryRoot == separate,
+                "Repository resolution must use Git's main checkout, not infer a root from the nested worktree path.");
             Check(gateway.Reads.Count == 0 && gateway.SelectCalls == 0,
                 "Remembering a Bench must not acquire connections or write CLI selection.");
         }
@@ -777,7 +828,7 @@ internal sealed class Host(WebApplication app, HttpClient client) : IAsyncDispos
             .Features.Get<IServerAddressesFeature>()!.Addresses.Single()) });
     }
     internal async Task<(int Status, JsonNode? Body)> Send(string method, string route, object? body,
-        string? bearer, string? owner, CancellationToken ct, bool legacyBearer = false)
+        string? bearer, string? owner, CancellationToken ct, bool legacyBearer = false, bool csrf = true)
     {
         using var request = new HttpRequestMessage(new(method), route);
         if (route is "/api/v1/windows-renew" or "/api/v1/windows-profile" && !legacyBearer)
@@ -787,7 +838,7 @@ internal sealed class Host(WebApplication app, HttpClient client) : IAsyncDispos
         }
         else if (bearer is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         if (owner is not null) request.Headers.Add("Test-Owner", owner);
-        request.Headers.Add("X-Twig-Bench", "1");
+        if (csrf) request.Headers.Add("X-Twig-Bench", "1");
         if (body is not null) request.Content = new StringContent(
             JsonSerializer.Serialize(body, TransportJson.Default.GetTypeInfo(body.GetType())!), Encoding.UTF8, "application/json");
         using var response = await client.SendAsync(request, ct);

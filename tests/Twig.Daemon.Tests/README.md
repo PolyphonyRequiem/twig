@@ -439,9 +439,36 @@ The original relationship/helper blobs above already contained this fixture
 branch. This is additional browser-server native invariant preservation, not
 a retroactive failure of the original finite twenty-case HTTP scope. Browser
 DOM, request construction by the UI and Edit-mode readback remain unqualified.
-The new row is prepared but not yet executed; complete-gate requalification
-is pending after review-time association timeouts. Historical passing evidence
-below does not qualify this addition or supersede that hold.
+The new row passed its first isolated bounded execution on the integrated
+source at `b9740f094e0a681284efd4508549b7954efa92f4` (30.027 seconds,
+one passed, zero skipped). Actual synthetic counters were 264 provider HTTP,
+one PATCH/committed write, zero creates, one capture/proposal/journal and two
+receipts. Its exact selector is the same ADO method below with
+`&DisplayName~observed-removal`; the label deliberately does not contain
+`incoming`, preserving the existing incoming selector's single result.
+
+**Current qualification is HOLD, not a passing 21-case gate.** After ordinary
+integration of scalar carrier `2cef37873dc3ecb8b9279ec773f9765bcb56af2b`,
+the bounded CLI build passed with zero warnings/errors. The complete gate
+then passed association (45.956 seconds), but outgoing cancelled at its
+unchanged 55-second case deadline during the final removal Save. The external
+60-second wrapper returned 124 with unconfirmed cleanup (root 142196 already
+absent); the remaining nineteen gate rows did not execute. Fresh process
+inspection found no root/descendant chain, exact-worktree test command or
+active dotnet test/vstest/testhost process before further execution.
+
+One authorized phase-only outgoing reproduction passed in 44.978 seconds:
+fixture ready at 5.780 seconds, first Save completed at 29.196 seconds, and
+final removal Save ran from 38.293 to 44.228 seconds (480 provider HTTP,
+two PATCHes/commits, two captures/proposals/journal rows, four receipts).
+This establishes no causal repair or base/environment attribution and does
+not replace the failed complete gate. Temporary timing diagnostics were
+removed; no deadlines, guards or assertions were relaxed and no further gate
+rerun was performed. Evidence is retained in
+`artifacts/test-logs/ci/relationship-requalify/`: `ado-observed-removal.trx`,
+`ado-association-gate.trx`, `ado-outgoing-gate-failed.trx`, and
+`ado-outgoing-diagnostic.trx`. Historical counters below are separate and do
+not supersede this hold. Linux qualification has not been executed here.
 
 The new group uses `FullyQualifiedName=Twig.Cli.Tests.Commands.` followed by
 the method below and `&DisplayName~<scenario>`. Every invocation must produce

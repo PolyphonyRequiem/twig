@@ -153,6 +153,10 @@ public sealed partial class NativePublicationConsumerTests
         internal int SchemaReads { get; private set; }
         internal int OnlineReads { get; private set; }
         internal int SelectionWrites { get; private set; }
+        internal int PreparedEditors { get; private set; }
+        internal int ExistingEditors { get; private set; }
+        internal int PlanReviews { get; private set; }
+        internal int OpenReviews { get; private set; }
         internal bool RefuseEditor { get; set; }
         internal int ProfileReads { get; private set; }
         internal ImmutableArray<string> ProfileIdentities { get; private set; } = [];
@@ -185,20 +189,32 @@ public sealed partial class NativePublicationConsumerTests
 
         public Task<Result<NativeItemEditor>> OpenEditorAsync(string root, Guid bench,
             NativeSourceStamp expected, CancellationToken ct)
-            => RefuseEditor
+        {
+            PreparedEditors++;
+            return RefuseEditor
                 ? Task.FromResult(Result<NativeItemEditor>.Fail(ErrorCode.Unavailable, "Synthetic native editor refusal."))
                 : fixture.OpenHumanHostAsync(root, bench, expected, ct);
+        }
 
         public Task<Result<NativeItemEditor>> OpenExistingEditorAsync(string root, Guid bench,
             NativeSourceStamp expected, CancellationToken ct)
-            => NativeItemEditor.OpenAsync(root, bench, expected, fixture.ConfigureHumanEditor, ct, prepareScope: false);
+        {
+            ExistingEditors++;
+            return NativeItemEditor.OpenAsync(root, bench, expected, fixture.ConfigureHumanEditor, ct, prepareScope: false);
+        }
 
         public Task<Result<NativePlanReview>> ReviewPlanAsync(string root, Guid bench,
             ImmutableArray<NativePlanSource> sources, CancellationToken ct)
-            => fixture.ReviewHumanPlanAsync(root, bench, sources, ct);
+        {
+            PlanReviews++;
+            return fixture.ReviewHumanPlanAsync(root, bench, sources, ct);
+        }
 
         public Task<Result<NativePlanReview>> OpenPlanReviewAsync(string root, string digest, CancellationToken ct)
-            => fixture.OpenHumanPlanReviewAsync(root, digest, ct);
+        {
+            OpenReviews++;
+            return fixture.OpenHumanPlanReviewAsync(root, digest, ct);
+        }
 
         public async Task<Result<NativeSourceObservation>> ReadIdentityProfilesAsync(string root,
             NativeSourceStamp expected, ImmutableArray<string> identities, CancellationToken ct)

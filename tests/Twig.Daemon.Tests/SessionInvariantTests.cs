@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -793,6 +794,11 @@ internal sealed class Host(WebApplication app, HttpClient client) : IAsyncDispos
     internal static async Task<Host> StartProduction(NativePanel panel, ViewSessions sessions, string root, CancellationToken ct)
     {
         var app = NativeBenchHost.Build(new(0, root), panel, sessions);
+        var bindingReads = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints).OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.RoutePattern.RawText == "/api/v1/views/{id:guid}/repository-bindings"
+                && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains("POST") == true);
+        SessionTests.Check(bindingReads.Count() == 1, "The production owner repository-binding read must have exactly one POST handler.");
         await app.StartAsync(ct);
         return new(app, new HttpClient { BaseAddress = new(app.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()!.Addresses.Single()) });

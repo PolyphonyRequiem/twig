@@ -9,7 +9,7 @@ namespace Bench.Server;
 
 public sealed record ServerOptions(int Port, string DataDirectory, string? WebRoot = null,
     string DataMode = "Native user-wide Benches", X509Certificate2? Certificate = null,
-    bool WindowsSignIn = false, string? CanvasInstallRoot = null, Guid DaemonId = default);
+    bool WindowsSignIn = false, string? CanvasInstallRoot = null, Guid DaemonId = default, Guid ProcessInstance = default);
 
 public static class BenchHost
 {

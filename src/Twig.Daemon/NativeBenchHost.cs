@@ -92,9 +92,14 @@ public static partial class NativeBenchHost
         });
         if (options.WindowsSignIn) { app.UseAuthentication(); app.UseAuthorization(); }
         if (options.WindowsSignIn)
-            app.MapGet("/api/v1/owner-status", (HttpContext context) => Write(context,
+            app.MapGet("/api/v1/owner-status", (HttpContext context) =>
+            {
+                if (options.ProcessInstance != Guid.Empty)
+                    context.Response.Headers[DaemonLauncher.InstanceHeader] = options.ProcessInstance.ToString("D");
+                return Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
-                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1"])))
+                    CanvasAssets.DaemonVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1"]));
+            })
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.DaemonId,
@@ -166,6 +171,13 @@ public static partial class NativeBenchHost
             await ResolveBenchConnections(panel, session, context.RequestAborted);
             var shared = Require(await panel.ListAsync(context.RequestAborted));
             var workspaces = Require(await panel.WorkspacesAsync(context.RequestAborted));
+            NativeAadEnrollment[] identities = [];
+            if (connectionSetup is not null && workspaces.Any(workspace => workspace.Connection.Provider.Value == "ado"))
+            {
+                var accounts = await connectionSetup.ListAadIdentitiesAsync(context.RequestAborted);
+                if (accounts.IsSuccess) identities = accounts.Value;
+                else app.Logger.LogWarning("Attached connection account metadata is unavailable: {Code}", accounts.Error.Code);
+            }
             var labels = new List<WorkspaceDto>();
             var labelBudget = System.Diagnostics.Stopwatch.StartNew();
             foreach (var workspace in workspaces)
@@ -174,7 +186,8 @@ public static partial class NativeBenchHost
                     ? await NativeConnectionLabels.ReadAsync(workspace.Root, workspace.Connection, context.RequestAborted)
                     : NativeConnectionLabels.Unavailable(workspace.Connection);
                 labels.Add(new(workspace.Root, workspace.Connection.Provider.Value, display.Name, display.Available)
-                    { Connection = workspace.Connection, Available = session.RepositoryBindings is null
+                    { Connection = workspace.Connection, Account = NativeConnectionLabels.Account(workspace.Connection, identities),
+                        Available = session.RepositoryBindings is null
                         || session.RepositoryBindings.Connections.Contains(workspace.Connection) });
             }
             await Write(context, new NativePanelSummary(shared.InstanceId, shared.Revision,

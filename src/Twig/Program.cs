@@ -101,6 +101,12 @@ if (args.Length == 0)
     }
 }
 
+if (args is ["daemon", ..])
+{
+    Environment.ExitCode = await DaemonLifecycle.RunAsync(args);
+    return;
+}
+
 // Retired surfaces fail before workspace discovery, provider composition or input reads.
 if (Twig.CoreMutationAdmissionGuard.ValidateCatalog(args) is { } retiredError)
 {

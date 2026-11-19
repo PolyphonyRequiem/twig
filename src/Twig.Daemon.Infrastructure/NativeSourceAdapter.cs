@@ -64,6 +64,8 @@ public sealed class NativeSourceGateway : INativeSourceGateway
 
 public sealed class NativeSourceAdapter(string directory, INativeSourceGateway gateway, CatalogChanges changes) : ISourceReader
 {
+    private static readonly TimeSpan MetadataRefreshInterval = TimeSpan.FromMinutes(15);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> metadataAttempts = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> nativeRoots = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -391,6 +393,60 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
             return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Native evidence cache is unavailable; explicitly reauthorize before using content.");
         }
         finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); if (!gateHeld) gate.Release(); }
+    }
+
+    public async Task<Result<bool>> RefreshMetadataAsync(UserBenchWorkspace workspace, DateTimeOffset now, CancellationToken ct)
+    {
+        foreach (var attempt in metadataAttempts)
+            if (now - attempt.Value >= MetadataRefreshInterval)
+                metadataAttempts.TryRemove(attempt);
+
+        var local = await NativeAsync(workspace.Root,
+            token => gateway.ReadAsync(workspace.Root, null, false, token), ct).ConfigureAwait(false);
+        if (!local.IsSuccess) return Result<bool>.Fail(local.Error);
+        if (local.Value.Source.Connection != workspace.Connection || local.Value.Source.StoreInstance != workspace.StoreInstance)
+            return Result<bool>.Fail(ErrorCode.Conflict, "The registered metadata source changed; explicit admission is required.");
+        var binding = Binding(local.Value.Source);
+        // Registration alone is not admission. Scheduled work must never create a grant.
+        if (!File.Exists(PathFor(binding))) return Result<bool>.Ok(false);
+        var key = CatalogFingerprint.Binding(binding);
+        var gate = gates.GetOrAdd(key, _ => new(1, 1));
+        if (!await gate.WaitAsync(0, ct).ConfigureAwait(false)) return Result<bool>.Ok(false);
+        NativeCacheCheck? check = null;
+        try
+        {
+            var cached = await Load(binding, ct).ConfigureAwait(false);
+            if (!cached.IsSuccess) return Result<bool>.Fail(cached.Error);
+            if (cached.Value.Blocked) return Result<bool>.Ok(false);
+            NativeCacheCheck.RequireAllowed(CheckPath(binding), ct);
+            if (now - cached.Value.OnlineObservedAt < MetadataRefreshInterval
+                || metadataAttempts.TryGetValue(key, out var attempted) && now - attempted < MetadataRefreshInterval)
+                return Result<bool>.Ok(false);
+            metadataAttempts[key] = now;
+            check = NativeCacheCheck.Begin(CheckPath(binding), explicitReauthorization: false, ct);
+            var observed = await NativeAsync(workspace.Root,
+                token => gateway.ReadAsync(workspace.Root, cached.Value.Stamp.ToNative(), true, token), ct).ConfigureAwait(false);
+            if (!observed.IsSuccess)
+            {
+                // Only classified temporary unavailability retains the previous grant.
+                // Denials, changed authority and interrupted checks remain durably pending.
+                if (observed.Error.Code == ErrorCode.Unavailable
+                    && !observed.Error.Evidence.Any(value => value is "http:401" or "http:403"))
+                    check.Complete(ct);
+                return Result<bool>.Fail(observed.Error);
+            }
+            if (observed.Value.Source != cached.Value.Stamp.ToNative())
+                return Result<bool>.Fail(ErrorCode.Conflict, "The metadata source changed during discovery.");
+            var stored = await StoreOnline(observed.Value, binding, ct).ConfigureAwait(false);
+            if (!stored.IsSuccess) return Result<bool>.Fail(stored.Error);
+            check.Complete(ct);
+            changes.Publish(0);
+            return Result<bool>.Ok(true);
+        }
+        catch (NativeCheckBlockedException) { return Result<bool>.Ok(false); }
+        catch (Exception ex) when (StorageFailure(ex))
+        { return Result<bool>.Fail(ErrorCode.StorageUnavailable, "Scheduled metadata refresh could not retain native evidence."); }
+        finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); gate.Release(); }
     }
 
     public async Task<Result<SourceObservation>> RecheckAsync(RegisteredSource source, CancellationToken ct)

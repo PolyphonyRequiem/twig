@@ -112,6 +112,16 @@ jobs:
           name: twig-native-relationship-http-${{ matrix.rid }}
           path: artifacts/test-logs/ci/relationship-http/*.trx
           if-no-files-found: error
+      - name: Daemon-owned periodic metadata (nine isolated synthetic cases)
+        id: native_periodic_metadata
+        run: python eng/ci-checks.py native-periodic-metadata
+      - name: Preserve periodic metadata results
+        if: always() && steps.native_periodic_metadata.outcome != 'skipped' && steps.native_periodic_metadata.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-native-periodic-metadata-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/periodic-metadata/*.trx
+          if-no-files-found: error
       - name: Native diagnostic and schema read composition (isolated)
         id: native_read_composition
         run: python eng/verify-trx.py -- dotnet test tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RedactsDiagnosticsThroughNativeHostAndLoggingFilter|FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RetainsSchemaUntilExplicitNativeRecheck" --logger "trx;LogFileName=read-composition.trx" --results-directory artifacts/test-logs/ci/read-composition

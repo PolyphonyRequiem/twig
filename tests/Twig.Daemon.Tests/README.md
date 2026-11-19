@@ -19,6 +19,7 @@ the new tests use `Twig.Daemon.Tests`. No production API was made public for tes
 | `NativeConnectionLabelTests.cs` | `NativeAccountLabelInvariantTests.LabelsOnlyTheExactLocallyBoundAccount` | Exact bound AAD/GitHub identity, tenant-based account kind, no cross-account substitution; local-only label lookup and GUID/path/credential/provider/input bounds |
 | `NativeSourceDiagnosticsTests.cs` | `NativeHttpInvariantTests.BoundsAndRedactsSourceDiagnostics` | Per-source/set deduplication, safe counts, truncation, bounded memory/log entries and concurrency |
 | `NativePanelTests.cs` diagnostic/process gateway modes; `native-diagnostics-browser.mjs`, `schema-refresh-browser.mjs`, provider metadata from `native-process-browser.mjs` | `NativePanelTests.ReadComposition.cs` / `NativeReadCompositionTests` (2 xUnit cases) | Actual native adapter, production HTTP host and logger filter: redacted DTOs, per-context deduplication/change/reappearance/truncation; exact retained schema, explicit discovery, unavailable roster and recovery without changing source/items/Bench definitions |
+| Twig pinned `e65c659` `NativeMetadataRefreshTests.cs` and `NativeMetadataSyncTests.cs` | `NativeMetadataRefreshTests` and `NativeMetadataSyncTests` (9 xUnit cases), `native-periodic-metadata` | Daemon-owned startup/sweep, exact 15-minute due/retry boundaries, persisted observations, temporary retention, durable denial/cancellation fencing, explicit recovery, cross-source continuation and unchanged whole user Bench definitions |
 | `McpBridgeTests.cs` | `NativeHttpInvariantTests.ScopesMcpBridgeAuthorityAndReleasesItsView` | Exact owner bootstrap, view-scoped forwarding, protocol-only stdout, notification suppression and EOF cleanup |
 | `PresentationRouteTests.cs` | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.PresentationHttp.cs`, `NativePresentationHttpPersistsWithoutAcquisitionAndPreservesContentPriority` | Real native transport/capture counters; held-provider response under two seconds; complete persisted choices; genuine cross-view CAS/reconciliation; SDK attachment/layout authority; zero publication/selection writes; content-priority invalidation in both queue orders |
 | `AdoEditorTests.cs` startup instrumentation used by `bench-startup-browser.mjs` | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.InitialViewHttp.cs`, `NativeInitialViewHttpRestoresWithOneLocalObservationAndNoProviderWork` | Configured profile recovery through real native stores/transport: exactly one full local observation, zero schema/online/HTTP/capture/PATCH/selection work while provider is held; exact cached rows and unchanged choices |
@@ -52,6 +53,7 @@ python eng\ci-checks.py native-scalar-http
 python eng\ci-checks.py native-plan-http
 python eng\ci-checks.py native-seed-http
 python eng\ci-checks.py native-relationship-http
+python eng\ci-checks.py native-periodic-metadata
 ```
 
 The presentation case reuses the existing provider-owned CLI fixture directly,
@@ -61,6 +63,54 @@ No source links, new friend identities or production hooks are needed. The
 original complete-choice comparison uses the public `view-state` JSON response
 instead of the daemon's internal serializer; the second view uses the same
 explicit store/profile pair. These are runner adaptations, not reduced assertions.
+
+## Daemon-owned periodic metadata
+
+The daemon restores/adapts the periodic behavior from Twig commit
+`e65c6597d90f9658d94beb391d52f337ce80c740` (parent
+`eaab4f789b8517cf7e620143cb1ee5cc1c26fc2f`), an ancestor of Canvas's pinned
+provider `3880046cdee92416066cfa1cf31d9fa3fdcce43d`. This is a pinned-branch
+feature absent from the delivery base, not evidence that main previously ran
+this lifecycle or that historical runs failed. Independently fetched source
+blobs are `8b3c3292ed1b807cc482ba72694e84b6288bf05b` (sync),
+`2c03b361897f67b0f886cb9f753c63a91214716c` (refresh tests) and
+`08721fc9e0735fea953130bade218fbaaf0f5363` (sync tests).
+
+`NativeBenchHost` owns an internal hosted service: an immediate startup sweep,
+then a serial one-minute timer, stopped/disposed with the host. Each registered
+workspace has a 35-second cancellation budget and uses the existing root and
+admission coordinators. Metadata discovery is due at exactly 15 minutes after
+the last successful schema observation. Failed attempts are spaced at least
+15 minutes apart during that adapter run; expired attempt entries are removed.
+Successful observations persist through adapter restart. No Canvas, open view,
+Bench read, scheduling configuration or install/Startup entry is involved.
+
+Registration is not admission. Missing admission evidence is never created by
+the timer. Discovery uses a durable pending check before calling the provider,
+and the existing atomic schema publication path. Temporary `Unavailable`
+results other than HTTP 401/403 preserve the existing grant, schema bytes and
+observation time; explicit failed rechecks retain their stricter existing
+pending-check semantics. Policy/401/403/conflict and interrupted scheduled
+discovery remain blocked across restart and cannot be cleared by a later
+scheduled success. Explicit successful recheck recovers. Typed warning logs
+contain only error codes, never provider messages, source identifiers or process
+data. Discovery never rewrites Bench definitions, selects an item or publishes
+work-item writes.
+
+The nine pinned results run as one fast synthetic group, with nonoverlapping
+exact method/theory selectors, private 55-second fixture budgets and the
+unchanged 60-second `eng/verify-trx.py` owned-tree bound. The group additionally
+requires exactly nine passed results; zero skips and every selector are checked.
+TRX: `artifacts/test-logs/ci/periodic-metadata/periodic-metadata.trx`;
+Windows/Linux artifacts: `twig-native-periodic-metadata-<rid>`.
+The startup case starts the real production host on an owned ephemeral loopback
+port with no view or Bench read, awaits a real `CatalogChanges` notification,
+reopens the adapter, and compares the complete user Bench snapshot, registry
+and database bytes. The continuation case refreshes two exact admitted sources
+and checks redacted logging and no retry spam. All homes, providers and clocks
+are owned/synthetic; there is no live-provider or positive Windows-owner claim.
+Consumer source cleanup still requires an independent comparison of the
+committed provider gate.
 
 ## Diagnostic and schema read composition
 
@@ -568,11 +618,9 @@ This is not permission to delete the whole Canvas native integration lane:
 - Startup and warm-first-paint browser timing/DOM assertions stay consumer-owned.
   The native initial-view HTTP case proves acquisition counts, not a browser's
   under-1000ms startup or under-250ms warm paint with a delayed provider.
-- Canvas's pinned `e65c659` periodic metadata lifecycle is not restored here:
-  all nine cases for the 15-minute admission-bound discovery/retry schedule, startup sweep,
-  failure continuation and durable denial/cancellation fencing remain a
-  separate existing-behavior disposition. Ordinary-read cache retention and
-  explicit recheck tests do not establish that background lifecycle.
+- The pinned `e65c659` periodic metadata lifecycle now has a distinct nine-case
+  daemon-owned gate above. It is not inferred from ordinary-read retention or
+  explicit recheck tests, and consumer source deletion remains independently gated.
 
 All executed HTTP tests use owned ephemeral loopback listeners and synthetic
 provider/owner seams, or the real reader's uninitialized-directory refusal.

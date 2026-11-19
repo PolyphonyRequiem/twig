@@ -130,6 +130,30 @@ def native_relationship_http():
                 raise ValueError(f"{selector}: expected exactly one executed case, got {len(results)}")
 
 
+def native_periodic_metadata():
+    import xml.etree.ElementTree as ET
+
+    refresh = "FullyQualifiedName=Twig.Daemon.Tests.Native.NativeMetadataRefreshTests."
+    sync = "FullyQualifiedName=Twig.Daemon.Tests.Native.NativeMetadataSyncTests."
+    denial = refresh + "DeniedOrChangedSourceCannotBeReauthorizedByLaterScheduledSuccess"
+    selector = "|".join([
+        refresh + "RefreshIsDueAtFifteenMinutesAndSuccessfulObservationSurvivesRestart",
+        refresh + "TemporaryFailureRetainsDefinitionsAndTimestampAndSpacesRetriesWithoutAdmittingUnknownSources",
+        *(denial + f"&DisplayName~{case}" for case in ("PolicyViolation", "http:401", "http:403", "Conflict")),
+        refresh + "CancellationLeavesDurablePendingCheckAndCannotBeReauthorizedByScheduledWork",
+        sync + "SweepContinuesToOtherAdmittedConnectionsAfterProviderFailure",
+        sync + "HostRefreshesOverdueRegisteredMetadataWithoutAnOpenViewOrBenchRead",
+    ])
+    subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                    "tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                    "--filter", selector, "--logger", "trx;LogFileName=periodic-metadata.trx",
+                    "--results-directory", "artifacts/test-logs/ci/periodic-metadata"], check=True)
+    path = Path("artifacts/test-logs/ci/periodic-metadata/periodic-metadata.trx")
+    results = ET.parse(path).findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}UnitTestResult")
+    if len(results) != 9:
+        raise ValueError(f"periodic metadata: expected exactly nine executed cases, got {len(results)}")
+
+
 def registry_compat():
     for version, revision in [(10, "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"),
                               (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
@@ -384,6 +408,7 @@ CHECKS = {
     'native-plan-http': native_plan_http,
     'native-seed-http': native_seed_http,
     'native-relationship-http': native_relationship_http,
+    'native-periodic-metadata': native_periodic_metadata,
     'registry-compat': registry_compat,
     'catalog': catalog,
     'user-benches': user_benches,

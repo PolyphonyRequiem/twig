@@ -90,6 +90,22 @@ def native_plan_http():
                 raise ValueError(f"{selector}: expected exactly one executed case, got {len(results)}")
 
 
+def native_seed_http():
+    import xml.etree.ElementTree as ET
+
+    for scenario in ("projection", "lifecycle", "pin", "origin", "unknown", "guards", "ownership"):
+        selector = ("FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests."
+                    f"NativeAdoSeedHttpKeepsExactAuthority&DisplayName~{scenario}")
+        subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
+                        "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
+                        "--filter", selector, "--logger", f"trx;LogFileName=seed-{scenario}.trx",
+                        "--results-directory", "artifacts/test-logs/ci/seed-http"], check=True)
+        path = Path("artifacts/test-logs/ci/seed-http") / f"seed-{scenario}.trx"
+        results = ET.parse(path).findall(".//{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}UnitTestResult")
+        if len(results) != 1:
+            raise ValueError(f"{selector}: expected exactly one executed case, got {len(results)}")
+
+
 def registry_compat():
     for version, revision in [(10, "cbbf800dab1a8e502f568642d81e5c3c2bf3fa3c"),
                               (11, "710056002c73c6409eb05318bdba422e84eaba47")]:
@@ -342,6 +358,7 @@ CHECKS = {
     'native-agent-http': native_agent_http,
     'native-scalar-http': native_scalar_http,
     'native-plan-http': native_plan_http,
+    'native-seed-http': native_seed_http,
     'registry-compat': registry_compat,
     'catalog': catalog,
     'user-benches': user_benches,

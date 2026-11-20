@@ -1138,6 +1138,36 @@ public sealed partial class AdoProviderTests
     }
 
     [Fact]
+    public async Task WorkItemReadObservesClassificationIdsAndRelationshipsTogether()
+    {
+        using var f = await Fixture.Create();
+        f.Http.IncludeClassification = true;
+        f.Http.Items[1]["relations"]!.AsArray().Add(new JsonObject
+        {
+            ["rel"] = "Native.ParentForward", ["url"] = "https://example.test/organization/_apis/wit/workItems/2",
+        });
+
+        var result = await f.Provider.ReadAsync(f.Connection, [f.Key(1)], default);
+
+        result.IsSuccess.ShouldBeTrue();
+        var item = result.Value.Items.Single();
+        item.Fields["System.AreaId"].ShouldBe(FieldValue.Integer(8));
+        item.Fields["System.IterationId"].ShouldBe(FieldValue.Integer(5));
+        item.Fields["System.AreaPath"].ShouldBe(FieldValue.String("Native Project"));
+        item.Fields["System.IterationPath"].ShouldBe(FieldValue.String("Native Project"));
+        item.RelationshipsComplete.ShouldBeTrue();
+        result.Value.Relationships.ShouldBe([
+            new Relationship(f.Key(1), f.Key(2), "Native.ParentForward", RelationshipOrigin.Provider),
+        ]);
+        f.Http.WorkItemReads.ShouldBe(1);
+
+        var proposal = await f.Proposal(new("edit", OpKind.Batch, item.Key, item.Revision,
+            Fields(("Custom.Empty", FieldValue.String("edited")))));
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task ContradictoryOrForeignRelationshipEvidenceIsNotCertifiedComplete()
     {
         using var f = await Fixture.Create();
@@ -1347,6 +1377,7 @@ public sealed partial class AdoProviderTests
         internal string? ProcessTypesJson;
         internal string? NativeRulesJson;
         internal bool IncludeDateField;
+        internal bool IncludeClassification;
         internal string Initial;
         internal string Completed;
         internal string NativeActor = Fixture.Actor;
@@ -1602,6 +1633,17 @@ public sealed partial class AdoProviderTests
                 }
                 if (!Items.TryGetValue(id, out var item)) return Status(404);
                 var read = item.DeepClone();
+                if (IncludeClassification)
+                {
+                    var fields = read["fields"]!;
+                    fields["System.AreaPath"] = "Native Project";
+                    fields["System.IterationPath"] = "Native Project";
+                    if (query.Contains("$expand=all", StringComparison.OrdinalIgnoreCase))
+                    {
+                        fields["System.AreaId"] = 8;
+                        fields["System.IterationId"] = 5;
+                    }
+                }
                 if (Defect == "wrong-item-project") read["fields"]!["System.TeamProject"] = "Another Project";
                 return Json(read.ToJsonString());
             }
@@ -1689,19 +1731,21 @@ public sealed partial class AdoProviderTests
                 var names = new[] { "System.State", "System.History", "Custom.Closure", "Custom.Points", "Custom.Owner", "Custom.Empty", "Custom.Unset" }
                     .Concat(Defect == "empty-typed-rule" ? ["Custom.Quantity", "Custom.Toggle", "Custom.Date"] : [])
                     .Concat(IncludeDateField ? ["Custom.Date"] : [])
+                    .Concat(IncludeClassification ? ["System.AreaId", "System.AreaPath", "System.IterationId", "System.IterationPath"] : [])
                     .Concat(Defect == "description-html" ? ["System.Description"] : []);
                 var global = !path.Contains("/work/processes/");
                 response = Rows(string.Join(",", names.Select(name =>
                 {
                     var field = new JsonObject { ["referenceName"] = name, ["type"] = name == "Custom.Points" ? "double" : "string" };
                     if (name == "System.Description") field["type"] = "html";
-                    if (name == "Custom.Quantity") field["type"] = "integer";
+                    var classificationId = name is "System.AreaId" or "System.IterationId";
+                    if (name == "Custom.Quantity" || classificationId) field["type"] = "integer";
                     if (name == "Custom.Toggle") field["type"] = "boolean";
                     if (name == "Custom.Date") field["type"] = "dateTime";
                     if (Defect == "unknown-field-kind" && name == "Custom.Empty") field["type"] = "unrecognized";
                     if (global)
                     {
-                        field["isIdentity"] = name == "Custom.Owner"; field["readOnly"] = false; field["isPicklist"] = false;
+                        field["isIdentity"] = name == "Custom.Owner"; field["readOnly"] = classificationId; field["isPicklist"] = false;
                         if (Defect == "supported-rules" && name == "Custom.Points")
                         {
                             field["isPicklist"] = true; field["isPicklistSuggested"] = false; field["picklistId"] = Fixture.Process;
@@ -1716,7 +1760,7 @@ public sealed partial class AdoProviderTests
                             SawExplicitRequiredFlag |= field["required"]?.GetValue<bool>() == true;
                         }
                         else if (Defect == "malformed-required") field["required"] = "not-a-boolean";
-                        else field["required"] = false;
+                        else field["required"] = classificationId;
                         if (Defect == "default-value" && name == "Custom.Empty") field["defaultValue"] = "server default";
                         if (Defect == "opaque-default-value" && name == "Custom.Owner") field["defaultValue"] = "@unresolved";
                     }

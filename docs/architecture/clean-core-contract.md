@@ -1108,7 +1108,10 @@ Requiredness evaluates the effective post-batch value. A firing supplier can sat
 requirement, including provider-generated values that callers must not author. A disabled
 supplier cannot. Allowed values retain their types; strings are not coerced into numbers.
 Supplier effects are not guessed or executed by Core; a predicate depending on an
-unobserved generated value remains unavailable.
+unobserved generated value remains unavailable. A single known default guarded
+only by its own field being null is checked against the authored value. That
+guard does not count as a chained dependency; other rules that read the field
+still do.
 
 State change and authored close gates are a **single `Batch`**, never two independent
 operations. When entering a Completed-category state, active required fields without a

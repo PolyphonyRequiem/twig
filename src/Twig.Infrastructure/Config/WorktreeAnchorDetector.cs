@@ -94,13 +94,25 @@ internal static class WorktreeAnchorDetector
             root = anchor.WorktreeRoot;
             return true;
         }
-        // Verify Git's first (main) checkout instead of inferring it from a worktree path.
+        // Git lists the main checkout or bare repository first.
+        const string prefix = "worktree ";
         if (!TryRunGit(anchor.WorktreeRoot, "worktree list --porcelain -z", out var listing)
-            || !listing.StartsWith("worktree ", StringComparison.Ordinal))
+            || !listing.StartsWith(prefix, StringComparison.Ordinal))
             return false;
         var end = listing.IndexOf('\0');
-        if (end < "worktree ".Length
-            || !TryDetect(listing["worktree ".Length..end], out var main, out _)
+        if (end <= prefix.Length)
+            return false;
+        var firstPath = listing[prefix.Length..end];
+        if (listing.AsSpan(end + 1).StartsWith("bare\0\0", StringComparison.Ordinal))
+        {
+            if (!Path.IsPathFullyQualified(firstPath)
+                || !comparer.Equals(CanonicalPath(firstPath, anchor.WorktreeRoot), anchor.GitCommonDir))
+                return false;
+            // The common Git directory identifies the bindings, but only the requesting checkout is a usable root.
+            root = anchor.WorktreeRoot;
+            return true;
+        }
+        if (!TryDetect(firstPath, out var main, out _)
             || !comparer.Equals(main.GitCommonDir, anchor.GitCommonDir)
             || !comparer.Equals(main.WorktreeGitDir, main.GitCommonDir))
             return false;

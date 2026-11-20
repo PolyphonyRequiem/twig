@@ -82,7 +82,9 @@ conservative rule subset is not a claim to support every inherited ADO process
 rule. Unsupported schemas require explicit additional translation, not dropped
 rules or a bypass.
 
-Explicit reads acquire at most 200 distinct keys. Full field observations
+Explicit reads acquire at most 200 distinct keys. Each work-item GET uses
+`$expand=all` to observe classification IDs and relationships at the same
+revision. Full field observations
 distinguish absent/unset (explicit Core null), empty text and typed native values;
 undeclared native fields remain opaque rather than being coerced. Native identity
 objects use their IDs, not display names. Forward/reverse relation endpoints

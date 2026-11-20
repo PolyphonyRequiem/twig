@@ -110,7 +110,8 @@ public sealed partial class AdoProvider
         foreach (var key in keys)
         {
             var id = Id(key);
-            var root = await Get(bound, $"{bound.Project}/_apis/wit/workitems/{id}?$expand=relations&api-version={Api}", ct);
+            // Relations-only expansion omits classification IDs needed for edit validation.
+            var root = await Get(bound, $"{bound.Project}/_apis/wit/workitems/{id}?$expand=all&api-version={Api}", ct);
             var (item, edges) = MapItem(root, bound, schema, key);
             items.Add(item);
             observations.Add(key, edges.ToHashSet());

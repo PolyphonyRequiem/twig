@@ -219,8 +219,22 @@ public static class NativeSourceReader
                 return Result<NativeSourceObservation>.Fail(ErrorCode.StorageUnavailable,
                     "An existing explicitly initialized Core workspace is required; nothing was initialized.");
 
-            // Acquire here, before any await, so nested native operations inherit reentrancy.
-            using var operation = ConnectionOperationGate.Acquire(workspaceRoot, exclusive: true);
+            // Acquire in this async flow so nested operations inherit the lease. Wait only before any work starts.
+            IDisposable operation;
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    operation = ConnectionOperationGate.Acquire(workspaceRoot, exclusive: true);
+                    break;
+                }
+                catch (ConnectionBindingResolutionException error) when (error.FailureCode == ConnectionOperationGate.ActiveFailureCode)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(50), token).ConfigureAwait(false);
+                }
+            }
+            using var operationLease = operation;
             using var runtime = await ComposeAsync().ConfigureAwait(false);
             var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
             var opened = await factory.OpenAsync(token).ConfigureAwait(false);

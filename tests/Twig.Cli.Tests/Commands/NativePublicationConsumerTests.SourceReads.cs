@@ -137,6 +137,77 @@ public sealed partial class NativePublicationConsumerTests
         using var released = ConnectionOperationGate.Acquire(paths.RepoRoot, exclusive: true);
     }
 
+    [Theory]
+    [InlineData("ready")]
+    [InlineData("401")]
+    [InlineData("403")]
+    [InlineData("changed-source")]
+    public async Task NativeOnlineReadWaitsForActiveOperationThenRevalidatesAuthority(string outcome)
+    {
+        var (paths, _, _) = await RelationshipWorkspaceAsync();
+        var initial = (await ReadSource(paths)).Value;
+        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var active = new FileStream(Path.Combine(paths.TwigDir, "binding-operation.lock"),
+            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var requests = _transport.TotalRequests;
+        var reading = ReadSourceOnline(paths, initial.Source, budget.Token);
+        try
+        {
+            reading.IsCompleted.ShouldBeFalse("a busy checkout is not an unavailable connection");
+            _transport.TotalRequests.ShouldBe(requests, "no provider operation may start before the lease is acquired");
+            if (outcome == "changed-source")
+            {
+                var path = Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName);
+                var marker = JsonSerializer.Deserialize(await File.ReadAllTextAsync(path),
+                    CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+                await File.WriteAllTextAsync(path, JsonSerializer.Serialize(marker with { PrincipalId = Sibling },
+                    CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
+            }
+            else if (outcome is "401" or "403")
+                _transport.ReadAccessFailure = (System.Net.HttpStatusCode)int.Parse(outcome, System.Globalization.CultureInfo.InvariantCulture);
+        }
+        finally { active.Dispose(); }
+        var observed = await reading.WaitAsync(budget.Token);
+        if (outcome == "ready")
+        {
+            observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
+            observed.Value.Source.ShouldBe(initial.Source);
+            _transport.ObservedPaths.ShouldContain(path => path.EndsWith("/_apis/connectionData"));
+        }
+        else
+        {
+            observed.IsSuccess.ShouldBeFalse();
+            if (outcome == "changed-source") _transport.TotalRequests.ShouldBe(requests);
+            else observed.Error.Evidence.ShouldContain("http:" + outcome);
+        }
+        _transport.CommittedWrites.ShouldBe(0);
+        _transport.PostCount.ShouldBe(0);
+        using var released = ConnectionOperationGate.Acquire(paths.RepoRoot, exclusive: true);
+    }
+
+    [Fact]
+    public async Task NativeReadWaitingForActiveOperationHonorsCancellationWithoutProviderAccess()
+    {
+        var (paths, _, _) = await RelationshipWorkspaceAsync();
+        var initial = (await ReadSource(paths)).Value;
+        using var cancellation = new CancellationTokenSource();
+        using var active = new FileStream(Path.Combine(paths.TwigDir, "binding-operation.lock"),
+            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var requests = _transport.TotalRequests;
+        var reading = ReadSourceOnline(paths, initial.Source, cancellation.Token);
+        try
+        {
+            reading.IsCompleted.ShouldBeFalse();
+            cancellation.Cancel();
+            await Should.ThrowAsync<OperationCanceledException>(() => reading.WaitAsync(TimeSpan.FromSeconds(5)));
+            _transport.TotalRequests.ShouldBe(requests);
+            Should.Throw<IOException>(() => new FileStream(Path.Combine(paths.TwigDir, "binding-operation.lock"),
+                FileMode.Open, FileAccess.ReadWrite, FileShare.None).Dispose());
+        }
+        finally { cancellation.Cancel(); active.Dispose(); }
+        (await ReadSourceOnline(paths, initial.Source)).IsSuccess.ShouldBeTrue();
+    }
+
     [Fact]
     public async Task NativeSourcePlanningBrowsePersistsReferenceEvidenceWithoutReplayingQueriesOnCachedReads()
     {
@@ -440,9 +511,10 @@ public sealed partial class NativePublicationConsumerTests
         };
         var reading = ReadSource(paths, capture.Source, schema: true, timeout.Token);
         await entered.Task.WaitAsync(timeout.Token);
+        var queued = ReadSource(paths, capture.Source, ct: timeout.Token);
         try
         {
-            (await ReadSource(paths, capture.Source)).IsSuccess.ShouldBeFalse("an independent request must not inherit the reader's ambient gate");
+            queued.IsCompleted.ShouldBeFalse("an independent request must wait, not inherit the reader's ambient gate");
             // An independent writer bypasses the native gate to prove no SQLite read transaction spans HTTP.
             (await store.CommitAsync(connection, 0, new(1),
                 timeout.Token)).IsSuccess.ShouldBeTrue();
@@ -469,7 +541,9 @@ public sealed partial class NativePublicationConsumerTests
         observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
         observed.Value.Snapshot.Version.ShouldBe(0);
         observed.Value.Snapshot.Benches.ShouldBeEmpty();
-        var reread = (await ReadSource(paths, capture.Source)).Value;
+        var next = await queued.WaitAsync(timeout.Token);
+        next.IsSuccess.ShouldBeTrue(next.IsSuccess ? "" : next.Error.Message);
+        var reread = next.Value;
         reread.Source.ShouldBe(capture.Source, "ordinary cache versions are not source identities");
         reread.Snapshot.Version.ShouldBe(1);
         reread.Snapshot.Benches.ShouldHaveSingleItem();

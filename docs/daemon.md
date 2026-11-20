@@ -113,6 +113,13 @@ refuse content. Failed source reads remain explicit per-source failures, not
 fabricated empty membership; an admission change during final checking can
 refuse the entire read.
 
+Native source reads wait for a busy checkout operation lease within their
+existing cancellation/deadline budget, before opening stores or contacting a
+provider. A brief overlapping operation is not itself a connection failure.
+After acquiring the lease, the read performs the usual fresh authority and
+access checks; cancellation and deadline exhaustion still withhold content.
+This only waits for admission and never retries an operation or replays a write.
+
 Initial-view loading retains its single full local observation per restored
 source and final admission/profile/Plan checks. Only the authoritative workspace
 read adds the final local snapshot/selection/exclusion reread.

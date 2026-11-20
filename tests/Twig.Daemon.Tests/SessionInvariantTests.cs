@@ -30,6 +30,7 @@ public sealed class SessionInvariantTests
 {
     [Theory]
     [InlineData("repository-selection")]
+    [InlineData("bare-repository-selection")]
     [InlineData("initial-view")]
     [InlineData("owner-transport")]
     [InlineData("owner-lifetime")]
@@ -45,6 +46,7 @@ public sealed class SessionInvariantTests
             switch (scenario)
             {
                 case "repository-selection": await SessionTests.RepositorySelection(root, deadline.Token); break;
+                case "bare-repository-selection": await SessionTests.RepositorySelection(root, deadline.Token, bare: true); break;
                 case "initial-view": await SessionTests.InitialView(root, deadline.Token); break;
                 case "owner-transport": await SessionTests.OwnerTransport(root, deadline.Token); break;
                 case "owner-lifetime": SessionTests.OwnerLifetime(root); break;
@@ -66,7 +68,7 @@ internal static class SessionTests
 {
     internal static int AssertionsPassed { get; private set; }
 
-    internal static async Task RepositorySelection(string root, CancellationToken ct)
+    internal static async Task RepositorySelection(string root, CancellationToken ct, bool bare = false)
     {
         async Task Git(string directory, params string[] arguments)
         {
@@ -88,11 +90,20 @@ internal static class SessionTests
         var repository = Path.Combine(root, "repository");
         var linked = Path.Combine(root, "linked");
         var unrelated = Path.Combine(root, "unrelated");
-        Directory.CreateDirectory(repository);
+        var seed = bare ? Path.Combine(root, "seed") : repository;
+        Directory.CreateDirectory(seed);
         Directory.CreateDirectory(unrelated);
-        await Git(repository, "init", "--quiet");
-        await Git(repository, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+        await Git(seed, "init", "--quiet");
+        await Git(seed, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
             "commit", "--quiet", "--allow-empty", "-m", "Fixture");
+        string? common = null;
+        if (bare)
+        {
+            common = Path.Combine(root, "bare common.git");
+            await Git(root, "clone", "--quiet", "--bare", seed, common);
+            await Git(root, $"--git-dir={common}", "worktree", "add", "--quiet", "-b", "first", repository);
+            // Add the second checkout from its sibling, just as a normal checkout adds a worktree.
+        }
         await Git(repository, "worktree", "add", "--quiet", "-b", "linked", linked);
         await Git(unrelated, "init", "--quiet");
         var store = new UserBenchStore(Path.Combine(root, "benches.db"));
@@ -105,6 +116,10 @@ internal static class SessionTests
         _ = Required(await store.SaveRepositoryAsync(unrelated, 0, [], fallback, ct));
         Check(Required(await store.ReadRepositoryAsync(linked, ct)).RepositoryId == bindings.RepositoryId,
             "The linked worktree must resolve to the same verified repository identity.");
+        if (common is not null)
+            Check((await store.ReadRepositoryAsync(common, ct)).Error.Code == ErrorCode.InvalidInput,
+                "The bare directory itself is not a checkout and must not be accepted as a binding context.");
+        var expectedLinkedRoot = bare ? linked : repository;
         var gateway = new Gateway([]);
         var panel = new NativePanel(store, gateway, new NativeSourceAdapter(Path.Combine(root, "evidence"), gateway, new()));
         var profiles = Path.Combine(root, "profiles");
@@ -146,14 +161,15 @@ internal static class SessionTests
             Check(await Initial(host, next) == selected,
                 "A new session in a linked worktree must auto-load the repository's last-selected Bench after restart.");
             var linkedState = restarted.ReadState(restarted.Content(next.ViewId, next.ContentCapability, true));
-            Check(linkedState.Choices.RepositoryRoot == repository,
-                "A linked worktree must manage the main repository, not require a separate worktree binding.");
+            Check(linkedState.Choices.RepositoryRoot == expectedLinkedRoot,
+                "The runtime context must use the main checkout when present, or retain the requesting checkout.");
             var linkedRoute = $"/api/v1/views/{next.ViewId:D}/repository-bindings";
             var linkedBindings = await host.Send("POST", linkedRoute,
                 new ReadRepositoryBindingsBody(linked), next.ContentCapability, null, ct);
             Check(linkedBindings.Status == 200
-                && linkedBindings.Body!["repositoryRoot"]?.GetValue<string>() == repository,
-                $"Observing bindings through a worktree must return the main repository path: {linkedBindings.Status} {linkedBindings.Body}");
+                && linkedBindings.Body!["repositoryRoot"]?.GetValue<string>() == expectedLinkedRoot
+                && linkedBindings.Body["revision"]?.GetValue<long>() == bindings.Revision,
+                $"Observing bindings through a worktree must return its context root and shared revision: {linkedBindings.Status} {linkedBindings.Body}");
             var legacyBindings = await host.Send("GET", linkedRoute + "?root=" + Uri.EscapeDataString(linked),
                 null, next.ContentCapability, null, ct);
             Check(legacyBindings.Status == 403
@@ -193,8 +209,8 @@ internal static class SessionTests
                 new RepositoryContextBody(linked), explicitContext.ContentCapability, null, ct);
             Check(response.Status == 200
                 && restarted.ReadState(restarted.Content(explicitContext.ViewId, explicitContext.ContentCapability, true))
-                    .Choices.RepositoryRoot == repository,
-                "Explicit worktree selection must retain only the main repository as the managed context.");
+                    .Choices.RepositoryRoot == expectedLinkedRoot,
+                "Explicit worktree selection must use the same verified context as automatic selection.");
             var separate = Path.Combine(root, "separate repository");
             var separateLinked = Path.Combine(root, "separate linked");
             Directory.CreateDirectory(separate);

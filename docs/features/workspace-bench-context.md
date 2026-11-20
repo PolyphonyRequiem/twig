@@ -60,6 +60,11 @@ scope and drafts. Structured `set`, navigation, and seed publication are refused
 
 The daemon uses isolated view profiles and explicit source admission. Repository
 bindings can constrain available sources without rewriting shared Bench intent.
+Linked worktrees share bindings through their common Git directory. Twig uses
+the main checkout as the repository context when there is one. When the common
+directory is bare, Twig uses the requesting linked checkout instead; the bare
+directory itself is not a checkout.
+
 An existing daemon session retains its own saved Bench choice. A new session
 uses the last explicit Bench selection for that verified repository, including
 linked worktrees and after a daemon restart; a deleted remembered Bench falls

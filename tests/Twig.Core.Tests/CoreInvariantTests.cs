@@ -228,6 +228,51 @@ public sealed class CoreInvariantTests
     }
 
     [Fact]
+    public void NullGuardedAuditDefaultsDoNotBlockCreation()
+    {
+        var schema = AuditDefaultSchema();
+        var (proposal, store) = AuditDefaultCreate(schema);
+
+        Rules.Validate(proposal, proposal.Digest, schema, store, Capabilities).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void AnotherRuleDependingOnAnAuditDefaultStillBlocksCreation()
+    {
+        var schema = AuditDefaultSchema([new("gate", RuleAction.Required,
+            [new(ConditionKind.Equal, "System.CreatedBy", FieldValue.Identity("actor"))])]);
+        var (proposal, store) = AuditDefaultCreate(schema);
+
+        Rules.Validate(proposal, proposal.Digest, schema, store, Capabilities)
+            .ShouldContain(error => error.Code == ErrorCode.Unavailable
+                && error.Message.Contains("chained rule evaluation", StringComparison.Ordinal));
+    }
+
+    private static ProcessSchema AuditDefaultSchema(FieldRule[]? additionalRules = null)
+    {
+        var fields = new[] { "System.CreatedBy", "System.ChangedBy" };
+        var rules = fields.SelectMany(field => new FieldRule[]
+        {
+            new(field, RuleAction.ReadOnly, []),
+            new(field, RuleAction.Default, [new(ConditionKind.Equal, field, FieldValue.Null)],
+                [FieldValue.Identity("actor")]),
+        });
+        return new(Connection, [new("record", "phase",
+            [new("phase", FieldKind.Text), new("gate", FieldKind.Text), .. fields.Select(field => new FieldDef(field, FieldKind.Identity))],
+            [new("open", StateCategory.InProgress)], [], rules.Concat(additionalRules ?? []))], []);
+    }
+
+    private static (Proposal Proposal, StoreSnapshot Store) AuditDefaultCreate(ProcessSchema schema)
+    {
+        var key = ItemKey.Local(Guid.NewGuid());
+        var fields = Fields(("phase", FieldValue.String("open")));
+        var proposal = new Proposal(Connection, schema.Fingerprint, 0,
+            [new("create", OpKind.Create, key, fields: fields, type: "record",
+                concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+        return (proposal, new(0, drafts: [new(key, "record", null, fields)]));
+    }
+
+    [Fact]
     public void MissingSchemaUnknownPredicatesAndUnobservedValuesCannotPermitWrites()
     {
         var unknown = Schema([new("gate", RuleAction.Required,

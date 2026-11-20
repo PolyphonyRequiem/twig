@@ -471,7 +471,13 @@ public static partial class Core
                     "Enabled suppliers disagree or their combined effective value is unknown.");
             var known = values.Length == 1;
             authored.TryGetValue(group.Key, out var original);
-            if (type.Rules.Where(rule => !rule.Disabled).SelectMany(rule => rule.Conditions)
+            // A standalone "default this field if null" guard is evaluated against the authored value.
+            // Its own effect is not a dependency, but any other rule reading that field still is.
+            var selfDefault = known && !values[0].IsEmpty && group.Count() == 1 && group.First() is
+                { Action: RuleAction.Default, Conditions: [{ Kind: ConditionKind.Equal } guard] } candidate
+                && guard.Field == group.Key && Equals(guard.Value, FieldValue.Null) ? candidate : null;
+            if (type.Rules.Where(rule => !rule.Disabled && !ReferenceEquals(rule, selfDefault))
+                .SelectMany(rule => rule.Conditions)
                 .Any(condition => condition.Field == group.Key && condition.Kind != ConditionKind.Was)
                 && (!known || !Equals(original, values[0])))
                 return Result<(FieldValues, ImmutableArray<FieldRule>)>.Fail(ErrorCode.Unavailable,

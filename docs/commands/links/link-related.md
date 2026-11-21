@@ -15,11 +15,10 @@ Core ADO workspace. The relation reference comes from the discovered schema,
 not a hardcoded process or native name.
 
 ```
-twig link related <targetId> [--id <n>] [-c <comment>] [-o <format>]
+twig link related <targetId> --id <n> [-o <format>]
 ```
 
-`targetId` names the other endpoint; `--id` names the source. Only human output
-may use the selected Core item. Both IDs must be positive native identities.
+`targetId` names the other endpoint; `--id` names the source. Both IDs must be positive native identities.
 `-c`/`--comment` is retained syntax but **unsupported**: any supplied value,
 including an empty string, refuses before HTTP. The typed relationship effect
 has no comment payload; the command never silently drops it or emits a separate note.
@@ -31,13 +30,12 @@ independent acknowledgement and fresh reciprocal readback, not a best-effort res
 ## Examples
 
 ```text
-twig link related 615
 twig link related 615 --id 619 -o json
 ```
 
 Success exits `0` with `linkAdded`, `status: Verified`, proposal digest and
 native link records. Duplicate adds, unsupported comments, missing observations
-and unresolved outcomes exit `1`; invalid/self/missing machine targets exit `2`.
+and unresolved outcomes exit `1`; invalid/self/missing targets exit `2`.
 
 See [shared behavior and output](./README.md),
 [`link unrelate`](./link-unrelate.md) and [`link unlink`](./link-unlink.md).

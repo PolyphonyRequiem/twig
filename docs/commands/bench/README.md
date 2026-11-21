@@ -9,15 +9,14 @@ a repository or automatically created from a sprint. Creation does not select it
 | [`bench create`](create.md) | Create shared metadata |
 | [`bench list`](list.md) / `bench` | List stored definitions |
 | [`bench rename`](rename.md) | Preserve identity/rules while changing the name |
-| [`bench switch`](switch.md) | Select in this initialized worktree |
 | [`bench delete`](delete.md) | Delete metadata under content/confirmation checks, not upstream items |
 | [`bench rules`, `bench rule add/remove`](planning.md) | Inspect/edit shared selectors with revision checks |
 | [`bench planning [show/refresh]`](planning.md) | Cached or explicitly refreshed ADO planning metadata |
 | [`bench sources`, `bench browse`](planning.md) | Discover and explicitly read native saved queries/backlogs |
 
 Metadata management does not discover identity profiles, execute queries, or
-initialize a default. Worktree selection is independent; changes to a shared
-definition are visible wherever it is used.
+initialize a default. Name the Bench on each command that uses its definition;
+changes to the shared definition are visible wherever it is used.
 
 The old `bench browser/detail/discussion/configuration` commands are retired.
 `bench browse` is a distinct explicit native source read, not that browser.

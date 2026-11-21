@@ -68,9 +68,7 @@ twig show 12345
 twig query --title "authentication"
 twig process
 twig bench create MyWork
-twig bench switch MyWork
-twig workspace track 12345
-twig workspace
+twig workspace --bench MyWork
 ```
 
 Use real IDs from your provider. `show` is cached unless you request `--refresh`.
@@ -98,8 +96,9 @@ connection. Older plan JSON is not translated. Recheck affected items with
 `show <id> --refresh` and inspect unresolved journal outcomes before any retry.
 
 For scripts, single-item mutations require `--id` with structured output.
-Structured reads need an explicit target; never select an active item as a
-workaround. Use actual discovered field, type, and state references.
+Targeted reads need an explicit ID in every output format. The CLI does not
+inherit an active item or Bench from a previous command or an open view.
+Use actual discovered field, type, and state references.
 
 ## Provider differences
 

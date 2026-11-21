@@ -32,14 +32,6 @@ public sealed class NativePlanScopeContractTests
                 new([KeyValuePair.Create("System.Title", FieldValue.String("Normal"))]));
             (await origin.CommitAsync(connection, 0, new(1, [baseline], drafts: [normalDraft]), default)).IsSuccess.ShouldBeTrue();
             var stamp = new NativeSourceStamp(connection, origin.InstanceId, "synthetic-actor", "synthetic-authority");
-            var context = new CoreHostContext(directory, connection, origin.InstanceId);
-            var initialContext = (await context.ReadAsync(default)).Value;
-            (await context.WriteAsync(initialContext, initialContext with
-            {
-                History = [CoreContextKey.Capture(key)], Position = 0, BenchId = bench.Id,
-            }, default)).IsSuccess.ShouldBeTrue();
-            var contextPath = Path.Combine(directory, ".twig", "core-context.json");
-            var originalContextBytes = await File.ReadAllBytesAsync(contextPath);
 
             var mode = await Native(user, "SetPlanModeAsync", library.InstanceId, bench.Id, bench.Revision, 0L, true, default(CancellationToken));
             var reserved = await Native(user, "ReservePlanScopeAsync", library.InstanceId, bench.Id,
@@ -63,7 +55,6 @@ public sealed class NativePlanScopeContractTests
             (await planStore.ReadAsync(connection, default)).Value.Drafts.Single().ShouldBe(planDraft);
             (await origin.ReadAsync(connection, default)).Value.Journal.ShouldBeEmpty();
             (await planStore.ReadAsync(connection, default)).Value.Journal.ShouldBeEmpty();
-            (await File.ReadAllBytesAsync(contextPath)).ShouldBe(originalContextBytes);
         }
         finally { Directory.Delete(directory, recursive: true); }
     }

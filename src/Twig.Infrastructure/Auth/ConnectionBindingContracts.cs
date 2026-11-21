@@ -299,6 +299,12 @@ internal interface IConnectionBindingService
         bool makeDefault,
         CancellationToken ct = default);
 
+    /// <summary>Binds the exact native endpoint only if its normalized device declaration exists.
+    /// Never creates or replaces a default.</summary>
+    Task<IdentityBinding> BindRegisteredAdoAsync(
+        string organization, string project, string identity, CancellationToken ct = default)
+        => throw new NotSupportedException("Binding a declared ADO connection is unavailable.");
+
     Task<IReadOnlyList<IdentityBinding>> ListBindingsAsync(
         string organization,
         string project,

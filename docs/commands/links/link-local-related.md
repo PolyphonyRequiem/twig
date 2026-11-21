@@ -14,7 +14,7 @@ twig link local related <target> --id <source> [-o human|json|json-full|json-com
 
 Both endpoints are explicit: use a native numeric locator, a negative Core seed
 alias, or an original canonical lowercase GUIDv7. `--id` is required in human
-and machine output; active context is never consulted. The old two-GUID
+and machine output. The old two-GUID
 positional syntax and separate `LocalWorkItemId` registry are retired.
 
 The pinned Core provider must discover exactly one symmetric Association declared

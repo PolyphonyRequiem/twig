@@ -79,6 +79,7 @@ public sealed partial class NativePublicationConsumerTests
             }
             var admitted = await Send("/context", HttpMethod.Put, new JsonObject { ["root"] = fixture.Root });
             admitted.Status.ShouldBe(HttpStatusCode.OK, admitted.Body.ToJsonString());
+            (await Send("/selection", HttpMethod.Put, new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench })).Status.ShouldBe(HttpStatusCode.OK);
             var configured = sessions.Content(human.ViewId, human.ContentCapability, true);
             var state = sessions.ReadState(configured);
             sessions.SaveState(configured, new(state.Revision, state.Choices with
@@ -92,7 +93,6 @@ public sealed partial class NativePublicationConsumerTests
             var beforeLocal = gateway.LocalReads;
             var beforeSchema = gateway.SchemaReads;
             var beforeOnline = gateway.OnlineReads;
-            var beforeSelections = gateway.SelectionWrites;
             var beforeHttp = _transport.TotalRequests;
             beforeHttp.ShouldBeGreaterThan(0, "The fixture must first complete real native schema admission.");
             var beforeCaptures = await store.ReadEditorCapturesAsync(ct);
@@ -115,7 +115,7 @@ public sealed partial class NativePublicationConsumerTests
                         $"Initial-view failed without relaxing its two-second deadline. Task={pending.Status}; "
                         + $"local={gateway.LocalReads - beforeLocal}, schema={gateway.SchemaReads - beforeSchema}, "
                         + $"online={gateway.OnlineReads - beforeOnline}, http={_transport.TotalRequests - beforeHttp}, "
-                        + $"selection={gateway.SelectionWrites - beforeSelections}, PATCH={HumanPatchAttempts}; "
+                        + $"PATCH={HumanPatchAttempts}; "
                         + $"process CPU delta={(process.TotalProcessorTime - cpuBefore).TotalMilliseconds}ms; "
                         + $"available workers={workersBefore}->{workersAfter}, IO={ioBefore}->{ioAfter}. "
                         + "Recorder callbacks and response decoding/parsing are included in the original deadline."
@@ -136,7 +136,6 @@ public sealed partial class NativePublicationConsumerTests
                 gateway.SchemaReads.ShouldBe(beforeSchema, "Initial recovery does not discover schema.");
                 gateway.OnlineReads.ShouldBe(beforeOnline, "Initial recovery does not await the held provider boundary.");
                 _transport.TotalRequests.ShouldBe(beforeHttp, "The actual native reader makes no provider HTTP requests.");
-                gateway.SelectionWrites.ShouldBe(beforeSelections, "Initial recovery never changes native selection.");
                 var afterCaptures = await store.ReadEditorCapturesAsync(ct);
                 afterCaptures.IsSuccess.ShouldBeTrue();
                 afterCaptures.Value.Length.ShouldBe(beforeCaptures.Value.Length, "Initial recovery never captures editor intent.");

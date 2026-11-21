@@ -50,7 +50,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry : IDisposable
     // v8→v9 adds all-worktree default families; unfinished families fence every affected generation.
     // v9→v10 adds provider-neutral target bindings without referencing ADO rows.
     // v10→v11 adds pending activation and authoritative Core references, never outcome backfill.
-    private const int SchemaVersion = 12;
+    internal const int SchemaVersion = 12;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -178,7 +178,7 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
         }
     }
 
-    private async Task<Result<T>> ExecuteWriteAsync<T>(Func<SqliteConnection, SqliteTransaction, Task<Result<T>>> body, CancellationToken ct)
+    internal async Task<Result<T>> ExecuteWriteAsync<T>(Func<SqliteConnection, SqliteTransaction, Task<Result<T>>> body, CancellationToken ct)
     {
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -187,6 +187,7 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
                 return NativeResults.Fail<T>(openFailure!);
             using var tx = connection!.BeginTransaction(deferred: false);
             var result = await body(connection, tx).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (result.IsSuccess) tx.Commit(); else tx.Rollback();
             return result;
         }
@@ -604,7 +605,7 @@ CREATE TABLE IF NOT EXISTS profile_cache (
         using (var cmd = connection.CreateCommand())
         {
             cmd.Transaction = tx;
-            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql + ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql + CaptureSchemaSql;
+            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql + ProviderTargetBindingSchemaSql + CoreExecutionSchemaSql + CaptureSchemaSql + Services.DeviceConnectionCatalog.SchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

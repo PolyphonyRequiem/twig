@@ -9,12 +9,13 @@ mutates: none
 # `twig link local list`
 
 ```text
-twig link local list [<target>] [--id <target>] [-o human|json|json-full|json-compact|minimal|ids]
+twig link local list <target> [-o human|json|json-full|json-compact|minimal|ids]
+twig link local list --id <target> [-o human|json|json-full|json-compact|minimal|ids]
 ```
 
 An explicit cached native number, negative seed alias or original canonical
 lowercase GUIDv7 is required. Different positional/`--id` values refuse rather
-than guessing; there is no active-item fallback. Unknown numbers require an
+than guessing. Unknown numbers require an
 explicit `show <number> --refresh` outside this command.
 
 List reads the pinned Core snapshot only: **zero total HTTP**, no credential or

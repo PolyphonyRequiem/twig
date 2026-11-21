@@ -156,7 +156,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CoreLinkHumanActivePublishedUuidUsesPermanentMappingWithoutRewritingHistory()
+    public async Task CoreLinkUsesExplicitPublishedTargetAndPreservesCreationReceipts()
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
         var originalOut = Console.Out;
@@ -179,15 +179,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var alias = seedOutput.RootElement.GetProperty("id").GetInt32();
             var seed = (await store.ReadAsync(connection, default)).Value.Drafts.Single();
             seed.Key.IsLocal.ShouldBeTrue();
-            Run("set", alias.ToString(CultureInfo.InvariantCulture)).ShouldBe(0, stderr.ToString());
             var contextFile = Path.Combine(paths.TwigDir, "core-context.json");
-            var originalContext = await File.ReadAllBytesAsync(contextFile);
-            using (var context = JsonDocument.Parse(originalContext))
-                context.RootElement.GetProperty("history")[0].GetProperty("localId").GetGuid().ShouldBe(seed.Key.LocalId);
+            const string legacy = "ignored legacy selection";
+            await File.WriteAllTextAsync(contextFile, legacy);
             var beforeUnmapped = (await store.ReadAsync(connection, default)).Value;
             beforeUnmapped.Mappings.ShouldBeEmpty();
-            Run("link", "related", "43").ShouldBe(1);
-            stderr.ToString().ShouldContain("seed");
+            Run("link", "related", "43", "--id", alias.ToString(CultureInfo.InvariantCulture)).ShouldNotBe(0);
             _transport.PatchAttempts.ShouldBe(0);
             (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(beforeUnmapped.Version);
             Run("seed", "publish", alias.ToString(CultureInfo.InvariantCulture)).ShouldBe(0, stderr.ToString());
@@ -197,8 +194,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             published.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
             published.Drafts.ShouldBeEmpty();
             var creation = CoreModel.Core.ProposalBytes(published.Proposals.Single());
-            (await File.ReadAllBytesAsync(contextFile)).ShouldBe(originalContext);
-            Run("link", "related", "43").ShouldBe(0, stderr.ToString());
+            Run("link", "related", "43", "--id", mapping.Remote.NativeId!).ShouldBe(0, stderr.ToString());
             var linked = (await store.ReadAsync(connection, default)).Value;
             linked.Mappings.Single().ShouldBe(mapping);
             linked.Drafts.ShouldBeEmpty();
@@ -208,39 +204,34 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             relationship.Operations.Single().Item.ShouldBe(mapping.Remote);
             linked.Journal.Single(row => row.Digest == relationship.Digest).Status.ShouldBe(CoreModel.OpStatus.Verified);
             _transport.RelationshipPatches.Single().Id.ToString(CultureInfo.InvariantCulture).ShouldBe(mapping.Remote.NativeId);
-            (await File.ReadAllBytesAsync(contextFile)).ShouldBe(originalContext);
 
             _transport.LoseNextPatchAcknowledgement = true;
-            Run("link", "successor", "43").ShouldBe(1);
+            Run("link", "successor", "43", "--id", mapping.Remote.NativeId!).ShouldBe(1);
             var fenced = (await store.ReadAsync(connection, default)).Value;
             fenced.Journal.ShouldContain(row => row.Status == CoreModel.OpStatus.Indeterminate);
             var fencedWrites = _transport.CommittedWrites;
-            Run("link", "successor", "42").ShouldBe(1);
-            _transport.CommittedWrites.ShouldBe(fencedWrites, "mapped human context cannot bypass the shared native endpoint fence");
+            Run("link", "successor", "42", "--id", mapping.Remote.NativeId!).ShouldBe(1);
+            _transport.CommittedWrites.ShouldBe(fencedWrites, "an explicit ID cannot bypass the shared native endpoint fence");
             _transport.PatchAttempts.ShouldBe(2);
             (await store.ReadAsync(connection, default)).Value.Journal.Select(row => (row.Digest, row.Operation, row.Attempt, row.Status, row.Receipts.Length))
                 .ShouldBe(fenced.Journal.Select(row => (row.Digest, row.Operation, row.Attempt, row.Status, row.Receipts.Length)));
-            (await File.ReadAllBytesAsync(contextFile)).ShouldBe(originalContext);
 
             Run("seed", "new", "--title", "Unknown active UUID", "--type", "Task", "--no-parent", "-o", "json")
                 .ShouldBe(0, stderr.ToString());
             using var unknownOutput = JsonDocument.Parse(stdout.ToString());
             var unknownAlias = unknownOutput.RootElement.GetProperty("id").GetInt32().ToString(CultureInfo.InvariantCulture);
-            Run("set", unknownAlias).ShouldBe(0, stderr.ToString());
-            var unknownContext = await File.ReadAllBytesAsync(contextFile);
             _transport.AfterCommit = () => throw new IOException("Fixture lost active seed acknowledgement");
             Run("seed", "publish", unknownAlias).ShouldBe(1);
             var unknown = (await store.ReadAsync(connection, default)).Value;
             unknown.Journal.ShouldContain(row => row.Status == CoreModel.OpStatus.Indeterminate);
             unknown.Mappings.ShouldHaveSingleItem();
             var writes = _transport.CommittedWrites;
-            Run("link", "successor", "43").ShouldBe(1);
-            stderr.ToString().ShouldContain("seed");
+            Run("link", "successor", "43", "--id", unknownAlias).ShouldNotBe(0);
             _transport.CommittedWrites.ShouldBe(writes);
             _transport.PatchAttempts.ShouldBe(2);
             var retained = (await store.ReadAsync(connection, default)).Value;
-            retained.Version.ShouldBe(unknown.Version, "an unmapped active UUID must not change drafts, mappings or journal");
-            (await File.ReadAllBytesAsync(contextFile)).ShouldBe(unknownContext);
+            retained.Version.ShouldBe(unknown.Version, "an unpublished alias must not change drafts, mappings or journal");
+            (await File.ReadAllTextAsync(contextFile)).ShouldBe(legacy);
         }
         finally
         {
@@ -397,11 +388,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.TotalRequests.ShouldBe(requests, "argument and unsupported-shape refusals precede native HTTP");
             Run("link", "related", "999", "--id", "42", "-o", "json").ShouldBe(1);
             _transport.PatchAttempts.ShouldBe(0);
-            Run("set", "42").ShouldBe(0, stderr.ToString());
             requests = _transport.TotalRequests;
             Run("link", "related", "43", "-o", "minimal").ShouldBe(2);
-            _transport.TotalRequests.ShouldBe(requests, "even a valid active context is not machine authority");
-            Run("link", "related", "43").ShouldBe(0, stderr.ToString());
+            Run("link", "related", "43").ShouldNotBe(0);
+            _transport.TotalRequests.ShouldBe(requests, "both human and machine links require a source before any provider call");
+            Run("link", "related", "43", "--id", "42").ShouldBe(0, stderr.ToString());
             Run("link", "related", "43", "--id", "42", "-o", "json").ShouldBe(1);
             _transport.PatchAttempts.ShouldBe(1, "duplicate link is not replayed");
             _transport.BeforeItemReadResponse = () =>
@@ -624,7 +615,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             stderr.ToString().ShouldContain("Unknown");
             Run("process", "Task", "-o", "json").ShouldBe(0, stderr.ToString());
             var requests = _transport.TotalRequests;
-            Run("states", "-o", "json").ShouldBe(2);
+            Run("states", "-o", "json").ShouldBe(1);
+            using (var retired = JsonDocument.Parse(stderr.ToString()))
+                retired.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("twig process <type>");
             Run("process", "-o", "ids").ShouldBe(2);
             Run("process", "layout", "Fixture.Task", "-o", "json").ShouldBe(1);
             stderr.ToString().ShouldContain("layout");
@@ -873,7 +866,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
-        services.AddTwigWorkspaceServices(paths.StartDir, ["workspace", "sync", "-o", "json"]);
+        services.AddTwigWorkspaceServices(paths.StartDir, ["workspace", "--bench", "Scoped pull", "--refresh", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         root.GetRequiredService<TwigConfiguration>().Display.TreeDepthUp = 1;
         root.GetRequiredService<TwigConfiguration>().Display.TreeDepthDown = 1;
@@ -889,9 +882,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             Console.SetError(stderr);
             var commands = new TwigCommands(root);
             (await commands.BenchCreate("Scoped pull", "json")).ShouldBe(0, stderr.ToString());
-            (await commands.BenchSwitch("Scoped pull", "json")).ShouldBe(0, stderr.ToString());
-            (await commands.WorkspaceTrackTree(42, "json")).ShouldBe(0, stderr.ToString());
-            (await commands.Set("90", "human")).ShouldBe(0, stderr.ToString());
+            var sharedStore = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+            var bench = (await sharedStore.ReadAsync()).Value.Benches.Single();
+            var subtree = new CoreModel.Selector(CoreModel.SelectorKind.Subtree,
+                CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42"),
+                hierarchyRelation: "Native.ParentForward", connection: connection);
+            (await sharedStore.SaveAsync(new(bench.Id, bench.Name, [subtree]), bench.Revision)).IsSuccess.ShouldBeTrue();
             var debt = (await admitted.Workspace.ReadAsync(CoreModel.ItemKey.Remote(connection.Provider,
                 connection.ResourceScope, "45"), default)).Value;
             var local = CoreModel.ItemKey.Local(Guid.NewGuid());
@@ -905,11 +901,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.SetItem(45, "new native debt value", 2, Actor);
             _transport.ItemReadIds.Clear();
             stdout.GetStringBuilder().Clear();
-            (await commands.WorkspaceSync("json")).ShouldBe(0, stderr.ToString());
-            using var pulled = JsonDocument.Parse(stdout.ToString());
-            pulled.RootElement.GetProperty("itemCount").GetInt32().ShouldBe(4);
-            pulled.RootElement.GetProperty("memberCount").GetInt32().ShouldBe(3);
-            pulled.RootElement.GetProperty("itemsFlushed").GetInt32().ShouldBe(0);
+            var capturedBench = (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single();
+            var pulled = await admitted.Workspace.PullBenchAsync(capturedBench, 1, default);
+            pulled.IsSuccess.ShouldBeTrue(pulled.IsSuccess ? "" : pulled.Error.Message);
+            pulled.Value.ItemCount.ShouldBe(4);
+            pulled.Value.MemberCount.ShouldBe(3);
             _transport.ItemReadIds.ShouldContain(40);
             _transport.ItemReadIds.ShouldContain(42);
             _transport.ItemReadIds.ShouldContain(44);
@@ -925,11 +921,6 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.CommittedWrites.ShouldBe(0);
             _transport.ItemReadIds.Clear();
             stdout.GetStringBuilder().Clear();
-            (await commands.Refresh("human")).ShouldBe(0, stderr.ToString());
-            _transport.ItemReadIds.ShouldContain(90);
-            _transport.ItemReadIds.ShouldContain(91);
-            _transport.CommittedWrites.ShouldBe(0);
-            _transport.ItemReadIds.Clear();
             var added = new CoreModel.Selector(CoreModel.SelectorKind.Pin,
                 CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "90"), connection: connection);
             _transport.BeforeItemReadResponse = async () =>
@@ -939,7 +930,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 (await shared.SaveAsync(new(selected.Id, selected.Name, selected.Selectors.Add(added)),
                     selected.Revision)).IsSuccess.ShouldBeTrue();
             };
-            (await commands.WorkspaceSync("json")).ShouldBe(1, "a changed selector set cannot broaden the captured pull");
+            (await commands.Workspace("json", refresh: true, bench: bench.Id.ToString("D"))).ShouldBe(1,
+                "a changed selector set cannot broaden the captured pull");
             (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single().Selectors.ShouldContain(added);
             _transport.ItemReadIds.ShouldNotContain(90);
             _transport.ItemReadIds.ShouldNotContain(91);
@@ -956,7 +948,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CoreSyncUsesOneProposalAndOneJsonResultWithSafeOptionalTelemetry()
+    public async Task CoreExplicitSaveReturnsOneVerifiedProposalAndDoesNotReplayIt()
     {
         var native = await AttachAsync();
         var config = native.GetRequiredService<TwigConfiguration>();
@@ -972,9 +964,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
-        var telemetry = Substitute.For<ITelemetryClient>();
-        services.AddSingleton(telemetry);
-        services.AddTwigWorkspaceServices(paths.StartDir, ["sync", "-o", "json"]);
+        services.AddTwigWorkspaceServices(paths.StartDir, ["save", "42", "-o", "json"]);
         using var root = services.BuildServiceProvider();
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var originalOut = Console.Out;
@@ -986,23 +976,19 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             Console.SetOut(stdout);
             Console.SetError(stderr);
             var commands = new TwigCommands(root);
-            (await commands.Sync("json")).ShouldBe(1);
-            _transport.CommittedWrites.ShouldBe(0);
-            (await commands.BenchCreate("Save then pull", "json")).ShouldBe(0, stderr.ToString());
-            (await commands.BenchSwitch("Save then pull", "json")).ShouldBe(0, stderr.ToString());
-            (await commands.WorkspaceTrack(42, "json")).ShouldBe(0, stderr.ToString());
+            var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+            (await admitted.Workspace.ReadAsync(key, default)).IsSuccess.ShouldBeTrue();
             var state = (await store.ReadAsync(connection, default)).Value;
             var baseline = state.Items.Single(item => item.Key.NativeId == "42");
             var changes = new CoreModel.FieldValues([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("saved by sync"))]);
             (await store.CommitAsync(connection, state.Version, new(state.Version + 1, state.Items, state.Relationships,
                 [new(baseline.Key, baseline.Type, baseline, changes)], state.Proposals, state.Journal,
                 state.Mappings, state.Benches), default)).IsSuccess.ShouldBeTrue();
-            (await commands.WorkspaceSync("json", expectBench: Guid.NewGuid().ToString("D"))).ShouldBe(1);
+            (await commands.Save(output: "json")).ShouldNotBe(0);
             _transport.CommittedWrites.ShouldBe(0);
             stdout.GetStringBuilder().Clear();
             stderr.GetStringBuilder().Clear();
-            telemetry.ClearReceivedCalls();
-            (await commands.Sync("json")).ShouldBe(0, stderr.ToString());
+            (await commands.Save(id: 42, output: "json")).ShouldBe(0, stderr.ToString());
             using var result = JsonDocument.Parse(stdout.ToString());
             result.RootElement.GetProperty("itemsFlushed").GetInt32().ShouldBe(1);
             var digest = result.RootElement.GetProperty("digest").GetString().ShouldNotBeNull();
@@ -1012,18 +998,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             retained.Drafts.ShouldBeEmpty();
             _transport.TitleOf(42).ShouldBe("saved by sync");
             _transport.CommittedWrites.ShouldBe(1);
-            var call = telemetry.ReceivedCalls().ShouldHaveSingleItem();
-            var properties = ((Dictionary<string, string>)call.GetArguments()[1]!).ShouldNotBeNull();
-            properties["command"].ShouldBe("sync");
-            properties["exit_code"].ShouldBe("0");
-            properties["output_format"].ShouldBe("json");
-            properties.Keys.ShouldAllBe(key => new[] { "command", "exit_code", "output_format", "twig_version", "os_platform", "operation_id" }.Contains(key));
-            properties.Values.ShouldNotContain(Actor);
-            properties.Values.ShouldNotContain("Save then pull");
-            telemetry.WhenForAnyArgs(client => client.TrackEvent(default!, default, default))
-                .Do(_ => throw new InvalidOperationException("synthetic telemetry failure"));
             stdout.GetStringBuilder().Clear();
-            (await commands.Sync("json", pullOnly: true)).ShouldBe(0, stderr.ToString());
+            (await commands.Save(id: 42, output: "json")).ShouldBe(0, stderr.ToString());
             using var repeated = JsonDocument.Parse(stdout.ToString());
             repeated.RootElement.GetProperty("itemsFlushed").GetInt32().ShouldBe(0);
             _transport.CommittedWrites.ShouldBe(1);
@@ -1067,78 +1043,40 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             (await commands.BenchCreate("Review scope", "json")).ShouldBe(0, stderr.ToString());
             var created = (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.ShouldHaveSingleItem();
             (await store.ReadAsync(connection, default)).Value.Benches.ShouldBeEmpty();
-            (await admitted.Workspace.Context.ReadAsync(default)).Value.BenchId.ShouldBeNull();
             (await commands.BenchCreate("review SCOPE", "json")).ShouldBe(1);
-            (await commands.BenchSwitch("missing scope", "json")).ShouldBe(1);
-            (await commands.BenchSwitch("Review scope", "json", expectBench: created.Id.ToString("D"))).ShouldBe(0, stderr.ToString());
-            (await commands.WorkspaceTrack(42, "json", expectBench: created.Id.ToString("D"))).ShouldBe(0, stderr.ToString());
-            (await commands.WorkspaceTrackTree(42, "json")).ShouldBe(0, stderr.ToString());
+            var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+            (await admitted.Workspace.ReadAsync(key, default)).IsSuccess.ShouldBeTrue();
             var snapshot = (await admitted.Workspace.BenchSnapshotAsync(default)).Value;
-            snapshot.Benches.Single().Selectors.Select(selector => selector.Kind).ShouldBe([CoreModel.SelectorKind.Pin, CoreModel.SelectorKind.Subtree]);
             var query = new CoreModel.Selector(CoreModel.SelectorKind.Query, query: new(CoreModel.QueryKind.All));
+            var pin = new CoreModel.Selector(CoreModel.SelectorKind.Pin, key, connection: connection);
             (await admitted.Workspace.CaptureBenchesAsync(snapshot,
-                [new(created.Id, created.Name, snapshot.Benches.Single().Selectors.Add(query))], default)).IsSuccess.ShouldBeTrue();
-            (await commands.WorkspaceUntrack(42, "json", mode: "SiNgLe")).ShouldBe(0, stderr.ToString());
-            var unpinned = (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single();
-            unpinned.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Query);
-            unpinned.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Subtree);
-            unpinned.Selectors.ShouldNotContain(selector => selector.Kind == CoreModel.SelectorKind.Pin);
-            _transport.CoreMetadataEnabled = false;
-            (await commands.WorkspaceUntrack(42, "json", mode: "TrEe")).ShouldBe(0, stderr.ToString());
-            _transport.CoreMetadataEnabled = true;
-            var final = (await admitted.Workspace.BenchSnapshotAsync(default)).Value;
-            final.Benches.Single().Selectors.ShouldHaveSingleItem().Kind.ShouldBe(CoreModel.SelectorKind.Query);
-            var version = final.Version;
-            (await commands.WorkspaceTrack(43, "json", expectBench: Guid.NewGuid().ToString("D"))).ShouldBe(1);
-            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(version);
-            (await commands.WorkspaceTrack(42, "json")).ShouldBe(0, stderr.ToString());
-            (await commands.WorkspaceTrackTree(42, "json")).ShouldBe(0, stderr.ToString());
-            (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single().Selectors.Count(selector =>
-                selector.Kind is CoreModel.SelectorKind.Pin or CoreModel.SelectorKind.Subtree).ShouldBe(2);
-            _transport.CoreMetadataEnabled = false;
-            (await commands.WorkspaceUntrack(42, "json")).ShouldBe(0, stderr.ToString());
-            _transport.CoreMetadataEnabled = true;
-            var removed = (await admitted.Workspace.BenchSnapshotAsync(default)).Value;
-            removed.Benches.Single().Selectors.ShouldHaveSingleItem().Kind.ShouldBe(CoreModel.SelectorKind.Query);
-            (await commands.WorkspaceUntrack(42, "json")).ShouldBe(0, stderr.ToString());
-            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(removed.Version);
+                [new(created.Id, created.Name, [pin, query])], default)).IsSuccess.ShouldBeTrue();
+            (await commands.Workspace("json", bench: created.Name, expectBench: Guid.NewGuid().ToString("D"))).ShouldNotBe(0);
             var sharedBeforeExclusion = (await UserBenchStore.ForRegistry(_bindings.RegistryPath).ReadAsync()).Value.Benches.Single();
             var requestCount = _transport.TotalRequests;
             RunCoreLink(paths, ["workspace", "exclude", "42", "-o", "json"]).ShouldBe(0, stderr.ToString());
             _transport.TotalRequests.ShouldBe(requestCount, "view exclusions must not perform work HTTP");
             stdout.GetStringBuilder().Clear();
-            (await commands.Workspace("json")).ShouldBe(0, stderr.ToString());
+            (await commands.Workspace("json", bench: created.Name)).ShouldBe(0, stderr.ToString());
             using (var view = JsonDocument.Parse(stdout.ToString()))
                 view.RootElement.GetProperty("items").EnumerateArray().ShouldNotContain(row => row.GetProperty("id").GetInt32() == 42);
             var sharedAfterExclusion = (await UserBenchStore.ForRegistry(_bindings.RegistryPath).ReadAsync()).Value.Benches.Single();
             Twig.Store.Sqlite.BenchCodec.Serialize(sharedAfterExclusion).ShouldBe(Twig.Store.Sqlite.BenchCodec.Serialize(sharedBeforeExclusion));
             RunCoreLink(paths, ["workspace", "exclusions", "--clear", "-o", "json"]).ShouldBe(0, stderr.ToString());
 
-            var concurrentQuery = new CoreModel.Selector(CoreModel.SelectorKind.Query,
-                query: new(CoreModel.QueryKind.Equal, "System.Title", CoreModel.FieldValue.String("concurrent selector")));
-            _transport.SetItem(44, "new native pin target", 1, Actor);
-            _transport.BeforeItemReadResponse = async () =>
-            {
-                var shared = UserBenchStore.ForRegistry(_bindings.RegistryPath);
-                var bench = (await shared.ReadAsync()).Value.Benches.Single();
-                var scoped = new CoreModel.Selector(concurrentQuery.Kind, query: concurrentQuery.Query, connection: connection);
-                var changed = new CoreModel.Bench(bench.Id, bench.Name, bench.Selectors.Add(scoped));
-                (await shared.SaveAsync(changed, bench.Revision)).IsSuccess.ShouldBeTrue();
-            };
-            (await commands.WorkspaceTrack(44, "json")).ShouldBe(0, stderr.ToString());
-            var afterRace = (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single();
-            afterRace.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Query
-                && selector.Query!.Field == concurrentQuery.Query!.Field && selector.Query.Value!.Equals(concurrentQuery.Query.Value));
-            afterRace.Selectors.ShouldContain(selector => selector.Kind == CoreModel.SelectorKind.Pin
-                && selector.Item!.NativeId == "44");
+            (await commands.BenchRename(created.Name, "Renamed scope", output: "json",
+                expectBench: created.Id.ToString("D"))).ShouldBe(0, stderr.ToString());
+            var renamed = (await admitted.Workspace.BenchSnapshotAsync(default)).Value.Benches.Single();
+            renamed.Id.ShouldBe(created.Id);
+            renamed.Selectors.Select(value => value.Kind).ShouldBe([CoreModel.SelectorKind.Pin, CoreModel.SelectorKind.Query]);
             stdout.GetStringBuilder().Clear();
             (await commands.BenchList("json")).ShouldBe(0, stderr.ToString());
             using var listed = JsonDocument.Parse(stdout.ToString());
-            listed.RootElement[0].GetProperty("isCurrent").GetBoolean().ShouldBeTrue();
             listed.RootElement[0].GetProperty("id").GetString().ShouldBe(created.Id.ToString("D"));
             _transport.CommittedWrites.ShouldBe(0);
             _transport.PatchAttempts.ShouldBe(0);
             _transport.PostCount.ShouldBe(0);
+            var final = (await store.ReadAsync(connection, default)).Value;
             final.Drafts.ShouldBeEmpty();
             final.Proposals.ShouldBeEmpty();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.BenchCommand").ShouldBeNull();
@@ -1153,7 +1091,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields()
+    public async Task CoreExplicitEditorPreservesTargetingAndRealConcurrentFields()
     {
         var native = await AttachAsync();
         var config = native.GetRequiredService<TwigConfiguration>();
@@ -1173,7 +1111,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         editor.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
             Task.FromResult<string?>(call.ArgAt<string>(0).Replace("active scoped edit", "editor scoped edit", StringComparison.Ordinal)));
         services.AddSingleton(editor);
-        services.AddTwigWorkspaceServices(paths.StartDir, ["set", "42"]);
+        services.AddTwigWorkspaceServices(paths.StartDir, ["edit", "--id", "42"]);
         using var root = services.BuildServiceProvider();
         using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var originalOut = Console.Out;
@@ -1185,15 +1123,17 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             Console.SetOut(stdout);
             Console.SetError(stderr);
             var commands = new TwigCommands(root);
-            (await commands.Set("42", "human")).ShouldBe(0, stderr.ToString());
-            var selection = (await admitted.Workspace.Context.ReadAsync(default)).Value;
-            selection.History[selection.Position].NativeId.ShouldBe("42");
-            (await commands.Set("43", "json")).ShouldBe(2);
+            var contextFile = Path.Combine(paths.TwigDir, "core-context.json");
+            const string obsoleteSelection = "not a valid context";
+            await File.WriteAllTextAsync(contextFile, obsoleteSelection);
+            var reads = _transport.WorkRequests;
+            (await commands.Edit(output: "human")).ShouldNotBe(0);
             (await commands.Edit(output: "json")).ShouldBe(2);
+            _transport.WorkRequests.ShouldBe(reads);
             await editor.DidNotReceive().LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-            (await commands.Update("System.Title", "active scoped edit", output: "human")).ShouldBe(0, stderr.ToString());
+            (await commands.Update("System.Title", "active scoped edit", output: "human", id: 42)).ShouldBe(0, stderr.ToString());
             _transport.TitleOf(42).ShouldBe("active scoped edit");
-            (await commands.Edit(output: "human")).ShouldBe(0, stderr.ToString());
+            (await commands.Edit(id: 42, output: "human")).ShouldBe(0, stderr.ToString());
             _transport.TitleOf(42).ShouldBe("editor scoped edit");
             _transport.CommittedWrites.ShouldBe(2);
             editor.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
@@ -1201,52 +1141,26 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 _transport.SetItem(42, "native concurrent field", 100, Actor);
                 return Task.FromResult<string?>(call.ArgAt<string>(0).Replace("editor scoped edit", "stale editor field", StringComparison.Ordinal));
             });
-            (await commands.Edit(output: "human")).ShouldBe(1, "the editor must merge against its actual activation baseline");
+            (await commands.Edit(id: 42, output: "human")).ShouldBe(1, "the editor must merge against its actual activation baseline");
             _transport.TitleOf(42).ShouldBe("native concurrent field");
             _transport.CommittedWrites.ShouldBe(2, "a real conflict must not invoke an old retry writer");
             var captured = (await store.ReadAsync(connection, default)).Value;
             captured.Drafts.Single().Changes["System.Title"].Text.ShouldBe("stale editor field");
             captured.Drafts.Single().Baseline!.Fields["System.Title"].Text.ShouldBe("editor scoped edit");
             captured.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
-            var wrongInstance = selection with { StoreInstance = Guid.NewGuid() };
-            await File.WriteAllTextAsync(Path.Combine(paths.RepoRoot, ".twig", "core-context.json"),
-                JsonSerializer.Serialize(wrongInstance, CoreContextJsonContext.Default.CoreContextDocument));
-            var reads = _transport.WorkRequests;
-            (await commands.Update("System.Title", "must not adopt context", output: "human")).ShouldBe(1);
+            reads = _transport.WorkRequests;
+            (await commands.Update("System.Title", "must not adopt context", output: "human")).ShouldNotBe(0);
             _transport.WorkRequests.ShouldBe(reads);
             _transport.CommittedWrites.ShouldBe(2);
-            await File.WriteAllTextAsync(Path.Combine(paths.RepoRoot, ".twig", "core-context.json"),
-                JsonSerializer.Serialize(selection, CoreContextJsonContext.Default.CoreContextDocument));
             var children = new List<int>();
-            var childKeys = new List<Guid>();
             foreach (var title in new[] { "Navigation child one", "Navigation child two" })
             {
                 stdout.GetStringBuilder().Clear();
                 (await commands.SeedNew(title: title, type: "Task", parent: 42, output: "json")).ShouldBe(0, stderr.ToString());
                 using var child = JsonDocument.Parse(stdout.ToString());
                 children.Add(child.RootElement.GetProperty("id").GetInt32());
-                childKeys.Add(Guid.Parse(child.RootElement.GetProperty("localId").GetString()!));
             }
-            (await commands.NavDown(children[0].ToString(CultureInfo.InvariantCulture), "json")).ShouldBe(2);
-            (await commands.NavDown(children[0].ToString(CultureInfo.InvariantCulture), "human")).ShouldBe(0, stderr.ToString());
-            (await commands.NavNext("human")).ShouldBe(0, stderr.ToString());
-            var siblingSelection = (await admitted.Workspace.Context.ReadAsync(default)).Value;
-            siblingSelection.History[siblingSelection.Position].LocalId.ShouldBe(childKeys[1]);
-            (await commands.NavPrev("human")).ShouldBe(0, stderr.ToString());
-            (await commands.NavUp("human")).ShouldBe(0, stderr.ToString());
-            var beforeRetiredHistory = await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"));
-            (await commands.NavBack("human")).ShouldBe(1, "history movement is deliberately retired, not a missing service");
-            (await commands.NavFore("human")).ShouldBe(1);
-            (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"))).ShouldBe(beforeRetiredHistory);
-            var returned = (await admitted.Workspace.Context.ReadAsync(default)).Value;
-            returned.History[returned.Position].NativeId.ShouldBe("42");
-            stdout.GetStringBuilder().Clear();
-            var beforeHistory = _transport.WorkRequests;
-            (await commands.NavHistory(nonInteractive: true, output: "json")).ShouldBe(1);
-            stdout.ToString().ShouldBeEmpty();
-            (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"))).ShouldBe(beforeRetiredHistory);
-            _transport.WorkRequests.ShouldBe(beforeHistory);
-            _transport.CommittedWrites.ShouldBe(2, "context/navigation must not reach any tracker writer");
+            (await File.ReadAllTextAsync(contextFile)).ShouldBe(obsoleteSelection);
             stdout.GetStringBuilder().Clear();
             var beforeTree = _transport.WorkRequests;
             (await commands.Show(42, "json", tree: true)).ShouldBe(0, stderr.ToString());
@@ -1859,20 +1773,13 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         bool explicitStore, string format, bool explicitBinding)
     {
         await AttachAsync();
-        if (!explicitBinding)
-        {
-            var registry = new ProviderConnectionRegistry(_bindings.RegistryPath);
-            var requirement = ProviderConnectionRequirement.Create("ado", "fixture", "Project");
-            await registry.AddAsync(requirement);
-            await registry.BindAsync(requirement, new("ado", "actor"));
-        }
         var root = Path.Combine(_temp, "fresh-core-checkout");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
         File.WriteAllText(Path.Combine(root, ".gitignore"), "# retained custom ignores\n/.twig/\n");
         var ignore = await File.ReadAllBytesAsync(Path.Combine(root, ".gitignore"));
-        var selected = await _bindings.CreateBindingAsync("fixture", "Project", "sibling", false);
+        var selected = await _bindings.CreateBindingAsync("fixture", "Project", explicitBinding ? "sibling" : "actor", false);
         var policy = Path.Combine(root, "twig.policy.json");
         await File.WriteAllTextAsync(policy, """{"version":1,"rules":[]}""");
         var policyBytes = await File.ReadAllBytesAsync(policy);
@@ -2030,23 +1937,15 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     public async Task CoreInitNativeAuthorityFailureNeverCreatesAStoreOrReusesPartialEvidence(string defect)
     {
         await AttachAsync();
-        if (defect is "wrong-principal" or "changed-binding")
-        {
-            var registry = new ProviderConnectionRegistry(_bindings.RegistryPath);
-            var requirement = ProviderConnectionRequirement.Create("ado", "fixture", "Project");
-            await registry.AddAsync(requirement);
-            await registry.BindAsync(requirement, new("ado", "actor"));
-        }
         var root = Path.Combine(_temp, "refused-native-init");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
         var selected = await _bindings.CreateBindingAsync("fixture", "OtherProject", "actor", false);
         var sibling = await _bindings.CreateBindingAsync("fixture", "Project", "sibling", false);
-        var args = new[] { "init", "fixture", "Project", "-o", "json" }
-            .Concat(defect is "unknown-binding" or "wrong-endpoint"
-                ? new[] { "--binding", defect == "unknown-binding" ? "bind-unknown" : selected.BindingId }
-                : Array.Empty<string>()).ToArray();
+        var actor = await _bindings.CreateBindingAsync("fixture", "Project", "actor", false);
+        string[] args = ["init", "fixture", "Project", "-o", "json", "--binding",
+            defect switch { "unknown-binding" => "bind-unknown", "wrong-endpoint" => selected.BindingId, _ => actor.BindingId }];
         _transport.CoreMetadataEnabled = true;
         if (defect == "wrong-principal") _transport.ObservedPrincipalOverride = Sibling;
         var bindingChanged = false;
@@ -2209,12 +2108,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(snapshot.Version);
             }
             stdout.GetStringBuilder().Clear();
-            Run("set", "42").ShouldBe(0, stderr.ToString());
-            stdout.GetStringBuilder().Clear();
             var beforeStates = _transport.WorkRequests;
-            Run("states").ShouldBe(0, stderr.ToString());
-            stdout.ToString().ShouldContain("Fixture.Task");
-            _transport.WorkRequests.ShouldBe(beforeStates, "human states resolves the cached Core active type, not a work query");
+            Run("states").ShouldNotBe(0);
+            _transport.WorkRequests.ShouldBe(beforeStates, "the retired states command must not infer an item");
             using var admitted = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
             var workspace = admitted.Workspace;
             var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");

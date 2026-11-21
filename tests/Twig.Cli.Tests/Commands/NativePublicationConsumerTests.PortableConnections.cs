@@ -13,6 +13,117 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class NativePublicationConsumerTests
 {
     [Fact]
+    public async Task ExplicitSecondAdoBindAddsCandidateWithoutSwitchingEitherWorkspace()
+    {
+        await _bindings.RegisterPatIdentityAsync("actor", "fixture", ActorPat);
+        await _bindings.RegisterPatIdentityAsync("sibling", "fixture", SiblingPat);
+        string[] coordinates = ["--provider", "ado", "--org", "fixture", "--project", "Project"];
+        var added = RunPortableConnection(_bindings, _temp, ["connection", "add", .. coordinates, "-o", "json"]);
+        added.Exit.ShouldBe(0, added.Error);
+        var bound = RunPortableConnection(_bindings, _temp,
+            ["connection", "bind", .. coordinates, "--identity", "actor", "-o", "json"]);
+        bound.Exit.ShouldBe(0, bound.Error);
+        var original = (await _bindings.ListBindingsAsync("fixture", "Project")).ShouldHaveSingleItem();
+
+        const string manifest = """{"organization":"fixture","project":"Project"}""";
+        _transport.CoreMetadataEnabled = true;
+        var first = await FreshCheckout("first", manifest);
+        var initialized = RunPortableConnection(_bindings, first, ["init", "-o", "json"]);
+        initialized.Exit.ShouldBe(0, initialized.Error);
+        var pin = Path.Combine(first, ".twig", "attachment.json");
+        var originalPin = await File.ReadAllBytesAsync(pin);
+        var secondBound = RunPortableConnection(_bindings, _temp,
+            ["connection", "bind", .. coordinates, "--identity", "sibling", "-o", "json"]);
+        secondBound.Exit.ShouldBe(0, secondBound.Error);
+        var before = _transport.TotalRequests;
+        var listed = RunPortableConnection(_bindings, _temp, ["connection", "list", .. coordinates, "-o", "json"]);
+        listed.Exit.ShouldBe(0, listed.Error);
+        using var json = JsonDocument.Parse(listed.Output);
+        var candidates = json.RootElement.EnumerateArray().ToDictionary(
+            row => row.GetProperty("credential").GetString()!, row => row.GetProperty("bindingId").GetString()!);
+        candidates.Keys.Order().ShouldBe(["actor", "sibling"]);
+        candidates["actor"].ShouldBe(original.BindingId);
+        var second = await FreshCheckout("second", manifest);
+        foreach (string[] args in new string[][] { ["connection", "status", "-o", "json"], ["init", "-o", "json"] })
+        {
+            var ambiguous = RunPortableConnection(_bindings, second, args);
+            ambiguous.Exit.ShouldBe(1, ambiguous.Error);
+            ambiguous.Error.ShouldContain("--binding");
+            Directory.Exists(Path.Combine(second, ".twig")).ShouldBeFalse();
+        }
+        _transport.TotalRequests.ShouldBe(before);
+
+        var explicitInit = RunPortableConnection(_bindings, second, ["init", "--binding", candidates["sibling"], "-o", "json"]);
+        explicitInit.Exit.ShouldBe(0, explicitInit.Error);
+        using var secondPin = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(second, ".twig", "attachment.json")));
+        secondPin.RootElement.GetProperty("bindingPin").GetString().ShouldBe(candidates["sibling"]);
+        (await File.ReadAllBytesAsync(pin)).ShouldBe(originalPin);
+        before = _transport.TotalRequests;
+        foreach (var (root, alias, principal) in new[] { (first, "actor", Actor), (second, "sibling", Sibling) })
+        {
+            var reopened = RunPortableConnection(_bindings, root, ["connection", "status", "-o", "json"]);
+            reopened.Exit.ShouldBe(0, reopened.Error);
+            using var status = JsonDocument.Parse(reopened.Output);
+            status.RootElement.GetProperty("bindingId").GetString().ShouldBe(candidates[alias]);
+            status.RootElement.GetProperty("adoPrincipalId").GetString().ShouldBe(principal);
+            var doc = JsonSerializer.Deserialize(await File.ReadAllTextAsync(Path.Combine(root, ".twig", "core-workspace.json")),
+                CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+            doc.PrincipalId.ShouldBe(principal);
+            (await File.ReadAllTextAsync(Path.Combine(root, "twig.json"))).ShouldBe(manifest);
+        }
+        _transport.TotalRequests.ShouldBe(before);
+    }
+
+    [Fact]
+    public async Task ConnectionListIncludesExplicitNativeAdoSetupWithoutPortableAdd()
+    {
+        await _bindings.RegisterPatIdentityAsync("sibling", "fixture", SiblingPat);
+        var setup = new NativeConnectionSetup(Home);
+        var bound = await setup.CreateAdoBindingAsync(new("fixture", "Project", "sibling"));
+        bound.IsSuccess.ShouldBeTrue(bound.IsSuccess ? "" : bound.Error.Message);
+        (await _bindings.ListBindingsAsync("fixture", "Project")).ShouldHaveSingleItem().BindingId.ShouldBe(bound.Value.BindingId);
+
+        var listed = RunPortableConnection(_bindings, _temp, ["connection", "list", "--provider", "ado", "-o", "json"]);
+
+        listed.Exit.ShouldBe(0, listed.Error);
+        using var json = JsonDocument.Parse(listed.Output);
+        var row = json.RootElement.EnumerateArray().ShouldHaveSingleItem();
+        row.GetProperty("scope").GetString().ShouldBe("https://dev.azure.com/fixture");
+        row.GetProperty("target").GetString().ShouldBe("project");
+        row.GetProperty("credential").GetString().ShouldBe("sibling");
+        row.GetProperty("organization").GetString().ShouldBe("fixture");
+        row.GetProperty("project").GetString().ShouldBe("Project");
+        row.GetProperty("bindingId").GetString().ShouldBe(bound.Value.BindingId);
+
+        var otherOrg = "https://dev.azure.com/fixture";
+        var root = await FreshCheckout("raw-mismatch", $$"""{"organization":"{{otherOrg}}","project":"Project"}""");
+        var requests = _transport.TotalRequests;
+        var refused = RunPortableConnection(_bindings, root, ["init", "-o", "json"]);
+        refused.Exit.ShouldBe(1, refused.Error);
+        using var result = JsonDocument.Parse(refused.Error);
+        var guidance = result.RootElement.GetProperty("error").GetString()!;
+        guidance.ShouldContain("connection bind");
+        guidance.ShouldContain("exactly as spelled in twig.json");
+        guidance.ShouldContain("Project");
+        var status = RunPortableConnection(_bindings, root, ["connection", "status", "-o", "json"]);
+        status.Exit.ShouldBe(1, status.Error);
+        using var statusResult = JsonDocument.Parse(status.Error);
+        statusResult.RootElement.GetProperty("error").GetString()!.ShouldContain($"--org \"{otherOrg}\" --project \"Project\"");
+        (await _bindings.ListBindingsAsync(otherOrg, "Project")).ShouldBeEmpty();
+        Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
+        _transport.TotalRequests.ShouldBe(requests);
+    }
+
+    private async Task<string> FreshCheckout(string name, string manifest)
+    {
+        var root = Path.Combine(_temp, name);
+        Directory.CreateDirectory(root);
+        InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
+        await File.WriteAllTextAsync(Path.Combine(root, "twig.json"), manifest);
+        return root;
+    }
+
+    [Fact]
     public async Task PortableConnectionUsesEachMachinesOwnPrincipalWithoutChangingManifest()
     {
         const string manifest = """{"organization":"fixture","project":"Project","team":"Shared team"}""";

@@ -25,7 +25,7 @@ public sealed class StructuredReadProductionCliTests : IDisposable
 
         var result = await RunAsync(command, "-o", "json");
 
-        result.Exit.ShouldBe(2, result.Error);
+        result.Exit.ShouldBe(command == "states" ? 1 : 2, result.Error);
         result.Out.ShouldBeEmpty();
         using var error = JsonDocument.Parse(result.Error);
         error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain(

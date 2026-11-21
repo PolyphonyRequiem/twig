@@ -141,13 +141,13 @@ public sealed partial class GitHubCoreSpineTests
         using var f = new Fixture();
         await f.Initialize();
         f.Run("show", "42", "--refresh", "-o", "json").ShouldBe(0, f.Error);
-        f.Run("bench", "create", "Alias", "-o", "json").ShouldBe(0, f.Error);
-        f.Run("bench", "switch", "Alias", "-o", "json").ShouldBe(0, f.Error);
-        f.Run("workspace", "track", "42", "-o", "json").ShouldBe(0, f.Error);
+        await f.CreatePinnedBench("Alias");
         var workRequests = f.Http.WorkRequests;
-        f.Run("workspace", "-o", "json").ShouldBe(0, f.Error);
+        f.Run("workspace", "--bench", "Alias", "-o", "json").ShouldBe(0, f.Error);
         var canonical = f.Output;
-        f.Run("ws", "-o", "json").ShouldBe(0, f.Error);
+        using (var workspace = JsonDocument.Parse(canonical))
+            workspace.RootElement.GetProperty("items").EnumerateArray().Single().GetProperty("id").GetInt32().ShouldBe(42);
+        f.Run("ws", "--bench", "Alias", "-o", "json").ShouldBe(0, f.Error);
         f.Output.ShouldBe(canonical);
         f.Http.WorkRequests.ShouldBe(workRequests);
         var requests = f.Http.Requests;
@@ -189,7 +189,7 @@ public sealed partial class GitHubCoreSpineTests
         using var f = new Fixture();
         if (registered)
         {
-            var registry = new ProviderConnectionRegistry(f._bindings.RegistryPath);
+            var registry = new DeviceConnectionCatalog(f._bindings.RegistryPath);
             await registry.AddAsync(ProviderConnectionRequirement.Create("github",
                 host: "github.com", repository: "original/repo"));
         }
@@ -308,10 +308,8 @@ public sealed partial class GitHubCoreSpineTests
         (await f.Snapshot()).Drafts.ShouldBeEmpty();
         f.Http.Writes.ShouldBe(beforeDiscard);
         f.Run("query", "--title", "patched", "-o", "json").ShouldBe(0, f.Error);
-        f.Run("bench", "create", "Native", "-o", "json").ShouldBe(0, f.Error);
-        f.Run("bench", "switch", "Native", "-o", "json").ShouldBe(0, f.Error);
-        f.Run("workspace", "track", "42", "-o", "json").ShouldBe(0, f.Error);
-        f.Run("workspace", "-o", "json").ShouldBe(0, f.Error);
+        await f.CreatePinnedBench("Native");
+        f.Run("workspace", "--bench", "Native", "-o", "json").ShouldBe(0, f.Error);
         f.Output.ShouldContain("patched");
         var effects = f.Http.Writes;
         f.Run("batch", "--id", "42", "--state", "OPEN", "--note", "cannot couple", "-o", "json").ShouldBe(1);
@@ -497,6 +495,17 @@ public sealed partial class GitHubCoreSpineTests
                 relationships ?? capture.Relationships, capture.Drafts, capture.Proposals, capture.Journal, capture.Mappings, capture.Benches), default);
             saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         }
+        internal async Task CreatePinnedBench(string name)
+        {
+            Run("bench", "create", name, "-o", "json").ShouldBe(0, Error);
+            var store = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+            var bench = (await store.ReadAsync()).Value.Benches.Single(value => value.Name == name);
+            var item = (await Snapshot()).Items.Single();
+            var pinned = await store.SaveAsync(new(bench.Id, name,
+                [new(SelectorKind.Pin, item.Key, connection: _document.Connection)]), bench.Revision);
+            pinned.IsSuccess.ShouldBeTrue(pinned.IsSuccess ? "" : pinned.Error.Message);
+        }
+
         internal async Task Stage(string field, FieldValue value)
             => await UseWorkspace(async workspace =>
             {

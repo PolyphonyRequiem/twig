@@ -59,11 +59,7 @@ public sealed partial class NativePublicationConsumerTests
             new(SelectorKind.Query, query: Current(PrincipalTransport.TeamA), connection: connection),
             new(SelectorKind.Query, query: Current(PrincipalTransport.TeamB), connection: connection),
             new(SelectorKind.Query, query: Current(PrincipalTransport.TeamA), connection: foreign)]), 0));
-        var context = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
-        var originalContext = RequiredPlanning(await context.ReadAsync(default));
-        RequiredPlanning(await context.WriteAsync(originalContext, originalContext with { BenchId = bench.Id }, default));
-        var beforeContext = await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"));
-        var pull = RunPlanning(paths, ["workspace", "--refresh", "-o", "json"]);
+        var pull = RunPlanning(paths, ["workspace", "--bench", bench.Name, "--refresh", "-o", "json"]);
         pull.Code.ShouldBe(0, pull.Error);
         _transport.QueryAfterIds.ShouldBe([0, 0], "each exact-team rule must be acquired and locally evaluated independently");
         using (var rendered = JsonDocument.Parse(pull.Output))
@@ -96,7 +92,6 @@ public sealed partial class NativePublicationConsumerTests
         BenchCodec.Serialize(RequiredPlanning(await shared.ReadAsync()).Benches.Single()).ShouldBe(BenchCodec.Serialize(bench));
         (await TwigConfiguration.LoadSplitAsync(paths)).Team.ShouldBe(config.Team);
         (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName))).ShouldBe(marker);
-        (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"))).ShouldBe(beforeContext);
         RequiredPlanning(await store.ReadAsync(connection, default)).Proposals.ShouldBeEmpty();
         RequiredPlanning(await store.ReadAsync(connection, default)).Journal.ShouldBeEmpty();
         _transport.CommittedWrites.ShouldBe(0);

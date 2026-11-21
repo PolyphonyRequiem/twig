@@ -19,6 +19,9 @@ twig pending -o json
 For Twig-native, the type is `Twig.Item`. For ADO and GitHub, use the actual
 discovered type reference; do not assume Task, Issue, or Bug exists.
 The provider's initial-state and required-field rules still apply.
+Every CLI creation requires an explicit parent decision, even in human output.
+For `seed new`, use exactly one of `--parent <id>` or `--no-parent`.
+GitHub and Twig-native require `--no-parent`; ADO also supports a parent.
 
 `seed new` stages locally, never creates a provider item. Retained ADO conveniences
 include editor, chain, and creation-link commands; they are not GitHub-qualified.
@@ -31,13 +34,18 @@ second arbitrary local UUID registry.
 
 ## Publication
 
-Validate the selected seed with `seed validate`, then inspect
-`seed publish <actual-negative-id> --dry-run`. The non-dry-run human
-`seed publish` command publishes through Core's internally digest-bound save
+Use the negative alias returned by `seed new` in each command:
+
+```sh
+twig seed validate <alias>
+twig seed publish <alias> --dry-run
+twig seed publish <alias>
+```
+
+The last command publishes through Core's internally digest-bound save
 path; it does not ask for a separate `--confirm` digest. Review intent before
 issuing it. `--all` is an explicit wider scope, not the default.
-Structured seed publication is refused because it can change active context;
-automation uses an explicitly scoped current Core proposal instead.
+`seed publish` is human-only. Automation uses an explicitly scoped Core proposal.
 
 Publication uses the existing Core proposal/digest/journal path. A creation
 attempt UUID is persisted before dispatch. Ordered dependencies and permanent

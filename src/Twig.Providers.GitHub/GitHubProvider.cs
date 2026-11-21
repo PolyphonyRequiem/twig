@@ -109,13 +109,13 @@ public sealed partial class GitHubProvider : IProvider, IDisposable
         return request;
     }
 
-    private async Task<JsonElement> Graph(Bound bound, string document, Action<Utf8JsonWriter>? variables, CancellationToken ct)
+    private async Task<JsonElement> Graph(Bound bound, string document, Action<Utf8JsonWriter>? variables, CancellationToken ct, bool exactIssue = false)
     {
         using var request = Request(bound, Wire.Request(document, variables));
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode)
             throw new GitHubFailure(new(ErrorCode.Unavailable, $"GitHub observation returned HTTP {(int)response.StatusCode}; no fallback or retry.")
             { Evidence = [$"http:{(int)response.StatusCode}"] });
-        return Wire.Data(Wire.Parse(await Wire.Response(response, ct)));
+        return Wire.Data(Wire.Parse(await Wire.Response(response, ct)), exactIssue);
     }
 }

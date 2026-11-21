@@ -16,8 +16,8 @@ twig show 12345 --tree
 ## Behavior
 
 Uses discovered hierarchy relationships for a targeted Core tree.
-Human output can use active context; structured output requires an explicit
-positional ID or `--id`. `--refresh` explicitly permits provider acquisition;
+Pass a positional ID or `--id` in every output format.
+`--refresh` explicitly permits provider acquisition;
 default presentation is cached. GitHub tree presentation is not qualified.
 
 ## Effects

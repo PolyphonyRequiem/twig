@@ -2,15 +2,16 @@
 
 ## Project Overview
 
-Twig is an **AOT-compiled .NET 10 CLI** for Azure DevOps work-item triage. It renders
-sprint backlogs as rich terminal trees using Spectre.Console.
+Twig is an AOT-compiled CLI for work-item triage. It renders static item, tree
+and Bench views. Interactive selection belongs to native daemon/Canvas sessions
+and views, not to the CLI; do not introduce a replacement TUI.
 
 **Key constraints:**
 - `PublishAot=true`, `TrimMode=full`, `InvariantGlobalization=true`
 - `JsonSerializerIsReflectionEnabledByDefault=false` — all JSON must use source-generated `TwigJsonContext`
 - CLI framework: **ConsoleAppFramework** (source-gen, no reflection)
 - Data store: **SQLite** with WAL mode, per-workspace at `.twig/{org}/{project}/twig.db`
-- Rendering: **Spectre.Console** (Live regions, async rendering)
+- CLI rendering: static terminal or structured output
 - Warnings as errors: `TreatWarningsAsErrors=true`
 - Nullable reference types enabled globally
 - **Process-agnostic**: No hardcoded state names, type names, or process template assumptions.
@@ -30,7 +31,22 @@ sprint backlogs as rich terminal trees using Spectre.Console.
 
 ## Structured CLI targeting
 
-Non-human output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) is treated as a machine invocation. A machine mutation targeting one work item must name it with `--id`. Structured `show`/targeted `tree` reads require a positional ID or `--id`; conflicting targets are refused. Explicit `show --local-id`, retained list scopes and file-scoped proposal operations remain supported. Structured `states` is refused; use `twig process <type>`. Machine workspace output and retained ADO Bench pulls exclude the interactive active item and its relationships, while preserving explicit Bench scope and local drafts. `twig set`, navigation and `twig seed publish` are refused with structured output because they read or change active context. Structured seed creation must choose `--parent <id>` or `--no-parent`.
+The CLI has no selected work item or Bench. Use `twig show <id>`, `twig tree <id>`
+and `twig process <type>` directly; `set`, navigation and `states` are retired.
+`twig workspace --bench MyWork` reads that Bench; add `--refresh` to refresh it.
+There is no bare workspace read, Bench switch, implicit tracking, or standalone
+sync/refresh. `twig ws --bench MyWork` is the retained workspace alias. Do not
+add targeting flags to restore contextual tracking or area/sprint commands;
+explicit Bench rules, Bench-free planning metadata, and local exclusions remain.
+Reads do not publish drafts.
+
+Non-human output (`json`, `json-full`, `json-compact`, `minimal`, or `ids`) is a
+machine invocation. A machine mutation targeting one work item requires `--id`.
+Targeted reads accept a positional ID or `--id`; conflicting targets refuse.
+Explicit `show --local-id`, retained list scopes and file-scoped proposals remain
+supported. Every CLI seed creation requires `--parent <id>` or `--no-parent`.
+Human `twig seed publish <alias>` publishes the explicitly named seed; automation
+uses a scoped Core proposal instead.
 
 The closed phase-5 Core/native-host catalog is defined in `docs/architecture/clean-core-contract.md`. No-marker data calls require fresh init, never the old cache/writer graph. Quick `new`, tree-set/full backlog/live UI, native history/layout export, Browser/TUI/MCP and captured UI envelopes, policy assessment/repair selection, migration/reset/reinitialize and identity/target hot-switch commands are retired, not compatibility routes. Native status describes recorded selection, not fresh authenticated evidence; `connection writes` is inspect-only correlated transport evidence, while Core proposal status/journal is execution authority. Domain/shared legacy source deletion is phase 6.
 
@@ -51,7 +67,7 @@ These rules are **non-negotiable** for ALL code that emits, collects, or transmi
 - Any ADO-specific identifier or process-specific data
 
 ### Safe to send
-- Twig command name (e.g., "status", "tree", "refresh")
+- Twig command name (e.g., "tree", "workspace")
 - Command duration (ms), exit code (0/1), output format
 - Twig version, OS platform
 - Generic booleans (e.g., `had_profile`, `merge_needed`)
@@ -73,9 +89,9 @@ task row.
 ### Creating work items via twig CLI
 - Use the `twig` skill for shared work-item guidance and exact command references
 - **Always assign to the user** after creating and publishing a seed:
-  `twig set <id>` → `twig update System.AssignedTo "Daniel Green"`
+  `twig update System.AssignedTo "Daniel Green" --id <id>`
 - **Always add a rich description** after creating and publishing a seed:
-  `twig set <id>` → `twig update System.Description "<markdown>" --format markdown`
+  `twig update System.Description "<markdown>" --format markdown --id <id>`
 - Note: `twig update` pushes immediately to ADO — no `twig save` needed afterward
 - **Description quality standards:**
   - Always use `--format markdown` for System.Description fields
@@ -88,7 +104,7 @@ task row.
 When committing code that implements plan work:
 - Include `AB#<id>` in the commit message (the associated Issue ID)
 - After committing, close the ADO item through the plan path described in
-  *Work Item Lifecycle Protocol* below. `twig state Done` is **not** the close mechanism
+  *Work Item Lifecycle Protocol* below. `twig state Done --id <id>` is **not** the close mechanism
 - When all epics complete, also close the plan-level Epic — any close-gate fields its
   process declares must be written in the same operation as the transition
 - If no mapping exists for the current work, commit normally without AB# reference
@@ -114,13 +130,12 @@ It applies whenever you create, start, or complete tasks, issues, or epics via t
 ### Starting a task
 
 Before writing any code for a tracked task:
-1. `twig set <id>` — set the active work item
-2. `twig state Doing` — transition to Doing
-3. `twig note --text "Starting: <brief plan of approach>"` — record intent
+1. `twig state Doing --id <id>` — transition the task to Doing
+2. `twig note --id <id> --text "Starting: <brief plan of approach>"` — record intent
 
 ### During implementation
 
-Add a `twig note` at each meaningful checkpoint — not just at completion:
+Add a `twig note --id <id> --text "<progress>"` at each meaningful checkpoint:
 - **After research/discovery** — what files are involved, what the approach is
 - **After each significant code change** — what was done, what remains
 - **After tests pass** — test count, coverage, edge cases deferred
@@ -128,25 +143,24 @@ Add a `twig note` at each meaningful checkpoint — not just at completion:
 
 ### Completing a task
 
-🔴 **`twig state Done` cannot close a tracked work item.** Two independent reasons:
+🔴 **Do not use `twig state Done --id <id>` to close a tracked work item.** Two independent reasons:
 
 1. **It writes the wrong thing.** `twig state` stages `System.State` and nothing else. A
    process may declare *close-gate* fields — fields it makes required in the Done-category
    state with no process rule supplying a value. A bare state push leaves those fields empty,
    so ADO's rule engine rejects it — and under `bypassRules` it would be worse, closing the
    item with its gate fields silently empty.
-2. **It writes the wrong way.** `twig state` PATCHes ADO directly. Board mutations on
-   published items belong in the change-proposal journal, where they are bound to a confirmed
-   digest and tracked in the operation journal. A direct push leaves no journal row.
+2. **It is not the reviewed close proposal.** Closing requires applying the exact
+   confirmed digest for the transition and its gate fields together.
 
 Close through the plan path instead. When a task's work is verified (code works, tests pass):
 
-1. `twig note --text "Done: <summary of changes>"` — final note
+1. `twig note --id <id> --text "Done: <summary of changes>"` — final note
 2. Stage **one** `batch` operation carrying the Done transition *and* its gate fields
    together: `System.State` set to the Done-category state, plus every close-gate field the
    connected process declares for the type. One operation, one revision hop, one journal
    entry — the fields must ride *with* the transition, never before or after it
-3. Apply it with `twig proposal apply --confirm <digest>` (`twig plan apply` is a retained
+3. Apply it with `twig proposal apply --file <path> --confirm <digest>` (`twig plan apply` is a retained
    deprecated alias). Agents with the workflow skills invoke
    `/ado-publish` for this step, or `/closeout` for the whole close
 4. Verify with `twig show <id> --refresh` that the state actually moved
@@ -192,8 +206,8 @@ has to clean up. Notes during implementation create an auditable trail. Summarie
 before `git push` and the close-out create a false sense of completion.
 
 Routing the close through the plan path binds the mutation to the exact digest supplied at
-apply time and records each operation's outcome in the journal. A direct `twig state Done`
-has neither guarantee, which is why it is no longer the prescribed mechanism.
+apply time and records each operation's outcome in the journal. A state-only command
+cannot substitute for that reviewed, coupled operation.
 
 ## MCP availability
 

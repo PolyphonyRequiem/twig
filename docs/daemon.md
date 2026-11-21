@@ -82,6 +82,10 @@ requests from one browser origin. Closing Canvas does not stop the shared daemon
 
 ## Live-client workspace read
 
+A daemon view can remember its Bench. The CLI does not share that selection:
+`twig workspace --bench MyWork` reads the named Bench without switching a view,
+and changing a view cannot redirect a later CLI command.
+
 The `workspace-read-v1` capability in `/api/v1/status` and the authenticated
 owner status advertises `GET /api/v1/views/{viewId}/workspace`. Use the existing
 owner/profile connection and content bearer; a view ID or presentation capability
@@ -106,7 +110,7 @@ source projection. It restores saved choices on first attachment and when
 another attachment changes the profile's source/Bench choices; ordinary reads
 do not reset an explicitly selected Bench, editor ticket or pending operation.
 Catalogue, registry, repository binding, profile, selection (including a
-switch away and back), local snapshot/selection/exclusion and Plan revisions are
+switch away and back), local snapshot/exclusion and Plan revisions are
 rechecked. Concurrent changes refuse the read with `409` rather than releasing
 mixed selection/content. Sign-out, capability replacement and expiry still
 refuse content. Failed source reads remain explicit per-source failures, not
@@ -122,7 +126,9 @@ This only waits for admission and never retries an operation or replays a write.
 
 Initial-view loading retains its single full local observation per restored
 source and final admission/profile/Plan checks. Only the authoritative workspace
-read adds the final local snapshot/selection/exclusion reread.
+read adds the final local snapshot/exclusion reread. Bench selection belongs to
+the view and its saved profile choices, not the source worktree. Opening a
+source verifies its native authority without reading or writing a Bench preference.
 
 Workspace acquisition has a 30-second ceiling, uses existing per-source budgets
 and at most eight concurrent source acquisitions, and performs only local
@@ -423,7 +429,8 @@ by delegated reads, editor reads, or CLI and planning acquisition withholds that
 item's cached representation and related references. A timeout, partial response, or unrelated query
 omission does not withdraw an item. Schema and roster success do not clear a denial.
 Direct CLI historical `show`, `show-batch`, `tree`, and `workspace` output honors
-the same recorded denials. Exact CLI `show --refresh` and `tree --refresh`
+the same recorded denials. The CLI and daemon use the same per-user evidence
+directory even when the daemon uses a custom `--data-dir`. Exact CLI `show --refresh` and `tree --refresh`
 record explicit provider refusals and restore only the item successfully
 fetched and retained. A source-wide denial is not cleared
 in place: after resolving provider access, initialize and register a fresh

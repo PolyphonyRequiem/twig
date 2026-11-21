@@ -78,6 +78,8 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                 return Error("Use a nonnegative captured revision and a positive one-based rule index.", 2);
             if (args.Rule is not null && args.ExpectedRevision is null)
                 return Error("An explicit rule index requires --expect-revision from a fresh rule listing.", 2);
+            if (args.Bench is null && action is not ("metadata" or "refresh" or "sources" or "browse"))
+                return Error("Name the Bench explicitly.", 2);
             if (args.Bench is not null) Text(args.Bench);
             if (action == "browse" && args.Query is null && args.Backlog is null)
                 return Error("Choose --query <native GUID> or --backlog <native ID>.", 2);
@@ -95,7 +97,7 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
             IDisposable? operation = null;
             try
             {
-                var needsContext = action is not ("rules" or "remove-rule") || args.Bench is null;
+                var needsContext = action is not ("rules" or "remove-rule");
                 if (needsContext)
                 {
                     if (factory is null) return Error("Choose an existing initialized native Twig context. Nothing was initialized.");
@@ -207,16 +209,7 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
 
                 var read = await store.ReadAsync(ct);
                 if (!read.IsSuccess) return Error(read.Error.Message);
-                Guid? selected = null;
-                if (args.Bench is null)
-                {
-                    if (workspace is null) return Error("An explicit Bench or native context is required.", 2);
-                    var context = await workspace.Context.ReadAsync(ct);
-                    if (!context.IsSuccess) return Error(context.Error.Message);
-                    selected = context.Value.BenchId;
-                }
-                var matches = read.Value.Benches.Where(bench => args.Bench is null ? bench.Id == selected
-                    : bench.Name.Normalize(NormalizationForm.FormC).Equals(args.Bench.Normalize(NormalizationForm.FormC), StringComparison.OrdinalIgnoreCase)
+                var matches = read.Value.Benches.Where(bench => bench.Name.Normalize(NormalizationForm.FormC).Equals(args.Bench!.Normalize(NormalizationForm.FormC), StringComparison.OrdinalIgnoreCase)
                         || bench.Id.ToString("D").Equals(args.Bench, StringComparison.OrdinalIgnoreCase)).ToArray();
                 if (matches.Length != 1) return Error("Choose an existing unambiguous Bench. No default was created.");
                 var target = matches[0];

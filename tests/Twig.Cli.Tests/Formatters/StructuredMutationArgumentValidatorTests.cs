@@ -111,23 +111,21 @@ public sealed class StructuredMutationArgumentValidatorTests
     [InlineData("prev")]
     [InlineData("nav", "back")]
     [InlineData("nav", "fore")]
-    [InlineData("seed", "publish", "123")]
-    public void ActiveContextChangesAreRejectedForStructuredOutput(string command, params string[] arguments)
+    public void NavigationIsRetiredBeforeScopeValidation(string command, params string[] arguments)
     {
-        AssertError([command, .. arguments, "-o", "json"], "cannot be used with structured output");
+        CoreMutationAdmissionGuard.ValidateCatalog([command, .. arguments, "-o", "json"])
+            .ShouldNotBeNull().ShouldContain("retired");
     }
 
     [Fact]
-    public void ExplicitListAndHistoryScopesRemainUsableWithoutId()
+    public void ExplicitListsRemainUsableAndHistoryIsRetired()
     {
         StructuredMutationArgumentValidator.Validate(["query", "--wiql", "select [System.Id] from WorkItems", "-o", "json"]).ShouldBeNull();
         StructuredMutationArgumentValidator.Validate(["show-batch", "42,43", "-o", "json"]).ShouldBeNull();
         StructuredMutationArgumentValidator.Validate(["tree", "--all", "-o", "json"]).ShouldBeNull();
-        StructuredMutationArgumentValidator.Validate(["nav", "history", "-o", "json"]).ShouldBeNull();
-        StructuredMutationArgumentValidator.Validate(["nav", "history", "-o", "minimal"]).ShouldBeNull();
-        AssertError(
-            ["nav", "history", "-o", "json-full"],
-            "supports only -o json or -o minimal");
+        foreach (var format in new[] { "json", "minimal", "json-full" })
+            CoreMutationAdmissionGuard.ValidateCatalog(["nav", "history", "-o", format]).ShouldNotBeNull().ShouldContain("retired");
+        AssertError(["seed", "publish", "-6", "-o", "json"], "reviewed proposal");
     }
 
     [Theory]
@@ -140,13 +138,13 @@ public sealed class StructuredMutationArgumentValidatorTests
     {
         AssertError(["show", "-o", format], "requires an explicit work-item ID");
         AssertError(["tree", "-o", format], "requires an explicit work-item ID");
-        AssertError(["states", "-o", format], "twig process <type>");
+        CoreMutationAdmissionGuard.ValidateCatalog(["states", "-o", format]).ShouldNotBeNull().ShouldContain("twig process <type>");
     }
 
     [Theory]
     [InlineData("show")]
     [InlineData("tree")]
-    public void ReadTargetTwinsAndHumanFallbackAreUnambiguous(string command)
+    public void ReadTargetTwinsAreUnambiguousWithoutHumanFallback(string command)
     {
         foreach (var target in new[]
         {
@@ -154,8 +152,8 @@ public sealed class StructuredMutationArgumentValidatorTests
             new[] { "42", "--id", "42" }, new[] { "-42" }, new[] { "--id", "-42" },
         })
             StructuredMutationArgumentValidator.Validate([command, .. target, "-o", "json"]).ShouldBeNull();
-        StructuredMutationArgumentValidator.Validate([command]).ShouldBeNull();
-        StructuredMutationArgumentValidator.Validate([command, "-o", "human"]).ShouldBeNull();
+        AssertError([command], "requires an explicit work-item ID");
+        AssertError([command, "-o", "human"], "requires an explicit work-item ID");
         AssertError([command, "42", "--id", "43", "-o", "json"], "Conflicting work-item targets");
         AssertError([command, "42", "--id", "43"], "Conflicting work-item targets");
         AssertError([command, "--id", "42", "--id=43", "-o", "json"], "Conflicting work-item targets");
@@ -176,7 +174,7 @@ public sealed class StructuredMutationArgumentValidatorTests
         StructuredMutationArgumentValidator.Validate(["show", "--local-id", "01900000-0000-7000-8000-000000000001", "-o", "json"]).ShouldBeNull();
         AssertError(["show", "42", "--local-id", "01900000-0000-7000-8000-000000000001", "-o", "json"],
             "Conflicting work-item targets");
-        StructuredMutationArgumentValidator.Validate(["states"]).ShouldBeNull();
+        CoreMutationAdmissionGuard.ValidateCatalog(["states"]).ShouldNotBeNull().ShouldContain("twig process <type>");
     }
 
     [Fact]
@@ -191,14 +189,15 @@ public sealed class StructuredMutationArgumentValidatorTests
     [InlineData("minimal")]
     public void SetIsRejectedForStructuredOutput(string format)
     {
-        AssertError(["set", "42", "-o", format], "cannot be used with structured output");
+        CoreMutationAdmissionGuard.ValidateCatalog(["set", "42", "-o", format]).ShouldNotBeNull().ShouldContain("retired");
     }
 
     [Fact]
-    public void HumanMutationsRemainUnchanged()
+    public void HumanMutationsRequireExplicitScopeToo()
     {
-        StructuredMutationArgumentValidator.Validate(["state", "Done", "-o", "human"]).ShouldBeNull();
-        StructuredMutationArgumentValidator.Validate(["set", "42", "-o", "human"]).ShouldBeNull();
+        AssertError(["state", "Done", "-o", "human"], "requires an explicit --id");
+        StructuredMutationArgumentValidator.Validate(["state", "Done", "--id", "42", "-o", "human"]).ShouldBeNull();
+        CoreMutationAdmissionGuard.ValidateCatalog(["set", "42", "-o", "human"]).ShouldNotBeNull().ShouldContain("retired");
     }
 
     [Fact]
@@ -218,9 +217,8 @@ public sealed class StructuredMutationArgumentValidatorTests
     [Fact]
     public void NewSetIsRejectedForStructuredOutput()
     {
-        AssertError(
-            ["new", "--title", "example", "--type", "Task", "--set", "-o", "json"],
-            "changes the active work item");
+        CoreMutationAdmissionGuard.ValidateCatalog(["new", "--title", "example", "--type", "Task", "--set", "-o", "json"])
+            .ShouldNotBeNull().ShouldContain("retired");
     }
 
     private static void AssertError(IReadOnlyList<string> args, string expectedMessage)

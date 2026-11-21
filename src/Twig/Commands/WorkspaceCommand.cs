@@ -60,7 +60,7 @@ internal sealed class WorkspaceCommand(
                 return Error("Only the static Bench table is qualified. --all, sprint, --tree and --view tree are unsupported; use workspace [--view table].", 2);
             if (includeBrowser || browserVersion is not null || expectBinding is not null || expectIdentity is not null || expectSettings is not null)
                 return Error("Browser envelopes and captured browser binding/identity/settings flags are unsupported by the Core workspace read.", 2);
-            if (bench is not null && (string.IsNullOrWhiteSpace(bench) || bench != bench.Trim()))
+            if (string.IsNullOrWhiteSpace(bench) || bench != bench.Trim())
                 return Error("--bench requires an exact saved name or GUID.", 2);
             if (expectBench is not null && !Guid.TryParseExact(expectBench, "D", out _))
                 return Error("--expect-bench requires a canonical Bench GUID.", 2);
@@ -77,30 +77,26 @@ internal sealed class WorkspaceCommand(
             var github = workspace.Connection.Provider.Value == "github";
             if (github && refresh)
                 return Error("GitHub workspace refresh/context expansion is not qualified; explicitly refresh numeric items.");
-            var context = await workspace.Context.ReadAsync(ct);
-            if (!context.IsSuccess) return Error(context.Error.Message);
             var read = await workspace.BenchSnapshotAsync(ct);
             if (!read.IsSuccess) return Error(read.Error.Message);
             var snapshot = read.Value;
-            var matches = snapshot.Benches.Where(value => bench is null ? value.Id == context.Value.BenchId
-                : value.Name.Equals(bench, StringComparison.OrdinalIgnoreCase)
+            var matches = snapshot.Benches.Where(value => value.Name.Equals(bench, StringComparison.OrdinalIgnoreCase)
                     || value.Id.ToString("D").Equals(bench, StringComparison.OrdinalIgnoreCase)).ToArray();
             if (matches.Length != 1)
-                return Error("The Bench is missing or ambiguous. Use 'twig bench list', then 'twig bench switch <name>' or 'workspace --bench <name-or-guid>'; no default was created.");
+                return Error("The Bench is missing or ambiguous. Use 'twig bench list', then 'workspace --bench <name-or-guid>'; no default was created.");
             var selected = matches[0];
             if (expectBench is not null && Guid.Parse(expectBench) != selected.Id)
                 return Error("The captured Bench identity changed; no replacement under the same name was adopted.");
-            if (refresh && selected.Id != context.Value.BenchId)
-                return Error("--refresh can pull only the current Bench. Switch it explicitly first; this read never changes selection.");
             if (refresh)
             {
                 var depths = factory.TreeContextDepths;
-                var pulled = await workspace.PullBenchAsync(selected.Id.ToString("D"), includeActiveContext: false,
-                    depths.Up, depths.Down, depths.Sideways, ct);
+                var pulled = await workspace.PullBenchAsync(selected, depths.Up, ct);
                 if (!pulled.IsSuccess) return Error(pulled.Error.Message);
                 read = await workspace.BenchSnapshotAsync(ct);
                 if (!read.IsSuccess) return Error(read.Error.Message);
                 snapshot = read.Value;
+                if (!snapshot.Benches.Any(value => CoreWorkspace.SameBench(value, selected)))
+                    return Error("The specified Bench changed during refresh; newer scope was preserved.");
             }
             var currentEvidence = history.Read(handle.Source);
             if (!currentEvidence.IsSuccess) return Error(currentEvidence.Error.Message);
@@ -151,9 +147,9 @@ internal sealed class WorkspaceCommand(
                 var cached = snapshot.Items.SingleOrDefault(item => item.Key == key);
                 var baseline = cached ?? draft?.Baseline;
                 if (baseline is null && draft is null)
-                    return Error("A scoped item is unavailable locally; use an explicit --refresh on the current Bench.");
+                    return Error("A scoped item is unavailable locally; use an explicit --refresh on the named Bench.");
                 if (!key.IsLocal && baseline is null)
-                    return Error("A permanently mapped draft has no cached native observation; refresh the current Bench explicitly.");
+                    return Error("A permanently mapped draft has no cached native observation; refresh the named Bench explicitly.");
                 var proposed = draft?.Changes;
                 var localKey = key.IsLocal ? key : snapshot.Mappings.SingleOrDefault(mapping => mapping.Remote == key)?.Local;
                 var type = schema.Value.Types.SingleOrDefault(value => value.Reference == (draft?.Type ?? baseline!.Type));

@@ -136,7 +136,6 @@ public sealed partial class NativePublicationConsumerTests
         var bench = (await user.SaveAsync(new(Guid.NewGuid(), "ADO editor fixture",
             [new(SelectorKind.Pin, ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42"), connection: native.Connection),
              new(SelectorKind.Pin, ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "43"), connection: native.Connection)]), 0)).Value;
-        (await NativeSourceReader.SelectBenchAsync(native.Paths.StartDir, origin.Source, null, bench.Id, ConfigureHumanEditor, default)).IsSuccess.ShouldBeTrue();
         return (native.Paths.StartDir, _bindings.RegistryPath, bench.Id, origin.Source);
     }
     public Task<Result<NativeSourceObservation>> ReadHumanHostAsync(string root, NativeSourceStamp? expected, bool schema, CancellationToken ct)
@@ -150,8 +149,6 @@ public sealed partial class NativePublicationConsumerTests
     public Task<Result<NativePlanReview>> OpenHumanPlanReviewAsync(string root, string digest, CancellationToken ct)
         => NativePlanReview.OpenAsync(root, digest, ConfigureHumanEditor, ct);
     public Func<Task>? HumanBeforeProjectMetadata { set => _transport.BeforeProjectMetadata = value; }
-    public Task<Result<NativeSourceObservation>> SelectHumanBenchAsync(string root, NativeSourceStamp expected, Guid? previous, Guid? next, CancellationToken ct)
-        => NativeSourceReader.SelectBenchAsync(root, expected, previous, next, ConfigureHumanEditor, ct);
     public int HumanPatchAttempts => _transport.PatchAttempts;
     public bool HumanActorDenied { set => _transport.ObservedPrincipalOverride = value ? Sibling : null; }
 
@@ -170,7 +167,6 @@ public sealed partial class NativePublicationConsumerTests
         using var origin = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var user = UserBenchStore.ForRegistry(_bindings.RegistryPath);
         var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Human Save", []), 0)).Value;
-        var context = await origin.Workspace.Context.ReadAsync(default);
         using var editor = (await NativeItemEditor.OpenAsync(native.Paths.StartDir, bench.Id, origin.Source, ConfigureHumanEditor, default)).Value;
         var form = (await editor.SelectAsync(ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42"))).Value;
         form.Evaluation.States.ShouldContain("Doing");
@@ -198,7 +194,6 @@ public sealed partial class NativePublicationConsumerTests
         saved.Fields["System.Title"].Text.ShouldBe("Human title");
         saved.Fields["System.Description"].Kind.ShouldBe(FieldKind.Html);
         saved.Fields["System.State"].Text.ShouldBe("Done");
-        (await origin.Workspace.Context.ReadAsync(default)).Value.ShouldBe(context.Value);
         (await user.ReadEditorCapturesAsync(default)).Value.ShouldAllBe(value => value.Settled);
     }
 

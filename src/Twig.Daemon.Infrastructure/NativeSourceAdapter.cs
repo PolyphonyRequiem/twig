@@ -29,8 +29,6 @@ public interface INativeSourceGateway
         => Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.Unsupported, "Fresh native online read validation is not implemented by this gateway."));
     Task<Result<NativeSourceObservation>> ReadIdentityProfilesAsync(string root, NativeSourceStamp expected, ImmutableArray<string> identities, CancellationToken ct)
         => Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.Unsupported, "Native identity profiles are not implemented by this gateway."));
-    Task<Result<NativeSourceObservation>> SelectBenchAsync(string root, NativeSourceStamp expected, Guid? previous, Guid? next, CancellationToken ct)
-        => NativeSourceReader.SelectBenchAsync(root, expected, previous, next, ct);
     Task<Result<NativeSourceObservation>> RefreshPlanningAsync(string root, NativeSourceStamp expected, CancellationToken ct)
         => NativeSourceReader.RefreshPlanningAsync(root, expected, ct);
     Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(string root, NativeSourceStamp expected, CancellationToken ct)
@@ -67,6 +65,9 @@ public sealed class NativeSourceGateway : INativeSourceGateway
 
 public sealed class NativeSourceAdapter(string directory, INativeSourceGateway gateway, CatalogChanges changes) : ISourceReader
 {
+    public static NativeSourceAdapter ForLocalUser(INativeSourceGateway gateway, CatalogChanges changes)
+        => new(NativeHistoricalEvidence.LocalUserDirectory, gateway, changes);
+
     private sealed class HistoricalSourceDeniedException : Exception;
     public static readonly TimeSpan MetadataRefreshInterval = TimeSpan.FromMinutes(15);
     private readonly ConcurrentDictionary<string, DateTimeOffset> metadataAttempts = new(StringComparer.Ordinal);
@@ -216,7 +217,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
                 result = Result<SourceObservation>.Ok(new(source.Binding, observed.Value.Snapshot, schema,
                     observed.Value.CacheReadAt, cached.Value.OnlineObservedAt, ObservationMode.OnlineMetadata)
                 {
-                    WorkspaceExclusions = observed.Value.WorkspaceExclusions, SelectedBenchId = observed.Value.SelectedBenchId,
+                    WorkspaceExclusions = observed.Value.WorkspaceExclusions,
                     PlanningSources = observed.Value.PlanningSources, PlanningBrowse = observed.Value.PlanningBrowse,
                     AcquiredPlanningPage = observed.Value.AcquiredPlanningPage,
                     PlanningSourcesObservedAt = observed.Value.PlanningSourcesCache?.ObservedAt,
@@ -258,7 +259,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
                 { Planning = local.Planning, PlanningCalendars = local.PlanningCalendars, Memberships = local.Memberships };
                 return Result<SourceObservation>.Ok(new(binding, local.Snapshot, schema,
                     local.CacheReadAt, cached.Value.OnlineObservedAt, ObservationMode.PermittedOfflineCache)
-                    { WorkspaceExclusions = local.WorkspaceExclusions, SelectedBenchId = local.SelectedBenchId,
+                    { WorkspaceExclusions = local.WorkspaceExclusions,
                         WithdrawnItems = WithdrawnKeys(binding) });
             }
             return await ObserveAndRetainAsync(nativeLocator, local.Source, binding, ct).ConfigureAwait(false);
@@ -405,7 +406,6 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
                 token => gateway.ReadAsync(context.Root, context.Stamp, false, token), ct).ConfigureAwait(false);
             if (!local.IsSuccess) return Result<bool>.Fail(local.Error);
             if (local.Value.Source != context.Stamp || local.Value.Snapshot.Version != observation.Snapshot.Version
-                || local.Value.SelectedBenchId != observation.SelectedBenchId
                 || BenchCodec.SerializeSelectors(local.Value.WorkspaceExclusions)
                     != BenchCodec.SerializeSelectors(observation.WorkspaceExclusions))
                 return Result<bool>.Fail(ErrorCode.Conflict, "Local source state changed during workspace loading. Read the workspace again.");
@@ -459,7 +459,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
                 offline ? ObservationMode.PermittedOfflineCache
                     : metadataOnly ? ObservationMode.OnlineMetadata : ObservationMode.OnlineValidatedCache)
                 {
-                    WorkspaceExclusions = local.Value.WorkspaceExclusions, SelectedBenchId = local.Value.SelectedBenchId,
+                    WorkspaceExclusions = local.Value.WorkspaceExclusions,
                     PlanningSources = local.Value.PlanningSources,
                     PlanningSourcesObservedAt = local.Value.PlanningSourcesCache?.ObservedAt,
                     WithdrawnItems = WithdrawnKeys(source.Binding),
@@ -573,7 +573,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         {
             await Save(expected, new(2, NativeStampDocument.From(observed.Source), SchemaDocument.From(schema.Value), schemaAt), ct);
             return Result<SourceObservation>.Ok(new(expected, observed.Snapshot, schema.Value, observed.CacheReadAt, schemaAt, ObservationMode.OnlineMetadata)
-                { WorkspaceExclusions = observed.WorkspaceExclusions, SelectedBenchId = observed.SelectedBenchId,
+                { WorkspaceExclusions = observed.WorkspaceExclusions,
                     PlanningSources = observed.PlanningSources, PlanningBrowse = observed.PlanningBrowse,
                     AcquiredPlanningPage = observed.AcquiredPlanningPage, WithdrawnItems = WithdrawnKeys(expected) });
         }

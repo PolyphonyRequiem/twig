@@ -239,6 +239,21 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
     {
         lock (gate) return Admit(id, capability, true);
     }
+    // A slow source read must not commit into a reconnected view using its retired bearer.
+    internal T CommitViewChoice<T>(ViewSession session, string capability, long revision, Func<T> apply)
+    {
+        lock (gate)
+        {
+            if (!ReferenceEquals(Admit(session.Id, capability, false), session) || !session.OwnerAuthenticated)
+                throw new HttpFailure(403, "OwnerRequired", "Reconnect this view before changing its choices.");
+            lock (session)
+            {
+                if (session.SelectionRevision != revision)
+                    throw new HttpFailure(409, "ViewStateConflict", "The selected Bench changed. Refresh first.");
+                return apply();
+            }
+        }
+    }
     public void AttachPresentation(Guid id, string capability)
     {
         lock (gate)
@@ -473,7 +488,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         }
     }
 
-    internal void RememberRepositoryBench(ViewSession session, Guid? bench, string? repositoryId)
+    internal void RememberRepositoryBench(ViewSession session, Guid? bench, long selectionRevision, string? repositoryId)
     {
         lock (gate)
         {
@@ -482,7 +497,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             RequireProfile(session, ReadDocument(session));
             lock (session)
             {
-                if (session.CurrentBenchId != bench || session.RepositoryBindings?.RepositoryId != repositoryId)
+                if (session.SelectionRevision != selectionRevision || session.CurrentBenchId != bench || session.RepositoryBindings?.RepositoryId != repositoryId)
                     throw new HttpFailure(409, "BenchViewChanged", "The selected Bench or repository changed before it could be remembered.");
                 if (repositoryId is null) return;
                 var path = RepositoryBenchPath(session.CatalogId, repositoryId);

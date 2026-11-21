@@ -170,10 +170,10 @@ public sealed class AadAccountClaimTests : IDisposable
     }
 
     [Theory]
-    [InlineData(NativeSetupEffectKind.ConnectionRegistration, false)]
-    [InlineData(NativeSetupEffectKind.ConnectionBinding, true)]
-    public async Task NativeSetupBindingCancellationPreservesActualRowsAndPossibleNextEffect(
-        NativeSetupEffectKind cancelBefore, bool connectionExists)
+    [InlineData(NativeSetupEffectKind.ConnectionRegistration)]
+    [InlineData(NativeSetupEffectKind.ConnectionBinding)]
+    public async Task NativeSetupBindingCancellationRollsBackRegistrationAndBinding(
+        NativeSetupEffectKind cancelBefore)
     {
         SetToken("{}");
         using var original = new ConnectionBindingService(_home, _refresher);
@@ -198,9 +198,8 @@ public sealed class AadAccountClaimTests : IDisposable
         var report = NativeConnectionSetup.ReadFailure(result.Error).Value;
         report.Cancelled.ShouldBeTrue();
         report.Effects.ShouldContain(new NativeSetupEffect(cancelBefore, NativeSetupEffectState.Possible));
-        if (connectionExists)
-            report.Effects.ShouldContain(new NativeSetupEffect(NativeSetupEffectKind.ConnectionRegistration, NativeSetupEffectState.Confirmed));
-        ConnectionCount().ShouldBe(connectionExists ? 1 : 0);
+        report.Effects.ShouldNotContain(new NativeSetupEffect(NativeSetupEffectKind.ConnectionRegistration, NativeSetupEffectState.Confirmed));
+        ConnectionCount().ShouldBe(0);
         (await original.ListBindingsAsync("fixture", project)).ShouldBeEmpty();
         using var registry = new SqliteSystemWorktreeRegistry(original.RegistryPath, TimeProvider.System);
         (await registry.FindDefaultBindingAsync(connection)).IsSuccess.ShouldBeFalse();
@@ -211,8 +210,12 @@ public sealed class AadAccountClaimTests : IDisposable
             { DataSource = original.RegistryPath, Mode = SqliteOpenMode.ReadOnly }.ToString());
             db.Open();
             using var query = db.CreateCommand();
-            query.CommandText = "SELECT COUNT(*) FROM connections WHERE connection_ref=$ref;";
+            query.CommandText = """
+                SELECT (SELECT COUNT(*) FROM connections WHERE connection_ref=$ref) +
+                       (SELECT COUNT(*) FROM device_connections WHERE provider='ado' AND target=$target);
+                """;
             query.Parameters.AddWithValue("$ref", connection);
+            query.Parameters.AddWithValue("$target", project.ToLowerInvariant());
             return Convert.ToInt32(query.ExecuteScalar());
         }
     }

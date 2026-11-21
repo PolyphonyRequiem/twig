@@ -74,7 +74,6 @@ public sealed class PatchPositionalIdTests
 
     [Theory]
     [InlineData(nameof(TwigCommands.Show))]
-    [InlineData(nameof(TwigCommands.Set))]
     [InlineData(nameof(TwigCommands.State))]
     [InlineData(nameof(TwigCommands.Patch))]
     public void IdAcceptingCommands_AllExposeAPositionalFirstParameter(string commandName)

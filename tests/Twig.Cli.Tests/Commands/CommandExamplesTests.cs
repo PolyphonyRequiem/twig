@@ -68,14 +68,14 @@ public sealed class CommandExamplesTests
     [Fact]
     public void ShowIfPresent_OutputFormat_IncludesExamplesHeader()
     {
-        var output = CaptureShowIfPresent(["set"],
-            ("set", ["twig set 1234              Set context by work item ID",
-                     "twig set \"login page\"      Set context by title match"]));
+        var output = CaptureShowIfPresent(["show"],
+            ("show", ["twig show 1234             Show one item",
+                      "twig show 1234 --tree      Show its tree"]));
 
         output.ShouldContain("Examples:");
         // Examples should be indented with two spaces
-        output.ShouldContain("  twig set 1234");
-        output.ShouldContain("  twig set \"login page\"");
+        output.ShouldContain("  twig show 1234 ");
+        output.ShouldContain("  twig show 1234 --tree");
     }
 
     [Fact]
@@ -91,9 +91,9 @@ public sealed class CommandExamplesTests
     [Fact]
     public void ShowIfPresent_MultipleExamples_PrintsAll()
     {
-        var output = CaptureShowIfPresent(["set"],
-            ("set", ["twig set 1234              Set by ID",
-                     "twig set \"login page\"      Set by title"]));
+        var output = CaptureShowIfPresent(["show"],
+            ("show", ["twig show 1234             Show one item",
+                      "twig show 1234 --tree      Show its tree"]));
 
         var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         // "Examples:" header + 2 example lines
@@ -117,26 +117,20 @@ public sealed class CommandExamplesTests
     [Fact]
     public void ShowIfPresent_TripleCompoundFallsBackToDouble_WhenTripleNotFound()
     {
-        // "workspace area foo" triple not registered — falls back to "workspace area"
-        var output = CaptureShowIfPresent(["workspace", "area", "foo"],
-            ("workspace area", ["twig workspace area               Show area view"]),
-            ("workspace", ["twig workspace                     Show workspace"]));
+        var output = CaptureShowIfPresent(["bench", "rules", "Focused"],
+            ("bench rules", ["twig bench rules Focused           Show named rules"]),
+            ("bench", ["twig bench list                        List benches"]));
 
-        output.ShouldContain("Show area view");
-        output.ShouldNotContain("Show workspace");
+        output.ShouldContain("Show named rules");
+        output.ShouldNotContain("List benches");
     }
 
     [Fact]
-    public void WorkspaceAreaSubcommands_HaveExamples()
+    public void WorkspaceAreaHelp_OnlyAdvertisesSupportedSync()
     {
-        // All workspace area sub-commands must have their own example entries
-        var subcommands = new[] { "workspace area add", "workspace area remove", "workspace area list", "workspace area sync" };
-        foreach (var cmd in subcommands)
-        {
-            CommandExamples.Examples.ShouldContainKey(cmd, $"'{cmd}' should have registered examples");
-            CommandExamples.Examples[cmd].Length.ShouldBeGreaterThanOrEqualTo(2,
-                $"'{cmd}' should have at least 2 examples");
-        }
+        CommandExamples.Examples["workspace area sync"].Length.ShouldBeGreaterThanOrEqualTo(2);
+        foreach (var retired in new[] { "workspace area add", "workspace area remove", "workspace area list" })
+            CommandExamples.Examples.ShouldNotContainKey(retired);
     }
 
     /// <summary>

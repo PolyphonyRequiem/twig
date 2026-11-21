@@ -13,7 +13,7 @@ internal sealed class ConnectionAddCommand(Func<IConnectionBindingService> bindi
         try
         {
             var requirement = ProviderConnectionRequirement.Create(provider, organization, project, host, repository, database);
-            var registered = await new ProviderConnectionRegistry(bindings().RegistryPath).AddAsync(requirement, ct);
+            var registered = await new DeviceConnectionCatalog(bindings().RegistryPath).AddAsync(requirement, ct);
             renderers.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(
                 [new RenderNode.Record("connection", ConnectionRenderHelpers.ConnectionFields(registered))]));
             return 0;

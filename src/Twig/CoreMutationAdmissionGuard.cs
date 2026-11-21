@@ -37,6 +37,8 @@ internal static class CoreMutationAdmissionGuard
     {
         if (args.Count == 0 || args.Contains("--help") || args.Contains("-h") || !Retired(args)) return null;
         var command = args[0];
+        if (command == "states")
+            return "Unsupported: states is retired. Use 'twig process <type>' to inspect an explicit type. No provider or credential was opened.";
         if (args.Count > 1 && !args[1].StartsWith('-')
             && args[0] is "auth" or "connection" or "bench" or "workspace" or "process"
                 or "proposal" or "plan" or "seed" or "draft" or "nav" or "link")
@@ -66,19 +68,18 @@ internal static class CoreMutationAdmissionGuard
         {
             "init" or "skills" or "help" or "version" => false,
             "auth" or "connection" => !NativeHost(args),
-            "show" or "show-batch" or "query" or "update" or "patch" or "state" or "states" or "note"
-                or "batch" or "pending" or "save" or "discard" or "set" or "refresh" or "sync" or "edit" => false,
+            "show" or "show-batch" or "query" or "update" or "patch" or "state" or "note"
+                or "batch" or "pending" or "save" or "discard" or "edit" => false,
             "tree" => args.Contains("--all"),
-            "nav" => args.Count < 2 || args[1] is not ("up" or "down" or "next" or "prev"),
             "process" => args.Count > 1 && args[1] == "layout",
             "seed" => args.Count < 2 || args[1] is not ("new" or "view" or "validate" or "publish" or "discard" or "reconcile" or "chain" or "edit" or "link" or "unlink" or "links"),
             "proposal" or "plan" => args.Count < 2 || args[1] is not ("validate" or "preview" or "apply" or "status"),
-            "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "switch" or "rename" or "delete")
+            "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "rename" or "delete")
                 && !PlanningRoute(args),
             "workspace" or "ws" => args.Contains("--all") || args.Contains("--tree")
-                || args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("view" or "track" or "track-tree" or "untrack" or "sync" or "exclude" or "exclusions")
+                || args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("exclude" or "exclusions")
                     && !PlanningRoute(args),
-            "area" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("add" or "remove" or "list" or "sync"),
+            "area" => args.Count < 2 || args[1] != "sync",
             "link" => false,
             _ => true,
         };
@@ -92,8 +93,7 @@ internal static class CoreMutationAdmissionGuard
                 || args[1] == "rule" && args.Count > 2 && args[2] is "add" or "remove"
                 || args[1] == "planning" && (args.Count == 2 || args[2].StartsWith('-') || args[2] is "show" or "refresh");
         if (args[0] is not ("workspace" or "ws")) return false;
-        return args[1] == "area" && (args.Count == 2 || args[2].StartsWith('-') || args[2] is "add" or "remove" or "list" or "sync")
-            || args[1] == "sprint" && args.Count > 2 && args[2] is "add" or "remove" or "list";
+        return args[1] == "area" && args.Count > 2 && args[2] == "sync";
     }
 
     private static bool GitHubQualified(IReadOnlyList<string> args) => args[0] switch
@@ -102,8 +102,8 @@ internal static class CoreMutationAdmissionGuard
         "show-batch" or "process" or "update" or "note" or "state" or "batch" or "patch"
             or "save" or "discard" or "pending" or "query" => !args.Contains("--browser"),
         "link" => args.Count > 2 && args[1] == "local" && args[2] is "related" or "unrelate" or "list",
-        "bench" => args.Count == 1 || args.Count > 1 && args[1] is "list" or "create" or "switch",
-        "workspace" or "ws" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "view" or "track" or "untrack" or "exclude" or "exclusions",
+        "bench" => args.Count == 1 || args.Count > 1 && args[1] is "list" or "create",
+        "workspace" or "ws" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "exclude" or "exclusions",
         "seed" => args.Count > 1 && args[1] is "new" or "view" or "publish" or "discard" or "validate",
         "proposal" or "plan" => args.Count > 1 && args[1] is "preview" or "apply" or "status" or "validate",
         "skills" or "help" or "version" => true,

@@ -16,6 +16,44 @@ namespace Twig.Providers.GitHub.Tests;
 
 public sealed partial class GitHubProviderTests
 {
+    [Theory]
+    [InlineData(1, null)]
+    [InlineData(2, null)]
+    [InlineData(1, "NOT_FOUND")]
+    [InlineData(2, "NOT_FOUND")]
+    [InlineData(1, "FORBIDDEN")]
+    [InlineData(2, "FORBIDDEN")]
+    public async Task ExactReadAttributesExplicitNullToRequestedIssue(int observation, string? errorType)
+    {
+        using var f = await Fixture.Create();
+        f.Http.ExactReplyAt = observation;
+        f.Http.ExactReply = errorType is not null
+            ? $$"""{"data":{"node":null},"errors":[{"type":"{{errorType}}","path":["node"],"message":"untrusted details"}]}"""
+            : """{"data":{"node":null}}""";
+        var result = await f.Provider.ReadAsync(f.Connection, [f.Key("I2")], default);
+        result.Error.Code.ShouldBe(ErrorCode.NotFound);
+        result.Error.Message.ShouldNotContain("untrusted details");
+        result.Error.Evidence.ShouldBe(["item-unavailable:I2"]);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("""{"data":{},"errors":[{"type":"NOT_FOUND","path":["node"],"message":"untrusted details"}]}""")]
+    [InlineData("""{"data":{"node":{}},"errors":[{"type":"NOT_FOUND","path":["node"],"message":"untrusted details"}]}""")]
+    [InlineData("""{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node","parent"],"message":"untrusted details"}]}""")]
+    [InlineData("""{"data":{"node":null},"errors":[{"type":"NOT_FOUND","path":["node"],"message":"untrusted details"},{"type":"FORBIDDEN","path":["node"],"message":"untrusted details"}]}""")]
+    [InlineData("""{"data":{"node":null},"errors":[{"message":"untrusted details"}]}""")]
+    public async Task ExactReadDoesNotAttributePartialOrUnrelatedErrorsToIssue(string reply)
+    {
+        using var f = await Fixture.Create();
+        f.Http.ExactReplyAt = 1;
+        f.Http.ExactReply = reply;
+        var result = await f.Provider.ReadAsync(f.Connection, [f.Key("I2")], default);
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        result.Error.Evidence.ShouldBeEmpty();
+        result.Error.Message.ShouldNotContain("untrusted details");
+    }
+
     [Fact]
     public async Task ReadAccessValidatesActorRepositoryAndIssueReadWithoutIntrospectionOrItemBodies()
     {
@@ -814,6 +852,8 @@ public sealed partial class GitHubProviderTests
 
     private sealed class NativeHttp : HttpMessageHandler
     {
+        internal int ExactReplyAt;
+        internal string? ExactReply;
         internal string? ProfileDefect;
         internal int AvatarReads;
         internal string Owner = "O1", RepositoryId = "R1", Actor = "A1";
@@ -998,6 +1038,8 @@ public sealed partial class GitHubProviderTests
             }
             else
             {
+                if (ExactReply is not null && --ExactReplyAt == 0)
+                    return Json(JsonNode.Parse(ExactReply)!.AsObject());
                 var issue = (JsonObject)Issues[id].DeepClone();
                 issue["repository"] = Repo();
                 var parent = _edges.SingleOrDefault(e => e.To == id && e.Kind == Provider.Hierarchy);

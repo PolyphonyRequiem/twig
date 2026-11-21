@@ -10,7 +10,7 @@ mutates: local
 
 ## Behavior
 
-Requires one explicit positive `--id` or `--all`.
+Requires one positive positional ID (`twig discard 12345`) or explicit `--all`.
 Interactive confirmation is required unless `--yes` is explicit; redirected/
 structured callers cannot rely on a prompt. Seeds use `seed discard`.
 

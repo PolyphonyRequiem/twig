@@ -86,15 +86,16 @@ Native Bench definitions now live in `benches.db` beside the native user registr
 (under `TWIG_USER_HOME`, or the existing per-user Twig home). The CLI and graphical
 hosts use the public `UserBenchStore`; a viewer must not maintain an independent
 authoritative copy. A repository/worktree does not own a Bench, and opening a
-workspace creates no default Bench. Selection remains in that worktree's admitted
-`core-context.json`, so switching one context never switches another.
+workspace creates no default Bench. The CLI has no selected Bench. The native
+daemon/Canvas can retain selection within a presentation session or view.
 
 Selectors retain item, subtree and typed query semantics and now carry their exact
 connection. Area/iteration predicates stay rules, not frozen result lists.
 One Bench can retain selectors from multiple connections; a native workspace's
 store view projects only its admitted connection. Metadata listings report the
-complete user-wide definition. A connection-scoped CLI workspace read remains a
-cached projection of that connection, not a complete cross-connection refresh.
+complete user-wide definition. `twig workspace --bench MyWork` projects that
+Bench on the admitted connection. `--refresh` requests fresh observations for
+that scope, not a complete cross-connection refresh.
 
 Previously saved native definitions are preserved once per native store instance,
 with their IDs intact. Name/intent conflicts refuse rather than rename or
@@ -109,9 +110,10 @@ resolution; retained drafts remain visible and marked when excluded. The
 view rules, without work HTTP or active-item/Bench selection changes.
 
 User-wide `bench create/list/rename/delete` are native metadata commands and can
-run without an initialized worktree. Selecting a Bench or editing contextual
-pins still requires an admitted Core workspace. This foundation does not claim
-that every retired area/iteration management or graphical surface is restored.
+run without an initialized worktree. A workspace read requires an admitted Core
+workspace and an explicit Bench. It never adds a pin. Contextual workspace tracking
+and area/sprint management commands and their aliases are retired. Explicit
+Bench rule operations, Bench-free planning metadata and workspace exclusions remain.
 
 ### Normal native ADO seed authoring
 
@@ -450,10 +452,10 @@ acquisition through the existing provider port, not the legacy Domain/service gr
 or the retired CLI layout command.
 
 The finite data catalog is process/description, cached show/show-batch with explicit
-refresh, bounded query, update/patch/state/note/batch, pending/save/discard,
+refresh, bounded query, targeted update/patch/state/note, batch, pending/discard,
 seed new/view/validate/publish/discard and original acknowledged recovery,
-file proposal validate/preview/apply/status, Bench list/create/switch, single pins
-and static workspace. Already qualified ADO pull/sync, editor/navigation,
+file proposal validate/preview/apply/status, Bench metadata and explicitly scoped
+static workspace reads. Already qualified ADO editor,
 seed-chain/creation links/targeted trees, Link and Core local Related remain.
 GitHub's explicit earlier limitations and 100-total-candidate query bound remain.
 Preserving those paths does not introduce another provider or UI parity requirement.
@@ -605,8 +607,8 @@ is later work.
 The qualified native profile is process/schema inspection, explicit unparented
 seed creation/publication, cache-only numeric `show`/`show-batch`, explicit numeric
 refresh, typed `update`/`patch`, Markdown `note`, native `state` and supported `batch`,
-remote-draft `save`/`discard`, bounded title/body/state queries, Bench list/create/switch,
-single-item pins and static workspace tables. This is native identity and field-role
+remote-draft handling, bounded title/body/state queries, Bench list/create,
+and explicitly scoped static workspace tables. This is native identity and field-role
 qualification, not old UI/envelope parity or completion of phase 5.
 
 CLI integers are locators, not GitHub keys. The read-only `github.number` integer
@@ -634,7 +636,8 @@ Pre-requiredness is evaluated only for an unsupplied completion-transition candi
 ordinary edits and post-supplied requirements use their understood effective values,
 not an invented obligation to observe every pre-condition operand.
 
-The canonical `ws` alias uses the same static workspace owner. Version and help remain
+`twig ws --bench MyWork` uses the same static workspace owner and explicit scope
+as `twig workspace --bench MyWork`. Version and help remain
 offline utilities. Machine qualification refusals are one format-aware error, including
 failures during CAF service composition. Quick `new` remains unqualified; use the
 explicit `seed new` profile instead.
@@ -728,15 +731,14 @@ later local edits prevent settlement rather than being silently cleared.
 seeds and every journal/fence, and requires `--yes` without an interactive confirmation.
 The retained Delete verb refuses its already disclosed unqualified transport instead
 of resolving the old delete writer. Cache-only `show` reads the Core mirror without
-schema/work HTTP; missing cached items require an explicit `--refresh`. Active scope,
-sync and the other remaining read/UI families are still incomplete. Cached
+schema/work HTTP; missing cached items require an explicit `--refresh`. Cached
 `show-batch` reads exact supplied targets and reports missing IDs with a nonzero
 exit; neither missing items nor field export cause implicit work/schema HTTP.
 
 Unparented `seed new --no-parent --type ...` now stages UUIDv7 drafts through Core.
 The initial state comes from the adapter's existing native initial-state allowed
 rule, not a guessed process category; the default assignee is the admitted native
-actor. `seed view` and human `seed publish` use the same workspace and ordered
+actor. `seed view` and human `seed publish <alias>` use the same workspace and ordered
 proposal/journal orchestration, not a separate publisher. Verified creation preserves
 the original UUID and permanent native mapping. An unacknowledged create keeps the
 draft and indeterminate UUID fence; another publication cannot recreate it.
@@ -787,12 +789,12 @@ structured result, and preserves any staged prefix after an authoring failure.
 captures without importing or dispatching a proposal. `seed reconcile` recovers only
 existing Applying/Applied creation rows and settles unchanged captures from their
 original Verified mappings; it never applies Planned successors, rewrites UUID
-references, guesses native identities or replays an unknown creation. Human active
-parent/type inference is still part of the unfinished context cutover.
+references, guesses native identities or replays an unknown creation. All CLI seed
+creation requires `--parent <id>` or `--no-parent`; no item supplies an implicit parent.
 Explicit seed discard now checks the exact draft/store
 capture and refuses any attempted UUID or permanent mapping, even with `--yes`;
 unattempted abandonment preserves journals and local relationship tombstones.
-`seed new --editor`, `seed edit`, and explicitly targeted updates of unpublished
+`seed new --no-parent --editor`, `seed edit`, and explicitly targeted updates of unpublished
 local aliases now use typed Core draft capture. The existing section editor format
 is shared as a pure formatter; the native type's fields supply its editable
 vocabulary. Duplicate/unknown/read-only sections and invalid typed values refuse.
@@ -802,19 +804,9 @@ An attempted creation refuses editing rather than replacing its UUID fence.
 The native general editor now captures its actual observed baseline before launching
 the existing editor, stages one typed draft against the activation store CAS, and
 merges again before digest-bound application. A genuinely concurrent native field
-change is retained as a conflict without retry or overwrite. Human `set` and active
-selection use a separately persisted, source-generated host context bound to the
-admitted connection and SQLite instance, not the old context/writer database.
-Structured selection and active-dependent mutation remain refused; human update,
-edit, show, note, save and state can resolve that selected identity. Incompatible
-context is preserved and refused rather than adopted. Human hierarchy navigation
-(`up/down/next/prev`, including `nav` aliases) now discovers the canonical hierarchy
-and selects from the Core mirror plus explicit creation-bound parent intent.
-History back/forward retain the original local UUIDs and never change proposal
-identity; structured history inspection is read-only. None of these routes registers
-the legacy navigation/context repositories or tracker writer. Interactive navigation,
-native work-item history, compact detail sections and
-complete lifecycle/UI retention remain unfinished. These gaps prevent phase-5 delivery.
+change is retained as a conflict without retry or overwrite. CLI reads and edits
+use explicit targets; the former `set`, navigation and history traversal commands
+do not supply a current item in any output format.
 Cached `show --tree` and targeted `tree` now compose the actual Core mirror,
 ancestor chain and local creation-bound parent declarations through the existing
 typed tree renderer. Missing cached descendants are explicit placeholders; native
@@ -836,34 +828,12 @@ canonical query bytes. Exact matches can come from later pages; each mirrored
 page requires complete incident/resource evidence and preserves local drafts.
 These observational pages are not a globally atomic snapshot. GitHub's existing
 100-item acquisition bound remains an explicit limitation pending its host/query
-completion; this is not yet the complete retained query, Bench and sync surface.
+completion.
 
-Core Bench create/list/switch and workspace single/subtree pinning now use
-`StoreSnapshot.Benches` and the connection/store-instance-bound host context.
-Creation does not select the new Bench; duplicate names and unknown selections
-refuse without substituting another scope. Selector updates use the store CAS
-and preserve queries and other pin kinds. Untracking is case-insensitive, removes
-both explicit pin kinds when mode is omitted, and reports an absent pin as an
-explicit unchanged result without advancing the store version. Removing a
-subtree selector does not require current hierarchy discovery. Pinning an
-uncached target reselects the current captured-ID Bench after the native read,
-so concurrent selectors are not overwritten. Browser origin/settings envelopes
-and the complete workspace/UI surface remain unfinished.
-
-Core `workspace sync`, `sync --pull-only` and the retained `refresh` alias now pull
-the selected Bench's captured query/pin/subtree scope. Existing draft debt is
-always protected; native mirrors can refresh without rewriting draft baselines,
-changes or journals. Machine pulls do not add the interactive active item or its
-context. Human pulls use configured ancestor/child/sideways depths. Unknown
-hierarchies, cycles, incomplete observations or changed Bench selection/selectors
-refuse a complete-pull claim while preserving earlier cached observations.
-Normal Core `sync` saves remote drafts through the same ordered proposal and
-verification path as explicit `save`, then pulls the selected scope; it does not
-publish local seeds. It emits one machine result rather than streaming separate
-save/pull documents. Missing or stale selected scope refuses before draft
-publication. Optional sync telemetry contains only generic command metadata and
-cannot change command outcomes. Remaining workspace rendering, captured browser
-admission, GitHub host and UI routes still prevent phase-5 completion.
+The former Bench switch and save-then-pull routes are retired. A Bench refresh
+reads its explicit query/pin/subtree scope; it does not publish seeds or drafts,
+rewrite draft baselines, or implicitly track items. Incomplete observations and
+cycles are not evidence of a complete pull.
 
 The retained artifact-link path now has a typed `LinkResource` effect and
 separately certified `WorkItem.Resources` observations. A URL is a locator, not
@@ -891,7 +861,7 @@ The executable keeps its existing NativeAOT, full-trimming and invariant-globali
 | Application/command orchestration (later) | Explicit targeting, acquire current schema/items, draft-to-proposal construction, exact-digest confirmation, ordered execution, durable attempts, cancellation/recovery, policy evidence acquisition |
 | Provider adapters (phases 3 and 4) | Normalize native identities and field references, discover schema/capabilities, implement query translation and one-effect transport, classify dispatch/outcomes, authoritative readback |
 | Store adapter (phase 2) | SQLite/WAL, one local CAS/transaction boundary, append-preserving evidence, immutable publish mappings, local relationship tombstones, source-generated persistence DTOs |
-| Hosts/rendering | Human versus machine behavior, navigation/context, form layout and presentation hints, markup conversion/sanitization, colors, terminal/browser interaction, credentials and telemetry |
+| Hosts/rendering | Human versus machine behavior, daemon/Canvas session and view selection, form layout and presentation hints, markup conversion/sanitization, colors, credentials and telemetry |
 
 `ProcessSchema` is a model returned by discovery, **not another port**. There are exactly
 two ports: `IProvider` and `IStore`. Optional clock/identity services are unnecessary here:
@@ -928,8 +898,8 @@ The existing `ProcessCommand` and `ProcessDescriptionCommand` now inspect the sa
 admitted Core workspace's live `ProcessSchema`, without legacy metadata stores,
 work queries, sync, pending flushes or writers. `process` lists canonical type
 references and exposes discovered states, fields and exact transition edges, not
-an invented all-pairs graph. Human `states` resolves only cached Core active context;
-structured callers must name a type with `process`.
+an invented all-pairs graph. Use `twig process <type>` for states and transitions;
+there is no `states` command.
 
 Descriptions use **`core-schema-1`**, scope `provider-discovered-core-schema`, with
 the schema fingerprint and explicit known gaps. This is intentionally not the legacy
@@ -980,9 +950,8 @@ use the existing workspace/provider journal workflow. Mirror refresh preserves
 local edges and tombstones. A duplicate add refuses rather than claiming new
 verification; partial and indeterminate effects fence both endpoints under new
 digests without replay. Invalid/self/conflicting targets refuse with usage exit 2;
-machine invocations need an explicit `--id` option. Human ambient selection uses only
-the bound Core host context, resolving an original local UUID through its permanent
-store mapping after publication without rewriting UUID history or creation intent.
+machine mutations targeting one work item need an explicit `--id` option. Human
+calls also require an explicit target; there is no ambient item selection.
 Unmapped/unknown seeds still refuse; the shared proposal path retains authority
 over partial/unknown native endpoint fences. All JSON aliases emit one document; bare IDs refuse
 because they discard journal evidence. Optional telemetry contains static safe
@@ -1008,11 +977,11 @@ they were not deleted or registered in the Core graph. This does not complete ph
 ## Bounded CLI workspace-read correction
 
 The existing `WorkspaceCommand` now owns a small static Core Bench read, registered
-in the Core production DI branch. `workspace`/`ws` default to a cached item/draft
+in the Core production DI branch. `twig workspace --bench MyWork` reads a cached item/draft
 table through existing RenderTree renderers; provider schema metadata is still
 acquired explicitly because `StoreSnapshot` has no persisted schema. No default
-Bench is guessed or created. `--bench` reads an existing name/GUID without
-switching context; `--expect-bench` guards that resolved GUID before HTTP.
+Bench is guessed or created. `--bench` is required and identifies an existing
+name/GUID; `--expect-bench` guards that resolved GUID before HTTP.
 Core `ResolveBench` and typed `Matches` remain the domain engine. All protected
 draft debt, including local seeds, is added to selector membership. Query matching
 uses cached values; display overlays keep typed proposed values separate from cached
@@ -1024,9 +993,8 @@ The exact existing `KnownLocalKeys` and `LocalAlias` functions moved verbatim fr
 the same reservation/collision rules. No Core type, port, schema or format changed.
 The adapter did not gain another workspace method or workflow facade.
 
-`--refresh` calls only existing `CoreWorkspace.PullBenchAsync`, freezing the current
-Bench GUID and using the shared factory depths with active context disabled.
-Named noncurrent refresh refuses without changing selection. Default reads do no
+`twig workspace --bench MyWork --refresh` pulls the explicitly named Bench,
+binding the read to its resolved GUID. Cached reads do no
 work-item HTTP/query/sync/flush. Every format excludes implicit active context,
 but explicit Bench membership and draft debt still win. Missing/ambiguous scopes,
 missing pins, unavailable query fields and incomplete/cyclic subtrees refuse
@@ -1048,7 +1016,7 @@ fences and history remain; none were pulled into the Core graph.
 `--all`, sprint/full-backlog tree, `--view tree`, browser envelopes and captured
 browser binding/identity/settings flags explicitly refuse before HTTP. Only static table
 spellings (`--no-live`, `--flat`, `--view table`) are accepted. Targeted
-`show --tree` and `workspace sync` are unchanged. GitHub CLI workspace reads and
+`twig show <id> --tree` remains available. GitHub CLI workspace reads and
 UI redesign are not qualified by this correction; phase 5 remains unfinished.
 
 ## Identity, values and drafts

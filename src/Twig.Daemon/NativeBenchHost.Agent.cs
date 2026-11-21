@@ -109,7 +109,7 @@ public static partial class NativeBenchHost
             return (session, grant);
         }
         async Task<NativeAgentSnapshot> Snapshot(ViewSession session, NativeAgentGrant grant, Guid expected, CancellationToken ct,
-            bool validateSources = true)
+            bool validateSources = true, NativePanelContext? exactSource = null)
         {
             var captured = session.Agent.Snapshot;
             if (captured is null || captured.Id != expected || captured.Expires <= DateTimeOffset.UtcNow)
@@ -119,8 +119,17 @@ public static partial class NativeBenchHost
                 || plan.Enabled != captured.Captured.Plan.Enabled || plan.BenchRevision != captured.Definition.Revision)
                 throw new HttpFailure(409, "AgentSnapshotChanged", "The Bench or Plan changed. Read fresh context and reconsider the operation.");
             if (validateSources)
-                _ = ConnectionObservation(await panel.CheckWorkspaceAsync(captured.Captured, ct,
+            {
+                var view = captured.Captured;
+                if (exactSource is not null)
+                {
+                    if (!view.Observations.TryGetValue(exactSource, out var observation))
+                        throw new HttpFailure(409, "SourceUnavailable", "Read the source again before requesting details.");
+                    view = view with { Observations = view.Observations.Clear().Add(exactSource, observation) };
+                }
+                _ = ConnectionObservation(await panel.CheckWorkspaceAsync(view, ct,
                     recheckLocalSnapshot: false), app.Logger);
+            }
             _ = await Current(session, grant, ct);
             return captured;
         }
@@ -138,13 +147,17 @@ public static partial class NativeBenchHost
             NativeAgentSnapshot captured, Guid sourceId, IEnumerable<ItemView> items, CancellationToken ct)
         {
             var remote = items.Where(item => !item.Identity.Key.IsLocal).ToArray();
-            if (remote.Length == 0) return [];
             var source = Source(grant, sourceId);
+            if (remote.Length == 0)
+            {
+                _ = await Snapshot(session, grant, captured.Id, ct, exactSource: source);
+                return [];
+            }
             var keys = remote.Select(item => item.Identity.Key).ToImmutableArray();
             var result = ConnectionObservation(await panel.ObserveItemsAsync(source, keys, ct), app.Logger);
             if (result.Length != keys.Length || !keys.ToHashSet().SetEquals(result.Select(item => item.Key)))
                 throw new HttpFailure(503, "Unavailable", "The provider did not return the exact requested work items.");
-            _ = await Snapshot(session, grant, captured.Id, ct);
+            _ = await Snapshot(session, grant, captured.Id, ct, exactSource: source);
             return result.ToDictionary(item => ViewMapping.Key(new(sourceId, item.Key)));
         }
 
@@ -165,6 +178,20 @@ public static partial class NativeBenchHost
                 CachedFields = ViewMapping.Fields(fresh.Fields),
                 RelationshipsComplete = false
             };
+        }
+
+        static FieldValueDto? SummaryField(ItemDto item, string? reference) =>
+            item.IsLocal ? null : item.CachedFields.SingleOrDefault(field => field.Reference == reference)?.Value;
+
+        static string AssigneeField(SourceViewDto source) =>
+            source.Provider == "github" ? "github.assigneeIds" : "System.AssignedTo";
+
+        static (SourceViewDto Source, ItemDto Item)[] Members(NativeAgentSnapshot captured)
+        {
+            if (captured.View.Sources.Any(source => source.ErrorCode is not null))
+                throw new HttpFailure(503, "SourceUnavailable", "A required Bench source is unavailable; total membership is unknown.");
+            return captured.View.Sources.SelectMany(source => source.Items.Where(item => item.BenchMember && !item.IsExcluded)
+                .Select(item => (source, item))).ToArray();
         }
 
         async Task<ItemDto[]> ObservePage(ViewSession session, NativeAgentGrant grant, NativeAgentSnapshot captured,
@@ -444,8 +471,7 @@ public static partial class NativeBenchHost
             if (body.Offset < 0 || body.Limit is < 1 or > 100)
                 throw new HttpFailure(400, "InvalidInput", "Use a nonnegative offset and a page size from 1 to 100.");
             var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted, validateSources: false);
-            var members = captured.View.Sources.Where(source => source.ErrorCode is null).SelectMany(source =>
-                source.Items.Where(item => item.BenchMember && !item.IsExcluded).Select(item => (Source: source, Item: item))).ToArray();
+            var members = Members(captured);
             var keys = captured.Captured.View.Sources.ToDictionary(source => source.SourceId,
                 source => source.Items.ToDictionary(item => ViewMapping.Key(item.Identity), item => item.Identity.Key));
             var membersOnPage = members.Skip(body.Offset).Take(body.Limit).ToArray();
@@ -454,19 +480,17 @@ public static partial class NativeBenchHost
                 {
                     var source = pair.First.Source;
                     var item = pair.Second;
-                    var fields = item.CachedFields.Concat(item.ProposedFields).GroupBy(field => field.Reference)
-                        .ToDictionary(group => group.Key, group => group.Last().Value);
                     var key = keys[source.SourceId][item.Id];
                     var connection = Source(grant, source.SourceId).Stamp.Connection;
                     return new AgentItemSummaryDto(source.SourceId, item.Id, item.IsLocal ? "twig" : source.Provider!,
-                        item.Locator, item.Type, item.Title, item.StateField is null ? null : fields.GetValueOrDefault(item.StateField),
-                        fields.GetValueOrDefault(source.Provider == "github" ? "github.assigneeIds" : "System.AssignedTo"),
+                        item.Locator, item.Type, item.Title, SummaryField(item, item.StateField),
+                        SummaryField(item, AssigneeField(source)),
                         item.HasDraft, captured.Definition.Selectors.Any(value => value.Kind == SelectorKind.Pin
                             && value.Item == key && value.Connection == connection));
                 }).ToArray();
             await Write(http, new AgentBenchPageDto(captured.Id, page, members.Length,
                 body.Offset + page.Length < members.Length ? body.Offset + page.Length : null,
-                captured.View.Sources.Where(source => source.ErrorCode is not null).Select(source => source.SourceId).ToArray()));
+                []));
         });
         app.MapPost("/api/v1/views/{id:guid}/agent/item", async (HttpContext http, Guid id) =>
         {
@@ -539,9 +563,7 @@ public static partial class NativeBenchHost
                         if (offset < 0 || limit is < 1 or > 100)
                             throw new HttpFailure(400, "InvalidInput", "Use a bounded Bench page.");
                         var captured = await Capture(session, grant, lifetime.Token);
-                        var page = captured.View.Sources.Where(source => source.ErrorCode is null)
-                            .SelectMany(source => source.Items.Where(item => item.BenchMember && !item.IsExcluded)
-                                .Select(item => (Source: source, Item: item))).ToArray();
+                        var page = Members(captured);
                         var membersOnPage = page.Skip(offset).Take(limit).ToArray();
                         var observedPage = await ObservePage(session, grant, captured, page, offset, limit, lifetime.Token);
                         var result = new JsonObject
@@ -554,6 +576,10 @@ public static partial class NativeBenchHost
                                 ["locator"] = pair.Second.Locator, ["type"] = pair.Second.Type,
                                 ["title"] = pair.Second.TitleField is { } title ? pair.Second.CachedFields
                                     .SingleOrDefault(field => field.Reference == title)?.Value.Value.GetString() : null,
+                                ["state"] = SummaryField(pair.Second, pair.Second.StateField) is { } state
+                                    ? JsonSerializer.SerializeToNode(state, TransportJson.Default.FieldValueDto) : null,
+                                ["assignedTo"] = SummaryField(pair.Second, AssigneeField(pair.First.Source)) is { } assignee
+                                    ? JsonSerializer.SerializeToNode(assignee, TransportJson.Default.FieldValueDto) : null,
                                 ["hasDraft"] = pair.Second.HasDraft
                             }).ToArray())
                         };
@@ -607,7 +633,7 @@ public static partial class NativeBenchHost
                         is not (FieldKind.Identity or FieldKind.StringList))
                         throw new HttpFailure(400, "InvalidInput", "Choose an observed identity or identity-list field for the assignee.");
                     IdentityProfile[] profiles = [];
-                    if (assigned is not null && (remote?.Fields ?? observed.CachedFields).TryGetValue(assigned, out var assignment))
+                    if (assigned is not null && remote is not null && remote.Fields.TryGetValue(assigned, out var assignment))
                     {
                         var identities = assignment.Kind == FieldKind.Identity && assignment.Text is { Length: > 0 } identity
                             ? ImmutableArray.Create(identity)
@@ -619,8 +645,7 @@ public static partial class NativeBenchHost
                         {
                             profiles = ConnectionObservation(await panel.ReadIdentityProfilesAsync(
                                 Source(grant, sourceId), identities, lifetime.Token), app.Logger).ToArray();
-                            _ = await Snapshot(session, grant, snapshotId, lifetime.Token, validateSources: false);
-                            _ = await Current(session, grant, lifetime.Token);
+                            _ = await Snapshot(session, grant, snapshotId, lifetime.Token, exactSource: Source(grant, sourceId));
                         }
                     }
                     var state = Field(itemView.StateField);

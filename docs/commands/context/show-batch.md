@@ -17,8 +17,8 @@ twig show-batch --batch 12345,12346 -o json --fields System.Title
 
 Reads positive native IDs from the Core snapshot without provider HTTP.
 Missing IDs are disclosed in `missingIds` and cause a nonzero exit even when
-other rows are returned. Explicitly refresh each missing item with `show`.
-This command never selects the active item or supplies a silent network fallback.
+other rows are returned. Fetch each missing item with `twig show <id> --refresh`.
+There is no silent network fallback.
 
 `--fields` filters retained fields. `--sections` is currently refused.
 `--include-fields` requires exactly `-o json`, distinct IDs, and no field/section

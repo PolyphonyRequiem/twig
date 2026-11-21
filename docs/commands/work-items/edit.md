@@ -16,7 +16,8 @@ observation; changed input is staged against the captured baseline/store and
 saved through Core. Cancellation/no changes is a no-op, not an implicit save.
 Local seed targets use the local seed editor.
 
-Machine calls require `--id`. GitHub editor convenience is not qualified; use
+Name the target with `--id`, for example `twig edit --id 12345 --field System.Title`.
+GitHub editor convenience is not qualified; use
 explicit supported `update`/`patch` instead.
 
 ## Effects

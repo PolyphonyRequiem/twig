@@ -101,13 +101,12 @@ twig pending -o json                    # inspect local drafts
 ```
 
 Benches are user-wide saved selections, not automatically your assigned sprint.
-Create one explicitly, select it in an initialized worktree, and pin items:
+Create one, then name it when reading its members. No CLI invocation inherits
+an item or Bench from a previous command or an open view.
 
 ```sh
 twig bench create MyWork
-twig bench switch MyWork
-twig workspace track 12345
-twig workspace
+twig workspace --bench MyWork
 ```
 
 For automation, use explicit targets (`--id` for single-item mutations) and
@@ -115,8 +114,8 @@ structured output. Check each command's help: not every format or capability is
 available on every route or provider.
 
 **Changes are not all local drafts.** Commands such as `update`, `state`, `note`,
-and `batch` can publish immediately through Core. `sync` can save pending edits;
-use `sync --pull-only` when you only intend to read. For file-based changes, review
+and `batch` can publish immediately through Core. To refresh a supported Bench
+without saving drafts, use `twig workspace --bench MyWork --refresh`. For file-based changes, review
 the exact proposal before `proposal apply --file ... --confirm <digest>`.
 Unknown write outcomes must be inspected, never blindly retried.
 

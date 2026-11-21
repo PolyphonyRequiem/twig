@@ -1,5 +1,8 @@
+using Microsoft.Data.Sqlite;
+using NSubstitute;
 using Shouldly;
 using Twig.Core;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Services;
 using Xunit;
@@ -12,6 +15,7 @@ public sealed class NativeConnectionSetupTests
     public async Task FreshInitInspectsTheCheckoutUnderItsLeaseAndPreservesAnInterleavedFile()
     {
         var root = Path.Combine(Path.GetTempPath(), "twig-init-interleave-" + Guid.NewGuid().ToString("N"));
+        var registry = Path.Combine(root, "system.db");
         Directory.CreateDirectory(root);
         try
         {
@@ -34,17 +38,54 @@ public sealed class NativeConnectionSetupTests
                     File.WriteAllText(external, evidence);
                 }
             };
-            // Twig-native setup does not use this binding service before checkout admission.
+            var bindings = Substitute.For<IConnectionBindingService>();
+            bindings.RegistryPath.Returns(registry);
             var result = await NativeWorkspaceSetup.InitializeAsync(
                 new(root, "", "", null, null, "twig", null, null, null, null, null, Database: "fixture"),
-                () => null!, effects, default);
+                () => bindings, effects, default);
             result.IsSuccess.ShouldBeFalse();
             result.Error.Message.ShouldContain("under the checkout lease");
             File.ReadAllText(external).ShouldBe(evidence);
             File.Exists(Path.Combine(twig, "core-init.lock")).ShouldBeFalse();
             File.Exists(Path.Combine(root, "twig.json")).ShouldBeFalse();
         }
-        finally { Directory.Delete(root, recursive: true); }
+        finally
+        {
+            using var pool = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = registry, Mode = SqliteOpenMode.ReadWriteCreate, DefaultTimeout = 30 }.ToString());
+            SqliteConnection.ClearPool(pool);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("git.example.com", "named", "Iv0123456789")]
+    [InlineData("github.com", "", "Iv0123456789")]
+    [InlineData("github.com", "named", "")]
+    public async Task InvalidGitHubAppSelectionNeverCreatesStorageOrFallsBackToGh(string host, string identity, string clientId)
+    {
+        var home = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var setup = new NativeConnectionSetup(home);
+        var target = new NativeGitHubAppSetupTarget(host, "example/repo", identity, clientId);
+        var fresh = await setup.InitializeFreshAsync(new(home, target));
+        var managed = await setup.InitializeManagedAsync(target);
+        foreach (var error in new[] { fresh.Error, managed.Error })
+        {
+            error.Code.ShouldBe(ErrorCode.InvalidInput);
+            NativeConnectionSetup.ReadFailure(error).Value.Effects.ShouldBeEmpty();
+        }
+        Directory.Exists(home).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task FreshGitHubSetupDoesNotDiscoverAnOmittedAccount()
+    {
+        var home = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var result = await new NativeConnectionSetup(home).InitializeFreshAsync(
+            new(home, new NativeGitHubSetupTarget("github.com", "example/repo", "")));
+        result.Error.Code.ShouldBe(ErrorCode.InvalidInput);
+        NativeConnectionSetup.ReadFailure(result.Error).Value.Effects.ShouldBeEmpty();
+        Directory.Exists(home).ShouldBeFalse();
     }
 
     [Theory]

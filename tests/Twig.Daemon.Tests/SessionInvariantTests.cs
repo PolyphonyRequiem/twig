@@ -228,7 +228,7 @@ internal static class SessionTests
                 && restarted.ReadState(restarted.Content(separateOwner.ViewId, separateOwner.ContentCapability, true))
                     .Choices.RepositoryRoot == separate,
                 "Repository resolution must use Git's main checkout, not infer a root from the nested worktree path.");
-            Check(gateway.Reads.Count == 0 && gateway.SelectCalls == 0,
+            Check(gateway.Reads.Count == 0,
                 "Remembering a Bench must not acquire connections or write CLI selection.");
         }
     }
@@ -253,7 +253,6 @@ internal static class SessionTests
         var otherBench = Guid.NewGuid();
         _ = Required(await panel.SaveAsync(new(bench, "Configured", [], connections: [admitted.Stamp.Connection]), 0, ct));
         _ = Required(await panel.SaveAsync(new(otherBench, "Changed selection", [], connections: [admitted.Stamp.Connection]), 0, ct));
-        gateway.Selection[source] = bench;
         var saved = sessions.SaveState(firstSession, new(0, NativeViewChoices.Empty with
         { ViewingRoot = source, DisplayRoots = [source], BenchId = bench }));
         var canvas = sessions.RegisterNativeCanvas(storeId);
@@ -269,8 +268,6 @@ internal static class SessionTests
         Check(result.Status == 200 && result.Body!["initialView"]!["view"]!["id"]!.GetValue<Guid>() == bench
             && gateway.Reads.Count == reads + 1 && gateway.SchemaReads == schema && gateway.OnlineReads == online,
             "Real initial HTTP composes the configured selected Bench with exactly one full local observation.");
-        Check(gateway.SelectCalls == 0, "Restoration never writes native selection.");
-        gateway.OnNextRead = () => gateway.Selection[source] = otherBench;
         result = await host.Send("POST", route, new EmptyBody(), owner.ContentCapability, null, ct);
         Check(result.Status == 200 && result.Body!["initialView"]!["view"]!["id"]!.GetValue<Guid>() == bench
             && result.Body!["viewState"]!["choices"]!["benchId"]!.GetValue<Guid>() == bench,
@@ -473,7 +470,6 @@ internal static class SessionTests
         Check(session.NativeContext.Source.AllowOffline, "An independently admitted exact source must use local display by default, without a preference.");
         var bench = Guid.NewGuid();
         _ = Required(await store.SaveAsync(new(bench, "Cached source", [], connections: [session.NativeContext.Stamp.Connection]), 0, ct));
-        gateway.Selection[sourceA] = bench;
         var choices = NativeViewChoices.Empty with { ViewingRoot = sourceA, DisplayRoots = [sourceA], BenchId = bench };
         var state = sessions.SaveState(session, new(0, choices));
         var retained = sessions.StateReferences(session).Single();
@@ -582,8 +578,7 @@ internal static class SessionTests
         var currentBench = Guid.NewGuid();
         _ = Required(await store.SaveAsync(new(chosenBench, "Selected session Bench", [],
             connections: [session.NativeContext.Stamp.Connection, session.PopulationContext.Stamp.Connection]), 0, ct));
-        _ = Required(await store.SaveAsync(new(currentBench, "Independent CLI Bench", []), 0, ct));
-        gateway.Selection[sourceA] = currentBench;
+        _ = Required(await store.SaveAsync(new(currentBench, "Other Bench", []), 0, ct));
         var choices = new NativeViewChoices(sourceA, sourceB, [sourceA, sourceB], Guid.NewGuid().ToString("D"),
             "queries", Guid.NewGuid().ToString("D"), null, chosenBench, "tree", Guid.NewGuid(), "System.State");
         var saved = sessions.SaveState(session, new(0, choices));
@@ -712,9 +707,8 @@ internal static class SessionTests
                 && !gateway.Reads.Contains(unselected),
                 "Restoration must never choose a registry sibling or workspace fallback.");
             Check(state["currentBenchId"]!.GetValue<Guid>() == chosenBench
-                && state["choices"]!["benchId"]!.GetValue<Guid>() == chosenBench
-                && gateway.SelectCalls == 0 && gateway.Selection[sourceA] == currentBench,
-                "The selected session Bench must survive an independent CLI selection without writing either selection during resume.");
+                && state["choices"]!["benchId"]!.GetValue<Guid>() == chosenBench,
+                "Restoration must retain the explicitly selected session Bench.");
             var prefix = $"/api/v1/views/{id:D}/view-state";
             gateway.Denied.Clear();
             gateway.OnNextRead = () =>
@@ -741,10 +735,9 @@ internal static class SessionTests
                 && changedReference["errorCode"]?.GetValue<string>() == "Conflict";
             Check(changed.Status == 200 && refusedChange && recovered.PopulationContext is null
                 && recovered.DisplayContexts.Values.All(context => context.Root != sourceB)
-                && restarted.StateReferences(recovered).Single(reference => reference.Root == sourceB).Binding == retainedBinding
-                && gateway.SelectCalls == 0,
+                && restarted.StateReferences(recovered).Single(reference => reference.Root == sourceB).Binding == retainedBinding,
                 "A root with changed native identity must remain a refused retained reference, never a new grant.");
-            Console.WriteLine($"PASS replaced source refusal: status={changedReference["status"]}, errorCode={changedReference["errorCode"]}; reference retained, selection writes={gateway.SelectCalls}.");
+            Console.WriteLine($"PASS replaced source refusal: status={changedReference["status"]}, errorCode={changedReference["errorCode"]}; reference retained.");
             restarted.Revoke(recovered);
             var denied = await host.Send("POST", "/api/v1/windows-renew", new OwnerRenewBody(id, profile, storeId),
                 token, "same-owner", ct);
@@ -800,11 +793,9 @@ internal sealed class Gateway
     private readonly Dictionary<string, NativeSourceStamp> stamps;
     internal HashSet<string> Denied { get; } = new(StringComparer.Ordinal);
     internal List<string> Reads { get; } = [];
-    internal Dictionary<string, Guid?> Selection { get; } = new(StringComparer.Ordinal);
     internal int SchemaReads { get; private set; }
     internal int OnlineReads { get; private set; }
     internal string[] TypeGaps { get; init; } = [];
-    internal int SelectCalls { get; private set; }
     internal Action? OnNextRead { get; set; }
     internal TimeSpan NextReadDelay { get; set; }
     internal Gateway(string[] roots)
@@ -836,18 +827,12 @@ internal sealed class Gateway
             [new("Active", StateCategory.InProgress)], [], [new("System.Title", RuleAction.Default, [], [FieldValue.String("Fixture default")])])
             { Gaps = TypeGaps.ToImmutableArray() }];
         return Result<NativeSourceObservation>.Ok(new(stamp, new(1), now,
-            observeSchema ? Result<ProcessSchema>.Ok(new(stamp.Connection, types, [])) : null, observeSchema ? now : null)
-            { SelectedBenchId = Selection.GetValueOrDefault(root) });
+            observeSchema ? Result<ProcessSchema>.Ok(new(stamp.Connection, types, [])) : null, observeSchema ? now : null));
     }
     public Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected, CancellationToken ct)
     {
         OnlineReads++;
         return ReadAsync(root, expected, false, ct);
-    }
-    public Task<Result<NativeSourceObservation>> SelectBenchAsync(string root, NativeSourceStamp expected, Guid? previous, Guid? next, CancellationToken ct)
-    {
-        SelectCalls++;
-        throw new InvalidOperationException("Resume must never write the CLI selection.");
     }
 }
 

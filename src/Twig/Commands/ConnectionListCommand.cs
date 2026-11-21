@@ -17,7 +17,7 @@ internal sealed class ConnectionListCommand(IConnectionBindingService bindings, 
                 throw new InvalidOperationException("Choose --provider ado, github or twig.");
             var filter = organization is null && project is null && host is null && repository is null && database is null ? null
                 : ProviderConnectionRequirement.Create(provider, organization, project, host, repository, database);
-            var connections = await new ProviderConnectionRegistry(bindings.RegistryPath).ListAsync(ct);
+            var connections = await new DeviceConnectionCatalog(bindings.RegistryPath).ListAsync(ct);
             var rows = connections.Where(value => (provider is null || value.Requirement.Provider == provider)
                     && (filter is null || value.Requirement == filter))
                 .Select(value => new RenderRow("connection", ConnectionRenderHelpers.ConnectionFields(value))).ToList();

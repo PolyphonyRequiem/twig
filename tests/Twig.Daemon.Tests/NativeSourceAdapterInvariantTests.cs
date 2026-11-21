@@ -201,7 +201,7 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         Equal(ErrorCode.PolicyViolation, (await restarted.AdmitAsync(fixture.Source.NativeLocator, default)).Error.Code);
         Equal(1, fixture.Gateway.SchemaCalls);
     }),
-    ("native selection and content reads share the same root coordinator", async () =>
+    ("admitted source and content reads share the same root coordinator", async () =>
     {
         await using var fixture = await Fixture.Start();
         var definitions = new UserBenchStore(Path.Combine(fixture.Directory, "shared-benches.db"));
@@ -215,7 +215,7 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         fixture.Gateway.BeforeLocalDelay = () => { Interlocked.Increment(ref calls); entered.TrySetResult(); };
         var content = panel.CaptureAsync(context, default);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var selection = panel.ReadSelectionAsync(context, default);
+        var selection = panel.ReadAdmittedSourceAsync(context, default);
         try { Equal(1, calls); }
         finally { release.TrySetResult(); await Task.WhenAll(content, selection); }
         Required(await content); Required(await selection); Equal(2, calls);
@@ -223,7 +223,7 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         fixture.Gateway.BeforeLocalDelay = null;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var nested = Required(await panel.EditorOperationAsync(context,
-            token => panel.ReadSelectionAsync(context, token), deadline.Token));
+            token => panel.ReadAdmittedSourceAsync(context, token), deadline.Token));
         Required(nested);
     }),
     ("online transient failures recover through fresh validation without reconnecting", async () =>

@@ -55,9 +55,6 @@ public sealed partial class NativePublicationConsumerTests
         }
         (await store.CommitAsync(connection, 0, new(1, [Item("42", "Project\\Current"), Item("43", "Project\\Next")]), default))
             .IsSuccess.ShouldBeTrue();
-        var context = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
-        var before = (await context.ReadAsync(default)).Value;
-        (await context.WriteAsync(before, before with { BenchId = bench.Id }, default)).IsSuccess.ShouldBeTrue();
         _transport.ItemReadIds.Clear();
         _transport.QueryAfterIds.Clear();
         var oldOut = Console.Out;
@@ -68,7 +65,7 @@ public sealed partial class NativePublicationConsumerTests
         {
             Console.SetOut(stdout);
             Console.SetError(stderr);
-            RunCoreLink(paths, ["workspace", "-o", "json"]).ShouldBe(0, stderr.ToString());
+            RunCoreLink(paths, ["workspace", "--bench", bench.Name, "-o", "json"]).ShouldBe(0, stderr.ToString());
             using var json = JsonDocument.Parse(stdout.ToString());
             json.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetInt32()).ShouldBe([43]);
         }
@@ -102,8 +99,6 @@ public sealed partial class NativePublicationConsumerTests
         var bench = new CoreModel.Bench(Guid.NewGuid(), "Read scope", [new(CoreModel.SelectorKind.Pin, item.Key)]);
         (await store.CommitAsync(connection, current.Version, new(current.Version + 1, current.Items, current.Relationships,
             current.Drafts, current.Proposals, current.Journal, current.Mappings, [bench]), default)).IsSuccess.ShouldBeTrue();
-        var context = (await admitted.Workspace.Context.ReadAsync(default)).Value;
-        (await admitted.Workspace.Context.WriteAsync(context, context with { BenchId = bench.Id }, default)).IsSuccess.ShouldBeTrue();
         var capture = (await store.ReadAsync(connection, default)).Value;
         _transport.ItemReadIds.Clear();
         var beforeOut = Console.Out;
@@ -114,7 +109,7 @@ public sealed partial class NativePublicationConsumerTests
         {
             Console.SetOut(stdout);
             Console.SetError(stderr);
-            RunCoreLink(paths, [route, "-o", "json"]).ShouldBe(0, stderr.ToString());
+            RunCoreLink(paths, [route, "--bench", bench.Name, "-o", "json"]).ShouldBe(0, stderr.ToString());
             using var json = JsonDocument.Parse(stdout.ToString());
             json.RootElement.GetProperty("projection").GetString().ShouldBe("core-bench-workspace-v1");
             json.RootElement.GetProperty("items").EnumerateArray().Select(value => value.GetProperty("id").GetInt32())
@@ -151,7 +146,6 @@ public sealed partial class NativePublicationConsumerTests
         var before = (await store.ReadAsync(connection, default)).Value;
         before.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Indeterminate);
         var document = await WorkspaceStoredDocumentAsync(paths);
-        var context = await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"));
         var telemetry = Substitute.For<ITelemetryClient>();
         telemetry.WhenForAnyArgs(client => client.TrackEvent(default!, default, default))
             .Do(_ => throw new InvalidOperationException("Optional telemetry failed"));
@@ -213,7 +207,6 @@ public sealed partial class NativePublicationConsumerTests
         after.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Indeterminate);
         after.Journal.Single().Attempt.ShouldBe(attempt);
         after.Benches.Single(value => value.Id == bench).Selectors.ShouldBe(before.Benches.Single(value => value.Id == bench).Selectors);
-        (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"))).ShouldBe(context);
         (await WorkspaceStoredDocumentAsync(paths)).ShouldBe(document);
         var properties = (Dictionary<string, string>)telemetry.ReceivedCalls().Last().GetArguments()[1]!;
         properties["command"].ShouldBe("workspace");
@@ -256,8 +249,8 @@ public sealed partial class NativePublicationConsumerTests
         }
         foreach (var args in new[]
         {
-                new[] { "--bench", "missing" }, new[] { "--expect-bench", Guid.NewGuid().ToString("D") },
-                new[] { "--bench", "Other", "--refresh" },
+                new[] { "--bench", "missing" }, new[] { "--bench", "Read scope", "--expect-bench", Guid.NewGuid().ToString("D") },
+                new[] { "--bench", "Other", "--expect-bench", bench.ToString("D"), "--refresh" },
             })
         {
             var result = WorkspaceInvoke(paths, ["workspace", .. args, "-o", "json"]);
@@ -303,15 +296,9 @@ public sealed partial class NativePublicationConsumerTests
             (await library.SaveAsync(new(selected.Id, selected.Name, scoped), retained.Revision)).IsSuccess.ShouldBeTrue();
             (await store.CommitAsync(connection, current.Version, new(current.Version + 1, items, edges, initial.Drafts,
                 initial.Proposals, initial.Journal, initial.Mappings, initial.Benches), default)).IsSuccess.ShouldBeTrue();
-            if (failure == "no-selection")
-            {
-                var file = new CoreHostContext(paths.RepoRoot, connection, store.InstanceId);
-                var context = (await file.ReadAsync(default)).Value;
-                (await file.WriteAsync(context, context with { BenchId = null }, default)).IsSuccess.ShouldBeTrue();
-            }
             var result = WorkspaceInvoke(paths, failure == "no-selection"
                 ? ["workspace", "-o", "json"] : ["workspace", "--bench", "Read scope", "-o", "json"]);
-            result.Exit.ShouldBe(1, failure + ": " + result.Error);
+            result.Exit.ShouldBe(failure == "no-selection" ? 2 : 1, failure + ": " + result.Error);
             result.Output.ShouldBeEmpty();
             JsonDocument.Parse(result.Error).Dispose();
             (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(current.Version + 1);
@@ -348,10 +335,9 @@ public sealed partial class NativePublicationConsumerTests
                 ? new CoreModel.Bench(value.Id, value.Name, scope.Selectors.Where(selector => selector.Kind != CoreModel.SelectorKind.Query))
                 : value)), default)).IsSuccess.ShouldBeTrue();
         var before = (await store.ReadAsync(connection, default)).Value;
-        var contextBytes = await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"));
         _transport.SetItem(45, "Fresh remote debt", 2, Actor);
         _transport.ItemReadIds.Clear();
-        var refreshed = WorkspaceInvoke(paths, ["workspace", "--refresh", "--expect-bench", bench.ToString("D"), "-o", "json"]);
+        var refreshed = WorkspaceInvoke(paths, ["workspace", "--refresh", "--bench", "Read scope", "--expect-bench", bench.ToString("D"), "-o", "json"]);
         refreshed.Exit.ShouldBe(0, refreshed.Error);
         using (var json = JsonDocument.Parse(refreshed.Output))
             json.RootElement.GetProperty("items").EnumerateArray().Single(row => row.GetProperty("id").GetInt32() == 45)
@@ -369,7 +355,6 @@ public sealed partial class NativePublicationConsumerTests
         after.Journal.ShouldBe(before.Journal);
         CoreModel.Core.ProposalBytes(after.Proposals.Single()).ShouldBe(CoreModel.Core.ProposalBytes(before.Proposals.Single()));
         after.Benches.Single(value => value.Id == bench).Selectors.ShouldBe(before.Benches.Single(value => value.Id == bench).Selectors);
-        (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, "core-context.json"))).ShouldBe(contextBytes);
 
         var local = CoreHostContext.LocalAlias(seed).ToString(CultureInfo.InvariantCulture);
         var publication = WorkspaceInvoke(paths, ["seed", "publish", local]);
@@ -383,7 +368,7 @@ public sealed partial class NativePublicationConsumerTests
             selected.Revision)).IsSuccess.ShouldBeTrue();
         var captured = (await store.ReadAsync(connection, default)).Value;
         _transport.ItemReadIds.Clear();
-        var read = WorkspaceInvoke(paths, ["workspace", "-o", "ids"]);
+        var read = WorkspaceInvoke(paths, ["workspace", "--bench", "Read scope", "-o", "ids"]);
         read.Exit.ShouldBe(0, read.Error);
         read.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).ShouldContain(mapping.Remote.NativeId!);
         read.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).ShouldNotContain(local);
@@ -411,7 +396,7 @@ public sealed partial class NativePublicationConsumerTests
             retained.Relationships, retained.Drafts.Add(before.Drafts.Single(value => value.Key == seed)),
             retained.Proposals, retained.Journal, retained.Mappings, retained.Benches), default)).IsSuccess.ShouldBeTrue();
         var debtCapture = (await store.ReadAsync(connection, default)).Value;
-        var mappedDebt = WorkspaceInvoke(paths, ["workspace", "-o", "json"]);
+        var mappedDebt = WorkspaceInvoke(paths, ["workspace", "--bench", "Read scope", "-o", "json"]);
         mappedDebt.Exit.ShouldBe(0, mappedDebt.Error);
         using var mappedJson = JsonDocument.Parse(mappedDebt.Output);
         var mappedRow = mappedJson.RootElement.GetProperty("items").EnumerateArray()
@@ -462,13 +447,6 @@ public sealed partial class NativePublicationConsumerTests
                     KeyValuePair.Create("System.State", CoreModel.FieldValue.String("To Do")),
                 ]))], [proposal], [CoreModel.JournalEntry.Planned(proposal.Digest, 0)], snapshot.Mappings,
             [bench, new(Guid.NewGuid(), "Other", [new(CoreModel.SelectorKind.Pin, Key("99"))])]), default)).IsSuccess.ShouldBeTrue();
-        var context = (await handle.Workspace.Context.ReadAsync(default)).Value;
-        (await handle.Workspace.Context.WriteAsync(context, context with
-        {
-            BenchId = bench.Id,
-            History = [CoreContextKey.Capture(Key("90"))],
-            Position = 0,
-        }, default)).IsSuccess.ShouldBeTrue();
         return (paths, connection, store, bench.Id, seed);
     }
 

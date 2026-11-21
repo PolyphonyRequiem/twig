@@ -45,8 +45,10 @@ internal sealed class NativeHistoricalEvidence(string directory)
             .Where(id => id.Length is > 0 and <= 256 && id == id.Trim() && !id.Any(char.IsControl));
     }
 
-    internal static NativeHistoricalEvidence ForLocalUser() => new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "DaemonData", "native-evidence"));
+    internal static string LocalUserDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "DaemonData", "native-evidence");
+
+    internal static NativeHistoricalEvidence ForLocalUser() => new(LocalUserDirectory);
 
     internal static string NativeStamp(NativeSourceStamp source)
         => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(

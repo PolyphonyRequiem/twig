@@ -13,9 +13,8 @@ twig bench sources -o json
 
 ## Behavior
 
-`bench rules [name]` reads exact selectors and the captured revision, without
-provider reads. Omitting the name uses the current native selection, not an
-invented default. `bench rule add <name>` accepts qualified area/iteration/mine,
+`bench rules <name>` reads that Bench's selectors and captured revision without
+provider reads. There is no implicit Bench. `bench rule add <name>` accepts qualified area/iteration/mine,
 saved-query, or backlog intent. Conditions within one planning rule are AND;
 independent pins/rules contribute by OR. Relative iterations require the actual
 cached team calendar.

@@ -10,6 +10,52 @@ namespace Twig.Cli.Tests.Commands;
 public sealed partial class GitHubCoreSpineTests
 {
     [Theory]
+    [InlineData("gh", false)]
+    [InlineData("github-app", false)]
+    [InlineData("twig", false)]
+    [InlineData("gh", true)]
+    [InlineData("github-app", true)]
+    [InlineData("twig", true)]
+    public async Task NativeSetupKeepsExplicitCatalogSelectionWhenWorkspaceCreationFails(string selection, bool managed)
+    {
+        using var fixture = new Fixture();
+        var setup = new NativeConnectionSetup(tracker =>
+        {
+            tracker.Observed = (kind, state) =>
+            {
+                if (kind == NativeSetupEffectKind.WorkspaceDirectory && state == NativeSetupEffectState.Possible)
+                    throw new IOException("fixture workspace creation failure");
+            };
+            return fixture._bindings;
+        }, managedRoot: Path.Combine(fixture.Root, "managed"));
+        NativeSetupTarget target = selection switch
+        {
+            "gh" => new NativeGitHubSetupTarget("git.example.com", "Org/Repo", "selected-account"),
+            "github-app" => new NativeGitHubAppSetupTarget("github.com", "Org/Repo", "selected-app", "Iv0123456789"),
+            _ => new NativeTwigSetupTarget("selected-db"),
+        };
+        var error = managed ? (await setup.InitializeManagedAsync(target)).Error
+            : (await setup.InitializeFreshAsync(new(fixture.Root, target))).Error;
+        var effects = NativeConnectionSetup.ReadFailure(error).Value.Effects;
+        effects.ShouldContain(new NativeSetupEffect(NativeSetupEffectKind.ConnectionRegistration, NativeSetupEffectState.Confirmed));
+        var row = (await new DeviceConnectionCatalog(fixture._bindings.RegistryPath).ListAsync()).Single();
+        if (selection == "twig")
+        {
+            row.Requirement.ShouldBe(new ProviderConnectionRequirement("twig", "local", "selected-db"));
+            row.Credential.ShouldBeNull();
+            effects.Any(effect => effect.Kind == NativeSetupEffectKind.ConnectionBinding).ShouldBeFalse();
+        }
+        else
+        {
+            effects.ShouldContain(new NativeSetupEffect(NativeSetupEffectKind.ConnectionBinding, NativeSetupEffectState.Confirmed));
+            row.Requirement.ShouldBe(new ProviderConnectionRequirement("github",
+                selection == "gh" ? "git.example.com" : "github.com", "org/repo"));
+            row.Credential.ShouldBe(selection == "gh" ? new ProviderConnectionCredential("gh", "selected-account")
+                : new ProviderConnectionCredential("github-app", "selected-app", "Iv0123456789"));
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task NativeSetupGitHubRequiresCreationBoundSchemaAndOnlineReadback(bool denied)

@@ -1,18 +1,3 @@
----
-command: area
-group: workspace
-summary: Deprecated alias for workspace area.
-stability: stable
-mutates: none
----
+# `twig area` (retired)
 
-# `twig area`
-
-## Behavior
-
-Deprecated alias for [`workspace area`](area.md); use the canonical route.
-It reads the static current Bench, not a retired live/sprint dashboard.
-
-## Effects
-
-No publication or selector change.
+To inspect or change shared planning rules, name the Bench in [`bench rules`, `bench rule add` or `bench rule remove`](../bench/planning.md). To read membership, use [`twig workspace --bench MyWork`](workspace.md).

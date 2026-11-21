@@ -10,7 +10,8 @@
 | [`edit`](edit.md) | Retained ADO external editor with Core preview/save |
 | [`discard`](discard.md) | Remove eligible local existing-item drafts, no remote mutation |
 
-Single-item structured mutations require `--id`. Use discovered field/type/state
+Name the target on each command: `update`, `state`, `note` and `edit` take `--id`;
+`discard` takes a positional ID or `--all`. Use discovered field/type/state
 references, not an assumed process template. Work-item edits are not all
 local-only; use [proposal files](../plans/README.md) for explicitly reviewed
 file-scoped execution.

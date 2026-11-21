@@ -47,7 +47,7 @@ Usage: twig <command> [options]
             ShowRoot();
             return true;
         }
-        var group = words.Length == 1 && words[0] is "auth" or "connection" or "proposal" or "plan" or "seed" or "nav" or "link";
+        var group = words.Length == 1 && words[0] is "auth" or "connection" or "proposal" or "plan" or "seed" or "link";
         if (!group && Twig.CoreMutationAdmissionGuard.ValidateCatalog(words) is { } retired)
         {
             Twig.Commands.CommandError.Write(new Twig.Rendering.RendererFactory(), Console.Error,

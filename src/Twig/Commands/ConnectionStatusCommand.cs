@@ -50,7 +50,8 @@ internal sealed class ConnectionStatusCommand
             try
             {
                 var required = ProviderConnectionRequirement.FromConfiguration(_config);
-                var registered = await new ProviderConnectionRegistry(_bindingService.RegistryPath).RequireAsync(required, ct);
+                var registered = await new DeviceConnectionCatalog(_bindingService.RegistryPath)
+                    .RequireAsync(required, ct, _config.Organization, _config.Project);
                 var fields = ConnectionRenderHelpers.ConnectionFields(registered);
                 fields["freshlyAuthenticated"] = RenderCell.Boolean(false);
                 fields["message"] = RenderCell.String("Workspace requirement has a registered connection and local credential selection; run twig init to authenticate and initialize. Recorded metadata is not proof of provider access.");

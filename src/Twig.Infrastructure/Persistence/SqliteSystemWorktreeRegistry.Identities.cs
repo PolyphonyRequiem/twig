@@ -19,35 +19,60 @@ namespace Twig.Infrastructure.Persistence;
 /// </summary>
 internal sealed partial class SqliteSystemWorktreeRegistry
 {
-    internal Task<Result<bool>> EnsureBindingConnectionAsync(string connectionRef, string organization, string project, CancellationToken ct)
-        => ExecuteWriteAsync(async (connection, tx) =>
+    internal async Task<Result<bool>> EnsureBindingConnectionAsync(SqliteConnection connection, SqliteTransaction tx,
+        string connectionRef, string organization, string project, Services.ProviderConnectionRequirement requirement,
+        bool allowDeclaration, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = Services.DeviceConnectionCatalog.SchemaSql;
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        cmd.Parameters.AddWithValue("$scope", requirement.Scope);
+        cmd.Parameters.AddWithValue("$target", requirement.Target);
+        if (allowDeclaration)
         {
-            using var cmd = connection.CreateCommand();
-            cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO connections (connection_ref, organization, project, team, first_seen_at, last_seen_at)
-                VALUES ($ref, $org, $project, NULL, $now, $now)
-                ON CONFLICT(connection_ref) DO NOTHING;
+                INSERT INTO device_connections(provider,scope,target) VALUES('ado',$scope,$target)
+                ON CONFLICT(provider,scope,target) DO NOTHING;
                 """;
-            cmd.Parameters.AddWithValue("$ref", connectionRef);
-            cmd.Parameters.AddWithValue("$org", organization);
-            cmd.Parameters.AddWithValue("$project", project);
-            cmd.Parameters.AddWithValue("$now", _clock.GetUtcNow().ToString("o"));
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            return NativeResults.Ok();
-        }, ct);
+        }
+        cmd.CommandText = "SELECT 1 FROM device_connections WHERE provider='ado' AND scope=$scope AND target=$target;";
+        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null)
+            return Result<bool>.Fail(ErrorCode.NotFound, $"ADO connection is not registered. Run 'twig connection add {requirement.SetupArguments}' first.");
+
+        cmd.Parameters.Clear();
+        cmd.CommandText = """
+            INSERT INTO connections (connection_ref, organization, project, team, first_seen_at, last_seen_at)
+            VALUES ($ref, $org, $project, NULL, $now, $now)
+            ON CONFLICT(connection_ref) DO NOTHING;
+            """;
+        cmd.Parameters.AddWithValue("$ref", connectionRef);
+        cmd.Parameters.AddWithValue("$org", organization);
+        cmd.Parameters.AddWithValue("$project", project);
+        cmd.Parameters.AddWithValue("$now", _clock.GetUtcNow().ToString("o"));
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        cmd.CommandText = "SELECT 1 FROM connections WHERE connection_ref=$ref AND organization=$org AND project=$project;";
+        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null)
+            return NativeResults.Fail("binding-endpoint-mismatch: the stored endpoint does not match the exact requested coordinates.");
+        return NativeResults.Ok();
+    }
 
     public Task<Result<IdentityRow?>> FindIdentityByNameAsync(string name, CancellationToken ct = default)
-        => ExecuteReadAsync<IdentityRow?>(async connection =>
-        {
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = IdentitySelectSql + " WHERE i.name = $name COLLATE NOCASE LIMIT 1;";
-            cmd.Parameters.AddWithValue("$name", name);
-            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return NativeResults.Missing<IdentityRow?>();
-            return NativeResults.Ok<IdentityRow?>(ReadIdentityRow(reader));
-        }, ct);
+        => ExecuteReadAsync(connection => FindIdentityByNameAsync(connection, null, name, ct), ct);
+
+    internal static async Task<Result<IdentityRow?>> FindIdentityByNameAsync(SqliteConnection connection,
+        SqliteTransaction? tx, string name, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = IdentitySelectSql + " WHERE i.name = $name COLLATE NOCASE LIMIT 1;";
+        cmd.Parameters.AddWithValue("$name", name);
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+            return NativeResults.Missing<IdentityRow?>();
+        return NativeResults.Ok<IdentityRow?>(ReadIdentityRow(reader));
+    }
 
     public Task<Result<IdentityRow?>> FindIdentityByIdAsync(string identityId, CancellationToken ct = default)
         => ExecuteReadAsync<IdentityRow?>(async connection =>
@@ -177,42 +202,36 @@ UPDATE identities
             return NativeResults.Ok<IReadOnlyList<BindingRow>>(rows);
         }, ct);
 
-    public Task<Result<BindingRow>> InsertOrGetBindingAsync(BindingRow row, CancellationToken ct = default)
-        => ExecuteWriteAsync<BindingRow>(async (connection, tx) =>
+    internal static async Task<Result<BindingRow>> InsertOrGetBindingAsync(SqliteConnection connection,
+        SqliteTransaction tx, BindingRow row, CancellationToken ct)
+    {
+        // Re-use an existing (connection_ref, identity_id) row verbatim.
+        using (var existing = connection.CreateCommand())
         {
-            // Re-use an existing (connection_ref, identity_id) row verbatim.
-            using (var existing = connection.CreateCommand())
-            {
-                existing.Transaction = tx;
-                existing.CommandText = BindingSelectSql + " WHERE connection_ref = $ref AND identity_id = $id LIMIT 1;";
-                existing.Parameters.AddWithValue("$ref", row.ConnectionRef);
-                existing.Parameters.AddWithValue("$id", row.IdentityId);
-                await using var reader = await existing.ExecuteReaderAsync(ct).ConfigureAwait(false);
-                if (await reader.ReadAsync(ct).ConfigureAwait(false))
-                    return NativeResults.Ok(ReadBindingRow(reader));
-            }
+            existing.Transaction = tx;
+            existing.CommandText = BindingSelectSql + " WHERE connection_ref = $ref AND identity_id = $id LIMIT 1;";
+            existing.Parameters.AddWithValue("$ref", row.ConnectionRef);
+            existing.Parameters.AddWithValue("$id", row.IdentityId);
+            await using var reader = await existing.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            if (await reader.ReadAsync(ct).ConfigureAwait(false))
+                return NativeResults.Ok(ReadBindingRow(reader));
+        }
 
-            try
-            {
-                using var insert = connection.CreateCommand();
-                insert.Transaction = tx;
-                insert.CommandText = @"
+        using var insert = connection.CreateCommand();
+        insert.Transaction = tx;
+        insert.CommandText = @"
 INSERT INTO connection_bindings (binding_id, connection_ref, identity_id, revision, created_at, updated_at)
 VALUES ($bid, $ref, $id, $rev, $created, $updated);";
-                insert.Parameters.AddWithValue("$bid", row.BindingId);
-                insert.Parameters.AddWithValue("$ref", row.ConnectionRef);
-                insert.Parameters.AddWithValue("$id", row.IdentityId);
-                insert.Parameters.AddWithValue("$rev", row.Revision);
-                insert.Parameters.AddWithValue("$created", row.CreatedAt.ToUniversalTime().ToString("o"));
-                insert.Parameters.AddWithValue("$updated", row.UpdatedAt.ToUniversalTime().ToString("o"));
-                await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-                return NativeResults.Ok(row);
-            }
-            catch (SqliteException ex) when (ex.SqliteErrorCode == 19 /* SQLITE_CONSTRAINT */)
-            {
-                return NativeResults.Fail<BindingRow>($"binding-insert-failed: {ex.Message}");
-            }
-        }, ct);
+        insert.Parameters.AddWithValue("$bid", row.BindingId);
+        insert.Parameters.AddWithValue("$ref", row.ConnectionRef);
+        insert.Parameters.AddWithValue("$id", row.IdentityId);
+        insert.Parameters.AddWithValue("$rev", row.Revision);
+        insert.Parameters.AddWithValue("$created", row.CreatedAt.ToUniversalTime().ToString("o"));
+        insert.Parameters.AddWithValue("$updated", row.UpdatedAt.ToUniversalTime().ToString("o"));
+        if (await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
+            return NativeResults.Fail<BindingRow>("binding-insert-failed");
+        return NativeResults.Ok(row);
+    }
 
     public Task<Result<DefaultBindingRow?>> FindDefaultBindingAsync(string connectionRef, CancellationToken ct = default)
         => ExecuteReadAsync<DefaultBindingRow?>(async connection =>
@@ -239,35 +258,32 @@ SELECT connection_ref, binding_id, revision, updated_at
     /// surfaces <c>default-binding-exists</c> so the service refuses the
     /// transition; an identical row is a no-op; absence creates the row.
     /// Existing defaults change only through the recoverable all-worktree default authority.</summary>
-    public Task<Result<bool>> UpsertDefaultBindingAsync(DefaultBindingRow row, CancellationToken ct = default)
-        => ExecuteWriteAsync(async (connection, tx) =>
+    internal static async Task<Result<bool>> UpsertDefaultBindingAsync(SqliteConnection connection,
+        SqliteTransaction tx, DefaultBindingRow row, CancellationToken ct)
+    {
+        using (var existing = connection.CreateCommand())
         {
-            using (var existing = connection.CreateCommand())
-            {
-                existing.Transaction = tx;
-                existing.CommandText = "SELECT binding_id FROM connection_defaults WHERE connection_ref = $ref LIMIT 1;";
-                existing.Parameters.AddWithValue("$ref", row.ConnectionRef);
-                var raw = await existing.ExecuteScalarAsync(ct).ConfigureAwait(false);
-                if (raw is string currentBinding)
-                {
-                    if (!string.Equals(currentBinding, row.BindingId, StringComparison.Ordinal))
-                        return NativeResults.Fail("default-binding-exists");
-                    return NativeResults.Ok();
-                }
-            }
+            existing.Transaction = tx;
+            existing.CommandText = "SELECT binding_id FROM connection_defaults WHERE connection_ref = $ref LIMIT 1;";
+            existing.Parameters.AddWithValue("$ref", row.ConnectionRef);
+            var raw = await existing.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            if (raw is string currentBinding)
+                return currentBinding == row.BindingId ? NativeResults.Ok() : NativeResults.Fail("default-binding-exists");
+        }
 
-            using var insert = connection.CreateCommand();
-            insert.Transaction = tx;
-            insert.CommandText = @"
+        using var insert = connection.CreateCommand();
+        insert.Transaction = tx;
+        insert.CommandText = @"
 INSERT INTO connection_defaults (connection_ref, binding_id, revision, updated_at)
 VALUES ($ref, $bid, $rev, $updated);";
-            insert.Parameters.AddWithValue("$ref", row.ConnectionRef);
-            insert.Parameters.AddWithValue("$bid", row.BindingId);
-            insert.Parameters.AddWithValue("$rev", row.Revision);
-            insert.Parameters.AddWithValue("$updated", row.UpdatedAt.ToUniversalTime().ToString("o"));
-            await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            return NativeResults.Ok();
-        }, ct);
+        insert.Parameters.AddWithValue("$ref", row.ConnectionRef);
+        insert.Parameters.AddWithValue("$bid", row.BindingId);
+        insert.Parameters.AddWithValue("$rev", row.Revision);
+        insert.Parameters.AddWithValue("$updated", row.UpdatedAt.ToUniversalTime().ToString("o"));
+        if (await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
+            return NativeResults.Fail("default-binding-insert-failed");
+        return NativeResults.Ok();
+    }
 
     private const string IdentitySelectSql =
         "SELECT i.identity_id, i.name, i.tenant_id, i.object_id, i.issuer, i.authority_host, i.credential_ref, i.account_name, i.created_at, i.updated_at, p.authority, p.principal_id FROM identities i LEFT JOIN pat_principals p ON p.identity_id = i.identity_id";

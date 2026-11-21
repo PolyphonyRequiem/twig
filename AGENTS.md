@@ -20,3 +20,21 @@ credentials, certificates, Startup entries or unrelated machine configuration.
 Keep the normal provider, authentication, policy, digest and journal checks for
 new operations. A local reset is not proof of any remote operation's outcome and
 must never be used to justify replaying an uncertain write.
+
+## Agent skills
+
+`.github/copilot-instructions.md` is obsolete and is not current agent guidance.
+
+### Issue tracker
+
+GitHub Issues in `PolyphonyRequiem/twig`, preferably through Twig to dogfood
+supported operations, otherwise built-in GitHub tools. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five default triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` and `docs/adr/`. See `docs/agents/domain.md`.

@@ -86,15 +86,16 @@ internal static class CommandExamples
             // `process --refresh`, a real read-only ADO metadata request, because
             // `connection status` only inspects LOCAL saved state and never contacts ADO.
             "twig auth login --identity work                                        1) enroll an identity, once",
-            "twig connection bind --org contoso --project Fabrikam --identity work --default   2) bind the endpoint",
-            "twig init contoso Fabrikam                                             3) create a fresh native Core store at .twig/core.db",
+            "twig connection add --provider ado --org contoso --project Fabrikam     2) register the project",
+            "twig connection bind --provider ado --org contoso --project Fabrikam --identity work   3) bind the enrolled identity",
+            "twig init contoso Fabrikam                                             4) create a fresh native Core store at .twig/core.db",
             "twig init contoso Fabrikam --binding <id>                               Pin a registered binding for this fresh checkout only",
             "twig init contoso Fabrikam --core-store C:\\isolated\\core.db             Initialize a fresh isolated ADO checkout with a new explicitly bound Core store",
             "twig init --provider github --host github.com --repository owner/repo --account me   Create .twig/core.db using the exact selected native gh account",
             "twig init --provider twig --database personal                          Create or select the named native database; keep a separate workspace client store",
             "twig init --provider twig --database team-work -o json                  Share this owner's named database across explicitly initialized repositories",
             "twig init --org contoso --project Fabrikam --team \"Team A\"             Initialize with an explicit team",
-            "twig process --refresh                                                 4) verify remote metadata access without work-item sync",
+            "twig process --refresh                                                 5) verify remote metadata access without work-item sync",
             "twig connection status                                                 optional: inspect the local binding (no ADO call)",
         ],
         ["set"] =
@@ -750,11 +751,9 @@ internal static class CommandExamples
         ],
         ["proposal preview"] =
         [
-            "twig proposal preview --file proposal.json     Preview: import journal, snapshot pending changes, report digest and canApply.",
-            "twig proposal preview --file proposal.json --expect-digest <digest> --interactive    Refuse changed content before review.",
+            "twig proposal preview --file proposal.json     Check current application evidence and retain reviewed intent without publishing.",
+            "twig proposal preview --file proposal.json --expect-digest <digest>    Refuse changed canonical intent before retention.",
             "twig proposal preview --file proposal.json --output json    Emit machine preview for scripts.",
-            "twig proposal preview --file proposal.json -o json --include-rendering --width 100 --color always    Capture structured review and native brief/full frames together.",
-            "twig proposal preview --file proposal.json --full --width 80 --color never    Render expanded plain review at an explicit width.",
         ],
         ["proposal latest"] =
         [

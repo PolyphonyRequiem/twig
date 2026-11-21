@@ -39,18 +39,21 @@ twig auth pat --identity work-pat --org contoso
 in arguments, notes, reports, or logs. Enrollment attests the actual principal;
 a display name or alias is not identity proof.
 
-Inspect identities, register a binding, and initialize a fresh worktree:
+Inspect identities, register the project, bind the chosen identity, and
+initialize a fresh worktree:
 
 ```sh
 twig auth identities -o json
-twig connection bind --org contoso --project MyProject --identity work --default
-twig connection list --org contoso --project MyProject -o json
+twig connection add --provider ado --org contoso --project MyProject
+twig connection bind --provider ado --org contoso --project MyProject --identity work
+twig connection list --provider ado --org contoso --project MyProject -o json
 twig init contoso MyProject
 ```
 
-Binding without `--default` does not implicitly select it. A different existing
-default refuses rather than switching accounts. `init --binding <binding-id>`
-selects an existing matching binding for a **fresh** checkout.
+`init` uses the identity bound to the matching registered connection, not an
+endpoint default or the last login. `init --binding <binding-id>` selects an
+existing matching binding for a **fresh** checkout without changing the registered
+connection's selection.
 
 ## GitHub
 

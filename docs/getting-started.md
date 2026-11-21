@@ -16,15 +16,15 @@ and failure behavior.
 
 ```sh
 twig auth login --identity work
-twig connection bind --org contoso --project MyProject --identity work --default
+twig connection add --provider ado --org contoso --project MyProject
+twig connection bind --provider ado --org contoso --project MyProject --identity work
 twig init contoso MyProject
 twig show 12345 --refresh
 ```
 
 Replace the example coordinates and ID. `auth pat` is the alternative enrollment
-route. If a different default binding already exists, do not treat `bind` as an
-account switch: choose the intended registered binding explicitly with
-`init --binding <binding-id>` in a fresh worktree.
+route. `init` uses the identity bound to the registered connection, not the last
+login. Binding a connection does not switch an initialized worktree's account.
 See [authentication](features/authentication.md).
 
 ### GitHub

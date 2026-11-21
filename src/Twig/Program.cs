@@ -2109,11 +2109,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Preview a proposal with an optional digest guard. No ADO mutation.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="full">Show exact full description bodies instead of brief effects.</param>
-    /// <param name="interactive">Opt into a terminal-only Details/Back/Cancel review loop. Never applies.</param>
-    /// <param name="includeRendering">Add presentation version 1 with native brief/full frames to JSON output, captured with the same review model. Never applies.</param>
-    /// <param name="width">Render width in columns, 20–400. Defaults to 120 for included frames; human output remains unbounded unless specified.</param>
-    /// <param name="color">Explicit color policy for human output or included frames: always (ANSI truecolor) or never (plain). Default never; no terminal/environment detection.</param>
+    /// <param name="full">Retired; has no effect on preview output.</param>
+    /// <param name="interactive">Retired; interactive review is not supported.</param>
+    /// <param name="includeRendering">Retired; captured rendering is not supported.</param>
+    /// <param name="width">Retired; has no effect on preview output.</param>
+    /// <param name="color">Retired; has no effect on preview output.</param>
     /// <param name="expectDigest">Refuse unless the current canonical digest matches exactly, before import or review.</param>
     [Command("proposal preview|plan preview")]
     public async Task<int> PlanPreview(

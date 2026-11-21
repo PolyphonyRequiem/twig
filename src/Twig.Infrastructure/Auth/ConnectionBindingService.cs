@@ -366,7 +366,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
                 if (string.Equals(setDefault.Error.Message, "default-binding-exists", StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException(
-                        $"A different default binding is already set for {organization}/{project}. Identity transitions are deliberate guarded management operations and not a side effect of 'twig connection bind --default'.");
+                        $"A different default binding is already set for {organization}/{project}; refusing to replace it.");
                 }
                 throw new InvalidOperationException($"Registry refused default binding: {setDefault.Error.Message}");
             }
@@ -483,7 +483,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             if ((!defaultRow.IsSuccess && defaultRow.Error.Code != Twig.Core.ErrorCode.NotFound)) throw new InvalidOperationException($"Registry refused default lookup: {defaultRow.Error.Message}");
             if (defaultRow.Optional() is not { } d)
                 throw new InvalidOperationException(
-                    $"No default identity is bound to {configuration.Organization}/{configuration.Project}. Bootstrap requires an explicitly-selected identity; run 'twig connection bind --identity <name> --default' first.");
+                    $"No default identity is bound to {configuration.Organization}/{configuration.Project}. Bootstrap requires an explicit registered binding ID.");
             bindingId = d.BindingId;
         }
 

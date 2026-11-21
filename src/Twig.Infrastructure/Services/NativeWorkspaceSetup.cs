@@ -158,6 +158,9 @@ internal static class NativeWorkspaceSetup
             effects.Confirm(NativeSetupEffectKind.InitializationLock);
             if (Directory.EnumerateFileSystemEntries(twigDir).Any(entry => entry != lockPath && !IsIdleLockFile(entry)))
                 return Fail("Init found existing .twig data after taking the initialization lock. No workspace data was adopted.");
+            // Hold the checkout lease through rollback; normal binding operations
+            // cannot change the files between the ownership check and deletion.
+            using var checkout = ConnectionOperationGate.Acquire(anchor.WorktreeRoot, exclusive: true);
             var ignorePath = Path.Combine(anchor.WorktreeRoot, ".gitignore");
             var ignore = File.Exists(ignorePath) ? await File.ReadAllTextAsync(ignorePath, ct).ConfigureAwait(false) : "";
             var lastRule = ignore.Split('\n').Select(line => line.TrimEnd('\r'))
@@ -247,8 +250,7 @@ internal static class NativeWorkspaceSetup
                 var name = Path.GetFileName(path);
                 var attributes = File.GetAttributes(path);
                 if ((attributes & FileAttributes.ReparsePoint) != 0) return null;
-                if (name == "core-init.lock") continue;
-                if (IsIdleLockFile(path)) continue;
+                if (name is "core-init.lock" or "binding-operation.lock") continue;
                 if (name == WorktreeLocalAttachmentStore.TmpDirName && Directory.Exists(path)
                     && !Directory.EnumerateFileSystemEntries(path).Any()) continue;
                 if (path != paths.ConfigPath && name is not (WorktreeLocalAttachmentStore.LayoutFileName

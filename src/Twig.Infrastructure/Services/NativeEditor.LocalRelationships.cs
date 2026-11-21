@@ -164,7 +164,8 @@ internal sealed partial class NativeEditor
     private async Task<Result<bool>> CheckLocalEndpointEvidenceAsync(NativeLocalRelationshipSelection selection,
         StoreSnapshot state, CancellationToken ct)
     {
-        var read = await metadata.Read([selection.Target.Observation.Key, selection.Endpoint.Observation.Key], ct).ConfigureAwait(false);
+        var read = await Workspace.ObserveContentAsync(() => metadata.Read(
+            [selection.Target.Observation.Key, selection.Endpoint.Observation.Key], ct)).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
         if (!read.Value.Complete || read.Value.Items.Length != 2
             || selection.Endpoints.Any(endpoint => !read.Value.Items.Any(item => item.RelationshipsComplete
@@ -273,7 +274,7 @@ internal sealed partial class NativeEditor
         if (!evidence.IsSuccess) return evidence;
         var keys = state.Value.Items.Where(item => capture.Endpoints.Any(endpoint =>
             endpoint.Key == CleanCoreAdoAccess.ItemText(item.Key))).Select(item => item.Key).ToImmutableArray();
-        var fresh = await metadata.Read(keys, ct).ConfigureAwait(false);
+        var fresh = await Workspace.ObserveContentAsync(() => metadata.Read(keys, ct)).ConfigureAwait(false);
         if (!fresh.IsSuccess) return Result<bool>.Fail(fresh.Error);
         if (!fresh.Value.Complete || fresh.Value.Items.Length != 2 || capture.Endpoints.Any(endpoint =>
             !fresh.Value.Items.Any(item => item.RelationshipsComplete && CleanCoreAdoAccess.ItemText(item.Key) == endpoint.Key

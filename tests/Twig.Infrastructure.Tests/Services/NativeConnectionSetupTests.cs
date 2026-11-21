@@ -8,6 +8,45 @@ namespace Twig.Infrastructure.Tests.Services;
 
 public sealed class NativeConnectionSetupTests
 {
+    [Fact]
+    public async Task FreshInitInspectsTheCheckoutUnderItsLeaseAndPreservesAnInterleavedFile()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "twig-init-interleave-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var git = await new BoundedProcessRunner().RunAsync("git", ["init", "--quiet", "--template=", root],
+                TimeSpan.FromSeconds(10), 4096, default);
+            git.ExitCode.ShouldBe(0);
+            var twig = Path.Combine(root, ".twig");
+            var external = Path.Combine(twig, "config");
+            const string evidence = "externally written config";
+            var effects = new NativeSetupEffects
+            {
+                Observed = (kind, state) =>
+                {
+                    if (kind != NativeSetupEffectKind.InitializationLock || state != NativeSetupEffectState.Possible) return;
+                    Should.Throw<IOException>(() =>
+                    {
+                        using var competing = new FileStream(Path.Combine(twig, "binding-operation.lock"),
+                            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                    });
+                    File.WriteAllText(external, evidence);
+                }
+            };
+            // Twig-native setup does not use this binding service before checkout admission.
+            var result = await NativeWorkspaceSetup.InitializeAsync(
+                new(root, "", "", null, null, "twig", null, null, null, null, null, Database: "fixture"),
+                () => null!, effects, default);
+            result.IsSuccess.ShouldBeFalse();
+            result.Error.Message.ShouldContain("under the checkout lease");
+            File.ReadAllText(external).ShouldBe(evidence);
+            File.Exists(Path.Combine(twig, "core-init.lock")).ShouldBeFalse();
+            File.Exists(Path.Combine(root, "twig.json")).ShouldBeFalse();
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [Theory]
     [InlineData("", "Project", "binding")]
     [InlineData("fixture", "", "binding")]

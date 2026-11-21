@@ -116,7 +116,7 @@ internal static class ViewMapping
             return new Uri(new Uri(source.WebUrl), "issues/" + number.Number.ToString(System.Globalization.CultureInfo.InvariantCulture)).AbsoluteUri;
         return null;
     }
-    private static FieldDto[] Fields(FieldValues fields) => fields.Select(f => new FieldDto(f.Key, Value(f.Value))).ToArray();
+    internal static FieldDto[] Fields(FieldValues fields) => fields.Select(f => new FieldDto(f.Key, Value(f.Value))).ToArray();
     internal static FieldValueDto Value(FieldValue value)
     {
         using var buffer = new MemoryStream();

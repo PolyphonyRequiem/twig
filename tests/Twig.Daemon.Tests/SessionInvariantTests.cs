@@ -287,7 +287,6 @@ internal static class SessionTests
         var path = Path.Combine(evidence, binding + ".json");
         var original = await File.ReadAllTextAsync(path, ct);
         foreach (var mutation in new Action<JsonNode>[] {
-            json => json["blocked"] = true,
             json => json["schema"]!["fingerprint"] = new string('0', 64),
             json => json["stamp"]!["principalId"] = "changed-principal",
         })
@@ -303,12 +302,11 @@ internal static class SessionTests
         {
             var observations = new Dictionary<NativePanelContext, SourceObservation>();
             _ = Required(await panel.OpenAsync(source, ct, binding, observations));
-            var cell = Path.Combine(evidence, binding + ".check");
-            var allowed = await File.ReadAllTextAsync(cell, ct);
-            await File.WriteAllTextAsync(cell, $"twig-native-check-v1\npending\n{Guid.NewGuid():N}", ct);
+            var cell = path + ".denied";
+            await File.WriteAllBytesAsync(cell, [1], ct);
             Check(!(await panel.CheckInitialAsync(observations, ct)).IsSuccess,
-                "A newly pending durable operation after capture cannot release initial content.");
-            await File.WriteAllTextAsync(cell, allowed, ct);
+                "A new source denial after capture cannot release initial content.");
+            File.Delete(cell);
         }
         gateway.OnNextRead = () => sessions.Revoke(firstSession);
         result = await host.Send("POST", route, new EmptyBody(), owner.ContentCapability, null, ct);
@@ -364,24 +362,54 @@ internal static class SessionTests
             "A fresh origin retains a signed-out default instead of inventing another identity.");
         Expect("SessionRevoked", () => restarted.RenewOwner(storeId, new(null, profile, storeId), null));
         var pointer = Path.Combine(root, "profiles", $"default-profile-{storeId:D}");
+        var signedOutPath = Path.Combine(root, "profiles", $"native-{storeId:D}-{profile:D}.json");
+        var signedOutBytes = File.ReadAllBytes(signedOutPath);
+        var recovery = new OwnerProfileBody(storeId, null, RecoverMissingDefault: true);
+        Expect("ProfileRecoveryNotRequired", () => restarted.ResolveOwnerProfile(storeId, recovery));
+        Check(File.ReadAllText(pointer) == profile.ToString("D") && File.ReadAllBytes(signedOutPath).SequenceEqual(signedOutBytes),
+            "Recovery must not replace a signed-out default or change its content.");
         File.WriteAllText(pointer, "invalid");
         Expect("DefaultProfileUnavailable", () => restarted.ResolveOwnerProfile(storeId, new(null, null)));
-        Check((await host.Send("POST", "/api/v1/windows-profile",
-            new OwnerProfileBody(storeId, null, RecoverMissingDefault: true), owner.ContentCapability, null, ct)).Status == 401,
+        const string profileRoute = "/api/v1/windows-profile";
+        Check((await host.Send("GET", profileRoute, null, owner.ContentCapability, null, ct)).Status == 401
+            && (await host.Send("GET", profileRoute, null, null, "different-owner", ct)).Status == 403,
+            "Store discovery requires the Windows owner, not a content capability or a different Windows user.");
+        var discovery = await host.Send("GET", profileRoute, null, null, "same-owner", ct);
+        Check(discovery.Status == 200 && discovery.Body!["storeId"]!.GetValue<Guid>() == storeId
+            && discovery.Body.AsObject().Count == 1, "Store discovery returns only the current store identity.");
+        Check((await host.Send("POST", profileRoute, recovery with { StoreId = null }, null, "same-owner", ct)).Status == 400
+            && (await host.Send("POST", profileRoute, recovery with { StoreId = Guid.Empty }, null, "same-owner", ct)).Status == 400
+            && (await host.Send("POST", profileRoute, recovery with { StoreId = Guid.NewGuid() }, null, "same-owner", ct)).Status == 409
+            && File.ReadAllText(pointer) == "invalid",
+            "Discovery, or recovery with a missing, empty or stale store ID, must not mutate the broken pointer.");
+        Check((await host.Send("POST", profileRoute, recovery, owner.ContentCapability, null, ct)).Status == 401,
             "A content capability cannot replace the owner default.");
-        var recovered = await host.Send("POST", "/api/v1/windows-profile",
-            new OwnerProfileBody(storeId, null, RecoverMissingDefault: true), null, "same-owner", ct);
+        var recovered = await host.Send("POST", profileRoute,
+            recovery with { StoreId = discovery.Body!["storeId"]!.GetValue<Guid>() }, null, "same-owner", ct);
         Check(recovered.Status == 200 && recovered.Body!["profileId"]!.GetValue<Guid>() != profile,
             "Explicit owner recovery creates a fresh profile instead of adopting old state.");
         Check(restarted.ResolveOwnerProfile(storeId, new(null, null)).ProfileId == recovered.Body!["profileId"]!.GetValue<Guid>(),
             "The replacement pointer remains valid for subsequent passive resolution.");
-        Expect("ProfileRecoveryNotRequired",
-            () => restarted.ResolveOwnerProfile(storeId, new(storeId, null, RecoverMissingDefault: true)));
+        Expect("ProfileRecoveryNotRequired", () => restarted.ResolveOwnerProfile(storeId, recovery));
         var orphan = Guid.NewGuid();
         File.WriteAllText(pointer, orphan.ToString("D"));
+        var orphanPath = Path.Combine(root, "profiles", $"native-{storeId:D}-{orphan:D}.json");
+        var renewal = await host.Send("POST", "/api/v1/windows-renew", new OwnerRenewBody(null, orphan, storeId),
+            null, "same-owner", ct);
+        Check(renewal.Status == 409 && renewal.Body!["code"]!.GetValue<string>() == "ProfileUnavailable"
+            && !File.Exists(orphanPath) && File.ReadAllText(pointer) == orphan.ToString("D"),
+            "Passive renewal cannot recreate a missing profile or recover its default pointer.");
         Expect("DefaultProfileUnavailable", () => restarted.ResolveOwnerProfile(storeId, new(null, null)));
-        Check(restarted.ResolveOwnerProfile(storeId, new(null, null, RecoverMissingDefault: true)).ProfileId != orphan,
-            "A fresh browser origin can explicitly recover a pointer to a missing profile.");
+        Check(restarted.ResolveOwnerProfile(storeId, recovery).ProfileId != orphan,
+            "A fresh browser origin can recover a pointer to a missing profile using the exact current ID.");
+        const string corruptProfile = """{"version":1,"choices":null,"sources":null}""";
+        File.WriteAllText(orphanPath, corruptProfile);
+        File.WriteAllText(pointer, orphan.ToString("D"));
+        Expect("DefaultProfileUnavailable", () => restarted.ResolveOwnerProfile(storeId, new(storeId, orphan)));
+        Check(restarted.ResolveOwnerProfile(storeId, recovery).ProfileId != orphan
+            && File.ReadAllText(orphanPath) == corruptProfile
+            && File.ReadAllBytes(signedOutPath).SequenceEqual(signedOutBytes),
+            "Corrupt content is not reusable, and recovery changes only the pointer and a brand-new profile.");
         Expect("SessionRevoked", () => restarted.RenewOwner(storeId, new(null, profile, storeId), null));
     }
 
@@ -477,7 +505,7 @@ internal static class SessionTests
         }
         var restored = nextSession.NativeContext!;
         Check(restored.Source.AllowOffline, "Restoration must not retain an opt-in gate.");
-        var cached = Required(await panel.CaptureAsync(restored, ct, cachedGuidance: true)).Observation;
+        var cached = Required(await panel.CaptureAsync(restored, ct)).Observation;
         Check(cached.Mode == ObservationMode.PermittedOfflineCache,
             "The internal observation still distinguishes local display from fresh mutation authority.");
         Check(cached.Schema.Types.Single().Gaps.SequenceEqual(gateway.TypeGaps)
@@ -491,7 +519,7 @@ internal static class SessionTests
         Check(wire.Types!.Single().Gaps.SequenceEqual(gateway.TypeGaps)
             && wire.SchemaFingerprint == cached.Schema.Fingerprint,
             "Projection and source-generated DTOs must not erase type gaps or the fingerprint bound to them.");
-        _ = Required(await panel.CaptureAsync(restored, ct, cachedGuidance: true));
+        _ = Required(await panel.CaptureAsync(restored, ct));
         Check(gateway.OnlineReads == onlineBefore, "Preliminary key guidance uses admitted local data without releasing an editor form.");
         var evidencePath = Path.Combine(root, "evidence", retained.Binding + ".json");
         var originalEvidence = await File.ReadAllTextAsync(evidencePath, ct);
@@ -511,11 +539,12 @@ internal static class SessionTests
         Check((Required(await panel.OpenAsync(sourceB, ct))).Source.AllowOffline,
             "A separately and independently admitted source receives the same normal local display behavior.");
         gateway.Denied.Add(sourceA);
-        Check(!(await panel.ValidateDisplayAccessAsync(restored, ct)).IsSuccess, "Online denial must remain a failure.");
+        Check(!(await panel.RecheckAsync(restored, ct)).IsSuccess, "An observed credential rejection must remain a failure.");
         gateway.Denied.Clear();
         var blocked = await panel.OpenAsync(sourceA, ct, retained.Binding);
-        Check(!blocked.IsSuccess && blocked.Error.Code == ErrorCode.PolicyViolation, "A denied/pending durable cell must withhold cached content even after connectivity returns.");
-        _ = Required(await panel.OpenAsync(sourceA, ct));
+        Check(!blocked.IsSuccess && blocked.Error.Code == ErrorCode.PolicyViolation, "Observed credential rejection must withhold cached content even after connectivity returns.");
+        _ = Required(await panel.RecheckAsync(restored, ct));
+        Check(!(await panel.OpenAsync(sourceA, ct)).IsSuccess, "A metadata recheck cannot restore denied history.");
         gateway.ReplaceIdentity(sourceA);
         var changed = await panel.OpenAsync(sourceA, ct, retained.Binding);
         Check(!changed.IsSuccess && changed.Error.Code == ErrorCode.Conflict, "A store/identity replacement cannot inherit the prior admission.");
@@ -572,9 +601,10 @@ internal static class SessionTests
                 "An SDK bearer must not authenticate human renewal.");
             Check((await host.Send("POST", "/api/v1/windows-renew", renewBody, null, "different-owner", ct)).Status == 403,
                 "A different authenticated OS owner must not renew this profile.");
-            var newCanvas = sessions.RegisterNativeCanvas(storeId);
+            var newCanvas = sessions.RegisterNativeCanvas(storeId, new("fresh-owner-session", root));
+            var newProfile = sessions.ResolveOwnerProfile(storeId, new(null, null, newCanvas.ViewId));
             var automatic = await host.Send("POST", "/api/v1/windows-renew",
-                new OwnerRenewBody(newCanvas.ViewId, Guid.NewGuid(), storeId), null, "same-owner", ct);
+                new OwnerRenewBody(newCanvas.ViewId, newProfile.ProfileId, storeId), null, "same-owner", ct);
             Check(automatic.Status == 200 && automatic.Body!["viewId"]!.GetValue<Guid>() == newCanvas.ViewId
                 && automatic.Body["viewState"]!["sources"]!.AsArray().Count == 0,
                 "A fresh SDK canvas may acquire human authority only through OS auth, without replacing its presentation handle or choosing a source.");
@@ -795,7 +825,8 @@ internal sealed class Gateway
         var action = OnNextRead;
         OnNextRead = null;
         action?.Invoke();
-        if (Denied.Contains(root)) return Result<NativeSourceObservation>.Fail(ErrorCode.Unavailable, "Synthetic native source unavailable.");
+        if (Denied.Contains(root)) return Result<NativeSourceObservation>.Fail(new Error(ErrorCode.Unavailable,
+            "Synthetic credential denied.") { Evidence = ["http:401"] });
         if (!stamps.TryGetValue(root, out var stamp) || expected is not null && stamp != expected)
             return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic native identity changed.");
         if (observeSchema) SchemaReads++;

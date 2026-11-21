@@ -194,6 +194,10 @@ public sealed partial class NativePublicationConsumerTests
                 _transport.SetItem(42, _transport.TitleOf(42), _transport.RevisionOf(42), Sibling);
                 (await Send("/editor", HttpMethod.Post, open)).Status.ShouldBe(HttpStatusCode.NotFound,
                     "A cached key cannot release a form when the actual remote item is unreadable.");
+                var picker = await Ok("/picker", HttpMethod.Get);
+                picker["source"]!["items"]!.AsArray().Any(row =>
+                    row!["id"]!.GetValue<string>() == item["id"]!.GetValue<string>()).ShouldBeFalse(
+                    "After the provider refuses an exact item, the historical picker must withhold it.");
                 HumanPatchAttempts.ShouldBe(0);
                 HumanActorDenied = true;
                 var denied = await Send("/editor", HttpMethod.Post, open);

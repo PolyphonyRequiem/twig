@@ -1697,7 +1697,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             (await commands.SeedView("json")).ShouldBe(0);
             using var unknownView = JsonDocument.Parse(stdout.ToString());
             var unknownAlias = unknownView.RootElement[0].GetProperty("id").GetInt32();
+            stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(unknownAlias, dryRun: true)).ShouldBe(0, stderr.ToString());
+            stdout.ToString().ShouldContain("The approved classification IDs are not locked.");
             var originalReview = (await store.ReadAsync(connection, default)).Value.Proposals
                 .Single(proposal => proposal.Operations.Single().Item == unknownSeed.Key);
             originalReview.Operations.Single().CreateEvidence["System.AreaId"].ShouldBe(CoreModel.FieldValue.Integer(71));
@@ -1910,13 +1912,36 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             {
                 var twigDir = Path.Combine(root, ".twig");
                 Directory.CreateDirectory(twigDir);
+                var checkoutLock = Path.Combine(twigDir, "binding-operation.lock");
+                using (var competingCheckout = new FileStream(checkoutLock, FileMode.CreateNew,
+                    FileAccess.ReadWrite, FileShare.None))
+                {
+                    Run().ShouldBe(1);
+                    Directory.EnumerateFileSystemEntries(twigDir).ShouldBe([checkoutLock],
+                        "init must take the checkout lease before reserving or writing workspace state");
+                }
+                stderr.GetStringBuilder().Clear();
+                var attachmentPath = Path.Combine(twigDir, "attachment.json");
+                var original = Path.Combine(root, "fixture-original-attachment");
+                byte[]? replacement = null;
+                _transport.BeforeProjectMetadata = () =>
+                {
+                    _transport.BeforeProjectMetadata = null;
+                    File.Move(attachmentPath, original);
+                    replacement = File.ReadAllBytes(original);
+                    File.WriteAllBytes(attachmentPath, replacement);
+                    return Task.CompletedTask;
+                };
                 _transport.FailProjectMetadataOnce = true;
                 Run().ShouldBe(1);
-                Directory.EnumerateFileSystemEntries(twigDir).Select(Path.GetFileName)
-                    .ShouldBe(["binding-operation.lock"], stderr.ToString());
+                replacement.ShouldNotBeNull(stderr.ToString());
+                (await File.ReadAllBytesAsync(attachmentPath)).ShouldBe(replacement,
+                    "the same bytes at the same path do not establish ownership of a replacement file");
+                File.Exists(database).ShouldBeFalse();
                 using var retryError = JsonDocument.Parse(stderr.ToString());
-                retryError.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("Retry 'twig init' in this checkout");
+                retryError.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("Move it aside only if it is disposable");
                 (await File.ReadAllBytesAsync(Path.Combine(root, "twig.json"))).ShouldBe(manifestBytes);
+                Directory.Move(twigDir, Path.Combine(root, "fixture-preserved-twig"));
                 stdout.GetStringBuilder().Clear();
                 stderr.GetStringBuilder().Clear();
             }
@@ -2712,14 +2737,14 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             }
             if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata)
             {
+                if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && BeforeProjectMetadata is { } before)
+                    await before();
                 if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && FailProjectMetadataOnce)
                 {
                     FailProjectMetadataOnce = false;
                     metadata.Dispose();
                     return Reply(HttpStatusCode.ServiceUnavailable, new { message = "Fixture project metadata temporarily unavailable" });
                 }
-                if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && BeforeProjectMetadata is { } before)
-                    await before();
                 return metadata;
             }
             if (CoreMetadataEnabled && path.EndsWith("/wiql", StringComparison.OrdinalIgnoreCase))

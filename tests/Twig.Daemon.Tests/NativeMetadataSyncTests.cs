@@ -120,6 +120,9 @@ internal sealed class MetadataGateway : INativeSourceGateway
     internal WorkItem Item => new(ItemKey.Remote(Stamp.Connection.Provider, Stamp.Connection.ResourceScope, "1246"),
         "TwigDelivery.Epic", FieldValues.Empty, null, true);
 
+    public Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected, CancellationToken ct)
+        => ReadAsync(root, expected, false, ct);
+
     public async Task<Result<NativeSourceObservation>> ReadAsync(string root, NativeSourceStamp? expected,
         bool observeSchema, CancellationToken ct)
     {

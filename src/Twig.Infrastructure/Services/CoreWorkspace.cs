@@ -39,6 +39,19 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             : SnapshotAsync(ct);
     internal Task<Result<bool>> ValidateReadAccessAsync(CancellationToken ct)
         => provider.ValidateReadAccessAsync(connection, ct);
+    internal Task<Result<QueryPage>> ObserveItemsAsync(ImmutableArray<ItemKey> keys, CancellationToken ct)
+        => ObserveContentAsync(() => provider.ReadAsync(connection, keys, ct, captureOnly: true));
+
+    internal Func<Error, Error>? RecordHistoricalReadFailure { private get; set; }
+
+    internal async Task<Result<T>> ObserveContentAsync<T>(Func<Task<Result<T>>> acquire)
+    {
+        using var lease = RecordHistoricalReadFailure is null ? null
+            : ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var result = await acquire().ConfigureAwait(false);
+        return result.IsSuccess ? result : Result<T>.Fail(NativeHistoricalEvidence.ReportReadFailure(
+            connection, result.Error, RecordHistoricalReadFailure));
+    }
     internal Task<Result<ImmutableArray<IdentityProfile>>> ReadIdentityProfilesAsync(ImmutableArray<string> identities, CancellationToken ct)
         => provider.ReadIdentityProfilesAsync(connection, identities, ct);
 
@@ -105,7 +118,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             return candidates.Length == 1 ? Result<ItemKey>.Ok(candidates[0].Key)
                 : Result<ItemKey>.Fail(ErrorCode.NotFound, $"Issue #{locator} is not cached; use show {locator} --refresh.");
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
-        var acquired = await github.ReadNumberAsync(connection, locator, ct).ConfigureAwait(false);
+        var acquired = await ObserveContentAsync(() => github.ReadNumberAsync(connection, locator, ct)).ConfigureAwait(false);
         return acquired.IsSuccess ? Result<ItemKey>.Ok(acquired.Value.Items.Single().Key) : Result<ItemKey>.Fail(acquired.Error);
     }
 
@@ -174,7 +187,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         string? continuation = null;
         while (true)
         {
-            var page = await provider.QueryAsync(connection, query, continuation, ct).ConfigureAwait(false);
+            var page = await ObserveContentAsync(() => provider.QueryAsync(connection, query, continuation, ct)).ConfigureAwait(false);
             if (!page.IsSuccess) return Result<QueryPage>.Fail(page.Error);
             if (page.Value.Complete == (page.Value.Continuation is not null)
                 || page.Value.Items.Any(item => !item.RelationshipsComplete
@@ -240,9 +253,9 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     internal async Task<Result<PlanningBrowsePage>> ObservePlanningBrowseAsync(string? selectedTeam, PlanningSourceKind kind, string id,
         string? expectedTeam, CancellationToken ct, ProcessSchema? mappingSchema = null)
     {
-        var observed = mappingSchema is null
-            ? await provider.BrowsePlanningAsync(connection, selectedTeam, kind, id, expectedTeam, ct).ConfigureAwait(false)
-            : await provider.BrowsePlanningAsync(connection, selectedTeam, kind, id, expectedTeam, mappingSchema, ct).ConfigureAwait(false);
+        var observed = await ObserveContentAsync(() => mappingSchema is null
+            ? provider.BrowsePlanningAsync(connection, selectedTeam, kind, id, expectedTeam, ct)
+            : provider.BrowsePlanningAsync(connection, selectedTeam, kind, id, expectedTeam, mappingSchema, ct)).ConfigureAwait(false);
         if (!observed.IsSuccess) return observed;
         if (observed.Value.Source.Kind != kind || observed.Value.Source.Id != id || observed.Value.Source.IsFolder
             || observed.Value.ObservedAt == default || observed.Value.Team != expectedTeam
@@ -511,7 +524,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var keys = proposal.Operations.SelectMany(op => op.Links.Select(link => link.Other).Prepend(op.Item)
                 .Concat(op.Other is null ? [] : new[] { op.Other })).Select(key => Resolve(stored.Value, key))
             .Where(key => !key.IsLocal).Distinct().ToImmutableArray();
-        var acquired = await provider.ReadAsync(connection, keys, ct, captureOnly: true).ConfigureAwait(false);
+        var acquired = await ObserveItemsAsync(keys, ct).ConfigureAwait(false);
         if (!acquired.IsSuccess) return Result<ImmutableArray<Error>>.Ok([acquired.Error]);
         var refreshed = Copy(stored.Value, stored.Value.Version,
             items: stored.Value.Items.Where(item => !keys.Contains(item.Key)).Concat(acquired.Value.Items),
@@ -588,8 +601,9 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (key.IsLocal) return Result<WorkItem>.Fail(ErrorCode.InvalidInput, "A local draft is not a native item observation.");
         if (editor is not null && editor.Schema.Connection != connection)
             return Result<WorkItem>.Fail(ErrorCode.Conflict, "Editor metadata belongs to another native connection.");
-        var read = editor is null ? await provider.ReadAsync(connection, [key], ct, captureOnly: true).ConfigureAwait(false)
-            : await editor.Read([key], ct).ConfigureAwait(false);
+        var read = await ObserveContentAsync(() => editor is null
+            ? provider.ReadAsync(connection, [key], ct, captureOnly: true)
+            : editor.Read([key], ct)).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<WorkItem>.Fail(read.Error);
         if (read.Value.Items.Length != 1 || read.Value.Items[0].Key != key)
             return Result<WorkItem>.Fail(ErrorCode.Unavailable, "The provider did not observe the exact requested item.");
@@ -1133,8 +1147,9 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             }
             else
             {
-                var read = review is null ? await provider.ReadAsync(connection, [key], ct, captureOnly: true).ConfigureAwait(false)
-                    : await review.Metadata.Read([key], ct).ConfigureAwait(false);
+                var read = await ObserveContentAsync(() => review is null
+                    ? provider.ReadAsync(connection, [key], ct, captureOnly: true)
+                    : review.Metadata.Read([key], ct)).ConfigureAwait(false);
                 if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
                 var item = read.Value.Items.SingleOrDefault(i => i.Key == key);
                 if (item?.RelationshipsComplete != true)

@@ -66,9 +66,13 @@ process-template or custom-field vocabulary in Core.
 On create, Twig uses the selected type's native endpoint name and resolves
 the selected area and iteration paths against the bound project's native
 classification nodes. The resulting type and numeric IDs are typed evidence
-in the proposal digest, not JSON Patch fields. ADO assigns them from the
-endpoint and authored paths. Missing, ambiguous, conflicting, or changed
-evidence stops the operation before dispatch.
+in the proposal digest, not JSON Patch fields. Missing, ambiguous, conflicting,
+or changed evidence observed before dispatch stops the operation. The
+[ADO Create 7.1 contract](https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/create?view=azure-devops-rest-7.1)
+documents no conditional create bound to classification IDs. ADO assigns them
+from the authored paths, which can resolve differently after Twig's last check.
+A mismatch in immutable revision readback leaves the creation unresolved
+(`Partial`) and its UUID fenced against replay.
 
 Native `when`, `whenNot`, `whenWas`, `whenChanged`, `whenNotChanged`,
 `makeRequired`, `makeReadOnly` and constant `copyValue` rules map to Core

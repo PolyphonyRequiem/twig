@@ -341,6 +341,8 @@ public static partial class NativeBenchHost
                 throw new HttpFailure(409, "BenchViewChanged", "The Bench changed while loading. Read its current definition again.");
             var captured = ConnectionObservation(observed, app.Logger);
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
+            _ = ConnectionObservation(await panel.CheckWorkspaceAsync(captured, context.RequestAborted,
+                recheckLocalSnapshot: false), app.Logger);
             await Write(context, new NativeBenchViewDto(mapped.CatalogId, mapped.CatalogRevision, mapped.Id, mapped.Name,
                 mapped.Sources.Select(source => PresentSource(source) with {
                     NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId) }).ToArray()) {
@@ -360,7 +362,7 @@ public static partial class NativeBenchHost
             if (chosen.Length > 32) throw new HttpFailure(422, "Unsupported", "The Bench exceeds the bounded access-check source count.");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            var checks = await Task.WhenAll(chosen.Select(source => panel.ValidateDisplayAccessAsync(source, timeout.Token)));
+            var checks = await Task.WhenAll(chosen.Select(source => panel.CheckHistoricalSourceAsync(source, timeout.Token)));
             foreach (var check in checks) _ = ConnectionObservation(check, app.Logger);
             lock (session)
                 if (session.ProfileGeneration != profile || !ReferenceEquals(session.NativeContext, anchor)
@@ -376,7 +378,10 @@ public static partial class NativeBenchHost
             var session = await Authorize(context, id, true);
             var source = await Population(panel, session, context.RequestAborted);
             var capture = ConnectionObservation(await panel.CaptureAsync(source, context.RequestAborted), app.Logger);
-            await Write(context, PresentPicker(Picker(capture)));
+            var picker = PresentPicker(Picker(capture));
+            _ = ConnectionObservation(await panel.CheckCaptureAsync(capture, context.RequestAborted), app.Logger);
+            EnsurePopulation(session, source);
+            await Write(context, picker);
         });
         app.MapPost("/api/v1/views/{id:guid}/planning/catalogue", async (HttpContext context, Guid id) =>
         {
@@ -420,7 +425,11 @@ public static partial class NativeBenchHost
             var session = await Authorize(context, id, true);
             var capture = ConnectionObservation(await panel.CaptureAsync(Context(session), context.RequestAborted), app.Logger);
             var mapped = Mapped(Require(NativePanel.ProtectedDrafts(capture)), capture);
-            await Write(context, mapped with { Sources = mapped.Sources.Select(PresentSource).ToArray() });
+            var drafts = mapped with { Sources = mapped.Sources.Select(PresentSource).ToArray() };
+            _ = ConnectionObservation(await panel.CheckCaptureAsync(capture, context.RequestAborted), app.Logger);
+            if (!ReferenceEquals(session.NativeContext, capture.Context))
+                throw new HttpFailure(409, "SourceChanged", "The selected source changed while loading drafts.");
+            await Write(context, drafts);
         });
         app.MapGet("/api/v1/views/{id:guid}/planning", async (HttpContext context, Guid id) =>
         {
@@ -723,21 +732,44 @@ public static partial class NativeBenchHost
     {
         var source = capture.Context.Source;
         var observation = capture.Observation;
+        ItemKey Resolve(ItemKey key) => observation.Snapshot.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        if (selected is { } acquired)
+        {
+            var page = observation.AcquiredPlanningPage;
+            var keysInResult = acquired.ToHashSet();
+            if (page is null || !page.Complete || page.Continuation is not null
+                || page.Items.Length != keysInResult.Count || !keysInResult.SetEquals(page.Items.Select(item => item.Key))
+                || page.Items.Any(item => !item.Key.BelongsTo(source.Binding.Connection)))
+                throw new HttpFailure(503, "Unavailable", "The native acquisition returned no exact work-item page.");
+            var outside = page.Relationships.Where(edge => !keysInResult.Contains(edge.From) || !keysInResult.Contains(edge.To))
+                .SelectMany(edge => new[] { edge.From, edge.To }).ToHashSet();
+            observation = observation with
+            {
+                Snapshot = new(observation.Snapshot.Version, page.Items.Select(item => outside.Contains(item.Key)
+                    ? new WorkItem(item.Key, item.Type, item.Fields, item.Revision, false, item.Resources, item.ResourcesComplete)
+                    : item),
+                    page.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Provider
+                        && keysInResult.Contains(edge.From) && keysInResult.Contains(edge.To))),
+                WithdrawnItems = []
+            };
+            capture = capture with { Observation = observation };
+        }
         var selection = new SourceSelection(source.Id, source.Binding,
             [new(SelectorKind.Query, query: new(QueryKind.All), connection: source.Binding.Connection)]);
         var definition = new BenchDefinition(Guid.NewGuid(), "Find items", 1, [selection]);
         var projected = Require(SourceProjection.Create(definition, selection, observation with { WorkspaceExclusions = [] }));
         var mapped = Mapped(new(definition, capture.Definitions.InstanceId, capture.Definitions.Revision, [projected]), capture).Sources.Single();
-        ItemKey Resolve(ItemKey key) => observation.Snapshot.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
         var keys = (selected ?? observation.Snapshot.Items.Select(item => item.Key)
             .Concat(observation.Snapshot.Drafts.Select(draft => draft.Key)).ToImmutableArray()).Select(Resolve).Distinct().ToArray();
-        var identities = keys.Select(key => ViewMapping.Key(new(source.Id, key))).ToHashSet(StringComparer.Ordinal);
+        var identities = mapped.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
         var hierarchy = observation.Schema.Relations.Where(relation => relation.Directed && relation.Shape == RelationShape.Hierarchy).ToArray();
-        var pins = keys.Select(key => new PickerPinDto(ViewMapping.Key(new(source.Id, key)),
+        var pins = keys.Where(key => identities.Contains(ViewMapping.Key(new(source.Id, key))))
+            .Select(key => new PickerPinDto(ViewMapping.Key(new(source.Id, key)),
             BenchCodec.SerializeSelectors([new(SelectorKind.Pin, key, connection: source.Binding.Connection)]),
-            hierarchy.Length == 1 && observation.Snapshot.Items.Any(item => item.Key == key && item.RelationshipsComplete)
+            selected is null && hierarchy.Length == 1
+                && observation.Snapshot.Items.Any(item => item.Key == key && item.RelationshipsComplete)
                 ? BenchCodec.SerializeSelectors([new(SelectorKind.Subtree, key, hierarchyRelation: hierarchy[0].Reference,
                     connection: source.Binding.Connection)]) : null)).ToArray();
-        return new(mapped with { Items = mapped.Items.Where(item => identities.Contains(item.Id)).ToArray() }, pins);
+        return new(mapped, pins);
     }
 }

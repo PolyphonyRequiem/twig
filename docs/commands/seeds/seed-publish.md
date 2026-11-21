@@ -28,6 +28,12 @@ an external `--confirm` review prompt.
 Review intent before issuing it. For an explicitly confirmed file, use
 `proposal apply --file ... --confirm <digest>`.
 
+ADO creation is non-atomic with respect to the reviewed area and iteration IDs.
+Twig refuses a remap it detects before dispatch, but the create request sends
+paths, not a server-side condition on those IDs. A path can resolve differently
+after the last check. If immutable revision readback finds a mismatch, the
+creation is unresolved; do not retry it or publish a replacement seed.
+
 ADO creation-bound branch resources use the actual supported native discovery
 path. GitHub creation resources/links are not qualified.
 

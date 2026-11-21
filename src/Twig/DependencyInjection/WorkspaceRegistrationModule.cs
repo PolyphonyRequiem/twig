@@ -62,11 +62,13 @@ internal static class WorkspaceRegistrationModule
             services.AddCoreWorkspaceServices(config, corePaths);
             services.AddSingleton<Twig.Commands.IConsoleInput, ConsoleInput>();
             services.TryAddSingleton<Twig.Commands.IEditorLauncher, EditorLauncher>();
+            services.TryAddSingleton(_ => NativeHistoricalEvidence.ForLocalUser());
             services.AddSingleton(sp => new CoreCommandAdapter(sp.GetRequiredService<CoreWorkspaceFactory>(),
                 sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
                 sp.GetRequiredService<Twig.Commands.IConsoleInput>(),
                 sp.GetRequiredService<Twig.Commands.IEditorLauncher>(),
-                sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>()));
+                sp.GetService<Twig.Infrastructure.Telemetry.ITelemetryClient>(),
+                sp.GetRequiredService<NativeHistoricalEvidence>()));
             services.AddSingleton<ProcessCommand>();
             services.AddSingleton<ProcessDescriptionCommand>();
             services.AddSingleton<LinkCommand>();

@@ -125,12 +125,12 @@ profile compatibility or materialize policy records.
 ## Results and interruption
 
 All provider, coordinate, account, path and existing-state preflight precedes
-workspace writes or work HTTP. A transient Azure DevOps server error before
-database creation allows a retry in the same checkout when the init attempt's
-local files are unchanged. Other failures may leave partial initialization
-evidence. To retry in that case, stop any active
-init and move aside only the disposable checkout-local `.twig` directory from
-the failed init. Keep `twig.json`, `.gitignore`, credentials, and any remote-write
+workspace writes or work HTTP. Once workspace setup begins, failures (including
+transient metadata errors and cancellation) can leave partial initialization
+evidence. Init preserves it: matching paths and bytes do not prove file ownership.
+To retry, stop any active setup and inspect the preserved checkout-local `.twig`
+directory. Move it aside only if it is disposable, or use a fresh worktree.
+Keep `twig.json`, `.gitignore`, credentials, and any remote-write
 evidence. If a custom `--core-store` was created, select a new path; init never
 overwrites that database or its sidecars.
 

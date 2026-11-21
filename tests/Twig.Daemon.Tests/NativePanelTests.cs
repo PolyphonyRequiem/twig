@@ -200,21 +200,18 @@ internal static partial class NativePanelTests
                     "Explicit native source/planning reads must retain connection-denial recovery, not mutation advice.");
             }
             gateway.PolicyDenied = false;
-            var pendingCheck = Path.Combine(directory, "evidence", CatalogFingerprint.Binding(
-                NativeSourceAdapter.Binding(Required(await gateway.ReadAsync(directory, null, false, default)).Source)) + ".check");
-            Check(File.ReadAllText(pendingCheck).Contains("\npending\n", StringComparison.Ordinal),
-                "A failed read must retain pending evidence until a fresh online check succeeds.");
             var interrupted = await Send("GET", prefix + "/drafts");
-            Check(interrupted.Status == 200 && File.ReadAllText(pendingCheck).Contains("\nallowed\n", StringComparison.Ordinal),
-                "The next successful fresh online read must recover without reconnecting or returning stale content.");
+            Check(interrupted.Status == 403, "Removing the synthetic refusal must not clear an observed source denial.");
             gateway.AuthorityChanged = true;
             Check((await Send("POST", prefix + "/context/recheck", new JsonObject())).Status == 409,
                 "Re-admission must reject authority replacement instead of choosing a new source.");
             gateway.AuthorityChanged = false;
             Check((await Send("POST", prefix + "/context/recheck", new JsonObject())).Status == 200,
-                "Explicit reauthorization restores only the captured native root/authority after read denial.");
-            Check(File.ReadAllText(pendingCheck).Contains("\nallowed\n", StringComparison.Ordinal),
-                "A successful same-binding check must retain allowed evidence.");
+                "Explicit schema refresh stays on the captured native root and authority.");
+            // Start the remaining independent route fixtures with a fresh source.
+            gateway.ReplaceStore();
+            Check((await Send("PUT", prefix + "/context", new JsonObject { ["root"] = directory })).Status == 200,
+                "Independent route fixtures use a new synthetic store, not restored denied history.");
             var fresh = sessions.RegisterNativeCanvas(shared.InstanceId);
             var freshOwner = sessions.ConnectOwner(shared.InstanceId, fresh.ViewId, Guid.NewGuid());
             Check((await Send("GET", $"/api/v1/views/{freshOwner.ViewId:D}/session", bearer: freshOwner.ContentCapability)).Body!["preferences"]!["benchId"] is null
@@ -261,7 +258,15 @@ internal static partial class NativePanelTests
             var acquired = await Send("POST", prefix + "/planning/browse", new JsonObject
             { ["kind"] = 0, ["id"] = Gateway.QueryId, ["team"] = Gateway.TeamA });
             Check(acquired.Status == 200 && acquired.Body!["picker"]!["source"]!["items"]!.AsArray().Count == 1,
-                "The native query result, including an excluded published draft, remains findable in the picker.");
+                "The freshly acquired work item remains findable even if excluded from the workspace.");
+            var browseSource = acquired.Body!["picker"]!["source"]!;
+            Check(browseSource["edges"]!.AsArray().Count == 0
+                && browseSource["unresolvedReferences"]!.AsArray().Count == 0,
+                "Browse must not emit unrelated cached hierarchy endpoints.");
+            Check(browseSource["items"]![0]!["title"]!.GetValue<string>() == "Fresh planning result",
+                "Browse must render provider-returned fields rather than cached fields or draft overlays.");
+            Check(!browseSource["items"]![0]!["relationshipsComplete"]!.GetValue<bool>(),
+                "The result must not claim complete relationships after omitting an out-of-page endpoint.");
             var reference = BenchCodec.DeserializeSelectors(acquired.Body!["selectors"]!.GetValue<string>()).Single();
             Check(reference.Query!.Kind == QueryKind.SavedQuery && reference.Query.Value!.Text == Gateway.QueryId
                 && reference.Query.PlanningTeam == Gateway.TeamA && reference.Item is null, "Pin native definition identity, not current item results.");
@@ -308,11 +313,10 @@ internal static partial class NativePanelTests
                 .All(source => source!["errorCode"] is not null && source["items"]!.AsArray().Count == 0),
                 "A fresh provider denial must remove its content while retaining the degraded Bench and other source statuses.");
             gateway.Denied = false;
-            Check((await Send("GET", prefix + "/drafts")).Status == 200,
-                "A fresh online read, not cached presentation, must reestablish exact-source access after provider denial.");
+            Check((await Send("GET", prefix + "/drafts")).Status == 403,
+                "A successful connection probe must not restore denied work-item history.");
             Check((await Send("GET", prefix + $"/benches/{bench.Id:D}")).Status == 200,
-                "A successful fresh online read recovers after an unavailable read without manual reconnection.");
-            Check((await Send("PUT", prefix + "/context", new JsonObject { ["root"] = directory })).Status == 200, "Explicit recheck restores only this exact native context.");
+                "Bench metadata remains available while work-item history is withheld.");
             Check((await Send("DELETE", prefix + $"/benches/{bench.Id:D}",
                 new JsonObject { ["expectedRevision"] = observed.Revision })).Status == 200, "Deleting a definition.");
             Check(Required(await cli.ReadAsync()).Benches.IsEmpty, "Bench deletion removes only the native shared definition.");
@@ -452,7 +456,8 @@ internal static partial class NativePanelTests
         private static PlanningSources Choices => new(TeamA,
             [new(PlanningSourceKind.SavedQuery, QueryId, "Synthetic query", "Shared/Synthetic query", QueryType: "flat"),
                 new(PlanningSourceKind.Backlog, "Synthetic.Backlog", "Synthetic backlog", "Synthetic backlog", RequiresTeam: true)], []);
-        private readonly NativeSourceStamp stamp = new(connection, Guid.NewGuid(), "synthetic-actor", "synthetic-authority");
+        private NativeSourceStamp stamp = new(connection, Guid.NewGuid(), "synthetic-actor", "synthetic-authority");
+        internal void ReplaceStore() => stamp = stamp with { StoreInstance = Guid.NewGuid() };
         internal bool ProfilePhotosUnavailable { get; set; }
         public async Task<Result<NativeSourceObservation>> ReadIdentityProfilesAsync(string root, NativeSourceStamp expected,
             ImmutableArray<string> identities, CancellationToken ct)
@@ -522,7 +527,9 @@ internal static partial class NativePanelTests
                 }).ToList();
             }
             var drafts = DiagnosticFixture ? [] : new[] { new Draft(key, type.Reference, item, fields), new Draft(local, type.Reference, null, fields) };
-            return Task.FromResult(Result<NativeSourceObservation>.Ok(new(stamp, new(1, items, drafts: drafts),
+            var relationships = DiagnosticFixture ? Array.Empty<Relationship>()
+                : new[] { new Relationship(key, local, "Synthetic.Hierarchy", RelationshipOrigin.Local) };
+            return Task.FromResult(Result<NativeSourceObservation>.Ok(new(stamp, new(1, items, relationships, drafts),
                 DateTimeOffset.UtcNow, observeSchema ? Result<ProcessSchema>.Ok(new(connection, types,
                     [new("Synthetic.Hierarchy", RelationShape.Hierarchy, true)], DiagnosticMessages, webUrl: "https://dev.azure.com/synthetic/project/")
                     { Planning = planning, PlanningCalendars = calendars.Values.ToImmutableArray(), Memberships = memberships.ToImmutableArray() }) : null,
@@ -611,7 +618,12 @@ internal static partial class NativePanelTests
             memberships.RemoveAll(value => value.Kind == kind && value.Id == id && value.Team == team);
             memberships.Add(new(kind, id, team, [key], now, true));
             observed = await ReadAsync(root, expected, true, ct);
-            return Result<NativeSourceObservation>.Ok(observed.Value with { PlanningBrowse = new(source, [key], now, team) });
+            var cached = observed.Value.Snapshot.Items.Single(item => item.Key == key);
+            var fresh = new WorkItem(key, cached.Type, cached.Fields.Set("System.Title", FieldValue.String("Fresh planning result")),
+                cached.Revision, cached.RelationshipsComplete);
+            var outside = ItemKey.Remote(connection.Provider, connection.ResourceScope, "99");
+            return Result<NativeSourceObservation>.Ok(observed.Value with { PlanningBrowse = new(source, [key], now, team),
+                AcquiredPlanningPage = new([fresh], [new(key, outside, "Synthetic.Hierarchy", RelationshipOrigin.Provider)], null, true) });
         }
         public async Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(string root, NativeSourceStamp expected, CancellationToken ct)
         {
@@ -630,7 +642,8 @@ internal static partial class NativePanelTests
             memberships.RemoveAll(value => value.Kind == kind && value.Id == id);
             memberships.Add(new(kind, id, team, [key], now, true));
             observed = await ReadAsync(root, expected, true, ct);
-            return Result<NativeSourceObservation>.Ok(observed.Value with { PlanningBrowse = new(source, [key], now, team) });
+            return Result<NativeSourceObservation>.Ok(observed.Value with { PlanningBrowse = new(source, [key], now, team),
+                AcquiredPlanningPage = new([observed.Value.Snapshot.Items.Single(item => item.Key == key)], [], null, true) });
         }
     }
 }

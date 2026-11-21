@@ -163,7 +163,7 @@ public static partial class NativeBenchHost
                     throw new HttpFailure(409, "ConnectionNotReady", "Observe the exact original setup until verified readback is Ready.");
                 if (session.Editor.Ticket != Guid.Empty || session.Plan.Operation?.Work is { IsCompleted: false })
                     throw new HttpFailure(409, "EditorBusy", "Finish the current editor or Plan operation before changing Bench membership.");
-                var opened = ConnectionObservation(await panel.OpenAsync(source.WorkspaceRoot, ct), app.Logger);
+                var opened = ConnectionObservation(await panel.OpenAsync(source.WorkspaceRoot, ct, expectedSource: source.Source), app.Logger);
                 RequireAvailable(session, opened.Stamp.Connection);
                 if (opened.Stamp != source.Source || opened.Stamp.Connection != source.SchemaConnection)
                     throw new HttpFailure(409, "SourceChanged", "The prepared source or principal changed. No admission or Bench rule was saved.");

@@ -54,13 +54,11 @@ public static partial class NativeBenchHost
             var session = await authorize(http, id);
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
             budget.CancelAfter(TimeSpan.FromSeconds(30));
-            await RestoreViewReferences(panel, sessions, session, budget.Token,
-                cachedAdmissionOnly: true, onlyIfNeeded: true);
-            var workspace = await Workspace(panel, sessions, session, source =>
+            var workspace = await ReadWorkspace(panel, sessions, session, WorkspaceRead.Recurring, source =>
             {
                 _ = presentSource(source);
                 return source;
-            }, budget.Token, readAccounts: readAccounts);
+            }, budget.Token, readAccounts);
             _ = sessions.Content(id, Bearer(http), true);
             await Write(http, workspace);
         });
@@ -89,17 +87,22 @@ public static partial class NativeBenchHost
         NativePanel panel, ViewSessions sessions, ViewSession session, Func<SourceViewDto, SourceViewDto> presentSource, CancellationToken ct,
         Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts)
     {
-        var observations = new Dictionary<NativePanelContext, SourceObservation>();
-        await RestoreViewReferences(panel, sessions, session, ct, observations);
-        var workspace = await Workspace(panel, sessions, session, presentSource, ct, observations, readAccounts);
+        var workspace = await ReadWorkspace(panel, sessions, session, WorkspaceRead.Initial, presentSource, ct, readAccounts);
         return (workspace.ViewState, new(workspace.Summary, workspace.Session, workspace.View));
     }
 
-    private static async Task<NativeWorkspaceDto> Workspace(
-        NativePanel panel, ViewSessions sessions, ViewSession session, Func<SourceViewDto, SourceViewDto> presentSource,
-        CancellationToken ct, IReadOnlyDictionary<NativePanelContext, SourceObservation>? observations = null,
-        Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts = null)
+    private enum WorkspaceRead { Initial, Recurring }
+
+    private static async Task<NativeWorkspaceDto> ReadWorkspace(
+        NativePanel panel, ViewSessions sessions, ViewSession session, WorkspaceRead kind,
+        Func<SourceViewDto, SourceViewDto> presentSource, CancellationToken ct,
+        Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts)
     {
+        var recurring = kind == WorkspaceRead.Recurring;
+        var observations = recurring ? null : new Dictionary<NativePanelContext, SourceObservation>();
+        await RestoreViewReferences(panel, sessions, session, ct, observations,
+            cachedAdmissionOnly: recurring, onlyIfNeeded: recurring);
+
         long selectionRevision;
         lock (session) selectionRevision = session.SelectionRevision;
         var state = sessions.ReadState(session);
@@ -155,7 +158,7 @@ public static partial class NativeBenchHost
                 { Plan = PlanStatus(session, captured.Plan) };
         }
         if (captured is not null)
-            _ = Require(await panel.CheckWorkspaceAsync(captured, ct, recheckLocalSnapshot: observations is null));
+            _ = Require(await panel.CheckWorkspaceAsync(captured, ct, recheckLocalSnapshot: recurring));
         if (!registry.SequenceEqual(Require(await panel.WorkspacesAsync(ct))))
             throw new HttpFailure(409, "WorkspaceChanged", "The registered connections changed during workspace loading.");
         if (repositoryRoot is not null && Require(await panel.ReadRepositoryAsync(repositoryRoot, ct)) is { } currentRepository

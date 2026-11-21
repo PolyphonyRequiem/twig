@@ -67,9 +67,7 @@ public sealed partial class UserBenchStore
         if (!heads.IsSuccess) throw new InvalidDataException(heads.Error.Message);
         var head = heads.Value.SingleOrDefault(value => NativePathComparer.Instance.Equals(value.Path, path))
             ?? throw new InvalidDataException("Native user namespace lacks its exact creation witness; use supported fresh initialization.");
-        var valid = await CheckGenerationAsync(head, ct).ConfigureAwait(false);
-        if (!valid.IsSuccess) throw new InvalidDataException(valid.Error.Message);
-        var history = await registry.CaptureInventoryAsync(ct).ConfigureAwait(false);
+        var history = await registry.CaptureInventoryAsync(ct, head).ConfigureAwait(false);
         if (!history.IsSuccess) throw new InvalidDataException(history.Error.Message);
         return head;
     }

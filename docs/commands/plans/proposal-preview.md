@@ -26,9 +26,9 @@ before/after presentation envelope**. Inspect the proposal's full typed effects
 as well as reported blockers. A preview is not a lease on remote state.
 `--expect-digest` refuses changed canonical intent before retention.
 
-`--interactive` and `--include-rendering` are retired; old OMP presentation
-recipes do not restore them. Use the ordinary structured/plain path or the
-separate native daemon host's review workflow.
+`--interactive` and `--include-rendering` are retired; `--full`, `--width`, and
+`--color` do not affect preview output. Use the ordinary structured/plain path
+or the separate native daemon host's review workflow.
 
 ## Effects
 

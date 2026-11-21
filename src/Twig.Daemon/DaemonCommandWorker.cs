@@ -31,7 +31,12 @@ internal static class DaemonCommandWorker
         if (first.Kind != FrameKind.Invocation) throw new InvalidDataException("Expected a command invocation.");
         var request = JsonSerializer.Deserialize(first.Text, CommandWireJson.Default.CommandInvocation);
         if (request is not { Version: 1, Arguments: not null })
-            throw new InvalidDataException("Incompatible command protocol.");
+        {
+            await CommandProtocol.WriteAsync(output, FrameKind.Stderr,
+                "Incompatible Twig CLI and daemon command protocol. No command was run. Update the CLI or daemon so their command protocols match." + Environment.NewLine);
+            await CommandProtocol.WriteAsync(output, FrameKind.Exit, "2");
+            return;
+        }
         var args = request.Arguments;
         var channel = new WorkerChannel(input, output, request.OutputRedirected, args is ["auth", "pat", ..]);
         Console.SetOut(new FrameWriter(channel, FrameKind.Stdout));

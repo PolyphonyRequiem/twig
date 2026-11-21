@@ -38,8 +38,7 @@ internal static class NativeCoreExecution
         if (!gate.IsSuccess) return Result<bool>.Fail(gate.Error);
         var captures = await registry.CapturePublishingAsync(ct).ConfigureAwait(false);
         if (!captures.IsSuccess) return Result<bool>.Fail(captures.Error);
-        return gate.Value.Active ? Result<bool>.Ok(true) : Result<bool>.Fail(ErrorCode.PolicyViolation,
-            "The one-time native publishing safety check is pending. Reads and protected draft browse remain available.");
+        return Result<bool>.Ok(true);
     }
 
     internal static async Task<Result<NativeCoreInventory>> InventoryAsync(string registryPath,
@@ -215,8 +214,8 @@ internal static class NativeCoreExecution
             using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
             var captured = await registry.ReadCoreGateAsync(ct).ConfigureAwait(false);
             if (!captured.IsSuccess) return Result<IDisposable>.Fail(captured.Error);
-            if (!captured.Value.Active || !captured.Value.Sources.Contains(source))
-                return Result<IDisposable>.Fail(ErrorCode.PolicyViolation, "Native publishing activation or exact source inventory is pending.");
+            if (!captured.Value.Sources.Contains(source))
+                return Result<IDisposable>.Fail(ErrorCode.PolicyViolation, "The exact native Core source is not registered.");
             var relevant = await registry.CoreTargetSourcesAsync(targets, source.Connection, ct).ConfigureAwait(false);
             if (!relevant.IsSuccess) return Result<IDisposable>.Fail(relevant.Error);
             foreach (var priorSource in captured.Value.Sources.Where(value => relevant.Value.Contains(value.Instance)

@@ -296,18 +296,38 @@ public static partial class Core
             var source = store.Items.FirstOrDefault(i => i.Key == op.Item);
             var type = schema.Types.FirstOrDefault(t => t.Reference == (op.Type ?? source?.Type));
             if (type is null) Fail(ErrorCode.Unavailable, "The item's discovered type is unavailable.");
-            else ValidateFields(op, source, type, capabilities.AtomicFieldBatches, Fail);
+            else ValidateFields(op, source, type, capabilities.AtomicFieldBatches, Fail,
+                capabilities.CreateFieldEvidence && op.Kind == OpKind.Create);
         }
+        else if (op.CreateEvidence.Count != 0)
+            Fail(ErrorCode.InvalidInput, "Create field evidence is valid only on a supported creation effect.");
     }
 
-    private static void ValidateFields(Op op, WorkItem? source, ItemType type, bool atomicFields, Action<ErrorCode, string> fail)
+    private static void ValidateFields(Op op, WorkItem? source, ItemType type, bool atomicFields, Action<ErrorCode, string> fail,
+        bool acceptsCreateEvidence = false)
     {
+        if (op.CreateEvidence.Count != 0 && !acceptsCreateEvidence)
+        {
+            fail(ErrorCode.InvalidInput, "Create field evidence is not supported on this effect.");
+            return;
+        }
+        foreach (var (name, value) in op.CreateEvidence)
+        {
+            if (value.IsEmpty || value.Kind == FieldKind.Raw || !type.Fields.Any(f => f.Reference == name && f.Kind == value.Kind))
+                fail(ErrorCode.Unavailable, $"Provider evidence for '{name}' does not match the discovered field.");
+            if (op.Fields.TryGetValue(name, out var authored) && !authored.Equals(value))
+                fail(ErrorCode.Conflict, $"Authored field '{name}' conflicts with provider create evidence.");
+        }
         var old = source?.Fields ?? new FieldValues(type.Fields.Select(f =>
             KeyValuePair.Create(f.Reference, FieldValue.Null)));
-        var effective = old.Overlay(op.Fields);
+        var effective = old.Overlay(op.Fields).Overlay(op.CreateEvidence);
         var evaluated = EvaluateRules(type, old, effective);
         if (!evaluated.IsSuccess) { fail(evaluated.Error.Code, evaluated.Error.Message); return; }
         effective = evaluated.Value.Effective;
+        foreach (var (name, value) in op.CreateEvidence)
+            if (!effective[name].Equals(value) || evaluated.Value.Active.Any(rule => rule.Field == name
+                && rule.Action == RuleAction.Supplied && rule.Values.IsEmpty))
+                fail(ErrorCode.Unavailable, $"Discovered rules do not establish the provider create value for '{name}'.");
         if (type.Hidden) fail(ErrorCode.Unsupported, "The discovered type is disabled/hidden for authoring.");
         if (!type.Fields.Any(f => f.Reference == type.StateField)
             || type.States.IsEmpty || type.States.Any(s => !Enum.IsDefined(s.Category) || s.Category == StateCategory.Unknown)
@@ -315,6 +335,7 @@ public static partial class Core
             fail(ErrorCode.Unavailable, "State schema is incomplete or inconsistent.");
         foreach (var (name, value) in op.Fields)
         {
+            if (op.CreateEvidence.ContainsKey(name)) continue; // An exact assertion, not a write.
             var definition = type.Fields.FirstOrDefault(f => f.Reference == name);
             if (definition is null) fail(ErrorCode.Unsupported, $"Field '{name}' is not declared for this type.");
             else if (definition.ReadOnly) fail(ErrorCode.InvalidInput, $"Field '{name}' is read-only.");
@@ -344,14 +365,15 @@ public static partial class Core
                         var requiredBefore = RequiredBefore(type, rule.Field, old);
                         if (!requiredBefore.IsSuccess) fail(requiredBefore.Error.Code, requiredBefore.Error.Message);
                         var newGate = source is null || source.Type != type.Reference || !requiredBefore.IsSuccess || !requiredBefore.Value;
-                        if (newGate && !op.Fields.ContainsKey(rule.Field))
+                        if (newGate && !op.Fields.ContainsKey(rule.Field) && !op.CreateEvidence.ContainsKey(rule.Field))
                             fail(ErrorCode.InvalidInput, $"Close-gate field '{rule.Field}' must ride in the same batch as the transition.");
                         if (newGate && rule.Field != type.StateField && !atomicFields)
                             fail(ErrorCode.Unsupported, $"Close-gate field '{rule.Field}' must be applied atomically with the transition.");
                     }
                     break;
                 case RuleAction.ReadOnly:
-                    if (op.Fields.ContainsKey(rule.Field)) fail(ErrorCode.InvalidInput, $"Rule makes '{rule.Field}' read-only.");
+                    if (op.Fields.ContainsKey(rule.Field) && !op.CreateEvidence.ContainsKey(rule.Field))
+                        fail(ErrorCode.InvalidInput, $"Rule makes '{rule.Field}' read-only.");
                     break;
                 case RuleAction.Allowed:
                     if (rule.Values.IsEmpty) fail(ErrorCode.Unavailable, $"Allowed values for '{rule.Field}' are unavailable.");

@@ -167,7 +167,6 @@ public static partial class NativeBenchHost
                 RequireAvailable(session, opened.Stamp.Connection);
                 if (opened.Stamp != source.Source || opened.Stamp.Connection != source.SchemaConnection)
                     throw new HttpFailure(409, "SourceChanged", "The prepared source or principal changed. No admission or Bench rule was saved.");
-                _ = ConnectionObservation(await panel.ValidateDisplayAccessAsync(opened, ct), app.Logger);
                 _ = await CheckConnectionRequestAsync(panel, session, request, ct);
                 var changed = !definition.Connections.Contains(opened.Stamp.Connection);
                 var retained = sessions.ReadState(session);

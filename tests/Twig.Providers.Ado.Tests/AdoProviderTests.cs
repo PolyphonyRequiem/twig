@@ -694,6 +694,114 @@ public sealed partial class AdoProviderTests
     }
 
     [Theory]
+    [InlineData("Contoso.Epic", false)]
+    [InlineData("Contoso.Issue", true)]
+    public async Task RequiredCreateFieldsUseNativeEvidenceWithoutWritingIt(string type, bool explicitAssertions)
+    {
+        using var f = await Fixture.Create(type);
+        f.Http.IncludeClassification = true;
+        var (schema, draft) = await ClassificationSeed(f, explicitAssertions);
+        var op = CreateOperation(draft);
+        var evidence = (await f.Provider.ResolveCreateEvidenceAsync(schema, op, default)).Value;
+        evidence["System.WorkItemType"].ShouldBe(FieldValue.String(type));
+        evidence["System.AreaId"].ShouldBe(FieldValue.Integer(18));
+        evidence["System.IterationId"].ShouldBe(FieldValue.Integer(15));
+        var unresolved = await f.Proposal(op);
+        (await f.Provider.ImportAsync(unresolved, unresolved.Digest)).IsSuccess.ShouldBeFalse();
+        var proposal = await f.Proposal(op with { CreateEvidence = evidence });
+        proposal.Digest.ShouldNotBe(unresolved.Digest);
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var retained = (await f.Stored()).Proposals.Single();
+        retained.Digest.ShouldBe(proposal.Digest);
+        retained.Operations.Single().CreateEvidence.ShouldBe(evidence);
+        var applied = (await f.Provider.ApplyAsync(retained, 0, Guid.NewGuid(), default)).Value;
+        applied.Status.ShouldBe(OpStatus.Applied);
+        (await f.Provider.VerifyAsync(retained, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        using var patch = JsonDocument.Parse(f.Http.LastPayload.ShouldNotBeNull());
+        patch.RootElement.EnumerateArray().Select(entry => entry.GetProperty("path").GetString())
+            .ShouldBe(["/fields/System.AreaPath", "/fields/System.IterationPath", "/fields/System.State"]);
+        f.Access.SawDurableFence.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("missing-path", ErrorCode.Unavailable)]
+    [InlineData("unknown-path", ErrorCode.NotFound)]
+    [InlineData("unqualified-path", ErrorCode.Conflict)]
+    [InlineData("wrong-type", ErrorCode.Conflict)]
+    [InlineData("wrong-id", ErrorCode.Conflict)]
+    [InlineData("missing-id", ErrorCode.Unavailable)]
+    [InlineData("wrong-returned-path", ErrorCode.Conflict)]
+    [InlineData("wrong-structure", ErrorCode.Conflict)]
+    public async Task IncompleteOrConflictingNativeCreateEvidenceIsRefused(string defect, ErrorCode expected)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IncludeClassification = true;
+        var (schema, draft) = await ClassificationSeed(f, false);
+        var fields = draft.Changes;
+        fields = defect switch
+        {
+            "missing-path" => new FieldValues(fields.Where(field => field.Key != "System.IterationPath")),
+            "unknown-path" => fields.Set("System.IterationPath", FieldValue.String(@"Native Project\Unknown")),
+            "unqualified-path" => fields.Set("System.IterationPath", FieldValue.String("Sprint")),
+            "wrong-type" => fields.Set("System.WorkItemType", FieldValue.String("Unselected type")),
+            "wrong-id" => fields.Set("System.IterationId", FieldValue.Integer(999)),
+            _ => fields,
+        };
+        f.Http.PlanningDefect = defect;
+        var op = new Op("create", OpKind.Create, draft.Key, fields: fields, type: draft.Type,
+            concurrency: ConcurrencyMode.ObservedNonAtomic);
+        (await f.Provider.ResolveCreateEvidenceAsync(schema, op, default)).Error.Code.ShouldBe(expected);
+        (await f.Stored()).Journal.ShouldBeEmpty();
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemappedClassificationRefusesImportOrApplyBeforeNativeDispatch(bool imported)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IncludeClassification = true;
+        var (schema, draft) = await ClassificationSeed(f, false);
+        var op = CreateOperation(draft);
+        var evidence = (await f.Provider.ResolveCreateEvidenceAsync(schema, op, default)).Value;
+        var proposal = await f.Proposal(op with { CreateEvidence = evidence });
+        if (imported)
+            (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        f.Http.IterationChildId++;
+        if (imported)
+        {
+            (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Error.Code.ShouldBe(ErrorCode.Conflict);
+            (await f.Stored()).Journal.Single().Status.ShouldBe(OpStatus.Planned);
+        }
+        else
+        {
+            (await f.Provider.ImportAsync(proposal, proposal.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
+            (await f.Stored()).Journal.ShouldBeEmpty();
+        }
+        f.Http.Writes.ShouldBe(0);
+        f.Access.SawDurableFence.ShouldBeFalse();
+    }
+
+    private static Op CreateOperation(Draft draft) => new("create", OpKind.Create, draft.Key, fields: draft.Changes,
+        type: draft.Type, concurrency: ConcurrencyMode.ObservedNonAtomic);
+
+    private static async Task<(ProcessSchema Schema, Draft Draft)> ClassificationSeed(Fixture f, bool explicitAssertions)
+    {
+        var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
+            ("System.AreaPath", FieldValue.String(@"Native Project\Area")),
+            ("System.IterationPath", FieldValue.String(@"Native Project\Sprint\Release 1")));
+        if (explicitAssertions)
+            fields = fields.Set("System.WorkItemType", FieldValue.String(f.Http.Type))
+                .Set("System.AreaId", FieldValue.Integer(18)).Set("System.IterationId", FieldValue.Integer(15));
+        var draft = new Draft(ItemKey.Local(Guid.NewGuid()), f.Http.Type, null, fields);
+        var stored = await f.Stored();
+        (await f.Store.CommitAsync(f.Connection, stored.Version, new(stored.Version + 1, drafts: [draft]), default))
+            .IsSuccess.ShouldBeTrue();
+        return (await f.Schema(), draft);
+    }
+
+    [Theory]
     [InlineData("network")]
     [InlineData("canceled")]
     [InlineData("malformed")]
@@ -1378,6 +1486,7 @@ public sealed partial class AdoProviderTests
         internal string? NativeRulesJson;
         internal bool IncludeDateField;
         internal bool IncludeClassification;
+        internal int IterationChildId = 15;
         internal string Initial;
         internal string Completed;
         internal string NativeActor = Fixture.Actor;
@@ -1545,6 +1654,25 @@ public sealed partial class AdoProviderTests
             if (path.Contains("/classificationnodes/"))
             {
                 if (PlanningDefect == "denied") return Status(403);
+                if (query.Contains("$depth=0", StringComparison.Ordinal))
+                {
+                    var exactNode = path[(path.IndexOf("/classificationnodes/", StringComparison.Ordinal) + "/classificationnodes/".Length)..];
+                    var expected = exactNode switch
+                    {
+                        "areas/Area" => (Path: @"\Native Project\Area\Area", Kind: "area", Id: 18),
+                        "iterations/Sprint/Release 1" => (Path: @"\Native Project\Iteration\Sprint\Release 1", Kind: "iteration", Id: IterationChildId),
+                        _ => (Path: "", Kind: "", Id: 0),
+                    };
+                    if (expected.Id == 0) return Status(404);
+                    var node = new JsonObject
+                    {
+                        ["path"] = PlanningDefect == "wrong-returned-path" ? expected.Path + @"\different" : expected.Path,
+                        ["structureType"] = PlanningDefect == "wrong-structure" ? "other" : expected.Kind,
+                        ["hasChildren"] = true, // A leaf response need not include its children.
+                    };
+                    if (PlanningDefect != "missing-id") node["id"] = expected.Id;
+                    return Json(node.ToJsonString());
+                }
                 var area = path.EndsWith("/areas");
                 var structure = area ? "Area" : "Iteration";
                 var child = area ? "Area" : "Sprint";
@@ -1626,6 +1754,11 @@ public sealed partial class AdoProviderTests
                     if (Defect == "readback-canceled") throw new OperationCanceledException("Synthetic readback cancellation");
                     var revision = int.Parse(tail[2], System.Globalization.CultureInfo.InvariantCulture);
                     var root = _revisions[(id, revision)].DeepClone();
+                    if (IncludeClassification && !query.Contains("$expand=all", StringComparison.OrdinalIgnoreCase))
+                    {
+                        root["fields"]!.AsObject().Remove("System.AreaId");
+                        root["fields"]!.AsObject().Remove("System.IterationId");
+                    }
                     if (Defect == "readback-mismatch") root["fields"]!["Custom.Empty"] = "not edited";
                     if (Defect == "resource-readback-mismatch") root["relations"] = new JsonArray();
                     if (Defect == "creation-links-readback-mismatch") root["relations"]!.AsArray().RemoveAt(1);
@@ -1731,7 +1864,7 @@ public sealed partial class AdoProviderTests
                 var names = new[] { "System.State", "System.History", "Custom.Closure", "Custom.Points", "Custom.Owner", "Custom.Empty", "Custom.Unset" }
                     .Concat(Defect == "empty-typed-rule" ? ["Custom.Quantity", "Custom.Toggle", "Custom.Date"] : [])
                     .Concat(IncludeDateField ? ["Custom.Date"] : [])
-                    .Concat(IncludeClassification ? ["System.AreaId", "System.AreaPath", "System.IterationId", "System.IterationPath"] : [])
+                    .Concat(IncludeClassification ? ["System.WorkItemType", "System.AreaId", "System.AreaPath", "System.IterationId", "System.IterationPath"] : [])
                     .Concat(Defect == "description-html" ? ["System.Description"] : []);
                 var global = !path.Contains("/work/processes/");
                 response = Rows(string.Join(",", names.Select(name =>
@@ -1739,13 +1872,15 @@ public sealed partial class AdoProviderTests
                     var field = new JsonObject { ["referenceName"] = name, ["type"] = name == "Custom.Points" ? "double" : "string" };
                     if (name == "System.Description") field["type"] = "html";
                     var classificationId = name is "System.AreaId" or "System.IterationId";
+                    var createAssigned = classificationId || name == "System.WorkItemType";
                     if (name == "Custom.Quantity" || classificationId) field["type"] = "integer";
+                    if (name is "System.AreaPath" or "System.IterationPath") field["type"] = "treePath";
                     if (name == "Custom.Toggle") field["type"] = "boolean";
                     if (name == "Custom.Date") field["type"] = "dateTime";
                     if (Defect == "unknown-field-kind" && name == "Custom.Empty") field["type"] = "unrecognized";
                     if (global)
                     {
-                        field["isIdentity"] = name == "Custom.Owner"; field["readOnly"] = classificationId; field["isPicklist"] = false;
+                        field["isIdentity"] = name == "Custom.Owner"; field["readOnly"] = createAssigned; field["isPicklist"] = false;
                         if (Defect == "supported-rules" && name == "Custom.Points")
                         {
                             field["isPicklist"] = true; field["isPicklistSuggested"] = false; field["picklistId"] = Fixture.Process;
@@ -1760,7 +1895,7 @@ public sealed partial class AdoProviderTests
                             SawExplicitRequiredFlag |= field["required"]?.GetValue<bool>() == true;
                         }
                         else if (Defect == "malformed-required") field["required"] = "not-a-boolean";
-                        else field["required"] = classificationId;
+                        else field["required"] = createAssigned;
                         if (Defect == "default-value" && name == "Custom.Empty") field["defaultValue"] = "server default";
                         if (Defect == "opaque-default-value" && name == "Custom.Owner") field["defaultValue"] = "@unresolved";
                     }
@@ -1844,6 +1979,13 @@ public sealed partial class AdoProviderTests
                 else throw new InvalidOperationException("Unexpected patch operation");
             }
             item["rev"] = item["rev"]!.GetValue<int>() + 1;
+            if (create && IncludeClassification)
+            {
+                var fields = item["fields"]!;
+                fields["System.WorkItemType"] = path.Split('/')[^1][1..];
+                fields["System.AreaId"] = fields["System.AreaPath"]!.GetValue<string>() == @"Native Project\Area" ? 18 : 8;
+                fields["System.IterationId"] = fields["System.IterationPath"]!.GetValue<string>() == @"Native Project\Sprint\Release 1" ? IterationChildId : 5;
+            }
             if (Defect == "supported-rules" && item["fields"]!["System.State"]!.GetValue<string>() == Completed)
                 item["fields"]!["Custom.Closure"] = "from native supplier";
             Items[id] = item;

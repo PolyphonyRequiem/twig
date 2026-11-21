@@ -103,7 +103,8 @@ internal sealed class AuthLoginCommand
                 new RenderTree.RenderNode.Text($"  issuer:        {identity.Issuer}"),
                 new RenderTree.RenderNode.Text($"  authorityHost: {identity.AuthorityHost}"),
                 new RenderTree.RenderNode.Text($"  account:       {identity.AccountName ?? "(unknown)"}"),
-                new RenderTree.RenderNode.Hint($"Bind it to a project with 'twig connection bind --org <org> --project <project> --identity {identity.Name} --default'."),
+                new RenderTree.RenderNode.Hint("Register the project with 'twig connection add --provider ado --org <org> --project <project>'."),
+                new RenderTree.RenderNode.Hint($"Bind this identity with 'twig connection bind --provider ado --org <org> --project <project> --identity {identity.Name}'."),
             })
             : (outputFormat ?? string.Empty).Equals("minimal", StringComparison.OrdinalIgnoreCase)
                 ? new RenderTree.RenderNode.Text(message)

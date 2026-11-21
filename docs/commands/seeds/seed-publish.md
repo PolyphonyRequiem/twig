@@ -20,8 +20,11 @@ publication is refused. Prepares ordered creation intent through Core with the
 original UUIDs, schema, policy, digest and attempts.
 
 `--dry-run` retains the exact unattempted proposal digest without provider
-creation. The non-dry-run command **publishes** through the existing internally
-digest-bound save path; it is not an external `--confirm` review prompt.
+creation. Repeating the preview against unchanged workspace state and provider
+observations reuses that digest. The non-dry-run command reuses the retained
+proposal when it still matches; otherwise it prepares fresh intent. It
+**publishes** through the existing internally digest-bound save path; it is not
+an external `--confirm` review prompt.
 Review intent before issuing it. For an explicitly confirmed file, use
 `proposal apply --file ... --confirm <digest>`.
 

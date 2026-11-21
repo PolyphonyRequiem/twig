@@ -365,9 +365,24 @@ internal static class SessionTests
         Expect("SessionRevoked", () => restarted.RenewOwner(storeId, new(null, profile, storeId), null));
         var pointer = Path.Combine(root, "profiles", $"default-profile-{storeId:D}");
         File.WriteAllText(pointer, "invalid");
-        try { restarted.ResolveOwnerProfile(storeId, new(null, null)); }
-        catch (InvalidDataException) { return; }
-        throw new InvalidOperationException("A malformed default must fail rather than silently replace the profile.");
+        Expect("DefaultProfileUnavailable", () => restarted.ResolveOwnerProfile(storeId, new(null, null)));
+        Check((await host.Send("POST", "/api/v1/windows-profile",
+            new OwnerProfileBody(storeId, null, RecoverMissingDefault: true), owner.ContentCapability, null, ct)).Status == 401,
+            "A content capability cannot replace the owner default.");
+        var recovered = await host.Send("POST", "/api/v1/windows-profile",
+            new OwnerProfileBody(storeId, null, RecoverMissingDefault: true), null, "same-owner", ct);
+        Check(recovered.Status == 200 && recovered.Body!["profileId"]!.GetValue<Guid>() != profile,
+            "Explicit owner recovery creates a fresh profile instead of adopting old state.");
+        Check(restarted.ResolveOwnerProfile(storeId, new(null, null)).ProfileId == recovered.Body!["profileId"]!.GetValue<Guid>(),
+            "The replacement pointer remains valid for subsequent passive resolution.");
+        Expect("ProfileRecoveryNotRequired",
+            () => restarted.ResolveOwnerProfile(storeId, new(storeId, null, RecoverMissingDefault: true)));
+        var orphan = Guid.NewGuid();
+        File.WriteAllText(pointer, orphan.ToString("D"));
+        Expect("DefaultProfileUnavailable", () => restarted.ResolveOwnerProfile(storeId, new(null, null)));
+        Check(restarted.ResolveOwnerProfile(storeId, new(null, null, RecoverMissingDefault: true)).ProfileId != orphan,
+            "A fresh browser origin can explicitly recover a pointer to a missing profile.");
+        Expect("SessionRevoked", () => restarted.RenewOwner(storeId, new(null, profile, storeId), null));
     }
 
     internal static void OwnerLifetime(string root)

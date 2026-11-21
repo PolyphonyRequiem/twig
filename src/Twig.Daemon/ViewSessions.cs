@@ -98,6 +98,8 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                     throw new HttpFailure(409, "ViewUnavailable", "Open the current Canvas view before resolving its session profile.");
                 if (view.RuntimeContext is { } runtime)
                 {
+                    if (body.RecoverMissingDefault)
+                        throw new HttpFailure(409, "ProfileRecoveryNotRequired", "Session profiles do not use the default profile.");
                     var contextual = ContextualProfile(instance, runtime);
                     var contextualProbe = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = contextual };
                     using var contextualLease = ProfileLease(contextualProbe);
@@ -107,6 +109,9 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             }
             var path = DefaultProfilePath(instance);
             Guid? selected = null;
+            var replaceDefault = false;
+            if (body.RecoverMissingDefault && body.ProfileId is not null)
+                throw new HttpFailure(400, "InvalidInput", "Do not supply an old profile when recovering the default.");
             if (body.StoreId == instance && body.ProfileId is { } prior)
             {
                 var previous = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = prior };
@@ -117,14 +122,22 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             }
             if (selected is null && File.Exists(path))
             {
-                if (new FileInfo(path).Length != 36 || !Guid.TryParseExact(File.ReadAllText(path), "D", out var retained)
-                    || retained == Guid.Empty)
-                    throw new InvalidDataException("The retained owner profile identity is invalid.");
-                selected = retained;
-                var retainedSession = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = retained };
-                if (!File.Exists(NativePath(retainedSession)))
-                    throw new InvalidDataException("The retained owner profile is unavailable.");
+                if (new FileInfo(path).Length == 36 && Guid.TryParseExact(File.ReadAllText(path), "D", out var retained)
+                    && retained != Guid.Empty)
+                {
+                    var retainedSession = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = retained };
+                    if (File.Exists(NativePath(retainedSession))) selected = retained;
+                }
+                if (selected is null)
+                {
+                    if (!body.RecoverMissingDefault)
+                        throw new HttpFailure(409, "DefaultProfileUnavailable",
+                            "The saved default profile is invalid or missing. Start a fresh profile explicitly for this store.");
+                    replaceDefault = true;
+                }
             }
+            if (body.RecoverMissingDefault && !replaceDefault)
+                throw new HttpFailure(409, "ProfileRecoveryNotRequired", "The default is no longer broken. Use Sign in to continue.");
             var profile = selected ?? Guid.NewGuid();
             var probe = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = profile };
             using (var lease = ProfileLease(probe))
@@ -132,7 +145,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                 var document = ReadDocument(probe);
                 if (!File.Exists(NativePath(probe))) WriteDocument(probe, document);
             }
-            if (!File.Exists(path)) WriteAtomic(path, profile.ToString("D"));
+            if (replaceDefault || !File.Exists(path)) WriteAtomic(path, profile.ToString("D"));
             return new(instance, profile);
         }
     }

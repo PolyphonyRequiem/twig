@@ -64,7 +64,9 @@ public sealed partial class NativeScopeBirthTests : IDisposable
         (await existing.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
         (await NativeCoreExecution.RegisterAsync(Registry, origin with { Instance = existing.InstanceId, DatabasePath = existing.DatabasePath }, default))
             .IsSuccess.ShouldBeTrue();
-        (await NativeCoreExecution.PublishingAsync(Registry, default)).IsSuccess.ShouldBeFalse();
+        using var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System);
+        (await registry.ReadCoreGateAsync(default)).Value.Active.ShouldBeFalse();
+        (await NativeCoreExecution.PublishingAsync(Registry, default)).IsSuccess.ShouldBeTrue();
     }
 
     private async Task<(UserBenchStore User, UserBenchSnapshot Library, Bench Bench, NativeBenchPlan Plan, NativeCoreStoreReference Origin)> Reserve()

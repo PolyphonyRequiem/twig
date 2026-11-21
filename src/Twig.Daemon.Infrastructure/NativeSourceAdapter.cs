@@ -233,34 +233,23 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         try
         {
             check = NativeCacheCheck.Begin(CheckPath(binding), explicitReauthorization: true, ct);
-            if (File.Exists(PathFor(binding)))
+            var cached = await Load(binding, ct).ConfigureAwait(false);
+            if (cached.IsSuccess && cached.Value.Stamp.ToNative() == local.Source)
             {
-                var cached = await Load(binding, ct).ConfigureAwait(false);
-                if (!cached.IsSuccess) return Refuse(cached.Error, check);
-                if (cached.Value.Stamp.ToNative() == local.Source)
-                {
-                    var online = await NativeAsync(nativeLocator,
-                        token => gateway.ReadOnlineAsync(nativeLocator, local.Source, token), ct).ConfigureAwait(false);
-                    if (!online.IsSuccess) return Refuse(online.Error, check);
-                    if (Binding(online.Value.Source) != binding)
-                        return Refuse(new(ErrorCode.Conflict, "Native source changed during connection selection."), check);
-                    var schema = cached.Value.Schema.ToCore(binding.Connection) with
-                    { Planning = online.Value.Planning, PlanningCalendars = online.Value.PlanningCalendars, Memberships = online.Value.Memberships };
-                    check.Complete(ct);
-                    changes.Publish(0);
-                    return Result<SourceObservation>.Ok(new(binding, online.Value.Snapshot, schema,
-                        online.Value.CacheReadAt, cached.Value.OnlineObservedAt, ObservationMode.OnlineValidatedCache)
-                        { WorkspaceExclusions = online.Value.WorkspaceExclusions, SelectedBenchId = online.Value.SelectedBenchId });
-                }
+                var online = await NativeAsync(nativeLocator,
+                    token => gateway.ReadOnlineAsync(nativeLocator, local.Source, token), ct).ConfigureAwait(false);
+                if (!online.IsSuccess) return Refuse(online.Error, check);
+                if (Binding(online.Value.Source) != binding)
+                    return Refuse(new(ErrorCode.Conflict, "Native source changed during connection selection."), check);
+                var schema = cached.Value.Schema.ToCore(binding.Connection) with
+                { Planning = online.Value.Planning, PlanningCalendars = online.Value.PlanningCalendars, Memberships = online.Value.Memberships };
+                check.Complete(ct);
+                changes.Publish(0);
+                return Result<SourceObservation>.Ok(new(binding, online.Value.Snapshot, schema,
+                    online.Value.CacheReadAt, cached.Value.OnlineObservedAt, ObservationMode.OnlineValidatedCache)
+                    { WorkspaceExclusions = online.Value.WorkspaceExclusions, SelectedBenchId = online.Value.SelectedBenchId });
             }
-            var observed = await NativeAsync(nativeLocator,
-                token => gateway.ReadAsync(nativeLocator, local.Source, true, token), ct).ConfigureAwait(false);
-            if (!observed.IsSuccess) return Refuse(observed.Error, check);
-            var result = await StoreOnline(observed.Value, binding, ct).ConfigureAwait(false);
-            if (!result.IsSuccess) return result;
-            check.Complete(ct);
-            changes.Publish(0);
-            return result;
+            return await ObserveAndRetainAsync(nativeLocator, local.Source, binding, check, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (StorageFailure(ex))
         {
@@ -474,24 +463,39 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         {
             check = NativeCacheCheck.Begin(CheckPath(source.Binding), explicitReauthorization: true, ct);
             var cached = await Load(source.Binding, ct).ConfigureAwait(false);
-            var expected = cached.IsSuccess ? cached.Value.Stamp.ToNative() : null;
-            var observed = await NativeAsync(source.NativeLocator,
-                token => gateway.ReadAsync(source.NativeLocator, expected, true, token), ct).ConfigureAwait(false);
-            if (!observed.IsSuccess)
+            NativeSourceStamp expected;
+            if (cached.IsSuccess)
+                expected = cached.Value.Stamp.ToNative();
+            else
             {
-                return Refuse(observed.Error, check);
+                // Recover the stamp locally, but do not query a replacement source or principal.
+                var local = await NativeAsync(source.NativeLocator,
+                    token => gateway.ReadAsync(source.NativeLocator, null, false, token), ct).ConfigureAwait(false);
+                if (!local.IsSuccess) return Refuse(local.Error, check);
+                expected = local.Value.Source;
+                if (Binding(expected) != source.Binding)
+                    return Refuse(new(ErrorCode.Conflict, "Explicit reauthorization found a different source; register it separately."), check);
             }
-            if (Binding(observed.Value.Source) != source.Binding)
-                return Refuse(new(ErrorCode.Conflict, "Explicit reauthorization found a different source; register it separately."), check);
-            var result = await StoreOnline(observed.Value, source.Binding, ct).ConfigureAwait(false);
-            if (result.IsSuccess) { check.Complete(ct); changes.Publish(0); }
-            return result;
+            return await ObserveAndRetainAsync(source.NativeLocator, expected, source.Binding, check, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (StorageFailure(ex))
         {
             return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Cannot retain or revalidate native evidence; this source remains unavailable.");
         }
         finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); gate.Release(); }
+    }
+
+    private async Task<Result<SourceObservation>> ObserveAndRetainAsync(string locator, NativeSourceStamp expected,
+        SourceBinding binding, NativeCacheCheck check, CancellationToken ct)
+    {
+        var observed = await NativeAsync(locator,
+            token => gateway.ReadAsync(locator, expected, true, token), ct).ConfigureAwait(false);
+        if (!observed.IsSuccess) return Refuse(observed.Error, check);
+        if (observed.Value.Source != expected)
+            return Refuse(new(ErrorCode.Conflict, "Explicit reauthorization found a different source; register it separately."), check);
+        var result = await StoreOnline(observed.Value, binding, ct).ConfigureAwait(false);
+        if (result.IsSuccess) { check.Complete(ct); changes.Publish(0); }
+        return result;
     }
 
     private async Task<Result<SourceObservation>> StoreOnline(NativeSourceObservation observed, SourceBinding expected, CancellationToken ct)

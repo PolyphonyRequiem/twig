@@ -131,9 +131,7 @@ public sealed class NativePlanReview
                         if (preview.Value.Proposal is { } proposal)
                         {
                             var effect = proposal.Operations.Single(op => op.Item == intent.Item);
-                            operations.Add(new("plan-" + operations.Count, effect.Kind, effect.Item, effect.ExpectedRevision,
-                                effect.Fields, effect.Type, effect.Other, effect.Relation, effect.Origin, effect.Body,
-                                effect.Concurrency, effect.ExpectedLocalVersion, effect.Resource, effect.Links));
+                            operations.Add(effect.WithId("plan-" + operations.Count));
                         }
                     }
                     Proposal? combined = null;

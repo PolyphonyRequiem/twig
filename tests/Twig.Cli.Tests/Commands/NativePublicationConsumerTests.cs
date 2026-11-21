@@ -1491,17 +1491,41 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var commands = new TwigCommands(root);
             (await commands.SeedNew(title: "Parented rooted seed", type: "Task", parent: 42, output: "json"))
                 .ShouldBe(0, stderr.ToString());
-            using var created = JsonDocument.Parse(stdout.ToString());
-            var alias = created.RootElement.GetProperty("id").GetInt32();
             _transport.CommittedWrites.ShouldBe(0);
-            stdout.GetStringBuilder().Clear();
-            (await commands.SeedPublish(alias, linkBranch: "feature/rooted", repo: "FixtureRepo", output: "human")).ShouldBe(0, stderr.ToString());
+            async Task<(CoreModel.StoreSnapshot State, string Digest)> PreviewAsync()
+            {
+                stdout.GetStringBuilder().Clear();
+                (await commands.SeedPublish(all: true, dryRun: true, linkBranch: "feature/rooted", repo: "FixtureRepo"))
+                    .ShouldBe(0, stderr.ToString());
+                var preview = (await store.ReadAsync(connection, default)).Value;
+                var digest = preview.Proposals.Single(proposal => stdout.ToString().Contains(proposal.Digest, StringComparison.Ordinal)).Digest;
+                _transport.CommittedWrites.ShouldBe(0);
+                return (preview, digest);
+            }
+
+            var (first, firstDigest) = await PreviewAsync();
+            var (repeated, repeatedDigest) = await PreviewAsync();
+            repeated.Version.ShouldBe(first.Version);
+            repeatedDigest.ShouldBe(firstDigest);
+            repeated.Journal.ShouldHaveSingleItem().Digest.ShouldBe(firstDigest);
+
+            _transport.SetItem(42, "Updated parent observation", _transport.RevisionOf(42) + 1, Actor);
+            var (changed, changedDigest) = await PreviewAsync();
+            changedDigest.ShouldNotBe(firstDigest);
+            var (unchanged, unchangedDigest) = await PreviewAsync();
+            unchanged.Version.ShouldBe(changed.Version);
+            unchangedDigest.ShouldBe(changedDigest);
+            (await commands.SeedPublish(all: true, linkBranch: "feature/rooted", repo: "FixtureRepo"))
+                .ShouldBe(0, stderr.ToString());
             _transport.PostCount.ShouldBe(1);
             _transport.PatchAttempts.ShouldBe(0, "parenting must be in the creation call, not a reachable post-create writer");
             var snapshot = (await store.ReadAsync(connection, default)).Value;
             snapshot.Drafts.ShouldBeEmpty();
-            snapshot.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
+            snapshot.Proposals.Length.ShouldBe(2, "publishing must not replace the retained digest");
+            snapshot.Journal.Single(row => row.Digest == firstDigest).Status.ShouldBe(CoreModel.OpStatus.Planned);
+            snapshot.Journal.Single(row => row.Digest == changedDigest).Status.ShouldBe(CoreModel.OpStatus.Verified);
             var mapping = snapshot.Mappings.Single();
+            mapping.ProposalDigest.ShouldBe(changedDigest);
             snapshot.Items.Single(item => item.Key == mapping.Remote).Resources.ShouldContain(new CoreModel.ResourceLink("ArtifactLink",
                 "vstfs:///Git/Ref/22222222-2222-2222-2222-222222222222/44444444-4444-4444-4444-444444444444/GBfeature%2Frooted", "Branch"));
             snapshot.Relationships.ShouldContain(new CoreModel.Relationship(
@@ -1662,26 +1686,51 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(alias, output: "human")).ShouldBe(1);
             _transport.PostCount.ShouldBe(1, "the publication UUID must not be recreated after permanent mapping");
+            _transport.CreateAreaId = 71;
             var unknownSeed = (await admitted.Workspace.StageSeedAsync("Fixture.Task",
                 new([
                     KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Unacknowledged rooted creation")),
                     KeyValuePair.Create("System.State", CoreModel.FieldValue.String("To Do")),
+                    KeyValuePair.Create("System.AreaPath", CoreModel.FieldValue.String("Project")),
                 ]), default, Guid.CreateVersion7())).Value;
             stdout.GetStringBuilder().Clear();
             (await commands.SeedView("json")).ShouldBe(0);
             using var unknownView = JsonDocument.Parse(stdout.ToString());
             var unknownAlias = unknownView.RootElement[0].GetProperty("id").GetInt32();
+            (await commands.SeedPublish(unknownAlias, dryRun: true)).ShouldBe(0, stderr.ToString());
+            var originalReview = (await store.ReadAsync(connection, default)).Value.Proposals
+                .Single(proposal => proposal.Operations.Single().Item == unknownSeed.Key);
+            originalReview.Operations.Single().CreateEvidence["System.AreaId"].ShouldBe(CoreModel.FieldValue.Integer(71));
+            var reviewFile = Path.Combine(paths.TwigDir, "review.json");
+            await File.WriteAllBytesAsync(reviewFile, CoreModel.Core.ProposalBytes(originalReview));
+            _transport.CreateAreaId = 72;
+            (await commands.PlanApply(reviewFile, originalReview.Digest, "json")).ShouldBe(1);
+            stderr.ToString().ShouldContain("Native create field evidence is missing or changed");
+            _transport.PostCount.ShouldBe(1, "an exact approval must not substitute newly discovered classification evidence");
+            var refused = (await store.ReadAsync(connection, default)).Value;
+            refused.Journal.Single(row => row.Digest == originalReview.Digest).Status.ShouldBe(CoreModel.OpStatus.Planned);
+            var reviewedVersion = refused.Version;
+            (await commands.SeedPublish(unknownAlias, dryRun: true)).ShouldBe(0, stderr.ToString());
+            var fresh = (await store.ReadAsync(connection, default)).Value;
+            var retained = fresh.Proposals.Single(proposal => proposal.ExpectedStoreVersion == reviewedVersion);
+            retained.Digest.ShouldNotBe(originalReview.Digest);
+            retained.Operations.Single().CreateEvidence["System.AreaId"].ShouldBe(CoreModel.FieldValue.Integer(72));
+            var retainedDigest = retained.Digest;
+            (await commands.SeedPublish(unknownAlias, dryRun: true)).ShouldBe(0, stderr.ToString());
+            (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(fresh.Version);
             _transport.AfterCommit = () => throw new IOException("Fixture lost create response after native commit");
             stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(unknownAlias, output: "human")).ShouldBe(1);
             var unknown = (await store.ReadAsync(connection, default)).Value;
             unknown.Drafts.ShouldHaveSingleItem().Key.ShouldBe(unknownSeed.Key);
             unknown.Mappings.Length.ShouldBe(1, "unknown create must not guess the native identity");
-            unknown.Journal.ShouldContain(row => row.Status == CoreModel.OpStatus.Indeterminate);
+            unknown.Journal.Single(row => row.Digest == retainedDigest).Status.ShouldBe(CoreModel.OpStatus.Indeterminate);
             _transport.PostCount.ShouldBe(2);
             stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(unknownAlias, output: "human")).ShouldBe(1);
             _transport.PostCount.ShouldBe(2, "the unresolved UUID must fence replacement proposals, not only the old digest");
+            (await commands.PlanApply(reviewFile, originalReview.Digest, "json")).ShouldBe(1);
+            _transport.PostCount.ShouldBe(2, "an earlier approval cannot replay an uncertain UUID");
             var requestsBeforeUnknownDiscard = _transport.TotalRequests;
             (await commands.SeedReconcile("json")).ShouldBe(1);
             _transport.PostCount.ShouldBe(2, "reconciliation cannot guess or replay the unknown creation UUID");
@@ -1857,6 +1906,20 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         {
             Console.SetOut(stdout);
             Console.SetError(stderr);
+            if (explicitBinding && !explicitStore)
+            {
+                var twigDir = Path.Combine(root, ".twig");
+                Directory.CreateDirectory(twigDir);
+                _transport.FailProjectMetadataOnce = true;
+                Run().ShouldBe(1);
+                Directory.EnumerateFileSystemEntries(twigDir).Select(Path.GetFileName)
+                    .ShouldBe(["binding-operation.lock"], stderr.ToString());
+                using var retryError = JsonDocument.Parse(stderr.ToString());
+                retryError.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("Retry 'twig init' in this checkout");
+                (await File.ReadAllBytesAsync(Path.Combine(root, "twig.json"))).ShouldBe(manifestBytes);
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+            }
             Run().ShouldBe(0, stderr.ToString());
             Directory.Exists(Path.Combine(root, ".twig", "cache")).ShouldBeFalse("native init must never initialize the legacy cache");
             registrations.ShouldNotBeNull();
@@ -2477,9 +2540,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public Func<int, Task>? BeforeCurrentItemLookup { get; set; }
         public Func<Task>? AfterCommit { get; set; }
         public bool CoreMetadataEnabled { get; set; }
+        public int? CreateAreaId { get; set; }
         public bool IncludeIncompleteOtherType { get; set; }
         public int? OtherTypeItem { get; set; }
         public string? ObservedPrincipalOverride { get; set; }
+        public bool FailProjectMetadataOnce { get; set; }
         public Func<Task>? BeforeProjectMetadata { get; set; }
         public bool CloseGateEnabled { get; set; }
         public bool RichTextEnabled { get; set; }
@@ -2647,6 +2712,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             }
             if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata)
             {
+                if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && FailProjectMetadataOnce)
+                {
+                    FailProjectMetadataOnce = false;
+                    metadata.Dispose();
+                    return Reply(HttpStatusCode.ServiceUnavailable, new { message = "Fixture project metadata temporarily unavailable" });
+                }
                 if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && BeforeProjectMetadata is { } before)
                     await before();
                 return metadata;
@@ -2679,6 +2750,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                     return Reply(rejectedCreate, new { message = "Fixture definitive creation refusal" });
                 }
                 using var create = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+                create.RootElement.EnumerateArray().ShouldNotContain(operation =>
+                    operation.GetProperty("path").GetString() == "/fields/System.AreaId"
+                    || operation.GetProperty("path").GetString() == "/fields/System.WorkItemType");
                 var title = create.RootElement.EnumerateArray()
                     .Single(operation => operation.GetProperty("path").GetString() == "/fields/System.Title")
                     .GetProperty("value").GetString()!;
@@ -2915,6 +2989,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
 
         private HttpResponseMessage? Metadata(string path, string query)
         {
+            if (CreateAreaId is { } area && path.EndsWith("/classificationnodes/areas", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { id = area, path = @"\Project\Area", structureType = "area" });
             if (path.Contains("/_apis/git/repositories/", StringComparison.Ordinal))
             {
                 if (path.EndsWith("/refs", StringComparison.Ordinal))
@@ -2932,11 +3008,13 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             {
                 var names = new[] { "System.Title", "System.State", "System.TeamProject", "System.WorkItemType",
                     "System.AreaPath", "System.IterationPath", "System.AssignedTo", "System.History" }
+                    .Concat(CreateAreaId is not null ? ["System.AreaId"] : Array.Empty<string>())
                     .Concat(CloseGateEnabled ? ["Fixture.CloseEvidence"] : Array.Empty<string>())
                     .Concat(RichTextEnabled ? ["System.Description"] : Array.Empty<string>());
                 return Reply(HttpStatusCode.OK, new { value = names.Select(name => new
                 {
-                    referenceName = name, type = name == "System.Description" ? "html" : "string", readOnly = name is "System.TeamProject" or "System.WorkItemType",
+                    referenceName = name, type = name switch { "System.Description" => "html", "System.AreaId" => "integer", _ => "string" },
+                    readOnly = name is "System.TeamProject" or "System.WorkItemType" or "System.AreaId",
                     isIdentity = name == "System.AssignedTo", isPicklist = false, required = false
                 }).ToArray() });
             }

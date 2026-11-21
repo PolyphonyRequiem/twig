@@ -157,7 +157,8 @@ internal sealed class AuthPatCommand(
                 new RenderTree.RenderNode.Text($"  adoPrincipalId: {identity.AdoPrincipalId ?? "(unknown)"}"),
                 new RenderTree.RenderNode.Text($"  adoAuthority:   {identity.AdoAuthority ?? "(unknown)"}"),
                 new RenderTree.RenderNode.Text($"  account:        {identity.AccountName ?? "(unknown)"}"),
-                new RenderTree.RenderNode.Hint($"Bind it with 'twig connection bind --identity {identity.Name} --default' (inside an attached workspace) or add explicit --org/--project."),
+                new RenderTree.RenderNode.Hint("Register the project with 'twig connection add --provider ado --org <org> --project <project>'."),
+                new RenderTree.RenderNode.Hint($"Bind this identity with 'twig connection bind --provider ado --org <org> --project <project> --identity {identity.Name}'."),
             });
         }
         else

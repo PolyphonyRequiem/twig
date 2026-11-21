@@ -163,16 +163,19 @@ internal sealed record CreationLinkData(KeyData Other, string Relation, bool Out
 
 internal sealed record OpData(string Id, OpKind Kind, KeyData Item, RevisionData? ExpectedRevision, FieldData[] Fields,
     string? Type, KeyData? Other, string? Relation, RelationshipOrigin Origin, ValueData? Body,
-    ConcurrencyMode Concurrency, long? ExpectedLocalVersion, ResourceData? Resource, CreationLinkData[]? Links = null)
+    ConcurrencyMode Concurrency, long? ExpectedLocalVersion, ResourceData? Resource, CreationLinkData[]? Links = null,
+    FieldData[]? CreateEvidence = null)
 {
     internal static OpData From(Op o) => new(o.Id, o.Kind, KeyData.From(o.Item), RevisionData.From(o.ExpectedRevision),
         FieldData.From(o.Fields), o.Type, o.Other is null ? null : KeyData.From(o.Other), o.Relation, o.Origin,
         o.Body is null ? null : ValueData.From(o.Body), o.Concurrency, o.ExpectedLocalVersion,
         o.Resource is null ? null : ResourceData.From(o.Resource),
-        o.Links.IsEmpty ? null : o.Links.Select(CreationLinkData.From).ToArray());
+        o.Links.IsEmpty ? null : o.Links.Select(CreationLinkData.From).ToArray(),
+        o.CreateEvidence.Count == 0 ? null : FieldData.From(o.CreateEvidence));
     internal Op ToCore() => new(Id, Persistence.Defined(Kind), Item.ToCore(), ExpectedRevision?.ToCore(),
         FieldData.ToCore(Fields), Type, Other?.ToCore(), Relation, Persistence.Defined(Origin), Body?.ToCore(),
-        Persistence.Defined(Concurrency), ExpectedLocalVersion, Resource?.ToCore(), Links?.Select(link => link.ToCore()));
+        Persistence.Defined(Concurrency), ExpectedLocalVersion, Resource?.ToCore(), Links?.Select(link => link.ToCore()),
+        CreateEvidence is null ? null : FieldData.ToCore(CreateEvidence));
 }
 
 internal sealed record ProposalData(int Version, Connection Connection, string SchemaFingerprint, long ExpectedStoreVersion,

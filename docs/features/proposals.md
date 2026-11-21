@@ -35,6 +35,10 @@ successful preview is not a lease on provider revisions or policy. Apply recheck
 those preconditions. Do not flush or discard unrelated work to make an operation
 applicable.
 
+Publishing does not require one-time historical inventory certification.
+Apply still checks the exact registered source, retained capture integrity,
+target ownership, and unresolved prior attempts before issuing a write.
+
 ## Atomicity and provider differences
 
 Multi-operation application is **not one distributed transaction**. Earlier

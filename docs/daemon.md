@@ -454,6 +454,19 @@ release job downloads only `twig-daemon-*` artifacts, never the CLI candidates.
 Releasing the daemon does not update the CLI; releasing the CLI does not install
 a daemon. See the [paired publication gate](architecture/build-and-release.md#paired-distribution-readiness).
 
+## Windows owner default-profile recovery
+
+`GET /api/v1/windows-profile` requires same-owner Windows authentication and
+returns only `{ "storeId": "…" }`. It does not resolve or modify a profile.
+If profile resolution returns `DefaultProfileUnavailable`, an explicit recovery
+action may send `POST /api/v1/windows-profile` with `recoverMissingDefault: true`,
+the exact current `storeId`, and no old `profileId` (or `profileId: null`).
+Use discovery only when the browser has no saved store ID. Do not silently
+substitute the discovered ID for a retained stale ID, and do not retry a
+`StoreReplaced` response automatically. Passive renewal never recreates missing
+profiles. Recovery preserves valid or signed-out defaults and leaves corrupt
+profile documents untouched.
+
 ## Security and data ownership
 
 On Windows, command-pipe access allows only the daemon's token user and explicitly

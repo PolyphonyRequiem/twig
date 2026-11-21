@@ -364,24 +364,54 @@ internal static class SessionTests
             "A fresh origin retains a signed-out default instead of inventing another identity.");
         Expect("SessionRevoked", () => restarted.RenewOwner(storeId, new(null, profile, storeId), null));
         var pointer = Path.Combine(root, "profiles", $"default-profile-{storeId:D}");
+        var signedOutPath = Path.Combine(root, "profiles", $"native-{storeId:D}-{profile:D}.json");
+        var signedOutBytes = File.ReadAllBytes(signedOutPath);
+        var recovery = new OwnerProfileBody(storeId, null, RecoverMissingDefault: true);
+        Expect("ProfileRecoveryNotRequired", () => restarted.ResolveOwnerProfile(storeId, recovery));
+        Check(File.ReadAllText(pointer) == profile.ToString("D") && File.ReadAllBytes(signedOutPath).SequenceEqual(signedOutBytes),
+            "Recovery must not replace a signed-out default or change its content.");
         File.WriteAllText(pointer, "invalid");
         Expect("DefaultProfileUnavailable", () => restarted.ResolveOwnerProfile(storeId, new(null, null)));
-        Check((await host.Send("POST", "/api/v1/windows-profile",
-            new OwnerProfileBody(storeId, null, RecoverMissingDefault: true), owner.ContentCapability, null, ct)).Status == 401,
+        const string profileRoute = "/api/v1/windows-profile";
+        Check((await host.Send("GET", profileRoute, null, owner.ContentCapability, null, ct)).Status == 401
+            && (await host.Send("GET", profileRoute, null, null, "different-owner", ct)).Status == 403,
+            "Store discovery requires the Windows owner, not a content capability or a different Windows user.");
+        var discovery = await host.Send("GET", profileRoute, null, null, "same-owner", ct);
+        Check(discovery.Status == 200 && discovery.Body!["storeId"]!.GetValue<Guid>() == storeId
+            && discovery.Body.AsObject().Count == 1, "Store discovery returns only the current store identity.");
+        Check((await host.Send("POST", profileRoute, recovery with { StoreId = null }, null, "same-owner", ct)).Status == 400
+            && (await host.Send("POST", profileRoute, recovery with { StoreId = Guid.Empty }, null, "same-owner", ct)).Status == 400
+            && (await host.Send("POST", profileRoute, recovery with { StoreId = Guid.NewGuid() }, null, "same-owner", ct)).Status == 409
+            && File.ReadAllText(pointer) == "invalid",
+            "Discovery, or recovery with a missing, empty or stale store ID, must not mutate the broken pointer.");
+        Check((await host.Send("POST", profileRoute, recovery, owner.ContentCapability, null, ct)).Status == 401,
             "A content capability cannot replace the owner default.");
-        var recovered = await host.Send("POST", "/api/v1/windows-profile",
-            new OwnerProfileBody(storeId, null, RecoverMissingDefault: true), null, "same-owner", ct);
+        var recovered = await host.Send("POST", profileRoute,
+            recovery with { StoreId = discovery.Body!["storeId"]!.GetValue<Guid>() }, null, "same-owner", ct);
         Check(recovered.Status == 200 && recovered.Body!["profileId"]!.GetValue<Guid>() != profile,
             "Explicit owner recovery creates a fresh profile instead of adopting old state.");
         Check(restarted.ResolveOwnerProfile(storeId, new(null, null)).ProfileId == recovered.Body!["profileId"]!.GetValue<Guid>(),
             "The replacement pointer remains valid for subsequent passive resolution.");
-        Expect("ProfileRecoveryNotRequired",
-            () => restarted.ResolveOwnerProfile(storeId, new(storeId, null, RecoverMissingDefault: true)));
+        Expect("ProfileRecoveryNotRequired", () => restarted.ResolveOwnerProfile(storeId, recovery));
         var orphan = Guid.NewGuid();
         File.WriteAllText(pointer, orphan.ToString("D"));
+        var orphanPath = Path.Combine(root, "profiles", $"native-{storeId:D}-{orphan:D}.json");
+        var renewal = await host.Send("POST", "/api/v1/windows-renew", new OwnerRenewBody(null, orphan, storeId),
+            null, "same-owner", ct);
+        Check(renewal.Status == 409 && renewal.Body!["code"]!.GetValue<string>() == "ProfileUnavailable"
+            && !File.Exists(orphanPath) && File.ReadAllText(pointer) == orphan.ToString("D"),
+            "Passive renewal cannot recreate a missing profile or recover its default pointer.");
         Expect("DefaultProfileUnavailable", () => restarted.ResolveOwnerProfile(storeId, new(null, null)));
-        Check(restarted.ResolveOwnerProfile(storeId, new(null, null, RecoverMissingDefault: true)).ProfileId != orphan,
-            "A fresh browser origin can explicitly recover a pointer to a missing profile.");
+        Check(restarted.ResolveOwnerProfile(storeId, recovery).ProfileId != orphan,
+            "A fresh browser origin can recover a pointer to a missing profile using the exact current ID.");
+        const string corruptProfile = """{"version":1,"choices":null,"sources":null}""";
+        File.WriteAllText(orphanPath, corruptProfile);
+        File.WriteAllText(pointer, orphan.ToString("D"));
+        Expect("DefaultProfileUnavailable", () => restarted.ResolveOwnerProfile(storeId, new(storeId, orphan)));
+        Check(restarted.ResolveOwnerProfile(storeId, recovery).ProfileId != orphan
+            && File.ReadAllText(orphanPath) == corruptProfile
+            && File.ReadAllBytes(signedOutPath).SequenceEqual(signedOutBytes),
+            "Corrupt content is not reusable, and recovery changes only the pointer and a brand-new profile.");
         Expect("SessionRevoked", () => restarted.RenewOwner(storeId, new(null, profile, storeId), null));
     }
 
@@ -572,9 +602,10 @@ internal static class SessionTests
                 "An SDK bearer must not authenticate human renewal.");
             Check((await host.Send("POST", "/api/v1/windows-renew", renewBody, null, "different-owner", ct)).Status == 403,
                 "A different authenticated OS owner must not renew this profile.");
-            var newCanvas = sessions.RegisterNativeCanvas(storeId);
+            var newCanvas = sessions.RegisterNativeCanvas(storeId, new("fresh-owner-session", root));
+            var newProfile = sessions.ResolveOwnerProfile(storeId, new(null, null, newCanvas.ViewId));
             var automatic = await host.Send("POST", "/api/v1/windows-renew",
-                new OwnerRenewBody(newCanvas.ViewId, Guid.NewGuid(), storeId), null, "same-owner", ct);
+                new OwnerRenewBody(newCanvas.ViewId, newProfile.ProfileId, storeId), null, "same-owner", ct);
             Check(automatic.Status == 200 && automatic.Body!["viewId"]!.GetValue<Guid>() == newCanvas.ViewId
                 && automatic.Body["viewState"]!["sources"]!.AsArray().Count == 0,
                 "A fresh SDK canvas may acquire human authority only through OS auth, without replacing its presentation handle or choosing a source.");

@@ -14,13 +14,18 @@ public static partial class NativeBenchHost
         Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts = null)
     {
         if (windowsSignIn)
+        {
+            app.MapGet("/api/v1/windows-profile", async (HttpContext http) =>
+            {
+                var store = Require(await panel.ListAsync(http.RequestAborted)).InstanceId;
+                await Write(http, new OwnerProfileStoreInfo(store));
+            }).RequireAuthorization("WindowsOwner");
             app.MapPost("/api/v1/windows-profile", async (HttpContext http) =>
             {
                 var body = await Body<OwnerProfileBody>(http);
                 var store = Require(await panel.ListAsync(http.RequestAborted)).InstanceId;
                 await Write(http, sessions.ResolveOwnerProfile(store, body));
             }).RequireAuthorization("WindowsOwner");
-        if (windowsSignIn)
             app.MapPost("/api/v1/windows-renew", async (HttpContext http) =>
             {
                 var body = await Body<OwnerRenewBody>(http);
@@ -38,6 +43,7 @@ public static partial class NativeBenchHost
                 await Write(http, new NativeOwnerSession(renewed.Connection.ViewId,
                     renewed.Connection.ContentCapability, renewed.Recovered, state) { InitialView = initial?.View });
             }).RequireAuthorization("WindowsOwner");
+        }
         app.MapGet("/api/v1/views/{id:guid}/view-state", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);

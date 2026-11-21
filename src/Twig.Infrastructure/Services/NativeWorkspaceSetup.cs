@@ -15,6 +15,8 @@ internal sealed record NativeCreationReceipt(CoreWorkspaceDocument Document, Nat
 
 internal static class NativeWorkspaceSetup
 {
+    private const string RetryGuidance = "Stop active setup and inspect the preserved checkout-local .twig state. Move it aside only if it is disposable, or retry in a fresh worktree. Keep source, credentials and any remote-write evidence; use a new custom Core store path if any SQLite files exist.";
+
     internal static async Task<Result<NativeCreationReceipt>> InitializeAsync(NativeWorkspaceSetupArguments args,
         Func<IConnectionBindingService> lazyBindings, NativeSetupEffects effects, CancellationToken ct,
         CoreTransportOverride? transport = null, IBoundedProcessRunner? processes = null)
@@ -28,8 +30,8 @@ internal static class NativeWorkspaceSetup
             var twigDir = Path.Combine(anchor.WorktreeRoot, ".twig");
             if (File.Exists(twigDir) || Directory.Exists(twigDir)
                 && ((File.GetAttributes(twigDir) & FileAttributes.ReparsePoint) != 0
-                    || Directory.EnumerateFileSystemEntries(twigDir).Any(path => !IsIdleLockFile(path))))
-                return Fail("Init refuses existing nonempty, linked, partial or legacy .twig state. To retry a failed init here, stop the active init and move aside only the disposable checkout-local .twig directory. Keep source, credentials and any remote-write evidence. No state was changed.");
+                    || Directory.EnumerateFileSystemEntries(twigDir).Any(path => !IsEmptyCheckoutLock(path))))
+                return Fail("Init refuses existing nonempty, linked, partial or legacy .twig state. " + RetryGuidance + " No state was changed.");
             var database = args.StoreFile ?? Path.Combine(twigDir, "core.db");
             if (!Path.IsPathFullyQualified(database))
                 return Fail("--core-store must name a new absolute file; its parent directory must already exist.", 2);
@@ -151,16 +153,15 @@ internal static class NativeWorkspaceSetup
             effects.Before(NativeSetupEffectKind.WorkspaceDirectory);
             Directory.CreateDirectory(twigDir);
             effects.Confirm(NativeSetupEffectKind.WorkspaceDirectory);
+            using var checkout = ConnectionOperationGate.Acquire(anchor.WorktreeRoot, exclusive: true);
             effects.Before(NativeSetupEffectKind.InitializationLock);
+            if ((File.GetAttributes(twigDir) & FileAttributes.ReparsePoint) != 0
+                || Directory.EnumerateFileSystemEntries(twigDir).Any(entry => !IsEmptyCheckoutLock(entry)))
+                return Fail("Init found existing .twig data under the checkout lease. No workspace data was adopted. " + RetryGuidance);
             var lockPath = Path.Combine(twigDir, "core-init.lock");
             using var initialization = new FileStream(lockPath, FileMode.CreateNew,
                 FileAccess.Write, FileShare.None);
             effects.Confirm(NativeSetupEffectKind.InitializationLock);
-            if (Directory.EnumerateFileSystemEntries(twigDir).Any(entry => entry != lockPath && !IsIdleLockFile(entry)))
-                return Fail("Init found existing .twig data after taking the initialization lock. No workspace data was adopted.");
-            // Hold the checkout lease through rollback; normal binding operations
-            // cannot change the files between the ownership check and deletion.
-            using var checkout = ConnectionOperationGate.Acquire(anchor.WorktreeRoot, exclusive: true);
             var ignorePath = Path.Combine(anchor.WorktreeRoot, ".gitignore");
             var ignore = File.Exists(ignorePath) ? await File.ReadAllTextAsync(ignorePath, ct).ConfigureAwait(false) : "";
             var lastRule = ignore.Split('\n').Select(line => line.TrimEnd('\r'))
@@ -173,68 +174,43 @@ internal static class NativeWorkspaceSetup
                 effects.Confirm(NativeSetupEffectKind.IgnoreFile);
             }
             effects.Before(NativeSetupEffectKind.Configuration);
-            if (hasManifest) await config.SaveUserAsync(paths.ConfigPath, ct).ConfigureAwait(false);
-            else await config.SaveSplitAsync(paths, ct).ConfigureAwait(false);
+            if (!hasManifest)
+                await WriteNewAsync(paths.RepoConfigPath, await config.GetRepoBytesAsync(ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+            if (await config.GetUserBytesAsync(ct).ConfigureAwait(false) is { } userBytes)
+                await WriteNewAsync(paths.ConfigPath, userBytes, ct).ConfigureAwait(false);
+            else if (Path.Exists(paths.ConfigPath))
+                return Fail("A checkout config appeared during init. It was preserved. " + RetryGuidance);
             effects.Confirm(NativeSetupEffectKind.Configuration);
             if (kind == "ado")
             {
                 effects.Before(NativeSetupEffectKind.Attachment);
                 using var attachment = new WorktreeLocalAttachmentStore(paths, config, TimeProvider.System, args.Binding);
                 var attached = await attachment.InitializeAsync(ct).ConfigureAwait(false);
-                if (!attached.IsSuccess) return effects.Fail<NativeCreationReceipt>(attached.Error);
+                if (!attached.IsSuccess) return effects.Fail<NativeCreationReceipt>(attached.Error, RetryGuidance);
                 effects.Confirm(NativeSetupEffectKind.Attachment);
                 effects.Before(NativeSetupEffectKind.Registry);
                 using var registry = new SqliteSystemWorktreeRegistry(bindings.RegistryPath, TimeProvider.System);
                 var connection = ConnectionRefResolver.Compute(config);
                 effects.Before(NativeSetupEffectKind.ConnectionRegistration);
                 var registered = await registry.UpsertConnectionAsync(connection, config.Organization, config.Project, config.Team, ct).ConfigureAwait(false);
-                if (!registered.IsSuccess) return effects.Fail<NativeCreationReceipt>(registered.Error);
+                if (!registered.IsSuccess) return effects.Fail<NativeCreationReceipt>(registered.Error, RetryGuidance);
                 effects.Confirm(NativeSetupEffectKind.ConnectionRegistration);
                 effects.Before(NativeSetupEffectKind.WorktreeRegistration);
                 registered = await registry.UpsertWorktreeAsync(WorktreeFingerprintProvider.CanonicalJson(anchor), connection, anchor.WorktreeRoot, ct).ConfigureAwait(false);
-                if (!registered.IsSuccess) return effects.Fail<NativeCreationReceipt>(registered.Error);
+                if (!registered.IsSuccess) return effects.Fail<NativeCreationReceipt>(registered.Error, RetryGuidance);
                 effects.Confirm(NativeSetupEffectKind.WorktreeRegistration);
                 effects.Confirm(NativeSetupEffectKind.Registry);
             }
-            var retryFiles = kind == "ado" ? CaptureInitFiles(paths) : null;
-            Result<NativeCreationReceipt> result;
-            try
-            {
-                result = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, bindings,
-                    database, ct, transport, processes, effects).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                if (ReleaseFailedInit()) return effects.Cancel<NativeCreationReceipt>(retryable: true);
-                throw;
-            }
-            if (!result.IsSuccess && result.Error.Evidence.Contains("init-metadata-transient") && ReleaseFailedInit())
-                return effects.Fail<NativeCreationReceipt>(result.Error with { Message =
-                    result.Error.Message + " No Core database was attempted. Retry 'twig init' in this checkout." });
-            return result.IsSuccess ? result : effects.Fail<NativeCreationReceipt>(result.Error);
-
-            bool ReleaseFailedInit()
-            {
-                if (retryFiles is null || effects.Started(NativeSetupEffectKind.CoreStore)
-                    || File.Exists(database) || File.Exists(database + "-wal") || File.Exists(database + "-shm")
-                    || File.Exists(database + "-journal"))
-                    return false;
-                var current = CaptureInitFiles(paths);
-                if (current is null || current.Count != retryFiles.Count
-                    || retryFiles.Any(file => !current.TryGetValue(file.Key, out var contents)
-                        || !file.Value.AsSpan().SequenceEqual(contents)))
-                    return false;
-
-                foreach (var file in current.Keys) File.Delete(file);
-                var temporary = Path.Combine(twigDir, WorktreeLocalAttachmentStore.TmpDirName);
-                if (Directory.Exists(temporary)) Directory.Delete(temporary);
-                initialization.Dispose();
-                File.Delete(lockPath);
-                return true;
-            }
+            // The checkout lease excludes cooperating operations, not external replacements.
+            // Do not unlink setup artifacts by path, even if their bytes still match.
+            var result = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, bindings,
+                database, ct, transport, processes, effects).ConfigureAwait(false);
+            return result.IsSuccess ? result : effects.Fail<NativeCreationReceipt>(result.Error, RetryGuidance);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return effects.Cancel<NativeCreationReceipt>(); }
-        catch (Exception ex) when (NativeSetupEffects.IsExpected(ex)) { return effects.Exception<NativeCreationReceipt>(ex); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return effects.Cancel<NativeCreationReceipt>(FailureGuidance()); }
+        catch (Exception ex) when (NativeSetupEffects.IsExpected(ex)) { return effects.Exception<NativeCreationReceipt>(ex, FailureGuidance()); }
+
+        string? FailureGuidance() => effects.Started(NativeSetupEffectKind.WorkspaceDirectory) ? RetryGuidance : null;
 
         Result<NativeCreationReceipt> Fail(string message, int exit = 1)
         {
@@ -242,36 +218,16 @@ internal static class NativeWorkspaceSetup
             return effects.Fail<NativeCreationReceipt>(new(exit == 2 ? ErrorCode.InvalidInput : ErrorCode.Conflict, message));
         }
 
-        static Dictionary<string, byte[]>? CaptureInitFiles(TwigPaths paths)
-        {
-            var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-            foreach (var path in Directory.EnumerateFileSystemEntries(paths.TwigDir))
-            {
-                var name = Path.GetFileName(path);
-                var attributes = File.GetAttributes(path);
-                if ((attributes & FileAttributes.ReparsePoint) != 0) return null;
-                if (name is "core-init.lock" or "binding-operation.lock") continue;
-                if (name == WorktreeLocalAttachmentStore.TmpDirName && Directory.Exists(path)
-                    && !Directory.EnumerateFileSystemEntries(path).Any()) continue;
-                if (path != paths.ConfigPath && name is not (WorktreeLocalAttachmentStore.LayoutFileName
-                    or WorktreeLocalAttachmentStore.WorktreeFileName or WorktreeLocalAttachmentStore.AttachmentFileName)
-                    || !File.Exists(path) || new FileInfo(path).Length > 65536)
-                    return null;
-                files.Add(path, File.ReadAllBytes(path));
-            }
-            return files;
-        }
+        static bool IsEmptyCheckoutLock(string path)
+            => Path.GetFileName(path) == "binding-operation.lock"
+                && (File.GetAttributes(path) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) == 0
+                && new FileInfo(path).Length == 0;
 
-        static bool IsIdleLockFile(string path)
+        static async Task WriteNewAsync(string path, byte[] bytes, CancellationToken ct)
         {
-            if (Path.GetFileName(path) != "binding-operation.lock" || !File.Exists(path)
-                || (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return false;
-            try
-            {
-                using var probe = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
-                return probe.Length == 0;
-            }
-            catch (IOException) { return false; }
+            ct.ThrowIfCancellationRequested();
+            await using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            await file.WriteAsync(bytes, ct).ConfigureAwait(false);
         }
     }
 }

@@ -1697,7 +1697,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             (await commands.SeedView("json")).ShouldBe(0);
             using var unknownView = JsonDocument.Parse(stdout.ToString());
             var unknownAlias = unknownView.RootElement[0].GetProperty("id").GetInt32();
+            stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(unknownAlias, dryRun: true)).ShouldBe(0, stderr.ToString());
+            stdout.ToString().ShouldContain("The approved classification IDs are not locked.");
             var originalReview = (await store.ReadAsync(connection, default)).Value.Proposals
                 .Single(proposal => proposal.Operations.Single().Item == unknownSeed.Key);
             originalReview.Operations.Single().CreateEvidence["System.AreaId"].ShouldBe(CoreModel.FieldValue.Integer(71));

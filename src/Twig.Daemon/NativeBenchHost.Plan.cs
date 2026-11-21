@@ -3,6 +3,7 @@ using Bench.Application;
 using Bench.Infrastructure;
 using Twig.Core;
 using Twig.Infrastructure.Services;
+using Twig.Providers.Ado;
 using static Bench.Server.BenchHost;
 
 namespace Bench.Server;
@@ -98,7 +99,9 @@ public static partial class NativeBenchHost
             return new(session.Plan.Ticket, review.BenchId, review.Digest, effects, review.CoreDigests.ToArray(),
                 "Apply is sequential across items and connections, not atomic. Only this exact native review is authorized; verified, remaining, uncertain and delivery-pending outcomes stay distinct."
                     + (review.Proposals.Any(proposal => proposal.Connection.Provider.Value == "github")
-                        ? " GitHub uses observed-non-atomic checks and readback, not server CAS or an edit lock. Repository automation rules are not discoverable." : ""),
+                        ? " GitHub uses observed-non-atomic checks and readback, not server CAS or an edit lock. Repository automation rules are not discoverable." : "")
+                    + (review.Proposals.Any(proposal => proposal.Connection.Provider.Value == "ado"
+                        && proposal.Operations.Any(op => op.Kind == OpKind.Create)) ? " " + AdoProvider.CreateConcurrencyNotice : ""),
                 null, session.Plan.ApplyAllowed);
         }
 
@@ -323,7 +326,7 @@ public static partial class NativeBenchHost
             RelationshipIntent = form.RelationshipIntent.Select(link => RelationshipIntent(link, source)).ToArray(),
             Notice = source.Stamp.Connection.Provider.Value == "github"
                 ? "GitHub Save and Plan effects use observed-non-atomic concurrency: fresh checks and readback, not a server CAS, edit lock or atomic field/close-gate guarantee. Repository automation rules are not discoverable; only native API semantics and declared Twig policies are validated."
-                : null,
+                : source.Stamp.Connection.Provider.Value == "ado" && form.Item.IsLocal ? AdoProvider.CreateConcurrencyNotice : null,
             Binding = new(editor.PlanMode, editor.PlanId, editor.PlanRevision, editor.ScopeId, editor.StoreInstance)
         };
 }

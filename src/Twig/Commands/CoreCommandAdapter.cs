@@ -5,6 +5,7 @@ using Twig.Core;
 using Twig.Formatters;
 using Twig.Infrastructure.Content;
 using Twig.Infrastructure.Services;
+using Twig.Providers.Ado;
 using Twig.Providers.GitHub;
 using Twig.RenderTree;
 using Twig.Rendering;
@@ -1281,12 +1282,14 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var (proposal, reviewedStoreVersion) = prepared.Value;
         if (dryRun)
         {
-            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedPublicationPreview",
-                new Dictionary<string, RenderCell>
-                {
-                    ["digest"] = RenderCell.String(proposal.Digest), ["seedCount"] = RenderCell.Integer(drafts.Length),
-                    ["message"] = RenderCell.String("Retained exact unattempted creation intent; no seed was published."),
-                })]));
+            var cells = new Dictionary<string, RenderCell>
+            {
+                ["digest"] = RenderCell.String(proposal.Digest), ["seedCount"] = RenderCell.Integer(drafts.Length),
+                ["message"] = RenderCell.String("Retained exact unattempted creation intent; no seed was published."),
+            };
+            if (proposal.Connection.Provider.Value == "ado")
+                cells["notice"] = RenderCell.String(AdoProvider.CreateConcurrencyNotice);
+            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedPublicationPreview", cells)]));
             return 0;
         }
         var published = await workspace.SaveDraftSetAsync(captures, proposal, proposal.Digest, ct, reviewedStoreVersion);
@@ -1949,8 +1952,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 new RenderCell(op.Id, new RenderValue.Object(new Dictionary<string, RenderCell>
                 {
                     ["id"] = RenderCell.String(op.Id), ["kind"] = RenderCell.String(op.Kind.ToString()),
+                    ["concurrency"] = RenderCell.String(op.Concurrency.ToString()),
                 }))).ToArray())),
         };
+        if (proposal.Connection.Provider.Value == "ado" && proposal.Operations.Any(op => op.Kind == OpKind.Create))
+            cells["notice"] = RenderCell.String(AdoProvider.CreateConcurrencyNotice);
         cells["reviewModel"] = new("Review", new RenderValue.Object(new Dictionary<string, RenderCell>
         {
             ["policyDecisions"] = new("Decisions", new RenderValue.Array(blocked is null ? [] : [

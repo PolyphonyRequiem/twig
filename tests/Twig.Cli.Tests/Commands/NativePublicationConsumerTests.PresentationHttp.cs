@@ -196,6 +196,10 @@ public sealed partial class NativePublicationConsumerTests
             return await fixture.ReadHumanOnlineAsync(root, expected, ct);
         }
 
+        public Task<Result<ImmutableArray<WorkItem>>> ObserveItemsAsync(string root, NativeSourceStamp expected,
+            ImmutableArray<ItemKey> keys, CancellationToken ct)
+            => NativeSourceReader.ObserveItemsAsync(root, expected, keys, fixture.ConfigureHumanEditor, ct);
+
         public Task<Result<NativeSourceObservation>> SelectBenchAsync(string root, NativeSourceStamp expected,
             Guid? previous, Guid? next, CancellationToken ct)
         {

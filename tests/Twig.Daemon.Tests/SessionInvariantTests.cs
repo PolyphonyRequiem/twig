@@ -287,7 +287,6 @@ internal static class SessionTests
         var path = Path.Combine(evidence, binding + ".json");
         var original = await File.ReadAllTextAsync(path, ct);
         foreach (var mutation in new Action<JsonNode>[] {
-            json => json["blocked"] = true,
             json => json["schema"]!["fingerprint"] = new string('0', 64),
             json => json["stamp"]!["principalId"] = "changed-principal",
         })
@@ -303,12 +302,11 @@ internal static class SessionTests
         {
             var observations = new Dictionary<NativePanelContext, SourceObservation>();
             _ = Required(await panel.OpenAsync(source, ct, binding, observations));
-            var cell = Path.Combine(evidence, binding + ".check");
-            var allowed = await File.ReadAllTextAsync(cell, ct);
-            await File.WriteAllTextAsync(cell, $"twig-native-check-v1\npending\n{Guid.NewGuid():N}", ct);
+            var cell = path + ".denied";
+            await File.WriteAllBytesAsync(cell, [1], ct);
             Check(!(await panel.CheckInitialAsync(observations, ct)).IsSuccess,
-                "A newly pending durable operation after capture cannot release initial content.");
-            await File.WriteAllTextAsync(cell, allowed, ct);
+                "A new source denial after capture cannot release initial content.");
+            File.Delete(cell);
         }
         gateway.OnNextRead = () => sessions.Revoke(firstSession);
         result = await host.Send("POST", route, new EmptyBody(), owner.ContentCapability, null, ct);
@@ -507,7 +505,7 @@ internal static class SessionTests
         }
         var restored = nextSession.NativeContext!;
         Check(restored.Source.AllowOffline, "Restoration must not retain an opt-in gate.");
-        var cached = Required(await panel.CaptureAsync(restored, ct, cachedGuidance: true)).Observation;
+        var cached = Required(await panel.CaptureAsync(restored, ct)).Observation;
         Check(cached.Mode == ObservationMode.PermittedOfflineCache,
             "The internal observation still distinguishes local display from fresh mutation authority.");
         Check(cached.Schema.Types.Single().Gaps.SequenceEqual(gateway.TypeGaps)
@@ -521,7 +519,7 @@ internal static class SessionTests
         Check(wire.Types!.Single().Gaps.SequenceEqual(gateway.TypeGaps)
             && wire.SchemaFingerprint == cached.Schema.Fingerprint,
             "Projection and source-generated DTOs must not erase type gaps or the fingerprint bound to them.");
-        _ = Required(await panel.CaptureAsync(restored, ct, cachedGuidance: true));
+        _ = Required(await panel.CaptureAsync(restored, ct));
         Check(gateway.OnlineReads == onlineBefore, "Preliminary key guidance uses admitted local data without releasing an editor form.");
         var evidencePath = Path.Combine(root, "evidence", retained.Binding + ".json");
         var originalEvidence = await File.ReadAllTextAsync(evidencePath, ct);
@@ -541,11 +539,12 @@ internal static class SessionTests
         Check((Required(await panel.OpenAsync(sourceB, ct))).Source.AllowOffline,
             "A separately and independently admitted source receives the same normal local display behavior.");
         gateway.Denied.Add(sourceA);
-        Check(!(await panel.ValidateDisplayAccessAsync(restored, ct)).IsSuccess, "Online denial must remain a failure.");
+        Check(!(await panel.RecheckAsync(restored, ct)).IsSuccess, "An observed credential rejection must remain a failure.");
         gateway.Denied.Clear();
         var blocked = await panel.OpenAsync(sourceA, ct, retained.Binding);
-        Check(!blocked.IsSuccess && blocked.Error.Code == ErrorCode.PolicyViolation, "A denied/pending durable cell must withhold cached content even after connectivity returns.");
-        _ = Required(await panel.OpenAsync(sourceA, ct));
+        Check(!blocked.IsSuccess && blocked.Error.Code == ErrorCode.PolicyViolation, "Observed credential rejection must withhold cached content even after connectivity returns.");
+        _ = Required(await panel.RecheckAsync(restored, ct));
+        Check(!(await panel.OpenAsync(sourceA, ct)).IsSuccess, "A metadata recheck cannot restore denied history.");
         gateway.ReplaceIdentity(sourceA);
         var changed = await panel.OpenAsync(sourceA, ct, retained.Binding);
         Check(!changed.IsSuccess && changed.Error.Code == ErrorCode.Conflict, "A store/identity replacement cannot inherit the prior admission.");
@@ -826,7 +825,8 @@ internal sealed class Gateway
         var action = OnNextRead;
         OnNextRead = null;
         action?.Invoke();
-        if (Denied.Contains(root)) return Result<NativeSourceObservation>.Fail(ErrorCode.Unavailable, "Synthetic native source unavailable.");
+        if (Denied.Contains(root)) return Result<NativeSourceObservation>.Fail(new Error(ErrorCode.Unavailable,
+            "Synthetic credential denied.") { Evidence = ["http:401"] });
         if (!stamps.TryGetValue(root, out var stamp) || expected is not null && stamp != expected)
             return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic native identity changed.");
         if (observeSchema) SchemaReads++;

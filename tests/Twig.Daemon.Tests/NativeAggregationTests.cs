@@ -99,6 +99,8 @@ internal static class NativeAggregationTests
             Check(Required(await store.ReadAsync()).Benches.Single().Selectors.Any(selector => selector.Item == seed),
                 "Unavailable local UUID intent must never be dropped or rewritten.");
             gateway.Denied.Clear();
+            gateway.ReplaceStore(bRoot);
+            chosen = Required(await panel.OpenAsync(bRoot, default));
             bench = Required(await store.SaveAsync(new(bench.Id, bench.Name,
                 [new(SelectorKind.Pin, keyA, connection: a), new(SelectorKind.Pin, keyB, connection: b)]), bench.Revision));
             gateway.Replace(aRoot, Observation(a, new(3, [itemA], [
@@ -106,8 +108,22 @@ internal static class NativeAggregationTests
                 new(keyA, ItemKey.Remote(b.Provider, b.ResourceScope, "I_uncached"), "related", RelationshipOrigin.Provider)
             ]), "https://example.test/project/"));
             await AutomaticView(root, panel, changes, bench.Id, anchor, chosen, gateway);
+            gateway.ReplaceStore(aRoot);
+            gateway.ReplaceStore(bRoot);
             anchor = Required(await panel.OpenAsync(aRoot, default));
             chosen = Required(await panel.OpenAsync(bRoot, default));
+            await using (var db = new SqliteConnection("Data Source=" + Path.Combine(root, "benches.db") + ";Pooling=False"))
+            {
+                await db.OpenAsync();
+                foreach (var source in new[] { anchor, chosen })
+                {
+                    await using var command = db.CreateCommand();
+                    command.CommandText = "UPDATE workspaces SET store_instance=$instance WHERE root=$root";
+                    command.Parameters.AddWithValue("$instance", source.Stamp.StoreInstance.ToString("D"));
+                    command.Parameters.AddWithValue("$root", source.Root);
+                    Check(await command.ExecuteNonQueryAsync() == 1, "Register the replacement test store for cold resolution.");
+                }
+            }
             var restricted = Required(await panel.ReadViewAsync(bench.Id, anchor, [chosen], default, available: new HashSet<Connection> { a }));
             Check(restricted.View.Sources.Single(source => source.RequiredConnection == b).Error?.Code == ErrorCode.PolicyViolation
                 && restricted.View.Sources.Single(source => source.RequiredConnection == b).Items.IsEmpty
@@ -220,8 +236,8 @@ internal static class NativeAggregationTests
             ["snapshotId"] = mcpBench["snapshotId"]!.DeepClone(), ["sourceId"] = sourceA["sourceId"]!.DeepClone(),
             ["itemId"] = sourceA["items"]![0]!["id"]!.DeepClone(), ["fields"] = new JsonArray()
         });
-        Check(details["unresolvedReferences"]!.AsArray().Count == 2 && details["readOnly"]!.GetValue<bool>(),
-            "The actual MCP details retain unavailable-reference metadata without fabricating target fields.");
+        Check(details["unresolvedReferences"]!.AsArray().Count == 0 && details["readOnly"]!.GetValue<bool>(),
+            "Delegated details must not add unresolved references from the historical snapshot.");
         gateway.Denied.Add(a.Root);
         Check((await Read()).All(source => source["errorCode"] is not null),
             "All unavailable connections still yield an explicit degraded Bench, not failed Bench selection or empty success.");
@@ -389,6 +405,14 @@ internal static class NativeAggregationTests
     {
         public Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected, CancellationToken ct)
             => ReadAsync(root, expected, false, ct);
+        public async Task<Result<System.Collections.Immutable.ImmutableArray<WorkItem>>> ObserveItemsAsync(
+            string root, NativeSourceStamp expected, System.Collections.Immutable.ImmutableArray<ItemKey> keys, CancellationToken ct)
+        {
+            var result = await ReadAsync(root, expected, false, ct);
+            return result.IsSuccess
+                ? Result<System.Collections.Immutable.ImmutableArray<WorkItem>>.Ok([.. result.Value.Snapshot.Items.Where(item => keys.Contains(item.Key))])
+                : Result<System.Collections.Immutable.ImmutableArray<WorkItem>>.Fail(result.Error);
+        }
         internal System.Collections.Concurrent.ConcurrentBag<string> Reads { get; } = [];
         private string? blocked, later;
         internal TaskCompletionSource Release { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -402,6 +426,9 @@ internal static class NativeAggregationTests
         internal HashSet<string> Denied { get; } = new(StringComparer.Ordinal);
         internal void Replace(string root, NativeSourceObservation observation)
             => observations[root] = observation with { Source = observations[root].Source };
+        internal void ReplaceStore(string root)
+            => observations[root] = observations[root] with
+            { Source = observations[root].Source with { StoreInstance = Guid.NewGuid() } };
         internal void Exclude(string root, Selector rule)
             => observations[root] = observations[root] with { WorkspaceExclusions = [rule] };
         public async Task<Result<NativeSourceObservation>> ReadAsync(string root, NativeSourceStamp? expected, bool observeSchema, CancellationToken ct)

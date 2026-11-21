@@ -59,10 +59,10 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         protectedDraft.GetProperty("benchMember").GetBoolean().ShouldBeFalse();
         workspace.GetProperty("reconcileAfterSeconds").GetInt32().ShouldBe(30);
         gateway.SchemaReads.ShouldBe(1);
-        gateway.OnlineReads.ShouldBe(1); // Initial admission only.
+        gateway.OnlineReads.ShouldBe(0);
         await Workspace();
         gateway.SchemaReads.ShouldBe(1);
-        gateway.OnlineReads.ShouldBe(1);
+        gateway.OnlineReads.ShouldBe(0);
         gateway.Snapshots[source.Root].Drafts.ShouldContain(draft);
         using var status = JsonDocument.Parse(await client.GetStringAsync("/api/v1/status"));
         status.RootElement.GetProperty("capabilities").EnumerateArray().Select(value => value.GetString())
@@ -85,7 +85,7 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         initial.RootElement.GetProperty("initialView").GetProperty("summary").GetProperty("workspaces")[0]
             .GetProperty("account").GetProperty("kind").GetString().ShouldBe("pat");
         gateway.SchemaReads.ShouldBe(1);
-        gateway.OnlineReads.ShouldBe(1); // Initial admission only.
+        gateway.OnlineReads.ShouldBe(0);
     }
 
     [Fact]

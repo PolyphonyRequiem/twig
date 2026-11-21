@@ -472,7 +472,8 @@ public sealed partial class NativePublicationConsumerTests
         return (paths, connection, store, bench.Id, seed);
     }
 
-    private (int Exit, string Output, string Error) WorkspaceInvoke(TwigPaths paths, string[] args, ITelemetryClient? telemetry = null)
+    private (int Exit, string Output, string Error) WorkspaceInvoke(TwigPaths paths, string[] args, ITelemetryClient? telemetry = null,
+        Action<IServiceCollection>? configure = null)
     {
         var beforeOut = Console.Out;
         var beforeError = Console.Error;
@@ -488,6 +489,7 @@ public sealed partial class NativePublicationConsumerTests
                 registration.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
                 if (telemetry is not null) registration.AddSingleton(telemetry);
                 registration.AddTwigWorkspaceServices(paths.StartDir, args);
+                configure?.Invoke(registration);
             });
             return (exit, stdout.ToString(), stderr.ToString());
         }

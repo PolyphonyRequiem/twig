@@ -98,7 +98,7 @@ public static partial class NativeBenchHost
                 var plan = Require(await panel.ReadPlanAsync(body.BenchId, lifetime.Token));
                 if (plan.Enabled != body.PlanMode)
                     throw new HttpFailure(409, "Conflict", "The Bench mode changed. Your unsaved values were not moved to another mode.");
-                var capture = Require(await panel.CaptureAsync(source, lifetime.Token, cachedGuidance: true));
+                var capture = Require(await panel.CaptureAsync(source, lifetime.Token));
                 lifetime.Token.ThrowIfCancellationRequested();
                 var key = capture.Observation.Snapshot.Items.Select(value => value.Key).SingleOrDefault(value =>
                     ViewMapping.Key(new(source.Source.Id, value)) == body.ItemId);
@@ -229,10 +229,6 @@ public static partial class NativeBenchHost
                     throw new HttpFailure(422, "Unsupported", "The native source did not qualify a readonly LOCAL-only Association form.");
                 if (form.LocalOnly)
                 {
-                    var admitted = await panel.ReadEditorSourceAsync(source, ct);
-                    if (!admitted.IsSuccess && (admitted.Error.Evidence.Contains("http:401") || admitted.Error.Evidence.Contains("http:403")))
-                        throw new HttpFailure(403, "PolicyViolation", "This source cannot release LOCAL pair content.");
-                    _ = Require(admitted);
                     _ = await authorize(http, id);
                     var mode = Require(await panel.ReadPlanAsync(state.Bench, ct));
                     if (mode.Enabled || mode.PlanId != editor.PlanId || mode.Revision != editor.PlanRevision

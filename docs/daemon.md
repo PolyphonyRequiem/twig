@@ -395,18 +395,43 @@ the retained definitions and notifies open views. Ordinary Bench reads do not
 perform metadata discovery.
 
 This is provider-read-only: it does not migrate work-item types, change Bench
-membership, or authorize new connections. Temporary provider unavailability
-with explicit HTTP 429/500/502/503/504 evidence keeps the previous definitions
-and their original observation time. An unclassified `Unavailable` result,
-including an internal deadline or admission failure, is not that evidence. Access
-denials, changed authority and interrupted/uncertain checks remain blocked until
-an explicit successful connection recheck. Background discovery uses the same
+membership, or authorize new connections. A failed or canceled schema refresh
+keeps the previous definitions and their original observation time. A failure
+limited to schema discovery does not establish work-item access loss. Known
+binding denials and changes still block cached display; scheduled work cannot
+clear a block. Background discovery uses the same
 per-source coordination and bounded native operations as foreground requests.
 
 Explicit online admission or **Check connection** can replace an unreadable
 schema cache after observing fresh metadata for the exact recorded source and
-principal. If that observation or cache replacement fails, the connection
-remains blocked. Ordinary and offline reads do not repair the cache.
+principal. If an existing schema is still readable, a failed refresh leaves it
+in place. An unreadable schema is not usable until replaced.
+
+The daemon no longer uses the `.check` grant. A legacy cache requires a fresh
+Twig workspace; schema discovery cannot readmit it, and the old grant state is
+neither interpreted nor migrated. Offline display does not make
+provider calls or claim current upstream access. Known source denials withhold
+historical content for that binding. An exact item refusal or absence observed
+by delegated reads, editor reads, or CLI and planning acquisition withholds that
+item's cached representation and related references. A timeout, partial response, or unrelated query
+omission does not withdraw an item. Schema and roster success do not clear a denial.
+Direct CLI historical `show`, `show-batch`, `tree`, and `workspace` output honors
+the same recorded denials. Exact CLI `show --refresh` and `tree --refresh`
+record explicit provider refusals and restore only the item successfully
+fetched and retained. A source-wide denial is not cleared
+in place: after resolving provider access, initialize and register a fresh
+workspace. Do not use a fresh workspace to infer the outcome of an old write.
+The underlying mirror and recovery journal are not rewritten, and data already
+delivered cannot be recalled.
+
+Saved-query and backlog browse responses project the exact acquired provider
+page, without adding draft overlays or links to items outside that page.
+Delegated item and Bench reads use fresh provider fields for remote work items,
+without falling back to the local mirror if the provider refuses or cannot
+complete the read. Local draft edits remain separate from provider fields.
+Delegated Bench reads verify the full membership before returning a count and
+are limited to 100 remote items; larger Benches can still be read one item at a
+time.
 
 To select a newer source build, run the installer from a different clean commit.
 Version directories are immutable; reinstalling the same selected SHA is refused.

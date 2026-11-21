@@ -54,7 +54,7 @@ internal sealed record SchemaDocument(TypeDocument[] Types, RelationKind[] Relat
     }
 }
 internal sealed record NativeCacheDocument(int Version, NativeStampDocument Stamp, SchemaDocument Schema,
-    DateTimeOffset OnlineObservedAt, bool Blocked);
+    DateTimeOffset OnlineObservedAt);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, MaxDepth = 64,
     GenerationMode = JsonSourceGenerationMode.Metadata, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,

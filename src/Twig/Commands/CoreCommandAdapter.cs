@@ -15,12 +15,13 @@ namespace Twig.Commands;
 
 internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererFactory renderer,
     Twig.Commands.IConsoleInput consoleInput, Twig.Commands.IEditorLauncher editorLauncher,
-    Twig.Infrastructure.Telemetry.ITelemetryClient? telemetry = null)
+    Twig.Infrastructure.Telemetry.ITelemetryClient? telemetry = null, NativeHistoricalEvidence? historicalEvidence = null)
 {
     private string TitleField => factory.IsTwig ? Twig.Providers.Native.NativeProvider.Title : factory.IsGitHub ? GitHubProvider.Title : "System.Title";
     private string BodyField => factory.IsTwig ? Twig.Providers.Native.NativeProvider.Description : factory.IsGitHub ? GitHubProvider.Body : "System.Description";
     private string AssigneeField => factory.IsGitHub ? GitHubProvider.Assignees : "System.AssignedTo";
     private string StateField => factory.IsTwig ? Twig.Providers.Native.NativeProvider.StateField : factory.IsGitHub ? GitHubProvider.StateField : "System.State";
+    private NativeHistoricalEvidence History => historicalEvidence ?? NativeHistoricalEvidence.ForLocalUser();
 
     private async Task<Result<ItemKey>> ResolveKeyAsync(int? id, string output, CancellationToken ct, bool allowNativeLookup = false)
     {
@@ -240,6 +241,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> TreeAsync(int? id, bool all, int? depth, bool refresh, string output, CancellationToken ct)
     {
+        using var observation = refresh ? Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true) : null;
         if (factory.IsGitHub) return Error(output, "GitHub tree presentation is not qualified; use show or query.");
         if (depth is < 0) return Error(output, "Tree depth cannot be negative.", 2);
         if (all && id is not null) return Error(output, "--all cannot be combined with an explicit tree target.", 2);
@@ -266,11 +268,23 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         {
             var observed = await workspace.ReadAsync(requested, ct);
             if (!observed.IsSuccess) return Error(output, observed.Error.Message);
+            var restored = History.RestoreRetainedItem(handle.Source, observed.Value);
+            if (!restored.IsSuccess) return Error(output, restored.Error.Message);
             snapshot = await workspace.SnapshotAsync(ct);
             if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         }
+        var evidence = History.Read(handle.Source);
+        if (!evidence.IsSuccess) return Error(output, evidence.Error.Message);
+        var history = new NativeHistoricalProjection(snapshot.Value, evidence.Value);
+        if (requested is not null && history.Withholds(requested))
+            return Error(output, "Historical output is withheld for this item.");
+        snapshot = Result<StoreSnapshot>.Ok(history.Snapshot());
         var schema = await workspace.SchemaAsync(ct);
         if (!schema.IsSuccess) return Error(output, schema.Error.Message);
+        var releaseEvidence = History.Read(handle.Source);
+        if (!releaseEvidence.IsSuccess) return Error(output, releaseEvidence.Error.Message);
+        if (!releaseEvidence.Value.IsSubsetOf(evidence.Value))
+            return Error(output, "Historical evidence changed while loading the tree; read it again.");
         var kinds = schema.Value.Relations.Where(relation => relation.Shape == RelationShape.Hierarchy && relation.Directed).ToArray();
         if (kinds.Length != 1) return Error(output, "Tree display requires a unique discovered hierarchy relation.");
         var hierarchy = kinds[0].Reference;
@@ -1483,8 +1497,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
-        var snapshot = await workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
+        var evidence = History.Read(handle.Source);
+        if (!evidence.IsSuccess) return Error(output, evidence.Error.Message);
+        var read = await workspace.SnapshotAsync(ct);
+        if (!read.IsSuccess) return Error(output, read.Error.Message);
+        var snapshot = new NativeHistoricalProjection(read.Value, evidence.Value).Snapshot();
         var selected = fields?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToHashSet(StringComparer.Ordinal);
         var rows = new List<RenderRow>();
@@ -1498,7 +1515,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 missing.Add(id); continue;
             }
             var key = resolved.Value;
-            var item = snapshot.Value.Items.FirstOrDefault(item => item.Key == key);
+            var item = snapshot.Items.FirstOrDefault(item => item.Key == key);
             if (item is null) { missing.Add(id); continue; }
             rows.Add(new(null, new Dictionary<string, RenderCell>
             {
@@ -1508,7 +1525,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["state"] = Cell(item.Fields.TryGetValue(StateField, out var state) ? state : FieldValue.Null),
                 ["revision"] = item.Revision is null ? new("", new RenderValue.Null()) : RenderCell.String(item.Revision.Token),
                 ["cached"] = RenderCell.Boolean(true),
-                ["isDirty"] = RenderCell.Boolean(snapshot.Value.Drafts.Any(draft => draft.Key == key)),
+                ["isDirty"] = RenderCell.Boolean(snapshot.Drafts.Any(draft => draft.Key == key)),
                 ["fields"] = new("Fields", new RenderValue.Object(item.Fields.Where(field => selected is null || selected.Contains(field.Key))
                     .ToDictionary(field => field.Key, field => Cell(field.Value), StringComparer.Ordinal))),
             }));
@@ -1539,10 +1556,13 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             return Error(output, "Hierarchy/section detail routing is not yet connected in this in-progress Core cutover.", 1);
         if (localId is not null && (id is not null || refresh || fields is not null || output is not ("json" or "json-full" or "json-compact")))
             return Error(output, "--local-id requires JSON snapshot output without another target, refresh or projection.", 2);
+        using var observation = refresh ? Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true) : null;
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
+        var evidence = refresh ? null : History.Read(handle.Source);
+        if (evidence is { IsSuccess: false }) return Error(output, evidence.Error.Message);
         var original = await workspace.SnapshotAsync(ct);
         if (!original.IsSuccess) return Error(output, original.Error.Message);
         ItemKey key;
@@ -1566,6 +1586,12 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         var localKey = key.IsLocal ? key : original.Value.Mappings.FirstOrDefault(mapping => mapping.Remote == key)?.Local;
         key = original.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        if (evidence is { IsSuccess: true })
+        {
+            var history = new NativeHistoricalProjection(original.Value, evidence.Value);
+            if (history.Withholds(key)) return Error(output, "Historical output is withheld for this item.");
+            original = Result<StoreSnapshot>.Ok(history.Snapshot());
+        }
         WorkItem item;
         if (key.IsLocal)
         {
@@ -1578,17 +1604,17 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         {
             var read = await workspace.ReadAsync(key, ct);
             if (!read.IsSuccess) return Error(output, read.Error.Message);
+            var restored = History.RestoreRetainedItem(handle.Source, read.Value);
+            if (!restored.IsSuccess) return Error(output, restored.Error.Message);
             item = read.Value;
         }
         else
         {
-            var cached = await workspace.SnapshotAsync(ct);
-            if (!cached.IsSuccess) return Error(output, cached.Error.Message);
-            var found = cached.Value.Items.FirstOrDefault(value => value.Key == key);
+            var found = original.Value.Items.FirstOrDefault(value => value.Key == key);
             if (found is null) return Error(output, $"Work item #{key.NativeId} is not cached. Use show {key.NativeId} --refresh.");
             item = found;
         }
-        var snapshot = await workspace.SnapshotAsync(ct);
+        var snapshot = refresh ? await workspace.SnapshotAsync(ct) : original;
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
         var selected = fields?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
         var displayId = CoreWorkspace.DisplayId(workspace.Connection, snapshot.Value, key);

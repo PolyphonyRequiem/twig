@@ -442,6 +442,8 @@ Twig.Infrastructure.Services.NativeSourceObservation.PlanningSources.get -> Twig
 Twig.Infrastructure.Services.NativeSourceObservation.PlanningSources.init -> void
 Twig.Infrastructure.Services.NativeSourceObservation.PlanningBrowse.get -> Twig.Core.PlanningBrowse?
 Twig.Infrastructure.Services.NativeSourceObservation.PlanningBrowse.init -> void
+Twig.Infrastructure.Services.NativeSourceObservation.AcquiredPlanningPage.get -> Twig.Core.QueryPage?
+Twig.Infrastructure.Services.NativeSourceObservation.AcquiredPlanningPage.init -> void
 static Twig.Infrastructure.Services.NativeSourceReader.RefreshPlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 Twig.Infrastructure.Services.NativeSourceObservation.Planning.get -> Twig.Core.PlanningMetadata?
 Twig.Infrastructure.Services.NativeSourceObservation.Planning.init -> void
@@ -453,6 +455,7 @@ Twig.Infrastructure.Services.NativeSourceObservation.SelectedBenchId.get -> Syst
 Twig.Infrastructure.Services.NativeSourceObservation.SelectedBenchId.init -> void
 static Twig.Infrastructure.Services.NativeSourceReader.ReadAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp? expectedSource = null, bool observeSchema = false, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 static Twig.Infrastructure.Services.NativeSourceReader.ReadOnlineAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
+static Twig.Infrastructure.Services.NativeSourceReader.ObserveItemsAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, System.Collections.Immutable.ImmutableArray<Twig.Core.ItemKey!> keys, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Core.WorkItem!>>!>!
 Twig.Infrastructure.Services.NativeSourceStamp
 Twig.Infrastructure.Services.NativeSourceStamp.NativeSourceStamp(Twig.Core.Connection! Connection, System.Guid StoreInstance, string! PrincipalId, string! AuthorityStamp) -> void
 Twig.Infrastructure.Services.NativeSourceStamp.Connection.get -> Twig.Core.Connection!

@@ -119,8 +119,8 @@ public static partial class NativeBenchHost
                 || plan.Enabled != captured.Captured.Plan.Enabled || plan.BenchRevision != captured.Definition.Revision)
                 throw new HttpFailure(409, "AgentSnapshotChanged", "The Bench or Plan changed. Read fresh context and reconsider the operation.");
             if (validateSources)
-                foreach (var source in captured.Captured.View.Sources.Where(source => source.Error is null && source.Observation is not null))
-                    _ = ConnectionObservation(await panel.ValidateDisplayAccessAsync(Source(grant, source.SourceId), ct), app.Logger);
+                _ = ConnectionObservation(await panel.CheckWorkspaceAsync(captured.Captured, ct,
+                    recheckLocalSnapshot: false), app.Logger);
             _ = await Current(session, grant, ct);
             return captured;
         }
@@ -133,6 +133,54 @@ public static partial class NativeBenchHost
             return (source, source.Items.SingleOrDefault(value => value.BenchMember && !value.IsExcluded
                 && ViewMapping.Key(value.Identity) == id)
                 ?? throw new HttpFailure(404, "NotFound", "Read an exact current Bench member before acting on it."));
+        }
+        async Task<Dictionary<string, WorkItem>> ObserveRemoteItems(ViewSession session, NativeAgentGrant grant,
+            NativeAgentSnapshot captured, Guid sourceId, IEnumerable<ItemView> items, CancellationToken ct)
+        {
+            var remote = items.Where(item => !item.Identity.Key.IsLocal).ToArray();
+            if (remote.Length == 0) return [];
+            var source = Source(grant, sourceId);
+            var keys = remote.Select(item => item.Identity.Key).ToImmutableArray();
+            var result = ConnectionObservation(await panel.ObserveItemsAsync(source, keys, ct), app.Logger);
+            if (result.Length != keys.Length || !keys.ToHashSet().SetEquals(result.Select(item => item.Key)))
+                throw new HttpFailure(503, "Unavailable", "The provider did not return the exact requested work items.");
+            _ = await Snapshot(session, grant, captured.Id, ct);
+            return result.ToDictionary(item => ViewMapping.Key(new(sourceId, item.Key)));
+        }
+
+        static ItemDto WithProviderFields(ItemDto item, WorkItem fresh, SourceViewDto source)
+        {
+            string? title = item.TitleField is { } titleField && fresh.Fields.TryGetValue(titleField, out var value)
+                ? value.Text : null;
+            return item with
+            {
+                Type = fresh.Type, Title = title,
+                Locator = fresh.Key.Provider?.Value == "github"
+                    ? fresh.Fields.TryGetValue(Twig.Providers.GitHub.GitHubProvider.Number, out var number)
+                        && number.Kind == FieldKind.Integer && number.Number is > 0 and <= int.MaxValue
+                        ? number.Number.ToString(CultureInfo.InvariantCulture) : fresh.Key.NativeId!
+                    : fresh.Key.NativeId!,
+                WebUrl = fresh.Key.Provider?.Value == "github" ? null : item.WebUrl,
+                StateField = source.Items.FirstOrDefault(candidate => candidate.Type == fresh.Type)?.StateField,
+                CachedFields = ViewMapping.Fields(fresh.Fields),
+                RelationshipsComplete = false
+            };
+        }
+
+        async Task<ItemDto[]> ObservePage(ViewSession session, NativeAgentGrant grant, NativeAgentSnapshot captured,
+            (SourceViewDto Source, ItemDto Item)[] members, int offset, int limit, CancellationToken ct)
+        {
+            if (members.Count(member => !member.Item.IsLocal) > 100)
+                throw new HttpFailure(503, "Unavailable",
+                    "This Bench exceeds the live delegated read limit. Read one exact work item or narrow the Bench.");
+            var fresh = new Dictionary<string, WorkItem>(StringComparer.Ordinal);
+            foreach (var group in members.GroupBy(member => member.Source.SourceId))
+                foreach (var (id, item) in await ObserveRemoteItems(session, grant, captured, group.Key,
+                    group.Select(member => Item(captured, group.Key, member.Item.Id).Item), ct))
+                    fresh.Add(id, item);
+            _ = await Snapshot(session, grant, captured.Id, ct);
+            return members.Skip(offset).Take(limit).Select(member => fresh.TryGetValue(member.Item.Id, out var item)
+                ? WithProviderFields(member.Item, item, member.Source) : member.Item).ToArray();
         }
         async Task<NativeAgentSnapshot> Capture(ViewSession session, NativeAgentGrant grant, CancellationToken ct)
         {
@@ -169,8 +217,13 @@ public static partial class NativeBenchHost
         async Task<AgentChangedDto> ChangePin(ViewSession session, NativeAgentGrant grant,
             NativeAgentSnapshot captured, NativePanelContext source, ItemKey key, bool add, CancellationToken ct)
         {
-            _ = ConnectionObservation(await panel.ValidateDisplayAccessAsync(source, ct), app.Logger);
-            _ = await Snapshot(session, grant, captured.Id, ct);
+            if (add && !key.IsLocal)
+            {
+                var observed = ConnectionObservation(await panel.ObserveItemsAsync(source, [key], ct), app.Logger);
+                if (observed.Length != 1 || observed[0].Key != key)
+                    throw new HttpFailure(503, "Unavailable", "The provider did not return the requested work item.");
+            }
+            _ = await Snapshot(session, grant, captured.Id, ct, validateSources: false);
             var selector = new Selector(SelectorKind.Pin, key, connection: source.Stamp.Connection);
             var present = captured.Definition.Selectors.Any(value => value.Kind == SelectorKind.Pin
                 && value.Item == key && value.Connection == selector.Connection);
@@ -390,14 +443,17 @@ public static partial class NativeBenchHost
             var body = await Body<AgentPageBody>(http);
             if (body.Offset < 0 || body.Limit is < 1 or > 100)
                 throw new HttpFailure(400, "InvalidInput", "Use a nonnegative offset and a page size from 1 to 100.");
-            var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted);
+            var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted, validateSources: false);
             var members = captured.View.Sources.Where(source => source.ErrorCode is null).SelectMany(source =>
                 source.Items.Where(item => item.BenchMember && !item.IsExcluded).Select(item => (Source: source, Item: item))).ToArray();
             var keys = captured.Captured.View.Sources.ToDictionary(source => source.SourceId,
                 source => source.Items.ToDictionary(item => ViewMapping.Key(item.Identity), item => item.Identity.Key));
-            var page = members.Skip(body.Offset).Take(body.Limit).Select(member =>
+            var membersOnPage = members.Skip(body.Offset).Take(body.Limit).ToArray();
+            var observedPage = await ObservePage(session, grant, captured, members, body.Offset, body.Limit, http.RequestAborted);
+            var page = membersOnPage.Zip(observedPage).Select(pair =>
                 {
-                    var (source, item) = member;
+                    var source = pair.First.Source;
+                    var item = pair.Second;
                     var fields = item.CachedFields.Concat(item.ProposedFields).GroupBy(field => field.Reference)
                         .ToDictionary(group => group.Key, group => group.Last().Value);
                     var key = keys[source.SourceId][item.Id];
@@ -416,10 +472,12 @@ public static partial class NativeBenchHost
         {
             var (session, grant) = await Agent(http, id);
             var body = await Body<AgentItemBody>(http);
-            var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted);
-            _ = Item(captured, body.SourceId, body.ItemId);
+            var captured = await Snapshot(session, grant, body.SnapshotId, http.RequestAborted, validateSources: false);
+            var (_, observed) = Item(captured, body.SourceId, body.ItemId);
             var source = captured.View.Sources.Single(value => value.SourceId == body.SourceId);
             var item = source.Items.Single(value => value.Id == body.ItemId);
+            var fresh = await ObserveRemoteItems(session, grant, captured, body.SourceId, [observed], http.RequestAborted);
+            if (fresh.TryGetValue(item.Id, out var remote)) item = WithProviderFields(item, remote, source);
             await Write(http, new AgentItemDto(captured.Id, body.SourceId, item with { Pin = null },
                 source.Types?.SingleOrDefault(type => type.Reference == item.Type)));
         });
@@ -484,17 +542,19 @@ public static partial class NativeBenchHost
                         var page = captured.View.Sources.Where(source => source.ErrorCode is null)
                             .SelectMany(source => source.Items.Where(item => item.BenchMember && !item.IsExcluded)
                                 .Select(item => (Source: source, Item: item))).ToArray();
+                        var membersOnPage = page.Skip(offset).Take(limit).ToArray();
+                        var observedPage = await ObservePage(session, grant, captured, page, offset, limit, lifetime.Token);
                         var result = new JsonObject
                         {
                             ["snapshotId"] = captured.Id, ["benchId"] = captured.Definition.Id, ["name"] = captured.Definition.Name,
                             ["total"] = page.Length, ["nextOffset"] = (long)offset + limit < page.Length ? offset + limit : null,
-                            ["items"] = new JsonArray(page.Skip(offset).Take(limit).Select(member => (JsonNode)new JsonObject
+                            ["items"] = new JsonArray(membersOnPage.Zip(observedPage).Select(pair => (JsonNode)new JsonObject
                             {
-                                ["sourceId"] = member.Source.SourceId, ["itemId"] = member.Item.Id,
-                                ["locator"] = member.Item.Locator, ["type"] = member.Item.Type,
-                                ["title"] = member.Item.TitleField is { } title ? member.Item.CachedFields
+                                ["sourceId"] = pair.First.Source.SourceId, ["itemId"] = pair.Second.Id,
+                                ["locator"] = pair.Second.Locator, ["type"] = pair.Second.Type,
+                                ["title"] = pair.Second.TitleField is { } title ? pair.Second.CachedFields
                                     .SingleOrDefault(field => field.Reference == title)?.Value.Value.GetString() : null,
-                                ["hasDraft"] = member.Item.HasDraft
+                                ["hasDraft"] = pair.Second.HasDraft
                             }).ToArray())
                         };
                         result["sources"] = new JsonArray(captured.View.Sources.Select(source => (JsonNode)new JsonObject
@@ -526,11 +586,12 @@ public static partial class NativeBenchHost
                         || assigned is { Length: < 1 or > 256 })
                         throw new HttpFailure(400, "InvalidInput", "Use unique field references and emphasize a selected field.");
                     var snapshot = await Snapshot(session, grant, snapshotId, lifetime.Token, validateSources: false);
-                    _ = ConnectionObservation(await panel.ValidateDisplayAccessAsync(Source(grant, sourceId), lifetime.Token), app.Logger);
-                    _ = await Current(session, grant, lifetime.Token);
                     var (_, observed) = Item(snapshot, sourceId, itemId);
                     var sourceView = snapshot.View.Sources.Single(source => source.SourceId == sourceId);
                     var itemView = sourceView.Items.Single(item => item.Id == itemId);
+                    var fresh = await ObserveRemoteItems(session, grant, snapshot, sourceId, [observed], lifetime.Token);
+                    if (fresh.TryGetValue(itemId, out var remote))
+                        itemView = WithProviderFields(itemView, remote, sourceView);
                     var type = sourceView.Types?.SingleOrDefault(type => type.Reference == itemView.Type);
                     McpFieldDto? Field(string? reference)
                     {
@@ -546,7 +607,7 @@ public static partial class NativeBenchHost
                         is not (FieldKind.Identity or FieldKind.StringList))
                         throw new HttpFailure(400, "InvalidInput", "Choose an observed identity or identity-list field for the assignee.");
                     IdentityProfile[] profiles = [];
-                    if (assigned is not null && observed.CachedFields.TryGetValue(assigned, out var assignment))
+                    if (assigned is not null && (remote?.Fields ?? observed.CachedFields).TryGetValue(assigned, out var assignment))
                     {
                         var identities = assignment.Kind == FieldKind.Identity && assignment.Text is { Length: > 0 } identity
                             ? ImmutableArray.Create(identity)
@@ -566,10 +627,10 @@ public static partial class NativeBenchHost
                     var details = new McpDetailsDto(snapshot.Id, sourceId, itemId, itemView.Locator, itemView.Type,
                         itemView.TitleField is { } title ? itemView.CachedFields.SingleOrDefault(field => field.Reference == title)
                             ?.Value.Value.GetString() : null,
-                        state, assignee, observed.Revision, itemView.IsLocal, itemView.HasDraft,
+                        state, assignee, remote?.Revision?.Token ?? observed.Revision, itemView.IsLocal, itemView.HasDraft,
                         sourceView.Connection, sourceView.Label, sourceView.Mode, sourceView.CacheReadAt,
                         sourceView.Limitations, references.Select(reference => Field(reference)!).ToArray(),
-                        sourceView.UnresolvedReferences.Where(reference => sourceView.Edges.Any(edge =>
+                        remote is not null ? [] : sourceView.UnresolvedReferences.Where(reference => sourceView.Edges.Any(edge =>
                             edge.From == itemId && edge.To == reference.Id || edge.To == itemId && edge.From == reference.Id)).ToArray(),
                         focus, note)
                     {
@@ -668,7 +729,7 @@ public static partial class NativeBenchHost
             {
                 var captured = await Snapshot(session, grant, body.SnapshotId, lifetime.Token);
                 var source = Source(grant, body.SourceId);
-                var cache = ConnectionObservation(await panel.CaptureAsync(source, lifetime.Token, cachedGuidance: true), app.Logger);
+                var cache = ConnectionObservation(await panel.CaptureAsync(source, lifetime.Token), app.Logger);
                 var key = cache.Observation.Snapshot.Items.SingleOrDefault(item => !item.Key.IsLocal
                     && (source.Stamp.Connection.Provider.Value is "ado" or "twig" ? item.Key.NativeId == body.Locator
                         : source.Stamp.Connection.Provider.Value == "github" && item.Fields.TryGetValue(Twig.Providers.GitHub.GitHubProvider.Number, out var number)
@@ -718,7 +779,8 @@ public static partial class NativeBenchHost
                         // The active editor lease owns this source gate; use its admission-aware read rather than reacquiring it.
                         _ = await Snapshot(session, grant, captured.Id, ct, validateSources: false);
                         var current = ConnectionObservation(await panel.ReadEditorSourceAsync(source, ct), app.Logger);
-                        if (current.Snapshot.Version != observed.Observation?.CacheVersion)
+                        if (current.Snapshot.Version != observed.Observation?.CacheVersion
+                            || current.WithdrawnItems.Contains(item.Identity.Key))
                             throw new HttpFailure(409, "AgentSnapshotChanged", "The native cache changed. Read fresh context before staging.");
                         mutationAttempted = true;
                         if (!captured.Captured.Plan.Enabled)

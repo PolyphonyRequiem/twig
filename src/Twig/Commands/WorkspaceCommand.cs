@@ -17,7 +17,8 @@ namespace Twig.Commands;
 internal sealed class WorkspaceCommand(
     RendererFactory rendererFactory,
     CoreWorkspaceFactory? factory = null,
-    ITelemetryClient? telemetryClient = null)
+    ITelemetryClient? telemetryClient = null,
+    NativeHistoricalEvidence? historicalEvidence = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat,
         bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default,
@@ -70,6 +71,9 @@ internal sealed class WorkspaceCommand(
             if (!opened.IsSuccess) return Error(opened.Error.Message);
             using var handle = opened.Value;
             var workspace = handle.Workspace;
+            var history = historicalEvidence ?? NativeHistoricalEvidence.ForLocalUser();
+            var evidence = history.Read(handle.Source);
+            if (!evidence.IsSuccess) return Error(evidence.Error.Message);
             var github = workspace.Connection.Provider.Value == "github";
             if (github && refresh)
                 return Error("GitHub workspace refresh/context expansion is not qualified; explicitly refresh numeric items.");
@@ -98,6 +102,10 @@ internal sealed class WorkspaceCommand(
                 if (!read.IsSuccess) return Error(read.Error.Message);
                 snapshot = read.Value;
             }
+            var currentEvidence = history.Read(handle.Source);
+            if (!currentEvidence.IsSuccess) return Error(currentEvidence.Error.Message);
+            var historicalProjection = new NativeHistoricalProjection(snapshot, evidence.Value.Union(currentEvidence.Value));
+            snapshot = historicalProjection.Snapshot();
             // Schema is not persisted in StoreSnapshot. Only provider metadata is acquired on an ordinary read.
             var schema = await workspace.SchemaAsync(ct);
             if (!schema.IsSuccess) return Error(schema.Error.Message);
@@ -105,14 +113,15 @@ internal sealed class WorkspaceCommand(
             if (!planning.IsSuccess) return Error(planning.Error.Message);
             var memberships = await workspace.MembershipsAsync(ct);
             if (!memberships.IsSuccess) return Error(memberships.Error.Message);
-            schema = Result<ProcessSchema>.Ok(schema.Value with { PlanningCalendars = planning.Value, Memberships = memberships.Value });
+            schema = Result<ProcessSchema>.Ok(schema.Value with { PlanningCalendars = planning.Value,
+                Memberships = historicalProjection.Memberships(memberships.Value) });
             var evaluationTime = DateTimeOffset.UtcNow;
             if (KnownLocalKeys(snapshot).GroupBy(LocalAlias).Any(group => group.Count() != 1))
                 return Error("Local aliases are ambiguous; no workspace identity was guessed.");
             ItemKey Resolve(ItemKey key) => key.IsLocal
                 ? snapshot.Mappings.SingleOrDefault(mapping => mapping.Local == key)?.Remote ?? key : key;
             bool Qualified(ItemKey key) => CoreWorkspace.DisplayId(workspace.Connection, snapshot, key).IsSuccess;
-            var selectors = selected.Selectors.Select(selector => selector.Item is null ? selector
+            var selectors = selected.Selectors.Where(historicalProjection.AllowsSelector).Select(selector => selector.Item is null ? selector
                 : new Selector(selector.Kind, Resolve(selector.Item), hierarchyRelation: selector.HierarchyRelation, connection: selector.Connection)).ToArray();
             if (selectors.Any(selector => (selector.Connection is null || selector.Connection == workspace.Connection)
                     && selector.Item is { } key && !Qualified(key))
@@ -128,7 +137,8 @@ internal sealed class WorkspaceCommand(
             var rules = await workspace.ViewRulesAsync(ct);
             if (!rules.IsSuccess) return Error(rules.Error.Message);
             var candidates = resolved.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
-            var visible = Core.Core.ApplyViewExclusions(candidates, rules.Value.Exclusions, projection, schema.Value, evaluationTime);
+            var visible = Core.Core.ApplyViewExclusions(candidates, rules.Value.Exclusions.Where(historicalProjection.AllowsSelector),
+                projection, schema.Value, evaluationTime);
             if (!visible.IsSuccess) return Error(visible.Error.Message);
             var keys = visible.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
             var rows = new List<RenderRow>();
@@ -169,6 +179,10 @@ internal sealed class WorkspaceCommand(
                     ["proposedFields"] = Fields(proposed),
                 }));
             }
+            var releaseEvidence = history.Read(handle.Source);
+            if (!releaseEvidence.IsSuccess) return Error(releaseEvidence.Error.Message);
+            if (!releaseEvidence.Value.IsSubsetOf(evidence.Value.Union(currentEvidence.Value)))
+                return Error("Historical evidence changed while loading the Bench; read it again.");
             var table = new RenderNode.Table("Cached Bench items and protected drafts",
                 [new("id", "ID"), new("title", "Title"), new("state", "State"), new("type", "Type"),
                     new("source", "Source"), new("proposedFields", "Proposed fields")], rows);

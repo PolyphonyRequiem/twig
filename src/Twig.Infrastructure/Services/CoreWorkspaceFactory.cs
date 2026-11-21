@@ -30,7 +30,7 @@ internal sealed class CoreWorkspaceHandle(CoreWorkspace workspace, IDisposable p
 
 internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, TwigPaths paths,
     IConnectionBindingService bindings, IAuthenticationProvider authentication, CoreTransportOverride? transport = null,
-    CoreGitHubWorkspaceHost? github = null)
+    CoreGitHubWorkspaceHost? github = null, NativeHistoricalEvidence? history = null)
 {
     internal const string FileName = "core-workspace.json";
     internal string WorkspaceRoot => paths.RepoRoot;
@@ -43,6 +43,17 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
     internal string ExecutionRegistryPath => bindings.RegistryPath;
 
     internal async Task<Result<CoreWorkspaceHandle>> OpenAsync(CancellationToken ct)
+    {
+        var opened = await OpenCoreAsync(ct).ConfigureAwait(false);
+        if (opened.IsSuccess && history is not null)
+        {
+            var handle = opened.Value;
+            handle.Workspace.RecordHistoricalReadFailure = error => history.RecordReadFailure(handle.Source, error);
+        }
+        return opened;
+    }
+
+    private async Task<Result<CoreWorkspaceHandle>> OpenCoreAsync(CancellationToken ct)
     {
         CoreWorkspaceDocument? document;
         try
@@ -283,7 +294,7 @@ internal static class CoreWorkspaceRegistration
         services.AddSingleton(sp => new CoreWorkspaceFactory(configuration, paths,
             sp.GetRequiredService<IConnectionBindingService>(), sp.GetRequiredService<IAuthenticationProvider>(),
             sp.GetService<CoreTransportOverride>(), configuration.ResolveWorkItemProviderKind() == "github"
-                ? sp.GetService<CoreGitHubWorkspaceHost>() : null));
+                ? sp.GetService<CoreGitHubWorkspaceHost>() : null, sp.GetService<NativeHistoricalEvidence>()));
         services.AddSingleton(sp => new CoreGitHubWorkspaceHost(configuration, paths,
             sp.GetRequiredService<IConnectionBindingService>(), sp.GetService<IGitHubTokenSource>(),
             sp.GetService<CoreTransportOverride>(), sp.GetService<IBoundedProcessRunner>()));

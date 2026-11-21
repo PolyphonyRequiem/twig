@@ -199,13 +199,13 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         var first = await fixture.Adapter.ReadAsync(fixture.Source, default);
         Equal(ObservationMode.PermittedOfflineCache, Required(first).Mode);
         Equal(fixture.Gateway.Observation.Source.PrincipalId, fixture.Gateway.Expected!.PrincipalId);
-        Equal(1, fixture.Gateway.OnlineCalls);
+        Equal(1, fixture.Gateway.SchemaCalls);
         fixture.Gateway.Version = 30;
         var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
         var second = Required(await restarted.ReadAsync(fixture.Source, default));
         Equal(30L, second.Snapshot.Version);
         Equal(first.Value.Schema.Fingerprint, second.Schema.Fingerprint);
-        Equal(1, fixture.Gateway.OnlineCalls);
+        Equal(1, fixture.Gateway.SchemaCalls);
     }),
     ("native form presentation survives real disk cache without schema rediscovery", async () =>
     {
@@ -218,7 +218,7 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         Equal(2, type.Presentation.Layout!.Pages[0].Sections.Length);
         Equal("Description", type.Fields.Single(f => f.Reference == "System.Description").Name);
         Equal("https://example.test/project/", observation.Schema.WebUrl);
-        Equal(1, fixture.Gateway.OnlineCalls);
+        Equal(1, fixture.Gateway.SchemaCalls);
     }),
     ("structured denial latches persistently; only explicit successful same-binding recheck unblocks", async () =>
     {
@@ -230,6 +230,41 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         fixture.Gateway.OnlineError = null;
         Required(await restarted.RecheckAsync(fixture.Source, default));
         Required(await restarted.ReadAsync(fixture.Source, default));
+    }),
+    ("GitHub schema success cannot authorize first admission or same-source recovery without an issues read", async () =>
+    {
+        await using var fixture = await Fixture.Start("github");
+        var source = fixture.Source;
+        var binding = CatalogFingerprint.Binding(source.Binding);
+        var schemaPath = Path.Combine(fixture.CacheDirectory, binding + ".json");
+        var oldSchema = await File.ReadAllBytesAsync(schemaPath);
+        var empty = Path.Combine(fixture.Directory, "unadmitted");
+        var unadmitted = new NativeSourceAdapter(empty, fixture.Gateway, fixture.Changes);
+        fixture.Gateway.ContentReadError = new(ErrorCode.Unavailable, "Synthetic issues read denied") { Evidence = ["http:403"] };
+        var schemaCalls = fixture.Gateway.SchemaCalls;
+
+        Equal(ErrorCode.Unavailable, (await unadmitted.AdmitAsync(source.NativeLocator, default)).Error.Code);
+        Equal(schemaCalls + 1, fixture.Gateway.SchemaCalls);
+        Check(!File.Exists(Path.Combine(empty, binding + ".json")), "First admission retained schema before read authorization.");
+        Equal(ErrorCode.StorageUnavailable, (await unadmitted.ReadAsync(source, default)).Error.Code);
+
+        Equal(ErrorCode.Unavailable, (await fixture.Adapter.RecheckAsync(source, default)).Error.Code);
+        Equal(schemaCalls + 2, fixture.Gateway.SchemaCalls);
+        Equal(fixture.Gateway.Observation.Source, fixture.Gateway.Expected!);
+        var retainedSchema = await File.ReadAllBytesAsync(schemaPath);
+        Check(oldSchema.SequenceEqual(retainedSchema), "Denied recheck replaced retained schema.");
+
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(source, default)).Error.Code);
+        Equal(ErrorCode.Unavailable, (await restarted.AdmitAsync(source.NativeLocator, default)).Error.Code);
+        var panel = new NativePanel(new UserBenchStore(Path.Combine(fixture.Directory, "benches.db")), fixture.Gateway, restarted);
+        Equal(ErrorCode.PolicyViolation, (await panel.OpenAsync(source.NativeLocator, default, cachedAdmissionOnly: true)).Error.Code);
+
+        fixture.Gateway.ContentReadError = null;
+        Equal(source.Binding, Required(await restarted.RecheckAsync(source, default)).Binding);
+        Equal(ObservationMode.PermittedOfflineCache, Required(await restarted.ReadAsync(source, default)).Mode);
+        Equal(source.Binding, Required(await unadmitted.RecheckAsync(source, default)).Binding);
+        Equal(ObservationMode.PermittedOfflineCache, Required(await unadmitted.ReadAsync(source, default)).Mode);
     }),
     ("ordinary online reads validate access without metadata crawl or fabricated schema freshness", async () =>
     {
@@ -454,6 +489,7 @@ sealed class SyntheticGateway : INativeSourceGateway
     internal bool OmitGitHubNumber { get; set; }
     internal bool MalformedGitHubNumber { get; set; }
     internal Error? OnlineError { get; set; }
+    internal Error? ContentReadError { get; set; }
     internal bool Replaced { get; set; }
     internal long Version { get; set; } = 1;
     internal SyntheticGateway(string provider = "ado")
@@ -528,6 +564,8 @@ sealed class SyntheticGateway : INativeSourceGateway
         if (expected is not null && stamp != expected) return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic authority changed");
         if (Replaced) return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic replacement");
         if (online && OnlineError is { } error) return Result<NativeSourceObservation>.Fail(error);
+        if (online && !observeSchema && ContentReadError is { } contentError)
+            return Result<NativeSourceObservation>.Fail(contentError);
         var items = Observation.Snapshot.Items;
         if (OmitGitHubNumber || MalformedGitHubNumber)
             items = items.Select(item =>
@@ -557,13 +595,13 @@ sealed class Fixture : IAsyncDisposable
     public CatalogChanges Changes { get; private init; } = null!;
     public RegisteredSource Source { get; private init; } = null!;
 
-    public static async Task<Fixture> Start()
+    public static async Task<Fixture> Start(string provider = "ado")
     {
         var directory = Path.Combine(Path.GetTempPath(), "twig-source-adapter-tests-" + Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(directory);
         try
         {
-            var gateway = new SyntheticGateway();
+            var gateway = new SyntheticGateway(provider);
             var changes = new CatalogChanges();
             var adapter = new NativeSourceAdapter(Path.Combine(directory, "native-cache"), gateway, changes);
             var observation = await adapter.AdmitAsync(directory, default);

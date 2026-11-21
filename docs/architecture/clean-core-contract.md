@@ -425,6 +425,9 @@ Full metadata refresh remains explicit. Ordinary online hosts can instead call
 access through `IProvider.ValidateReadAccessAsync` and final native authority
 checks, while retaining their previously admitted presentation observation.
 That operation returns no fresh schema and makes no schema freshness claim.
+Native Bench admission and explicit recheck require live work-item read access
+for the exact source stamp as well as schema evidence. Successful metadata
+discovery alone cannot authorize cache reuse or restore offline access.
 Unsupported providers fail closed. No additional port or schema model is added.
 
 ADO presentation reads the exact process roster reference, never a similarly named

@@ -149,13 +149,16 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             ? review.ContinueDeliveryAsync(digest, token) : review.ApplyAsync(digest, token), ct);
 
     public async Task<Result<NativePanelContext>> OpenAsync(string root, CancellationToken ct, string? expectedBinding = null,
-        IDictionary<NativePanelContext, SourceObservation>? initialObservations = null, bool cachedAdmissionOnly = false)
+        IDictionary<NativePanelContext, SourceObservation>? initialObservations = null, bool cachedAdmissionOnly = false,
+        NativeSourceStamp? expectedSource = null)
     {
         if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root))
             return Result<NativePanelContext>.Fail(ErrorCode.InvalidInput, "Choose an existing native connection or an initialized workspace in Advanced.");
         root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
-        var local = await sources.NativeAsync(root, token => gateway.ReadAsync(root, null, false, token), ct).ConfigureAwait(false);
+        var local = await sources.NativeAsync(root, token => gateway.ReadAsync(root, expectedSource, false, token), ct).ConfigureAwait(false);
         if (!local.IsSuccess) return Result<NativePanelContext>.Fail(local.Error);
+        if (expectedSource is not null && local.Value.Source != expectedSource)
+            return Result<NativePanelContext>.Fail(ErrorCode.Conflict, "The prepared source or principal changed. Choose it again.");
         if (cachedAdmissionOnly)
             expectedBinding ??= CatalogFingerprint.Binding(NativeSourceAdapter.Binding(local.Value.Source));
         var observed = expectedBinding is null

@@ -189,13 +189,15 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
             var observed = await NativeAsync(source.NativeLocator,
                 token => acquire(cached.Value.Schema.ToCore(source.Binding.Connection), token), ct).ConfigureAwait(false);
             if (!observed.IsSuccess) return Refuse(observed.Error, check);
+            if (observed.Value.Source != cached.Value.Stamp.ToNative())
+                return Refuse(new(ErrorCode.Conflict, "The native source changed during acquisition."), check);
             Result<SourceObservation> result;
             if (observed.Value.Schema is not null)
-                result = await StoreOnline(observed.Value, source.Binding, ct).ConfigureAwait(false);
-            else if (observed.Value.Source != cached.Value.Stamp.ToNative())
-                return Refuse(new(ErrorCode.Conflict, "The native source changed during acquisition."), check);
+                result = await ValidateAndStoreOnlineAsync(source.NativeLocator, observed.Value, source.Binding, ct).ConfigureAwait(false);
             else
             {
+                var access = await ValidateWorkItemReadAsync(source.NativeLocator, observed.Value.Source, ct).ConfigureAwait(false);
+                if (!access.IsSuccess) return Refuse(access.Error, check);
                 var schema = cached.Value.Schema.ToCore(source.Binding.Connection) with
                 { Planning = observed.Value.Planning, PlanningCalendars = observed.Value.PlanningCalendars, Memberships = observed.Value.Memberships };
                 result = Result<SourceObservation>.Ok(new(source.Binding, observed.Value.Snapshot, schema,
@@ -236,11 +238,8 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
             var cached = await Load(binding, ct).ConfigureAwait(false);
             if (cached.IsSuccess && cached.Value.Stamp.ToNative() == local.Source)
             {
-                var online = await NativeAsync(nativeLocator,
-                    token => gateway.ReadOnlineAsync(nativeLocator, local.Source, token), ct).ConfigureAwait(false);
+                var online = await ValidateWorkItemReadAsync(nativeLocator, local.Source, ct).ConfigureAwait(false);
                 if (!online.IsSuccess) return Refuse(online.Error, check);
-                if (Binding(online.Value.Source) != binding)
-                    return Refuse(new(ErrorCode.Conflict, "Native source changed during connection selection."), check);
                 var schema = cached.Value.Schema.ToCore(binding.Connection) with
                 { Planning = online.Value.Planning, PlanningCalendars = online.Value.PlanningCalendars, Memberships = online.Value.Memberships };
                 check.Complete(ct);
@@ -442,7 +441,7 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
             }
             if (observed.Value.Source != cached.Value.Stamp.ToNative())
                 return Result<bool>.Fail(ErrorCode.Conflict, "The metadata source changed during discovery.");
-            var stored = await StoreOnline(observed.Value, binding, ct).ConfigureAwait(false);
+            var stored = await ValidateAndStoreOnlineAsync(workspace.Root, observed.Value, binding, ct).ConfigureAwait(false);
             if (!stored.IsSuccess) return Result<bool>.Fail(stored.Error);
             check.Complete(ct);
             changes.Publish(0);
@@ -493,16 +492,21 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         if (!observed.IsSuccess) return Refuse(observed.Error, check);
         if (observed.Value.Source != expected)
             return Refuse(new(ErrorCode.Conflict, "Explicit reauthorization found a different source; register it separately."), check);
-        var result = await StoreOnline(observed.Value, binding, ct).ConfigureAwait(false);
+        var result = await ValidateAndStoreOnlineAsync(locator, observed.Value, binding, ct).ConfigureAwait(false);
         if (result.IsSuccess) { check.Complete(ct); changes.Publish(0); }
         return result;
     }
 
-    private async Task<Result<SourceObservation>> StoreOnline(NativeSourceObservation observed, SourceBinding expected, CancellationToken ct)
+    private async Task<Result<SourceObservation>> ValidateAndStoreOnlineAsync(string locator,
+        NativeSourceObservation observed, SourceBinding expected, CancellationToken ct)
     {
         if (Binding(observed.Source) != expected || observed.Schema is not { IsSuccess: true } schema
             || observed.SchemaObservedAt is not { } schemaAt || schemaAt == default || schema.Value.Connection != expected.Connection)
             return Result<SourceObservation>.Fail(ErrorCode.Conflict, "Native schema/admission evidence is absent or mismatched.");
+        // Metadata discovery does not establish work-item read access. Keep the durable check
+        // pending until the same source passes the live read check and evidence is retained.
+        var access = await ValidateWorkItemReadAsync(locator, observed.Source, ct).ConfigureAwait(false);
+        if (!access.IsSuccess) return Result<SourceObservation>.Fail(access.Error);
         try
         {
             await Save(expected, new(1, NativeStampDocument.From(observed.Source), SchemaDocument.From(schema.Value), schemaAt, false), ct);
@@ -514,6 +518,13 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         {
             return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Cannot retain exact native admission/schema evidence.");
         }
+    }
+    private async Task<Result<NativeSourceObservation>> ValidateWorkItemReadAsync(string locator, NativeSourceStamp expected, CancellationToken ct)
+    {
+        var online = await NativeAsync(locator, token => gateway.ReadOnlineAsync(locator, expected, token), ct).ConfigureAwait(false);
+        return online.IsSuccess && online.Value.Source != expected
+            ? Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Native source changed during work-item read validation.")
+            : online;
     }
     private Result<SourceObservation> Refuse(Error error, NativeCacheCheck check)
     {

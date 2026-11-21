@@ -31,6 +31,78 @@ public sealed class NativeSourceAdapterInvariantTests
     public Task RetainsAdmissionAndCacheGuards(string scenario)
         => cases.Single(test => test.Name == scenario).Run();
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExplicitOnlineCheckReplacesCorruptCacheForExactSource(bool admit)
+    {
+        await using var fixture = await Fixture.Start();
+        var path = Directory.GetFiles(fixture.CacheDirectory, "*.json").Single();
+        var healthy = await File.ReadAllTextAsync(path);
+        var fingerprint = fixture.Gateway.Observation.Schema!.Value.Fingerprint;
+        var corrupt = healthy.Replace(fingerprint, new string('0', fingerprint.Length), StringComparison.Ordinal);
+        Check(corrupt != healthy, "The fixture must corrupt the persisted fingerprint.");
+        await File.WriteAllTextAsync(path, corrupt);
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        var calls = fixture.Gateway.TotalCalls;
+        Equal(ErrorCode.StorageUnavailable, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
+        Equal(calls, fixture.Gateway.TotalCalls);
+
+        var schemas = fixture.Gateway.SchemaCalls;
+        fixture.Gateway.Version = 42;
+        var observed = Required(admit ? await restarted.AdmitAsync(fixture.Source.NativeLocator, default)
+            : await restarted.RecheckAsync(fixture.Source, default));
+        Equal(ObservationMode.OnlineMetadata, observed.Mode);
+        Equal(fixture.Source.Binding, observed.Binding);
+        Equal(fixture.Gateway.Observation.Source, fixture.Gateway.Expected);
+        Equal(schemas + 1, fixture.Gateway.SchemaCalls);
+        Equal(42L, observed.Snapshot.Version);
+
+        var reread = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        var restored = Required(await reread.ReadAsync(fixture.Source, default));
+        Equal(ObservationMode.PermittedOfflineCache, restored.Mode);
+        Equal(fingerprint, restored.Schema.Fingerprint);
+        Equal(observed.SchemaObservedAt, restored.SchemaObservedAt);
+        Equal(schemas + 1, fixture.Gateway.SchemaCalls);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public async Task CorruptCacheRecoveryRetainsPendingOnDenialOrChangedAuthority(bool admit, bool changedAuthority)
+    {
+        await using var fixture = await Fixture.Start();
+        var path = Directory.GetFiles(fixture.CacheDirectory, "*.json").Single();
+        var healthy = await File.ReadAllBytesAsync(path);
+        const string corrupt = "{";
+        await File.WriteAllTextAsync(path, corrupt);
+        var schemas = fixture.Gateway.SchemaCalls;
+        if (changedAuthority)
+        {
+            var other = fixture.Gateway.Observation.Source with { AuthorityStamp = "replacement-authority" };
+            if (admit) fixture.Gateway.BeforeOnlineReturn = () => fixture.Gateway.SourceOverride = other;
+            else fixture.Gateway.SourceOverride = other;
+        }
+        else fixture.Gateway.OnlineError = new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = ["http:403"] };
+
+        var result = admit ? await fixture.Adapter.AdmitAsync(fixture.Source.NativeLocator, default)
+            : await fixture.Adapter.RecheckAsync(fixture.Source, default);
+        Equal(changedAuthority ? ErrorCode.Conflict : ErrorCode.Unavailable, result.Error.Code);
+        if (!changedAuthority) Check(result.Error.Evidence.Contains("http:403"), "Recovery must preserve the live denial.");
+        Equal(schemas + (changedAuthority && !admit ? 0 : 1), fixture.Gateway.SchemaCalls);
+        Equal(corrupt, await File.ReadAllTextAsync(path));
+        Equal(1, Directory.GetFiles(fixture.CacheDirectory, "*.json").Length);
+
+        // Even if the old schema becomes readable again, it cannot restore the offline grant.
+        await File.WriteAllBytesAsync(path, healthy);
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        var calls = fixture.Gateway.TotalCalls;
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
+        Equal(calls, fixture.Gateway.TotalCalls);
+    }
+
 private static readonly (string Name, Func<Task> Run)[] cases =
 {
     ("reselecting an admitted connection revalidates online without rediscovering its full schema", async () =>

@@ -20,8 +20,9 @@ An already effective final `.twig/` rule leaves `.gitignore` byte-identical.
 Custom database files outside `.twig` are **not automatically ignored**: protect
 their database and SQLite sidecars separately. Init reports that risk explicitly.
 
-Run at a fresh Git worktree root. Any existing `.twig` directory (even empty,
-partial or legacy), selected database file or SQLite sidecar is refused. There
+Run at a Git worktree root. An ordinary empty `.twig` directory is accepted,
+including one containing only Twig's idle operation lock file.
+Nonempty `.twig` state, a selected database file or a SQLite sidecar is refused. There
 is no migration, adoption, reset, archival or old-state adapter. If old state
 is no longer needed, preserving or discarding it is a separate manual decision.
 Init never deletes it or clears uncertain remote-write evidence.
@@ -124,9 +125,14 @@ profile compatibility or materialize policy records.
 ## Results and interruption
 
 All provider, coordinate, account, path and existing-state preflight precedes
-workspace writes or work HTTP. Native credential/metadata failure may leave
-partial initialization evidence. Created files are deliberately retained,
-and another init refuses that directory rather than silently reusing it.
+workspace writes or work HTTP. A transient Azure DevOps server error before
+database creation allows a retry in the same checkout when the init attempt's
+local files are unchanged. Other failures may leave partial initialization
+evidence. To retry in that case, stop any active
+init and move aside only the disposable checkout-local `.twig` directory from
+the failed init. Keep `twig.json`, `.gitignore`, credentials, and any remote-write
+evidence. If a custom `--core-store` was created, select a new path; init never
+overwrites that database or its sidecars.
 
 Success emits exactly one result, including `coreInitialized: true`, the actual
 `databasePath`, and a message. Twig-native initialization also reports

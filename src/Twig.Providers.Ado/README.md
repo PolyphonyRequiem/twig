@@ -63,6 +63,13 @@ or fabricates transitions. Native protocol field references
 (`System.State`, `System.WorkItemType`, etc.) are ADO adapter details, not a
 process-template or custom-field vocabulary in Core.
 
+On create, Twig uses the selected type's native endpoint name and resolves
+the selected area and iteration paths against the bound project's native
+classification nodes. The resulting type and numeric IDs are typed evidence
+in the proposal digest, not JSON Patch fields. ADO assigns them from the
+endpoint and authored paths. Missing, ambiguous, conflicting, or changed
+evidence stops the operation before dispatch.
+
 Native `when`, `whenNot`, `whenWas`, `whenChanged`, `whenNotChanged`,
 `makeRequired`, `makeReadOnly` and constant `copyValue` rules map to Core
 predicates/actions (both sigiled and unsigiled spellings). Initial transitions

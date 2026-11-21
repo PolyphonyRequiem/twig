@@ -35,6 +35,21 @@ public sealed class CoreCreationLinkFileTests
         Rules.ProposalBytes(parsed).ShouldBe(Rules.ProposalBytes(original));
     }
 
+    [Fact]
+    public void CanonicalCreateEvidenceRoundTripsAndChangesTheDigest()
+    {
+        var original = Proposal(true);
+        Encoding.UTF8.GetString(Rules.ProposalBytes(original)).ShouldNotContain("createEvidence");
+        var evidence = FieldValues.Empty.Set("System.AreaId", FieldValue.Integer(17));
+        var reviewed = new Proposal(original.Connection, original.SchemaFingerprint, original.ExpectedStoreVersion,
+            [original.Operations.Single() with { CreateEvidence = evidence }]);
+        using var json = JsonDocument.Parse(Rules.ProposalBytes(reviewed));
+        var parsed = CoreProposalFiles.Parse(json.RootElement);
+        parsed.Digest.ShouldNotBe(original.Digest);
+        parsed.Digest.ShouldBe(reviewed.Digest);
+        parsed.Operations.Single().CreateEvidence.ShouldBe(evidence);
+    }
+
     [Theory]
     [InlineData("null")]
     [InlineData("[]")]

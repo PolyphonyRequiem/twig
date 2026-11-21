@@ -23,7 +23,7 @@ public sealed class NativeCaptureRegistryMigrationTests : IDisposable
         (await upgraded.ReadCoreGateAsync(default)).IsSuccess.ShouldBeTrue();
         (await Sql("SELECT version FROM layout_meta;")).ShouldBe("12");
         (await Rows()).ShouldBe(before);
-        (await NativeCoreExecution.PublishingAsync(Registry, default)).IsSuccess.ShouldBeFalse();
+        (await Sql("SELECT ready FROM editor_provenance_meta WHERE id=1;")).ShouldBe("0");
     }
 
     [Theory]

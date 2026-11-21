@@ -26,7 +26,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
     public async Task FreshRegistryNeverImpliesCompleteInventoryOrQuiescence()
     {
         var source = await Source("first", connection);
-        (await NativeCoreExecution.PublishingAsync(Registry, default)).IsSuccess.ShouldBeFalse();
+        Required(await NativeCoreExecution.PublishingAsync(Registry, default));
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [source]));
         (await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, false, true)).IsSuccess.ShouldBeFalse();
         (await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, false)).IsSuccess.ShouldBeFalse();
@@ -34,7 +34,38 @@ public sealed class NativeCoreExecutionTests : IDisposable
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
         Required(await NativeCoreExecution.PublishingAsync(Registry, default));
         var second = await Source("second", connection);
-        (await NativeCoreExecution.PublishingAsync(Registry, default)).IsSuccess.ShouldBeFalse("previously unknown sources invalidate completeness");
+        using var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System);
+        Required(await registry.ReadCoreGateAsync(default)).Active.ShouldBeFalse("new sources invalidate historical coverage");
+        Required(await NativeCoreExecution.PublishingAsync(Registry, default));
+    }
+
+    [Fact]
+    public async Task RegisteredSourceCanRecordAnAttemptWithoutHistoricalInventoryActivation()
+    {
+        var source = await Source("fresh", connection);
+        var operation = await Attempt(source, ItemKey.Local(Guid.NewGuid()), OpStatus.Planned);
+        using var admitted = Required(await NativeCoreExecution.AdmitAsync(
+            Registry, source, operation.Proposal, 0, operation.Attempt, default, planned: true));
+        using var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System);
+        var reference = Required(await registry.CoreAttemptReferencesAsync(source.Instance, default))
+            .Single(value => value.Attempt == operation.Attempt);
+        reference.Digest.ShouldBe(operation.Proposal.Digest);
+    }
+
+    [Fact]
+    public async Task CheckingAnExactCaptureHeadDoesNotOpenUnrelatedNamespaceFiles()
+    {
+        var user = UserBenchStore.ForRegistry(Registry);
+        Required(await user.ReadAsync());
+        using var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System);
+        var head = Required(await registry.CaptureHeadsAsync(default)).Single();
+        var missing = Path.Combine(root, "unrelated.db");
+        var other = Guid.NewGuid();
+        Required(await registry.CaptureUserBirthAsync(missing, other, false, default));
+        Required(await registry.CaptureUserBirthAsync(missing, other, true, default));
+
+        Required(await registry.CaptureInventoryAsync(default, head));
+        (await registry.CaptureInventoryAsync(default)).IsSuccess.ShouldBeFalse();
     }
 
     [Fact]
@@ -341,7 +372,11 @@ public sealed class NativeCoreExecutionTests : IDisposable
             inventory.Sources.ShouldContain(value => value.Instance == scope.StoreInstance);
         File.Move(completed.Scopes[0].DatabasePath, completed.Scopes[0].DatabasePath + ".retained");
         (await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true)).IsSuccess.ShouldBeFalse();
-        (await NativeCoreExecution.PublishingAsync(Registry, default)).IsSuccess.ShouldBeFalse();
+        var next = await Attempt(original, ItemKey.Local(Guid.NewGuid()), OpStatus.Planned);
+        var admitted = await NativeCoreExecution.AdmitAsync(Registry, original, next.Proposal, 0,
+            next.Attempt, default, planned: true);
+        if (admitted.IsSuccess) admitted.Value.Dispose();
+        admitted.IsSuccess.ShouldBeFalse("target admission still requires relevant authoritative stores");
     }
 
     [Fact]

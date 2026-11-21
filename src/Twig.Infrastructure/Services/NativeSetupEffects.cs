@@ -13,6 +13,7 @@ internal sealed partial class NativeSetupEffects
     internal NativeSetupPhase Phase { get; set; } = NativeSetupPhase.Validation;
     internal int CommandExitCode { get; set; } = 1;
     internal Action<NativeSetupEffectKind, NativeSetupEffectState>? Observed { get; set; }
+    internal bool Started(NativeSetupEffectKind kind) => effects.ContainsKey(kind);
 
     internal void Before(NativeSetupEffectKind kind)
     {
@@ -35,10 +36,12 @@ internal sealed partial class NativeSetupEffects
         evidence.AddRange(error.Evidence.Where(value => value is "http:401" or "http:403").Distinct());
         return Result<T>.Fail(new Error(error.Code, Scrub(error.Message)) { Evidence = evidence.ToImmutable() });
     }
-    internal Result<T> Cancel<T>()
+    internal Result<T> Cancel<T>(bool retryable = false)
     {
         Phase = NativeSetupPhase.Cancelled;
-        return Fail<T>(new(ErrorCode.Unavailable, "Native setup was cancelled; possible local effects were preserved."));
+        return Fail<T>(new(ErrorCode.Unavailable, retryable
+            ? "Native setup was cancelled before a Core database was attempted. Retry 'twig init' in this checkout."
+            : "Native setup was cancelled; possible local effects were preserved."));
     }
     internal Result<T> Exception<T>(Exception exception)
         => Fail<T>(exception is NativeSetupException native ? native.Error

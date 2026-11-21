@@ -20,6 +20,7 @@ public sealed record ProviderCapabilities
     public bool ExactRevisions { get; }
     public bool AtomicFieldBatches { get; }
     public bool AtomicRelationshipBatches { get; init; }
+    public bool CreateFieldEvidence { get; init; }
 }
 
 public sealed record QueryPage(ImmutableArray<WorkItem> Items, ImmutableArray<Relationship> Relationships,
@@ -35,6 +36,8 @@ public interface IProvider
     Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct);
     Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection connection, CancellationToken ct, bool includePresentation)
         => DiscoverSchemaAsync(connection, ct);
+    Task<Result<FieldValues>> ResolveCreateEvidenceAsync(ProcessSchema schema, Op op, CancellationToken ct)
+        => Task.FromResult(Result<FieldValues>.Ok(FieldValues.Empty));
     Task<Result<PlanningMetadata>> DiscoverPlanningAsync(Connection connection, string? team, CancellationToken ct)
         => Task.FromResult(Result<PlanningMetadata>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning metadata."));
     Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(Connection connection, CancellationToken ct)

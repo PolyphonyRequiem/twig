@@ -403,6 +403,11 @@ denials, changed authority and interrupted/uncertain checks remain blocked until
 an explicit successful connection recheck. Background discovery uses the same
 per-source coordination and bounded native operations as foreground requests.
 
+Explicit online admission or **Check connection** can replace an unreadable
+schema cache after observing fresh metadata for the exact recorded source and
+principal. If that observation or cache replacement fails, the connection
+remains blocked. Ordinary and offline reads do not repair the cache.
+
 To select a newer source build, run the installer from a different clean commit.
 Version directories are immutable; reinstalling the same selected SHA is refused.
 Selecting new files does not replace a running instance. Coordinate explicit

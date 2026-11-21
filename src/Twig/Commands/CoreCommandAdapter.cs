@@ -639,7 +639,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 var op = intent.Operations.Single();
                 operations.Add(new($"save-{operations.Count}", op.Kind, op.Item, op.ExpectedRevision,
                     op.Fields, op.Type, op.Other, op.Relation, op.Origin, op.Body,
-                    op.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links));
+                    op.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links, op.CreateEvidence));
             }
         }
         Proposal? proposal = null;
@@ -1201,9 +1201,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (preview.IsSuccess)
             {
                 var op = preview.Value.Proposal!.Operations.Last();
-                operations.Add(new($"validate-{operations.Count}", op.Kind, op.Item, fields: op.Fields,
-                    type: op.Type, other: op.Other, relation: op.Relation, resource: op.Resource,
-                    concurrency: op.Concurrency, links: op.Links));
+                operations.Add(op.WithId($"validate-{operations.Count}"));
             }
             if (id is not null && LocalAlias(draft.Key) != id) continue;
             if (preview.IsSuccess) passed++;
@@ -1231,6 +1229,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             return Error(output, "Specify one negative seed ID or --all.", 2);
         if (repository is not null && branch is null)
             return Error(output, "--repo requires --link-branch.", 2);
+        using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
@@ -1271,20 +1270,17 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         foreach (var draft in ordered)
         {
-            var preview = await workspace.PreviewDraftAsync(draft.Key, ct, operations);
+            var preview = await workspace.PreviewDraftAsync(draft.Key, ct, operations, seedPublication: true);
             if (!preview.IsSuccess) return Error(output, preview.Error.Message);
             captures.Add(preview.Value);
             var op = preview.Value.Proposal!.Operations.Last();
-            operations.Add(new($"create-{operations.Count}", op.Kind, op.Item, fields: op.Fields,
-                type: op.Type, other: op.Other, relation: op.Relation, resource: op.Resource, concurrency: op.Concurrency, links: op.Links));
+            operations.Add(op.WithId($"create-{operations.Count}"));
         }
-        var prepared = await workspace.PrepareAsync(operations, ct);
+        var prepared = await workspace.PrepareSeedPublicationAsync(operations, dryRun, ct);
         if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
-        var proposal = prepared.Value;
+        var (proposal, reviewedStoreVersion) = prepared.Value;
         if (dryRun)
         {
-            var retained = await workspace.RetainReviewAsync(proposal, ct);
-            if (!retained.IsSuccess) return Error(output, retained.Error.Message);
             renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedPublicationPreview",
                 new Dictionary<string, RenderCell>
                 {
@@ -1293,7 +1289,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 })]));
             return 0;
         }
-        var published = await workspace.SaveDraftSetAsync(captures, proposal, proposal.Digest, ct);
+        var published = await workspace.SaveDraftSetAsync(captures, proposal, proposal.Digest, ct, reviewedStoreVersion);
         if (!published.IsSuccess) return Error(output, published.Error.Message);
         if (published.Value.Error is { } error) return Error(output, error.Message);
         if (!published.Value.EffectsVerified) return Error(output, "Creation is unresolved; its UUID fence, drafts and receipts remain. No replay was performed.");
@@ -2273,7 +2269,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!read.IsSuccess) { Error(output, read.Error.Message); return null; }
         var op = build(read.Value);
         op = new(op.Id, op.Kind, op.Item, op.ExpectedRevision, op.Fields, op.Type, op.Other, op.Relation,
-            op.Origin, op.Body, workspace.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links);
+            op.Origin, op.Body, workspace.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links, op.CreateEvidence);
         var proposal = await workspace.PrepareAsync([op], ct);
         if (!proposal.IsSuccess) { Error(output, proposal.Error.Message); return null; }
         var applied = await workspace.ApplyAsync(proposal.Value, proposal.Value.Digest, ct);

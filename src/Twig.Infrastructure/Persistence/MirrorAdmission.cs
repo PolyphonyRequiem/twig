@@ -57,7 +57,7 @@ internal sealed class MirrorAdmission
             if (anchor is null)
                 throw new InvalidOperationException("migration-fingerprint-unavailable: native migration intent exists but checkout identity cannot be verified; restore the worktree before access.");
             if (ReadNativeState(registry, WorktreeFingerprintProvider.CanonicalJson(anchor.Value)) is not null)
-                throw new InvalidOperationException("migration-incomplete: resume 'twig connection migrate' with the original identity; no legacy or partial-generation access is admitted.");
+                throw new InvalidOperationException("migration-incomplete: legacy or partial-generation access is not supported. Select a fresh Twig metadata home, register and bind the connection, then run 'twig init' in a fresh worktree. This does not settle any prior writes.");
             return null;
         }
         var document = ReadDocument(marker);

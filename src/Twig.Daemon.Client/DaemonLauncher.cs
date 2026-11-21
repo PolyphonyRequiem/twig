@@ -35,7 +35,7 @@ public static class DaemonLauncher
     {
         using var deadline = Deadline(token);
         using var client = OwnerClient(certificate);
-        await StopWithProbeAsync(data, () => ProbeAsync(client, data, port, deadline.Token), deadline.Token);
+        await StopWithProbeAsync(data, () => ProbeAsync(client, data, port, deadline.Token, requireCanvasProtocol: false), deadline.Token);
     }
 
     [SupportedOSPlatform("windows")]
@@ -98,7 +98,8 @@ public static class DaemonLauncher
                 errors == SslPolicyErrors.None && peer?.Thumbprint == certificate.Thumbprint
         }) { Timeout = TimeSpan.FromSeconds(3), MaxResponseContentBufferSize = 4096 };
 
-    private static async Task<Guid?> ProbeAsync(HttpClient client, string data, int port, CancellationToken token)
+    private static async Task<Guid?> ProbeAsync(HttpClient client, string data, int port, CancellationToken token,
+        bool requireCanvasProtocol = true)
     {
         async Task<bool> Refused(IPAddress address)
         {
@@ -119,9 +120,10 @@ public static class DaemonLauncher
         if (!File.Exists(identityPath) || new FileInfo(identityPath).Length > 64
             || !Guid.TryParseExact(await File.ReadAllTextAsync(identityPath, token), "D", out var expected)
             || expected == Guid.Empty || status.GetProperty("daemonId").GetGuid() != expected
-            || status.GetProperty("protocol").GetString() != CanvasAssets.Protocol
             || status.GetProperty("canvasDefaultDeny").GetBoolean() != true)
             throw new InvalidOperationException("The listener is not the selected daemon identity.");
+        if (requireCanvasProtocol && status.GetProperty("protocol").GetString() != CanvasAssets.Protocol)
+            throw new InvalidOperationException("The selected daemon is running an incompatible Canvas protocol. Stop it and start the selected version.");
         if (!response.Headers.TryGetValues(InstanceHeader, out var values)) return Guid.Empty;
         if (!Guid.TryParseExact(values.Single(), "D", out var instance) || instance == Guid.Empty)
             throw new InvalidOperationException("Invalid daemon process identity.");

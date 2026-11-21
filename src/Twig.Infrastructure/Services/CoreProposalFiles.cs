@@ -47,7 +47,10 @@ internal static class CoreProposalFiles
         string[] members = ["id", "kind", "item", "revision", "type", "fields", "other", "relation",
             "origin", "concurrency", "localVersion", "body", "resource"];
         var hasLinks = json.TryGetProperty("links", out var creationLinks);
-        Object(json, hasLinks ? [.. members, "links"] : members);
+        var hasEvidence = json.TryGetProperty("createEvidence", out var evidence);
+        if (hasLinks) members = [.. members, "links"];
+        if (hasEvidence) members = [.. members, "createEvidence"];
+        Object(json, members);
         var key = Key(json.GetProperty("item"));
         var revision = json.GetProperty("revision");
         Revision? expected = null;
@@ -56,15 +59,9 @@ internal static class CoreProposalFiles
             Object(revision, "item", "token");
             expected = new(Key(revision.GetProperty("item")), Text(revision.GetProperty("token")));
         }
-        var fields = json.GetProperty("fields");
-        if (fields.ValueKind != JsonValueKind.Object) throw new JsonException("Fields must be a typed map.");
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        var values = new List<KeyValuePair<string, FieldValue>>();
-        foreach (var property in fields.EnumerateObject())
-        {
-            if (!names.Add(property.Name)) throw new JsonException("Duplicate field identity.");
-            values.Add(KeyValuePair.Create(property.Name, Value(property.Value)));
-        }
+        var fields = Fields(json.GetProperty("fields"));
+        var createEvidence = hasEvidence ? Fields(evidence) : FieldValues.Empty;
+        if (hasEvidence && createEvidence.Count == 0) throw new JsonException("Empty create evidence must be omitted.");
         var other = json.GetProperty("other");
         var body = json.GetProperty("body");
         var local = json.GetProperty("localVersion");
@@ -90,10 +87,23 @@ internal static class CoreProposalFiles
             if (links.Distinct().Count() != links.Count) throw new JsonException("Duplicate creation links.");
         }
         return new(Text(json.GetProperty("id")), Defined<OpKind>(json.GetProperty("kind")), key, expected,
-            new(values), NullableText(json.GetProperty("type")), other.ValueKind == JsonValueKind.Null ? null : Key(other),
+            fields, NullableText(json.GetProperty("type")), other.ValueKind == JsonValueKind.Null ? null : Key(other),
             NullableText(json.GetProperty("relation")), Defined<RelationshipOrigin>(json.GetProperty("origin")),
             body.ValueKind == JsonValueKind.Null ? null : Value(body), Defined<ConcurrencyMode>(json.GetProperty("concurrency")),
-            local.ValueKind == JsonValueKind.Null ? null : local.GetInt64(), link, links);
+            local.ValueKind == JsonValueKind.Null ? null : local.GetInt64(), link, links, createEvidence);
+    }
+
+    private static FieldValues Fields(JsonElement fields)
+    {
+        if (fields.ValueKind != JsonValueKind.Object) throw new JsonException("Fields must be a typed map.");
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var values = new List<KeyValuePair<string, FieldValue>>();
+        foreach (var property in fields.EnumerateObject())
+        {
+            if (!names.Add(property.Name)) throw new JsonException("Duplicate field identity.");
+            values.Add(KeyValuePair.Create(property.Name, Value(property.Value)));
+        }
+        return new(values);
     }
 
     private static ItemKey Key(JsonElement json)

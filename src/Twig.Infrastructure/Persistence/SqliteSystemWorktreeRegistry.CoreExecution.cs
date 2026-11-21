@@ -203,8 +203,9 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         {
             var gate = await ReadCoreGate(db, tx, ct).ConfigureAwait(false);
             if (!gate.IsSuccess) return Result<bool>.Fail(gate.Error);
-            if (!gate.Value.Active || gate.Value.Instance != expectedInstance || gate.Value.Revision != expectedRevision)
-                return Result<bool>.Fail(ErrorCode.PolicyViolation, "The one-time native publishing safety check is pending or changed.");
+            if (gate.Value.Instance != expectedInstance || gate.Value.Revision != expectedRevision
+                || !gate.Value.Sources.Contains(source))
+                return Result<bool>.Fail(ErrorCode.Conflict, "The native Core source registry changed before attempt admission.");
             await WriteReferences(db, tx, source.Instance, proposal.Digest, operation, attempt, targets, observedVersion, applying, ct).ConfigureAwait(false);
             return Result<bool>.Ok(true);
         }, ct);

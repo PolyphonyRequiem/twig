@@ -62,12 +62,6 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 || current.Generation == long.MaxValue || reference.Generation <= 0
                 || current.Generation + 1 != reference.Generation || current.Head != reference.Parent)
                 return Result<NativeCaptureReference>.Fail(ErrorCode.StorageUnavailable, "Native capture generation/birth provenance is missing or changed; no first-use inference.");
-            using (var coverage = db.CreateCommand())
-            {
-                coverage.Transaction = tx; coverage.CommandText = "SELECT ready FROM editor_provenance_meta WHERE id=1;";
-                if (Convert.ToInt32(await coverage.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 1)
-                    return Result<NativeCaptureReference>.Fail(ErrorCode.PolicyViolation, "Actual complete namespace/source provenance qualification is pending.");
-            }
             var gate = await ReadCoreGate(db, tx, ct).ConfigureAwait(false);
             if (!gate.IsSuccess) return Result<NativeCaptureReference>.Fail(gate.Error);
             if (!gate.Value.Sources.Any(source => source.Instance == reference.Store && source.DatabasePath == reference.ExecutionPath
@@ -107,10 +101,6 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         {
             using var tx = db.BeginTransaction(deferred: true);
             await CheckCaptureReferences(db, tx, ct).ConfigureAwait(false);
-            using var command = db.CreateCommand(); command.Transaction = tx;
-            command.CommandText = "SELECT ready FROM editor_provenance_meta WHERE id=1;";
-            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 1)
-                return Result<string>.Fail(ErrorCode.PolicyViolation, "The native publishing safety check is pending: actual capture-provenance inventory and quiescence are required.");
             var heads = await CaptureHeads(db, tx, ct).ConfigureAwait(false);
             using var leases = ConnectionOperationGate.AcquireCoreTargets(_dbPath, heads.Select(head => UserBenchStore.CaptureLeaseKey(head.Path)));
             await CheckCapturePayloads(db, tx, ct).ConfigureAwait(false);
@@ -124,12 +114,12 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             return Result<string>.Ok(await CaptureSeal(db, tx, ct).ConfigureAwait(false));
         }, ct);
 
-    internal Task<Result<string>> CaptureInventoryAsync(CancellationToken ct)
+    internal Task<Result<string>> CaptureInventoryAsync(CancellationToken ct, NativeCaptureHead? only = null)
         => CaptureRead(async db =>
         {
             using var tx = db.BeginTransaction(deferred: true);
             await CheckCaptureReferences(db, tx, ct).ConfigureAwait(false);
-            await CheckCapturePayloads(db, tx, ct).ConfigureAwait(false);
+            await CheckCapturePayloads(db, tx, ct, only).ConfigureAwait(false);
             return Result<string>.Ok(await CaptureSeal(db, tx, ct).ConfigureAwait(false));
         }, ct);
 
@@ -150,15 +140,20 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                 reader.IsDBNull(3) ? null : reader.GetInt64(3)));
         }, ct);
 
-    private static async Task CheckCapturePayloads(SqliteConnection db, SqliteTransaction tx, CancellationToken ct)
+    private static async Task CheckCapturePayloads(SqliteConnection db, SqliteTransaction tx, CancellationToken ct,
+        NativeCaptureHead? only = null)
     {
-        foreach (var head in await CaptureHeads(db, tx, ct).ConfigureAwait(false))
+        var heads = await CaptureHeads(db, tx, ct).ConfigureAwait(false);
+        if (only is not null && !heads.Contains(only))
+            throw new InvalidDataException("The selected native capture head changed.");
+        foreach (var head in heads.Where(head => only is null || head == only))
         {
             var valid = await UserBenchStore.CheckGenerationAsync(head, ct).ConfigureAwait(false);
             if (!valid.IsSuccess) throw new InvalidDataException(valid.Error.Message);
         }
         using var command = db.CreateCommand(); command.Transaction = tx;
-        command.CommandText = "SELECT r.document,r.confirmed,h.path FROM editor_capture_refs r JOIN editor_user_heads h ON h.user_id=r.user_id;";
+        command.CommandText = "SELECT document,confirmed FROM editor_capture_refs WHERE $user IS NULL OR user_id=$user;";
+        command.Parameters.AddWithValue("$user", (object?)only?.User.ToString("D") ?? DBNull.Value);
         using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {

@@ -1857,6 +1857,20 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         {
             Console.SetOut(stdout);
             Console.SetError(stderr);
+            if (explicitBinding && !explicitStore)
+            {
+                var twigDir = Path.Combine(root, ".twig");
+                Directory.CreateDirectory(twigDir);
+                _transport.FailProjectMetadataOnce = true;
+                Run().ShouldBe(1);
+                Directory.EnumerateFileSystemEntries(twigDir).Select(Path.GetFileName)
+                    .ShouldBe(["binding-operation.lock"], stderr.ToString());
+                using var retryError = JsonDocument.Parse(stderr.ToString());
+                retryError.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("Retry 'twig init' in this checkout");
+                (await File.ReadAllBytesAsync(Path.Combine(root, "twig.json"))).ShouldBe(manifestBytes);
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+            }
             Run().ShouldBe(0, stderr.ToString());
             Directory.Exists(Path.Combine(root, ".twig", "cache")).ShouldBeFalse("native init must never initialize the legacy cache");
             registrations.ShouldNotBeNull();
@@ -2480,6 +2494,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public bool IncludeIncompleteOtherType { get; set; }
         public int? OtherTypeItem { get; set; }
         public string? ObservedPrincipalOverride { get; set; }
+        public bool FailProjectMetadataOnce { get; set; }
         public Func<Task>? BeforeProjectMetadata { get; set; }
         public bool CloseGateEnabled { get; set; }
         public bool RichTextEnabled { get; set; }
@@ -2647,6 +2662,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             }
             if (CoreMetadataEnabled && Metadata(path, request.RequestUri.Query) is { } metadata)
             {
+                if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && FailProjectMetadataOnce)
+                {
+                    FailProjectMetadataOnce = false;
+                    metadata.Dispose();
+                    return Reply(HttpStatusCode.ServiceUnavailable, new { message = "Fixture project metadata temporarily unavailable" });
+                }
                 if (path.Contains("/_apis/projects/", StringComparison.Ordinal) && BeforeProjectMetadata is { } before)
                     await before();
                 return metadata;

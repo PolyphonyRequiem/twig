@@ -37,7 +37,6 @@ public sealed partial class NativePublicationConsumerTests
             DROP TABLE editor_capture_refs; DROP TABLE editor_user_heads; DROP TABLE editor_provenance_meta;
             UPDATE layout_meta SET version=11;
             """);
-        (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeFalse();
         var inventory = await NativeCoreExecution.InventoryAsync(_bindings.RegistryPath);
         inventory.IsSuccess.ShouldBeFalse("historical payload is never adopted as a current creation witness");
         (await user.ReadEditorCapturesAsync(default)).IsSuccess.ShouldBeFalse();

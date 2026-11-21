@@ -88,7 +88,8 @@ internal static class CoreWorkspaceInitializer
                 request.Headers.Authorization = authorization;
                 using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
-                    throw new HttpRequestException($"Native initialization metadata returned HTTP {(int)response.StatusCode}; no redirect or retry was used.");
+                    throw new HttpRequestException($"Native initialization metadata returned HTTP {(int)response.StatusCode}; no redirect or retry was used.",
+                        null, response.StatusCode);
                 await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
                 using var buffer = new MemoryStream();
                 var chunk = new byte[4096];
@@ -106,6 +107,11 @@ internal static class CoreWorkspaceInitializer
         catch (NativeSetupException ex)
         {
             return Result<NativeCreationReceipt>.Fail(ex.Error);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is { } status && (int)status >= 500)
+        {
+            return Result<NativeCreationReceipt>.Fail(new Error(ErrorCode.Unavailable, ex.Message)
+                { Evidence = ["init-metadata-transient"] });
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException or InvalidOperationException)
         {

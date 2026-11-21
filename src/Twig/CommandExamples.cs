@@ -681,8 +681,6 @@ internal static class CommandExamples
         ],
         ["connection migrate"] =
         [
-            "twig connection migrate --identity work --method aad --output json  Preview explicit legacy AAD import and host/store blockers",
-            "twig connection migrate --identity work --method aad --confirm <digest>  Apply the exact eligible preview after explicitly closing legacy hosts",
         ],
         ["connection pin"] =
         [

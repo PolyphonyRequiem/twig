@@ -26,8 +26,10 @@ internal static class NativeWorkspaceSetup
                 || !WorktreeAnchorDetector.TryIsWorktreeRoot(args.WorkspaceRoot, out var isRoot) || !isRoot)
                 return Fail("Native Core init requires invocation at a Git worktree root. " + problem);
             var twigDir = Path.Combine(anchor.WorktreeRoot, ".twig");
-            if (Directory.Exists(twigDir) || File.Exists(twigDir))
-                return Fail("Init refuses existing, partial or legacy .twig state. Use a fresh worktree; manually preserve or discard old state separately. No migration, deletion or uncertain-write settlement was performed.");
+            if (File.Exists(twigDir) || Directory.Exists(twigDir)
+                && ((File.GetAttributes(twigDir) & FileAttributes.ReparsePoint) != 0
+                    || Directory.EnumerateFileSystemEntries(twigDir).Any(path => !IsIdleLockFile(path))))
+                return Fail("Init refuses existing nonempty, linked, partial or legacy .twig state. To retry a failed init here, stop the active init and move aside only the disposable checkout-local .twig directory. Keep source, credentials and any remote-write evidence. No state was changed.");
             var database = args.StoreFile ?? Path.Combine(twigDir, "core.db");
             if (!Path.IsPathFullyQualified(database))
                 return Fail("--core-store must name a new absolute file; its parent directory must already exist.", 2);
@@ -150,9 +152,12 @@ internal static class NativeWorkspaceSetup
             Directory.CreateDirectory(twigDir);
             effects.Confirm(NativeSetupEffectKind.WorkspaceDirectory);
             effects.Before(NativeSetupEffectKind.InitializationLock);
-            using var initialization = new FileStream(Path.Combine(twigDir, "core-init.lock"), FileMode.CreateNew,
+            var lockPath = Path.Combine(twigDir, "core-init.lock");
+            using var initialization = new FileStream(lockPath, FileMode.CreateNew,
                 FileAccess.Write, FileShare.None);
             effects.Confirm(NativeSetupEffectKind.InitializationLock);
+            if (Directory.EnumerateFileSystemEntries(twigDir).Any(entry => entry != lockPath && !IsIdleLockFile(entry)))
+                return Fail("Init found existing .twig data after taking the initialization lock. No workspace data was adopted.");
             var ignorePath = Path.Combine(anchor.WorktreeRoot, ".gitignore");
             var ignore = File.Exists(ignorePath) ? await File.ReadAllTextAsync(ignorePath, ct).ConfigureAwait(false) : "";
             var lastRule = ignore.Split('\n').Select(line => line.TrimEnd('\r'))
@@ -188,9 +193,42 @@ internal static class NativeWorkspaceSetup
                 effects.Confirm(NativeSetupEffectKind.WorktreeRegistration);
                 effects.Confirm(NativeSetupEffectKind.Registry);
             }
-            var result = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, bindings,
-                database, ct, transport, processes, effects).ConfigureAwait(false);
+            var retryFiles = kind == "ado" ? CaptureInitFiles(paths) : null;
+            Result<NativeCreationReceipt> result;
+            try
+            {
+                result = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, bindings,
+                    database, ct, transport, processes, effects).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                if (ReleaseFailedInit()) return effects.Cancel<NativeCreationReceipt>(retryable: true);
+                throw;
+            }
+            if (!result.IsSuccess && result.Error.Evidence.Contains("init-metadata-transient") && ReleaseFailedInit())
+                return effects.Fail<NativeCreationReceipt>(result.Error with { Message =
+                    result.Error.Message + " No Core database was attempted. Retry 'twig init' in this checkout." });
             return result.IsSuccess ? result : effects.Fail<NativeCreationReceipt>(result.Error);
+
+            bool ReleaseFailedInit()
+            {
+                if (retryFiles is null || effects.Started(NativeSetupEffectKind.CoreStore)
+                    || File.Exists(database) || File.Exists(database + "-wal") || File.Exists(database + "-shm")
+                    || File.Exists(database + "-journal"))
+                    return false;
+                var current = CaptureInitFiles(paths);
+                if (current is null || current.Count != retryFiles.Count
+                    || retryFiles.Any(file => !current.TryGetValue(file.Key, out var contents)
+                        || !file.Value.AsSpan().SequenceEqual(contents)))
+                    return false;
+
+                foreach (var file in current.Keys) File.Delete(file);
+                var temporary = Path.Combine(twigDir, WorktreeLocalAttachmentStore.TmpDirName);
+                if (Directory.Exists(temporary)) Directory.Delete(temporary);
+                initialization.Dispose();
+                File.Delete(lockPath);
+                return true;
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return effects.Cancel<NativeCreationReceipt>(); }
         catch (Exception ex) when (NativeSetupEffects.IsExpected(ex)) { return effects.Exception<NativeCreationReceipt>(ex); }
@@ -199,6 +237,39 @@ internal static class NativeWorkspaceSetup
         {
             effects.CommandExitCode = exit;
             return effects.Fail<NativeCreationReceipt>(new(exit == 2 ? ErrorCode.InvalidInput : ErrorCode.Conflict, message));
+        }
+
+        static Dictionary<string, byte[]>? CaptureInitFiles(TwigPaths paths)
+        {
+            var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            foreach (var path in Directory.EnumerateFileSystemEntries(paths.TwigDir))
+            {
+                var name = Path.GetFileName(path);
+                var attributes = File.GetAttributes(path);
+                if ((attributes & FileAttributes.ReparsePoint) != 0) return null;
+                if (name == "core-init.lock") continue;
+                if (IsIdleLockFile(path)) continue;
+                if (name == WorktreeLocalAttachmentStore.TmpDirName && Directory.Exists(path)
+                    && !Directory.EnumerateFileSystemEntries(path).Any()) continue;
+                if (path != paths.ConfigPath && name is not (WorktreeLocalAttachmentStore.LayoutFileName
+                    or WorktreeLocalAttachmentStore.WorktreeFileName or WorktreeLocalAttachmentStore.AttachmentFileName)
+                    || !File.Exists(path) || new FileInfo(path).Length > 65536)
+                    return null;
+                files.Add(path, File.ReadAllBytes(path));
+            }
+            return files;
+        }
+
+        static bool IsIdleLockFile(string path)
+        {
+            if (Path.GetFileName(path) != "binding-operation.lock" || !File.Exists(path)
+                || (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return false;
+            try
+            {
+                using var probe = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+                return probe.Length == 0;
+            }
+            catch (IOException) { return false; }
         }
     }
 }

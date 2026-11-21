@@ -13,7 +13,8 @@ public sealed record NativeViewChoices(string? ViewingRoot, string? AddRoot, str
 }
 
 public sealed record NativeViewStateBody(long ExpectedRevision, NativeViewChoices Choices);
-public sealed record OwnerProfileBody(Guid? StoreId, Guid? ProfileId, Guid? ViewId = null);
+public sealed record OwnerProfileBody(Guid? StoreId, Guid? ProfileId, Guid? ViewId = null,
+    bool RecoverMissingDefault = false);
 public sealed record OwnerProfileInfo(Guid StoreId, Guid ProfileId);
 public sealed record OwnerRenewBody(Guid? ViewId, Guid ProfileId, Guid? StoreId = null, bool InitialView = false);
 // Restoration metadata is not cached content authority; every native read still requires its own admission.

@@ -10,6 +10,8 @@ namespace Twig.Providers.Ado;
 
 public sealed partial class AdoProvider : IProvider, IDisposable
 {
+    public const string CreateConcurrencyNotice = "Azure DevOps creation uses observed, non-atomic checks. Twig refuses changes it detects before sending the create request, but Azure DevOps resolves area and iteration paths when it creates the item. The approved classification IDs are not locked. If readback finds a mismatch, the creation remains unresolved and Twig does not retry it.";
+
     private const string Api = "7.1";
     private readonly Connection _connection;
     private readonly AdoAccess _access;

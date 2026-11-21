@@ -23,6 +23,8 @@ public sealed record SourceObservation(SourceBinding Binding, StoreSnapshot Snap
     public PlanningSources? PlanningSources { get; init; }
     public DateTimeOffset? PlanningSourcesObservedAt { get; init; }
     public PlanningBrowse? PlanningBrowse { get; init; }
+    public QueryPage? AcquiredPlanningPage { get; init; }
+    public ImmutableHashSet<ItemKey> WithdrawnItems { get; init; } = [];
 }
 
 /// <summary>

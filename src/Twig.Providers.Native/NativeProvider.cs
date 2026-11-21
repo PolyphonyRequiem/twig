@@ -55,8 +55,10 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
                 throw new NativeFailure(ErrorCode.InvalidInput, "Native reads require exact published source identities; seeds are not authoritative items.");
             var items = await authority.Read(ct);
             var selected = items.Where(item => keys.Contains(item.Key)).ToImmutableArray();
-            if (keys.Distinct().Count() != selected.Length)
-                throw new NativeFailure(ErrorCode.NotFound, "An exact native item is absent from this authority.");
+            var missing = keys.Except(selected.Select(item => item.Key)).ToArray();
+            if (missing.Length != 0)
+                throw new NativeFailure(new Error(ErrorCode.NotFound, "An exact native item is absent from this authority.")
+                    { Evidence = missing.Select(key => $"item-unavailable:{key.NativeId}").ToImmutableArray() });
             return new QueryPage(selected, [], null, true);
         });
 

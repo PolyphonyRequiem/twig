@@ -239,6 +239,23 @@ public sealed partial class NativePublicationConsumerTests
                     "Pagination returns the other actual member once and terminates.");
                 var target = await Send("/agent/item", HttpMethod.Post, Target(context));
                 Check(target.Status == HttpStatusCode.OK && target.Body["item"]!["pin"] is null, "Exact item read must not release an executable selector.");
+                var locator = int.Parse(target.Body["item"]!["locator"]!.GetValue<string>(), System.Globalization.CultureInfo.InvariantCulture);
+                _transport.SetItem(locator, "Fresh provider title", _transport.RevisionOf(locator) + 1, Actor);
+                var refreshed = await Send("/agent/item", HttpMethod.Post, Target(context));
+                Check(refreshed.Status == HttpStatusCode.OK
+                    && refreshed.Body["item"]!["title"]!.GetValue<string>() == "Fresh provider title",
+                    "A delegated item read must use the provider response, not retained snapshot fields.");
+                _transport.SetItem(locator, "Not readable by this account", _transport.RevisionOf(locator) + 1, Sibling);
+                try
+                {
+                    var denied = await Send("/agent/item", HttpMethod.Post, Target(context));
+                    Check(denied.Status != HttpStatusCode.OK && denied.Body["item"] is null,
+                        "A provider refusal must not fall back to the retained snapshot.");
+                }
+                finally
+                {
+                    _transport.SetItem(locator, "Fresh provider title", _transport.RevisionOf(locator) + 1, Actor);
+                }
                 var other = sessions.RegisterNativeCanvas(context["plan"]!["storeId"]!.GetValue<Guid>());
                 Check((await Send("/agent/ui-state", HttpMethod.Get, capability: other.PresentationCapability)).Status == HttpStatusCode.Forbidden,
                     "Diagnostics cannot enumerate another view with a different presentation capability.");

@@ -228,9 +228,10 @@ public sealed class NativeAuthority
     }
 }
 
-internal sealed class NativeFailure(ErrorCode code, string message) : Exception(message)
+internal sealed class NativeFailure(Error error) : Exception(error.Message)
 {
-    internal Error Error { get; } = new(code, message);
+    internal NativeFailure(ErrorCode code, string message) : this(new Error(code, message)) { }
+    internal Error Error { get; } = error;
 }
 
 internal static class NativeGuard

@@ -138,6 +138,9 @@ public sealed partial class GitHubProvider
         var data = await Graph(bound, document,
             json => json.WriteString("id", id), ct);
         var node = Wire.Member(data, "node");
+        if (node.ValueKind == JsonValueKind.Null)
+            throw new GitHubFailure(new Error(ErrorCode.NotFound, "The exact issue is unavailable in this authenticated read.")
+                { Evidence = [$"item-unavailable:{id}"] });
         if (Wire.Text(node, "__typename") != "Issue" || Wire.Text(node, "id") != id)
             throw Wire.Invalid("Native response did not identify the requested issue.");
         Repository(Wire.Member(node, "repository"));

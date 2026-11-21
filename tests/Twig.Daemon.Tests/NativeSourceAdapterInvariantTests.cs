@@ -31,6 +31,82 @@ public sealed class NativeSourceAdapterInvariantTests
     public Task RetainsAdmissionAndCacheGuards(string scenario)
         => cases.Single(test => test.Name == scenario).Run();
 
+    [Fact]
+    public async Task TeamDiscoveryDoesNotClearKnownContentDenial()
+    {
+        await using var fixture = await Fixture.Start();
+        fixture.Gateway.ContentReadError = new(ErrorCode.PolicyViolation, "Synthetic work-item denial");
+        Check(!(await fixture.Adapter.ReadOnlineAsync(fixture.Source, default)).IsSuccess, "The live request must report the denial.");
+        var stamp = fixture.Gateway.Observation.Source;
+        Equal(1, Required(await fixture.Adapter.DiscoverPlanningTeamsAsync(fixture.Source, stamp, default)).Length);
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
+    }
+
+    [Fact]
+    public async Task CancelledLocalReadDoesNotChangeRetainedCacheState()
+    {
+        await using var fixture = await Fixture.Start();
+        var path = Directory.GetFiles(fixture.CacheDirectory, "*.json").Single();
+        var before = await File.ReadAllTextAsync(path);
+        using var cancel = new CancellationTokenSource();
+        fixture.Gateway.LocalDelay = TimeSpan.FromSeconds(1);
+        fixture.Gateway.BeforeLocalDelay = cancel.Cancel;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Adapter.ReadAsync(fixture.Source, cancel.Token));
+        Equal(before, await File.ReadAllTextAsync(path));
+        fixture.Gateway.LocalDelay = TimeSpan.Zero;
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        Required(await restarted.ReadAsync(fixture.Source, default));
+    }
+
+    [Theory]
+    [InlineData("ado")]
+    [InlineData("github")]
+    [InlineData("twig")]
+    public async Task ExactItemWithdrawalSurvivesRestartAndMetadataRecheck(string provider)
+    {
+        await using var fixture = await Fixture.Start(provider);
+        var definitions = new UserBenchStore(Path.Combine(fixture.Directory, "withdrawal-benches.db"));
+        var panel = new NativePanel(definitions, fixture.Gateway, fixture.Adapter);
+        var context = Required(await panel.OpenAsync(fixture.Directory, default));
+        var first = fixture.Gateway.Observation.Snapshot.Items[0].Key;
+        var second = fixture.Gateway.Observation.Snapshot.Items[1].Key;
+        fixture.Gateway.ItemFailure = new(ErrorCode.Unavailable, "Synthetic exact item refusal")
+            { Evidence = ["http:403", $"item-unavailable:{first.NativeId}"] };
+        Check(!(await panel.ObserveItemsAsync(context, [first, second], default)).IsSuccess,
+            "The exact read must report the provider refusal.");
+
+        fixture.Gateway.ItemFailure = null;
+        Required(await fixture.Adapter.RecheckAsync(fixture.Source, default));
+        Required(await panel.ObserveItemsAsync(context, [second], default));
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        var observation = Required(await restarted.ReadAsync(fixture.Source, default));
+        Check(observation.WithdrawnItems.SetEquals([first]), "Only the exact denied item may be withdrawn.");
+        var selection = new SourceSelection(fixture.Source.Id, fixture.Source.Binding,
+            [new(SelectorKind.Query, query: new(QueryKind.All))]);
+        var view = Required(SourceProjection.Create(new(Guid.NewGuid(), "Fixture", 1, [selection]), selection, observation));
+        Equal(second, view.Items.Single().Identity.Key);
+        Check(view.Hierarchy.Evidence.IsEmpty, "Withdrawn endpoints must not be emitted in relationships.");
+
+        fixture.Gateway.ItemFailure = new(ErrorCode.Unavailable, "Synthetic exact item refusal")
+            { Evidence = ["http:403", $"item-unavailable:{second.NativeId}"] };
+        Check(!(await panel.ObserveItemsAsync(context, [second], default)).IsSuccess,
+            "A second refusal must be retained independently.");
+        fixture.Gateway.BrowseItem = first;
+        fixture.Gateway.BrowseRetained = false;
+        var unretained = Required(await restarted.BrowsePlanningAsync(fixture.Source, context.Stamp,
+            null, PlanningSourceKind.SavedQuery, "fixture-query", default));
+        Check(unretained.WithdrawnItems.SetEquals([first, second]),
+            "A new response must not restore historical display until the matching item is in the mirror.");
+        fixture.Gateway.BrowseRetained = true;
+        var browse = Required(await restarted.BrowsePlanningAsync(fixture.Source, context.Stamp,
+            null, PlanningSourceKind.SavedQuery, "fixture-query", default));
+        Check(browse.WithdrawnItems.SetEquals([second]), "A retained provider browse restores only the item it returned.");
+        var reopened = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        Check(Required(await reopened.ReadAsync(fixture.Source, default)).WithdrawnItems.SetEquals([second]),
+            "Scoped restoration must survive restart.");
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -71,7 +147,7 @@ public sealed class NativeSourceAdapterInvariantTests
     [InlineData(false, false)]
     [InlineData(true, true)]
     [InlineData(false, true)]
-    public async Task CorruptCacheRecoveryRetainsPendingOnDenialOrChangedAuthority(bool admit, bool changedAuthority)
+    public async Task CorruptCacheRecoveryRefusesCredentialDenialOrChangedAuthority(bool admit, bool changedAuthority)
     {
         await using var fixture = await Fixture.Start();
         var path = Directory.GetFiles(fixture.CacheDirectory, "*.json").Single();
@@ -82,15 +158,15 @@ public sealed class NativeSourceAdapterInvariantTests
         if (changedAuthority)
         {
             var other = fixture.Gateway.Observation.Source with { AuthorityStamp = "replacement-authority" };
-            if (admit) fixture.Gateway.BeforeOnlineReturn = () => fixture.Gateway.SourceOverride = other;
+            if (admit) fixture.Gateway.BeforeSchemaReturn = () => fixture.Gateway.SourceOverride = other;
             else fixture.Gateway.SourceOverride = other;
         }
-        else fixture.Gateway.OnlineError = new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = ["http:403"] };
+        else fixture.Gateway.OnlineError = new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = ["http:401"] };
 
         var result = admit ? await fixture.Adapter.AdmitAsync(fixture.Source.NativeLocator, default)
             : await fixture.Adapter.RecheckAsync(fixture.Source, default);
         Equal(changedAuthority ? ErrorCode.Conflict : ErrorCode.Unavailable, result.Error.Code);
-        if (!changedAuthority) Check(result.Error.Evidence.Contains("http:403"), "Recovery must preserve the live denial.");
+        if (!changedAuthority) Check(result.Error.Evidence.Contains("http:401"), "Recovery must preserve the credential denial.");
         Equal(schemas + (changedAuthority && !admit ? 0 : 1), fixture.Gateway.SchemaCalls);
         Equal(corrupt, await File.ReadAllTextAsync(path));
         Equal(1, Directory.GetFiles(fixture.CacheDirectory, "*.json").Length);
@@ -99,13 +175,14 @@ public sealed class NativeSourceAdapterInvariantTests
         await File.WriteAllBytesAsync(path, healthy);
         var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
         var calls = fixture.Gateway.TotalCalls;
-        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
-        Equal(calls, fixture.Gateway.TotalCalls);
+        Equal(changedAuthority ? ErrorCode.Conflict : ErrorCode.PolicyViolation,
+            (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
+        Equal(calls + (changedAuthority ? 1 : 0), fixture.Gateway.TotalCalls);
     }
 
 private static readonly (string Name, Func<Task> Run)[] cases =
 {
-    ("reselecting an admitted connection revalidates online without rediscovering its full schema", async () =>
+    ("reselecting an admitted connection uses historical observations without provider calls", async () =>
     {
         await using var fixture = await Fixture.Start();
         Equal(1, fixture.Gateway.SchemaCalls);
@@ -114,15 +191,14 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         fixture.Gateway.RejectFullMetadata = true;
         var observation = Required(await restarted.AdmitAsync(fixture.Source.NativeLocator, default));
         Equal(1, fixture.Gateway.SchemaCalls);
-        Equal(online + 1, fixture.Gateway.OnlineCalls);
-        Equal(ObservationMode.OnlineValidatedCache, observation.Mode);
+        Equal(online, fixture.Gateway.OnlineCalls);
+        Equal(ObservationMode.PermittedOfflineCache, observation.Mode);
         Equal(fixture.Source.Binding, observation.Binding);
         fixture.Gateway.OnlineError = new(ErrorCode.PolicyViolation, "Synthetic actor denied.");
-        var denied = await restarted.AdmitAsync(fixture.Source.NativeLocator, default);
-        Check(!denied.IsSuccess && denied.Error.Code == ErrorCode.PolicyViolation, "Reselection must validate current online access.");
+        var denied = await restarted.ReadOnlineAsync(fixture.Source, default);
+        Check(!denied.IsSuccess && denied.Error.Code == ErrorCode.PolicyViolation, "Live validation must surface the denial.");
         fixture.Gateway.OnlineError = null;
-        var recovered = Required(await restarted.AdmitAsync(fixture.Source.NativeLocator, default));
-        Equal(ObservationMode.OnlineValidatedCache, recovered.Mode);
+        Equal(ErrorCode.PolicyViolation, (await restarted.AdmitAsync(fixture.Source.NativeLocator, default)).Error.Code);
         Equal(1, fixture.Gateway.SchemaCalls);
     }),
     ("native selection and content reads share the same root coordinator", async () =>
@@ -159,6 +235,8 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         fixture.Gateway.OnlineError = new(ErrorCode.Unavailable, "Synthetic read timed out.");
         var timedOut = await fixture.Adapter.ReadAsync(online, default);
         Check(!timedOut.IsSuccess && timedOut.Error.Code == ErrorCode.Unavailable, "A timeout must fail the request, not return cached success.");
+        var offline = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        Equal(ObservationMode.PermittedOfflineCache, Required(await offline.ReadAsync(fixture.Source, default)).Mode);
         fixture.Gateway.OnlineError = null;
         var recovered = Required(await fixture.Adapter.ReadAsync(online, default));
         Equal(ObservationMode.OnlineValidatedCache, recovered.Mode);
@@ -169,8 +247,7 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         var stillDenied = await fixture.Adapter.ReadAsync(online, default);
         Check(!stillDenied.IsSuccess && stillDenied.Error.Evidence.Contains("http:403"), "Online retry must revalidate and refuse denied access, not release old data.");
         fixture.Gateway.OnlineError = null;
-        var allowed = Required(await fixture.Adapter.ReadAsync(online, default));
-        Equal(online.Binding, allowed.Binding);
+        Equal(ErrorCode.PolicyViolation, (await fixture.Adapter.ReadAsync(online, default)).Error.Code);
         Equal(schemas, fixture.Gateway.SchemaCalls);
     }),
     ("additive Bench edits preserve concurrent additions and duplicate requests", async () =>
@@ -199,13 +276,13 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         var first = await fixture.Adapter.ReadAsync(fixture.Source, default);
         Equal(ObservationMode.PermittedOfflineCache, Required(first).Mode);
         Equal(fixture.Gateway.Observation.Source.PrincipalId, fixture.Gateway.Expected!.PrincipalId);
-        Equal(1, fixture.Gateway.OnlineCalls);
+        Equal(1, fixture.Gateway.SchemaCalls);
         fixture.Gateway.Version = 30;
         var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
         var second = Required(await restarted.ReadAsync(fixture.Source, default));
         Equal(30L, second.Snapshot.Version);
         Equal(first.Value.Schema.Fingerprint, second.Schema.Fingerprint);
-        Equal(1, fixture.Gateway.OnlineCalls);
+        Equal(1, fixture.Gateway.SchemaCalls);
     }),
     ("native form presentation survives real disk cache without schema rediscovery", async () =>
     {
@@ -218,18 +295,65 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         Equal(2, type.Presentation.Layout!.Pages[0].Sections.Length);
         Equal("Description", type.Fields.Single(f => f.Reference == "System.Description").Name);
         Equal("https://example.test/project/", observation.Schema.WebUrl);
-        Equal(1, fixture.Gateway.OnlineCalls);
+        Equal(1, fixture.Gateway.SchemaCalls);
     }),
-    ("structured denial latches persistently; only explicit successful same-binding recheck unblocks", async () =>
+    ("legacy cache state cannot be reopened by schema refresh", async () =>
+    {
+        await using var fixture = await Fixture.Start();
+        var path = Path.Combine(fixture.CacheDirectory, CatalogFingerprint.Binding(fixture.Source.Binding) + ".check");
+        await File.WriteAllTextAsync(path, """{"state":"pending"}""");
+        File.Delete(Path.ChangeExtension(path, ".json"));
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        var schemaCalls = fixture.Gateway.SchemaCalls;
+        Check(!(await restarted.RecheckAsync(fixture.Source, default)).IsSuccess,
+            "Schema discovery must not readmit a legacy cache.");
+        Check(!(await restarted.AdmitAsync(fixture.Source.NativeLocator, default)).IsSuccess,
+            "Selection must not readmit a legacy cache.");
+        Check(!(await restarted.ReadAsync(fixture.Source, default)).IsSuccess,
+            "Historical data must remain withheld until fresh initialization.");
+        Equal(schemaCalls, fixture.Gateway.SchemaCalls);
+    }),
+    ("structured content denial survives restart and schema refresh", async () =>
     {
         await using var fixture = await Fixture.Start();
         fixture.Gateway.OnlineError = new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = ["http:403"] };
-        Equal(ErrorCode.Unavailable, (await fixture.Adapter.RecheckAsync(fixture.Source, default)).Error.Code);
+        Equal(ErrorCode.Unavailable, (await fixture.Adapter.ReadOnlineAsync(fixture.Source, default)).Error.Code);
         var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
         Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
         fixture.Gateway.OnlineError = null;
         Required(await restarted.RecheckAsync(fixture.Source, default));
-        Required(await restarted.ReadAsync(fixture.Source, default));
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
+    }),
+    ("GitHub schema success is independent of historical work-item denial", async () =>
+    {
+        await using var fixture = await Fixture.Start("github");
+        var source = fixture.Source;
+        var binding = CatalogFingerprint.Binding(source.Binding);
+        var schemaPath = Path.Combine(fixture.CacheDirectory, binding + ".json");
+        Check(File.Exists(schemaPath), "Schema is retained separately from work items.");
+        var empty = Path.Combine(fixture.Directory, "unadmitted");
+        var unadmitted = new NativeSourceAdapter(empty, fixture.Gateway, fixture.Changes);
+        fixture.Gateway.ContentReadError = new(ErrorCode.Unavailable, "Synthetic issues read denied") { Evidence = ["http:403"] };
+        var schemaCalls = fixture.Gateway.SchemaCalls;
+
+        Required(await unadmitted.AdmitAsync(source.NativeLocator, default));
+        Equal(schemaCalls + 1, fixture.Gateway.SchemaCalls);
+        Equal(ErrorCode.Unavailable, (await fixture.Adapter.ReadOnlineAsync(source, default)).Error.Code);
+        Required(await fixture.Adapter.RecheckAsync(source, default));
+        Equal(schemaCalls + 2, fixture.Gateway.SchemaCalls);
+        Equal(fixture.Gateway.Observation.Source, fixture.Gateway.Expected!);
+
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(source, default)).Error.Code);
+        Equal(ErrorCode.PolicyViolation, (await restarted.AdmitAsync(source.NativeLocator, default)).Error.Code);
+        var panel = new NativePanel(new UserBenchStore(Path.Combine(fixture.Directory, "benches.db")), fixture.Gateway, restarted);
+        Equal(ErrorCode.PolicyViolation, (await panel.OpenAsync(source.NativeLocator, default, cachedAdmissionOnly: true)).Error.Code);
+
+        fixture.Gateway.ContentReadError = null;
+        Equal(source.Binding, Required(await restarted.RecheckAsync(source, default)).Binding);
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(source, default)).Error.Code);
+        Equal(source.Binding, Required(await unadmitted.RecheckAsync(source, default)).Binding);
+        Equal(ObservationMode.PermittedOfflineCache, Required(await unadmitted.ReadAsync(source, default)).Mode);
     }),
     ("ordinary online reads validate access without metadata crawl or fabricated schema freshness", async () =>
     {
@@ -256,19 +380,16 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         fixture.Gateway.OnlineError = null;
         var calls = fixture.Gateway.TotalCalls;
         var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
-        Required(await restarted.ReadAsync(online, default));
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(online, default)).Error.Code);
         Equal(calls + 1, fixture.Gateway.TotalCalls);
         Equal(schemaReads, fixture.Gateway.SchemaCalls);
         Check(!(await restarted.RecheckAsync(online, default)).IsSuccess, "Explicit recheck skipped full metadata discovery.");
         fixture.Gateway.RejectFullMetadata = false;
         Required(await restarted.RecheckAsync(online, default));
-        Required(await restarted.ReadAsync(online, default));
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(online, default)).Error.Code);
     }),
-    ("401 survives real cache-retention IO failure in current and restarted adapters", () => DenialRetentionFault(401, false, false)),
-    ("403 survives real cache-retention IO failure in current and restarted adapters", () => DenialRetentionFault(403, false, false)),
-    ("positive native response without retained evidence cannot unblock after cache IO failure", () => DenialRetentionFault(0, false, false)),
-    ("request cancellation after observed denial cannot restore the old cache grant", () => DenialRetentionFault(403, true, false)),
-    ("repeated explicit admission cannot bypass denial latching for a previously approved binding", () => DenialRetentionFault(401, false, true)),
+    ("401 survives a canceled request and later schema refresh", () => DenialRetentionFault(401)),
+    ("403 from a content check survives a canceled request and later schema refresh", () => DenialRetentionFault(403)),
     ("unknown online failure does not become offline success; replacement never adopts another principal/store", async () =>
     {
         await using var fixture = await Fixture.Start();
@@ -280,7 +401,7 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         Required(await fixture.Adapter.RecheckAsync(fixture.Source, default));
         fixture.Gateway.Replaced = true;
         Equal(ErrorCode.Conflict, (await fixture.Adapter.ReadAsync(fixture.Source, default)).Error.Code);
-        Equal(ErrorCode.PolicyViolation, (await fixture.Adapter.ReadAsync(fixture.Source, default)).Error.Code);
+        Equal(ErrorCode.Conflict, (await fixture.Adapter.ReadAsync(fixture.Source, default)).Error.Code);
     }),
     ("missing exact admission record requires explicit recheck, not fabricated schema", async () =>
     {
@@ -294,7 +415,7 @@ private static readonly (string Name, Func<Task> Run)[] cases =
     ("unretainable durable guard refuses both acquisition and cached content", async () =>
     {
         await using var fixture = await Fixture.Start();
-        var path = Path.Combine(fixture.CacheDirectory, CatalogFingerprint.Binding(fixture.Source.Binding) + ".check");
+        var path = Path.Combine(fixture.CacheDirectory, CatalogFingerprint.Binding(fixture.Source.Binding) + ".json.denied");
         var backup = path + ".prior";
         if (File.Exists(path)) File.Move(path, backup);
         Directory.CreateDirectory(path);
@@ -308,38 +429,31 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         }
         finally { Directory.Delete(path); if (File.Exists(backup)) File.Move(backup, path); }
     }),
-    ("missing or malformed check cell cannot adopt a schema-only grant after restart", async () =>
+    ("fresh historical reads never create a legacy check cell", async () =>
     {
-        foreach (var missing in new[] { true, false })
-        {
-            await using var fixture = await Fixture.Start();
-            var path = Path.Combine(fixture.CacheDirectory, CatalogFingerprint.Binding(fixture.Source.Binding) + ".check");
-            if (missing) File.Delete(path);
-            else await File.WriteAllTextAsync(path, "twig-native-check-v1\nallowed\n00000000000000000000000000000000");
-            var before = fixture.Gateway.TotalCalls;
-            var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
-            Check(!(await restarted.ReadAsync(fixture.Source, default)).IsSuccess, "Schema file was adopted without valid check state.");
-            Equal(before, fixture.Gateway.TotalCalls);
-            Required(await restarted.RecheckAsync(fixture.Source, default));
-            Required(await restarted.ReadAsync(fixture.Source, default));
-        }
+        await using var fixture = await Fixture.Start();
+        var before = fixture.Gateway.TotalCalls;
+        var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
+        Required(await restarted.ReadAsync(fixture.Source, default));
+        Equal(before + 1, fixture.Gateway.TotalCalls);
+        Check(Directory.GetFiles(fixture.CacheDirectory, "*.check").Length == 0, "Fresh reads never write a grant file.");
     }),
     ("cancelled positive reauthorization cannot clear a prior denial before evidence retention", async () =>
     {
         await using var fixture = await Fixture.Start();
         fixture.Gateway.OnlineError = new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = ["http:403"] };
-        await fixture.Adapter.RecheckAsync(fixture.Source, default);
+        await fixture.Adapter.ReadOnlineAsync(fixture.Source, default);
         fixture.Gateway.OnlineError = null;
         using var cancellation = new CancellationTokenSource();
-        fixture.Gateway.BeforeOnlineReturn = cancellation.Cancel;
+        fixture.Gateway.BeforeSchemaReturn = cancellation.Cancel;
         try { await fixture.Adapter.RecheckAsync(fixture.Source, cancellation.Token); }
         catch (OperationCanceledException) { }
-        fixture.Gateway.BeforeOnlineReturn = null;
+        fixture.Gateway.BeforeSchemaReturn = null;
         Check(!(await fixture.Adapter.ReadAsync(fixture.Source, default)).IsSuccess, "Cancelled reauthorization unblocked current instance.");
         var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
         Check(!(await restarted.ReadAsync(fixture.Source, default)).IsSuccess, "Cancelled reauthorization unblocked after restart.");
         Required(await restarted.RecheckAsync(fixture.Source, default));
-        Required(await restarted.ReadAsync(fixture.Source, default));
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
     }),
     ("uncertain metadata failure cannot clear an existing denial and normal successful reads do not emit loops", async () =>
     {
@@ -360,22 +474,26 @@ private static readonly (string Name, Func<Task> Run)[] cases =
         fixture.Gateway.OnlineError = null;
         Required(await restarted.RecheckAsync(fixture.Source, default));
         Equal(true, invalidations.TryRead(out _));
-        Required(await restarted.ReadAsync(fixture.Source, default));
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
         Equal(false, invalidations.TryRead(out _));
     }),
-    ("a different admitted principal cannot clear the original binding's denial", async () =>
+    ("a fresh workspace for the same account cannot clear the original binding's denial", async () =>
     {
         await using var fixture = await Fixture.Start();
-        fixture.Gateway.OnlineError = new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = ["http:403"] };
-        await fixture.Adapter.RecheckAsync(fixture.Source, default);
+        fixture.Gateway.OnlineError = new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = ["http:401"] };
+        Check(!(await fixture.Adapter.RecheckAsync(fixture.Source, default)).IsSuccess,
+            "The source must have an observed credential refusal before recovery.");
         fixture.Gateway.OnlineError = null;
         var original = fixture.Gateway.Observation.Source;
-        fixture.Gateway.SourceOverride = new(new(original.Connection.Provider, original.Connection.ResourceScope,
-            original.Connection.Destination, "synthetic-other-identity"), Guid.NewGuid(), "synthetic-other-principal", "synthetic-other-authority");
-        Required(await fixture.Adapter.AdmitAsync(fixture.Source.NativeLocator, default));
+        fixture.Gateway.SourceOverride = original with { StoreInstance = Guid.NewGuid() };
+        var fresh = Required(await fixture.Adapter.AdmitAsync(fixture.Source.NativeLocator, default));
+        Check(fresh.Binding != fixture.Source.Binding, "A fresh store needs independent evidence.");
+        var freshSource = new RegisteredSource(Guid.NewGuid(), fixture.Source.Label, fixture.Source.NativeLocator,
+            fresh.Binding, true, fresh.SchemaObservedAt);
         var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
-        Check(!(await restarted.ReadAsync(fixture.Source, default)).IsSuccess, "Other principal's admission cleared original guard.");
-        Check(!(await restarted.RecheckAsync(fixture.Source, default)).IsSuccess, "Other principal was adopted for original binding.");
+        Required(await restarted.ReadAsync(freshSource, default));
+        fixture.Gateway.SourceOverride = original;
+        Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
     }),
     ("real public native reader refuses uninitialized workspace without writing markers or stores", async () =>
     {
@@ -391,46 +509,25 @@ private static readonly (string Name, Func<Task> Run)[] cases =
     }),
 };
 
-static async Task DenialRetentionFault(int status, bool cancel, bool admit)
+static async Task DenialRetentionFault(int status)
 {
     await using var fixture = await Fixture.Start();
     using var cancellation = new CancellationTokenSource();
     using var subscription = fixture.Changes.Subscribe(out var invalidations);
-    var file = Directory.GetFiles(fixture.CacheDirectory, "*.json").Single();
-    var retained = file + ".approved";
-    fixture.Gateway.OnlineError = status > 0
-        ? new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = [$"http:{status}"] } : null;
-    fixture.Gateway.BeforeOnlineReturn = () =>
-    {
-        if (cancel) cancellation.Cancel();
-        else
-        {
-            // Obstruct replacement, without mocking cache IO; restore the unchanged old approval afterwards.
-            File.Move(file, retained);
-            Directory.CreateDirectory(file);
-        }
-    };
-    try
-    {
-        var result = admit ? await fixture.Adapter.AdmitAsync(fixture.Source.NativeLocator, cancellation.Token)
-            : await fixture.Adapter.RecheckAsync(fixture.Source, cancellation.Token);
-        Check(!result.IsSuccess, "Denial was returned as success.");
-    }
-    catch (OperationCanceledException) when (cancel) { }
-    finally
-    {
-        fixture.Gateway.BeforeOnlineReturn = null;
-        if (!cancel) { Directory.Delete(file); File.Move(retained, file); }
-    }
+    fixture.Gateway.ContentReadError = new(ErrorCode.Unavailable, "Synthetic denied") { Evidence = [$"http:{status}"] };
+    fixture.Gateway.BeforeOnlineReturn = cancellation.Cancel;
+    Check(!(await fixture.Adapter.ReadOnlineAsync(fixture.Source, cancellation.Token)).IsSuccess,
+        "Denial was returned as success.");
+    fixture.Gateway.BeforeOnlineReturn = null;
     var next = await fixture.Adapter.ReadAsync(fixture.Source, default);
     var restarted = new NativeSourceAdapter(fixture.CacheDirectory, fixture.Gateway, fixture.Changes);
     var afterRestart = await restarted.ReadAsync(fixture.Source, default);
     Check(!next.IsSuccess && !afterRestart.IsSuccess,
         $"Observed http:{status} lost after retention/cancellation: same adapter allowed={next.IsSuccess}, restarted adapter allowed={afterRestart.IsSuccess}.");
     Check(invalidations.TryRead(out _), "Denial did not invalidate open views when cache retention failed.");
-    fixture.Gateway.OnlineError = null;
+    fixture.Gateway.ContentReadError = null;
     Required(await restarted.RecheckAsync(fixture.Source, default));
-    Required(await restarted.ReadAsync(fixture.Source, default));
+    Equal(ErrorCode.PolicyViolation, (await restarted.ReadAsync(fixture.Source, default)).Error.Code);
 }
 
 static void Equal<T>(T expected, T actual) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new Exception($"Expected {expected}; received {actual}."); }
@@ -446,6 +543,7 @@ sealed class SyntheticGateway : INativeSourceGateway
     internal bool RejectFullMetadata { get; set; }
     internal int TotalCalls { get; private set; }
     internal Action? BeforeOnlineReturn { get; set; }
+    internal Action? BeforeSchemaReturn { get; set; }
     internal NativeSourceStamp? SourceOverride { get; set; }
     internal TimeSpan LocalDelay { get; set; }
     internal Action? BeforeLocalDelay { get; set; }
@@ -454,6 +552,10 @@ sealed class SyntheticGateway : INativeSourceGateway
     internal bool OmitGitHubNumber { get; set; }
     internal bool MalformedGitHubNumber { get; set; }
     internal Error? OnlineError { get; set; }
+    internal Error? ContentReadError { get; set; }
+    internal Error? ItemFailure { get; set; }
+    internal ItemKey? BrowseItem { get; set; }
+    internal bool BrowseRetained { get; set; } = true;
     internal bool Replaced { get; set; }
     internal long Version { get; set; } = 1;
     internal SyntheticGateway(string provider = "ado")
@@ -504,6 +606,29 @@ sealed class SyntheticGateway : INativeSourceGateway
         => ObserveAsync(root, expected, observeSchema, observeSchema, ct);
     public Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected, CancellationToken ct)
         => ObserveAsync(root, expected, false, true, ct);
+    public Task<Result<ImmutableArray<WorkItem>>> ObserveItemsAsync(string root, NativeSourceStamp expected,
+        ImmutableArray<ItemKey> keys, CancellationToken ct)
+        => Task.FromResult(ItemFailure is { } error ? Result<ImmutableArray<WorkItem>>.Fail(error)
+            : Result<ImmutableArray<WorkItem>>.Ok([.. Observation.Snapshot.Items.Where(item => keys.Contains(item.Key))]));
+    public async Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string root, NativeSourceStamp expected,
+        string? selectedTeam, PlanningSourceKind kind, string id, ProcessSchema mappingSchema, CancellationToken ct)
+    {
+        var result = await ReadAsync(root, expected, false, ct);
+        if (!result.IsSuccess) return result;
+        var item = result.Value.Snapshot.Items.Single(item => item.Key == BrowseItem);
+        if (!BrowseRetained)
+            item = new WorkItem(item.Key, item.Type, item.Fields, new Revision(item.Key, "fresh-only"),
+                item.RelationshipsComplete, item.Resources, item.ResourcesComplete);
+        return Result<NativeSourceObservation>.Ok(result.Value with
+        {
+            AcquiredPlanningPage = new([item], [], null, true),
+            PlanningBrowse = new(new(kind, id, "Fixture query", "Fixture query"), [item.Key], DateTimeOffset.UtcNow, selectedTeam)
+        });
+    }
+    public Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(string root, NativeSourceStamp expected, CancellationToken ct)
+        => Task.FromResult(expected == Observation.Source
+            ? Result<ImmutableArray<PlanningTeam>>.Ok([new("synthetic-team", "Synthetic team")])
+            : Result<ImmutableArray<PlanningTeam>>.Fail(ErrorCode.Conflict, "Synthetic authority changed"));
     private async Task<Result<NativeSourceObservation>> ObserveAsync(string root, NativeSourceStamp? expected,
         bool observeSchema, bool online, CancellationToken ct)
     {
@@ -522,12 +647,15 @@ sealed class SyntheticGateway : INativeSourceGateway
         if (observeSchema)
         {
             SchemaCalls++;
+            BeforeSchemaReturn?.Invoke();
             if (RejectFullMetadata) return Result<NativeSourceObservation>.Fail(ErrorCode.Unavailable, "Synthetic full metadata exceeds the ordinary read budget.");
         }
         var stamp = SourceOverride ?? Observation.Source;
         if (expected is not null && stamp != expected) return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic authority changed");
         if (Replaced) return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic replacement");
         if (online && OnlineError is { } error) return Result<NativeSourceObservation>.Fail(error);
+        if (online && !observeSchema && ContentReadError is { } contentError)
+            return Result<NativeSourceObservation>.Fail(contentError);
         var items = Observation.Snapshot.Items;
         if (OmitGitHubNumber || MalformedGitHubNumber)
             items = items.Select(item =>
@@ -557,13 +685,13 @@ sealed class Fixture : IAsyncDisposable
     public CatalogChanges Changes { get; private init; } = null!;
     public RegisteredSource Source { get; private init; } = null!;
 
-    public static async Task<Fixture> Start()
+    public static async Task<Fixture> Start(string provider = "ado")
     {
         var directory = Path.Combine(Path.GetTempPath(), "twig-source-adapter-tests-" + Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(directory);
         try
         {
-            var gateway = new SyntheticGateway();
+            var gateway = new SyntheticGateway(provider);
             var changes = new CatalogChanges();
             var adapter = new NativeSourceAdapter(Path.Combine(directory, "native-cache"), gateway, changes);
             var observation = await adapter.AdmitAsync(directory, default);

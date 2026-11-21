@@ -783,6 +783,45 @@ public sealed partial class AdoProviderTests
         f.Access.SawDurableFence.ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task ClassificationRemappedAtCreateDispatchLeavesPartialReceiptAndFencesReplay()
+    {
+        using var f = await Fixture.Create();
+        f.Http.IncludeClassification = true;
+        var (schema, draft) = await ClassificationSeed(f, false);
+        var op = CreateOperation(draft);
+        var evidence = (await f.Provider.ResolveCreateEvidenceAsync(schema, op, default)).Value;
+        evidence["System.IterationId"].ShouldBe(FieldValue.Integer(15));
+        var proposal = await f.Proposal(op with { CreateEvidence = evidence });
+        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+
+        f.Http.RemapIterationAtCreateDispatch = true;
+        var applied = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        applied.Status.ShouldBe(OpStatus.Applied);
+        f.Access.SawDurableFence.ShouldBeTrue();
+        var id = int.Parse(applied.PublishedKey!.NativeId!, System.Globalization.CultureInfo.InvariantCulture);
+        var live = f.Http.Items[id];
+        live["fields"]!["System.IterationId"]!.GetValue<int>().ShouldBe(16);
+        live["fields"]!["System.IterationPath"]!.GetValue<string>().ShouldBe(@"Native Project\Sprint\Release 1");
+
+        // A later matching observation must not hide a mismatch on the acknowledged revision.
+        live["fields"]!["System.IterationId"] = 15;
+        live["rev"] = live["rev"]!.GetValue<int>() + 1;
+        var verified = (await f.Provider.VerifyAsync(proposal, applied, default)).Value;
+        verified.Status.ShouldBe(OpStatus.Partial);
+        verified.Error!.Message.ShouldContain("immutable revision");
+        var snapshot = await f.Stored();
+        snapshot.Journal.Single().Status.ShouldBe(OpStatus.Partial);
+        snapshot.Mappings.Single().Remote.ShouldBe(applied.PublishedKey);
+        snapshot.Drafts.Single().Key.ShouldBe(draft.Key);
+        (await f.Provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Partial);
+        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        var replacement = new Proposal(f.Connection, schema.Fingerprint, snapshot.Version,
+            [proposal.Operations.Single().WithId("replacement")]);
+        (await f.Provider.ImportAsync(replacement, replacement.Digest)).IsSuccess.ShouldBeFalse();
+        f.Http.Writes.ShouldBe(1);
+    }
+
     private static Op CreateOperation(Draft draft) => new("create", OpKind.Create, draft.Key, fields: draft.Changes,
         type: draft.Type, concurrency: ConcurrencyMode.ObservedNonAtomic);
 
@@ -1499,6 +1538,7 @@ public sealed partial class AdoProviderTests
         internal int? WriteStatus;
         internal int? MetadataStatus;
         internal bool MoveAtDispatch;
+        internal bool RemapIterationAtCreateDispatch;
         internal int Writes;
         internal bool KeysetQueries;
         internal int[]? QueryIdsOverride;
@@ -1916,6 +1956,7 @@ public sealed partial class AdoProviderTests
             if (WriteFailure == "malformed") return Json("{broken");
             if (WriteStatus is { } status) return Status(status);
             var create = request.Method == HttpMethod.Post;
+            if (create && RemapIterationAtCreateDispatch) IterationChildId++;
             var id = create ? Items.Keys.Max() + 1 : int.Parse(path.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
             var item = create ? Item(id) : Items[id];
             if (MoveAtDispatch) item["rev"] = item["rev"]!.GetValue<int>() + 1;

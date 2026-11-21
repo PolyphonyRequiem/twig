@@ -87,10 +87,12 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
     {
         lock (gate)
         {
-            if (body.StoreId is { } known && known != instance)
-                throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed. Connect explicitly.");
             if (body.ProfileId == Guid.Empty || body.StoreId == Guid.Empty)
                 throw new HttpFailure(400, "InvalidInput", "Use an exact remembered store/profile or no remembered identity.");
+            if (body.RecoverMissingDefault && (body.StoreId is null || body.ProfileId is not null))
+                throw new HttpFailure(400, "InvalidInput", "Recovery requires the exact current store ID and no old profile ID.");
+            if (body.StoreId is { } known && known != instance)
+                throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed. Connect explicitly.");
             if (body.ViewId is { } viewId)
             {
                 if (!sessions.TryGetValue(viewId, out var view) || view.CatalogId != instance || view.Revoked
@@ -103,51 +105,58 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                     var contextual = ContextualProfile(instance, runtime);
                     var contextualProbe = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = contextual };
                     using var contextualLease = ProfileLease(contextualProbe);
-                    if (!File.Exists(NativePath(contextualProbe))) WriteDocument(contextualProbe, ReadDocument(contextualProbe));
+                    if (ReadStoredDocument(contextualProbe) is null)
+                        WriteDocument(contextualProbe, NewDocument(contextualProbe), overwrite: false);
                     return new(instance, contextual);
                 }
             }
+            using var defaultLease = DefaultProfileLease(instance);
             var path = DefaultProfilePath(instance);
-            Guid? selected = null;
-            var replaceDefault = false;
-            if (body.RecoverMissingDefault && body.ProfileId is not null)
-                throw new HttpFailure(400, "InvalidInput", "Do not supply an old profile when recovering the default.");
+            var pointer = ReadDefaultPointer(path);
             if (body.StoreId == instance && body.ProfileId is { } prior)
             {
-                var previous = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = prior };
-                using var lease = ProfileLease(previous);
-                if (File.Exists(NativePath(previous)) && ReadDocument(previous).SignedOut)
+                var previous = ReadReusableProfile(instance, prior);
+                if (previous?.SignedOut == true)
                     return new(instance, prior);
-                if (!File.Exists(path) && File.Exists(NativePath(previous))) selected = prior;
+                if (pointer is null && previous is not null)
+                {
+                    WriteAtomic(path, prior.ToString("D"), overwrite: false);
+                    return new(instance, prior);
+                }
             }
-            if (selected is null && File.Exists(path))
+            if (pointer is not null)
             {
-                if (new FileInfo(path).Length == 36 && Guid.TryParseExact(File.ReadAllText(path), "D", out var retained)
-                    && retained != Guid.Empty)
+                if (Guid.TryParseExact(pointer, "D", out var retained) && retained != Guid.Empty
+                    && ReadReusableProfile(instance, retained) is not null)
                 {
-                    var retainedSession = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = retained };
-                    if (File.Exists(NativePath(retainedSession))) selected = retained;
+                    if (body.RecoverMissingDefault) throw ProfileRecoveryNotRequired();
+                    return new(instance, retained);
                 }
-                if (selected is null)
-                {
-                    if (!body.RecoverMissingDefault)
-                        throw new HttpFailure(409, "DefaultProfileUnavailable",
-                            "The saved default profile is invalid or missing. Start a fresh profile explicitly for this store.");
-                    replaceDefault = true;
-                }
+                if (!body.RecoverMissingDefault)
+                    throw new HttpFailure(409, "DefaultProfileUnavailable",
+                        "The saved default profile is invalid or missing. Start a fresh profile explicitly for this store.");
             }
-            if (body.RecoverMissingDefault && !replaceDefault)
-                throw new HttpFailure(409, "ProfileRecoveryNotRequired", "The default is no longer broken. Use Sign in to continue.");
-            var profile = selected ?? Guid.NewGuid();
+            else if (body.RecoverMissingDefault) throw ProfileRecoveryNotRequired();
+            var profile = Guid.NewGuid();
             var probe = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = profile };
             using (var lease = ProfileLease(probe))
-            {
-                var document = ReadDocument(probe);
-                if (!File.Exists(NativePath(probe))) WriteDocument(probe, document);
-            }
-            if (replaceDefault || !File.Exists(path)) WriteAtomic(path, profile.ToString("D"));
+                WriteDocument(probe, NewDocument(probe), overwrite: false);
+            WriteAtomic(path, profile.ToString("D"), overwrite: body.RecoverMissingDefault);
             return new(instance, profile);
         }
+    }
+
+    private static HttpFailure ProfileRecoveryNotRequired()
+        => new(409, "ProfileRecoveryNotRequired", "The default is not broken. Use Sign in to continue.");
+
+    private NativeViewDocument? ReadReusableProfile(Guid instance, Guid profile)
+    {
+        var probe = new ViewSession(Guid.NewGuid(), instance, false, "", time.GetUtcNow()) { ProfileId = profile };
+        using var lease = ProfileLease(probe);
+        try { return ReadStoredDocument(probe); }
+        catch (Exception error) when (error is JsonException or InvalidDataException or ArgumentException
+            or HttpFailure { Code: "InvalidInput" })
+        { return null; }
     }
 
     // Called only by the same-Windows-owner authenticated HTTP endpoint, never by the SDK adapter.
@@ -191,11 +200,11 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                 throw new HttpFailure(409, "SessionProfileChanged", "Use the profile belonging to this SDK session; no other session's selections were adopted.");
             if (session.OwnerAuthenticated && session.ProfileId != profileId)
                 throw new HttpFailure(409, "ProfileChanged", "Open a fresh view for the selected presentation profile.");
-            session.OwnerAuthenticated = true;
             session.ProfileId = profileId;
             using (var lease = ProfileLease(session))
             {
-                var document = ReadDocument(session);
+                var stored = ReadStoredDocument(session);
+                var document = stored ?? (explicitConnect ? NewDocument(session) : throw ProfileUnavailable());
                 if (!explicitConnect && (document.SignedOut || generation is { } expected && document.Generation != expected))
                     throw new HttpFailure(403, "SessionRevoked", "This profile was signed out. Connect explicitly to use it again.");
                 if (document.SignedOut)
@@ -203,11 +212,12 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                     document = document with { SignedOut = false, Revision = checked(document.Revision + 1) };
                     WriteDocument(session, document);
                 }
-                else if (!File.Exists(NativePath(session))) WriteDocument(session, document);
+                else if (stored is null) WriteDocument(session, document, overwrite: false);
                 session.ProfileGeneration = document.Generation;
                 ApplyPreferences(session, document);
                 session.AppliedChoices = document.Choices;
             }
+            session.OwnerAuthenticated = true;
             session.Revoked = false;
             session.Expires = time.GetUtcNow() + OwnerLifetime;
             var content = Secret();
@@ -366,7 +376,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             probe.ProfileId = body.ProfileId;
             using (var lease = ProfileLease(probe))
             {
-                var document = ReadDocument(probe);
+                var document = ReadStoredDocument(probe) ?? throw ProfileUnavailable();
                 if (document.SignedOut || existing?.Revoked == true
                     || existing is { OwnerAuthenticated: true } && existing.ProfileGeneration != document.Generation)
                     throw new HttpFailure(403, "SessionRevoked", "This profile was signed out. Connect explicitly to use it again.");
@@ -408,6 +418,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         {
             RequireOwner(session);
             ValidateChoices(body.Choices);
+            using var defaultLease = session.RuntimeContext is null ? DefaultProfileLease(session.CatalogId) : null;
             using var lease = ProfileLease(session);
             var document = ReadDocument(session);
             RequireProfile(session, document);
@@ -548,38 +559,61 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         => Path.Combine(preferencesDirectory, $"default-profile-{instance:D}");
     private string RepositoryBenchPath(Guid instance, string repositoryId)
         => Path.Combine(preferencesDirectory, $"repository-bench-{instance:D}-{Hash(repositoryId)}");
-    private FileStream ProfileLease(ViewSession session)
+    private FileStream DefaultProfileLease(Guid instance) => AcquireProfileLease(DefaultProfilePath(instance));
+    private FileStream ProfileLease(ViewSession session) => AcquireProfileLease(NativePath(session));
+    private FileStream AcquireProfileLease(string path)
     {
         Directory.CreateDirectory(preferencesDirectory);
-        try { return new FileStream(NativePath(session) + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        try { return new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
         catch (IOException error) when ((error.HResult & 0xffff) is 11 or 32 or 33)
         { throw new HttpFailure(409, "ViewStateBusy", "Another request is updating this profile. Read it again before saving."); }
     }
+    private static string? ReadDefaultPointer(string path)
+    {
+        try
+        {
+            using var file = File.OpenRead(path);
+            Span<byte> bytes = stackalloc byte[37];
+            return file.ReadAtLeast(bytes, bytes.Length, false) == 36
+                ? Encoding.UTF8.GetString(bytes[..36]) : "";
+        }
+        catch (FileNotFoundException) { return null; }
+    }
+    private static HttpFailure ProfileUnavailable()
+        => new(409, "ProfileUnavailable", "The retained profile is missing. Sign in explicitly to continue.");
+    private static NativeViewDocument NewDocument(ViewSession session)
+        => new(1, session.CatalogId, session.ProfileId, 0, Guid.NewGuid(), false, NativeViewChoices.Empty, []);
     private NativeViewDocument ReadDocument(ViewSession session)
+        => ReadStoredDocument(session) ?? NewDocument(session);
+    private NativeViewDocument? ReadStoredDocument(ViewSession session)
     {
         var path = NativePath(session);
-        if (!File.Exists(path))
-            return new(1, session.CatalogId, session.ProfileId, 0, Guid.NewGuid(), false, NativeViewChoices.Empty, []);
-        if (new FileInfo(path).Length > 65536) throw new InvalidDataException("Native view state exceeds its bound.");
-        var document = JsonSerializer.Deserialize(File.ReadAllText(path), TransportJson.Default.NativeViewDocument)
+        FileStream file;
+        try { file = File.OpenRead(path); }
+        catch (FileNotFoundException) { return null; }
+        using var stream = file;
+        if (stream.Length > 65536) throw new InvalidDataException("Native view state exceeds its bound.");
+        var document = JsonSerializer.Deserialize(stream, TransportJson.Default.NativeViewDocument)
             ?? throw new InvalidDataException("Native view state is invalid.");
         if (document.Version != 1 || document.StoreId != session.CatalogId || document.ProfileId != session.ProfileId
-            || document.Revision < 0 || document.Generation == Guid.Empty || document.Sources.Length > 64
-            || document.Sources.Any(source => !ValidDigest(source.Binding))
+            || document.Revision < 0 || document.Generation == Guid.Empty || document.Choices?.DisplayRoots is null
+            || document.Choices.DisplayRoots.Any(root => root is null)
+            || document.Sources is null || document.Sources.Length > 64
+            || document.Sources.Any(source => source?.Root is null || source.Binding is null || !ValidDigest(source.Binding))
             || !Roots(document.Choices).Order(ViewSession.PathComparer)
                 .SequenceEqual(document.Sources.Select(source => source.Root).Order(ViewSession.PathComparer), ViewSession.PathComparer))
             throw new InvalidDataException("Native view state identity is invalid.");
         ValidateChoices(document.Choices);
         return document;
     }
-    private void WriteDocument(ViewSession session, NativeViewDocument document)
+    private void WriteDocument(ViewSession session, NativeViewDocument document, bool overwrite = true)
     {
         var json = JsonSerializer.Serialize(document, TransportJson.Default.NativeViewDocument);
         if (Encoding.UTF8.GetByteCount(json) > 65536)
             throw new HttpFailure(400, "InvalidInput", "The selected view references exceed their storage bound.");
-        WriteAtomic(NativePath(session), json);
+        WriteAtomic(NativePath(session), json, overwrite);
     }
-    private static void WriteAtomic(string path, string text)
+    private static void WriteAtomic(string path, string text, bool overwrite = true)
     {
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -590,7 +624,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                 file.Write(bytes);
                 file.Flush(true);
             }
-            File.Move(temporary, path, true);
+            File.Move(temporary, path, overwrite);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }

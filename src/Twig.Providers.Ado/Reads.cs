@@ -111,7 +111,15 @@ public sealed partial class AdoProvider
         {
             var id = Id(key);
             // Relations-only expansion omits classification IDs needed for edit validation.
-            var root = await Get(bound, $"{bound.Project}/_apis/wit/workitems/{id}?$expand=all&api-version={Api}", ct);
+            JsonElement root;
+            try
+            {
+                root = await Get(bound, $"{bound.Project}/_apis/wit/workitems/{id}?$expand=all&api-version={Api}", ct);
+            }
+            catch (AdoFailure failure) when (failure.Error.Evidence.Any(value => value is "http:403" or "http:404"))
+            {
+                throw new AdoFailure(failure.Error with { Evidence = failure.Error.Evidence.Add($"item-unavailable:{id}") });
+            }
             var (item, edges) = MapItem(root, bound, schema, key);
             items.Add(item);
             observations.Add(key, edges.ToHashSet());

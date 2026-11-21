@@ -23,6 +23,8 @@ public interface INativeSourceGateway
     Task<Result<NativeItemEditor>> OpenExistingEditorAsync(string root, Guid benchId, NativeSourceStamp expected, CancellationToken ct)
         => NativeItemEditor.OpenExistingAsync(root, benchId, expected, ct);
     Task<Result<NativeSourceObservation>> ReadAsync(string root, NativeSourceStamp? expected, bool observeSchema, CancellationToken ct);
+    Task<Result<ImmutableArray<WorkItem>>> ObserveItemsAsync(string root, NativeSourceStamp expected, ImmutableArray<ItemKey> keys, CancellationToken ct)
+        => NativeSourceReader.ObserveItemsAsync(root, expected, keys, ct);
     Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected, CancellationToken ct)
         => Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.Unsupported, "Fresh native online read validation is not implemented by this gateway."));
     Task<Result<NativeSourceObservation>> ReadIdentityProfilesAsync(string root, NativeSourceStamp expected, ImmutableArray<string> identities, CancellationToken ct)
@@ -65,6 +67,7 @@ public sealed class NativeSourceGateway : INativeSourceGateway
 
 public sealed class NativeSourceAdapter(string directory, INativeSourceGateway gateway, CatalogChanges changes) : ISourceReader
 {
+    private sealed class HistoricalSourceDeniedException : Exception;
     public static readonly TimeSpan MetadataRefreshInterval = TimeSpan.FromMinutes(15);
     private readonly ConcurrentDictionary<string, DateTimeOffset> metadataAttempts = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new(StringComparer.Ordinal);
@@ -113,26 +116,28 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         {
             var cached = await Load(source.Binding, ct).ConfigureAwait(false);
             if (!cached.IsSuccess) return Result<T>.Fail(cached.Error);
-            if (cached.Value.Blocked) return Result<T>.Fail(ErrorCode.PolicyViolation, "This source requires explicit reauthorization.");
-            NativeCacheCheck.RequireAllowed(CheckPath(source.Binding), ct);
+            RequireHistory(source.Binding);
             var previous = editorLease.Value;
             var lease = new EditorLease(source.Binding);
             editorLease.Value = lease;
-            try { return Result<T>.Ok(await NativeAsync(source.NativeLocator, operation, ct).ConfigureAwait(false)); }
+            try
+            {
+                return Result<T>.Ok(await NativeAsync(source.NativeLocator, async token =>
+                {
+                    using var root = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(source.NativeLocator, exclusive: true);
+                    using var observations = NativeHistoricalEvidence.ObserveFailures(source.Binding.Connection,
+                        error => RecordContentFailure(source.Binding, error));
+                    return await operation(token).ConfigureAwait(false);
+                }, ct).ConfigureAwait(false));
+            }
             finally { lease.Active = false; editorLease.Value = previous; }
         }
-        catch (NativeCheckBlockedException) { return Result<T>.Fail(ErrorCode.PolicyViolation, "A pending or denied native source cannot release editor data."); }
+        catch (HistoricalSourceDeniedException) { return Result<T>.Fail(ErrorCode.PolicyViolation, "Recorded source denial prevents release of retained editor data."); }
         catch (Exception ex) when (StorageFailure(ex)) { return Result<T>.Fail(ErrorCode.StorageUnavailable, "Native editor admission evidence is unavailable."); }
         finally { gate.Release(); }
     }
     public static SourceBinding Binding(NativeSourceStamp stamp)
-    {
-        // Full native evidence is retained separately; this opaque digest is not decoded for a principal.
-        var text = JsonSerializer.Serialize(new[] { stamp.PrincipalId, stamp.AuthorityStamp },
-            NativeEvidenceJson.Default.StringArray);
-        return new(stamp.Connection, stamp.StoreInstance,
-            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant());
-    }
+        => new(stamp.Connection, stamp.StoreInstance, NativeHistoricalEvidence.NativeStamp(stamp));
 
     public Task<Result<SourceObservation>> RefreshPlanningAsync(RegisteredSource source, NativeSourceStamp expected, CancellationToken ct)
         => ObserveExplicitAsync(source, (_, token) => gateway.RefreshPlanningAsync(source.NativeLocator, expected, token), ct);
@@ -152,27 +157,27 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         => ObserveExplicitAsync(source, (schema, token) => gateway.BrowsePlanningAsync(source.NativeLocator, expected, team, kind, id, schema, token), ct);
 
     public Task<Result<SourceObservation>> ReadPlanningSourcesAsync(RegisteredSource source, string? team, CancellationToken ct)
-        => ReadAsync(source, (expected, token) => gateway.ReadPlanningSourcesAsync(source.NativeLocator, expected, team, token), false, ct);
+        => ReadAsync(source, (expected, token) => gateway.ReadPlanningSourcesAsync(source.NativeLocator, expected, team, token), false, ct,
+            metadataOnly: true);
 
     public async Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(RegisteredSource source,
         NativeSourceStamp expected, CancellationToken ct)
     {
+        if (Binding(expected) != source.Binding)
+            return Result<ImmutableArray<PlanningTeam>>.Fail(ErrorCode.Conflict, "The team discovery source changed.");
         var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
-        NativeCacheCheck? check = null;
         try
         {
-            check = NativeCacheCheck.Begin(CheckPath(source.Binding), explicitReauthorization: true, ct);
             var result = await NativeAsync(source.NativeLocator,
                 token => gateway.DiscoverPlanningTeamsAsync(source.NativeLocator, expected, token), ct).ConfigureAwait(false);
-            if (result.IsSuccess) check.Complete(ct);
+            if (!result.IsSuccess && result.Error.Evidence.Contains("http:401"))
+                RecordSourceDenial(source.Binding);
             return result;
         }
-        catch (NativeCheckBlockedException)
-        { return Result<ImmutableArray<PlanningTeam>>.Fail(ErrorCode.PolicyViolation, "Recheck this connection before loading its teams."); }
         catch (Exception ex) when (StorageFailure(ex))
-        { return Result<ImmutableArray<PlanningTeam>>.Fail(ErrorCode.StorageUnavailable, "Native team discovery admission evidence is unavailable."); }
-        finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); gate.Release(); }
+        { return Result<ImmutableArray<PlanningTeam>>.Fail(ErrorCode.StorageUnavailable, "Native team discovery is unavailable."); }
+        finally { gate.Release(); }
     }
 
     private async Task<Result<SourceObservation>> ObserveExplicitAsync(RegisteredSource source,
@@ -180,40 +185,52 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
     {
         var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
-        NativeCacheCheck? check = null;
         try
         {
             var cached = await Load(source.Binding, ct).ConfigureAwait(false);
             if (!cached.IsSuccess) return Result<SourceObservation>.Fail(cached.Error);
-            check = NativeCacheCheck.Begin(CheckPath(source.Binding), explicitReauthorization: true, ct);
-            var observed = await NativeAsync(source.NativeLocator,
-                token => acquire(cached.Value.Schema.ToCore(source.Binding.Connection), token), ct).ConfigureAwait(false);
-            if (!observed.IsSuccess) return Refuse(observed.Error, check);
+            var observed = await NativeAsync(source.NativeLocator, async token =>
+            {
+                using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(source.NativeLocator, exclusive: true);
+                using var observations = NativeHistoricalEvidence.ObserveFailures(source.Binding.Connection,
+                    error => RecordContentFailure(source.Binding, error));
+                var result = await acquire(cached.Value.Schema.ToCore(source.Binding.Connection), token).ConfigureAwait(false);
+                if (result.IsSuccess && result.Value.Source == cached.Value.Stamp.ToNative())
+                    RestoreRetainedBrowseItems(source.Binding, result.Value);
+                return result;
+            }, ct).ConfigureAwait(false);
+            if (!observed.IsSuccess)
+            {
+                if (observed.Error.Evidence.Contains("http:401")) RecordSourceDenial(source.Binding);
+                return Result<SourceObservation>.Fail(observed.Error);
+            }
+            if (observed.Value.Source != cached.Value.Stamp.ToNative())
+                return Result<SourceObservation>.Fail(ErrorCode.Conflict, "The native source changed during acquisition.");
             Result<SourceObservation> result;
             if (observed.Value.Schema is not null)
-                result = await StoreOnline(observed.Value, source.Binding, ct).ConfigureAwait(false);
-            else if (observed.Value.Source != cached.Value.Stamp.ToNative())
-                return Refuse(new(ErrorCode.Conflict, "The native source changed during acquisition."), check);
+                result = await StoreMetadataAsync(observed.Value, source.Binding, ct).ConfigureAwait(false);
             else
             {
                 var schema = cached.Value.Schema.ToCore(source.Binding.Connection) with
                 { Planning = observed.Value.Planning, PlanningCalendars = observed.Value.PlanningCalendars, Memberships = observed.Value.Memberships };
                 result = Result<SourceObservation>.Ok(new(source.Binding, observed.Value.Snapshot, schema,
-                    observed.Value.CacheReadAt, cached.Value.OnlineObservedAt, ObservationMode.OnlineValidatedCache)
+                    observed.Value.CacheReadAt, cached.Value.OnlineObservedAt, ObservationMode.OnlineMetadata)
                 {
                     WorkspaceExclusions = observed.Value.WorkspaceExclusions, SelectedBenchId = observed.Value.SelectedBenchId,
                     PlanningSources = observed.Value.PlanningSources, PlanningBrowse = observed.Value.PlanningBrowse,
+                    AcquiredPlanningPage = observed.Value.AcquiredPlanningPage,
                     PlanningSourcesObservedAt = observed.Value.PlanningSourcesCache?.ObservedAt,
+                    WithdrawnItems = WithdrawnKeys(source.Binding),
                 });
             }
-            if (result.IsSuccess) { check.Complete(ct); if (publish) changes.Publish(0); }
+            if (result.IsSuccess && publish) changes.Publish(0);
             return result;
         }
         catch (Exception ex) when (StorageFailure(ex))
         {
             return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Native planning refresh could not be retained; existing rules were preserved.");
         }
-        finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); gate.Release(); }
+        finally { gate.Release(); }
     }
 
     public async Task<Result<SourceObservation>> AdmitAsync(string nativeLocator, CancellationToken ct)
@@ -229,33 +246,30 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         var binding = Binding(local.Source);
         var gate = gates.GetOrAdd(CatalogFingerprint.Binding(binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
-        NativeCacheCheck? check = null;
         try
         {
-            check = NativeCacheCheck.Begin(CheckPath(binding), explicitReauthorization: true, ct);
             var cached = await Load(binding, ct).ConfigureAwait(false);
+            if (!cached.IsSuccess && cached.Error.Evidence.Contains("legacy-native-cache"))
+                return Result<SourceObservation>.Fail(cached.Error);
             if (cached.IsSuccess && cached.Value.Stamp.ToNative() == local.Source)
             {
-                var online = await NativeAsync(nativeLocator,
-                    token => gateway.ReadOnlineAsync(nativeLocator, local.Source, token), ct).ConfigureAwait(false);
-                if (!online.IsSuccess) return Refuse(online.Error, check);
-                if (Binding(online.Value.Source) != binding)
-                    return Refuse(new(ErrorCode.Conflict, "Native source changed during connection selection."), check);
+                RequireHistory(binding);
                 var schema = cached.Value.Schema.ToCore(binding.Connection) with
-                { Planning = online.Value.Planning, PlanningCalendars = online.Value.PlanningCalendars, Memberships = online.Value.Memberships };
-                check.Complete(ct);
-                changes.Publish(0);
-                return Result<SourceObservation>.Ok(new(binding, online.Value.Snapshot, schema,
-                    online.Value.CacheReadAt, cached.Value.OnlineObservedAt, ObservationMode.OnlineValidatedCache)
-                    { WorkspaceExclusions = online.Value.WorkspaceExclusions, SelectedBenchId = online.Value.SelectedBenchId });
+                { Planning = local.Planning, PlanningCalendars = local.PlanningCalendars, Memberships = local.Memberships };
+                return Result<SourceObservation>.Ok(new(binding, local.Snapshot, schema,
+                    local.CacheReadAt, cached.Value.OnlineObservedAt, ObservationMode.PermittedOfflineCache)
+                    { WorkspaceExclusions = local.WorkspaceExclusions, SelectedBenchId = local.SelectedBenchId,
+                        WithdrawnItems = WithdrawnKeys(binding) });
             }
-            return await ObserveAndRetainAsync(nativeLocator, local.Source, binding, check, ct).ConfigureAwait(false);
+            return await ObserveAndRetainAsync(nativeLocator, local.Source, binding, ct).ConfigureAwait(false);
         }
+        catch (HistoricalSourceDeniedException)
+        { return Result<SourceObservation>.Fail(ErrorCode.PolicyViolation, "Known source denial blocks historical work-item display."); }
         catch (Exception ex) when (StorageFailure(ex))
         {
-            return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Cannot retain native revalidation state; no source grant was released.");
+            return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Cannot read or retain native source evidence.");
         }
-        finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); gate.Release(); }
+        finally { gate.Release(); }
     }
 
     public Task<Result<SourceObservation>> ReadAsync(RegisteredSource source, CancellationToken ct)
@@ -283,32 +297,80 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
     public Task<Result<SourceObservation>> ReadOnlineAsync(RegisteredSource source, CancellationToken ct)
         => ReadAsync(source, (expected, token) => gateway.ReadOnlineAsync(source.NativeLocator, expected, token), false, ct);
 
+    internal async Task<Result<ImmutableArray<WorkItem>>> ObserveItemsAsync(NativePanelContext context,
+        ImmutableArray<ItemKey> keys, CancellationToken ct)
+    {
+        var gate = gates.GetOrAdd(CatalogFingerprint.Binding(context.Source.Binding), _ => new(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await NativeAsync(context.Root, async token =>
+            {
+                using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(context.Root, exclusive: true);
+                var result = await gateway.ObserveItemsAsync(context.Root, context.Stamp, keys, token).ConfigureAwait(false);
+                if (result.IsSuccess) return result;
+                if (result.Error.Evidence.Contains("http:401"))
+                {
+                    RecordSourceDenial(context.Source.Binding);
+                    return result;
+                }
+                var unavailable = keys.Where(key => key.BelongsTo(context.Stamp.Connection)
+                    && result.Error.Evidence.Contains($"item-unavailable:{key.NativeId}")).Select(key => key.NativeId!).ToArray();
+                if (unavailable.Length != 0)
+                {
+                    try
+                    {
+                        if (NativeHistoricalEvidence.RecordWithdrawals(PathFor(context.Source.Binding), unavailable))
+                            changes.Publish(0);
+                    }
+                    catch (Exception ex) when (StorageFailure(ex))
+                    {
+                        deniedSources.TryAdd(context.Source.Binding, 0);
+                        changes.Publish(0);
+                        throw;
+                    }
+                }
+                return result;
+            }, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (StorageFailure(ex))
+        {
+            return Result<ImmutableArray<WorkItem>>.Fail(ErrorCode.StorageUnavailable,
+                "Native item evidence could not be retained.");
+        }
+        finally { gate.Release(); }
+    }
+
     public async Task<Result<ImmutableArray<IdentityProfile>>> ReadIdentityProfilesAsync(RegisteredSource source,
         ImmutableArray<string> identities, CancellationToken ct)
     {
         var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
-        NativeCacheCheck? check = null;
         try
         {
             var cached = await Load(source.Binding, ct).ConfigureAwait(false);
             if (!cached.IsSuccess) return Result<ImmutableArray<IdentityProfile>>.Fail(cached.Error);
-            if (cached.Value.Blocked)
-                return Result<ImmutableArray<IdentityProfile>>.Fail(ErrorCode.PolicyViolation, "This source requires explicit reauthorization.");
-            check = NativeCacheCheck.Begin(CheckPath(source.Binding), explicitReauthorization: false, ct);
+            RequireHistory(source.Binding);
             var result = await NativeAsync(source.NativeLocator, token => gateway.ReadIdentityProfilesAsync(
                 source.NativeLocator, cached.Value.Stamp.ToNative(), identities, token), ct).ConfigureAwait(false);
-            if (!result.IsSuccess) return Result<ImmutableArray<IdentityProfile>>.Fail(result.Error);
-            if (Binding(result.Value.Source) != source.Binding)
+            if (!result.IsSuccess)
+            {
+                if (result.Error.Code is ErrorCode.Conflict or ErrorCode.PolicyViolation
+                    || result.Error.Evidence.Contains("http:401"))
+                {
+                    RecordSourceDenial(source.Binding);
+                }
+                return Result<ImmutableArray<IdentityProfile>>.Fail(result.Error);
+            }
+            if (result.Value.Source != cached.Value.Stamp.ToNative())
                 return Result<ImmutableArray<IdentityProfile>>.Fail(ErrorCode.Conflict, "The native profile source changed.");
-            check.Complete(ct);
             return Result<ImmutableArray<IdentityProfile>>.Ok(result.Value.IdentityProfiles);
         }
-        catch (NativeCheckBlockedException)
-        { return Result<ImmutableArray<IdentityProfile>>.Fail(ErrorCode.PolicyViolation, "A pending or denied source cannot release profiles."); }
+        catch (HistoricalSourceDeniedException)
+        { return Result<ImmutableArray<IdentityProfile>>.Fail(ErrorCode.PolicyViolation, "Recorded source denial prevents release of profiles."); }
         catch (Exception ex) when (StorageFailure(ex))
         { return Result<ImmutableArray<IdentityProfile>>.Fail(ErrorCode.StorageUnavailable, "Native profile admission evidence is unavailable."); }
-        finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); gate.Release(); }
+        finally { gate.Release(); }
     }
 
     internal async Task<Result<SourceObservation>> CheckInitialAsync(NativePanelContext context, SourceObservation observation, CancellationToken ct)
@@ -319,15 +381,16 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         {
             var cached = await Load(context.Source.Binding, ct).ConfigureAwait(false);
             if (!cached.IsSuccess) return Result<SourceObservation>.Fail(cached.Error);
-            NativeCacheCheck.RequireAllowed(CheckPath(context.Source.Binding), ct);
-            if (cached.Value.Blocked || observation.Binding != context.Source.Binding
+            RequireHistory(context.Source.Binding);
+            if (observation.Binding != context.Source.Binding
                 || cached.Value.Stamp.ToNative() != context.Stamp
-                || cached.Value.OnlineObservedAt != observation.SchemaObservedAt)
+                || cached.Value.OnlineObservedAt != observation.SchemaObservedAt
+                || !WithdrawnKeys(context.Source.Binding).SetEquals(observation.WithdrawnItems))
                 return Result<SourceObservation>.Fail(ErrorCode.PolicyViolation, "The initial source admission changed before projection.");
             return Result<SourceObservation>.Ok(observation);
         }
-        catch (NativeCheckBlockedException)
-        { return Result<SourceObservation>.Fail(ErrorCode.PolicyViolation, "A pending or denied source cannot release an initial view."); }
+        catch (HistoricalSourceDeniedException)
+        { return Result<SourceObservation>.Fail(ErrorCode.PolicyViolation, "Recorded source denial prevents release of the historical view."); }
         catch (Exception ex) when (StorageFailure(ex))
         { return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Initial source admission evidence is unavailable."); }
         finally { gate.Release(); }
@@ -351,56 +414,66 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         return admission.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(admission.Error);
     }
 
-    internal Task<Result<SourceObservation>> ReadEditorSourceAsync(RegisteredSource source, CancellationToken ct)
-        => editorLease.Value is { Active: true } lease && lease.Binding == source.Binding
-            ? ReadAsync(source, (expected, token) => gateway.ReadOnlineAsync(source.NativeLocator, expected, token),
-                false, ct, gateHeld: true)
-            : Task.FromResult(Result<SourceObservation>.Fail(ErrorCode.Conflict, "Editor observation requires its active exact source admission lease."));
-
     public Task<Result<SourceObservation>> ReadPlanningAsync(RegisteredSource source, string? team, CancellationToken ct)
-        => ReadAsync(source, (expected, token) => gateway.ReadPlanningAsync(source.NativeLocator, expected, team, token), false, ct);
+        => ReadAsync(source, (expected, token) => gateway.ReadPlanningAsync(source.NativeLocator, expected, team, token), false, ct,
+            metadataOnly: true);
+
+    internal async Task<Result<SourceObservation>> ReadEditorSourceAsync(RegisteredSource source, CancellationToken ct)
+    {
+        if (editorLease.Value is not { Active: true } lease || lease.Binding != source.Binding)
+            return Result<SourceObservation>.Fail(ErrorCode.Conflict, "Editor observation requires its active exact source lease.");
+        var read = await ReadAsync(source, (expected, token) => gateway.ReadAsync(source.NativeLocator, expected, false, token),
+            true, ct, gateHeld: true).ConfigureAwait(false);
+        return read.IsSuccess ? Result<SourceObservation>.Ok(read.Value with
+        {
+            Snapshot = new NativeHistoricalProjection(read.Value.Snapshot, read.Value.WithdrawnItems).Snapshot()
+        }) : read;
+    }
 
     private async Task<Result<SourceObservation>> ReadAsync(RegisteredSource source,
         Func<NativeSourceStamp, CancellationToken, Task<Result<NativeSourceObservation>>> acquire, bool offline, CancellationToken ct,
-        bool gateHeld = false)
+        bool metadataOnly = false, bool gateHeld = false)
     {
         var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
         if (!gateHeld) await gate.WaitAsync(ct).ConfigureAwait(false);
-        NativeCacheCheck? check = null;
         try
         {
             var cached = await Load(source.Binding, ct).ConfigureAwait(false);
             if (!cached.IsSuccess) return Result<SourceObservation>.Fail(cached.Error);
-            if (offline && cached.Value.Blocked)
-                return Result<SourceObservation>.Fail(ErrorCode.PolicyViolation, "This source requires explicit authorization/schema recheck.");
-            // Online reads must establish current access, not inherit an older read's pending outcome.
-            check = NativeCacheCheck.Begin(CheckPath(source.Binding), explicitReauthorization: !offline, ct);
+            if (offline) RequireHistory(source.Binding);
             var expected = cached.Value.Stamp.ToNative();
             var local = await NativeAsync(source.NativeLocator, token => acquire(expected, token), ct).ConfigureAwait(false);
-            if (!local.IsSuccess) return Refuse(local.Error, check);
-            if (Binding(local.Value.Source) != source.Binding)
-                return Refuse(new(ErrorCode.Conflict, "Native source changed."), check);
+            if (!local.IsSuccess)
+            {
+                if (IsSourceDenial(local.Error, content: !metadataOnly))
+                    RecordSourceDenial(source.Binding);
+                return Result<SourceObservation>.Fail(local.Error);
+            }
+            if (local.Value.Source != expected)
+                return Result<SourceObservation>.Fail(ErrorCode.Conflict, "Native source changed.");
+            if (!metadataOnly) RequireHistory(source.Binding);
             var schema = cached.Value.Schema.ToCore(source.Binding.Connection) with
             { Planning = local.Value.Planning, PlanningCalendars = local.Value.PlanningCalendars, Memberships = local.Value.Memberships };
-            check.Complete(ct);
             return Result<SourceObservation>.Ok(new(source.Binding, local.Value.Snapshot,
                 schema, local.Value.CacheReadAt, cached.Value.OnlineObservedAt,
-                offline ? ObservationMode.PermittedOfflineCache : ObservationMode.OnlineValidatedCache)
+                offline ? ObservationMode.PermittedOfflineCache
+                    : metadataOnly ? ObservationMode.OnlineMetadata : ObservationMode.OnlineValidatedCache)
                 {
                     WorkspaceExclusions = local.Value.WorkspaceExclusions, SelectedBenchId = local.Value.SelectedBenchId,
                     PlanningSources = local.Value.PlanningSources,
                     PlanningSourcesObservedAt = local.Value.PlanningSourcesCache?.ObservedAt,
+                    WithdrawnItems = WithdrawnKeys(source.Binding),
                 });
         }
-        catch (NativeCheckBlockedException)
+        catch (HistoricalSourceDeniedException)
         {
-            return Result<SourceObservation>.Fail(ErrorCode.PolicyViolation, "A denied or interrupted native check requires explicit successful reauthorization.");
+            return Result<SourceObservation>.Fail(ErrorCode.PolicyViolation, "Recorded source denial blocks historical work-item display.");
         }
         catch (Exception ex) when (StorageFailure(ex))
         {
             return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Native evidence cache is unavailable; explicitly reauthorize before using content.");
         }
-        finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); if (!gateHeld) gate.Release(); }
+        finally { if (!gateHeld) gate.Release(); }
     }
 
     public async Task<Result<bool>> RefreshMetadataAsync(UserBenchWorkspace workspace, DateTimeOffset now, CancellationToken ct)
@@ -416,53 +489,44 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
         var key = CatalogFingerprint.Binding(binding);
         var gate = gates.GetOrAdd(key, _ => new(1, 1));
         if (!await gate.WaitAsync(0, ct).ConfigureAwait(false)) return Result<bool>.Ok(false);
-        NativeCacheCheck? check = null;
         try
         {
             var cached = await Load(binding, ct).ConfigureAwait(false);
             if (!cached.IsSuccess) return Result<bool>.Fail(cached.Error);
-            if (cached.Value.Blocked) return Result<bool>.Ok(false);
-            NativeCacheCheck.RequireAllowed(CheckPath(binding), ct);
+            RequireHistory(binding);
             if (now - cached.Value.OnlineObservedAt < MetadataRefreshInterval
                 || metadataAttempts.TryGetValue(key, out var attempted) && now - attempted < MetadataRefreshInterval)
                 return Result<bool>.Ok(false);
             metadataAttempts[key] = now;
-            check = NativeCacheCheck.Begin(CheckPath(binding), explicitReauthorization: false, ct);
             var observed = await NativeAsync(workspace.Root,
                 token => gateway.ReadAsync(workspace.Root, cached.Value.Stamp.ToNative(), true, token), ct).ConfigureAwait(false);
             if (!observed.IsSuccess)
             {
-                // Only a positively classified temporary failure may retain an existing grant.
-                // Denials, changed authority, cancellation and uncertain outcomes stay latched.
-                if (observed.Error.Code == ErrorCode.Unavailable
-                    && observed.Error.Evidence.Any(value => value is "http:429" or "http:500" or "http:502" or "http:503" or "http:504")
-                    && !observed.Error.Evidence.Any(value => value is "http:401" or "http:403"))
-                    check.Complete(ct);
+                if (IsSourceDenial(observed.Error)) RecordSourceDenial(binding);
                 return Result<bool>.Fail(observed.Error);
             }
             if (observed.Value.Source != cached.Value.Stamp.ToNative())
                 return Result<bool>.Fail(ErrorCode.Conflict, "The metadata source changed during discovery.");
-            var stored = await StoreOnline(observed.Value, binding, ct).ConfigureAwait(false);
+            var stored = await StoreMetadataAsync(observed.Value, binding, ct).ConfigureAwait(false);
             if (!stored.IsSuccess) return Result<bool>.Fail(stored.Error);
-            check.Complete(ct);
             changes.Publish(0);
             return Result<bool>.Ok(true);
         }
-        catch (NativeCheckBlockedException) { return Result<bool>.Ok(false); }
+        catch (HistoricalSourceDeniedException) { return Result<bool>.Ok(false); }
         catch (Exception ex) when (StorageFailure(ex))
         { return Result<bool>.Fail(ErrorCode.StorageUnavailable, "Scheduled metadata refresh could not retain native evidence."); }
-        finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); gate.Release(); }
+        finally { gate.Release(); }
     }
 
     public async Task<Result<SourceObservation>> RecheckAsync(RegisteredSource source, CancellationToken ct)
     {
         var gate = gates.GetOrAdd(CatalogFingerprint.Binding(source.Binding), _ => new(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
-        NativeCacheCheck? check = null;
         try
         {
-            check = NativeCacheCheck.Begin(CheckPath(source.Binding), explicitReauthorization: true, ct);
             var cached = await Load(source.Binding, ct).ConfigureAwait(false);
+            if (!cached.IsSuccess && cached.Error.Evidence.Contains("legacy-native-cache"))
+                return Result<SourceObservation>.Fail(cached.Error);
             NativeSourceStamp expected;
             if (cached.IsSuccess)
                 expected = cached.Value.Stamp.ToNative();
@@ -471,70 +535,167 @@ public sealed class NativeSourceAdapter(string directory, INativeSourceGateway g
                 // Recover the stamp locally, but do not query a replacement source or principal.
                 var local = await NativeAsync(source.NativeLocator,
                     token => gateway.ReadAsync(source.NativeLocator, null, false, token), ct).ConfigureAwait(false);
-                if (!local.IsSuccess) return Refuse(local.Error, check);
+                if (!local.IsSuccess) return Refuse(local.Error, source.Binding);
                 expected = local.Value.Source;
                 if (Binding(expected) != source.Binding)
-                    return Refuse(new(ErrorCode.Conflict, "Explicit reauthorization found a different source; register it separately."), check);
+                    return Result<SourceObservation>.Fail(ErrorCode.Conflict, "The connection check found a different source; register it separately.");
             }
-            return await ObserveAndRetainAsync(source.NativeLocator, expected, source.Binding, check, ct).ConfigureAwait(false);
+
+            return await ObserveAndRetainAsync(source.NativeLocator, expected, source.Binding, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (StorageFailure(ex))
         {
             return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Cannot retain or revalidate native evidence; this source remains unavailable.");
         }
-        finally { check?.InvalidateIfUnfinished(changes); check?.Dispose(); gate.Release(); }
+        finally { gate.Release(); }
     }
 
     private async Task<Result<SourceObservation>> ObserveAndRetainAsync(string locator, NativeSourceStamp expected,
-        SourceBinding binding, NativeCacheCheck check, CancellationToken ct)
+        SourceBinding binding, CancellationToken ct)
     {
         var observed = await NativeAsync(locator,
             token => gateway.ReadAsync(locator, expected, true, token), ct).ConfigureAwait(false);
-        if (!observed.IsSuccess) return Refuse(observed.Error, check);
+        if (!observed.IsSuccess) return Refuse(observed.Error, binding);
         if (observed.Value.Source != expected)
-            return Refuse(new(ErrorCode.Conflict, "Explicit reauthorization found a different source; register it separately."), check);
-        var result = await StoreOnline(observed.Value, binding, ct).ConfigureAwait(false);
-        if (result.IsSuccess) { check.Complete(ct); changes.Publish(0); }
+            return Result<SourceObservation>.Fail(ErrorCode.Conflict, "The connection check found a different source; register it separately.");
+        var result = await StoreMetadataAsync(observed.Value, binding, ct).ConfigureAwait(false);
+        if (result.IsSuccess) changes.Publish(0);
         return result;
     }
 
-    private async Task<Result<SourceObservation>> StoreOnline(NativeSourceObservation observed, SourceBinding expected, CancellationToken ct)
+    private async Task<Result<SourceObservation>> StoreMetadataAsync(
+        NativeSourceObservation observed, SourceBinding expected, CancellationToken ct)
     {
         if (Binding(observed.Source) != expected || observed.Schema is not { IsSuccess: true } schema
             || observed.SchemaObservedAt is not { } schemaAt || schemaAt == default || schema.Value.Connection != expected.Connection)
             return Result<SourceObservation>.Fail(ErrorCode.Conflict, "Native schema/admission evidence is absent or mismatched.");
         try
         {
-            await Save(expected, new(1, NativeStampDocument.From(observed.Source), SchemaDocument.From(schema.Value), schemaAt, false), ct);
+            await Save(expected, new(2, NativeStampDocument.From(observed.Source), SchemaDocument.From(schema.Value), schemaAt), ct);
             return Result<SourceObservation>.Ok(new(expected, observed.Snapshot, schema.Value, observed.CacheReadAt, schemaAt, ObservationMode.OnlineMetadata)
                 { WorkspaceExclusions = observed.WorkspaceExclusions, SelectedBenchId = observed.SelectedBenchId,
-                    PlanningSources = observed.PlanningSources, PlanningBrowse = observed.PlanningBrowse });
+                    PlanningSources = observed.PlanningSources, PlanningBrowse = observed.PlanningBrowse,
+                    AcquiredPlanningPage = observed.AcquiredPlanningPage, WithdrawnItems = WithdrawnKeys(expected) });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             return Result<SourceObservation>.Fail(ErrorCode.StorageUnavailable, "Cannot retain exact native admission/schema evidence.");
         }
     }
-    private Result<SourceObservation> Refuse(Error error, NativeCacheCheck check)
+    private Result<SourceObservation> Refuse(Error error, SourceBinding binding)
     {
-        // The pre-retained pending state is already the durable denial. No request-token-dependent IO here.
-        check.InvalidateIfUnfinished(changes);
+        if (IsSourceDenial(error)) RecordSourceDenial(binding);
         return Result<SourceObservation>.Fail(error);
     }
-    private string PathFor(SourceBinding binding) => Path.Combine(directory, CatalogFingerprint.Binding(binding) + ".json");
-    private string CheckPath(SourceBinding binding) => Path.Combine(directory, CatalogFingerprint.Binding(binding) + ".check");
+    private static bool IsSourceDenial(Error error, bool content = false)
+        => error.Code == ErrorCode.PolicyViolation || error.Evidence.Contains("http:401")
+            || content && error.Evidence.Contains("http:403");
+
+    private readonly ConcurrentDictionary<SourceBinding, byte> deniedSources = new();
+
+    private void RequireHistory(SourceBinding binding)
+    {
+        if (deniedSources.ContainsKey(binding)) throw new HistoricalSourceDeniedException();
+        try { using var denial = File.OpenRead(PathFor(binding) + ".denied"); }
+        catch (FileNotFoundException) { return; }
+        catch (DirectoryNotFoundException) { return; }
+        throw new HistoricalSourceDeniedException();
+    }
+
+    private bool HasLegacyCache(SourceBinding binding)
+    {
+        // Reject the obsolete cache format as a unit; do not interpret its grant state.
+        try
+        {
+            _ = File.GetAttributes(Path.ChangeExtension(PathFor(binding), ".check"));
+            return true;
+        }
+        catch (FileNotFoundException) { return false; }
+        catch (DirectoryNotFoundException) { return false; }
+        catch (IOException) { return true; }
+        catch (UnauthorizedAccessException) { return true; }
+    }
+
+    private static Result<NativeCacheDocument> LegacyCacheUnavailable() =>
+        Result<NativeCacheDocument>.Fail(new Error(ErrorCode.StorageUnavailable,
+            "Legacy native cache cannot be reused. Initialize a fresh Twig workspace before registering this source.")
+            { Evidence = ["legacy-native-cache"] });
+
+    private void RecordSourceDenial(SourceBinding binding)
+    {
+        deniedSources.TryAdd(binding, 0);
+        changes.Publish(0);
+            NativeHistoricalEvidence.SaveSourceDenial(PathFor(binding));
+    }
+
+    private Error RecordContentFailure(SourceBinding binding, Error error)
+    {
+            try
+            {
+                if (error.Evidence.Contains("http:401"))
+                    RecordSourceDenial(binding);
+                else
+                {
+                    var unavailable = NativeHistoricalEvidence.UnavailableIds(error).ToArray();
+                    if (unavailable.Length != 0 && NativeHistoricalEvidence.RecordWithdrawals(PathFor(binding), unavailable))
+                        changes.Publish(0);
+                }
+                return error;
+            }
+            catch (Exception ex) when (StorageFailure(ex))
+            {
+                deniedSources.TryAdd(binding, 0);
+                changes.Publish(0);
+                return new(ErrorCode.StorageUnavailable, "Could not retain the provider refusal; no work-item data was released.");
+            }
+    }
+    private string PathFor(SourceBinding binding) => Path.Combine(directory,
+        NativeHistoricalEvidence.BindingKey(binding.Connection, binding.StoreInstance, binding.NativeStamp) + ".json");
+
+    private void RestoreRetainedBrowseItems(SourceBinding binding, NativeSourceObservation observation)
+    {
+        if (observation is not { AcquiredPlanningPage: { Complete: true, Continuation: null } page,
+                PlanningBrowse: { } browse })
+            return;
+        var withdrawn = ReadWithdrawals(binding);
+        if (withdrawn.IsEmpty || page.Items.Length != browse.Items.Length
+            || !browse.Items.ToHashSet().SetEquals(page.Items.Select(item => item.Key)))
+            return;
+        var retained = observation.Snapshot.Items.ToDictionary(item => item.Key);
+        var restored = page.Items.Where(item => item.Key.BelongsTo(binding.Connection)
+            && item.Revision is not null && withdrawn.Contains(item.Key.NativeId!)
+            && retained.TryGetValue(item.Key, out var mirror) && mirror.Revision == item.Revision
+            && mirror.Type == item.Type && mirror.Fields.Equals(item.Fields))
+            .Select(item => item.Key.NativeId!);
+        var remaining = withdrawn.Except(restored);
+        if (remaining.Count == withdrawn.Count) return;
+        SaveWithdrawals(binding, remaining);
+        changes.Publish(0);
+    }
+    private ImmutableHashSet<ItemKey> WithdrawnKeys(SourceBinding binding)
+        => ReadWithdrawals(binding).Select(id => ItemKey.Remote(
+            binding.Connection.Provider, binding.Connection.ResourceScope, id)).ToImmutableHashSet();
+    private ImmutableHashSet<string> ReadWithdrawals(SourceBinding binding)
+        => NativeHistoricalEvidence.ReadWithdrawals(PathFor(binding));
+
+    private void SaveWithdrawals(SourceBinding binding, ImmutableHashSet<string> ids)
+        => NativeHistoricalEvidence.SaveWithdrawals(PathFor(binding), ids);
     private static bool StorageFailure(Exception error) => error is IOException or InvalidDataException
         or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException or FormatException or OverflowException;
     private async Task<Result<NativeCacheDocument>> Load(SourceBinding binding, CancellationToken ct)
     {
         try
         {
+            if (HasLegacyCache(binding)) return LegacyCacheUnavailable();
             await using var file = File.OpenRead(PathFor(binding));
             if (file.Length > 4 * 1024 * 1024) throw new InvalidDataException("Native cache bound exceeded.");
             using var document = await JsonDocument.ParseAsync(file, new JsonDocumentOptions { MaxDepth = 64 }, ct).ConfigureAwait(false);
             PersistedJson.Validate(document.RootElement);
+            if (document.RootElement.TryGetProperty("version", out var version)
+                && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var number) && number == 1)
+                return LegacyCacheUnavailable();
             var value = document.Deserialize(NativeCacheJson.Default.NativeCacheDocument);
-            if (value is not { Version: 1 } || value.OnlineObservedAt == default || Binding(value.Stamp.ToNative()) != binding)
+            if (value is not { Version: 2 } || value.OnlineObservedAt == default || Binding(value.Stamp.ToNative()) != binding)
                 throw new JsonException("Invalid native admission cache.");
             _ = value.Schema.ToCore(binding.Connection);
             return Result<NativeCacheDocument>.Ok(value);

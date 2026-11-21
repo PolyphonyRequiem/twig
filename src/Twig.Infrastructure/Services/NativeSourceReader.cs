@@ -25,6 +25,7 @@ public sealed record NativeSourceObservation(NativeSourceStamp Source, StoreSnap
     public PlanningSources? PlanningSources { get; init; }
     public NativePlanningSourcesCache PlanningSourcesCache { get; init; } = new(null, null);
     public PlanningBrowse? PlanningBrowse { get; init; }
+    public QueryPage? AcquiredPlanningPage { get; init; }
     public ImmutableArray<PlanningMembership> Memberships { get; init; } = [];
     public ImmutableArray<IdentityProfile> IdentityProfiles { get; init; } = [];
 }
@@ -38,7 +39,7 @@ public static class NativeSourceReader
             || identities.Distinct().Count() != identities.Length
             || identities.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 256 || id.Any(char.IsControl))
             ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured authority and 1-16 distinct identity IDs are required."))
-            : ReadCoreAsync(workspaceRoot, expectedSource, false, null, null, ct, validateReadAccess: true, profileIds: identities);
+            : ReadCoreAsync(workspaceRoot, expectedSource, false, null, null, ct, profileIds: identities);
     /// <summary>
     /// Reads recorded native data without token acquisition or HTTP unless schema observation is requested.
     /// An expected source refuses identity/store replacement, not ordinary snapshot version changes.
@@ -145,7 +146,7 @@ public static class NativeSourceReader
     internal static Task<Result<NativeSourceObservation>> DiscoverPlanningSourcesAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, Action<IServiceCollection>? configure, CancellationToken ct)
         => expectedSource is null ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority is required."))
-            : ReadCoreAsync(workspaceRoot, expectedSource, false, configure, null, ct, discoverSources: true, validateReadAccess: true);
+            : ReadCoreAsync(workspaceRoot, expectedSource, false, configure, null, ct, discoverSources: true);
 
 #pragma warning disable RS0027 // Preserve expectedTeam semantics; the explicit selectedTeam overload requires its token.
     public static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
@@ -158,7 +159,7 @@ public static class NativeSourceReader
         Action<IServiceCollection>? configure, CancellationToken ct)
         => expectedSource is null || !Enum.IsDefined(kind) || string.IsNullOrWhiteSpace(id) || id.Length > 256
             ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority and an exact planning source are required."))
-            : ReadCoreAsync(workspaceRoot, expectedSource, false, configure, null, ct, browse: new(kind, id, expectedTeam), validateReadAccess: true);
+            : ReadCoreAsync(workspaceRoot, expectedSource, false, configure, null, ct, browse: new(kind, id, expectedTeam));
 
     /// <summary>Browses an exact source using the selected team as both selection and required canonical response identity.</summary>
     public static Task<Result<NativeSourceObservation>> BrowsePlanningAsync(string workspaceRoot,
@@ -194,16 +195,31 @@ public static class NativeSourceReader
             && (!Guid.TryParseExact(selectedTeam, "D", out var id) || id == Guid.Empty || id.ToString("D") != selectedTeam)
             ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority and a canonical team ID (or explicit project scope) are required."))
             : ReadCoreAsync(workspaceRoot, expectedSource, refreshPlanning, configure, null, ct, refreshPlanning, discoverSources, browse,
-                validateReadAccess: true, explicitTeam: new(selectedTeam), readPlanning: readPlanning);
+                explicitTeam: new(selectedTeam), readPlanning: readPlanning);
 
     private sealed record TeamSelection(string? Team);
     private sealed record BrowseRequest(PlanningSourceKind Kind, string Id, string? Team, ProcessSchema? MappingSchema = null);
+
+    public static async Task<Result<ImmutableArray<WorkItem>>> ObserveItemsAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, ImmutableArray<ItemKey> keys, CancellationToken ct)
+        => await ObserveItemsAsync(workspaceRoot, expectedSource, keys, null, ct).ConfigureAwait(false);
+
+    internal static async Task<Result<ImmutableArray<WorkItem>>> ObserveItemsAsync(string workspaceRoot,
+        NativeSourceStamp expectedSource, ImmutableArray<ItemKey> keys, Action<IServiceCollection>? configure, CancellationToken ct)
+    {
+        if (expectedSource is null || keys.IsDefaultOrEmpty || keys.Length > 100
+            || keys.Distinct().Count() != keys.Length || keys.Any(key => key.IsLocal || !key.BelongsTo(expectedSource.Connection)))
+            return Result<ImmutableArray<WorkItem>>.Fail(ErrorCode.InvalidInput, "Choose 1–100 exact native work items from this source.");
+        var result = await ReadCoreAsync(workspaceRoot, expectedSource, false, configure, null, ct, itemKeys: keys).ConfigureAwait(false);
+        return result.IsSuccess ? Result<ImmutableArray<WorkItem>>.Ok(result.Value.Snapshot.Items)
+            : Result<ImmutableArray<WorkItem>>.Fail(result.Error);
+    }
 
     private static async Task<Result<NativeSourceObservation>> ReadCoreAsync(string workspaceRoot,
         NativeSourceStamp? expectedSource, bool observeSchema, Action<IServiceCollection>? configure, Selection? selection, CancellationToken ct,
         bool refreshPlanning = false, bool discoverSources = false, BrowseRequest? browse = null, bool validateReadAccess = false,
         TeamSelection? explicitTeam = null, bool readPlanning = false, bool discoverTeams = false,
-        ImmutableArray<string> profileIds = default)
+        ImmutableArray<string> profileIds = default, ImmutableArray<ItemKey> itemKeys = default)
     {
         ct.ThrowIfCancellationRequested();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -231,6 +247,27 @@ public static class NativeSourceReader
             if (expectedSource is not null && expectedSource != handle.Source)
                 return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict,
                     "The recorded source authority or store changed; explicit source reauthorization is required.");
+            if (!itemKeys.IsDefault)
+            {
+                var observed = await handle.Workspace.ObserveItemsAsync(itemKeys, token).ConfigureAwait(false);
+                if (!observed.IsSuccess)
+                {
+                    var error = Refuse(observed.Error, "Native work items could not be observed.").Error;
+                    return Result<NativeSourceObservation>.Fail(error with
+                    {
+                        Evidence = error.Evidence.AddRange(itemKeys.Select(key => $"item-unavailable:{key.NativeId}")
+                            .Where(marker => observed.Error.Evidence.Contains(marker)))
+                    });
+                }
+                var page = observed.Value;
+                if (!page.Complete || page.Continuation is not null || page.Items.Length != itemKeys.Length
+                    || !itemKeys.ToHashSet().SetEquals(page.Items.Select(item => item.Key)))
+                    return Result<NativeSourceObservation>.Fail(ErrorCode.Unavailable, "The provider did not return the exact requested items.");
+                var current = await factory.RevalidateSourceAsync(handle, token).ConfigureAwait(false);
+                if (!current.IsSuccess) return Refuse(current.Error, "Native authority changed during the item read.");
+                token.ThrowIfCancellationRequested();
+                return Result<NativeSourceObservation>.Ok(new(handle.Source, new(0, page.Items), DateTimeOffset.UtcNow, null, null));
+            }
             if (validateReadAccess)
             {
                 var access = await handle.Workspace.ValidateReadAccessAsync(token).ConfigureAwait(false);
@@ -376,7 +413,7 @@ public static class NativeSourceReader
             return Result<NativeSourceObservation>.Ok(new(handle.Source, snapshot.Value, readAt, schema, schemaAt)
             { WorkspaceExclusions = viewRules.Value.Exclusions, SelectedBenchId = selection is null ? context.Value.BenchId : selection.Next,
                 Planning = planning.Value.Metadata, PlanningSources = sourceChoices ?? catalogue.Value.Sources,
-                PlanningSourcesCache = catalogue.Value, PlanningBrowse = browsed,
+                PlanningSourcesCache = catalogue.Value, PlanningBrowse = browsed, AcquiredPlanningPage = browsePage?.Page,
                 PlanningCalendars = calendars.Value, PlanningTeams = teams, Memberships = memberships.Value,
                 IdentityProfiles = profiles });
 

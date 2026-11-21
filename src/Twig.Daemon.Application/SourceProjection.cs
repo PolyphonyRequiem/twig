@@ -27,6 +27,24 @@ public static class SourceProjection
     {
         var store = observation.Snapshot;
         var schema = observation.Schema;
+        var withheld = observation.WithdrawnItems;
+        if (!observation.WithdrawnItems.IsEmpty)
+        {
+            withheld = withheld.Union(store.Mappings
+                .Where(mapping => observation.WithdrawnItems.Contains(mapping.Remote)).Select(mapping => mapping.Local));
+            var incomplete = store.Relationships.Where(edge => withheld.Contains(edge.From) || withheld.Contains(edge.To))
+                .SelectMany(edge => new[] { edge.From, edge.To }).ToHashSet();
+            store = new(store.Version, store.Items.Where(item => !withheld.Contains(item.Key)),
+                store.Relationships.Where(edge => !withheld.Contains(edge.From) && !withheld.Contains(edge.To)),
+                store.Drafts.Where(draft => !withheld.Contains(draft.Key) && (draft.Parent is null || !withheld.Contains(draft.Parent))
+                    && draft.Links.All(link => !withheld.Contains(link.Other))),
+                store.Proposals, store.Journal, store.Mappings.Where(mapping => !withheld.Contains(mapping.Remote)), store.Benches);
+            store = new(store.Version, store.Items.Select(item => incomplete.Contains(item.Key) && item.RelationshipsComplete
+                ? new WorkItem(item.Key, item.Type, item.Fields, item.Revision, false, item.Resources, item.ResourcesComplete)
+                : item), store.Relationships, store.Drafts, store.Proposals, store.Journal, store.Mappings, store.Benches);
+            schema = schema with { Memberships = schema.Memberships.Select(membership =>
+                membership with { Items = membership.Items.Where(key => !withheld.Contains(key)).ToImmutableArray() }).ToImmutableArray() };
+        }
         if (selection.Binding != observation.Binding || schema.Connection != selection.Binding.Connection)
             return Result<SourceView>.Fail(ErrorCode.Conflict, "Source observation does not match the frozen binding.");
         if (store.Items.Length + store.Drafts.Length > 10000 || store.Relationships.Length > 20000)
@@ -59,7 +77,7 @@ public static class SourceProjection
             || store.Items.Any(i => !i.Key.IsLocal && !i.Key.BelongsTo(selection.Binding.Connection)))
             return Result<SourceView>.Fail(ErrorCode.Conflict, "Cached source identity or permanent mapping is ambiguous.");
         ItemKey Resolve(ItemKey key) => store.Mappings.FirstOrDefault(m => m.Local == key)?.Remote ?? key;
-        var normalizedSelectors = selection.Selectors.Select(s => s.Item is null ? s
+        var normalizedSelectors = selection.Selectors.Where(s => s.Item is null || !withheld.Contains(s.Item)).Select(s => s.Item is null ? s
             : new Selector(s.Kind, Resolve(s.Item), hierarchyRelation: s.HierarchyRelation));
         var normalizedEdges = store.Relationships.Select(e => e with { From = Resolve(e.From), To = Resolve(e.To) }).ToArray();
         var normalized = new StoreSnapshot(store.Version, store.Items, normalizedEdges, store.Drafts,
@@ -69,7 +87,7 @@ public static class SourceProjection
         if (!members.IsSuccess) return Result<SourceView>.Fail(members.Error);
         var selected = members.Value.Select(Resolve).ToHashSet();
         var candidates = selected.Concat(store.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
-        var exclusions = observation.WorkspaceExclusions.Select(rule => rule.Item is null ? rule
+        var exclusions = observation.WorkspaceExclusions.Where(rule => rule.Item is null || !withheld.Contains(rule.Item)).Select(rule => rule.Item is null ? rule
             : new Selector(rule.Kind, Resolve(rule.Item), hierarchyRelation: rule.HierarchyRelation, connection: rule.Connection));
         var visible = Model.ApplyViewExclusions(candidates, exclusions, normalized, schema, observation.CacheReadAt);
         if (!visible.IsSuccess) return Result<SourceView>.Fail(visible.Error);
@@ -91,6 +109,8 @@ public static class SourceProjection
                 { IsExcluded = !displayed.Contains(key), Revision = item?.Revision?.Token ?? draft?.Baseline?.Revision?.Token });
         }
         var notes = schema.Gaps.Concat(schema.Types.SelectMany(type => type.Gaps)).ToList();
+        if (!withheld.IsEmpty)
+            notes.Add("Previously fetched records with a known provider refusal are withheld.");
         if (rows.Any(i => !i.RelationshipsComplete))
             notes.Add("Relationship observations are incomplete. Missing links are not authoritative leaf evidence.");
         if (rows.Any(i => !schema.Types.Any(t => t.Reference == i.Type)))
@@ -98,7 +118,7 @@ public static class SourceProjection
         if (observation.Mode == ObservationMode.PermittedOfflineCache)
             notes.Add("Offline cached evidence under an unchanged admitted binding; upstream revocation may not yet be known.");
         if (observation.Mode == ObservationMode.OnlineValidatedCache)
-            notes.Add("Current connection read access was validated online; schema and presentation remain from the explicit metadata check.");
+            notes.Add("The connection was checked online, but displayed work-item data may be cached. The check does not verify access to each item.");
         notes.Add("Cache-read time is not a provider item freshness timestamp.");
         var stamp = new ObservationStamp(observation.Binding, store.Version, observation.CacheReadAt,
             schema.Fingerprint, observation.SchemaObservedAt, observation.Mode);

@@ -25,7 +25,7 @@ internal sealed partial class NativeSetupEffects
         effects[kind] = NativeSetupEffectState.Confirmed;
         Observed?.Invoke(kind, NativeSetupEffectState.Confirmed);
     }
-    internal Result<T> Fail<T>(Error error)
+    internal Result<T> Fail<T>(Error error, string? guidance = null)
     {
         var evidence = ImmutableArray.CreateBuilder<string>();
         evidence.Add(Header);
@@ -34,21 +34,21 @@ internal sealed partial class NativeSetupEffects
         foreach (var effect in effects.OrderBy(pair => pair.Key))
             evidence.Add(Prefix + "effect:" + effect.Key + ":" + effect.Value);
         evidence.AddRange(error.Evidence.Where(value => value is "http:401" or "http:403").Distinct());
-        return Result<T>.Fail(new Error(error.Code, Scrub(error.Message)) { Evidence = evidence.ToImmutable() });
+        var message = Scrub(error.Message);
+        return Result<T>.Fail(new Error(error.Code, guidance is null ? message : message + " " + guidance)
+            { Evidence = evidence.ToImmutable() });
     }
-    internal Result<T> Cancel<T>(bool retryable = false)
+    internal Result<T> Cancel<T>(string? guidance = null)
     {
         Phase = NativeSetupPhase.Cancelled;
-        return Fail<T>(new(ErrorCode.Unavailable, retryable
-            ? "Native setup was cancelled before a Core database was attempted. Retry 'twig init' in this checkout."
-            : "Native setup was cancelled; possible local effects were preserved."));
+        return Fail<T>(new(ErrorCode.Unavailable, "Native setup was cancelled; possible local effects were preserved."), guidance);
     }
-    internal Result<T> Exception<T>(Exception exception)
+    internal Result<T> Exception<T>(Exception exception, string? guidance = null)
         => Fail<T>(exception is NativeSetupException native ? native.Error
             : new(exception is ArgumentException ? ErrorCode.InvalidInput
                 : exception is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException
                     ? ErrorCode.StorageUnavailable : ErrorCode.Unavailable,
-                "Native setup did not complete; possible local effects were preserved. " + exception.GetType().Name));
+                "Native setup did not complete; possible local effects were preserved. " + exception.GetType().Name), guidance);
 
     internal static bool IsExpected(Exception ex) => ex is IOException or UnauthorizedAccessException or InvalidOperationException
         or ArgumentException or System.Text.Json.JsonException or Microsoft.Data.Sqlite.SqliteException

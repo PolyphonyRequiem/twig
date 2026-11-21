@@ -420,12 +420,13 @@ labels, state colors and a source web URL. Consumers opt in with
 `IProvider.DiscoverSchemaAsync(connection, cancellationToken, includePresentation: true)`;
 ordinary validation and mutation discovery does not acquire form layouts.
 The native read-only source boundary opts in for browser/canvas consumers.
-Full metadata refresh remains explicit. Ordinary online hosts can instead call
-`NativeSourceReader.ReadOnlineAsync` to revalidate current actor/target read
-access through `IProvider.ValidateReadAccessAsync` and final native authority
-checks, while retaining their previously admitted presentation observation.
-That operation returns no fresh schema and makes no schema freshness claim.
-Unsupported providers fail closed. No additional port or schema model is added.
+Schema discovery is independent of work-item access. Native Bench display uses
+the local mirror bound to the exact source and account, with cache-read time
+reported separately from provider freshness. A live connection diagnostic is
+not evidence that each mirrored item is readable. Delegated item reads instead
+use `NativeSourceReader.ObserveItemsAsync` for exact provider-returned fields
+and recheck source identity before release. Known denials are recorded separately
+from schema evidence and are not cleared by metadata refresh.
 
 ADO presentation reads the exact process roster reference, never a similarly named
 project/parent type. Type artwork is acquired from the native work-item icon route

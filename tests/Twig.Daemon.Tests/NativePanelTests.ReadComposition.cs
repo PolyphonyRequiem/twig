@@ -61,13 +61,12 @@ internal static partial class NativePanelTests
         first["mode"]!.GetValue<string>().ShouldBe("PermittedOfflineCache");
         var picker = (await fixture.Ok("GET", "/picker"))["source"]!;
         AssertCleanSource(picker);
-        picker["mode"]!.GetValue<string>().ShouldBe("OnlineValidatedCache");
-        fixture.Logs.Entries.Count.ShouldBe(2);
-        fixture.Logs.Entries.Last().Message.ShouldBe(initial.Message);
+        picker["mode"]!.GetValue<string>().ShouldBe("PermittedOfflineCache");
+        fixture.Logs.Entries.Count.ShouldBe(1);
         var primedDrafts = await fixture.Ok("GET", "/drafts");
         AssertNoRawDiagnostics(primedDrafts);
         foreach (var source in primedDrafts["sources"]!.AsArray()) AssertCleanSource(source!);
-        fixture.Logs.Entries.Count.ShouldBe(2);
+        fixture.Logs.Entries.Count.ShouldBe(1);
 
         var refresh = await fixture.Ok("POST", "/planning/refresh");
         refresh["metadata"]!["gaps"]!.AsArray().ShouldBeEmpty();
@@ -84,8 +83,8 @@ internal static partial class NativePanelTests
         AssertNoRawDiagnostics(browse);
         AssertCleanSource(browse["picker"]!["source"]!);
         browse["picker"]!["source"]!["mode"]!.GetValue<string>().ShouldBe("OnlineMetadata");
-        fixture.Logs.Entries.Count.ShouldBe(4);
-        fixture.Logs.Entries.Last().Message.ShouldBe("Native source diagnostics: count=112, truncated=0, errorCode=None.");
+        fixture.Logs.Entries.Count.ShouldBe(3);
+        fixture.Logs.Entries.Last().Message.ShouldBe("Native source diagnostics: count=113, truncated=0, errorCode=None.");
         fixture.Logs.Entries.Count(entry => entry.Properties.GetValueOrDefault("DiagnosticCount") is 111).ShouldBe(1);
 
         var baseline = fixture.Logs.Entries.Count;
@@ -114,17 +113,17 @@ internal static partial class NativePanelTests
         await fixture.BenchSource();
         fixture.Logs.Entries.Count.ShouldBe(previous + 1);
         AssertCleanSource((await fixture.Ok("GET", "/picker"))["source"]!);
-        fixture.Logs.Entries.Count.ShouldBe(previous + 2);
+        fixture.Logs.Entries.Count.ShouldBe(previous + 1);
         fixture.Logs.Entries.Last().Message.ShouldBe(initial.Message);
         await fixture.Ok("GET", "/drafts");
-        fixture.Logs.Entries.Count.ShouldBe(previous + 2);
+        fixture.Logs.Entries.Count.ShouldBe(previous + 1);
 
         fixture.Gateway.DiagnosticRevision--;
         await fixture.Ok("POST", "/context/recheck");
         AssertCleanSource(await fixture.BenchSource());
-        fixture.Logs.Entries.Count.ShouldBe(previous + 3);
+        fixture.Logs.Entries.Count.ShouldBe(previous + 2);
         AssertCleanSource((await fixture.Ok("GET", "/picker"))["source"]!);
-        fixture.Logs.Entries.Count.ShouldBe(previous + 4);
+        fixture.Logs.Entries.Count.ShouldBe(previous + 2);
         fixture.Logs.Entries.Last().Message.ShouldBe(initial.Message);
 
         fixture.Gateway.DiagnosticCount = 1000;
@@ -133,9 +132,9 @@ internal static partial class NativePanelTests
         AssertCleanSource(oversized);
         oversized["sourceId"]!.GetValue<Guid>().ShouldBe(sourceId);
         ItemKeys(oversized).ShouldBe(keys);
-        fixture.Logs.Entries.Count.ShouldBe(previous + 5);
+        fixture.Logs.Entries.Count.ShouldBe(previous + 3);
         AssertCleanSource((await fixture.Ok("GET", "/picker"))["source"]!);
-        fixture.Logs.Entries.Count.ShouldBe(previous + 6);
+        fixture.Logs.Entries.Count.ShouldBe(previous + 3);
         fixture.Logs.Entries.Last().Message.ShouldBe("Native source diagnostics: count=128, truncated=874, errorCode=None.");
         foreach (var entry in fixture.Logs.Entries)
         {
@@ -189,14 +188,10 @@ internal static partial class NativePanelTests
         failed.Body["code"]!.GetValue<string>().ShouldBe("Unavailable");
         fixture.Gateway.SchemaReads.ShouldBe(++schemaReads);
         (await File.ReadAllBytesAsync(fixture.CachePath)).ShouldBe(retained);
-        File.ReadAllText(Path.ChangeExtension(fixture.CachePath, ".check"))
-            .ShouldContain("\npending\n");
-        // Retained schema is evidence, not an offline grant. Do not emulate the browser's intercepted 503.
         fixture.Gateway.SchemaUnavailable = false;
-        var blocked = await fixture.BenchSource();
-        blocked["sourceId"]!.GetValue<Guid>().ShouldBe(sourceId);
-        blocked["errorCode"]!.GetValue<string>().ShouldBe("PolicyViolation");
-        blocked["items"]!.AsArray().ShouldBeEmpty();
+        var retainedView = await fixture.BenchSource();
+        retainedView["sourceId"]!.GetValue<Guid>().ShouldBe(sourceId);
+        ItemKeys(retainedView).ShouldBe(keys);
         fixture.Gateway.SchemaReads.ShouldBe(schemaReads);
         (await File.ReadAllBytesAsync(fixture.CachePath)).ShouldBe(retained);
 
@@ -210,7 +205,6 @@ internal static partial class NativePanelTests
         refreshed["types"]!.AsArray().Select(type => type!["reference"]!.GetValue<string>()).Order()
             .ShouldBe(new[] { "Orion.Decision", "Orion.Signal" });
         AssertKnownTypes(refreshed);
-        File.ReadAllText(Path.ChangeExtension(fixture.CachePath, ".check")).ShouldContain("\nallowed\n");
 
         fixture.Gateway.MissingProcessMetadata = true;
         await fixture.Ok("POST", "/context/recheck");

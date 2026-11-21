@@ -141,12 +141,14 @@ public sealed partial class AdoProvider
                     if (acknowledgement.Revision is null || acknowledgement.Revision.Item != key)
                         throw Wire.Invalid("Acknowledgement lacks its attributable target revision.");
                     var number = RevisionNumber(new("readback", OpKind.Batch, key, acknowledgement.Revision));
-                    var expand = op.CreateEvidence.ContainsKey("System.AreaId") || op.CreateEvidence.ContainsKey("System.IterationId")
-                        ? "all" : "relations";
+                    var classification = op.CreateEvidence.Where(f => f.Key is "System.AreaId" or "System.IterationId").ToArray();
+                    var expand = classification.Length > 0 ? "all" : "relations";
                     var root = await Get(bound,
                         $"{bound.Project}/_apis/wit/workitems/{Id(key)}/revisions/{number}?$expand={expand}&api-version={Api}", token);
                     var (item, edges) = MapItem(root, bound, discovery, key);
                     if (item.Revision != acknowledgement.Revision) throw Wire.Invalid("Immutable revision readback disagrees with acknowledgement.");
+                    var classificationMismatch = classification.Any(f =>
+                        !item.Fields.TryGetValue(f.Key, out var value) || !value.Equals(f.Value));
                     var matches = op.Kind switch
                     {
                         OpKind.Create or OpKind.Batch => (op.Type is null || op.Type == item.Type)
@@ -188,7 +190,9 @@ public sealed partial class AdoProvider
                         [$"Immutable acknowledged revision {number} was read separately.", $"actor:{bound.PrincipalId}",
                             matches ? "All declared effects were observed." : "Acknowledged effect differs from one or more declared values/relationships."],
                         acknowledgement.Revision, acknowledgement.PublishedKey,
-                        matches ? null : new(ErrorCode.Partial, "Readback does not establish all intended effects."));
+                        matches ? null : new(ErrorCode.Partial, classificationMismatch
+                            ? "The created item's immutable revision does not match the reviewed area or iteration IDs. The creation remains unresolved; do not retry it."
+                            : "Readback does not establish all intended effects."));
                 }, ct);
             }
             catch (Exception ex) when (ex is AdoFailure or HttpRequestException or OperationCanceledException or IOException || Malformed(ex))

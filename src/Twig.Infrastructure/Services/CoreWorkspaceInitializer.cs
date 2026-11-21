@@ -108,11 +108,6 @@ internal static class CoreWorkspaceInitializer
         {
             return Result<NativeCreationReceipt>.Fail(ex.Error);
         }
-        catch (HttpRequestException ex) when (ex.StatusCode is { } status && (int)status >= 500)
-        {
-            return Result<NativeCreationReceipt>.Fail(new Error(ErrorCode.Unavailable, ex.Message)
-                { Evidence = ["init-metadata-transient"] });
-        }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException or InvalidOperationException)
         {
             return Result<NativeCreationReceipt>.Fail(ErrorCode.Unavailable,

@@ -149,13 +149,16 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             ? review.ContinueDeliveryAsync(digest, token) : review.ApplyAsync(digest, token), ct);
 
     public async Task<Result<NativePanelContext>> OpenAsync(string root, CancellationToken ct, string? expectedBinding = null,
-        IDictionary<NativePanelContext, SourceObservation>? initialObservations = null, bool cachedAdmissionOnly = false)
+        IDictionary<NativePanelContext, SourceObservation>? initialObservations = null, bool cachedAdmissionOnly = false,
+        NativeSourceStamp? expectedSource = null)
     {
         if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root))
             return Result<NativePanelContext>.Fail(ErrorCode.InvalidInput, "Choose an existing native connection or an initialized workspace in Advanced.");
         root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
-        var local = await sources.NativeAsync(root, token => gateway.ReadAsync(root, null, false, token), ct).ConfigureAwait(false);
+        var local = await sources.NativeAsync(root, token => gateway.ReadAsync(root, expectedSource, false, token), ct).ConfigureAwait(false);
         if (!local.IsSuccess) return Result<NativePanelContext>.Fail(local.Error);
+        if (expectedSource is not null && local.Value.Source != expectedSource)
+            return Result<NativePanelContext>.Fail(ErrorCode.Conflict, "The prepared source or principal changed. Choose it again.");
         if (cachedAdmissionOnly)
             expectedBinding ??= CatalogFingerprint.Binding(NativeSourceAdapter.Binding(local.Value.Source));
         var observed = expectedBinding is null
@@ -175,11 +178,9 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         return Result<NativePanelContext>.Ok(context);
     }
 
-    public async Task<Result<NativePanelCapture>> CaptureAsync(NativePanelContext context, CancellationToken ct, bool cachedGuidance = false)
+    public async Task<Result<NativePanelCapture>> CaptureAsync(NativePanelContext context, CancellationToken ct)
     {
-        var observed = cachedGuidance
-            ? await sources.ReadAsync(context.Source, ct).ConfigureAwait(false)
-            : await sources.ReadOnlineAsync(context.Source, ct).ConfigureAwait(false);
+        var observed = await sources.ReadAsync(context.Source, ct).ConfigureAwait(false);
         if (!observed.IsSuccess) return Result<NativePanelCapture>.Fail(observed.Error);
         var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
         return shared.IsSuccess ? Result<NativePanelCapture>.Ok(new(shared.Value, context, observed.Value))
@@ -189,8 +190,12 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
     public Task<Result<ImmutableArray<PlanningTeam>>> DiscoverPlanningTeamsAsync(NativePanelContext context, CancellationToken ct)
         => sources.DiscoverPlanningTeamsAsync(context.Source, context.Stamp, ct);
 
-    public Task<Result<SourceObservation>> ValidateDisplayAccessAsync(NativePanelContext context, CancellationToken ct)
-        => sources.ReadOnlineAsync(context.Source, ct);
+    public Task<Result<SourceObservation>> CheckHistoricalSourceAsync(NativePanelContext context, CancellationToken ct)
+        => sources.ReadAsync(context.Source, ct);
+    public Task<Result<bool>> CheckCaptureAsync(NativePanelCapture capture, CancellationToken ct)
+        => sources.CheckWorkspaceAsync(capture.Context, capture.Observation, ct, recheckLocalSnapshot: false);
+    public Task<Result<ImmutableArray<WorkItem>>> ObserveItemsAsync(NativePanelContext context, ImmutableArray<ItemKey> keys, CancellationToken ct)
+        => sources.ObserveItemsAsync(context, keys, ct);
     public Task<Result<ImmutableArray<IdentityProfile>>> ReadIdentityProfilesAsync(NativePanelContext context,
         ImmutableArray<string> identities, CancellationToken ct)
         => sources.ReadIdentityProfilesAsync(context.Source, identities, ct);

@@ -126,9 +126,11 @@ This only waits for admission and never retries an operation or replays a write.
 
 Initial-view loading retains its single full local observation per restored
 source and final admission/profile/Plan checks. Only the authoritative workspace
-read adds the final local snapshot/exclusion reread. Bench selection belongs to
-the view and its saved profile choices, not the source worktree. Opening a
-source verifies its native authority without reading or writing a Bench preference.
+read adds the final local snapshot/exclusion reread. The workspace read module
+owns restoration, observation reuse and the final check for both read kinds.
+Bench selection belongs to the view and its saved profile choices, not the
+source worktree. Opening a source verifies its native authority without reading
+or writing a Bench preference.
 
 Workspace acquisition has a 30-second ceiling, uses existing per-source budgets
 and at most eight concurrent source acquisitions, and performs only local

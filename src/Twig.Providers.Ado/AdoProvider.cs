@@ -16,7 +16,8 @@ public sealed partial class AdoProvider : IProvider, IDisposable
     private readonly IStore _store;
     private readonly HttpClient _http;
     private ProviderCapabilities _capabilities = new(
-        [OpKind.Create, OpKind.Batch, OpKind.Relate, OpKind.Unrelate, OpKind.Comment], [], [], true, true);
+        [OpKind.Create, OpKind.Batch, OpKind.Relate, OpKind.Unrelate, OpKind.Comment], [], [], true, true)
+        { CreateFieldEvidence = true };
 
     public AdoProvider(Connection connection, AdoAccess access, IStore store, HttpMessageHandler? transport = null)
     {

@@ -464,7 +464,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 : pair.Second.Query is not null && Model.QueryBytes(pair.First.Query).SequenceEqual(Model.QueryBytes(pair.Second.Query))));
 
     internal async Task<Result<Proposal>> PrepareAsync(IEnumerable<Op> operations, CancellationToken ct,
-        CorePlanReviewCapture? review = null)
+        CorePlanReviewCapture? review = null, bool retainPolicyEvidence = false)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var intent = operations.ToImmutableArray();
@@ -472,6 +472,13 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             return Result<Proposal>.Fail(ErrorCode.Conflict, "The operation-local review capture belongs to another exact scope.");
         var schema = review is null ? await SchemaAsync(ct).ConfigureAwait(false) : Result<ProcessSchema>.Ok(review.Metadata.Schema);
         if (!schema.IsSuccess) return Result<Proposal>.Fail(schema.Error);
+        for (var index = 0; index < intent.Length; index++)
+        {
+            if (intent[index].Kind != OpKind.Create) continue;
+            var resolved = await ResolveCreateFieldsAsync(schema.Value, intent[index], ct).ConfigureAwait(false);
+            if (!resolved.IsSuccess) return Result<Proposal>.Fail(resolved.Error);
+            intent = intent.SetItem(index, resolved.Value);
+        }
         var policy = review is null ? await policies.CaptureAsync(connection, nativeActor, schema.Value, ct).ConfigureAwait(false)
             : Result<CapturedDeclaredPolicy>.Ok(review.Policy);
         if (!policy.IsSuccess) return Result<Proposal>.Fail(policy.Error);
@@ -479,7 +486,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (!snapshot.IsSuccess) return Result<Proposal>.Fail(snapshot.Error);
         var proposal = new Proposal(connection, schema.Value.Fingerprint, snapshot.Value.Version, intent,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
-        var checkedPolicy = await CheckPolicyAsync(proposal, schema.Value, policy.Value, ct, review).ConfigureAwait(false);
+        var checkedPolicy = await CheckPolicyAsync(proposal, schema.Value, policy.Value, ct, review,
+            retainPolicyEvidence).ConfigureAwait(false);
         if (!checkedPolicy.IsSuccess) return Result<Proposal>.Fail(checkedPolicy.Error);
         snapshot = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!snapshot.IsSuccess) return Result<Proposal>.Fail(snapshot.Error);
@@ -511,6 +519,11 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 || !keys.Contains(edge.From) && !keys.Contains(edge.To)).Concat(acquired.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Provider)));
         var errors = Model.Validate(proposal, proposal.Digest, schema.Value, refreshed, provider.Capabilities);
         if (!errors.IsEmpty) return Result<ImmutableArray<Error>>.Ok(errors);
+        foreach (var op in proposal.Operations.Where(op => op.Kind == OpKind.Create))
+        {
+            var resolved = await ResolveCreateFieldsAsync(schema.Value, op, ct, reviewed: true).ConfigureAwait(false);
+            if (!resolved.IsSuccess) return Result<ImmutableArray<Error>>.Ok([resolved.Error]);
+        }
         var policy = await policies.CaptureAsync(connection, nativeActor, schema.Value, ct).ConfigureAwait(false);
         if (!policy.IsSuccess) return Result<ImmutableArray<Error>>.Ok([policy.Error]);
         var checkedPolicy = await CheckPolicyAsync(proposal, schema.Value, policy.Value, ct).ConfigureAwait(false);
@@ -535,7 +548,39 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
 
-    internal async Task<Result<WorkItem>> ReadAsync(ItemKey key, CancellationToken ct, NativeEditorMetadata? editor = null)
+    internal async Task<Result<(Proposal Proposal, long StoreVersion)>> PrepareSeedPublicationAsync(
+        IEnumerable<Op> operations, bool retainIfNew, CancellationToken ct)
+    {
+        using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var fresh = await PrepareAsync(operations, ct, retainPolicyEvidence: true).ConfigureAwait(false);
+        if (!fresh.IsSuccess) return Result<(Proposal, long)>.Fail(fresh.Error);
+        var current = await SnapshotAsync(ct).ConfigureAwait(false);
+        if (!current.IsSuccess) return Result<(Proposal, long)>.Fail(current.Error);
+        var proposal = fresh.Value;
+        if (current.Value.Version != proposal.ExpectedStoreVersion)
+            return Result<(Proposal, long)>.Fail(ErrorCode.Conflict, "Local state changed during seed publication review.");
+
+        // Only discount the prior review's own one-version retention commit. All
+        // other changes, including changed observations, require fresh intent.
+        if (current.Value.Version > 0)
+        {
+            var previous = new Proposal(connection, proposal.SchemaFingerprint, current.Value.Version - 1,
+                proposal.Operations, proposal.PolicyIdentity, proposal.PolicyRevision);
+            var digest = previous.Digest;
+            var retained = current.Value.Proposals.FirstOrDefault(value => value.Digest == digest);
+            if (retained is not null && current.Value.Journal.Count(row => row.Digest == digest
+                    && row.Status == OpStatus.Planned) == retained.Operations.Length)
+                return Result<(Proposal, long)>.Ok((retained, current.Value.Version));
+        }
+
+        if (!retainIfNew) return Result<(Proposal, long)>.Ok((proposal, current.Value.Version));
+        var saved = await RetainReviewAsync(proposal, ct).ConfigureAwait(false);
+        return saved.IsSuccess ? Result<(Proposal, long)>.Ok((proposal, current.Value.Version + 1))
+            : Result<(Proposal, long)>.Fail(saved.Error);
+    }
+
+    internal async Task<Result<WorkItem>> ReadAsync(ItemKey key, CancellationToken ct, NativeEditorMetadata? editor = null,
+        bool skipUnchanged = false)
     {
         var stored = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!stored.IsSuccess) return Result<WorkItem>.Fail(stored.Error);
@@ -548,16 +593,27 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (!read.IsSuccess) return Result<WorkItem>.Fail(read.Error);
         if (read.Value.Items.Length != 1 || read.Value.Items[0].Key != key)
             return Result<WorkItem>.Fail(ErrorCode.Unavailable, "The provider did not observe the exact requested item.");
+        var retained = await RetainObservationAsync(read.Value, skipUnchanged, ct).ConfigureAwait(false);
+        return retained.IsSuccess ? Result<WorkItem>.Ok(read.Value.Items[0]) : Result<WorkItem>.Fail(retained.Error);
+    }
+
+    private async Task<Result<bool>> RetainObservationAsync(QueryPage read, bool skipUnchanged, CancellationToken ct)
+    {
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
-        if (!current.IsSuccess) return Result<WorkItem>.Fail(current.Error);
-        var complete = read.Value.Items.Where(i => i.RelationshipsComplete).Select(i => i.Key).ToHashSet();
+        if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
+        var item = read.Items.Single();
+        var relationships = current.Value.Relationships.Where(r => r.Origin == RelationshipOrigin.Local
+                || !item.RelationshipsComplete || r.From != item.Key && r.To != item.Key)
+            .Concat(read.Relationships.Where(r => r.Origin == RelationshipOrigin.Provider)).ToHashSet();
+        if (skipUnchanged && current.Value.Items.FirstOrDefault(i => i.Key == item.Key) is { } existing
+            && existing.Type == item.Type && existing.Revision == item.Revision && existing.Fields.Equals(item.Fields)
+            && existing.RelationshipsComplete == item.RelationshipsComplete && existing.ResourcesComplete == item.ResourcesComplete
+            && existing.Resources.SequenceEqual(item.Resources) && relationships.SetEquals(current.Value.Relationships))
+            return Result<bool>.Ok(true);
         var next = Copy(current.Value, current.Value.Version + 1,
-            items: current.Value.Items.Where(i => i.Key != key).Concat(read.Value.Items),
-            relationships: current.Value.Relationships.Where(r => r.Origin == RelationshipOrigin.Local
-                || !complete.Contains(r.From) && !complete.Contains(r.To))
-                .Concat(read.Value.Relationships.Where(r => r.Origin == RelationshipOrigin.Provider)).Distinct());
+            items: current.Value.Items.Where(i => i.Key != item.Key).Append(item), relationships: relationships);
         var committed = await store.CommitAsync(connection, current.Value.Version, next, ct).ConfigureAwait(false);
-        return committed.IsSuccess ? Result<WorkItem>.Ok(read.Value.Items[0]) : Result<WorkItem>.Fail(committed.Error);
+        return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
 
     internal async Task<Result<Draft>> StageSeedAsync(string type, FieldValues fields, CancellationToken ct, Guid? id = null,
@@ -596,6 +652,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (drafts.Any(draft => current.Value.Journal.Any(row => row.Status != OpStatus.Planned
                 && current.Value.Proposals.Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Item == draft.Key)))
             return Result<bool>.Fail(ErrorCode.Indeterminate, "An attempted UUID owns this seed; branch intent cannot replace its unresolved creation.");
+        if (drafts.All(draft => draft.Resource == resource)) return Result<bool>.Ok(true);
         var keys = drafts.Select(draft => draft.Key).ToHashSet();
         var next = current.Value.Drafts.Select(draft => keys.Contains(draft.Key)
             ? new Draft(draft.Key, draft.Type, null, draft.Changes, draft.Parent, draft.ParentRelation, resource, draft.Links) : draft);
@@ -716,7 +773,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     }
 
     internal async Task<Result<CoreDraftPreview>> PreviewDraftAsync(ItemKey key, CancellationToken ct,
-        IEnumerable<Op>? precedingCreates = null, CorePlanReviewCapture? review = null)
+        IEnumerable<Op>? precedingCreates = null, CorePlanReviewCapture? review = null, bool seedPublication = false)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
@@ -737,7 +794,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 var target = Resolve(read.Value, endpoint);
                 if (!target.IsLocal)
                 {
-                    var observed = await ReadAsync(target, ct, review?.Metadata).ConfigureAwait(false);
+                    var observed = await ReadAsync(target, ct, review?.Metadata, skipUnchanged: seedPublication).ConfigureAwait(false);
                     if (!observed.IsSuccess) return Result<CoreDraftPreview>.Fail(observed.Error);
                 }
                 else if (!read.Value.Drafts.Any(value => value.Key == target))
@@ -748,7 +805,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 var parentKey = Resolve(read.Value, parent);
                 if (!parentKey.IsLocal)
                 {
-                    var observed = await ReadAsync(parentKey, ct, review?.Metadata).ConfigureAwait(false);
+                    var observed = await ReadAsync(parentKey, ct, review?.Metadata, skipUnchanged: seedPublication).ConfigureAwait(false);
                     if (!observed.IsSuccess) return Result<CoreDraftPreview>.Fail(observed.Error);
                 }
                 else if (!read.Value.Drafts.Any(value => value.Key == parentKey))
@@ -757,7 +814,11 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             op = new("create", OpKind.Create, draft.Key, fields: draft.Changes, type: draft.Type,
                 other: draft.Parent, relation: draft.ParentRelation, resource: draft.Resource,
                 concurrency: ConcurrencyMode.ObservedNonAtomic, links: draft.Links);
+            var resolved = await ResolveCreateFieldsAsync(schema, op, ct).ConfigureAwait(false);
+            if (!resolved.IsSuccess) return Result<CoreDraftPreview>.Fail(resolved.Error);
+            op = resolved.Value;
         }
+
         else
         {
             var remote = await ReadAsync(draft.Key, ct, review?.Metadata).ConfigureAwait(false);
@@ -804,6 +865,15 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var errors = Model.Validate(proposal, proposal.Digest, schema, current.Value, provider.Capabilities);
         return errors.IsEmpty ? Result<CoreDraftPreview>.Ok(new(draft, proposal))
             : Result<CoreDraftPreview>.Fail(errors[0] with { Evidence = errors.Select(e => e.Message).ToImmutableArray() });
+    }
+
+    private async Task<Result<Op>> ResolveCreateFieldsAsync(ProcessSchema schema, Op op, CancellationToken ct, bool reviewed = false)
+    {
+        var evidence = await provider.ResolveCreateEvidenceAsync(schema, op, ct).ConfigureAwait(false);
+        if (!evidence.IsSuccess) return Result<Op>.Fail(evidence.Error);
+        if ((reviewed || op.CreateEvidence.Count != 0) && !op.CreateEvidence.Equals(evidence.Value))
+            return Result<Op>.Fail(ErrorCode.Conflict, "Provider create field evidence is missing or changed; preview a new proposal.");
+        return Result<Op>.Ok(op with { CreateEvidence = evidence.Value });
     }
 
     internal async Task<Result<CoreExecution>> SaveDraftAsync(CoreDraftPreview preview, string? confirmation, CancellationToken ct)
@@ -863,12 +933,14 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     }
 
     internal async Task<Result<CoreExecution>> SaveDraftSetAsync(IEnumerable<CoreDraftPreview> previews,
-        Proposal? proposal, string? confirmation, CancellationToken ct)
+        Proposal? proposal, string? confirmation, CancellationToken ct, long? expectedStoreVersion = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var captures = previews.ToImmutableArray();
         var before = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!before.IsSuccess) return Result<CoreExecution>.Fail(before.Error);
+        if (expectedStoreVersion is not null && before.Value.Version != expectedStoreVersion)
+            return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Local state changed after seed publication review.");
         if (captures.Any(capture => !before.Value.Drafts.Any(draft => SameDraft(draft, capture.Draft))))
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "A captured draft changed before save; no replacement intent was dispatched.");
         if (proposal is null && captures.Any(capture => capture.Proposal is not null))
@@ -877,10 +949,10 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         {
             var intended = captures.Where(capture => capture.Proposal is not null)
                 .Select(capture => capture.Proposal!.Operations.Single(op => op.Item == capture.Draft.Key)).ToArray();
-            if (intended.Length != proposal.Operations.Length || intended.Where((op, index) =>
-                    new Op(proposal.Operations[index].Id, op.Kind, op.Item, op.ExpectedRevision, op.Fields,
-                        op.Type, op.Other, op.Relation, op.Origin, op.Body, op.Concurrency,
-                        op.ExpectedLocalVersion, op.Resource, op.Links) != proposal.Operations[index]).Any())
+            if (intended.Length != proposal.Operations.Length || new Proposal(proposal.Connection,
+                    proposal.SchemaFingerprint, proposal.ExpectedStoreVersion,
+                    intended.Select((op, index) => op.WithId(proposal.Operations[index].Id)),
+                    proposal.PolicyIdentity, proposal.PolicyRevision).Digest != proposal.Digest)
                 return Result<CoreExecution>.Fail(ErrorCode.InvalidInput, "The reviewed proposal does not match the captured draft effects.");
         }
         foreach (var capture in captures.Where(capture => capture.Proposal is null))
@@ -1034,7 +1106,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     }
 
     private async Task<Result<bool>> CheckPolicyAsync(Proposal proposal, ProcessSchema schema, CapturedDeclaredPolicy policy,
-        CancellationToken ct, CorePlanReviewCapture? review = null)
+        CancellationToken ct, CorePlanReviewCapture? review = null, bool retainEvidence = false)
     {
         if (proposal.PolicyIdentity != policy.Document.Identity || proposal.PolicyRevision != policy.Document.Revision)
             return Result<bool>.Fail(ErrorCode.SchemaChanged, "The actual declared policy presence or bytes differ from the reviewed intent.");
@@ -1067,6 +1139,13 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 var item = read.Value.Items.SingleOrDefault(i => i.Key == key);
                 if (item?.RelationshipsComplete != true)
                     return Result<bool>.Fail(ErrorCode.Unavailable, "Complete native policy endpoint observations are unavailable.");
+                if (retainEvidence)
+                {
+                    if (read.Value.Items.Length != 1)
+                        return Result<bool>.Fail(ErrorCode.Unavailable, "The provider did not observe the exact policy endpoint.");
+                    var retained = await RetainObservationAsync(read.Value, skipUnchanged: true, ct).ConfigureAwait(false);
+                    if (!retained.IsSuccess) return retained;
+                }
                 items.Add(key, item);
                 foreach (var edge in read.Value.Relationships.Where(r => kinds.Contains(r.Kind))) edges.Add(edge);
             }

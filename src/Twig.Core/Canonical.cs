@@ -55,6 +55,7 @@ public static partial class Core
             else w.WriteNullValue();
             w.WriteString("type", op.Type);
             WriteFields(w, op.Fields);
+            if (op.CreateEvidence.Count != 0) WriteFields(w, op.CreateEvidence, "createEvidence");
             w.WritePropertyName("other");
             if (op.Other is null) w.WriteNullValue(); else WriteKey(w, op.Other);
             w.WriteString("relation", op.Relation);
@@ -179,9 +180,9 @@ public static partial class Core
         w.WriteEndArray();
     }
 
-    private static void WriteFields(Utf8JsonWriter w, FieldValues fields)
+    private static void WriteFields(Utf8JsonWriter w, FieldValues fields, string property = "fields")
     {
-        w.WriteStartObject("fields");
+        w.WriteStartObject(property);
         foreach (var (key, value) in fields) { w.WritePropertyName(key); WriteValue(w, value); }
         w.WriteEndObject();
     }

@@ -12,7 +12,7 @@ public sealed record Op
         FieldValues? fields = null, string? type = null, ItemKey? other = null, string? relation = null,
         RelationshipOrigin origin = RelationshipOrigin.Provider, FieldValue? body = null,
         ConcurrencyMode concurrency = ConcurrencyMode.ExactRevision, long? expectedLocalVersion = null,
-        ResourceLink? resource = null, IEnumerable<CreationLink>? links = null)
+        ResourceLink? resource = null, IEnumerable<CreationLink>? links = null, FieldValues? createEvidence = null)
     {
         Id = Contract.Text(id, nameof(id));
         Kind = kind;
@@ -28,9 +28,11 @@ public sealed record Op
         ExpectedLocalVersion = expectedLocalVersion;
         Resource = resource;
         Links = Contract.Copy(links ?? []);
+        CreateEvidence = createEvidence ?? FieldValues.Empty;
     }
 
-    public string Id { get; }
+    public string Id { get; private init; }
+    public Op WithId(string id) => this with { Id = Contract.Text(id, nameof(id)) };
     public OpKind Kind { get; }
     public ItemKey Item { get; }
     public Revision? ExpectedRevision { get; }
@@ -44,6 +46,8 @@ public sealed record Op
     public long? ExpectedLocalVersion { get; }
     public ResourceLink? Resource { get; }
     public ImmutableArray<CreationLink> Links { get; }
+    // Effective values assigned by the create endpoint, not independently writable fields.
+    public FieldValues CreateEvidence { get; init; }
 }
 
 public sealed record Proposal

@@ -19,6 +19,8 @@ public sealed partial class AdoProvider
             var acquired = await AcquireInputs(bound, discovery, proposal, stored, token);
             var errors = Model.Validate(proposal, confirmation, discovery.Schema, acquired, Capabilities);
             if (!errors.IsEmpty) throw new AdoFailure(errors[0] with { Evidence = errors.Select(e => e.Message).ToImmutableArray() });
+            foreach (var op in proposal.Operations)
+                await CheckCreateEvidence(bound, discovery.Schema, op, token);
             if (stored.Proposals.Any(p => p.Digest == proposal.Digest))
                 throw Wire.Refuse(ErrorCode.Conflict, "Proposal is already retained; it cannot be reimported/reset.");
             var next = Copy(acquired, stored.Version + 1,
@@ -42,6 +44,7 @@ public sealed partial class AdoProvider
             var errors = Model.ValidateEffect(proposal, operation, discovery.Schema, acquired, Capabilities);
             if (!errors.IsEmpty) throw new AdoFailure(errors[0] with { Evidence = errors.Select(e => e.Message).ToImmutableArray() });
             var op = proposal.Operations[operation];
+            await CheckCreateEvidence(bound, discovery.Schema, op, token);
             var (route, payload) = await Patch(bound, discovery, op, token);
             var target = bound.Url(route);
             var method = op.Kind == OpKind.Create ? HttpMethod.Post : HttpMethod.Patch;
@@ -138,14 +141,17 @@ public sealed partial class AdoProvider
                     if (acknowledgement.Revision is null || acknowledgement.Revision.Item != key)
                         throw Wire.Invalid("Acknowledgement lacks its attributable target revision.");
                     var number = RevisionNumber(new("readback", OpKind.Batch, key, acknowledgement.Revision));
+                    var expand = op.CreateEvidence.ContainsKey("System.AreaId") || op.CreateEvidence.ContainsKey("System.IterationId")
+                        ? "all" : "relations";
                     var root = await Get(bound,
-                        $"{bound.Project}/_apis/wit/workitems/{Id(key)}/revisions/{number}?$expand=relations&api-version={Api}", token);
+                        $"{bound.Project}/_apis/wit/workitems/{Id(key)}/revisions/{number}?$expand={expand}&api-version={Api}", token);
                     var (item, edges) = MapItem(root, bound, discovery, key);
                     if (item.Revision != acknowledgement.Revision) throw Wire.Invalid("Immutable revision readback disagrees with acknowledgement.");
                     var matches = op.Kind switch
                     {
                         OpKind.Create or OpKind.Batch => (op.Type is null || op.Type == item.Type)
                             && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value))
+                            && op.CreateEvidence.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value))
                             && (op.Body is null || item.Fields.TryGetValue("System.History", out var note) && note.Text == op.Body.Text)
                             && (op.Kind != OpKind.Create || op.Other is null
                                 || edges.Contains(new(Resolve(stored, op.Other), key, op.Relation!, RelationshipOrigin.Provider)))
@@ -218,7 +224,8 @@ public sealed partial class AdoProvider
     {
         if (op.Origin != RelationshipOrigin.Provider || !Capabilities.Operations.Contains(op.Kind))
             throw Wire.Refuse(ErrorCode.Unsupported, "Only explicitly supported native effects are dispatched.");
-        if (op.Fields.Keys.Any(f => f is "System.Id" or "System.Rev" or "System.TeamProject" or "System.WorkItemType" or "System.History"))
+        if (op.Fields.Keys.Any(f => !op.CreateEvidence.ContainsKey(f)
+            && (f is "System.Id" or "System.Rev" or "System.TeamProject" or "System.History" || IsCreateAssignedField(f))))
             throw Wire.Refuse(ErrorCode.Unsupported, "Native identity/type/history fields require their explicit operation shape.");
         if (op.Body is not null && op.Body.Kind is not (FieldKind.Text or FieldKind.Html))
             throw Wire.Refuse(ErrorCode.Unsupported, "ADO history append accepts exact text/HTML; convert Markdown before confirmation.");
@@ -295,7 +302,7 @@ public sealed partial class AdoProvider
             if (op.Kind != OpKind.Create) PatchEntry("test", "/rev", () => json.WriteNumberValue(RevisionNumber(op)));
             if (op.Type is not null && op.Kind != OpKind.Create)
                 PatchEntry("add", "/fields/System.WorkItemType", () => json.WriteStringValue(schema.TypeNames[op.Type]));
-            foreach (var (field, value) in op.Fields)
+            foreach (var (field, value) in op.Fields.Where(field => !op.CreateEvidence.ContainsKey(field.Key)))
                 PatchEntry("add", "/fields/" + field.Replace("~", "~0").Replace("/", "~1"), () => Wire.WriteValue(json, value));
             if (op.Kind == OpKind.Comment || op.Kind == OpKind.Batch && op.Body is not null)
                 PatchEntry("add", "/fields/System.History", () => json.WriteStringValue(op.Body!.Text));

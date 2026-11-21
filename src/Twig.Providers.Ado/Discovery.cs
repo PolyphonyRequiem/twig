@@ -252,7 +252,8 @@ public sealed partial class AdoProvider
             includePresentation ? bound.Url(bound.Project + "/").AbsoluteUri : null);
         _capabilities = new(_capabilities.Operations.Where(o => o != OpKind.LinkResource)
             .Concat(resources.Count > 0 ? [OpKind.LinkResource] : Array.Empty<OpKind>()),
-            schema.Relations.Select(r => r.Reference), [], true, true) { AtomicRelationshipBatches = true };
+            schema.Relations.Select(r => r.Reference), [], true, true)
+        { AtomicRelationshipBatches = true, CreateFieldEvidence = true };
         return new(schema, names.ToImmutable(), relations.ToImmutableDictionary(StringComparer.Ordinal), definitions.ToImmutable(),
             nonItems);
     }
